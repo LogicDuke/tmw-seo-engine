@@ -80,22 +80,87 @@ class TMW_Cluster_Scoring_Engine {
             $keyword_score = 0;
         }
 
-        $total = $pillar_score + $support_score + $linking_score + $keyword_score;
+        $structural_score = $pillar_score + $support_score + $linking_score + $keyword_score;
 
-        if ($total >= 90) {
+        global $wpdb;
+        $metrics_table = $wpdb->prefix . 'tmw_cluster_metrics';
+
+        $metrics = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$metrics_table} WHERE cluster_id = %d",
+                $cluster_id
+            ),
+            ARRAY_A
+        );
+
+        if (!empty($metrics) && is_array($metrics)) {
+            $impressions = isset($metrics['impressions']) ? (int) $metrics['impressions'] : 0;
+
+            if (isset($metrics['ctr'])) {
+                $ctr = (float) $metrics['ctr'];
+            } else {
+                $clicks = isset($metrics['clicks']) ? (float) $metrics['clicks'] : 0;
+                $ctr = $impressions > 0 ? ($clicks / $impressions) * 100 : 0;
+            }
+
+            if (isset($metrics['position'])) {
+                $position = (float) $metrics['position'];
+            } else {
+                $position = isset($metrics['avg_position']) ? (float) $metrics['avg_position'] : 0;
+            }
+
+            if ($impressions >= 10000) {
+                $impressions_score = 40;
+            } elseif ($impressions >= 5000) {
+                $impressions_score = 30;
+            } elseif ($impressions >= 1000) {
+                $impressions_score = 20;
+            } elseif ($impressions >= 100) {
+                $impressions_score = 10;
+            } else {
+                $impressions_score = 0;
+            }
+
+            if ($ctr >= 10) {
+                $ctr_score = 30;
+            } elseif ($ctr >= 5) {
+                $ctr_score = 20;
+            } elseif ($ctr >= 2) {
+                $ctr_score = 10;
+            } else {
+                $ctr_score = 0;
+            }
+
+            if ($position > 0 && $position <= 3) {
+                $position_score = 30;
+            } elseif ($position <= 10) {
+                $position_score = 20;
+            } elseif ($position <= 20) {
+                $position_score = 10;
+            } else {
+                $position_score = 0;
+            }
+
+            $performance_score = $impressions_score + $ctr_score + $position_score;
+            $final_score = (int) round(($structural_score * 0.7) + ($performance_score * 0.3));
+        } else {
+            $final_score = $structural_score;
+        }
+
+        if ($final_score >= 90) {
             $grade = 'A';
-        } elseif ($total >= 75) {
+        } elseif ($final_score >= 75) {
             $grade = 'B';
-        } elseif ($total >= 60) {
+        } elseif ($final_score >= 60) {
             $grade = 'C';
-        } elseif ($total >= 40) {
+        } elseif ($final_score >= 40) {
             $grade = 'D';
         } else {
             $grade = 'F';
         }
 
         $result = [
-            'score' => $total,
+            'score' => $final_score,
             'grade' => $grade,
             'breakdown' => [
                 'pillar' => $pillar_score,
