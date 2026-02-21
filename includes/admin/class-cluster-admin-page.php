@@ -107,6 +107,15 @@ class TMW_Cluster_Admin_Page {
             return;
         }
 
+        if (isset($_POST['tmw_inject_links']) && check_admin_referer('tmw_inject_links_nonce')) {
+            $injector = TMW_Main_Class::get_cluster_link_injector();
+            $result = $injector->inject_missing_links($cluster_id);
+
+            echo '<div class="notice notice-success"><p>';
+            echo esc_html($result['updated'] . ' links injected successfully.');
+            echo '</p></div>';
+        }
+
         $score_data = $this->scoring_engine->score_cluster($cluster_id);
         $analysis = TMW_Main_Class::get_cluster_linking_engine()->analyze_cluster($cluster_id);
         $pages = $this->cluster_service->get_cluster_pages($cluster_id);
@@ -153,6 +162,15 @@ class TMW_Cluster_Admin_Page {
         }
 
         echo '<h1>' . esc_html($cluster_name) . '</h1>';
+
+        echo '<form method="post">';
+        wp_nonce_field('tmw_inject_links_nonce');
+        echo '<input type="hidden" name="tmw_inject_links" value="1" />';
+        echo '<button type="submit" class="button button-primary">';
+        echo esc_html('Auto Fix Missing Links');
+        echo '</button>';
+        echo '</form>';
+
         echo '<p><strong>' . esc_html('Score:') . '</strong> ' . esc_html((string) $score) . ' &mdash; <strong>' . esc_html('Grade:') . '</strong> ' . esc_html($grade) . '</p>';
 
         echo '<h2>' . esc_html('Score Breakdown') . '</h2>';
