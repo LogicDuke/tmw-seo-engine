@@ -33,6 +33,8 @@ class TMW_GSC_Cluster_Importer {
                 ],
                 ['%d', '%d', '%d', '%f', '%f', '%s']
             );
+
+            \TMWSEO\Engine\Plugin::clear_cluster_cache($cluster['id']);
         }
 
         return ['synced' => count($clusters)];
