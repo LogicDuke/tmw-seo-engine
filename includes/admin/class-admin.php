@@ -39,6 +39,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'), __('Settings', 'tmwseo'), 'manage_options', 'tmwseo-settings', [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
+        add_submenu_page('tmw-seo', __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
     }
 
     public static function run_worker_now(): void {
@@ -651,6 +652,89 @@ private static function header(string $title): void {
         }
         echo '</tbody></table>';
         self::footer();
+    }
+
+    public static function render_engine_monitor(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (!isset($_POST['tmw_engine_monitor_nonce']) || !wp_verify_nonce((string)$_POST['tmw_engine_monitor_nonce'], 'tmw_engine_monitor_actions')) {
+                wp_die('Invalid nonce');
+            }
+
+            if (isset($_POST['release_lock'])) {
+                delete_transient('tmw_dfseo_keyword_lock');
+            }
+
+            if (isset($_POST['reset_breaker'])) {
+                delete_option('tmw_keyword_engine_breaker');
+            }
+
+            if (isset($_POST['run_cycle'])) {
+                \TMWSEO\Engine\Keywords\KeywordEngine::run_cycle_job([
+                    'id' => 0,
+                    'payload' => [],
+                ]);
+            }
+        }
+
+        $metrics = get_option('tmw_keyword_engine_metrics', []);
+        $breaker = get_option('tmw_keyword_engine_breaker', []);
+
+        $lock_time = get_transient('tmw_dfseo_keyword_lock');
+        $lock_active = $lock_time && (time() - (int)$lock_time < (10 * MINUTE_IN_SECONDS));
+        ?>
+
+        <div class="wrap">
+            <h1>Keyword Engine Monitor</h1>
+
+            <h2>Status</h2>
+            <table class="widefat striped">
+                <tbody>
+                    <tr>
+                        <th>Lock Active</th>
+                        <td><?php echo esc_html($lock_active ? 'Yes' : 'No'); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Last Run</th>
+                        <td><?php echo esc_html(!empty($metrics['last_run']) ? date('Y-m-d H:i:s', (int)$metrics['last_run']) : '—'); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Runtime (seconds)</th>
+                        <td><?php echo esc_html($metrics['runtime_seconds'] ?? '—'); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Inserted</th>
+                        <td><?php echo esc_html($metrics['inserted'] ?? '—'); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Failures</th>
+                        <td><?php echo esc_html($metrics['failures'] ?? '—'); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Circuit Breaker Active</th>
+                        <td><?php echo esc_html(!empty($breaker['last_triggered']) ? 'Triggered' : 'No'); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2>Controls</h2>
+
+            <form method="post">
+                <?php wp_nonce_field('tmw_engine_monitor_actions', 'tmw_engine_monitor_nonce'); ?>
+
+                <p>
+                    <button type="submit" name="release_lock" class="button">Release Lock</button>
+                    <button type="submit" name="reset_breaker" class="button">Reset Circuit Breaker</button>
+                    <button type="submit" name="run_cycle" class="button button-primary">Run Cycle Now</button>
+                </p>
+            </form>
+
+        </div>
+
+        <?php
     }
 
     public static function render_settings(): void {
