@@ -21,8 +21,12 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
 
 class Plugin {
+
+    private static $cluster_service;
 
     public static function init(): void {
         Cron::init();
@@ -30,6 +34,11 @@ class Plugin {
         \TMWSEO\Engine\Content\ContentEngine::init();
         \TMWSEO\Engine\Keywords\KeywordEngine::init();
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
+
+        global $wpdb;
+        $cluster_repository = new \TMW_Cluster_Repository($wpdb);
+        $cluster_service = new \TMW_Cluster_Service($cluster_repository);
+        self::$cluster_service = $cluster_service;
 
         if (is_admin()) {
             Admin::init();
