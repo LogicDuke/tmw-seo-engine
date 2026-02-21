@@ -142,8 +142,66 @@ class TMW_Cluster_Repository {
     }
 
     public function update_cluster($id, $data) {
-        // TODO: Implement cluster update.
-        return null;
+        $id = (int) $id;
+        if ($id <= 0) {
+            return null;
+        }
+
+        $existing_cluster = $this->get_cluster($id);
+        if ($existing_cluster === null) {
+            return null;
+        }
+
+        $update_data = [];
+        $formats = [];
+
+        if (array_key_exists('name', $data)) {
+            $update_data['name'] = sanitize_text_field($data['name']);
+            $formats[] = '%s';
+        }
+
+        if (array_key_exists('slug', $data)) {
+            $base_slug = sanitize_title($data['slug']);
+            if ($base_slug === '') {
+                return null;
+            }
+
+            $unique_slug = $base_slug;
+            $suffix = 2;
+            $existing_slug_cluster = $this->get_cluster_by_slug($unique_slug);
+
+            while ($existing_slug_cluster !== null && (int) $existing_slug_cluster['id'] !== $id) {
+                $unique_slug = $base_slug . '-' . $suffix;
+                $suffix++;
+                $existing_slug_cluster = $this->get_cluster_by_slug($unique_slug);
+            }
+
+            $update_data['slug'] = $unique_slug;
+            $formats[] = '%s';
+        }
+
+        if (array_key_exists('status', $data)) {
+            $update_data['status'] = sanitize_text_field($data['status']);
+            $formats[] = '%s';
+        }
+
+        if ($update_data === []) {
+            return $existing_cluster;
+        }
+
+        $updated = $this->wpdb->update(
+            $this->clusters_table,
+            $update_data,
+            ['id' => $id],
+            $formats,
+            ['%d']
+        );
+
+        if ($updated === false) {
+            return null;
+        }
+
+        return $this->get_cluster($id);
     }
 
     public function delete_cluster($id) {
