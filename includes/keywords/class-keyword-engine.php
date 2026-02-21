@@ -49,6 +49,21 @@ class KeywordEngine {
 
         set_transient($lock_key, time(), 10 * MINUTE_IN_SECONDS);
 
+        $breaker = get_option('tmw_keyword_engine_breaker', []);
+
+        if (!empty($breaker['last_triggered'])) {
+
+            $cooldown_seconds = 15 * MINUTE_IN_SECONDS;
+            $cooldown_until = (int)$breaker['last_triggered'] + $cooldown_seconds;
+
+            if (time() < $cooldown_until) {
+                Logs::warn('keywords', 'Breaker cooldown active, skipping execution', [
+                    'cooldown_until' => $cooldown_until,
+                ]);
+                return;
+            }
+        }
+
         $min_volume = (int) Settings::get('keyword_min_volume', 30);
         $max_kd     = (float) Settings::get('keyword_max_kd', 60);
         $new_limit  = (int) Settings::get('keyword_new_limit', 300);
