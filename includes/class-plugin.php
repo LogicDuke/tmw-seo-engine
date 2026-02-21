@@ -28,6 +28,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-advisor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-cluster-importer.php';
 
 class Plugin {
 
@@ -36,6 +37,7 @@ class Plugin {
     private static $cluster_scoring_engine;
     private static $cluster_advisor;
     private static $cluster_link_injector;
+    private static $gsc_cluster_importer;
 
     public static function get_cluster_service() {
         return self::$cluster_service ?? null;
@@ -55,6 +57,10 @@ class Plugin {
 
     public static function get_cluster_link_injector() {
         return self::$cluster_link_injector ?? null;
+    }
+
+    public static function get_gsc_cluster_importer() {
+        return self::$gsc_cluster_importer ?? null;
     }
 
     public static function clear_cluster_cache($cluster_id) {
@@ -78,6 +84,11 @@ class Plugin {
         $cluster_repository = new \TMW_Cluster_Repository($wpdb);
         $cluster_service = new \TMW_Cluster_Service($cluster_repository);
         self::$cluster_service = $cluster_service;
+
+        $gsc_cluster_importer = new \TMW_GSC_Cluster_Importer(
+            self::$cluster_service
+        );
+        self::$gsc_cluster_importer = $gsc_cluster_importer;
 
         $cluster_linking_engine = new \TMW_Cluster_Linking_Engine(self::$cluster_service);
         self::$cluster_linking_engine = $cluster_linking_engine;
