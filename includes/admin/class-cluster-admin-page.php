@@ -34,8 +34,40 @@ class TMW_Cluster_Admin_Page {
             return;
         }
 
-        // Placeholder for now
-        echo '—';
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'tmw_cluster_pages';
+        $cluster_id = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT cluster_id FROM {$table} WHERE post_id = %d LIMIT 1",
+                $post_id
+            )
+        );
+
+        if (empty($cluster_id)) {
+            echo '—';
+
+            return;
+        }
+
+        $scoring = TMW_Main_Class::get_cluster_scoring_engine();
+        $score_data = $scoring->score_cluster((int) $cluster_id);
+
+        $score = (is_array($score_data) && isset($score_data['score'])) ? (int) $score_data['score'] : 0;
+        $grade = (is_array($score_data) && isset($score_data['grade'])) ? strtoupper((string) $score_data['grade']) : 'F';
+
+        $badge_color = '#dc2626';
+        if ($grade === 'A') {
+            $badge_color = '#16a34a';
+        } elseif ($grade === 'B') {
+            $badge_color = '#2563eb';
+        } elseif ($grade === 'C') {
+            $badge_color = '#ea580c';
+        }
+
+        echo '<span style="padding:4px 8px;border-radius:4px;background:' . esc_attr($badge_color) . ';color:#fff;font-weight:bold;">';
+        echo esc_html($score . ' - ' . $grade);
+        echo '</span>';
     }
 
     public function render_page() {
