@@ -13,6 +13,11 @@ class TMW_Cluster_Scoring_Engine {
 
     public function score_cluster($cluster_id) {
         $cluster_id = (int) $cluster_id;
+        $cache_key = 'tmw_cluster_score_' . $cluster_id;
+        $cached = get_transient($cache_key);
+        if ($cached !== false) {
+            return $cached;
+        }
 
         if ($cluster_id <= 0) {
             return [];
@@ -89,7 +94,7 @@ class TMW_Cluster_Scoring_Engine {
             $grade = 'F';
         }
 
-        return [
+        $result = [
             'score' => $total,
             'grade' => $grade,
             'breakdown' => [
@@ -99,6 +104,10 @@ class TMW_Cluster_Scoring_Engine {
                 'keywords' => $keyword_score,
             ],
         ];
+
+        set_transient($cache_key, $result, HOUR_IN_SECONDS);
+
+        return $result;
 
     }
 }
