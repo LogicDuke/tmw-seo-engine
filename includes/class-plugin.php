@@ -24,11 +24,13 @@ require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-linking-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine.php';
 
 class Plugin {
 
     private static $cluster_service;
     private static $cluster_linking_engine;
+    private static $cluster_scoring_engine;
 
     public static function get_cluster_service() {
         return self::$cluster_service ?? null;
@@ -36,6 +38,10 @@ class Plugin {
 
     public static function get_cluster_linking_engine() {
         return self::$cluster_linking_engine ?? null;
+    }
+
+    public static function get_cluster_scoring_engine() {
+        return self::$cluster_scoring_engine ?? null;
     }
 
     public static function init(): void {
@@ -52,6 +58,12 @@ class Plugin {
 
         $cluster_linking_engine = new \TMW_Cluster_Linking_Engine(self::$cluster_service);
         self::$cluster_linking_engine = $cluster_linking_engine;
+
+        $cluster_scoring_engine = new \TMW_Cluster_Scoring_Engine(
+            self::$cluster_service,
+            self::$cluster_linking_engine
+        );
+        self::$cluster_scoring_engine = $cluster_scoring_engine;
 
         if (is_admin()) {
             Admin::init();
