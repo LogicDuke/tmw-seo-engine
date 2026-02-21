@@ -103,10 +103,94 @@ class TMW_Cluster_Advisor {
     public function get_cluster_opportunities($cluster_id) {
         $cluster_id = (int) $cluster_id;
 
-        // TODO: Analyze structural score.
-        // TODO: Analyze performance metrics.
-        // TODO: Detect opportunity patterns.
+        if ($cluster_id <= 0) {
+            return [];
+        }
 
-        return [];
+        $score_data = $this->scoring_engine->score_cluster($cluster_id);
+        $analysis = $this->linking_engine->analyze_cluster($cluster_id);
+
+        global $wpdb;
+        $metrics_table = $wpdb->prefix . 'tmw_cluster_metrics';
+
+        $metrics = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$metrics_table} WHERE cluster_id = %d ORDER BY recorded_at DESC, id DESC LIMIT 1",
+                $cluster_id
+            ),
+            ARRAY_A
+        );
+
+        $structural_score = 0;
+        if (is_array($score_data)) {
+            if (isset($score_data['breakdown']) && is_array($score_data['breakdown'])) {
+                $structural_score =
+                    (int) ($score_data['breakdown']['pillar'] ?? 0) +
+                    (int) ($score_data['breakdown']['supports'] ?? 0) +
+                    (int) ($score_data['breakdown']['linking'] ?? 0) +
+                    (int) ($score_data['breakdown']['keywords'] ?? 0);
+            } elseif (isset($score_data['score'])) {
+                $structural_score = (int) $score_data['score'];
+            }
+        }
+
+        $impressions = isset($metrics['impressions']) ? (int) $metrics['impressions'] : 0;
+        if (isset($metrics['ctr'])) {
+            $ctr = (float) $metrics['ctr'];
+        } else {
+            $clicks = isset($metrics['clicks']) ? (float) $metrics['clicks'] : 0;
+            $ctr = $impressions > 0 ? ($clicks / $impressions) * 100 : 0;
+        }
+
+        if (isset($metrics['position'])) {
+            $position = (float) $metrics['position'];
+        } else {
+            $position = isset($metrics['avg_position']) ? (float) $metrics['avg_position'] : 0;
+        }
+
+        $supports_count = (is_array($analysis) && isset($analysis['supports']) && is_array($analysis['supports']))
+            ? count($analysis['supports'])
+            : 0;
+        $expected_links = $supports_count * 2;
+        $missing_links = (is_array($analysis) && isset($analysis['missing_links']) && is_array($analysis['missing_links']))
+            ? count($analysis['missing_links'])
+            : $expected_links;
+        $linking_completeness = $expected_links > 0 ? max(0, 1 - ($missing_links / $expected_links)) : 0;
+
+        $opportunities = [];
+
+        if ($impressions > 1000 && $ctr < 2) {
+            $opportunities[] = [
+                'type' => 'ctr_opportunity',
+                'priority' => 'high',
+                'message' => 'High impressions but low CTR. Improve titles and meta descriptions.',
+            ];
+        }
+
+        if ($position >= 11 && $position <= 20 && $structural_score > 70) {
+            $opportunities[] = [
+                'type' => 'page_one_push',
+                'priority' => 'high',
+                'message' => 'Cluster is close to page 1. Reinforce internal linking and content depth.',
+            ];
+        }
+
+        if ($structural_score > 80 && $impressions < 300) {
+            $opportunities[] = [
+                'type' => 'low_demand_warning',
+                'priority' => 'medium',
+                'message' => 'Strong structure but low search demand. Expand keyword targeting or validate topic demand.',
+            ];
+        }
+
+        if ($position > 0 && $position < 15 && $linking_completeness < 0.7) {
+            $opportunities[] = [
+                'type' => 'reinforcement_opportunity',
+                'priority' => 'high',
+                'message' => 'Rankings are within reach. Strengthen cluster internal links to reinforce authority flow.',
+            ];
+        }
+
+        return $opportunities;
     }
 }
