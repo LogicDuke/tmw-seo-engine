@@ -4,6 +4,36 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
+/**
+ * Cluster-Based Domination Architecture - Phase 1 Migration Notes
+ *
+ * This migration implements Phase 1 of the cluster-based domination architecture.
+ *
+ * Design guarantees:
+ * - This migration is fully additive.
+ * - No existing tables are modified.
+ * - No foreign key constraints are used (WordPress-safe design).
+ *
+ * Rollback safety:
+ * - Downgrading to 3.0.0-alpha will not break anything.
+ * - Older plugin versions will simply ignore these new tables.
+ *
+ * Manual rollback instructions (if you explicitly want to remove cluster data):
+ * DROP TABLE wp_tmw_clusters;
+ * DROP TABLE wp_tmw_cluster_keywords;
+ * DROP TABLE wp_tmw_cluster_pages;
+ * DROP TABLE wp_tmw_cluster_metrics;
+ * DELETE FROM wp_options WHERE option_name = 'tmw_cluster_schema_version';
+ *
+ * Explicit policy:
+ * - We DO NOT auto-drop tables on downgrade.
+ * - Data integrity > destructive downgrade.
+ *
+ * Documentation only:
+ * - This block is explanatory guidance only.
+ * - No functional behavior changes are introduced by this documentation.
+ */
+
 class TMW_Cluster_DB_Migration {
     const SCHEMA_VERSION = 1;
     const OPTION_KEY     = 'tmw_cluster_schema_version';
