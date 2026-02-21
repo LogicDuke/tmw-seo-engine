@@ -61,6 +61,31 @@ class KeywordEngine {
                         }
             
                         $items = $res['items'] ?? [];
+                        $existing_map = [];
+                        $lookup_keywords = [];
+                        foreach ($items as $it) {
+                            $kw = is_array($it) ? (string)($it['keyword'] ?? '') : '';
+                            if ($kw !== '') {
+                                $lookup_keywords[$kw] = true;
+                            }
+                        }
+
+                        $lookup_keywords = array_keys($lookup_keywords);
+                        if (!empty($lookup_keywords)) {
+                            $placeholders = implode(', ', array_fill(0, count($lookup_keywords), '%s'));
+                            $existing_rows = $wpdb->get_results(
+                                $wpdb->prepare(
+                                    "SELECT id, keyword FROM {$cand_table} WHERE keyword IN ({$placeholders})",
+                                    ...$lookup_keywords
+                                ),
+                                ARRAY_A
+                            );
+
+                            foreach ($existing_rows as $row) {
+                                $existing_map[(string)$row['keyword']] = (int)$row['id'];
+                            }
+                        }
+
                         foreach ($items as $it) {
                             if ($inserted >= $new_limit) break;
                             $kw = is_array($it) ? (string)($it['keyword'] ?? '') : '';
@@ -92,7 +117,7 @@ class KeywordEngine {
                             // skip very low volume early (still store raw)
                             if ($vol !== null && $vol < $min_volume) continue;
             
-                            $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$cand_table} WHERE keyword=%s LIMIT 1", $kw));
+                            $existing = $existing_map[$kw] ?? null;
                             if ($existing) {
                                 // update sources
                                 $wpdb->query($wpdb->prepare(
