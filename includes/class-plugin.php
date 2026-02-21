@@ -1,0 +1,50 @@
+<?php
+namespace TMWSEO\Engine;
+
+if (!defined('ABSPATH')) { exit; }
+
+require_once TMWSEO_ENGINE_PATH . 'includes/db/class-schema.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/db/class-logs.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/db/class-jobs.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
+
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-title-fixer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-openai.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
+
+class Plugin {
+
+    public static function init(): void {
+        Cron::init();
+        Migration::maybe_migrate_legacy();
+        \TMWSEO\Engine\Content\ContentEngine::init();
+        \TMWSEO\Engine\Keywords\KeywordEngine::init();
+        \TMWSEO\Engine\Platform\PlatformProfiles::init();
+
+        if (is_admin()) {
+            Admin::init();
+        }
+    }
+
+    public static function activate(): void {
+        Schema::create_or_update_tables();
+        Cron::schedule_events();
+        Migration::maybe_migrate_legacy(true);
+        Logs::info('core', 'Activated ' . TMWSEO_ENGINE_VERSION);
+    }
+
+    public static function deactivate(): void {
+        Cron::unschedule_events();
+        Logs::info('core', 'Deactivated ' . TMWSEO_ENGINE_VERSION);
+    }
+}
