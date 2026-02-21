@@ -48,8 +48,51 @@ class TMW_Cluster_Repository {
     }
 
     public function get_clusters($args = []) {
-        // TODO: Implement cluster list retrieval.
-        return [];
+        $defaults = [
+            'status'  => null,
+            'limit'   => 50,
+            'offset'  => 0,
+            'orderby' => 'created_at',
+            'order'   => 'DESC',
+        ];
+
+        $args = wp_parse_args($args, $defaults);
+
+        $allowed_orderby = ['id', 'name', 'created_at', 'updated_at'];
+        $orderby = in_array($args['orderby'], $allowed_orderby, true) ? $args['orderby'] : 'created_at';
+
+        $order = strtoupper((string) $args['order']);
+        if (!in_array($order, ['ASC', 'DESC'], true)) {
+            $order = 'DESC';
+        }
+
+        $limit = (int) $args['limit'];
+        $offset = (int) $args['offset'];
+
+        if ($limit < 0) {
+            $limit = 0;
+        }
+
+        if ($offset < 0) {
+            $offset = 0;
+        }
+
+        $where_sql = '';
+        $prepare_args = [];
+
+        if ($args['status'] !== null && $args['status'] !== '') {
+            $where_sql = 'WHERE status = %s';
+            $prepare_args[] = $args['status'];
+        }
+
+        $sql = "SELECT * FROM {$this->clusters_table} {$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $prepare_args[] = $limit;
+        $prepare_args[] = $offset;
+
+        $query = $this->wpdb->prepare($sql, $prepare_args);
+        $clusters = $this->wpdb->get_results($query, ARRAY_A);
+
+        return $clusters ?: [];
     }
 
     public function create_cluster($data) {
