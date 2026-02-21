@@ -30,11 +30,21 @@ class KeywordEngine {
             return;
         }
 
+        $job_started = microtime(true);
+
         $lock_key = 'tmw_dfseo_keyword_lock';
 
-        if (get_transient($lock_key)) {
-            Logs::warn('keywords', 'Seed processing skipped due to active lock');
-            return;
+        $lock_time = get_transient($lock_key);
+
+        if ($lock_time) {
+            if ((time() - (int)$lock_time) > (10 * MINUTE_IN_SECONDS)) {
+                // Stale lock detected — auto release
+                delete_transient($lock_key);
+                Logs::warn('keywords', 'Stale lock detected and released');
+            } else {
+                Logs::warn('keywords', 'Seed processing skipped due to active lock');
+                return;
+            }
         }
 
         set_transient($lock_key, time(), 10 * MINUTE_IN_SECONDS);
@@ -193,6 +203,14 @@ class KeywordEngine {
                 Logs::info('keywords', 'Discovery skipped (import_only mode)');
             }
         } finally {
+            $runtime = round(microtime(true) - $job_started, 2);
+
+            Logs::info('keywords', 'Cycle metrics', [
+                'runtime_seconds' => $runtime,
+                'inserted' => $inserted ?? 0,
+                'failures' => $failures ?? 0,
+            ]);
+
             delete_transient($lock_key);
         }
 
