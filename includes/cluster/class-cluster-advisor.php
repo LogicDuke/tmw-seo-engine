@@ -201,9 +201,91 @@ class TMW_Cluster_Advisor {
             return [];
         }
 
-        // TODO: Calculate page gap.
-        // TODO: Calculate CTR gap.
-        // TODO: Calculate linking weakness.
-        return [];
+        global $wpdb;
+        $metrics_table = $wpdb->prefix . 'tmw_cluster_metrics';
+
+        $metrics = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT * FROM {$metrics_table} WHERE cluster_id = %d ORDER BY recorded_at DESC, id DESC LIMIT 1",
+                $cluster_id
+            ),
+            ARRAY_A
+        );
+
+        if (empty($metrics) || !is_array($metrics)) {
+            return [];
+        }
+
+        $analysis = $this->linking_engine->analyze_cluster($cluster_id);
+        $score_data = $this->scoring_engine->score_cluster($cluster_id);
+
+        $position = isset($metrics['position'])
+            ? (float) $metrics['position']
+            : (isset($metrics['avg_position']) ? (float) $metrics['avg_position'] : 0);
+        $impressions = isset($metrics['impressions']) ? (int) $metrics['impressions'] : 0;
+        $ctr = isset($metrics['ctr'])
+            ? (float) $metrics['ctr']
+            : (($impressions > 0)
+                ? ((isset($metrics['clicks']) ? (float) $metrics['clicks'] : 0) / $impressions) * 100
+                : 0);
+
+        $supports_count = (is_array($analysis) && isset($analysis['supports']) && is_array($analysis['supports']))
+            ? count($analysis['supports'])
+            : 0;
+
+        if ($supports_count === 0 && is_array($score_data) && isset($score_data['breakdown']['supports'])) {
+            $supports_count = (int) $score_data['breakdown']['supports'];
+        }
+
+        $expected_links = max(0, $supports_count * 2);
+        $missing_links = (is_array($analysis) && isset($analysis['missing_links']) && is_array($analysis['missing_links']))
+            ? count($analysis['missing_links'])
+            : $expected_links;
+
+        $completeness = $expected_links > 0
+            ? max(0, 1 - ($missing_links / $expected_links))
+            : 0;
+
+        $page_gap = 0;
+        if ($position >= 11 && $position <= 20) {
+            $page_gap = 40;
+        } elseif ($position >= 21 && $position <= 30) {
+            $page_gap = 25;
+        } elseif ($position > 30) {
+            $page_gap = 10;
+        } elseif ($position >= 1 && $position <= 10) {
+            $page_gap = 5;
+        }
+
+        $ctr_gap = 0;
+        if ($impressions > 1000) {
+            if ($ctr < 1) {
+                $ctr_gap = 30;
+            } elseif ($ctr < 2) {
+                $ctr_gap = 20;
+            } elseif ($ctr < 3) {
+                $ctr_gap = 10;
+            }
+        }
+
+        $linking_gap = 0;
+        if ($completeness < 0.5) {
+            $linking_gap = 30;
+        } elseif ($completeness < 0.7) {
+            $linking_gap = 20;
+        } elseif ($completeness < 0.85) {
+            $linking_gap = 10;
+        }
+
+        $total = $page_gap + $ctr_gap + $linking_gap;
+
+        return [
+            'score' => $total,
+            'breakdown' => [
+                'page_gap' => $page_gap,
+                'ctr_gap' => $ctr_gap,
+                'linking_gap' => $linking_gap,
+            ],
+        ];
     }
 }
