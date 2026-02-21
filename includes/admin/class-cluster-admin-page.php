@@ -71,7 +71,7 @@ class TMW_Cluster_Admin_Page {
                 : 0;
 
             echo '<tr>';
-            echo '<td>' . esc_html($name) . '</td>';
+            echo '<td><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-clusters&cluster_id=' . $cluster['id'])) . '">' . esc_html($name) . '</a></td>';
             echo '<td>' . esc_html((string) $score) . '</td>';
             echo '<td>' . esc_html($grade) . '</td>';
             echo '<td>' . esc_html($has_pillar) . '</td>';
