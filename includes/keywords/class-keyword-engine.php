@@ -362,44 +362,57 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 if ($i > 20) break;
             }
 
-            $page_id = wp_insert_post([
-                'post_type' => 'page',
-                'post_status' => 'draft',
-                'post_title' => wp_strip_all_tags($keyword),
-                'post_name' => $slug,
-                'post_content' => "<!-- TMWSEO:AI -->\n",
-                'post_author' => 1,
-            ], true);
+            $wpdb->query('START TRANSACTION');
 
-            if (is_wp_error($page_id)) {
-                Logs::warn('keywords', 'Failed to create page', ['keyword' => $keyword, 'error' => $page_id->get_error_message()]);
+            try {
+                $page_id = wp_insert_post([
+                    'post_type' => 'page',
+                    'post_status' => 'draft',
+                    'post_title' => wp_strip_all_tags($keyword),
+                    'post_name' => $slug,
+                    'post_content' => "<!-- TMWSEO:AI -->\n",
+                    'post_author' => 1,
+                ], true);
+
+                if (is_wp_error($page_id)) {
+                    Logs::warn('keywords', 'Failed to create page', ['keyword' => $keyword, 'error' => $page_id->get_error_message()]);
+                    throw new \RuntimeException($page_id->get_error_message());
+                }
+
+                // Mark as generated + map to cluster/keyword.
+                update_post_meta($page_id, '_tmwseo_generated', 1);
+                update_post_meta($page_id, '_tmwseo_cluster_id', (int)$c['id']);
+                update_post_meta($page_id, '_tmwseo_keyword', $keyword);
+
+                // Manual indexing workflow: default NOINDEX until you enable it.
+                update_post_meta($page_id, 'rank_math_robots', ['noindex']);
+
+                // Store in generated pages table
+                $wpdb->insert($gen_table, [
+                    'page_id' => (int)$page_id,
+                    'cluster_id' => (int)$c['id'],
+                    'keyword' => $keyword,
+                    'kind' => 'keyword',
+                    'indexing' => 'noindex',
+                    'last_generated_at' => current_time('mysql'),
+                ]);
+
+                // Update cluster
+                $wpdb->update($cluster_table, [
+                    'page_id' => (int)$page_id,
+                    'status' => 'built',
+                    'updated_at' => current_time('mysql'),
+                ], ['id' => (int)$c['id']]);
+
+                $wpdb->query('COMMIT');
+            } catch (\Throwable $e) {
+                $wpdb->query('ROLLBACK');
+                if (!empty($page_id) && !is_wp_error($page_id)) {
+                    wp_delete_post($page_id, true);
+                }
+                error_log('TMW Page Creation Failed: ' . $e->getMessage());
                 continue;
             }
-
-            // Mark as generated + map to cluster/keyword.
-            update_post_meta($page_id, '_tmwseo_generated', 1);
-            update_post_meta($page_id, '_tmwseo_cluster_id', (int)$c['id']);
-            update_post_meta($page_id, '_tmwseo_keyword', $keyword);
-
-            // Manual indexing workflow: default NOINDEX until you enable it.
-            update_post_meta($page_id, 'rank_math_robots', ['noindex']);
-
-            // Store in generated pages table
-            $wpdb->insert($gen_table, [
-                'page_id' => (int)$page_id,
-                'cluster_id' => (int)$c['id'],
-                'keyword' => $keyword,
-                'kind' => 'keyword',
-                'indexing' => 'noindex',
-                'last_generated_at' => current_time('mysql'),
-            ]);
-
-            // Update cluster
-            $wpdb->update($cluster_table, [
-                'page_id' => (int)$page_id,
-                'status' => 'built',
-                'updated_at' => current_time('mysql'),
-            ], ['id' => (int)$c['id']]);
 
             // Enqueue content generation (800-1000 words, GPT-4o)
             Jobs::enqueue('optimize_post', 'page', (int)$page_id, [
