@@ -99,4 +99,14 @@ class TMW_Cluster_Advisor {
 
         return $warnings;
     }
+
+    public function get_cluster_opportunities($cluster_id) {
+        $cluster_id = (int) $cluster_id;
+
+        // TODO: Analyze structural score.
+        // TODO: Analyze performance metrics.
+        // TODO: Detect opportunity patterns.
+
+        return [];
+    }
 }
