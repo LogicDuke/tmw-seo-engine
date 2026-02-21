@@ -163,6 +163,25 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ));
 
         if (!empty($to_score)) {
+            $to_score = array_values(array_unique($to_score));
+
+            $placeholders = implode(',', array_fill(0, count($to_score), '%s'));
+            $kw_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT keyword, volume, intent FROM {$cand_table} WHERE keyword IN ({$placeholders})",
+                    ...$to_score
+                ),
+                ARRAY_A
+            );
+
+            $kw_map = [];
+            foreach ($kw_rows as $kw_row) {
+                $kw_map[(string)$kw_row['keyword']] = [
+                    'volume' => isset($kw_row['volume']) ? (int)$kw_row['volume'] : 0,
+                    'intent' => isset($kw_row['intent']) ? (string)$kw_row['intent'] : 'mixed',
+                ];
+            }
+
             $kd_res = DataForSEO::bulk_keyword_difficulty($to_score);
             if ($kd_res['ok']) {
                 $map = $kd_res['map'] ?? [];
@@ -172,9 +191,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     $kd = $map[$kwn] ?? null;
                     if ($kd === null) continue;
 
-                    $row = $wpdb->get_row($wpdb->prepare("SELECT volume,intent FROM {$cand_table} WHERE keyword=%s LIMIT 1", $kw), ARRAY_A);
-                    $vol = isset($row['volume']) ? (int)$row['volume'] : 0;
-                    $intent = isset($row['intent']) ? (string)$row['intent'] : 'mixed';
+                    $vol = isset($kw_map[$kw]['volume']) ? (int)$kw_map[$kw]['volume'] : 0;
+                    $intent = isset($kw_map[$kw]['intent']) ? (string)$kw_map[$kw]['intent'] : 'mixed';
 
                     // Auto reject too hard keywords early
                     $status = ($kd > $max_kd) ? 'rejected' : 'approved';
