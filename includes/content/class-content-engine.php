@@ -138,12 +138,12 @@ class ContentEngine {
         $seo_title = isset($j['seo_title']) ? (string)$j['seo_title'] : '';
         $meta_desc = isset($j['meta_description']) ? (string)$j['meta_description'] : '';
         $focus_kw  = isset($j['focus_keyword']) ? (string)$j['focus_keyword'] : '';
-        $html      = isset($j['content_html']) ? (string)$j['content_html'] : '';
+        $html      = (isset($j['content_html']) && is_string($j['content_html'])) ? $j['content_html'] : '';
 
         $seo_title = TitleFixer::shorten(trim($seo_title), 60);
         $meta_desc = trim($meta_desc);
         $focus_kw  = trim($focus_kw);
-        $html      = trim($html);
+        $html      = wp_kses_post(trim($html));
 
         if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
         if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
