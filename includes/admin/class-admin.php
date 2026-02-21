@@ -150,16 +150,22 @@ class Admin {
 
         global $wpdb;
         $gen_table = $wpdb->prefix . 'tmw_generated_pages';
-        $wpdb->update($gen_table, [
+        $gen_updated = $wpdb->update($gen_table, [
             'indexing' => 'index',
             'last_generated_at' => current_time('mysql'),
-        ], ['page_id' => $page_id]);
+        ], ['page_id' => $page_id], ['%s', '%s'], ['%d']);
+        if ($gen_updated === false) {
+            error_log('TMW indexing update failed: ' . $wpdb->last_error);
+        }
 
         // Update indexing log (best-effort).
         $idx_table = $wpdb->prefix . 'tmw_indexing';
         $url = get_permalink($page_id);
         if ($url) {
-            $wpdb->update($idx_table, ['status' => 'manual_indexing_enabled'], ['url' => $url]);
+            $idx_updated = $wpdb->update($idx_table, ['status' => 'manual_indexing_enabled'], ['url' => $url], ['%s'], ['%s']);
+            if ($idx_updated === false) {
+                error_log('TMW indexing update failed: ' . $wpdb->last_error);
+            }
         }
 
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-generated&tmwseo_notice=indexing_enabled'));
@@ -498,7 +504,7 @@ class Admin {
             $canonical = \TMWSEO\Engine\Keywords\KeywordValidator::normalize($kw);
             $intent = \TMWSEO\Engine\Keywords\KeywordValidator::infer_intent($kw);
 
-            $wpdb->insert($cand_table, [
+            $cand_inserted = $wpdb->insert($cand_table, [
                 'keyword' => $kw,
                 'canonical' => $canonical,
                 'status' => 'new',
@@ -510,7 +516,10 @@ class Admin {
                 'sources' => 'import:' . $source,
                 'notes' => null,
                 'updated_at' => current_time('mysql'),
-            ]);
+            ], ['%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s']);
+            if ($cand_inserted === false) {
+                error_log('TMW CSV insert failed: ' . $wpdb->last_error);
+            }
             $cand_ins++;
         }
 
