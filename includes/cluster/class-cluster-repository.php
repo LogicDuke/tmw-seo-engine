@@ -224,6 +224,47 @@ class TMW_Cluster_Repository {
         return $deleted !== false;
     }
 
+    public function get_cluster_keywords($cluster_id, $args = []) {
+        $cluster_id = (int) $cluster_id;
+        if ($cluster_id <= 0) {
+            return [];
+        }
+
+        $defaults = [
+            'limit'   => 100,
+            'offset'  => 0,
+            'orderby' => 'id',
+            'order'   => 'ASC',
+        ];
+
+        $args = wp_parse_args($args, $defaults);
+
+        $allowed_orderby = ['id', 'keyword', 'search_volume', 'keyword_difficulty', 'created_at'];
+        $orderby = in_array($args['orderby'], $allowed_orderby, true) ? $args['orderby'] : 'id';
+
+        $order = strtoupper((string) $args['order']);
+        if (!in_array($order, ['ASC', 'DESC'], true)) {
+            $order = 'ASC';
+        }
+
+        $limit = (int) $args['limit'];
+        $offset = (int) $args['offset'];
+
+        if ($limit < 0) {
+            $limit = 0;
+        }
+
+        if ($offset < 0) {
+            $offset = 0;
+        }
+
+        $sql = "SELECT * FROM {$this->keywords_table} WHERE cluster_id = %d ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $query = $this->wpdb->prepare($sql, $cluster_id, $limit, $offset);
+        $keywords = $this->wpdb->get_results($query, ARRAY_A);
+
+        return $keywords ?: [];
+    }
+
     public function add_keyword_to_cluster($cluster_id, $keyword, $data = []) {
         $cluster_id = (int) $cluster_id;
         if ($cluster_id <= 0) {
