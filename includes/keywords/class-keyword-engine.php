@@ -211,6 +211,13 @@ class KeywordEngine {
                 'failures' => $failures ?? 0,
             ]);
 
+            update_option('tmw_keyword_engine_metrics', [
+                'last_run'        => time(),
+                'runtime_seconds' => $runtime,
+                'inserted'        => $inserted ?? 0,
+                'failures'        => $failures ?? 0,
+            ]);
+
             delete_transient($lock_key);
         }
 
