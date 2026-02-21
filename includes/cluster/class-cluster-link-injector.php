@@ -68,13 +68,29 @@ class TMW_Cluster_Link_Injector {
                 }
 
                 $target_url = get_permalink($to_id);
-                if (strpos($post->post_content, $target_url) !== false) {
+                $target_title = get_the_title($to_id);
+                $anchor_text = $target_title;
+                $anchor_link = '<a href="' . esc_url($target_url) . '">' . esc_html($anchor_text) . '</a>';
+                $content = $post->post_content;
+
+                if (strpos($content, $target_url) !== false) {
                     continue;
                 }
 
-                $target_title = get_the_title($to_id);
+                $limit = (int) (strlen($content) * 0.6);
+                $search_area = substr($content, 0, $limit);
+                $pos = stripos($search_area, $anchor_text);
 
-                $new_content = $post->post_content . '<p><a href="' . esc_url($target_url) . '">' . esc_html($target_title) . '</a></p>';
+                if ($pos !== false) {
+                    $new_content = substr_replace(
+                        $content,
+                        $anchor_link,
+                        $pos,
+                        strlen($anchor_text)
+                    );
+                } else {
+                    $new_content = $content . '<p>' . $anchor_link . '</p>';
+                }
 
                 $result = wp_update_post([
                     'ID' => $post->ID,
