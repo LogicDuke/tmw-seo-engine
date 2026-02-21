@@ -77,20 +77,62 @@ class TMW_Cluster_Link_Injector {
                     continue;
                 }
 
-                $limit = (int) (strlen($content) * 0.6);
-                $search_area = substr($content, 0, $limit);
-                $pos = stripos($search_area, $anchor_text);
+                libxml_use_internal_errors(true);
 
-                if ($pos !== false) {
-                    $new_content = substr_replace(
-                        $content,
-                        $anchor_link,
-                        $pos,
-                        strlen($anchor_text)
-                    );
+                $dom = new DOMDocument('1.0', 'UTF-8');
+                $wrapped_content = '<div>' . $post->post_content . '</div>';
+                $dom->loadHTML('<?xml encoding="UTF-8">' . $wrapped_content);
+
+                $xpath = new DOMXPath($dom);
+                $paragraphs = $xpath->query('//p');
+
+                $injected = false;
+
+                foreach ($paragraphs as $p) {
+                    if ($injected) {
+                        break;
+                    }
+
+                    // Skip paragraphs that do not contain the target title.
+                    if (strpos($p->textContent, $target_title) === false) {
+                        continue;
+                    }
+
+                    foreach ($p->childNodes as $node) {
+                        if ($node->nodeType === XML_TEXT_NODE &&
+                            stripos($node->nodeValue, $target_title) !== false) {
+                            $match_pos = stripos($node->nodeValue, $target_title);
+
+                            if ($match_pos === false) {
+                                continue;
+                            }
+
+                            $new_html = substr($node->nodeValue, 0, $match_pos)
+                                . '<a href="' . esc_url($target_url) . '">' . esc_html($target_title) . '</a>'
+                                . substr($node->nodeValue, $match_pos + strlen($target_title));
+
+                            $fragment = $dom->createDocumentFragment();
+                            $fragment->appendXML($new_html);
+                            $p->replaceChild($fragment, $node);
+
+                            $injected = true;
+                            break;
+                        }
+                    }
+                }
+
+                if ($injected) {
+                    $body = $dom->getElementsByTagName('div')->item(0);
+                    $new_content = '';
+
+                    foreach ($body->childNodes as $child) {
+                        $new_content .= $dom->saveHTML($child);
+                    }
                 } else {
                     $new_content = $content . '<p>' . $anchor_link . '</p>';
                 }
+
+                libxml_clear_errors();
 
                 $result = wp_update_post([
                     'ID' => $post->ID,
