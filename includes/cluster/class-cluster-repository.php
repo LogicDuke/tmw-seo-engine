@@ -367,4 +367,64 @@ class TMW_Cluster_Repository {
 
         return $deleted > 0;
     }
+
+    public function add_page_to_cluster($cluster_id, $post_id, $role = 'support') {
+        $cluster_id = (int) $cluster_id;
+        $post_id = (int) $post_id;
+
+        if ($cluster_id <= 0 || $post_id <= 0) {
+            return false;
+        }
+
+        $cluster = $this->get_cluster($cluster_id);
+        if ($cluster === null) {
+            return false;
+        }
+
+        $post = get_post($post_id);
+        if ($post === null) {
+            return false;
+        }
+
+        $role = sanitize_text_field($role);
+        if (!in_array($role, ['pillar', 'support'], true)) {
+            $role = 'support';
+        }
+
+        $existing_query = $this->wpdb->prepare(
+            "SELECT * FROM {$this->pages_table} WHERE cluster_id = %d AND post_id = %d LIMIT 1",
+            $cluster_id,
+            $post_id
+        );
+        $existing_page = $this->wpdb->get_row($existing_query, ARRAY_A);
+
+        if ($existing_page !== null) {
+            return $existing_page;
+        }
+
+        $inserted = $this->wpdb->insert(
+            $this->pages_table,
+            [
+                'cluster_id' => $cluster_id,
+                'post_id'    => $post_id,
+                'role'       => $role,
+            ],
+            [
+                '%d',
+                '%d',
+                '%s',
+            ]
+        );
+
+        if ($inserted === false) {
+            return false;
+        }
+
+        $inserted_query = $this->wpdb->prepare(
+            "SELECT * FROM {$this->pages_table} WHERE id = %d LIMIT 1",
+            $this->wpdb->insert_id
+        );
+
+        return $this->wpdb->get_row($inserted_query, ARRAY_A);
+    }
 }
