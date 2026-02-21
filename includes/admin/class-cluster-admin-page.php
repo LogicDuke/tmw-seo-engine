@@ -24,6 +24,13 @@ class TMW_Cluster_Admin_Page {
     }
 
     public function render_page() {
+        $cluster_id = isset($_GET['cluster_id']) ? (int) $_GET['cluster_id'] : 0;
+
+        if ($cluster_id > 0) {
+            $this->render_cluster_detail($cluster_id);
+            return;
+        }
+
         $clusters = $this->cluster_service->list_clusters(['limit' => 100]);
 
         echo '<div class="wrap">';
@@ -79,6 +86,152 @@ class TMW_Cluster_Admin_Page {
             echo '<td>' . esc_html((string) $keywords_count) . '</td>';
             echo '<td>' . esc_html((string) $missing_links_count) . '</td>';
             echo '</tr>';
+        }
+
+        echo '</tbody>';
+        echo '</table>';
+        echo '</div>';
+    }
+
+    private function render_cluster_detail($cluster_id) {
+        $cluster_id = (int) $cluster_id;
+        $cluster = $this->cluster_service->get_cluster($cluster_id);
+
+        echo '<div class="wrap">';
+        echo '<p><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-clusters')) . '">&larr; ' . esc_html('Back to clusters') . '</a></p>';
+
+        if (empty($cluster) || !is_array($cluster)) {
+            echo '<h1>' . esc_html('Cluster not found.') . '</h1>';
+            echo '</div>';
+
+            return;
+        }
+
+        $score_data = $this->scoring_engine->score_cluster($cluster_id);
+        $analysis = TMW_Main_Class::get_cluster_linking_engine()->analyze_cluster($cluster_id);
+        $pages = $this->cluster_service->get_cluster_pages($cluster_id);
+        $keywords = $this->cluster_service->get_cluster_keywords($cluster_id);
+
+        $cluster_name = isset($cluster['name']) ? (string) $cluster['name'] : '';
+        $score = (is_array($score_data) && isset($score_data['score'])) ? (int) $score_data['score'] : 0;
+        $grade = (is_array($score_data) && isset($score_data['grade'])) ? (string) $score_data['grade'] : 'F';
+
+        $breakdown = (is_array($score_data) && isset($score_data['breakdown']) && is_array($score_data['breakdown']))
+            ? $score_data['breakdown']
+            : [];
+
+        $pillar_score = isset($breakdown['pillar']) ? (int) $breakdown['pillar'] : 0;
+        $supports_score = isset($breakdown['supports']) ? (int) $breakdown['supports'] : 0;
+        $linking_score = isset($breakdown['linking']) ? (int) $breakdown['linking'] : 0;
+        $keywords_score = isset($breakdown['keywords']) ? (int) $breakdown['keywords'] : 0;
+
+        $pillar_page = (is_array($analysis) && isset($analysis['pillar']) && is_array($analysis['pillar']))
+            ? $analysis['pillar']
+            : null;
+        $support_pages = (is_array($analysis) && isset($analysis['supports']) && is_array($analysis['supports']))
+            ? $analysis['supports']
+            : [];
+        $missing_links = (is_array($analysis) && isset($analysis['missing_links']) && is_array($analysis['missing_links']))
+            ? $analysis['missing_links']
+            : [];
+
+        $post_titles_by_id = [];
+        if (is_array($pages)) {
+            foreach ($pages as $page) {
+                if (!is_array($page) || !isset($page['post_id'])) {
+                    continue;
+                }
+
+                $post_id = (int) $page['post_id'];
+                if ($post_id <= 0 || isset($post_titles_by_id[$post_id])) {
+                    continue;
+                }
+
+                $title = get_the_title($post_id);
+                $post_titles_by_id[$post_id] = is_string($title) && $title !== '' ? $title : ('Post #' . $post_id);
+            }
+        }
+
+        echo '<h1>' . esc_html($cluster_name) . '</h1>';
+        echo '<p><strong>' . esc_html('Score:') . '</strong> ' . esc_html((string) $score) . ' &mdash; <strong>' . esc_html('Grade:') . '</strong> ' . esc_html($grade) . '</p>';
+
+        echo '<h2>' . esc_html('Score Breakdown') . '</h2>';
+        echo '<ul>';
+        echo '<li>' . esc_html('Pillar: ' . $pillar_score) . '</li>';
+        echo '<li>' . esc_html('Supports: ' . $supports_score) . '</li>';
+        echo '<li>' . esc_html('Linking: ' . $linking_score) . '</li>';
+        echo '<li>' . esc_html('Keywords: ' . $keywords_score) . '</li>';
+        echo '</ul>';
+
+        echo '<h2>' . esc_html('Pillar Page') . '</h2>';
+        if (is_array($pillar_page) && isset($pillar_page['post_id']) && (int) $pillar_page['post_id'] > 0) {
+            $pillar_id = (int) $pillar_page['post_id'];
+            $pillar_title = isset($post_titles_by_id[$pillar_id]) ? $post_titles_by_id[$pillar_id] : ('Post #' . $pillar_id);
+            echo '<p>' . esc_html($pillar_title) . '</p>';
+        } else {
+            echo '<p>' . esc_html('No pillar page assigned.') . '</p>';
+        }
+
+        echo '<h2>' . esc_html('Support Pages') . '</h2>';
+        if (empty($support_pages)) {
+            echo '<p>' . esc_html('No support pages found.') . '</p>';
+        } else {
+            echo '<ul>';
+            foreach ($support_pages as $support_page) {
+                $support_id = (is_array($support_page) && isset($support_page['post_id'])) ? (int) $support_page['post_id'] : 0;
+                $support_title = $support_id > 0 && isset($post_titles_by_id[$support_id])
+                    ? $post_titles_by_id[$support_id]
+                    : ('Post #' . $support_id);
+                echo '<li>' . esc_html($support_title) . '</li>';
+            }
+            echo '</ul>';
+        }
+
+        echo '<h2>' . esc_html('Keywords') . '</h2>';
+        if (empty($keywords) || !is_array($keywords)) {
+            echo '<p>' . esc_html('No keywords found.') . '</p>';
+        } else {
+            echo '<ul>';
+            foreach ($keywords as $keyword) {
+                $keyword_text = (is_array($keyword) && isset($keyword['keyword'])) ? (string) $keyword['keyword'] : '';
+                if ($keyword_text === '') {
+                    continue;
+                }
+                echo '<li>' . esc_html($keyword_text) . '</li>';
+            }
+            echo '</ul>';
+        }
+
+        echo '<h2>' . esc_html('Missing Links') . '</h2>';
+        echo '<table class="widefat striped">';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html('From') . '</th>';
+        echo '<th>' . esc_html('To') . '</th>';
+        echo '<th>' . esc_html('Type') . '</th>';
+        echo '</tr></thead>';
+        echo '<tbody>';
+
+        if (empty($missing_links)) {
+            echo '<tr><td colspan="3">' . esc_html('No missing links found.') . '</td></tr>';
+        } else {
+            foreach ($missing_links as $missing_link) {
+                if (!is_array($missing_link)) {
+                    continue;
+                }
+
+                $from_id = isset($missing_link['from']) ? (int) $missing_link['from'] : 0;
+                $to_id = isset($missing_link['to']) ? (int) $missing_link['to'] : 0;
+                $type = isset($missing_link['type']) ? (string) $missing_link['type'] : '';
+
+                $from_label = $from_id > 0 && isset($post_titles_by_id[$from_id]) ? $post_titles_by_id[$from_id] : ('Post #' . $from_id);
+                $to_label = $to_id > 0 && isset($post_titles_by_id[$to_id]) ? $post_titles_by_id[$to_id] : ('Post #' . $to_id);
+
+                echo '<tr>';
+                echo '<td>' . esc_html($from_label) . '</td>';
+                echo '<td>' . esc_html($to_label) . '</td>';
+                echo '<td>' . esc_html($type) . '</td>';
+                echo '</tr>';
+            }
         }
 
         echo '</tbody>';
