@@ -28,6 +28,10 @@ class Plugin {
 
     private static $cluster_service;
 
+    public static function get_cluster_service() {
+        return self::$cluster_service ?? null;
+    }
+
     public static function init(): void {
         Cron::init();
         Migration::maybe_migrate_legacy();
