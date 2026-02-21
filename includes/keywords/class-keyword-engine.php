@@ -37,7 +37,7 @@ class KeywordEngine {
             return;
         }
 
-        set_transient($lock_key, 1, 120);
+        set_transient($lock_key, time(), 10 * MINUTE_IN_SECONDS);
 
         $min_volume = (int) Settings::get('keyword_min_volume', 30);
         $max_kd     = (float) Settings::get('keyword_max_kd', 60);
