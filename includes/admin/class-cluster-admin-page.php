@@ -167,6 +167,8 @@ class TMW_Cluster_Admin_Page {
         $analysis = TMW_Main_Class::get_cluster_linking_engine()->analyze_cluster($cluster_id);
         $pages = $this->cluster_service->get_cluster_pages($cluster_id);
         $keywords = $this->cluster_service->get_cluster_keywords($cluster_id);
+        $advisor = TMW_Main_Class::get_cluster_advisor();
+        $warnings = $advisor->get_cluster_warnings($cluster_id);
 
         $cluster_name = isset($cluster['name']) ? (string) $cluster['name'] : '';
         $score = (is_array($score_data) && isset($score_data['score'])) ? (int) $score_data['score'] : 0;
@@ -217,6 +219,27 @@ class TMW_Cluster_Admin_Page {
         echo esc_html('Auto Fix Missing Links');
         echo '</button>';
         echo '</form>';
+
+        if (!empty($warnings)) {
+            foreach ($warnings as $warning) {
+                $class = 'notice ';
+
+                switch ($warning['severity']) {
+                    case 'high':
+                        $class .= 'notice-error';
+                        break;
+                    case 'medium':
+                        $class .= 'notice-warning';
+                        break;
+                    default:
+                        $class .= 'notice-info';
+                }
+
+                echo '<div class="' . esc_attr($class) . '"><p>';
+                echo esc_html($warning['message']);
+                echo '</p></div>';
+            }
+        }
 
         echo '<p><strong>' . esc_html('Score:') . '</strong> ' . esc_html((string) $score) . ' &mdash; <strong>' . esc_html('Grade:') . '</strong> ' . esc_html($grade) . '</p>';
 
