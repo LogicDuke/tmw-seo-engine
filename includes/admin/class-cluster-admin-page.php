@@ -23,6 +23,21 @@ class TMW_Cluster_Admin_Page {
         );
     }
 
+    public function register_post_columns($columns) {
+        $columns['tmw_cluster_health'] = 'Cluster Health';
+
+        return $columns;
+    }
+
+    public function render_post_column($column, $post_id) {
+        if ($column !== 'tmw_cluster_health') {
+            return;
+        }
+
+        // Placeholder for now
+        echo '—';
+    }
+
     public function render_page() {
         $cluster_id = isset($_GET['cluster_id']) ? (int) $_GET['cluster_id'] : 0;
 

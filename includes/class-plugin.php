@@ -95,6 +95,12 @@ class Plugin {
 
         add_action('admin_menu', [$cluster_admin_page, 'register_menu']);
 
+        add_filter('manage_post_posts_columns', [$cluster_admin_page, 'register_post_columns']);
+        add_filter('manage_page_posts_columns', [$cluster_admin_page, 'register_post_columns']);
+
+        add_action('manage_post_posts_custom_column', [$cluster_admin_page, 'render_post_column'], 10, 2);
+        add_action('manage_page_posts_custom_column', [$cluster_admin_page, 'render_post_column'], 10, 2);
+
         if (is_admin()) {
             Admin::init();
         }
