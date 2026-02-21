@@ -16,8 +16,9 @@ class DataForSEO {
     }
 
     private static function auth_header(): string {
-        $login = (string)Settings::get('dataforseo_login', '');
-        $pass  = (string)Settings::get('dataforseo_password', '');
+        // Normalize whitespace to avoid hidden \r/\n or trailing spaces breaking Basic Auth.
+        $login = trim((string)Settings::get('dataforseo_login', ''));
+        $pass  = trim((string)Settings::get('dataforseo_password', ''));
         return 'Basic ' . base64_encode($login . ':' . $pass);
     }
 
