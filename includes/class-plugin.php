@@ -44,6 +44,16 @@ class Plugin {
         return self::$cluster_scoring_engine ?? null;
     }
 
+    public static function clear_cluster_cache($cluster_id) {
+        $cluster_id = (int) $cluster_id;
+        if ($cluster_id <= 0) {
+            return;
+        }
+
+        delete_transient('tmw_cluster_analysis_' . $cluster_id);
+        delete_transient('tmw_cluster_score_' . $cluster_id);
+    }
+
     public static function init(): void {
         Cron::init();
         Migration::maybe_migrate_legacy();
