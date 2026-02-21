@@ -687,11 +687,40 @@ private static function header(string $title): void {
         $breaker = get_option('tmw_keyword_engine_breaker', []);
 
         $lock_time = get_transient('tmw_dfseo_keyword_lock');
-        $lock_active = $lock_time && (time() - (int)$lock_time < (10 * MINUTE_IN_SECONDS));
+        $health = 'Healthy';
+        $health_color = 'green';
+
+        $now = time();
+        $last_run = $metrics['last_run'] ?? null;
+        $failures = $metrics['failures'] ?? 0;
+        $runtime = $metrics['runtime_seconds'] ?? 0;
+
+        $lock_active = $lock_time && (($now - (int)$lock_time) < (10 * MINUTE_IN_SECONDS));
+
+        if (!empty($breaker['last_triggered'])) {
+            $health = 'Circuit Breaker Active';
+            $health_color = 'red';
+        } elseif ($lock_active && $runtime > 600) {
+            $health = 'Possibly Stuck (Long Lock)';
+            $health_color = 'red';
+        } elseif ($failures > 2) {
+            $health = 'Degraded (High Failures)';
+            $health_color = 'orange';
+        } elseif ($last_run && ($now - $last_run) > (2 * HOUR_IN_SECONDS)) {
+            $health = 'Idle (No Recent Run)';
+            $health_color = 'orange';
+        }
         ?>
 
         <div class="wrap">
             <h1>Keyword Engine Monitor</h1>
+
+            <div style="padding:15px;margin:15px 0;background:#f8f9fa;border-left:6px solid <?php echo esc_attr($health_color); ?>;">
+                <strong>Engine Health:</strong>
+                <span style="color:<?php echo esc_attr($health_color); ?>;font-weight:bold;">
+                    <?php echo esc_html($health); ?>
+                </span>
+            </div>
 
             <h2>Status</h2>
             <table class="widefat striped">
