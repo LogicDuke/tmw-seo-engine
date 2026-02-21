@@ -336,12 +336,29 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             }
         }
 
+        $cluster_map = [];
+        $cluster_keys = array_values(array_unique(array_keys($clusters)));
+        if (!empty($cluster_keys)) {
+            $placeholders = implode(', ', array_fill(0, count($cluster_keys), '%s'));
+            $existing_clusters = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT id, cluster_key FROM {$cluster_table} WHERE cluster_key IN ({$placeholders})",
+                    ...$cluster_keys
+                ),
+                ARRAY_A
+            );
+
+            foreach ($existing_clusters as $existing_cluster) {
+                $cluster_map[(string)$existing_cluster['cluster_key']] = (int)$existing_cluster['id'];
+            }
+        }
+
         // Upsert clusters
         foreach ($clusters as $key => $c) {
             $avg_kd = ($c['kd_n'] > 0) ? round($c['sum_kd'] / $c['kd_n'], 2) : null;
             $opportunity = (float)$c['best_opp'];
 
-            $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$cluster_table} WHERE cluster_key=%s LIMIT 1", $key));
+            $exists = $cluster_map[$key] ?? null;
             if ($exists) {
                 $wpdb->update($cluster_table, [
                     'representative' => $c['best_kw'],
