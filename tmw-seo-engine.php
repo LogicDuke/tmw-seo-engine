@@ -2,14 +2,14 @@
 /**
  * Plugin Name: TMW SEO Engine
  * Description: Foundation (Phase 1+) with admin, settings shell, DB tables, job queue, worker, logs, cron. AI + Keyword Intelligence + Programmatic Pages (manual indexing).
- * Version: 3.0.0-alpha.8
+ * Version: 3.1.0-alpha-cluster-db
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
 
 if (!defined('ABSPATH')) { exit; }
 
-define('TMWSEO_ENGINE_VERSION', '3.0.0-alpha.8');
+define('TMWSEO_ENGINE_VERSION', '3.1.0-alpha-cluster-db');
 define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 
