@@ -100,6 +100,12 @@ class KeywordEngine {
 
                                 if ($failures >= $max_failures) {
                                     Logs::error('keywords', 'Circuit breaker triggered');
+
+                                    update_option('tmw_keyword_engine_breaker', [
+                                        'last_triggered' => time(),
+                                        'failure_count'  => $failures,
+                                    ]);
+
                                     break;
                                 }
 
