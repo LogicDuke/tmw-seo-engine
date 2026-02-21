@@ -23,5 +23,13 @@ register_activation_hook(__FILE__, function () {
 register_deactivation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'deactivate']);
 
 add_action('plugins_loaded', function () {
+    if (!class_exists('TMW_Cluster_DB_Migration')) {
+        require_once plugin_dir_path(__FILE__) . 'includes/migrations/class-cluster-db-migration.php';
+    }
+
+    TMW_Cluster_DB_Migration::maybe_migrate();
+});
+
+add_action('plugins_loaded', function () {
     \TMWSEO\Engine\Plugin::init();
 });
