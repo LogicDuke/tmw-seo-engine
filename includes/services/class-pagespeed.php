@@ -57,13 +57,23 @@ class PageSpeed {
             $score = (float)$json['lighthouseResult']['categories']['performance']['score'] * 100.0;
         }
 
-        $wpdb->insert($table, [
+        $inserted = $wpdb->insert($table, [
             'url' => $url,
             'strategy' => $strategy,
             'score' => $score,
             'raw' => wp_json_encode($json),
             'checked_at' => current_time('mysql'),
+        ], [
+            '%s',
+            '%s',
+            '%f',
+            '%s',
+            '%s',
         ]);
+
+        if ($inserted === false) {
+            error_log('TMW PageSpeed insert failed: ' . $wpdb->last_error);
+        }
 
         Logs::info('pagespeed', 'Checked', ['url' => $url, 'strategy' => $strategy, 'score' => $score]);
     }
