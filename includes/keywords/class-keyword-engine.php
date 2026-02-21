@@ -30,6 +30,15 @@ class KeywordEngine {
             return;
         }
 
+        $lock_key = 'tmw_dfseo_keyword_lock';
+
+        if (get_transient($lock_key)) {
+            Logs::warn('keywords', 'Seed processing skipped due to active lock');
+            return;
+        }
+
+        set_transient($lock_key, 1, 120);
+
         $min_volume = (int) Settings::get('keyword_min_volume', 30);
         $max_kd     = (float) Settings::get('keyword_max_kd', 60);
         $new_limit  = (int) Settings::get('keyword_new_limit', 300);
@@ -45,21 +54,51 @@ class KeywordEngine {
         //    Mode 'import_only' skips discovery and only runs KD + clustering + pages.
         $inserted = 0;
 
-        if ($mode !== 'import_only') {
-                    $seeds = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 5));
-                    Logs::info('keywords', 'Seeds', ['count' => count($seeds), 'seeds' => array_slice($seeds, 0, 10)]);
-            
-            
-                    // 2) Keyword suggestions from DataForSEO
-                    foreach ($seeds as $seed) {
-                        if ($inserted >= $new_limit) break;
-            
-                        $res = DataForSEO::keyword_suggestions($seed, (int) Settings::get('keyword_suggestions_limit', 200));
-                        if (!$res['ok']) {
-                            Logs::warn('keywords', 'DataForSEO keyword_suggestions failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
-                            continue;
-                        }
-            
+        try {
+            if ($mode !== 'import_only') {
+                        $seeds = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 5));
+                        $max_seeds_per_run = (int) Settings::get('keyword_seed_batch_limit', 10);
+                        $seeds = array_slice($seeds, 0, max(1, $max_seeds_per_run));
+                        Logs::info('keywords', 'Seeds', ['count' => count($seeds), 'seeds' => array_slice($seeds, 0, 10)]);
+                        $failures = 0;
+                        $max_failures = 3;
+
+                        // 2) Keyword suggestions from DataForSEO
+                        foreach ($seeds as $seed) {
+                            if ($inserted >= $new_limit) break;
+
+                            $cache_key = 'tmw_seed_suggestions_' . md5($seed);
+                            $cached = get_transient($cache_key);
+
+                            if ($cached !== false) {
+                                $res = $cached;
+                            } else {
+                                $res = DataForSEO::keyword_suggestions(
+                                    $seed,
+                                    (int) Settings::get('keyword_suggestions_limit', 200)
+                                );
+
+                                if ($res['ok']) {
+                                    set_transient($cache_key, $res, HOUR_IN_SECONDS);
+                                }
+                            }
+
+                            if (!$res['ok']) {
+                                $failures++;
+                                Logs::warn('keywords', 'DataForSEO failed', ['seed' => $seed]);
+                                Logs::warn('keywords', 'DataForSEO keyword_suggestions failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
+
+                                if ($failures >= $max_failures) {
+                                    Logs::error('keywords', 'Circuit breaker triggered');
+                                    break;
+                                }
+
+                                usleep(250000);
+                                continue;
+                            }
+
+                            $failures = 0;
+
                         $items = $res['items'] ?? [];
                         $existing_map = [];
                         $lookup_keywords = [];
@@ -147,11 +186,14 @@ class KeywordEngine {
             
                             $inserted++;
                         }
+
+                        usleep(250000);
                     }
-            
-                    
-        } else {
-            Logs::info('keywords', 'Discovery skipped (import_only mode)');
+            } else {
+                Logs::info('keywords', 'Discovery skipped (import_only mode)');
+            }
+        } finally {
+            delete_transient($lock_key);
         }
 
 Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
