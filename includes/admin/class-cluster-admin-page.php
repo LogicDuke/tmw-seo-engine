@@ -78,10 +78,27 @@ class TMW_Cluster_Admin_Page {
             return;
         }
 
+        if (isset($_POST['tmw_sync_gsc']) && check_admin_referer('tmw_sync_gsc_nonce')) {
+            $importer = TMW_Main_Class::get_gsc_cluster_importer();
+            $result = $importer->sync_cluster_metrics();
+
+            echo '<div class="notice notice-success"><p>';
+            echo esc_html('GSC data synced successfully.');
+            echo '</p></div>';
+        }
+
         $clusters = $this->cluster_service->list_clusters(['limit' => 100]);
 
         echo '<div class="wrap">';
         echo '<h1>SEO Clusters</h1>';
+
+        echo '<form method="post" style="margin-bottom:20px;">';
+        wp_nonce_field('tmw_sync_gsc_nonce');
+        echo '<input type="hidden" name="tmw_sync_gsc" value="1" />';
+        echo '<button type="submit" class="button">';
+        echo esc_html('Sync GSC Data');
+        echo '</button>';
+        echo '</form>';
 
         if (empty($clusters) || !is_array($clusters)) {
             echo '<p>' . esc_html('No clusters found.') . '</p>';
