@@ -16,6 +16,12 @@ class TMW_Cluster_Linking_Engine {
             return [];
         }
 
+        $cache_key = 'tmw_cluster_analysis_' . $cluster_id;
+        $cached = get_transient($cache_key);
+        if ($cached !== false) {
+            return $cached;
+        }
+
         $cluster = $this->cluster_service->get_cluster($cluster_id);
         $pages = $this->cluster_service->get_cluster_pages($cluster_id);
 
@@ -146,11 +152,15 @@ class TMW_Cluster_Linking_Engine {
             }
         }
 
-        return [
+        $result = [
             'cluster' => $cluster,
             'pillar' => $pillar_page,
             'supports' => $support_pages,
             'missing_links' => $missing_links,
         ];
+
+        set_transient($cache_key, $result, HOUR_IN_SECONDS);
+
+        return $result;
     }
 }
