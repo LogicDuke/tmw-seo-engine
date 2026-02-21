@@ -205,7 +205,22 @@ class TMW_Cluster_Repository {
     }
 
     public function delete_cluster($id) {
-        // TODO: Implement cluster deletion.
-        return null;
+        $id = (int) $id;
+        if ($id <= 0) {
+            return false;
+        }
+
+        $cluster = $this->get_cluster($id);
+        if ($cluster === null) {
+            return false;
+        }
+
+        $deleted = $this->wpdb->delete(
+            $this->clusters_table,
+            ['id' => $id],
+            ['%d']
+        );
+
+        return $deleted !== false;
     }
 }
