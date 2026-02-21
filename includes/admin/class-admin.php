@@ -16,6 +16,7 @@ class Admin {
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'optimize_post_now']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
+        add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
     }
 
     public static function menu(): void {
@@ -673,10 +674,12 @@ private static function header(string $title): void {
             }
 
             if (isset($_POST['run_cycle'])) {
-                \TMWSEO\Engine\Keywords\KeywordEngine::run_cycle_job([
-                    'id' => 0,
-                    'payload' => [],
-                ]);
+                if (!wp_next_scheduled('tmw_manual_cycle_event')) {
+                    wp_schedule_single_event(time(), 'tmw_manual_cycle_event', [[
+                        'id' => 0,
+                        'payload' => [],
+                    ]]);
+                }
             }
         }
 
