@@ -116,6 +116,8 @@ class KeywordEngine {
                                 'sources' => 'dataforseo_suggest:' . $seed,
                                 'notes' => null,
                                 'updated_at' => current_time('mysql'),
+                            ], [
+                                '%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s'
                             ]);
             
                             $inserted++;
@@ -317,6 +319,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     'page_id' => null,
                     'status' => 'new',
                     'updated_at' => current_time('mysql'),
+                ], [
+                    '%s', '%s', '%s', '%d', '%f', '%f', '%d', '%s', '%s'
                 ]);
             }
         }
@@ -395,6 +399,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     'kind' => 'keyword',
                     'indexing' => 'noindex',
                     'last_generated_at' => current_time('mysql'),
+                ], [
+                    '%d', '%d', '%s', '%s', '%s', '%s'
                 ]);
 
                 // Update cluster
@@ -442,6 +448,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             'provider' => 'manual',
             'details' => wp_json_encode(['page_id' => $page_id, 'keyword' => $keyword]),
             'created_at' => current_time('mysql'),
+        ], [
+            '%s', '%s', '%s', '%s', '%s'
         ]);
     }
 }
