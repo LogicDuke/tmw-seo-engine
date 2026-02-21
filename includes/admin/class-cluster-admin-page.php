@@ -186,6 +186,7 @@ class TMW_Cluster_Admin_Page {
         $keywords = $this->cluster_service->get_cluster_keywords($cluster_id);
         $advisor = TMW_Main_Class::get_cluster_advisor();
         $warnings = $advisor->get_cluster_warnings($cluster_id);
+        $opportunities = $advisor->get_cluster_opportunities($cluster_id);
 
         $cluster_name = isset($cluster['name']) ? (string) $cluster['name'] : '';
         $score = (is_array($score_data) && isset($score_data['score'])) ? (int) $score_data['score'] : 0;
@@ -254,6 +255,29 @@ class TMW_Cluster_Admin_Page {
 
                 echo '<div class="' . esc_attr($class) . '"><p>';
                 echo esc_html($warning['message']);
+                echo '</p></div>';
+            }
+        }
+
+        if (!empty($opportunities)) {
+            echo '<h2>Opportunities</h2>';
+
+            foreach ($opportunities as $opp) {
+                $class = 'notice ';
+
+                switch ($opp['priority']) {
+                    case 'high':
+                        $class .= 'notice-error';
+                        break;
+                    case 'medium':
+                        $class .= 'notice-warning';
+                        break;
+                    default:
+                        $class .= 'notice-info';
+                }
+
+                echo '<div class="' . esc_attr($class) . '"><p>';
+                echo esc_html($opp['message']);
                 echo '</p></div>';
             }
         }
