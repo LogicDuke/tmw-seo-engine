@@ -24,6 +24,17 @@ class TMW_Cluster_Service {
         return $this->repository->get_clusters($args);
     }
 
+
+    public function get_cluster_keywords($cluster_id, $args = []) {
+        // TODO: Add service-layer business logic for cluster keyword retrieval.
+        return $this->repository->get_cluster_keywords($cluster_id, $args);
+    }
+
+    public function get_cluster_pages($cluster_id, $args = []) {
+        // TODO: Add service-layer business logic for cluster page retrieval.
+        return $this->repository->get_cluster_pages($cluster_id, $args);
+    }
+
     public function create_cluster($data) {
         // TODO: Add service-layer business logic for cluster creation.
         return $this->repository->create_cluster($data);
