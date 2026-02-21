@@ -96,8 +96,49 @@ class TMW_Cluster_Repository {
     }
 
     public function create_cluster($data) {
-        // TODO: Implement cluster creation.
-        return null;
+        if (!isset($data['name']) || trim((string) $data['name']) === '') {
+            return null;
+        }
+
+        $name = sanitize_text_field($data['name']);
+        if ($name === '') {
+            return null;
+        }
+
+        $base_slug = isset($data['slug']) && $data['slug'] !== ''
+            ? sanitize_title($data['slug'])
+            : sanitize_title($name);
+
+        if ($base_slug === '') {
+            return null;
+        }
+
+        $unique_slug = $base_slug;
+        $suffix = 2;
+
+        while ($this->get_cluster_by_slug($unique_slug) !== null) {
+            $unique_slug = $base_slug . '-' . $suffix;
+            $suffix++;
+        }
+
+        $insert_data = [
+            'name'   => $name,
+            'slug'   => $unique_slug,
+            'status' => sanitize_text_field($data['status'] ?? 'active'),
+        ];
+
+        $formats = [
+            '%s',
+            '%s',
+            '%s',
+        ];
+
+        $inserted = $this->wpdb->insert($this->clusters_table, $insert_data, $formats);
+        if ($inserted === false) {
+            return null;
+        }
+
+        return $this->get_cluster($this->wpdb->insert_id);
     }
 
     public function update_cluster($id, $data) {
