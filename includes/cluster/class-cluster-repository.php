@@ -138,6 +138,8 @@ class TMW_Cluster_Repository {
             return null;
         }
 
+        \TMWSEO\Engine\Plugin::clear_cluster_cache($this->wpdb->insert_id);
+
         return $this->get_cluster($this->wpdb->insert_id);
     }
 
@@ -201,6 +203,8 @@ class TMW_Cluster_Repository {
             return null;
         }
 
+        \TMWSEO\Engine\Plugin::clear_cluster_cache($id);
+
         return $this->get_cluster($id);
     }
 
@@ -220,6 +224,10 @@ class TMW_Cluster_Repository {
             ['id' => $id],
             ['%d']
         );
+
+        if ($deleted !== false) {
+            \TMWSEO\Engine\Plugin::clear_cluster_cache($id);
+        }
 
         return $deleted !== false;
     }
@@ -242,6 +250,10 @@ class TMW_Cluster_Repository {
             )
         );
 
+        if ($deleted !== false) {
+            \TMWSEO\Engine\Plugin::clear_cluster_cache($cluster_id);
+        }
+
         return $deleted !== false;
     }
 
@@ -262,6 +274,10 @@ class TMW_Cluster_Repository {
                 $cluster_id
             )
         );
+
+        if ($deleted !== false) {
+            \TMWSEO\Engine\Plugin::clear_cluster_cache($cluster_id);
+        }
 
         return $deleted !== false;
     }
@@ -355,6 +371,8 @@ class TMW_Cluster_Repository {
             return false;
         }
 
+        \TMWSEO\Engine\Plugin::clear_cluster_cache($cluster_id);
+
         $inserted_query = $this->wpdb->prepare(
             "SELECT * FROM {$this->keywords_table} WHERE id = %d LIMIT 1",
             $this->wpdb->insert_id
@@ -385,6 +403,10 @@ class TMW_Cluster_Repository {
                 '%s',
             ]
         );
+
+        if ($deleted > 0) {
+            \TMWSEO\Engine\Plugin::clear_cluster_cache($cluster_id);
+        }
 
         return $deleted > 0;
     }
@@ -441,6 +463,8 @@ class TMW_Cluster_Repository {
             return false;
         }
 
+        \TMWSEO\Engine\Plugin::clear_cluster_cache($cluster_id);
+
         $inserted_query = $this->wpdb->prepare(
             "SELECT * FROM {$this->pages_table} WHERE id = %d LIMIT 1",
             $this->wpdb->insert_id
@@ -468,6 +492,10 @@ class TMW_Cluster_Repository {
                 '%d',
             ]
         );
+
+        if ($deleted > 0) {
+            \TMWSEO\Engine\Plugin::clear_cluster_cache($cluster_id);
+        }
 
         return $deleted > 0;
     }
