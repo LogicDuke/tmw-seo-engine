@@ -245,6 +245,27 @@ class TMW_Cluster_Repository {
         return $deleted !== false;
     }
 
+    public function clear_cluster_pages($cluster_id) {
+        $cluster_id = (int) $cluster_id;
+        if ($cluster_id <= 0) {
+            return false;
+        }
+
+        $cluster = $this->get_cluster($cluster_id);
+        if ($cluster === null) {
+            return false;
+        }
+
+        $deleted = $this->wpdb->query(
+            $this->wpdb->prepare(
+                "DELETE FROM {$this->pages_table} WHERE cluster_id = %d",
+                $cluster_id
+            )
+        );
+
+        return $deleted !== false;
+    }
+
     public function get_cluster_keywords($cluster_id, $args = []) {
         $cluster_id = (int) $cluster_id;
         if ($cluster_id <= 0) {
