@@ -320,4 +320,30 @@ class TMW_Cluster_Repository {
 
         return $this->wpdb->get_row($inserted_query, ARRAY_A);
     }
+
+    public function remove_keyword_from_cluster($cluster_id, $keyword) {
+        $cluster_id = (int) $cluster_id;
+        if ($cluster_id <= 0) {
+            return false;
+        }
+
+        $keyword = trim(sanitize_text_field($keyword));
+        if ($keyword === '') {
+            return false;
+        }
+
+        $deleted = $this->wpdb->delete(
+            $this->keywords_table,
+            [
+                'cluster_id' => $cluster_id,
+                'keyword' => $keyword,
+            ],
+            [
+                '%d',
+                '%s',
+            ]
+        );
+
+        return $deleted > 0;
+    }
 }
