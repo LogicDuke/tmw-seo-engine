@@ -18,13 +18,33 @@ class TMW_Cluster_Repository {
     }
 
     public function get_cluster($id) {
-        // TODO: Implement cluster lookup by ID.
-        return null;
+        $id = (int) $id;
+        if ($id <= 0) {
+            return null;
+        }
+
+        $query = $this->wpdb->prepare(
+            "SELECT * FROM {$this->clusters_table} WHERE id = %d LIMIT 1",
+            $id
+        );
+        $cluster = $this->wpdb->get_row($query, ARRAY_A);
+
+        return $cluster ?: null;
     }
 
     public function get_cluster_by_slug($slug) {
-        // TODO: Implement cluster lookup by slug.
-        return null;
+        $slug = sanitize_title($slug);
+        if ($slug === '') {
+            return null;
+        }
+
+        $query = $this->wpdb->prepare(
+            "SELECT * FROM {$this->clusters_table} WHERE slug = %s LIMIT 1",
+            $slug
+        );
+        $cluster = $this->wpdb->get_row($query, ARRAY_A);
+
+        return $cluster ?: null;
     }
 
     public function get_clusters($args = []) {
