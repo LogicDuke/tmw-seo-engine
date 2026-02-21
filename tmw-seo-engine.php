@@ -16,6 +16,10 @@ define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 require_once TMWSEO_ENGINE_PATH . 'includes/class-plugin.php';
 
 register_activation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'activate']);
+register_activation_hook(__FILE__, function () {
+    require_once plugin_dir_path(__FILE__) . 'includes/migrations/class-cluster-db-migration.php';
+    TMW_Cluster_DB_Migration::maybe_migrate();
+});
 register_deactivation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'deactivate']);
 
 add_action('plugins_loaded', function () {
