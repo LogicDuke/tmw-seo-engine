@@ -25,6 +25,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-linking-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
 
 class Plugin {
 
@@ -74,6 +75,13 @@ class Plugin {
             self::$cluster_linking_engine
         );
         self::$cluster_scoring_engine = $cluster_scoring_engine;
+
+        $cluster_admin_page = new \TMW_Cluster_Admin_Page(
+            self::$cluster_service,
+            self::$cluster_scoring_engine
+        );
+
+        add_action('admin_menu', [$cluster_admin_page, 'register_menu']);
 
         if (is_admin()) {
             Admin::init();
