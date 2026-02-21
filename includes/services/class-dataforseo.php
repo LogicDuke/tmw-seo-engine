@@ -15,27 +15,47 @@ class DataForSEO {
         return $login !== '' && $pass !== '';
     }
 
-    private static function auth_header(): string {
-        // Normalize whitespace to avoid hidden \r/\n or trailing spaces breaking Basic Auth.
-        $login = trim((string)Settings::get('dataforseo_login', ''));
-        $pass  = trim((string)Settings::get('dataforseo_password', ''));
-        return 'Basic ' . base64_encode($login . ':' . $pass);
-    }
-
     private static function post(string $path, array $post_array): array {
         if (Settings::is_safe_mode()) return ['ok' => false, 'error' => 'safe_mode_enabled'];
         if (!self::is_configured()) return ['ok' => false, 'error' => 'dataforseo_credentials_missing'];
 
         $url = rtrim(self::API_BASE, '/') . '/' . ltrim($path, '/');
 
-        $resp = wp_remote_post($url, [
-            'timeout' => 60,
+        $login = (string) Settings::get('dataforseo_login', '');
+        $pass  = (string) Settings::get('dataforseo_password', '');
+
+        // Use WP HTTP API-native request args for Basic Auth compatibility on hosts/proxies that alter handcrafted auth headers.
+        $args = [
+            'timeout' => 30,
             'headers' => [
-                'Authorization' => self::auth_header(),
                 'Content-Type' => 'application/json',
+                'Accept'       => 'application/json',
             ],
             'body' => wp_json_encode($post_array),
+            'data_format' => 'body',
+            'sslverify' => true,
+        ];
+
+        $args['headers']['Authorization'] = 'Basic ' . base64_encode($login . ':' . $pass);
+        $args['headers'] = array_merge($args['headers'], [
+            'Authorization' => 'Basic ' . base64_encode(trim($login) . ':' . trim($pass)),
         ]);
+
+        $resp = wp_remote_post($url, $args);
+
+        if (!is_wp_error($resp) && (int) wp_remote_retrieve_response_code($resp) === 401) {
+            $args['headers'] = [
+                'Content-Type' => 'application/json',
+                'Accept'       => 'application/json',
+            ];
+            $args['body'] = wp_json_encode($post_array);
+            $args['sslverify'] = true;
+            $args['timeout'] = 30;
+            $args['redirection'] = 0;
+            $args['headers']['Authorization'] = 'Basic ' . base64_encode($login . ':' . $pass);
+
+            $resp = wp_remote_post($url, $args);
+        }
 
         if (is_wp_error($resp)) {
             Logs::error('dataforseo', 'WP error', ['error' => $resp->get_error_message(), 'path' => $path]);
@@ -52,7 +72,13 @@ class DataForSEO {
         }
 
         if (!empty($json['status_code']) && (int)$json['status_code'] !== 20000) {
-            Logs::warn('dataforseo', 'Non-20000 status', ['status_code' => $json['status_code'], 'msg' => $json['status_message'] ?? '', 'path' => $path]);
+            Logs::warn('dataforseo', 'Non-20000 status', [
+                'status_code' => $json['status_code'],
+                'http_code' => $code,
+                'msg' => $json['status_message'] ?? '',
+                'path' => $path,
+                'body' => substr($raw, 0, 500),
+            ]);
         }
 
         return ['ok' => true, 'data' => $json];
