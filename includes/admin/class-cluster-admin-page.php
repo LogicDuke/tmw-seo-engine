@@ -82,9 +82,15 @@ class TMW_Cluster_Admin_Page {
             $importer = TMW_Main_Class::get_gsc_cluster_importer();
             $result = $importer->sync_cluster_metrics();
 
-            echo '<div class="notice notice-success"><p>';
-            echo esc_html('GSC data synced successfully.');
-            echo '</p></div>';
+            if (is_wp_error($result)) {
+                echo '<div class="notice notice-error"><p>';
+                echo esc_html($result->get_error_message());
+                echo '</p></div>';
+            } else {
+                echo '<div class="notice notice-success"><p>';
+                echo esc_html('GSC data synced successfully.');
+                echo '</p></div>';
+            }
         }
 
         $clusters = $this->cluster_service->list_clusters(['limit' => 100]);
@@ -210,9 +216,15 @@ class TMW_Cluster_Admin_Page {
             $injector = TMW_Main_Class::get_cluster_link_injector();
             $result = $injector->inject_missing_links($cluster_id);
 
-            echo '<div class="notice notice-success"><p>';
-            echo esc_html($result['updated'] . ' links injected successfully.');
-            echo '</p></div>';
+            if (!empty($result['updated'])) {
+                echo '<div class="notice notice-success"><p>';
+                echo esc_html($result['updated'] . ' links injected successfully.');
+                echo '</p></div>';
+            } else {
+                echo '<div class="notice notice-warning"><p>';
+                echo esc_html('No links were injected.');
+                echo '</p></div>';
+            }
         }
 
         $score_data = $this->scoring_engine->score_cluster($cluster_id);
