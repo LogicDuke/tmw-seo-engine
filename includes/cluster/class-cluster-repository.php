@@ -427,4 +427,57 @@ class TMW_Cluster_Repository {
 
         return $this->wpdb->get_row($inserted_query, ARRAY_A);
     }
+
+    public function get_cluster_pages($cluster_id, $args = []) {
+        $cluster_id = (int) $cluster_id;
+        if ($cluster_id <= 0) {
+            return [];
+        }
+
+        $defaults = [
+            'role'    => null,
+            'limit'   => 100,
+            'offset'  => 0,
+            'orderby' => 'id',
+            'order'   => 'ASC',
+        ];
+
+        $args = wp_parse_args($args, $defaults);
+
+        $allowed_orderby = ['id', 'post_id', 'role', 'created_at'];
+        $orderby = in_array($args['orderby'], $allowed_orderby, true) ? $args['orderby'] : 'id';
+
+        $order = strtoupper((string) $args['order']);
+        if (!in_array($order, ['ASC', 'DESC'], true)) {
+            $order = 'ASC';
+        }
+
+        $limit = (int) $args['limit'];
+        $offset = (int) $args['offset'];
+
+        if ($limit < 0) {
+            $limit = 0;
+        }
+
+        if ($offset < 0) {
+            $offset = 0;
+        }
+
+        $where_sql = 'WHERE cluster_id = %d';
+        $prepare_args = [$cluster_id];
+
+        if ($args['role'] !== null && $args['role'] !== '') {
+            $where_sql .= ' AND role = %s';
+            $prepare_args[] = sanitize_text_field($args['role']);
+        }
+
+        $sql = "SELECT * FROM {$this->pages_table} {$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $prepare_args[] = $limit;
+        $prepare_args[] = $offset;
+
+        $query = $this->wpdb->prepare($sql, $prepare_args);
+        $pages = $this->wpdb->get_results($query, ARRAY_A);
+
+        return $pages ?: [];
+    }
 }
