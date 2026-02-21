@@ -25,6 +25,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-linking-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
 
 class Plugin {
@@ -32,6 +33,7 @@ class Plugin {
     private static $cluster_service;
     private static $cluster_linking_engine;
     private static $cluster_scoring_engine;
+    private static $cluster_link_injector;
 
     public static function get_cluster_service() {
         return self::$cluster_service ?? null;
@@ -43,6 +45,10 @@ class Plugin {
 
     public static function get_cluster_scoring_engine() {
         return self::$cluster_scoring_engine ?? null;
+    }
+
+    public static function get_cluster_link_injector() {
+        return self::$cluster_link_injector ?? null;
     }
 
     public static function clear_cluster_cache($cluster_id) {
@@ -75,6 +81,12 @@ class Plugin {
             self::$cluster_linking_engine
         );
         self::$cluster_scoring_engine = $cluster_scoring_engine;
+
+        $cluster_link_injector = new \TMW_Cluster_Link_Injector(
+            self::$cluster_service,
+            self::$cluster_linking_engine
+        );
+        self::$cluster_link_injector = $cluster_link_injector;
 
         $cluster_admin_page = new \TMW_Cluster_Admin_Page(
             self::$cluster_service,
