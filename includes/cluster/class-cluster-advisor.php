@@ -193,4 +193,17 @@ class TMW_Cluster_Advisor {
 
         return $opportunities;
     }
+
+    public function get_cluster_opportunity_score($cluster_id) {
+        $cluster_id = (int) $cluster_id;
+
+        if ($cluster_id <= 0) {
+            return [];
+        }
+
+        // TODO: Calculate page gap.
+        // TODO: Calculate CTR gap.
+        // TODO: Calculate linking weakness.
+        return [];
+    }
 }
