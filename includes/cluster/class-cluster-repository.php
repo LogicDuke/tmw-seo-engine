@@ -223,4 +223,60 @@ class TMW_Cluster_Repository {
 
         return $deleted !== false;
     }
+
+    public function add_keyword_to_cluster($cluster_id, $keyword, $data = []) {
+        $cluster_id = (int) $cluster_id;
+        if ($cluster_id <= 0) {
+            return false;
+        }
+
+        $cluster = $this->get_cluster($cluster_id);
+        if ($cluster === null) {
+            return false;
+        }
+
+        $keyword = trim(sanitize_text_field($keyword));
+        if ($keyword === '') {
+            return false;
+        }
+
+        $existing_query = $this->wpdb->prepare(
+            "SELECT * FROM {$this->keywords_table} WHERE cluster_id = %d AND keyword = %s LIMIT 1",
+            $cluster_id,
+            $keyword
+        );
+        $existing_keyword = $this->wpdb->get_row($existing_query, ARRAY_A);
+
+        if ($existing_keyword !== null) {
+            return $existing_keyword;
+        }
+
+        $insert_data = [
+            'cluster_id'         => $cluster_id,
+            'keyword'            => $keyword,
+            'search_volume'      => $data['search_volume'] ?? null,
+            'keyword_difficulty' => $data['keyword_difficulty'] ?? null,
+            'intent'             => isset($data['intent']) ? sanitize_text_field($data['intent']) : null,
+        ];
+
+        $formats = [
+            '%d',
+            '%s',
+            '%d',
+            '%d',
+            '%s',
+        ];
+
+        $inserted = $this->wpdb->insert($this->keywords_table, $insert_data, $formats);
+        if ($inserted === false) {
+            return false;
+        }
+
+        $inserted_query = $this->wpdb->prepare(
+            "SELECT * FROM {$this->keywords_table} WHERE id = %d LIMIT 1",
+            $this->wpdb->insert_id
+        );
+
+        return $this->wpdb->get_row($inserted_query, ARRAY_A);
+    }
 }
