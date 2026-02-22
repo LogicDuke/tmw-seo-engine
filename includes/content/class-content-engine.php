@@ -58,14 +58,19 @@ class ContentEngine {
     public static function run_optimize_job(array $job): void {
         error_log('TMW run_optimize_job ENTERED');
         $post_id = (int)($job['entity_id'] ?? 0);
+        error_log('TMW run_optimize_job POST_ID=' . $post_id);
+        $dry = get_option('tmwseo_dry_run_mode', 0);
+        error_log('TMW run_optimize_job DRY_MODE=' . $dry);
         if ($post_id <= 0) {
             Logs::warn('content', 'optimize_post missing entity_id');
+            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
         $post = get_post($post_id);
         if (!$post) {
             Logs::warn('content', 'Post not found', ['post_id' => $post_id]);
+            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
@@ -73,6 +78,7 @@ class ContentEngine {
             Logs::info('content', 'Safe mode enabled; skipping AI generation', ['post_id' => $post_id]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'skipped_safe_mode');
+            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
@@ -83,6 +89,8 @@ class ContentEngine {
                 'post_id' => $post_id
             ]);
 
+            error_log('TMW run_optimize_job GENERATING CONTENT');
+
             $placeholder_content = "\n" .
                 "<h2>About {$post->post_title}</h2>\n" .
                 "<p>This is structured SEO placeholder content generated in Dry Run Mode.</p>\n\n" .
@@ -92,10 +100,15 @@ class ContentEngine {
                 "<p>Internal linking structure placeholder.</p>\n\n" .
                 "<p><strong>SEO Meta Description:</strong> Optimized preview for {$post->post_title}.</p>\n";
 
+            $generated_content = $placeholder_content;
+            error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
+            error_log('TMW run_optimize_job UPDATING POST');
+
             wp_update_post([
                 'ID'           => $post_id,
                 'post_content' => $placeholder_content,
             ]);
+            error_log('TMW run_optimize_job UPDATE COMPLETE');
 
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'dry_run');
@@ -104,12 +117,14 @@ class ContentEngine {
                 'post_id' => $post_id,
             ]);
 
+            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
         if (!OpenAI::is_configured()) {
             Logs::warn('content', 'OpenAI not configured; skipping', ['post_id' => $post_id]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
@@ -155,6 +170,7 @@ class ContentEngine {
                 "4) content_html with structured headings and an FAQ section (3-5 Q&As).\n"
         ];
 
+        error_log('TMW run_optimize_job GENERATING CONTENT');
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.6,
             'max_tokens' => 2200,
@@ -163,6 +179,7 @@ class ContentEngine {
         if (!$res['ok']) {
             Logs::error('content', 'OpenAI generation failed', ['post_id' => $post_id, 'error' => $res['error'] ?? '']);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
@@ -176,6 +193,8 @@ class ContentEngine {
         $meta_desc = trim($meta_desc);
         $focus_kw  = trim($focus_kw);
         $html      = wp_kses_post(trim($html));
+        $generated_content = $html;
+        error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
 
         if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
         if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
@@ -186,10 +205,12 @@ class ContentEngine {
 
         // Only update post if content actually changed.
         if ($new_content !== (string)$post->post_content) {
+            error_log('TMW run_optimize_job UPDATING POST');
             wp_update_post([
                 'ID' => $post_id,
                 'post_content' => $new_content,
             ]);
+            error_log('TMW run_optimize_job UPDATE COMPLETE');
         }
 
         delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
