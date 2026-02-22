@@ -121,6 +121,40 @@ class ContentEngine {
             return;
         }
 
+        // FORCE OFFLINE MODE IF OPENAI QUOTA FAILS
+        $force_dry = true;
+
+        if ($force_dry) {
+
+            error_log('TMW OFFLINE DRY MODE ACTIVE');
+
+            $seo_title = 'SEO Title for Post ' . $post_id;
+            $meta_desc = 'This is a generated meta description for post ' . $post_id . '.';
+            $focus_kw  = 'sample keyword ' . $post_id;
+
+            $generated_content = '<h2>SEO Optimized Content</h2>';
+            $generated_content .= '<p>This content was generated in offline dry mode.</p>';
+            $generated_content .= '<p>Post ID: ' . $post_id . '</p>';
+
+            error_log('TMW run_optimize_job UPDATING POST');
+
+            wp_update_post([
+                'ID' => $post_id,
+                'post_content' => $generated_content,
+            ]);
+
+            update_post_meta($post_id, '_yoast_wpseo_title', $seo_title);
+            update_post_meta($post_id, '_yoast_wpseo_metadesc', $meta_desc);
+            update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+
+            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            update_post_meta($post_id, '_tmwseo_optimize_done', 'offline_dry');
+
+            error_log('TMW OFFLINE MODE COMPLETE');
+
+            return;
+        }
+
         if (!OpenAI::is_configured()) {
             Logs::warn('content', 'OpenAI not configured; skipping', ['post_id' => $post_id]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
