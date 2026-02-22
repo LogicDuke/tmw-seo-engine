@@ -22,7 +22,77 @@ class Admin {
             debug_print_backtrace();
         });
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
+        add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
+    }
+
+    public static function handle_bulk_autofix(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_bulk_autofix');
+
+        $post_types = ['post', 'model', 'tmw_category_page'];
+        $posts = get_posts([
+            'post_type' => $post_types,
+            'posts_per_page' => -1,
+            'post_status' => 'publish',
+            'fields' => 'ids',
+            'no_found_rows' => true,
+            'ignore_sticky_posts' => true,
+            'cache_results' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ]);
+
+        $updated = 0;
+
+        foreach ($posts as $post_id) {
+            $keyword = get_post_meta((int)$post_id, 'rank_math_focus_keyword', true);
+            $meta = get_post_meta((int)$post_id, 'rank_math_description', true);
+
+            $post = get_post((int)$post_id);
+            if (!$post) {
+                continue;
+            }
+
+            $title = trim((string)$post->post_title);
+            if ($title === '') {
+                continue;
+            }
+
+            $changed = false;
+
+            if (trim((string)$keyword) === '') {
+                $words = preg_split('/\s+/', strtolower($title));
+                $words = is_array($words) ? array_values(array_filter($words, static fn($word) => $word !== '')) : [];
+                $new_keyword = implode(' ', array_slice($words, 0, 4));
+
+                if ($new_keyword !== '') {
+                    update_post_meta((int)$post_id, 'rank_math_focus_keyword', sanitize_text_field($new_keyword));
+                    $changed = true;
+                }
+            }
+
+            if (trim((string)$meta) === '') {
+                $new_meta = sprintf(
+                    'Watch %s online. Discover premium streaming content and exclusive live experiences.',
+                    $title
+                );
+                $new_meta = mb_substr($new_meta, 0, 155);
+                update_post_meta((int)$post_id, 'rank_math_description', sanitize_text_field($new_meta));
+                $changed = true;
+            }
+
+            if ($changed) {
+                update_post_meta((int)$post_id, '_tmwseo_autofixed', current_time('mysql'));
+                $updated++;
+            }
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=tmw-seo-engine&bulk_updated=' . $updated));
+        exit;
     }
 
     public static function enqueue_admin_assets(string $hook): void {
@@ -750,6 +820,13 @@ private static function header(string $title): void {
     public static function render_overview(): void {
         self::header(__('TMW SEO Engine — Overview', 'tmwseo'));
 
+        if (isset($_GET['bulk_updated'])) {
+            $count = intval($_GET['bulk_updated']);
+            echo '<div class="notice notice-success is-dismissible">';
+            echo '<p>⚡ Auto Fix completed. Updated ' . esc_html((string)$count) . ' posts.</p>';
+            echo '</div>';
+        }
+
         $tracked_post_types = ['post', 'page', 'model', 'blog', 'photos', 'tmw_category_page'];
         $seo_breakdown_post_types = [
             'post' => __('Videos', 'tmwseo'),
@@ -1072,6 +1149,12 @@ private static function header(string $title): void {
         echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$ready_percent) . '%;">' . esc_html((string)$ready_percent) . '%</div>';
         echo '</div>';
         echo '<p>' . esc_html(sprintf('%d of %d posts fully optimized', $count_ready, $optimization_total_posts)) . '</p>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-bottom:20px;">';
+        wp_nonce_field('tmwseo_bulk_autofix');
+        echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
+        echo '<button class="button button-primary">⚡ Auto Fix Missing SEO</button>';
+        echo '</form>';
 
         echo '<div class="tmwseo-dashboard">';
         self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
