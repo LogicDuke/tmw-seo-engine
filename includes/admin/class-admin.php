@@ -112,6 +112,23 @@ class Admin {
                 font-weight:bold;
             }
 
+            .tmwseo-progress-wrapper {
+                width:100%;
+                background:#eee;
+                border-radius:6px;
+                overflow:hidden;
+                margin-bottom:25px;
+            }
+
+            .tmwseo-progress-bar {
+                background:#2e7d32;
+                color:#fff;
+                padding:10px;
+                font-weight:bold;
+                text-align:center;
+                transition: width 0.3s ease;
+            }
+
             .tmwseo-quick-actions {
                 margin-top: 24px;
             }
@@ -874,6 +891,35 @@ private static function header(string $title): void {
         $rankmath_synced_ratio = $rankmath_synced_posts / max($rankmath_total_posts, 1);
         $rankmath_sync_score = round($rankmath_synced_ratio * 100);
 
+        $optimization_progress_post_ids = get_posts([
+            'post_type' => ['post', 'model', 'tmw_category_page'],
+            'post_status' => 'any',
+            'fields' => 'ids',
+            'posts_per_page' => -1,
+            'no_found_rows' => true,
+            'ignore_sticky_posts' => true,
+            'cache_results' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ]);
+
+        $optimization_total_posts = count($optimization_progress_post_ids);
+        $count_ready = 0;
+
+        foreach ($optimization_progress_post_ids as $optimization_post_id) {
+            $has_keyword = trim((string)get_post_meta((int)$optimization_post_id, 'rank_math_focus_keyword', true)) !== '';
+            $has_meta = trim((string)get_post_meta((int)$optimization_post_id, 'rank_math_description', true)) !== '';
+            $post_content = (string)get_post_field('post_content', (int)$optimization_post_id);
+            $has_content = strlen(trim(strip_tags($post_content))) > 300;
+
+            if ($has_keyword && $has_meta && $has_content) {
+                $count_ready++;
+            }
+        }
+
+        $ready_ratio = $count_ready / max($optimization_total_posts, 1);
+        $ready_percent = round($ready_ratio * 100);
+
         $internal_link_post_ids = get_posts([
             'post_type' => ['post', 'model', 'tmw_category_page'],
             'post_status' => 'any',
@@ -1020,6 +1066,12 @@ private static function header(string $title): void {
             echo '</div>';
         }
         echo '</div>';
+
+        echo '<h2>' . esc_html__('Optimization Progress', 'tmwseo') . '</h2>';
+        echo '<div class="tmwseo-progress-wrapper">';
+        echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$ready_percent) . '%;">' . esc_html((string)$ready_percent) . '%</div>';
+        echo '</div>';
+        echo '<p>' . esc_html(sprintf('%d of %d posts fully optimized', $count_ready, $optimization_total_posts)) . '</p>';
 
         echo '<div class="tmwseo-dashboard">';
         self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
