@@ -9,6 +9,7 @@ class Admin {
 
     public static function init(): void {
         add_action('admin_menu', [__CLASS__, 'menu']);
+        add_action('admin_init', [__CLASS__, 'register_settings']);
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
@@ -17,6 +18,57 @@ class Admin {
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
+    }
+
+    public static function register_settings(): void {
+        register_setting(
+            'tmwseo_settings_group',
+            'tmwseo_engine_settings',
+            [
+                'type' => 'array',
+                'sanitize_callback' => [__CLASS__, 'sanitize_settings'],
+                'default' => [],
+            ]
+        );
+    }
+
+    public static function sanitize_settings($input): array {
+        $input = is_array($input) ? $input : [];
+
+        $mode = sanitize_text_field((string)($input['openai_mode'] ?? 'hybrid'));
+        if (!in_array($mode, ['quality', 'bulk', 'hybrid'], true)) {
+            $mode = 'hybrid';
+        }
+
+        $primary = sanitize_text_field((string)($input['openai_model_primary'] ?? 'gpt-4o'));
+        $bulk = sanitize_text_field((string)($input['openai_model_bulk'] ?? 'gpt-4o-mini'));
+
+        $voice = sanitize_text_field((string)($input['brand_voice'] ?? 'premium'));
+        if (!in_array($voice, ['premium', 'neutral'], true)) {
+            $voice = 'premium';
+        }
+
+        return [
+            'openai_api_key' => sanitize_text_field((string)($input['openai_api_key'] ?? '')),
+            'openai_mode' => $mode,
+            'openai_model_primary' => $primary,
+            'openai_model_bulk' => $bulk,
+            'openai_model' => ($mode === 'bulk') ? $bulk : $primary,
+            'brand_voice' => $voice,
+            'tmwseo_dry_run_mode' => !empty($input['tmwseo_dry_run_mode']) ? 1 : 0,
+            'dataforseo_login' => sanitize_text_field((string)($input['dataforseo_login'] ?? '')),
+            'dataforseo_password' => sanitize_text_field((string)($input['dataforseo_password'] ?? '')),
+            'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? '2840')),
+            'dataforseo_language_code' => sanitize_text_field((string)($input['dataforseo_language_code'] ?? 'en')),
+            'safe_mode' => !empty($input['safe_mode']) ? 1 : 0,
+            'competitor_domains' => sanitize_textarea_field((string)($input['competitor_domains'] ?? '')),
+            'keyword_min_volume' => max(0, (int)($input['keyword_min_volume'] ?? 30)),
+            'keyword_max_kd' => max(0, (int)($input['keyword_max_kd'] ?? 60)),
+            'keyword_new_limit' => max(0, (int)($input['keyword_new_limit'] ?? 300)),
+            'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? 300)),
+            'keyword_pages_per_day' => max(0, (int)($input['keyword_pages_per_day'] ?? 3)),
+            'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? '')),
+        ];
     }
 
     public static function menu(): void {
@@ -61,8 +113,6 @@ class Admin {
 
     public static function save_settings(): void {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
-        check_admin_referer('tmwseo_save_settings');
-
         // New (alpha.6): model routing + brand voice, while keeping legacy "openai_model" for compatibility.
         $mode = sanitize_text_field((string)($_POST['openai_mode'] ?? 'hybrid'));
         if (!in_array($mode, ['quality', 'bulk', 'hybrid'], true)) {
@@ -797,20 +847,20 @@ private static function header(string $title): void {
         $safe_mode = !empty($opts['safe_mode']);
         $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
 
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_save_settings');
-        echo '<input type="hidden" name="action" value="tmwseo_save_settings" />';
+        echo '<form method="post" action="options.php">';
+        settings_fields('tmwseo_settings_group');
+        do_settings_sections('tmwseo_settings');
 
         echo '<h2>Safe Mode</h2>';
-        echo '<label><input type="checkbox" name="safe_mode" value="1" ' . checked($safe_mode, true, false) . '> Keep safe mode enabled (no auto-publish / no indexing submissions)</label>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked($safe_mode, true, false) . '> Keep safe mode enabled (no auto-publish / no indexing submissions)</label>';
 
         echo '<h2>OpenAI</h2>';
         echo '<table class="form-table">';
-        echo '<tr><th>API Key</th><td><input type="password" name="openai_api_key" value="' . $openai_api_key . '" class="regular-text" autocomplete="off">';
+        echo '<tr><th>API Key</th><td><input type="password" name="tmwseo_engine_settings[openai_api_key]" value="' . $openai_api_key . '" class="regular-text" autocomplete="off">';
         echo '<p class="description">Store your OpenAI API key here.</p></td></tr>';
 
         echo '<tr><th>Mode</th><td>';
-        echo '<select name="openai_mode">';
+        echo '<select name="tmwseo_engine_settings[openai_mode]">';
         echo '<option value="hybrid"' . selected($openai_mode, 'hybrid', false) . '>Hybrid (recommended)</option>';
         echo '<option value="quality"' . selected($openai_mode, 'quality', false) . '>Quality (always primary)</option>';
         echo '<option value="bulk"' . selected($openai_mode, 'bulk', false) . '>Bulk (always bulk model)</option>';
@@ -818,14 +868,14 @@ private static function header(string $title): void {
         echo '<p class="description">Hybrid balances quality + cost: primary model for high-value jobs, bulk model for large batches.</p>';
         echo '</td></tr>';
 
-        echo '<tr><th>Primary model</th><td><input type="text" name="openai_model_primary" value="' . $openai_model_primary . '" class="regular-text">';
+        echo '<tr><th>Primary model</th><td><input type="text" name="tmwseo_engine_settings[openai_model_primary]" value="' . $openai_model_primary . '" class="regular-text">';
         echo '<p class="description">Default: <code>gpt-4o</code></p></td></tr>';
 
-        echo '<tr><th>Bulk model</th><td><input type="text" name="openai_model_bulk" value="' . $openai_model_bulk . '" class="regular-text">';
+        echo '<tr><th>Bulk model</th><td><input type="text" name="tmwseo_engine_settings[openai_model_bulk]" value="' . $openai_model_bulk . '" class="regular-text">';
         echo '<p class="description">Default: <code>gpt-4o-mini</code></p></td></tr>';
 
         echo '<tr><th>Brand voice</th><td>';
-        echo '<select name="brand_voice">';
+        echo '<select name="tmwseo_engine_settings[brand_voice]">';
         echo '<option value="premium"' . selected($brand_voice, 'premium', false) . '>Premium (recommended)</option>';
         echo '<option value="neutral"' . selected($brand_voice, 'neutral', false) . '>Neutral</option>';
         echo '</select>';
@@ -833,44 +883,44 @@ private static function header(string $title): void {
         echo '</td></tr>';
 
         echo '<tr><th>Dry Run Mode</th><td>';
-        echo '<label><input type="checkbox" name="tmwseo_dry_run_mode" value="1" ' . checked($dry_run_mode, true, false) . '> Enable Dry Run Mode (Skip OpenAI, generate placeholder SEO content)</label>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_dry_run_mode]" value="1" ' . checked($dry_run_mode, true, false) . '> Enable Dry Run Mode (Skip OpenAI, generate placeholder SEO content)</label>';
         echo '</td></tr>';
 
         // Legacy single-model field (hidden-ish): keep for compatibility / quick overrides.
-        echo '<tr><th>Legacy model (auto)</th><td><input type="text" name="openai_model" value="' . $openai_model . '" class="regular-text" readonly>'; 
+        echo '<tr><th>Legacy model (auto)</th><td><input type="text" name="tmwseo_engine_settings[openai_model]" value="' . $openai_model . '" class="regular-text" readonly>'; 
         echo '<p class="description">This is kept for backward compatibility; it auto-syncs based on Mode.</p></td></tr>';
 
         echo '</table>';
 
         echo '<h2>DataForSEO</h2>';
-        echo '<table class="form-table"><tr><th>Login</th><td><input type="text" name="dataforseo_login" value="' . $d_login . '" class="regular-text"></td></tr>';
-        echo '<tr><th>Password</th><td><input type="password" name="dataforseo_password" value="' . $d_pass . '" class="regular-text" autocomplete="off"></td></tr></table>';
+        echo '<table class="form-table"><tr><th>Login</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_login]" value="' . $d_login . '" class="regular-text"></td></tr>';
+        echo '<tr><th>Password</th><td><input type="password" name="tmwseo_engine_settings[dataforseo_password]" value="' . $d_pass . '" class="regular-text" autocomplete="off"></td></tr></table>';
 
-        echo '<table class="form-table"><tr><th>Location code</th><td><input type="text" name="dataforseo_location_code" value="' . $d_loc . '" class="regular-text">';
+        echo '<table class="form-table"><tr><th>Location code</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_location_code]" value="' . $d_loc . '" class="regular-text">';
         echo '<p class="description">Default: <code>2840</code> (United States). Change later if you want geo-specific keyword data.</p></td></tr></table>';
 
 
-        echo '<table class="form-table"><tr><th>Language code</th><td><input type="text" name="dataforseo_language_code" value="' . esc_attr((string)($opts['dataforseo_language_code'] ?? 'en')) . '" class="regular-text">';
+        echo '<table class="form-table"><tr><th>Language code</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_language_code]" value="' . esc_attr((string)($opts['dataforseo_language_code'] ?? 'en')) . '" class="regular-text">';
         echo '<p class="description">Default: <code>en</code>. Example: <code>nl</code>, <code>de</code>, <code>fr</code>.</p></td></tr></table>';
 
         echo '<h2>Keyword Engine</h2>';
-        echo '<table class="form-table"><tr><th>Competitor domains (one per line)</th><td><textarea name="competitor_domains" rows="7" class="large-text code">' . esc_textarea((string)($opts['competitor_domains'] ?? '')) . '</textarea>';
+        echo '<table class="form-table"><tr><th>Competitor domains (one per line)</th><td><textarea name="tmwseo_engine_settings[competitor_domains]" rows="7" class="large-text code">' . esc_textarea((string)($opts['competitor_domains'] ?? '')) . '</textarea>';
         echo '<p class="description">Used for competitor rotation seeds. Domains only (no https://).</p></td></tr></table>';
 
         echo '<table class="form-table">';
-        echo '<tr><th>Min search volume</th><td><input type="number" name="keyword_min_volume" value="' . esc_attr((string)($opts['keyword_min_volume'] ?? 30)) . '" class="small-text"> <span class="description">Filter low-volume noise.</span></td></tr>';
-        echo '<tr><th>Max KD</th><td><input type="number" name="keyword_max_kd" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"> <span class="description">Auto-reject too difficult keywords.</span></td></tr>';
-        echo '<tr><th>New keywords per run</th><td><input type="number" name="keyword_new_limit" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
-        echo '<tr><th>KD batch size</th><td><input type="number" name="keyword_kd_batch_limit" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
-        echo '<tr><th>Pages per day</th><td><input type="number" name="keyword_pages_per_day" value="' . esc_attr((string)($opts['keyword_pages_per_day'] ?? 3)) . '" class="small-text"> <span class="description">Auto-created drafts (noindex) from top clusters.</span></td></tr>';
+        echo '<tr><th>Min search volume</th><td><input type="number" name="tmwseo_engine_settings[keyword_min_volume]" value="' . esc_attr((string)($opts['keyword_min_volume'] ?? 30)) . '" class="small-text"> <span class="description">Filter low-volume noise.</span></td></tr>';
+        echo '<tr><th>Max KD</th><td><input type="number" name="tmwseo_engine_settings[keyword_max_kd]" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"> <span class="description">Auto-reject too difficult keywords.</span></td></tr>';
+        echo '<tr><th>New keywords per run</th><td><input type="number" name="tmwseo_engine_settings[keyword_new_limit]" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>KD batch size</th><td><input type="number" name="tmwseo_engine_settings[keyword_kd_batch_limit]" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>Pages per day</th><td><input type="number" name="tmwseo_engine_settings[keyword_pages_per_day]" value="' . esc_attr((string)($opts['keyword_pages_per_day'] ?? 3)) . '" class="small-text"> <span class="description">Auto-created drafts (noindex) from top clusters.</span></td></tr>';
         echo '</table>';
 
         echo '<h2>PageSpeed Insights</h2>';
-        echo '<table class="form-table"><tr><th>Google PageSpeed API key (optional)</th><td><input type="text" name="google_pagespeed_api_key" value="' . esc_attr((string)($opts['google_pagespeed_api_key'] ?? '')) . '" class="regular-text" autocomplete="off">';
+        echo '<table class="form-table"><tr><th>Google PageSpeed API key (optional)</th><td><input type="text" name="tmwseo_engine_settings[google_pagespeed_api_key]" value="' . esc_attr((string)($opts['google_pagespeed_api_key'] ?? '')) . '" class="regular-text" autocomplete="off">';
         echo '<p class="description">Optional. If empty, PSI may still work but can be rate-limited.</p></td></tr></table>';
 
 
-        echo '<p><button class="button button-primary">Save Settings</button></p>';
+        submit_button();
         echo '</form>';
 
         self::footer();
