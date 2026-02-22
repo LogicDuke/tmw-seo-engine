@@ -9,6 +9,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/db/class-jobs.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
@@ -137,6 +138,7 @@ class Plugin {
 
         if (is_admin()) {
             Admin::init();
+            \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
         }
     }
 
