@@ -78,6 +78,26 @@ class Admin {
                 font-weight: 500;
             }
 
+            .tmwseo-type-grid {
+                display:grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap:15px;
+                margin-bottom:20px;
+            }
+
+            .tmwseo-type-card {
+                background:#fff;
+                border:1px solid #ddd;
+                padding:20px;
+                border-radius:6px;
+                text-align:center;
+            }
+
+            .tmwseo-type-card .score {
+                font-size:28px;
+                font-weight:bold;
+            }
+
             .tmwseo-quick-actions {
                 margin-top: 24px;
             }
@@ -687,6 +707,11 @@ private static function header(string $title): void {
         self::header(__('TMW SEO Engine — Overview', 'tmwseo'));
 
         $tracked_post_types = ['post', 'page', 'model', 'blog', 'photos', 'tmw_category_page'];
+        $seo_breakdown_post_types = [
+            'post' => __('Videos', 'tmwseo'),
+            'model' => __('Models', 'tmwseo'),
+            'tmw_category_page' => __('Category Pages', 'tmwseo'),
+        ];
 
         $total_posts = self::count_posts_with_query([
             'post_type' => $tracked_post_types,
@@ -799,6 +824,83 @@ private static function header(string $title): void {
         echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
         echo esc_html((string)$health_score) . '%';
         echo '<div style="font-size:16px;font-weight:normal;">SEO Health Score</div>';
+        echo '</div>';
+
+        $type_breakdown = [];
+        foreach ($seo_breakdown_post_types as $post_type => $label) {
+            $total = self::count_posts_with_query([
+                'post_type' => [$post_type],
+                'post_status' => 'any',
+            ]);
+
+            $optimized = self::count_posts_with_query([
+                'post_type' => [$post_type],
+                'post_status' => 'any',
+                'meta_query' => [
+                    [
+                        'key' => '_tmwseo_optimize_done',
+                        'compare' => 'EXISTS',
+                    ],
+                ],
+            ]);
+
+            $missing_keyword = self::count_posts_with_query([
+                'post_type' => [$post_type],
+                'post_status' => 'any',
+                'meta_query' => [
+                    'relation' => 'OR',
+                    [
+                        'key' => '_tmwseo_keyword',
+                        'compare' => 'NOT EXISTS',
+                    ],
+                    [
+                        'key' => '_tmwseo_keyword',
+                        'value' => '',
+                        'compare' => '=',
+                    ],
+                ],
+            ]);
+
+            $missing_meta = self::count_posts_with_query([
+                'post_type' => [$post_type],
+                'post_status' => 'any',
+                'meta_query' => [
+                    'relation' => 'OR',
+                    [
+                        'key' => '_yoast_wpseo_metadesc',
+                        'compare' => 'NOT EXISTS',
+                    ],
+                    [
+                        'key' => '_yoast_wpseo_metadesc',
+                        'value' => '',
+                        'compare' => '=',
+                    ],
+                ],
+            ]);
+
+            $optimized_ratio = $optimized / max($total, 1);
+            $keyword_ratio = 1 - ($missing_keyword / max($total, 1));
+            $meta_ratio = 1 - ($missing_meta / max($total, 1));
+            $type_health_score = round((
+                ($optimized_ratio * 0.4) +
+                ($keyword_ratio * 0.3) +
+                ($meta_ratio * 0.3)
+            ) * 100);
+
+            $type_breakdown[] = [
+                'label' => $label,
+                'score' => $type_health_score,
+            ];
+        }
+
+        echo '<h2>' . esc_html__('SEO Breakdown by Post Type', 'tmwseo') . '</h2>';
+        echo '<div class="tmwseo-type-grid">';
+        foreach ($type_breakdown as $item) {
+            echo '<div class="tmwseo-type-card">';
+            echo '<h3>' . esc_html((string)$item['label']) . '</h3>';
+            echo '<div class="score">' . esc_html((string)$item['score']) . '%</div>';
+            echo '</div>';
+        }
         echo '</div>';
 
         echo '<div class="tmwseo-dashboard">';
