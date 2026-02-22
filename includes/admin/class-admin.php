@@ -78,6 +78,20 @@ class Admin {
                 font-weight: 500;
             }
 
+            .tmwseo-rankmath-card {
+                background:#f4f6f9;
+                border:1px solid #ddd;
+                padding:20px;
+                border-radius:6px;
+                text-align:center;
+                margin-bottom:20px;
+            }
+
+            .tmwseo-rankmath-card .score {
+                font-size:32px;
+                font-weight:bold;
+            }
+
             .tmwseo-type-grid {
                 display:grid;
                 grid-template-columns: repeat(3, 1fr);
@@ -794,6 +808,59 @@ private static function header(string $title): void {
             $health_class = 'warning';
         }
 
+        $rankmath_sync_post_types = ['post', 'model', 'tmw_category_page'];
+        $rankmath_total_posts = self::count_posts_with_query([
+            'post_type' => $rankmath_sync_post_types,
+            'post_status' => 'any',
+        ]);
+
+        $rankmath_synced_posts = self::count_posts_with_query([
+            'post_type' => $rankmath_sync_post_types,
+            'post_status' => 'any',
+            'meta_query' => [
+                'relation' => 'AND',
+                [
+                    'relation' => 'AND',
+                    [
+                        'key' => 'rank_math_title',
+                        'compare' => 'EXISTS',
+                    ],
+                    [
+                        'key' => 'rank_math_title',
+                        'value' => '',
+                        'compare' => '!=',
+                    ],
+                ],
+                [
+                    'relation' => 'AND',
+                    [
+                        'key' => 'rank_math_description',
+                        'compare' => 'EXISTS',
+                    ],
+                    [
+                        'key' => 'rank_math_description',
+                        'value' => '',
+                        'compare' => '!=',
+                    ],
+                ],
+                [
+                    'relation' => 'AND',
+                    [
+                        'key' => 'rank_math_focus_keyword',
+                        'compare' => 'EXISTS',
+                    ],
+                    [
+                        'key' => 'rank_math_focus_keyword',
+                        'value' => '',
+                        'compare' => '!=',
+                    ],
+                ],
+            ],
+        ]);
+
+        $rankmath_synced_ratio = $rankmath_synced_posts / max($rankmath_total_posts, 1);
+        $rankmath_sync_score = round($rankmath_synced_ratio * 100);
+
         $seven_days_ago = gmdate('Y-m-d H:i:s', time() - (7 * DAY_IN_SECONDS));
         $last_7_days_optimized = self::count_posts_with_query([
             'post_type' => $tracked_post_types,
@@ -824,6 +891,11 @@ private static function header(string $title): void {
         echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
         echo esc_html((string)$health_score) . '%';
         echo '<div style="font-size:16px;font-weight:normal;">SEO Health Score</div>';
+        echo '</div>';
+
+        echo '<div class="tmwseo-rankmath-card">';
+        echo '<div class="score">' . esc_html((string)$rankmath_sync_score) . '%</div>';
+        echo '<div class="label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
         echo '</div>';
 
         $type_breakdown = [];
