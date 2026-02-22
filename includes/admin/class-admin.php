@@ -122,12 +122,18 @@ class Admin {
             }
 
             .tmwseo-card {
-                background: #fff;
+                background:#ffffff;
                 border:1px solid #e5e7eb;
-                padding: 20px;
-                border-radius: 8px;
-                box-shadow:0 1px 2px rgba(0,0,0,0.04);
+                padding:25px;
+                border-radius:12px;
+                box-shadow:0 4px 12px rgba(0,0,0,0.05);
+                transition: all 0.2s ease;
                 text-align: center;
+            }
+
+            .tmwseo-card:hover {
+                transform: translateY(-2px);
+                box-shadow:0 6px 18px rgba(0,0,0,0.08);
             }
 
             .tmwseo-card h3 {
@@ -144,14 +150,21 @@ class Admin {
                 text-align: center;
                 padding: 30px;
                 border-radius: 8px;
-                font-size: 42px;
-                font-weight: bold;
+                font-size:48px;
+                font-weight:700;
                 border:1px solid #e5e7eb;
             }
 
-            .tmwseo-health-card.good { background:#e6f6ea; color:#1e7e34; }
-            .tmwseo-health-card.warning { background:#fff3cd; color:#856404; }
-            .tmwseo-health-card.bad { background:#f8d7da; color:#721c24; }
+            .tmwseo-health-card.good { background:#f0fff4; color:#2f855a; }
+            .tmwseo-health-card.warning { background:#fffaf0; color:#dd6b20; }
+            .tmwseo-health-card.bad { background:#fff5f5; color:#c53030; }
+
+            .tmwseo-health-card div {
+                font-size:14px;
+                letter-spacing:0.5px;
+                text-transform:uppercase;
+                margin-top:6px;
+            }
 
             .tmwseo-health-card .tmwseo-health-label {
                 display: block;
@@ -169,8 +182,8 @@ class Admin {
             }
 
             .tmwseo-rankmath-card .score {
-                font-size:32px;
-                font-weight:bold;
+                font-size:36px;
+                font-weight:700;
             }
 
             .tmwseo-type-grid {
@@ -180,22 +193,31 @@ class Admin {
             }
 
             .tmwseo-type-card {
-                background:#fff;
-                border:1px solid #e5e7eb;
-                padding:20px;
-                border-radius:8px;
+                background:#f9fafb;
+                border:1px solid #edf2f7;
+                border-radius:10px;
+                padding:25px;
                 text-align:center;
             }
 
+            .tmwseo-type-card h3 {
+                font-size:14px;
+                text-transform:uppercase;
+                letter-spacing:0.5px;
+                color:#718096;
+            }
+
             .tmwseo-type-card .score {
-                font-size:28px;
+                font-size:32px;
+                margin-top:10px;
                 font-weight:bold;
             }
 
             .tmwseo-progress-wrapper {
                 width:100%;
                 background:#eee;
-                border-radius:6px;
+                height:22px;
+                border-radius:12px;
                 overflow:hidden;
                 margin-bottom:25px;
             }
@@ -203,7 +225,12 @@ class Admin {
             .tmwseo-progress-bar {
                 background:#2e7d32;
                 color:#fff;
-                padding:10px;
+                height:22px;
+                border-radius:12px;
+                font-size:13px;
+                display:flex;
+                align-items:center;
+                justify-content:center;
                 font-weight:bold;
                 text-align:center;
                 transition: width 0.3s ease;
@@ -228,8 +255,8 @@ class Admin {
             }
 
             .tmwseo-system-card {
-                background: #fff;
-                border: 1px solid #e5e7eb;
+                background:#f9fafb;
+                border:1px dashed #d1d5db;
                 border-radius: 8px;
                 padding: 20px;
             }
