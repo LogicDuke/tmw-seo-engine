@@ -17,6 +17,7 @@ class Settings {
             'openai_model_bulk' => 'gpt-4o-mini',
             'openai_model' => 'gpt-4o', // legacy
             'brand_voice' => 'premium', // premium|neutral
+            'tmwseo_dry_run_mode' => 0,
 
             // DataForSEO
             'dataforseo_login' => '',

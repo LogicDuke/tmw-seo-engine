@@ -87,6 +87,7 @@ class Admin {
             'openai_model' => ($mode === 'bulk') ? $bulk : $primary,
 
             'brand_voice' => $voice,
+            'tmwseo_dry_run_mode' => isset($_POST['tmwseo_dry_run_mode']) ? 1 : 0,
 
             'dataforseo_login' => sanitize_text_field((string)($_POST['dataforseo_login'] ?? '')),
             'dataforseo_password' => sanitize_text_field((string)($_POST['dataforseo_password'] ?? '')),
@@ -794,6 +795,7 @@ private static function header(string $title): void {
         $d_pass = esc_attr((string)($opts['dataforseo_password'] ?? ''));
         $d_loc = esc_attr((string)($opts['dataforseo_location_code'] ?? '2840'));
         $safe_mode = !empty($opts['safe_mode']);
+        $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_save_settings');
@@ -828,6 +830,10 @@ private static function header(string $title): void {
         echo '<option value="neutral"' . selected($brand_voice, 'neutral', false) . '>Neutral</option>';
         echo '</select>';
         echo '<p class="description">Affects default writing tone once AI generation is enabled in later versions.</p>';
+        echo '</td></tr>';
+
+        echo '<tr><th>Dry Run Mode</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_dry_run_mode" value="1" ' . checked($dry_run_mode, true, false) . '> Enable Dry Run Mode (Skip OpenAI, generate placeholder SEO content)</label>';
         echo '</td></tr>';
 
         // Legacy single-model field (hidden-ish): keep for compatibility / quick overrides.
