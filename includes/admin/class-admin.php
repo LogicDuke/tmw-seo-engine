@@ -64,6 +64,7 @@ class Admin {
                 border-radius: 8px;
                 font-size: 42px;
                 font-weight: bold;
+                margin-bottom: 20px;
             }
 
             .tmwseo-health-card.good { background:#e6f6ea; color:#1e7e34; }
@@ -751,9 +752,9 @@ private static function header(string $title): void {
         $missing_keyword = $missing_focus_keyword;
         $missing_meta = $missing_meta_description;
 
-        $optimized_ratio = $optimized_posts / max($total_posts, 1);
-        $keyword_ratio = 1 - ($missing_keyword / max($total_posts, 1));
-        $meta_ratio = 1 - ($missing_meta / max($total_posts, 1));
+        $optimized_ratio = $optimized_posts / max($total_posts,1);
+        $keyword_ratio = 1 - ($missing_keyword / max($total_posts,1));
+        $meta_ratio = 1 - ($missing_meta / max($total_posts,1));
 
         $health_score = round(
             ($optimized_ratio * 0.4 +
@@ -761,12 +762,11 @@ private static function header(string $title): void {
              $meta_ratio * 0.3) * 100
         );
 
+        $health_class = 'bad';
         if ($health_score >= 80) {
             $health_class = 'good';
         } elseif ($health_score >= 50) {
             $health_class = 'warning';
-        } else {
-            $health_class = 'bad';
         }
 
         $seven_days_ago = gmdate('Y-m-d H:i:s', time() - (7 * DAY_IN_SECONDS));
@@ -796,11 +796,12 @@ private static function header(string $title): void {
             ],
         ]);
 
-        echo '<div class="tmwseo-dashboard">';
         echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
         echo esc_html((string)$health_score) . '%';
-        echo '<span class="tmwseo-health-label">' . esc_html__('SEO Health Score', 'tmwseo') . '</span>';
+        echo '<div style="font-size:16px;font-weight:normal;">SEO Health Score</div>';
         echo '</div>';
+
+        echo '<div class="tmwseo-dashboard">';
         self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
         self::render_stat_card($optimized_posts, __('Optimized Posts', 'tmwseo'));
         self::render_stat_card($pending_optimization, __('Pending Optimization', 'tmwseo'));
