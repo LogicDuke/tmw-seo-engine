@@ -29,15 +29,25 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-advisor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-cluster-importer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/compat/class-tmw-main-class.php';
 
 class Plugin {
 
+    private static $instance;
     private static $cluster_service;
     private static $cluster_linking_engine;
     private static $cluster_scoring_engine;
     private static $cluster_advisor;
     private static $cluster_link_injector;
     private static $gsc_cluster_importer;
+
+    public static function instance(): self {
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+
+        return self::$instance;
+    }
 
     public static function get_cluster_service() {
         return self::$cluster_service ?? null;
