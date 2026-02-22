@@ -285,14 +285,32 @@ class Admin {
                 text-align:center;
             }
 
-            .tmwseo-actions-card .button-primary {
-                padding:8px 18px;
+            .tmwseo-primary-action {
+                text-align:center;
+                margin-bottom:25px;
             }
 
-            .tmwseo-actions-card .button {
-                margin-right:10px;
-                margin-bottom:10px;
-                min-width:170px;
+            .tmwseo-primary-action .button {
+                padding:10px 26px;
+                font-size:15px;
+                min-width:240px;
+            }
+
+            .tmwseo-primary-action .button-primary {
+                background:#2563eb;
+                border-color:#2563eb;
+            }
+
+            .tmwseo-secondary-actions {
+                display:grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap:12px;
+                max-width:600px;
+                margin:0 auto;
+            }
+
+            .tmwseo-secondary-actions .button {
+                width:100%;
             }
 
             .tmwseo-detail-card {
@@ -1285,15 +1303,19 @@ private static function header(string $title): void {
 
         echo '<div class="tmwseo-actions-card">';
         echo '<h2>' . esc_html__('Quick Actions', 'tmwseo') . '</h2>';
+        echo '<div class="tmwseo-primary-action">';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;">';
         wp_nonce_field('tmwseo_bulk_autofix');
         echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
         echo '<button class="button button-primary">⚡ Auto Fix Missing SEO</button>';
         echo '</form>';
-        echo '<a class="button button-primary" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=bulk_optimize_all')) . '">' . esc_html__('Bulk Optimize All', 'tmwseo') . '</a>';
+        echo '</div>';
+        echo '<div class="tmwseo-secondary-actions">';
+        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=bulk_optimize_all')) . '">' . esc_html__('Bulk Optimize All', 'tmwseo') . '</a>';
         echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=optimize_missing_seo')) . '">' . esc_html__('Optimize Only Missing SEO', 'tmwseo') . '</a>';
         echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords&tmwseo_action=generate_clusters')) . '">' . esc_html__('Generate Clusters', 'tmwseo') . '</a>';
         echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-indexing&tmwseo_action=rebuild_indexing')) . '">' . esc_html__('Rebuild Indexing', 'tmwseo') . '</a>';
+        echo '</div>';
         echo '</div>';
 
         $counts = Jobs::counts();
