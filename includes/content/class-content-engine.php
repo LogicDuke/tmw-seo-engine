@@ -75,6 +75,32 @@ class ContentEngine {
             return;
         }
 
+        $dry_run = get_option('tmwseo_dry_run_mode', 0);
+        if ($dry_run) {
+            $placeholder_content = "\n" .
+                "<h2>About {$post->post_title}</h2>\n" .
+                "<p>This is structured SEO placeholder content generated in Dry Run Mode.</p>\n\n" .
+                "<h2>Why Watch {$post->post_title}</h2>\n" .
+                "<p>Detailed keyword-rich description would appear here.</p>\n\n" .
+                "<h2>Related Models & Scenes</h2>\n" .
+                "<p>Internal linking structure placeholder.</p>\n\n" .
+                "<p><strong>SEO Meta Description:</strong> Optimized preview for {$post->post_title}.</p>\n";
+
+            wp_update_post([
+                'ID'           => $post_id,
+                'post_content' => $placeholder_content,
+            ]);
+
+            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            update_post_meta($post_id, '_tmwseo_optimize_done', 'dry_run');
+
+            Logs::info('content', 'Dry run content generated', [
+                'post_id' => $post_id,
+            ]);
+
+            return;
+        }
+
         if (!OpenAI::is_configured()) {
             Logs::warn('content', 'OpenAI not configured; skipping', ['post_id' => $post_id]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
