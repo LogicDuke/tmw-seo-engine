@@ -78,7 +78,7 @@ class ContentEngine {
         $dry_run = get_option('tmwseo_dry_run_mode', 0);
         if ($dry_run) {
             error_log('TMW DRY RUN EXECUTED FOR POST ID: ' . $post_id);
-            $this->logger->info('content', 'Dry run branch reached', [
+            \TMWSEO\Logs::info('content', 'Dry run branch reached', [
                 'post_id' => $post_id
             ]);
 
