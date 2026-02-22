@@ -105,16 +105,25 @@ class Admin {
         wp_add_inline_style('tmwseo-admin-overview', '
             .tmwseo-dashboard {
                 max-width: 1200px;
+                padding-bottom:40px;
             }
 
             .tmwseo-row {
                 display:grid;
                 gap:20px;
-                margin-bottom:25px;
+                margin-bottom:30px;
             }
 
             .executive-row {
                 grid-template-columns: repeat(3, 1fr);
+                align-items:stretch;
+            }
+
+            .executive-row .tmwseo-card {
+                display:flex;
+                flex-direction:column;
+                justify-content:center;
+                text-align:center;
             }
 
             .tmwseo-row:not(.executive-row) {
@@ -159,18 +168,37 @@ class Admin {
             .tmwseo-health-card.warning { background:#fffaf0; color:#dd6b20; }
             .tmwseo-health-card.bad { background:#fff5f5; color:#c53030; }
 
-            .tmwseo-health-card div {
-                font-size:14px;
-                letter-spacing:0.5px;
-                text-transform:uppercase;
-                margin-top:6px;
+            .tmwseo-health-card.bad {
+                background:linear-gradient(135deg,#fff5f5,#ffe5e5);
+            }
+
+            .tmwseo-health-circle {
+                width:110px;
+                height:110px;
+                border-radius:50%;
+                background:#fff;
+                display:flex;
+                align-items:center;
+                justify-content:center;
+                font-size:34px;
+                font-weight:700;
+                margin:0 auto;
+                box-shadow:0 4px 12px rgba(0,0,0,0.08);
             }
 
             .tmwseo-health-card .tmwseo-health-label {
                 display: block;
-                margin-top: 8px;
-                font-size: 16px;
-                font-weight: 500;
+                margin-top:15px;
+                font-size:13px;
+                text-transform:uppercase;
+                letter-spacing:0.8px;
+                opacity:0.8;
+            }
+
+            .tmwseo-progress-card h3 {
+                font-size:16px;
+                font-weight:600;
+                margin-bottom:15px;
             }
 
             .tmwseo-rankmath-card {
@@ -215,7 +243,7 @@ class Admin {
 
             .tmwseo-progress-wrapper {
                 width:100%;
-                background:#eee;
+                background:#edf2f7;
                 height:22px;
                 border-radius:12px;
                 overflow:hidden;
@@ -240,6 +268,11 @@ class Admin {
                 background:#f9fafb;
                 padding:20px;
                 border-radius:8px;
+                text-align:center;
+            }
+
+            .tmwseo-actions-card .button-primary {
+                padding:8px 18px;
             }
 
             .tmwseo-actions-card .button {
@@ -255,10 +288,17 @@ class Admin {
             }
 
             .tmwseo-system-card {
-                background:#f9fafb;
-                border:1px dashed #d1d5db;
+                background:#ffffff;
+                border:1px solid #e5e7eb;
                 border-radius: 8px;
                 padding: 20px;
+            }
+
+            .tmwseo-system-card h3 {
+                font-size:14px;
+                text-transform:uppercase;
+                letter-spacing:0.6px;
+                color:#6b7280;
             }
 
             .tmwseo-system-card summary {
@@ -1184,8 +1224,8 @@ private static function header(string $title): void {
         echo '<div class="tmwseo-dashboard">';
         echo '<div class="tmwseo-row executive-row">';
         echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
-        echo esc_html((string)$health_score) . '%';
-        echo '<div style="font-size:16px;font-weight:normal;">SEO Health Score</div>';
+        echo '<div class="tmwseo-health-circle">' . esc_html((string)$health_score) . '%</div>';
+        echo '<div class="tmwseo-health-label">SEO Health Score</div>';
         echo '</div>';
 
         echo '<div class="tmwseo-rankmath-card">';
@@ -1193,8 +1233,8 @@ private static function header(string $title): void {
         echo '<div class="label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
         echo '</div>';
 
-        echo '<div class="tmwseo-card">';
-        echo '<h2>' . esc_html__('Optimization Progress', 'tmwseo') . '</h2>';
+        echo '<div class="tmwseo-card tmwseo-progress-card">';
+        echo '<h3>' . esc_html__('Optimization Progress', 'tmwseo') . '</h3>';
         echo '<div class="tmwseo-progress-wrapper">';
         echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$ready_percent) . '%;">' . esc_html((string)$ready_percent) . '%</div>';
         echo '</div>';
