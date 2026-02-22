@@ -67,16 +67,25 @@ class OpenAI {
      * Returns decoded JSON array (best effort).
      */
     public static function chat_json(array $messages, string $model, array $args = []): array {
+        error_log('TMW OpenAI chat_json ENTERED');
         $args['json_mode'] = true;
 
         $res = self::chat($messages, $model, $args);
+        error_log('TMW OpenAI RAW RESPONSE: ' . print_r($res ?? null, true));
         if (!$res['ok']) {
             // Retry once without json_mode (some accounts/models can reject it).
             if (($res['error'] ?? '') === 'bad_response') {
                 $args['json_mode'] = false;
                 $res = self::chat($messages, $model, $args);
+                error_log('TMW OpenAI RAW RESPONSE: ' . print_r($res ?? null, true));
             }
-            if (!$res['ok']) return $res;
+            if (!$res['ok']) {
+                $result = $res;
+                $error = $res['error'] ?? null;
+                error_log('TMW OpenAI FAILURE: ' . json_encode($result ?? []));
+                error_log('TMW OpenAI LAST ERROR: ' . (is_string($error ?? null) ? $error : print_r($error ?? null, true)));
+                return $res;
+            }
         }
 
         $data = $res['data'];
@@ -85,6 +94,7 @@ class OpenAI {
 
         $decoded = json_decode($content, true);
         if (is_array($decoded)) {
+            error_log('TMW OpenAI SUCCESS');
             return ['ok' => true, 'json' => $decoded, 'raw' => $content];
         }
 
@@ -92,11 +102,16 @@ class OpenAI {
         if (preg_match('/\{.*\}/s', $content, $m)) {
             $decoded = json_decode($m[0], true);
             if (is_array($decoded)) {
+                error_log('TMW OpenAI SUCCESS');
                 return ['ok' => true, 'json' => $decoded, 'raw' => $content];
             }
         }
 
         Logs::warn('openai', 'JSON parse failed', ['snippet' => substr($content, 0, 250)]);
+        $result = ['ok' => false, 'error' => 'json_parse_failed', 'raw' => $content];
+        $error = $result['error'] ?? null;
+        error_log('TMW OpenAI FAILURE: ' . json_encode($result ?? []));
+        error_log('TMW OpenAI LAST ERROR: ' . (is_string($error ?? null) ? $error : print_r($error ?? null, true)));
         return ['ok' => false, 'error' => 'json_parse_failed', 'raw' => $content];
     }
 }
