@@ -83,6 +83,37 @@ class KeywordEngine {
             if ($mode !== 'import_only') {
                         $seeds = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 5));
                         $max_seeds_per_run = (int) Settings::get('keyword_seed_batch_limit', 10);
+                        $adaptive = get_option('tmw_engine_adaptive_state', []);
+                        $metrics = get_option('tmw_keyword_engine_metrics', []);
+
+                        $now = time();
+                        $recent_failures = $metrics['failures'] ?? 0;
+
+                        $adaptive_active = false;
+
+                        if (!empty($adaptive['reduced_until']) && $now < (int)$adaptive['reduced_until']) {
+                            $adaptive_active = true;
+                        }
+                        elseif ($recent_failures > 2) {
+                            // Activate reduced mode for 20 minutes
+                            $adaptive = [
+                                'mode' => 'reduced',
+                                'reduced_until' => $now + (20 * MINUTE_IN_SECONDS),
+                            ];
+                            update_option('tmw_engine_adaptive_state', $adaptive);
+                            $adaptive_active = true;
+                        }
+                        elseif (!empty($adaptive['reduced_until']) && $now >= (int)$adaptive['reduced_until']) {
+                            // Recovery
+                            delete_option('tmw_engine_adaptive_state');
+                        }
+
+                        if ($adaptive_active) {
+                            $max_seeds_per_run = max(1, floor($max_seeds_per_run / 2));
+                            Logs::warn('keywords', 'Adaptive throttling active', [
+                                'adjusted_seed_limit' => $max_seeds_per_run,
+                            ]);
+                        }
                         $seeds = array_slice($seeds, 0, max(1, $max_seeds_per_run));
                         Logs::info('keywords', 'Seeds', ['count' => count($seeds), 'seeds' => array_slice($seeds, 0, 10)]);
                         $failures = 0;
