@@ -57,6 +57,26 @@ class Admin {
                 color: #666;
             }
 
+            .tmwseo-health-card {
+                grid-column: 1 / -1;
+                text-align: center;
+                padding: 30px;
+                border-radius: 8px;
+                font-size: 42px;
+                font-weight: bold;
+            }
+
+            .tmwseo-health-card.good { background:#e6f6ea; color:#1e7e34; }
+            .tmwseo-health-card.warning { background:#fff3cd; color:#856404; }
+            .tmwseo-health-card.bad { background:#f8d7da; color:#721c24; }
+
+            .tmwseo-health-card .tmwseo-health-label {
+                display: block;
+                margin-top: 8px;
+                font-size: 16px;
+                font-weight: 500;
+            }
+
             .tmwseo-quick-actions {
                 margin-top: 24px;
             }
@@ -728,6 +748,27 @@ private static function header(string $title): void {
             ],
         ]);
 
+        $missing_keyword = $missing_focus_keyword;
+        $missing_meta = $missing_meta_description;
+
+        $optimized_ratio = $optimized_posts / max($total_posts, 1);
+        $keyword_ratio = 1 - ($missing_keyword / max($total_posts, 1));
+        $meta_ratio = 1 - ($missing_meta / max($total_posts, 1));
+
+        $health_score = round(
+            ($optimized_ratio * 0.4 +
+             $keyword_ratio * 0.3 +
+             $meta_ratio * 0.3) * 100
+        );
+
+        if ($health_score >= 80) {
+            $health_class = 'good';
+        } elseif ($health_score >= 50) {
+            $health_class = 'warning';
+        } else {
+            $health_class = 'bad';
+        }
+
         $seven_days_ago = gmdate('Y-m-d H:i:s', time() - (7 * DAY_IN_SECONDS));
         $last_7_days_optimized = self::count_posts_with_query([
             'post_type' => $tracked_post_types,
@@ -756,6 +797,10 @@ private static function header(string $title): void {
         ]);
 
         echo '<div class="tmwseo-dashboard">';
+        echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
+        echo esc_html((string)$health_score) . '%';
+        echo '<span class="tmwseo-health-label">' . esc_html__('SEO Health Score', 'tmwseo') . '</span>';
+        echo '</div>';
         self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
         self::render_stat_card($optimized_posts, __('Optimized Posts', 'tmwseo'));
         self::render_stat_card($pending_optimization, __('Pending Optimization', 'tmwseo'));
