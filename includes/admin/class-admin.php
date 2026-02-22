@@ -104,16 +104,29 @@ class Admin {
         wp_enqueue_style('tmwseo-admin-overview');
         wp_add_inline_style('tmwseo-admin-overview', '
             .tmwseo-dashboard {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-                gap: 20px;
+                max-width: 1200px;
+            }
+
+            .tmwseo-row {
+                display:grid;
+                gap:20px;
+                margin-bottom:25px;
+            }
+
+            .executive-row {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
+            .tmwseo-row:not(.executive-row) {
+                grid-template-columns: repeat(2, 1fr);
             }
 
             .tmwseo-card {
                 background: #fff;
+                border:1px solid #e5e7eb;
                 padding: 20px;
-                border-radius: 6px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                border-radius: 8px;
+                box-shadow:0 1px 2px rgba(0,0,0,0.04);
                 text-align: center;
             }
 
@@ -128,13 +141,12 @@ class Admin {
             }
 
             .tmwseo-health-card {
-                grid-column: 1 / -1;
                 text-align: center;
                 padding: 30px;
                 border-radius: 8px;
                 font-size: 42px;
                 font-weight: bold;
-                margin-bottom: 20px;
+                border:1px solid #e5e7eb;
             }
 
             .tmwseo-health-card.good { background:#e6f6ea; color:#1e7e34; }
@@ -150,11 +162,10 @@ class Admin {
 
             .tmwseo-rankmath-card {
                 background:#f4f6f9;
-                border:1px solid #ddd;
+                border:1px solid #e5e7eb;
                 padding:20px;
-                border-radius:6px;
+                border-radius:8px;
                 text-align:center;
-                margin-bottom:20px;
             }
 
             .tmwseo-rankmath-card .score {
@@ -166,14 +177,13 @@ class Admin {
                 display:grid;
                 grid-template-columns: repeat(3, 1fr);
                 gap:15px;
-                margin-bottom:20px;
             }
 
             .tmwseo-type-card {
                 background:#fff;
-                border:1px solid #ddd;
+                border:1px solid #e5e7eb;
                 padding:20px;
-                border-radius:6px;
+                border-radius:8px;
                 text-align:center;
             }
 
@@ -199,26 +209,46 @@ class Admin {
                 transition: width 0.3s ease;
             }
 
-            .tmwseo-quick-actions {
-                margin-top: 24px;
+            .tmwseo-actions-card {
+                background:#f9fafb;
+                padding:20px;
+                border-radius:8px;
             }
 
-            .tmwseo-quick-actions .button {
-                margin-right: 8px;
-                margin-bottom: 8px;
+            .tmwseo-actions-card .button {
+                margin-right:10px;
+                margin-bottom:10px;
             }
 
             .tmwseo-detail-card {
                 background: #fff;
-                border: 1px solid #ddd;
-                border-radius: 6px;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
                 padding: 20px;
-                margin-top: 20px;
-                max-width: 520px;
+            }
+
+            .tmwseo-system-card {
+                background: #fff;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                padding: 20px;
+            }
+
+            .tmwseo-system-card summary {
+                cursor: pointer;
+                font-weight: 600;
+                margin-bottom: 12px;
             }
 
             .tmwseo-detail-card ul {
                 margin: 12px 0 0 18px;
+            }
+
+            @media (max-width: 900px) {
+                .executive-row,
+                .tmwseo-row:not(.executive-row) {
+                    grid-template-columns: 1fr;
+                }
             }
         ');
     }
@@ -1057,16 +1087,6 @@ private static function header(string $title): void {
             ],
         ]);
 
-        echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
-        echo esc_html((string)$health_score) . '%';
-        echo '<div style="font-size:16px;font-weight:normal;">SEO Health Score</div>';
-        echo '</div>';
-
-        echo '<div class="tmwseo-rankmath-card">';
-        echo '<div class="score">' . esc_html((string)$rankmath_sync_score) . '%</div>';
-        echo '<div class="label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
-        echo '</div>';
-
         $type_breakdown = [];
         foreach ($seo_breakdown_post_types as $post_type => $label) {
             $total = self::count_posts_with_query([
@@ -1134,6 +1154,29 @@ private static function header(string $title): void {
             ];
         }
 
+        echo '<div class="tmwseo-dashboard">';
+        echo '<div class="tmwseo-row executive-row">';
+        echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
+        echo esc_html((string)$health_score) . '%';
+        echo '<div style="font-size:16px;font-weight:normal;">SEO Health Score</div>';
+        echo '</div>';
+
+        echo '<div class="tmwseo-rankmath-card">';
+        echo '<div class="score">' . esc_html((string)$rankmath_sync_score) . '%</div>';
+        echo '<div class="label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
+        echo '</div>';
+
+        echo '<div class="tmwseo-card">';
+        echo '<h2>' . esc_html__('Optimization Progress', 'tmwseo') . '</h2>';
+        echo '<div class="tmwseo-progress-wrapper">';
+        echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$ready_percent) . '%;">' . esc_html((string)$ready_percent) . '%</div>';
+        echo '</div>';
+        echo '<p>' . esc_html(sprintf('%d of %d posts fully optimized', $count_ready, $optimization_total_posts)) . '</p>';
+        echo '</div>';
+        echo '</div>';
+
+        echo '<div class="tmwseo-row">';
+        echo '<div class="tmwseo-detail-card">';
         echo '<h2>' . esc_html__('SEO Breakdown by Post Type', 'tmwseo') . '</h2>';
         echo '<div class="tmwseo-type-grid">';
         foreach ($type_breakdown as $item) {
@@ -1143,26 +1186,6 @@ private static function header(string $title): void {
             echo '</div>';
         }
         echo '</div>';
-
-        echo '<h2>' . esc_html__('Optimization Progress', 'tmwseo') . '</h2>';
-        echo '<div class="tmwseo-progress-wrapper">';
-        echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$ready_percent) . '%;">' . esc_html((string)$ready_percent) . '%</div>';
-        echo '</div>';
-        echo '<p>' . esc_html(sprintf('%d of %d posts fully optimized', $count_ready, $optimization_total_posts)) . '</p>';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-bottom:20px;">';
-        wp_nonce_field('tmwseo_bulk_autofix');
-        echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
-        echo '<button class="button button-primary">⚡ Auto Fix Missing SEO</button>';
-        echo '</form>';
-
-        echo '<div class="tmwseo-dashboard">';
-        self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
-        self::render_stat_card($optimized_posts, __('Optimized Posts', 'tmwseo'));
-        self::render_stat_card($pending_optimization, __('Pending Optimization', 'tmwseo'));
-        self::render_stat_card($missing_focus_keyword, __('Missing Focus Keyword', 'tmwseo'));
-        self::render_stat_card($missing_meta_description, __('Missing Meta Description', 'tmwseo'));
-        self::render_stat_card($last_7_days_optimized, __('Last 7 Days Optimized', 'tmwseo'));
         echo '</div>';
 
         echo '<div class="tmwseo-detail-card">';
@@ -1172,38 +1195,64 @@ private static function header(string $title): void {
         echo '<li><strong>' . esc_html__('Posts with Zero Links (%)', 'tmwseo') . ':</strong> ' . esc_html((string)$zero_internal_ratio) . '%</li>';
         echo '</ul>';
         echo '</div>';
+        echo '</div>';
 
-        echo '<div class="tmwseo-quick-actions">';
+        echo '<div class="tmwseo-actions-card">';
         echo '<h2>' . esc_html__('Quick Actions', 'tmwseo') . '</h2>';
-        echo '<p>';
-        echo '<a class="button button-primary" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=bulk_optimize_all')) . '">' . esc_html__('Bulk Optimize All', 'tmwseo') . '</a> ';
-        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=optimize_missing_seo')) . '">' . esc_html__('Optimize Only Missing SEO', 'tmwseo') . '</a> ';
-        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords&tmwseo_action=generate_clusters')) . '">' . esc_html__('Generate Clusters', 'tmwseo') . '</a> ';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;">';
+        wp_nonce_field('tmwseo_bulk_autofix');
+        echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
+        echo '<button class="button button-primary">⚡ Auto Fix Missing SEO</button>';
+        echo '</form>';
+        echo '<a class="button button-primary" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=bulk_optimize_all')) . '">' . esc_html__('Bulk Optimize All', 'tmwseo') . '</a>';
+        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=optimize_missing_seo')) . '">' . esc_html__('Optimize Only Missing SEO', 'tmwseo') . '</a>';
+        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords&tmwseo_action=generate_clusters')) . '">' . esc_html__('Generate Clusters', 'tmwseo') . '</a>';
         echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-indexing&tmwseo_action=rebuild_indexing')) . '">' . esc_html__('Rebuild Indexing', 'tmwseo') . '</a>';
-        echo '</p>';
         echo '</div>';
 
         $counts = Jobs::counts();
-        echo '<p><strong>alpha.7.1 baseline</strong>: DB tables + queue + worker + logs + settings shell (+ model routing + voice preset). No AI calls yet.</p>';
+        echo '<div class="tmwseo-system-card">';
+        echo '<details>';
+        echo '<summary>' . esc_html__('System Info', 'tmwseo') . '</summary>';
 
-        echo '<h2>Queue status</h2><ul>';
-        foreach ($counts as $k => $v) echo '<li><strong>' . esc_html(ucfirst($k)) . ':</strong> ' . esc_html((string)$v) . '</li>';
+        echo '<div class="tmwseo-row">';
+        self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
+
+        echo '<div class="tmwseo-card">';
+        echo '<h2>' . esc_html__('Queue Status', 'tmwseo') . '</h2><ul>';
+        foreach ($counts as $k => $v) {
+            echo '<li><strong>' . esc_html(ucfirst($k)) . ':</strong> ' . esc_html((string)$v) . '</li>';
+        }
         echo '</ul>';
+        echo '</div>';
+        echo '</div>';
 
-        echo '<h2>Detected content mapping</h2><ul>';
+        echo '<div class="tmwseo-row">';
+        echo '<div class="tmwseo-card">';
+        echo '<h2>' . esc_html__('Detected Mapping', 'tmwseo') . '</h2><ul>';
         echo '<li><strong>Models:</strong> post_type <code>model</code></li>';
         echo '<li><strong>Videos:</strong> post_type <code>post</code></li>';
         echo '<li><strong>Video categories:</strong> taxonomy <code>category</code></li>';
         echo '<li><strong>Category Pages:</strong> post_type <code>tmw_category_page</code> (matched by slug to category term)</li>';
         echo '<li><strong>Model tags:</strong> taxonomy <code>models</code></li>';
         echo '</ul>';
+        echo '</div>';
 
-        echo '<h2>Actions</h2>';
+        echo '<div class="tmwseo-card">';
+        echo '<h2>' . esc_html__('Worker', 'tmwseo') . '</h2>';
+        echo '<p><strong>alpha.7.1 baseline</strong>: DB tables + queue + worker + logs + settings shell (+ model routing + voice preset). No AI calls yet.</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_worker');
         echo '<input type="hidden" name="action" value="tmwseo_run_worker" />';
         echo '<p><button class="button button-primary">Run Worker Now</button></p>';
         echo '</form>';
+        echo '</div>';
+        echo '</div>';
+
+        echo '</details>';
+        echo '</div>';
+
+        echo '</div>';
 
         self::footer();
     }
