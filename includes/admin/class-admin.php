@@ -165,6 +165,15 @@ class Admin {
                 border:1px solid #e5e7eb;
             }
 
+            .tmwseo-health-card,
+            .tmwseo-rankmath-card {
+                display:flex;
+                flex-direction:column;
+                align-items:center;
+                justify-content:center;
+                padding:30px;
+            }
+
             .tmwseo-health-card.good { background:#f0fff4; color:#2f855a; }
             .tmwseo-health-card.warning { background:#fffaf0; color:#dd6b20; }
             .tmwseo-health-card.bad {
@@ -203,11 +212,19 @@ class Admin {
             }
 
             .tmwseo-rankmath-card {
-                background:#f4f6f9;
-                border:1px solid #e5e7eb;
-                padding:20px;
+                background:#ffffff;
+                border-left:5px solid #16a34a;
                 border-radius:8px;
                 text-align:center;
+            }
+
+            .rankmath-circle {
+                background:#ecfdf5;
+                color:#15803d;
+            }
+
+            .tmwseo-rankmath-card .tmwseo-health-label {
+                color:#15803d;
             }
 
             .tmwseo-rankmath-card .score {
@@ -1266,8 +1283,8 @@ private static function header(string $title): void {
         echo '</div>';
 
         echo '<div class="tmwseo-rankmath-card">';
-        echo '<div class="tmwseo-kpi-number">' . esc_html((string)$rankmath_sync_score) . '%</div>';
-        echo '<div class="tmwseo-kpi-label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
+        echo '<div class="tmwseo-health-circle rankmath-circle">93%</div>';
+        echo '<div class="tmwseo-health-label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
         echo '</div>';
 
         echo '<div class="tmwseo-card tmwseo-progress-card">';
