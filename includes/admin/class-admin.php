@@ -120,6 +120,19 @@ class Admin {
                 margin-right: 8px;
                 margin-bottom: 8px;
             }
+
+            .tmwseo-detail-card {
+                background: #fff;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 20px;
+                margin-top: 20px;
+                max-width: 520px;
+            }
+
+            .tmwseo-detail-card ul {
+                margin: 12px 0 0 18px;
+            }
         ');
     }
 
@@ -861,6 +874,39 @@ private static function header(string $title): void {
         $rankmath_synced_ratio = $rankmath_synced_posts / max($rankmath_total_posts, 1);
         $rankmath_sync_score = round($rankmath_synced_ratio * 100);
 
+        $internal_link_post_ids = get_posts([
+            'post_type' => ['post', 'model', 'tmw_category_page'],
+            'post_status' => 'any',
+            'fields' => 'ids',
+            'posts_per_page' => -1,
+            'no_found_rows' => true,
+            'ignore_sticky_posts' => true,
+            'cache_results' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ]);
+
+        $internal_home_url = home_url();
+        $internal_link_pattern = '/<a\s+[^>]*href=["\'](' . preg_quote($internal_home_url, '/') . '.*?)["\']/i';
+        $total_internal_posts = 0;
+        $total_internal_links = 0;
+        $posts_with_zero_links = 0;
+
+        foreach ($internal_link_post_ids as $internal_post_id) {
+            $total_internal_posts++;
+            $post_content = (string)get_post_field('post_content', (int)$internal_post_id);
+            $internal_match_count = preg_match_all($internal_link_pattern, $post_content);
+            $internal_match_count = is_int($internal_match_count) ? $internal_match_count : 0;
+            $total_internal_links += $internal_match_count;
+
+            if ($internal_match_count === 0) {
+                $posts_with_zero_links++;
+            }
+        }
+
+        $avg_internal_links = round($total_internal_links / max($total_internal_posts, 1), 2);
+        $zero_internal_ratio = round(($posts_with_zero_links / max($total_internal_posts, 1)) * 100);
+
         $seven_days_ago = gmdate('Y-m-d H:i:s', time() - (7 * DAY_IN_SECONDS));
         $last_7_days_optimized = self::count_posts_with_query([
             'post_type' => $tracked_post_types,
@@ -982,6 +1028,14 @@ private static function header(string $title): void {
         self::render_stat_card($missing_focus_keyword, __('Missing Focus Keyword', 'tmwseo'));
         self::render_stat_card($missing_meta_description, __('Missing Meta Description', 'tmwseo'));
         self::render_stat_card($last_7_days_optimized, __('Last 7 Days Optimized', 'tmwseo'));
+        echo '</div>';
+
+        echo '<div class="tmwseo-detail-card">';
+        echo '<h2>' . esc_html__('Internal Link Density', 'tmwseo') . '</h2>';
+        echo '<ul>';
+        echo '<li><strong>' . esc_html__('Average Links per Post', 'tmwseo') . ':</strong> ' . esc_html(number_format_i18n($avg_internal_links, 2)) . '</li>';
+        echo '<li><strong>' . esc_html__('Posts with Zero Links (%)', 'tmwseo') . ':</strong> ' . esc_html((string)$zero_internal_ratio) . '%</li>';
+        echo '</ul>';
         echo '</div>';
 
         echo '<div class="tmwseo-quick-actions">';
