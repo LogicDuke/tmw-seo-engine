@@ -10,6 +10,7 @@ class Admin {
     public static function init(): void {
         add_action('admin_menu', [__CLASS__, 'menu']);
         add_action('admin_init', [__CLASS__, 'register_settings']);
+        add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
@@ -22,6 +23,49 @@ class Admin {
         });
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
+    }
+
+    public static function enqueue_admin_assets(string $hook): void {
+        if ($hook !== 'toplevel_page_' . self::MENU_SLUG) {
+            return;
+        }
+
+        wp_register_style('tmwseo-admin-overview', false);
+        wp_enqueue_style('tmwseo-admin-overview');
+        wp_add_inline_style('tmwseo-admin-overview', '
+            .tmwseo-dashboard {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 20px;
+            }
+
+            .tmwseo-card {
+                background: #fff;
+                padding: 20px;
+                border-radius: 6px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                text-align: center;
+            }
+
+            .tmwseo-card h3 {
+                font-size: 28px;
+                margin: 0;
+            }
+
+            .tmwseo-card span {
+                font-size: 14px;
+                color: #666;
+            }
+
+            .tmwseo-quick-actions {
+                margin-top: 24px;
+            }
+
+            .tmwseo-quick-actions .button {
+                margin-right: 8px;
+                margin-bottom: 8px;
+            }
+        ');
     }
 
     public static function register_settings(): void {
@@ -621,6 +665,115 @@ private static function header(string $title): void {
     public static function render_overview(): void {
         self::header(__('TMW SEO Engine — Overview', 'tmwseo'));
 
+        $tracked_post_types = ['post', 'page', 'model', 'blog', 'photos', 'tmw_category_page'];
+
+        $total_posts = self::count_posts_with_query([
+            'post_type' => $tracked_post_types,
+            'post_status' => 'any',
+        ]);
+
+        $optimized_posts = self::count_posts_with_query([
+            'post_type' => $tracked_post_types,
+            'post_status' => 'any',
+            'meta_query' => [
+                [
+                    'key' => '_tmwseo_optimize_done',
+                    'compare' => 'EXISTS',
+                ],
+            ],
+        ]);
+
+        $pending_optimization = self::count_posts_with_query([
+            'post_type' => $tracked_post_types,
+            'post_status' => 'any',
+            'meta_query' => [
+                [
+                    'key' => '_tmwseo_optimize_enqueued',
+                    'compare' => 'EXISTS',
+                ],
+            ],
+        ]);
+
+        $missing_focus_keyword = self::count_posts_with_query([
+            'post_type' => $tracked_post_types,
+            'post_status' => 'any',
+            'meta_query' => [
+                'relation' => 'OR',
+                [
+                    'key' => '_tmwseo_keyword',
+                    'compare' => 'NOT EXISTS',
+                ],
+                [
+                    'key' => '_tmwseo_keyword',
+                    'value' => '',
+                    'compare' => '=',
+                ],
+            ],
+        ]);
+
+        $missing_meta_description = self::count_posts_with_query([
+            'post_type' => $tracked_post_types,
+            'post_status' => 'any',
+            'meta_query' => [
+                'relation' => 'OR',
+                [
+                    'key' => '_yoast_wpseo_metadesc',
+                    'compare' => 'NOT EXISTS',
+                ],
+                [
+                    'key' => '_yoast_wpseo_metadesc',
+                    'value' => '',
+                    'compare' => '=',
+                ],
+            ],
+        ]);
+
+        $seven_days_ago = gmdate('Y-m-d H:i:s', time() - (7 * DAY_IN_SECONDS));
+        $last_7_days_optimized = self::count_posts_with_query([
+            'post_type' => $tracked_post_types,
+            'post_status' => 'any',
+            'meta_query' => [
+                'relation' => 'OR',
+                [
+                    'key' => '_tmwseo_optimize_done_date',
+                    'value' => $seven_days_ago,
+                    'compare' => '>=',
+                    'type' => 'DATETIME',
+                ],
+                [
+                    'relation' => 'AND',
+                    [
+                        'key' => '_tmwseo_optimize_done_date',
+                        'compare' => 'NOT EXISTS',
+                    ],
+                    [
+                        'key' => '_tmwseo_optimize_done',
+                        'value' => 'offline_dry',
+                        'compare' => '=',
+                    ],
+                ],
+            ],
+        ]);
+
+        echo '<div class="tmwseo-dashboard">';
+        self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
+        self::render_stat_card($optimized_posts, __('Optimized Posts', 'tmwseo'));
+        self::render_stat_card($pending_optimization, __('Pending Optimization', 'tmwseo'));
+        self::render_stat_card($missing_focus_keyword, __('Missing Focus Keyword', 'tmwseo'));
+        self::render_stat_card($missing_meta_description, __('Missing Meta Description', 'tmwseo'));
+        self::render_stat_card($last_7_days_optimized, __('Last 7 Days Optimized', 'tmwseo'));
+        echo '</div>';
+
+        echo '<div class="tmwseo-quick-actions">';
+        echo '<h2>' . esc_html__('Quick Actions', 'tmwseo') . '</h2>';
+        echo '<p>';
+        echo '<a class="button button-primary" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=bulk_optimize_all')) . '">' . esc_html__('Bulk Optimize All', 'tmwseo') . '</a> ';
+        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=optimize_missing_seo')) . '">' . esc_html__('Optimize Only Missing SEO', 'tmwseo') . '</a> ';
+        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords&tmwseo_action=generate_clusters')) . '">' . esc_html__('Generate Clusters', 'tmwseo') . '</a> ';
+        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-indexing&tmwseo_action=rebuild_indexing')) . '">' . esc_html__('Rebuild Indexing', 'tmwseo') . '</a>';
+        echo '</p>';
+        echo '</div>';
+
         $counts = Jobs::counts();
         echo '<p><strong>alpha.7.1 baseline</strong>: DB tables + queue + worker + logs + settings shell (+ model routing + voice preset). No AI calls yet.</p>';
 
@@ -644,6 +797,29 @@ private static function header(string $title): void {
         echo '</form>';
 
         self::footer();
+    }
+
+    private static function count_posts_with_query(array $args): int {
+        $query = new \WP_Query(array_merge([
+            'post_type' => 'post',
+            'post_status' => 'any',
+            'fields' => 'ids',
+            'posts_per_page' => 1,
+            'no_found_rows' => false,
+            'ignore_sticky_posts' => true,
+            'cache_results' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ], $args));
+
+        return (int)$query->found_posts;
+    }
+
+    private static function render_stat_card(int $value, string $label): void {
+        echo '<div class="tmwseo-card">';
+        echo '<h3>' . esc_html(number_format_i18n($value)) . '</h3>';
+        echo '<span>' . esc_html($label) . '</span>';
+        echo '</div>';
     }
 
     public static function render_queue(): void {
