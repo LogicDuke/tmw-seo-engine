@@ -56,6 +56,7 @@ class ContentEngine {
     }
 
     public static function run_optimize_job(array $job): void {
+        error_log('TMW run_optimize_job ENTERED');
         $post_id = (int)($job['entity_id'] ?? 0);
         if ($post_id <= 0) {
             Logs::warn('content', 'optimize_post missing entity_id');
