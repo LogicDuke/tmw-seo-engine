@@ -106,6 +106,7 @@ class Admin {
             .tmwseo-dashboard {
                 max-width: 1200px;
                 padding-bottom:40px;
+                font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
             }
 
             .tmwseo-row {
@@ -166,17 +167,17 @@ class Admin {
 
             .tmwseo-health-card.good { background:#f0fff4; color:#2f855a; }
             .tmwseo-health-card.warning { background:#fffaf0; color:#dd6b20; }
-            .tmwseo-health-card.bad { background:#fff5f5; color:#c53030; }
-
             .tmwseo-health-card.bad {
-                background:linear-gradient(135deg,#fff5f5,#ffe5e5);
+                background:#ffffff;
+                border-left:5px solid #dc2626;
+                color:#c53030;
             }
 
             .tmwseo-health-circle {
                 width:110px;
                 height:110px;
                 border-radius:50%;
-                background:#fff;
+                background:#fef2f2;
                 display:flex;
                 align-items:center;
                 justify-content:center;
@@ -214,6 +215,19 @@ class Admin {
                 font-weight:700;
             }
 
+            .tmwseo-kpi-number {
+                font-size:40px;
+                font-weight:700;
+                margin-bottom:8px;
+            }
+
+            .tmwseo-kpi-label {
+                font-size:13px;
+                text-transform:uppercase;
+                letter-spacing:0.7px;
+                color:#6b7280;
+            }
+
             .tmwseo-type-grid {
                 display:grid;
                 grid-template-columns: repeat(3, 1fr);
@@ -224,7 +238,7 @@ class Admin {
                 background:#f9fafb;
                 border:1px solid #edf2f7;
                 border-radius:10px;
-                padding:25px;
+                padding:18px;
                 text-align:center;
             }
 
@@ -236,9 +250,9 @@ class Admin {
             }
 
             .tmwseo-type-card .score {
-                font-size:32px;
+                font-size:28px;
                 margin-top:10px;
-                font-weight:bold;
+                font-weight:700;
             }
 
             .tmwseo-progress-wrapper {
@@ -266,7 +280,7 @@ class Admin {
 
             .tmwseo-actions-card {
                 background:#f9fafb;
-                padding:20px;
+                padding:22px;
                 border-radius:8px;
                 text-align:center;
             }
@@ -278,6 +292,7 @@ class Admin {
             .tmwseo-actions-card .button {
                 margin-right:10px;
                 margin-bottom:10px;
+                min-width:170px;
             }
 
             .tmwseo-detail-card {
@@ -287,11 +302,15 @@ class Admin {
                 padding: 20px;
             }
 
+            .tmwseo-system-card p {
+                margin:6px 0;
+            }
+
             .tmwseo-system-card {
                 background:#ffffff;
                 border:1px solid #e5e7eb;
                 border-radius: 8px;
-                padding: 20px;
+                padding: 18px;
             }
 
             .tmwseo-system-card h3 {
@@ -1229,8 +1248,8 @@ private static function header(string $title): void {
         echo '</div>';
 
         echo '<div class="tmwseo-rankmath-card">';
-        echo '<div class="score">' . esc_html((string)$rankmath_sync_score) . '%</div>';
-        echo '<div class="label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
+        echo '<div class="tmwseo-kpi-number">' . esc_html((string)$rankmath_sync_score) . '%</div>';
+        echo '<div class="tmwseo-kpi-label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
         echo '</div>';
 
         echo '<div class="tmwseo-card tmwseo-progress-card">';
