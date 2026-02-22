@@ -14,7 +14,7 @@ class Admin {
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
-        add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'optimize_post_now']);
+        add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
     }
@@ -174,12 +174,18 @@ class Admin {
         exit;
     }
 
-    public static function optimize_post_now(): void {
-        if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
-        check_admin_referer('tmwseo_optimize_post_now');
+    public static function handle_optimize_post_now(): void {
+        if (!current_user_can('edit_posts')) wp_die('Permission denied.');
 
         $post_id = (int)($_GET['post_id'] ?? 0);
-        if ($post_id <= 0) wp_die(__('Missing post_id', 'tmwseo'));
+        if ($post_id <= 0) wp_die('Invalid post.');
+
+        if (
+            !isset($_GET['_wpnonce'])
+            || !wp_verify_nonce(sanitize_text_field(wp_unslash((string)$_GET['_wpnonce'])), 'tmwseo_optimize_post_' . $post_id)
+        ) {
+            wp_die('Invalid or expired nonce.');
+        }
 
         $post_type = get_post_type($post_id) ?: 'post';
         Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
@@ -303,7 +309,7 @@ class Admin {
             $actions[] = '<a href="' . esc_url(get_edit_post_link($page_id)) . '">Edit</a>';
             if ($view) $actions[] = '<a href="' . esc_url($view) . '" target="_blank" rel="noopener">View</a>';
 
-            $actions[] = '<a href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_optimize_post_now&post_id=' . $page_id), 'tmwseo_optimize_post_now')) . '">Generate/Refresh AI</a>';
+            $actions[] = '<a href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_optimize_post_now&post_id=' . $page_id), 'tmwseo_optimize_post_' . $page_id)) . '">Generate/Refresh AI</a>';
 
             if ($indexing !== 'index') {
                 $actions[] = '<a href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_enable_indexing&page_id=' . $page_id), 'tmwseo_enable_indexing')) . '">Enable Indexing</a>';
