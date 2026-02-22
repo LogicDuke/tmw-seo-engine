@@ -230,6 +230,8 @@ class Admin {
     }
 
     public static function handle_optimize_post_now(): void {
+        error_log('TMW ADMIN OPTIMIZE HANDLER ENTERED');
+
         if (!current_user_can('edit_posts')) wp_die('Permission denied.');
 
         $post_id = (int)($_GET['post_id'] ?? 0);
@@ -243,6 +245,7 @@ class Admin {
         }
 
         $post_type = get_post_type($post_id) ?: 'post';
+        error_log('TMW DISPATCHING JOB');
         Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
             'context' => 'manual',
             'trigger' => 'manual',
@@ -251,6 +254,7 @@ class Admin {
         Worker::run();
 
         $ref = wp_get_referer();
+        error_log('TMW ADMIN OPTIMIZE BEFORE REDIRECT');
         wp_safe_redirect($ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit'));
         exit;
     }
