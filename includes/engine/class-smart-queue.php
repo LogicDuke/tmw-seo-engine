@@ -58,7 +58,7 @@ class SmartQueue {
 
                 error_log('TMW SmartQueue ENQUEUE POST ID: ' . $post_id);
 
-                \TMWSEO\Engine\Jobs::dispatch([
+                \TMWSEO\Engine\Jobs::enqueue([
                     'type'      => 'optimize_post',
                     'entity_id' => $post_id,
                     'payload'   => [],
