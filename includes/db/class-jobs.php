@@ -5,6 +5,15 @@ if (!defined('ABSPATH')) { exit; }
 
 class Jobs {
 
+    public static function next(): ?array {
+        $batch = self::claim_batch(1);
+        if (empty($batch)) {
+            return null;
+        }
+
+        return $batch[0];
+    }
+
     public static function enqueue(string $type, string $entity_type, ?int $entity_id = null, array $payload = [], int $delay_seconds = 0): int {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_jobs';

@@ -30,7 +30,7 @@ class Worker {
         }
     }
 
-    private static function dispatch(array $job): void {
+    public static function dispatch(array $job): void {
         $type = (string)$job['type'];
         switch ($type) {
             case 'healthcheck':
@@ -77,7 +77,7 @@ private static function healthcheck(): void {
         Logs::info('health', 'Healthcheck', $checks);
     }
 
-    private static function backoff_seconds(int $attempts): int {
+    public static function backoff_seconds(int $attempts): int {
         if ($attempts <= 1) return 15 * 60;
         if ($attempts == 2) return 60 * 60;
         if ($attempts == 3) return 6 * 60 * 60;
