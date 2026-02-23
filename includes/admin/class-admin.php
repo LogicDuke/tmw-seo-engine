@@ -217,7 +217,7 @@ class Admin {
             .tmwseo-progress-percent {
                 font-size:42px;
                 font-weight:700;
-                margin-bottom:6px;
+                margin-bottom:2px;
             }
 
             .tmwseo-progress-label {
@@ -225,7 +225,7 @@ class Admin {
                 text-transform:uppercase;
                 letter-spacing:0.8px;
                 color:#6b7280;
-                margin-bottom:18px;
+                margin-bottom:12px;
             }
 
             .tmwseo-rankmath-card {
@@ -292,7 +292,7 @@ class Admin {
             .tmwseo-progress-wrapper {
                 width:100%;
                 max-width:260px;
-                height:18px;
+                height:20px;
                 background:#e5e7eb;
                 border-radius:12px;
                 overflow:hidden;
@@ -301,7 +301,7 @@ class Admin {
 
             .tmwseo-progress-bar {
                 height:100%;
-                background:#16a34a;
+                background:#15803d;
                 color:#ffffff;
                 font-size:12px;
                 display:flex;
