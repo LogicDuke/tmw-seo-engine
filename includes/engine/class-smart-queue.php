@@ -58,12 +58,12 @@ class SmartQueue {
 
                 error_log('TMW SmartQueue ENQUEUE POST ID: ' . $post_id);
 
-                \TMWSEO\Engine\Jobs::enqueue(
-                    'optimize_post',
-                    [
-                        'post_id' => $post_id,
-                    ]
-                );
+	\TMWSEO\Engine\Jobs::enqueue(
+	    'optimize_post',
+	    [
+	        'post_id' => $post_id,
+	    ]
+	);
 
                 update_post_meta($post_id, '_tmwseo_optimize_enqueued', 1);
             }
