@@ -12,6 +12,10 @@ class WorkerCron {
     {
         add_filter('cron_schedules', [self::class, 'register_interval']);
         add_action('tmwseo_process_queue', [self::class, 'process_queue']);
+
+        if (!wp_next_scheduled('tmwseo_process_queue')) {
+            wp_schedule_event(time(), 'tmwseo_every_ten_minutes', 'tmwseo_process_queue');
+        }
     }
 
     public static function activate(): void
