@@ -7,6 +7,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/db/class-schema.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/db/class-logs.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/db/class-jobs.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
@@ -86,6 +87,7 @@ class Plugin {
 
     public static function init(): void {
         Cron::init();
+        SmartQueue::init();
         Migration::maybe_migrate_legacy();
         \TMWSEO\Engine\Content\ContentEngine::init();
         \TMWSEO\Engine\Keywords\KeywordEngine::init();
@@ -145,12 +147,14 @@ class Plugin {
     public static function activate(): void {
         Schema::create_or_update_tables();
         Cron::schedule_events();
+        SmartQueue::schedule_daily_scan();
         Migration::maybe_migrate_legacy(true);
         Logs::info('core', 'Activated ' . TMWSEO_ENGINE_VERSION);
     }
 
     public static function deactivate(): void {
         Cron::unschedule_events();
+        SmartQueue::unschedule_daily_scan();
         Logs::info('core', 'Deactivated ' . TMWSEO_ENGINE_VERSION);
     }
 }
