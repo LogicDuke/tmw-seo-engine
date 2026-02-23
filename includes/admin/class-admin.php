@@ -212,12 +212,14 @@ class Admin {
                 align-items:center;
                 padding:30px;
                 text-align:center;
+                border-left:5px solid #2563eb;
             }
 
             .tmwseo-progress-percent {
                 font-size:42px;
                 font-weight:700;
                 margin-bottom:2px;
+                color:#1e40af;
             }
 
             .tmwseo-progress-label {
@@ -293,7 +295,7 @@ class Admin {
                 width:100%;
                 max-width:260px;
                 height:20px;
-                background:#e5e7eb;
+                background:#e0e7ff;
                 border-radius:12px;
                 overflow:hidden;
                 margin-bottom:14px;
@@ -301,7 +303,7 @@ class Admin {
 
             .tmwseo-progress-bar {
                 height:100%;
-                background:#15803d;
+                background:#2563eb;
                 color:#ffffff;
                 font-size:12px;
                 display:flex;
