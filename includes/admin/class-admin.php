@@ -205,10 +205,27 @@ class Admin {
                 opacity:0.8;
             }
 
-            .tmwseo-progress-card h3 {
-                font-size:16px;
-                font-weight:600;
-                margin-bottom:15px;
+            .tmwseo-progress-card {
+                display:flex;
+                flex-direction:column;
+                justify-content:center;
+                align-items:center;
+                padding:30px;
+                text-align:center;
+            }
+
+            .tmwseo-progress-percent {
+                font-size:42px;
+                font-weight:700;
+                margin-bottom:6px;
+            }
+
+            .tmwseo-progress-label {
+                font-size:13px;
+                text-transform:uppercase;
+                letter-spacing:0.8px;
+                color:#6b7280;
+                margin-bottom:18px;
             }
 
             .tmwseo-rankmath-card {
@@ -274,25 +291,29 @@ class Admin {
 
             .tmwseo-progress-wrapper {
                 width:100%;
-                background:#edf2f7;
-                height:22px;
+                max-width:260px;
+                height:18px;
+                background:#e5e7eb;
                 border-radius:12px;
                 overflow:hidden;
-                margin-bottom:25px;
+                margin-bottom:14px;
             }
 
             .tmwseo-progress-bar {
-                background:#2e7d32;
-                color:#fff;
-                height:22px;
-                border-radius:12px;
-                font-size:13px;
+                height:100%;
+                background:#16a34a;
+                color:#ffffff;
+                font-size:12px;
                 display:flex;
                 align-items:center;
                 justify-content:center;
-                font-weight:bold;
-                text-align:center;
+                font-weight:600;
                 transition: width 0.3s ease;
+            }
+
+            .tmwseo-progress-meta {
+                font-size:13px;
+                color:#6b7280;
             }
 
             .tmwseo-actions-card {
@@ -1287,12 +1308,19 @@ private static function header(string $title): void {
         echo '<div class="tmwseo-health-label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
         echo '</div>';
 
+        $optimization_percent = $ready_percent;
+        $optimized_posts = $count_ready;
+        $total_posts = $optimization_total_posts;
+
         echo '<div class="tmwseo-card tmwseo-progress-card">';
-        echo '<h3>' . esc_html__('Optimization Progress', 'tmwseo') . '</h3>';
-        echo '<div class="tmwseo-progress-wrapper">';
-        echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$ready_percent) . '%;">' . esc_html((string)$ready_percent) . '%</div>';
+        echo '<div class="tmwseo-progress-kpi">';
+        echo '<div class="tmwseo-progress-percent">' . esc_html((string)$optimization_percent) . '%</div>';
+        echo '<div class="tmwseo-progress-label">' . esc_html__('Optimization Progress', 'tmwseo') . '</div>';
         echo '</div>';
-        echo '<p>' . esc_html(sprintf('%d of %d posts fully optimized', $count_ready, $optimization_total_posts)) . '</p>';
+        echo '<div class="tmwseo-progress-wrapper">';
+        echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$optimization_percent) . '%;">' . esc_html((string)$optimization_percent) . '%</div>';
+        echo '</div>';
+        echo '<p class="tmwseo-progress-meta">' . esc_html(sprintf('%d of %d posts fully optimized', $optimized_posts, $total_posts)) . '</p>';
         echo '</div>';
         echo '</div>';
 
