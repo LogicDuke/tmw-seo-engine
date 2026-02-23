@@ -14,6 +14,7 @@ define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 
 require_once TMWSEO_ENGINE_PATH . 'includes/class-plugin.php';
+require_once plugin_dir_path(__FILE__) . 'includes/engine/class-worker-cron.php';
 
 register_activation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'activate']);
 register_activation_hook(__FILE__, function () {
@@ -67,4 +68,19 @@ add_action('plugins_loaded', function () {
 
 add_action('plugins_loaded', function () {
     \TMWSEO\Engine\Plugin::init();
+});
+
+
+use TMWSEO\Engine\WorkerCron;
+
+add_action('plugins_loaded', function () {
+    WorkerCron::init();
+});
+
+register_activation_hook(__FILE__, function () {
+    WorkerCron::activate();
+});
+
+register_deactivation_hook(__FILE__, function () {
+    WorkerCron::deactivate();
 });

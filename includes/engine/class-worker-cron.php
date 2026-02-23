@@ -38,12 +38,11 @@ class WorkerCron {
 
     public static function process_queue(): void
     {
-        // Prevent overlapping executions
         if (get_transient('tmwseo_worker_lock')) {
             return;
         }
 
-        set_transient('tmwseo_worker_lock', 1, 300); // 5 minute lock
+        set_transient('tmwseo_worker_lock', 1, 300);
 
         $max_jobs = 5;
 
