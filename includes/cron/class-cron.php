@@ -8,6 +8,7 @@ class Cron {
     const HOOK_PROCESS_QUEUE = 'tmwseo_process_queue';
     const HOOK_DAILY = 'tmwseo_daily_event';
     const HOOK_WEEKLY = 'tmwseo_weekly_event';
+    const HOOK_LIGHTHOUSE_WEEKLY_SCAN = 'tmw_lighthouse_weekly_scan';
 
     // Legacy weekly event from alpha.4
     const LEGACY_SCHEDULE = 'tmwseo_engine_weekly';
@@ -47,6 +48,7 @@ class Cron {
         if (!wp_next_scheduled(self::HOOK_WORKER)) wp_schedule_event(time() + 120, 'tmwseo_10min', self::HOOK_WORKER);
         if (!wp_next_scheduled(self::HOOK_DAILY)) wp_schedule_event(time() + 300, 'daily', self::HOOK_DAILY);
         if (!wp_next_scheduled(self::HOOK_WEEKLY)) wp_schedule_event(time() + 600, 'tmwseo_weekly', self::HOOK_WEEKLY);
+        if (!wp_next_scheduled(self::HOOK_LIGHTHOUSE_WEEKLY_SCAN)) wp_schedule_event(time() + 900, 'tmwseo_weekly', self::HOOK_LIGHTHOUSE_WEEKLY_SCAN);
 
         // Ensure legacy event stays scheduled if it existed
         if (!wp_next_scheduled(self::LEGACY_EVENT)) wp_schedule_event(time() + 3600, self::LEGACY_SCHEDULE, self::LEGACY_EVENT);
@@ -57,6 +59,7 @@ class Cron {
         self::unschedule(self::HOOK_WORKER);
         self::unschedule(self::HOOK_DAILY);
         self::unschedule(self::HOOK_WEEKLY);
+        self::unschedule(self::HOOK_LIGHTHOUSE_WEEKLY_SCAN);
         self::unschedule(self::LEGACY_EVENT);
     }
 

@@ -32,6 +32,14 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-cluster-importer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/compat/class-tmw-main-class.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-schema.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-targets.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-collector-psi.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-normalizer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-worker.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-advisor.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-dashboard.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-bootstrap.php';
 
 class Plugin {
 
@@ -92,6 +100,7 @@ class Plugin {
         \TMWSEO\Engine\Content\ContentEngine::init();
         \TMWSEO\Engine\Keywords\KeywordEngine::init();
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
+        \TMW\SEO\Lighthouse\Bootstrap::init();
 
         global $wpdb;
         $cluster_repository = new \TMW_Cluster_Repository($wpdb);
