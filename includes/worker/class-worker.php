@@ -49,6 +49,10 @@ class Worker {
                 \TMWSEO\Engine\Services\PageSpeed::run_cycle_job($job);
                 return;
 
+            case 'lighthouse_scan_url':
+                \TMW\SEO\Lighthouse\Worker::run_scan_job($job);
+                return;
+
             default:
                 Logs::warn('worker', 'Unknown job type', ['type' => $type]);
                 return;

@@ -222,6 +222,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_generated_pages);
         dbDelta($sql_legacy_rank);
 
+        \TMW\SEO\Lighthouse\Schema::create_or_update_tables();
+
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);
     }
 }
