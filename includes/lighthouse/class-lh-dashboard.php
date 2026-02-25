@@ -1,6 +1,8 @@
 <?php
 namespace TMW\SEO\Lighthouse;
 
+use TMWSEO\Engine\Admin;
+
 if (!defined('ABSPATH')) { exit; }
 
 class Dashboard {
@@ -8,7 +10,7 @@ class Dashboard {
 
     public static function register_menu(): void {
         add_submenu_page(
-            'tmwseo-engine',
+            Admin::MENU_SLUG,
             __('Lighthouse', 'tmwseo'),
             __('Lighthouse', 'tmwseo'),
             'manage_options',
