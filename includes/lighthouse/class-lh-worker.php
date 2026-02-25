@@ -7,6 +7,19 @@ use TMWSEO\Engine\Logs;
 if (!defined('ABSPATH')) { exit; }
 
 class Worker {
+    public static function get_baseline_timestamp(): int {
+        return (int) get_option('tmw_lighthouse_baseline_timestamp', 0);
+    }
+
+    public static function get_baseline_mysql_datetime(): string {
+        $baseline = self::get_baseline_timestamp();
+        if ($baseline <= 0) {
+            return '1970-01-01 00:00:00';
+        }
+
+        return gmdate('Y-m-d H:i:s', $baseline);
+    }
+
     public static function run_scan_job(array $job): void {
         global $wpdb;
         $payload = $job['payload'] ?? [];
@@ -63,6 +76,7 @@ class Worker {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_lighthouse_targets';
         $targets = $wpdb->get_results("SELECT id FROM {$table} ORDER BY id ASC LIMIT 100", ARRAY_A) ?: [];
+        $baseline = self::get_baseline_timestamp();
 
         foreach ($targets as $target) {
             $id = (int)$target['id'];
@@ -70,6 +84,6 @@ class Worker {
             Jobs::enqueue('lighthouse_scan_url', 'lighthouse_target', $id, ['target_id' => $id, 'strategy' => 'desktop']);
         }
 
-        Logs::info('lighthouse', '[TMW-LH] Weekly scan jobs enqueued', ['targets_synced' => $target_count, 'jobs' => count($targets) * 2]);
+        Logs::info('lighthouse', '[TMW-LH] Weekly scan jobs enqueued', ['targets_synced' => $target_count, 'jobs' => count($targets) * 2, 'baseline_timestamp' => $baseline]);
     }
 }

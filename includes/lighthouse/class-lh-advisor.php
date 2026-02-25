@@ -10,17 +10,19 @@ class Advisor {
 
         $targets = $wpdb->prefix . 'tmw_lighthouse_targets';
         $runs = $wpdb->prefix . 'tmw_lighthouse_runs';
+        $baseline_at = Worker::get_baseline_mysql_datetime();
 
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT r.raw_json
              FROM {$targets} t
              INNER JOIN {$runs} r ON r.id = (
                 SELECT rr.id FROM {$runs} rr
-                WHERE rr.target_id = t.id AND rr.strategy = %s
+                WHERE rr.target_id = t.id AND rr.strategy = %s AND rr.created_at >= %s
                 ORDER BY rr.created_at DESC
                 LIMIT 1
              )",
-            $strategy
+            $strategy,
+            $baseline_at
         ), ARRAY_A) ?: [];
 
         $issues = [];
