@@ -6,7 +6,7 @@ use TMWSEO\Engine\Admin;
 if (!defined('ABSPATH')) { exit; }
 
 class Dashboard {
-    const MENU_SLUG = 'tmwseo-lighthouse';
+    public const MENU_SLUG = 'tmwseo-lighthouse';
 
     public static function register_menu(): void {
         add_submenu_page(
