@@ -19,6 +19,14 @@ class Dashboard {
         );
     }
 
+    public static function filter_menu_page_url(string $url, string $menu_slug): string {
+        if ($menu_slug !== self::MENU_SLUG) {
+            return $url;
+        }
+
+        return admin_url('admin.php?page=' . self::MENU_SLUG);
+    }
+
     public static function handle_scan_all(): void {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
