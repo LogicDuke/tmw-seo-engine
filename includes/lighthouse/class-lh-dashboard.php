@@ -52,6 +52,52 @@ class Dashboard {
         exit;
     }
 
+
+    public static function handle_rebuild_targets(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmw_lighthouse_rebuild_targets');
+
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'tmw_lighthouse_targets';
+
+        $wpdb->query("DELETE FROM {$table}");
+
+        self::insert_target(home_url('/'));
+
+        $post_types = get_post_types(['public' => true], 'names');
+
+        $posts = get_posts([
+            'post_type' => $post_types,
+            'post_status' => 'publish',
+            'numberposts' => -1,
+        ]);
+
+        foreach ($posts as $post) {
+            self::insert_target(get_permalink($post));
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG . '&targets_rebuilt=1'));
+        exit;
+    }
+
+    private static function insert_target(string $url): void {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_lighthouse_targets';
+
+        if ($url === '') {
+            return;
+        }
+
+        $wpdb->insert($table, [
+            'url' => esc_url_raw($url),
+            'created_at' => current_time('mysql'),
+        ]);
+    }
+
     public static function render_page(): void {
         global $wpdb;
         $runs = $wpdb->prefix . 'tmw_lighthouse_runs';
@@ -81,10 +127,20 @@ class Dashboard {
             echo '<div class="notice notice-success"><p>Lighthouse baseline successfully reset.</p></div>';
         }
 
+        if (isset($_GET['targets_rebuilt'])) {
+            echo '<div class="notice notice-success"><p>Lighthouse targets were rebuilt from current published URLs.</p></div>';
+        }
+
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-bottom:8px;">';
         wp_nonce_field('tmw_lighthouse_reset');
         echo '<input type="hidden" name="action" value="tmw_lighthouse_reset" />';
         submit_button('Reset Baseline', 'secondary', 'submit', false, ['onclick' => "return confirm('Reset Lighthouse baseline? Historical data will be retained but excluded from reporting.');"]);
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-bottom:8px;">';
+        wp_nonce_field('tmw_lighthouse_rebuild_targets');
+        echo '<input type="hidden" name="action" value="tmw_lighthouse_rebuild_targets" />';
+        submit_button('Rebuild Targets', 'secondary', 'submit', false, ['onclick' => "return confirm('Rebuild Lighthouse targets from current published URLs?');"]);
         echo '</form>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-bottom:16px;">';
