@@ -39,13 +39,31 @@ class Dashboard {
         exit;
     }
 
+    public static function handle_reset(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmw_lighthouse_reset');
+
+        update_option('tmw_lighthouse_baseline_timestamp', time());
+
+        wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG . '&baseline_reset=1'));
+        exit;
+    }
+
     public static function render_page(): void {
         global $wpdb;
         $runs = $wpdb->prefix . 'tmw_lighthouse_runs';
+        $baseline_at = Worker::get_baseline_mysql_datetime();
 
         $avg = $wpdb->get_row(
-            "SELECT AVG(performance_score) AS avg_performance, AVG(seo_score) AS avg_seo, AVG(lcp) AS avg_lcp, AVG(cls) AS avg_cls, AVG(inp) AS avg_inp
-             FROM {$runs}",
+            $wpdb->prepare(
+                "SELECT AVG(performance_score) AS avg_performance, AVG(seo_score) AS avg_seo, AVG(lcp) AS avg_lcp, AVG(cls) AS avg_cls, AVG(inp) AS avg_inp
+                 FROM {$runs}
+                 WHERE created_at >= %s",
+                $baseline_at
+            ),
             ARRAY_A
         );
 
@@ -58,6 +76,16 @@ class Dashboard {
         if (isset($_GET['tmwseo_notice']) && $_GET['tmwseo_notice'] === 'scan_enqueued') {
             echo '<div class="notice notice-success"><p>Weekly Lighthouse scan jobs were enqueued.</p></div>';
         }
+
+        if (isset($_GET['baseline_reset'])) {
+            echo '<div class="notice notice-success"><p>Lighthouse baseline successfully reset.</p></div>';
+        }
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-bottom:8px;">';
+        wp_nonce_field('tmw_lighthouse_reset');
+        echo '<input type="hidden" name="action" value="tmw_lighthouse_reset" />';
+        submit_button('Reset Baseline', 'secondary', 'submit', false, ['onclick' => "return confirm('Reset Lighthouse baseline? Historical data will be retained but excluded from reporting.');"]);
+        echo '</form>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-bottom:16px;">';
         wp_nonce_field('tmw_lighthouse_scan_all');

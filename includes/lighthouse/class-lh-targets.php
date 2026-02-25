@@ -62,19 +62,21 @@ class Targets {
         $runs = $wpdb->prefix . 'tmw_lighthouse_runs';
 
         $strategy = $strategy === 'desktop' ? 'desktop' : 'mobile';
+        $baseline_at = Worker::get_baseline_mysql_datetime();
 
         $sql = $wpdb->prepare(
             "SELECT t.*, r.performance_score, r.seo_score, r.lcp, r.cls, r.inp, r.created_at as last_run_at
              FROM {$targets} t
              LEFT JOIN {$runs} r ON r.id = (
                  SELECT rr.id FROM {$runs} rr
-                 WHERE rr.target_id = t.id AND rr.strategy = %s
+                 WHERE rr.target_id = t.id AND rr.strategy = %s AND rr.created_at >= %s
                  ORDER BY rr.created_at DESC
                  LIMIT 1
              )
              ORDER BY t.id DESC
              LIMIT %d",
             $strategy,
+            $baseline_at,
             $limit
         );
 
