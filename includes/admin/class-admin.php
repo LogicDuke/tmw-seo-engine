@@ -91,7 +91,7 @@ class Admin {
             }
         }
 
-        wp_safe_redirect(admin_url('admin.php?page=tmw-seo-engine&bulk_updated=' . $updated));
+        wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG . '&bulk_updated=' . $updated));
         exit;
     }
 
@@ -469,7 +469,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'), __('Settings', 'tmwseo'), 'manage_options', 'tmwseo-settings', [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
-        add_submenu_page('tmw-seo', __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
+        add_submenu_page(self::MENU_SLUG, __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
     }
 
     public static function run_worker_now(): void {
