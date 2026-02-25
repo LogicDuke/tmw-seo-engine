@@ -8,7 +8,7 @@ class Dashboard {
 
     public static function register_menu(): void {
         add_submenu_page(
-            'tmwseo-engine',
+            'tmw-seo',
             __('Lighthouse', 'tmwseo'),
             __('Lighthouse', 'tmwseo'),
             'manage_options',
