@@ -122,14 +122,31 @@ class ContentEngine {
 
             error_log('TMW run_optimize_job GENERATING CONTENT');
 
-            $placeholder_content = "\n" .
-                "<h2>About {$post->post_title}</h2>\n" .
-                "<p>This is structured SEO placeholder content generated in Dry Run Mode.</p>\n\n" .
-                "<h2>Why Watch {$post->post_title}</h2>\n" .
-                "<p>Detailed keyword-rich description would appear here.</p>\n\n" .
-                "<h2>Related Models & Scenes</h2>\n" .
-                "<p>Internal linking structure placeholder.</p>\n\n" .
-                "<p><strong>SEO Meta Description:</strong> Optimized preview for {$post->post_title}.</p>\n";
+            if ($post->post_type === 'model') {
+                $model_name = trim((string)$post->post_title);
+                $placeholder_content = "\n" .
+                    "<h1>{$model_name} Live Chat</h1>\n" .
+                    "<p>{$model_name} live chat gives fans a direct way to connect in real time, watch streams, and discover the latest updates in one place.</p>\n\n" .
+                    "<h2>Watch {$model_name} Live on Webcam</h2>\n" .
+                    "<p>Browse current streams and see when {$model_name} is online for live webcam sessions.</p>\n\n" .
+                    "<h2>Why Fans Love {$model_name}</h2>\n" .
+                    "<p>Fans return for engaging interactions, consistent schedules, and a friendly on-camera style.</p>\n\n" .
+                    "<h2>{$model_name} Live Chat Features</h2>\n" .
+                    "<p>Find chat options, profile highlights, and fast access to the most important updates.</p>\n\n" .
+                    "<h2>{$model_name} Webcam Shows</h2>\n" .
+                    "<p>Explore show formats, stream themes, and related content to match viewer preferences.</p>\n\n" .
+                    "<h2>FAQ About {$model_name}</h2>\n" .
+                    "<p><strong>Q:</strong> How can I watch {$model_name} live?<br><strong>A:</strong> Use the live section above to join available streams.</p>\n";
+            } else {
+                $placeholder_content = "\n" .
+                    "<h2>About {$post->post_title}</h2>\n" .
+                    "<p>This is structured SEO placeholder content generated in Dry Run Mode.</p>\n\n" .
+                    "<h2>Why Watch {$post->post_title}</h2>\n" .
+                    "<p>Detailed keyword-rich description would appear here.</p>\n\n" .
+                    "<h2>Related Models & Scenes</h2>\n" .
+                    "<p>Internal linking structure placeholder.</p>\n\n" .
+                    "<p><strong>SEO Meta Description:</strong> Optimized preview for {$post->post_title}.</p>\n";
+            }
 
             $generated_content = $placeholder_content;
             $seo_title = TitleFixer::shorten(trim((string)$post->post_title), 60);
@@ -241,25 +258,41 @@ class ContentEngine {
                 "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
                 "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, content_html.\n" .
                 "seo_title <= 60 characters. meta_description 150-160 characters.\n" .
-                "content_html must be valid HTML (p, h2, h3, ul, li).\n"
+                "content_html must be valid HTML (h1, h2, h3, p, ul, li).\n"
         ];
+
+        $user_content =
+            "PAGE CONTEXT\n" .
+            "- Post type: {$post->post_type}\n" .
+            "- Context: {$context}\n" .
+            "- Current title (cleaned): {$clean_title_short}\n" .
+            ($keyword ? "- Primary keyword: {$keyword}\n" : '') .
+            (!empty($secondary_keywords) ? "- Secondary keywords: " . implode(', ', $secondary_keywords) . "\n" : '') .
+            "- Target length: {$length_hint}\n" .
+            "\n" .
+            "WRITE:\n" .
+            "1) SEO title that matches the page and includes the keyword naturally.\n" .
+            "2) Meta description with a clear value proposition.\n" .
+            "3) One focus keyword (short).\n" .
+            "4) content_html with structured headings and an FAQ section (3-5 Q&As).\n";
+
+        if ($post->post_type === 'model') {
+            $primary_keyword = self::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
+            $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
+                "- Use this exact heading structure in content_html:\n" .
+                "  H1: {$primary_keyword} Live Chat\n" .
+                "  Intro paragraph including the exact primary keyword: {$primary_keyword}\n" .
+                "  H2: Watch {$primary_keyword} Live on Webcam\n" .
+                "  H2: Why Fans Love {$primary_keyword}\n" .
+                "  H2: {$primary_keyword} Live Chat Features\n" .
+                "  H2: {$primary_keyword} Webcam Shows\n" .
+                "  H2: FAQ About {$primary_keyword}\n" .
+                "- Ensure the primary keyword appears in the H1, intro, and at least 3 H2 headings.\n";
+        }
 
         $user = [
             'role' => 'user',
-            'content' =>
-                "PAGE CONTEXT\n" .
-                "- Post type: {$post->post_type}\n" .
-                "- Context: {$context}\n" .
-                "- Current title (cleaned): {$clean_title_short}\n" .
-                ($keyword ? "- Primary keyword: {$keyword}\n" : '') .
-                (!empty($secondary_keywords) ? "- Secondary keywords: " . implode(', ', $secondary_keywords) . "\n" : '') .
-                "- Target length: {$length_hint}\n" .
-                "\n" .
-                "WRITE:\n" .
-                "1) SEO title that matches the page and includes the keyword naturally.\n" .
-                "2) Meta description with a clear value proposition.\n" .
-                "3) One focus keyword (short).\n" .
-                "4) content_html with structured headings and an FAQ section (3-5 Q&As).\n"
+            'content' => $user_content,
         ];
 
         error_log('TMW run_optimize_job GENERATING CONTENT');
