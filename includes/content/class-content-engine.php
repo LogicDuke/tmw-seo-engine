@@ -56,6 +56,15 @@ class ContentEngine {
         return 'video_or_post';
     }
 
+    private static function normalize_focus_keyword_for_post(\WP_Post $post, string $focus_kw): string {
+        if ($post->post_type === 'model') {
+            $model_name = trim((string)get_the_title($post->ID));
+            return $model_name !== '' ? $model_name : $focus_kw;
+        }
+
+        return $focus_kw;
+    }
+
     public static function run_optimize_job(array $job): void {
         error_log('TMW run_optimize_job ENTERED');
         $post_id = (int)($job['entity_id'] ?? 0);
@@ -109,6 +118,7 @@ class ContentEngine {
             if ($focus_kw === '') {
                 $focus_kw = trim((string)$post->post_title);
             }
+            $focus_kw = self::normalize_focus_keyword_for_post($post, $focus_kw);
             error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
             error_log('TMW run_optimize_job UPDATING POST');
 
@@ -145,6 +155,7 @@ class ContentEngine {
             $seo_title = 'SEO Title for Post ' . $post_id;
             $meta_desc = 'This is a generated meta description for post ' . $post_id . '.';
             $focus_kw  = 'sample keyword ' . $post_id;
+            $focus_kw = self::normalize_focus_keyword_for_post($post, $focus_kw);
 
             $generated_content = '<h2>SEO Optimized Content</h2>';
             $generated_content .= '<p>This content was generated in offline dry mode.</p>';
@@ -244,6 +255,7 @@ class ContentEngine {
         $seo_title = TitleFixer::shorten(trim($seo_title), 60);
         $meta_desc = trim($meta_desc);
         $focus_kw  = trim($focus_kw);
+        $focus_kw  = self::normalize_focus_keyword_for_post($post, $focus_kw);
         $html      = wp_kses_post(trim($html));
         $generated_content = $html;
         error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
