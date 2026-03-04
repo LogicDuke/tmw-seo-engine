@@ -1649,7 +1649,7 @@ private static function header(string $title): void {
         $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
 
         // Phase 1: manual-only by default.
-        $manual_control_mode = !array_key_exists('manual_control_mode', $opts) ? true : !empty($opts['manual_control_mode']);
+        $manual_control_mode = (bool) Settings::get('manual_control_mode', 1);
         $serper_api_key = esc_attr((string)($opts['serper_api_key'] ?? ''));
         $intel_max_seeds = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
         $intel_max_keywords = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
@@ -1659,7 +1659,7 @@ private static function header(string $title): void {
         do_settings_sections('tmwseo_settings');
 
         echo '<h2>Manual Control Mode</h2>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[manual_control_mode]" value="1" ' . checked($manual_control_mode, true, false) . '> Manual-only mode (disable cron + automatic post optimizations)</label>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[manual_control_mode]" value="1" ' . checked($manual_control_mode, true, false) . '> Manual Control Mode (disable cron + auto optimizations)</label>';
         echo '<p class="description">Recommended for live sites. Phase 1 uses analysis + advice only and never auto-edits posts.</p>';
 
         echo '<h2>Intelligence (Phase 1)</h2>';
