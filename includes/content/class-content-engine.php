@@ -59,7 +59,7 @@ class ContentEngine {
         error_log('TMW run_optimize_job ENTERED');
         $post_id = (int)($job['entity_id'] ?? 0);
         error_log('TMW run_optimize_job POST_ID=' . $post_id);
-        $dry = get_option('tmwseo_dry_run_mode', 0);
+        $dry = Settings::get('tmwseo_dry_run_mode', 0);
         error_log('TMW run_optimize_job DRY_MODE=' . $dry);
         if ($post_id <= 0) {
             Logs::warn('content', 'optimize_post missing entity_id');
@@ -82,7 +82,7 @@ class ContentEngine {
             return;
         }
 
-        $dry_run = get_option('tmwseo_dry_run_mode', 0);
+        $dry_run = Settings::get('tmwseo_dry_run_mode', 0);
         if ($dry_run) {
             error_log('TMW DRY RUN EXECUTED FOR POST ID: ' . $post_id);
             \TMWSEO\Logs::info('content', 'Dry run branch reached', [
@@ -101,6 +101,13 @@ class ContentEngine {
                 "<p><strong>SEO Meta Description:</strong> Optimized preview for {$post->post_title}.</p>\n";
 
             $generated_content = $placeholder_content;
+            $seo_title = TitleFixer::shorten(trim((string)$post->post_title), 60);
+            $meta_desc = trim(wp_strip_all_tags($post->post_excerpt !== '' ? $post->post_excerpt : 'Optimized preview for ' . $post->post_title . '.'));
+            $meta_desc = TitleFixer::shorten($meta_desc, 160);
+            $focus_kw  = trim((string)get_post_meta($post_id, '_tmwseo_keyword', true));
+            if ($focus_kw === '') {
+                $focus_kw = trim((string)$post->post_title);
+            }
             error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
             error_log('TMW run_optimize_job UPDATING POST');
 
@@ -108,6 +115,15 @@ class ContentEngine {
                 'ID'           => $post_id,
                 'post_content' => $placeholder_content,
             ]);
+
+            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+            if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
+            if ($focus_kw !== '') {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+                update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+            }
+
+            self::maybe_clear_rank_math_noindex($post);
             error_log('TMW run_optimize_job UPDATE COMPLETE');
 
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
@@ -121,10 +137,7 @@ class ContentEngine {
             return;
         }
 
-        // FORCE OFFLINE MODE IF OPENAI QUOTA FAILS
-        $force_dry = true;
-
-        if ($force_dry) {
+        if (!OpenAI::is_configured()) {
 
             error_log('TMW OFFLINE DRY MODE ACTIVE');
 
@@ -143,22 +156,18 @@ class ContentEngine {
                 'post_content' => $generated_content,
             ]);
 
-            update_post_meta($post_id, '_yoast_wpseo_title', $seo_title);
-            update_post_meta($post_id, '_yoast_wpseo_metadesc', $meta_desc);
+            update_post_meta($post_id, 'rank_math_title', $seo_title);
+            update_post_meta($post_id, 'rank_math_description', $meta_desc);
+            update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
             update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+
+            self::maybe_clear_rank_math_noindex($post);
 
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'offline_dry');
 
             error_log('TMW OFFLINE MODE COMPLETE');
 
-            return;
-        }
-
-        if (!OpenAI::is_configured()) {
-            Logs::warn('content', 'OpenAI not configured; skipping', ['post_id' => $post_id]);
-            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
-            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
@@ -232,7 +241,10 @@ class ContentEngine {
 
         if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
         if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
-        if ($focus_kw !== '') update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+        if ($focus_kw !== '') {
+            update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+            update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+        }
 
         // Update content via a dedicated marker block.
         $new_content = self::upsert_ai_block((string)$post->post_content, $html);
@@ -250,7 +262,17 @@ class ContentEngine {
         delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
         update_post_meta($post_id, '_tmwseo_optimize_done', current_time('mysql'));
 
+        self::maybe_clear_rank_math_noindex($post);
+
         Logs::info('content', 'Optimized', ['post_id' => $post_id, 'context' => $context, 'model' => $model]);
+    }
+
+    private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
+        if ($post->post_status !== 'publish') return;
+        if (!in_array($post->post_type, ['model', 'tmw_category_page'], true)) return;
+        if (get_post_meta($post->ID, '_tmwseo_generated', true)) return;
+
+        delete_post_meta($post->ID, 'rank_math_robots');
     }
 
     private static function upsert_ai_block(string $content, string $html): string {
