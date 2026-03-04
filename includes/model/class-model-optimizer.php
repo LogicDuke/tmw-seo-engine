@@ -186,7 +186,7 @@ class ModelOptimizer {
         echo '</td></tr>';
 
         echo '<tr><th>RankMath Title</th><td>';
-        echo '<input type="text" class="large-text" name="rankmath_title" value="' . esc_attr($meta_title) . '" />';
+        echo '<input type="text" class="large-text" name="rankmath_title" value="' . esc_attr($seo_title !== '' ? $seo_title : $meta_title) . '" />';
         echo '</td></tr>';
 
         echo '<tr><th>RankMath Description</th><td>';
@@ -283,7 +283,8 @@ class ModelOptimizer {
         $intro     = wp_kses_post((string)wp_unslash($_POST['intro'] ?? ''));
 
         if ($apply_rankmath) {
-            if ($rm_title !== '') update_post_meta($post_id, 'rank_math_title', $rm_title);
+            $rankmath_title = $seo_title !== '' ? $seo_title : $rm_title;
+            if ($rankmath_title !== '') update_post_meta($post_id, 'rank_math_title', $rankmath_title);
             if ($rm_desc !== '') update_post_meta($post_id, 'rank_math_description', $rm_desc);
             if ($rm_kw !== '') {
                 update_post_meta($post_id, 'rank_math_focus_keyword', $rm_kw);
@@ -424,6 +425,8 @@ class ModelOptimizer {
             $res = self::generate_with_openai($name, $top_tags, $platforms);
             if (($res['ok'] ?? false) && isset($res['suggestions']) && is_array($res['suggestions'])) {
                 $s = $res['suggestions'];
+                $s['seo_title'] = self::build_model_seo_title($name);
+                $s['meta_title'] = self::trim_len($s['seo_title'], 60);
                 $s['generated_at'] = current_time('mysql');
                 $s['tags_used'] = $top_tags;
                 $s['tags_blocked'] = $blocked;
@@ -445,6 +448,15 @@ class ModelOptimizer {
         return trim(mb_substr($s, 0, $max - 1)) . '…';
     }
 
+    private static function build_model_seo_title(string $name): string {
+        $name = trim($name);
+        if ($name === '') {
+            return 'Live Chat – Watch Webcam Now';
+        }
+
+        return $name . ' Live Chat – Watch ' . $name . ' Webcam Now';
+    }
+
     private static function generate_with_templates(string $name, array $tags, array $platforms): array {
         $t1 = $tags[0] ?? '';
         $t2 = $tags[1] ?? '';
@@ -456,10 +468,7 @@ class ModelOptimizer {
             $tag_phrase = implode(', ', $tag_bits);
         }
 
-        $seo_title = $name . ' – Live Cam Model';
-        if ($tag_phrase !== '') {
-            $seo_title .= ' | ' . $tag_phrase;
-        }
+        $seo_title = self::build_model_seo_title($name);
 
         // Meta title should be ~60 chars.
         $meta_title = self::trim_len($seo_title, 60);
