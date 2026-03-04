@@ -1,6 +1,8 @@
 <?php
 namespace TMWSEO\Engine;
 
+use TMWSEO\Engine\Services\Settings;
+
 if (!defined('ABSPATH')) { exit; }
 
 class Admin {
