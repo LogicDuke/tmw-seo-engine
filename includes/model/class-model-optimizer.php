@@ -283,6 +283,13 @@ class ModelOptimizer {
         $intro     = wp_kses_post((string)wp_unslash($_POST['intro'] ?? ''));
 
         if ($apply_rankmath) {
+            if ($model_name !== '') {
+                $rm_desc = sprintf(
+                    "Watch %1\$s live on webcam. Join %1\$s's live chat, explore photos, videos and real-time streaming. Start watching now.",
+                    $model_name
+                );
+            }
+
             $rankmath_title = $seo_title !== '' ? $seo_title : $rm_title;
             if ($rankmath_title !== '') update_post_meta($post_id, 'rank_math_title', $rankmath_title);
             if ($rm_desc !== '') update_post_meta($post_id, 'rank_math_description', $rm_desc);
