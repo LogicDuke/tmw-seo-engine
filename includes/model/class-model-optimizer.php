@@ -166,16 +166,10 @@ class ModelOptimizer {
         $seo_title = (string)($suggestions['seo_title'] ?? '');
         $meta_title = (string)($suggestions['meta_title'] ?? '');
         $meta_desc  = (string)($suggestions['meta_description'] ?? '');
-        $focus_kw   = (string)($suggestions['focus_keyword'] ?? '');
-        $extra_kws  = $suggestions['extra_keywords'] ?? [];
-        if (!is_array($extra_kws)) $extra_kws = [];
-
         $intro = (string)($suggestions['intro'] ?? '');
 
-        // Build focus keyword string in RankMath format (comma-separated).
-        $kw_list = array_values(array_filter(array_map('trim', array_merge([$focus_kw], $extra_kws))));
-        $kw_list = array_slice(array_unique($kw_list), 0, 5);
-        $kw_csv  = implode(', ', $kw_list);
+        // For model pages, primary keyword must always be the model name.
+        $kw_csv = (string) get_the_title($post->ID);
 
         // Apply form
         echo '<hr />';
@@ -192,7 +186,7 @@ class ModelOptimizer {
         echo '</td></tr>';
 
         echo '<tr><th>RankMath Title</th><td>';
-        echo '<input type="text" class="large-text" name="rankmath_title" value="' . esc_attr($meta_title) . '" />';
+        echo '<input type="text" class="large-text" name="rankmath_title" value="' . esc_attr($seo_title !== '' ? $seo_title : $meta_title) . '" />';
         echo '</td></tr>';
 
         echo '<tr><th>RankMath Description</th><td>';
@@ -282,12 +276,34 @@ class ModelOptimizer {
         $rm_title  = sanitize_text_field((string)wp_unslash($_POST['rankmath_title'] ?? ''));
         $rm_desc   = sanitize_text_field((string)wp_unslash($_POST['rankmath_description'] ?? ''));
         $rm_kw     = sanitize_text_field((string)wp_unslash($_POST['rankmath_focus_keyword'] ?? ''));
+        $model_name = sanitize_text_field((string)get_the_title($post_id));
+        if ($model_name !== '') {
+            $rm_kw = $model_name;
+        }
         $intro     = wp_kses_post((string)wp_unslash($_POST['intro'] ?? ''));
 
         if ($apply_rankmath) {
-            if ($rm_title !== '') update_post_meta($post_id, 'rank_math_title', $rm_title);
+            if ($model_name !== '') {
+                $rm_desc = sprintf(
+                    "Watch %1\$s live on webcam. Join %1\$s's live chat, explore photos, videos and real-time streaming. Start watching now.",
+                    $model_name
+                );
+            }
+
+            $rankmath_title = $seo_title !== '' ? $seo_title : $rm_title;
+            if ($rankmath_title !== '') update_post_meta($post_id, 'rank_math_title', $rankmath_title);
             if ($rm_desc !== '') update_post_meta($post_id, 'rank_math_description', $rm_desc);
-            if ($rm_kw !== '') update_post_meta($post_id, 'rank_math_focus_keyword', $rm_kw);
+            if ($rm_kw !== '') {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $rm_kw);
+
+                $secondary_keywords = [
+                    $rm_kw . ' webcam',
+                    $rm_kw . ' live',
+                    $rm_kw . ' cam',
+                    $rm_kw . ' stream',
+                ];
+                update_post_meta($post_id, 'rank_math_secondary_keywords', implode(',', $secondary_keywords));
+            }
         }
 
         if ($apply_wp_title && $seo_title !== '') {
@@ -307,6 +323,11 @@ class ModelOptimizer {
                 'ID' => $post_id,
                 'post_excerpt' => $intro,
             ]);
+        }
+
+        $image_id = get_post_thumbnail_id($post_id);
+        if ($image_id) {
+            update_post_meta($image_id, '_wp_attachment_image_alt', $model_name . ' webcam model');
         }
 
         update_post_meta($post_id, '_tmwseo_modelopt_applied_at', current_time('mysql'));
@@ -416,6 +437,8 @@ class ModelOptimizer {
             $res = self::generate_with_openai($name, $top_tags, $platforms);
             if (($res['ok'] ?? false) && isset($res['suggestions']) && is_array($res['suggestions'])) {
                 $s = $res['suggestions'];
+                $s['seo_title'] = self::build_model_seo_title($name);
+                $s['meta_title'] = self::trim_len($s['seo_title'], 60);
                 $s['generated_at'] = current_time('mysql');
                 $s['tags_used'] = $top_tags;
                 $s['tags_blocked'] = $blocked;
@@ -437,6 +460,15 @@ class ModelOptimizer {
         return trim(mb_substr($s, 0, $max - 1)) . '…';
     }
 
+    private static function build_model_seo_title(string $name): string {
+        $name = trim($name);
+        if ($name === '') {
+            return 'Live Chat – Watch Webcam Now';
+        }
+
+        return $name . ' Live Chat – Watch ' . $name . ' Webcam Now';
+    }
+
     private static function generate_with_templates(string $name, array $tags, array $platforms): array {
         $t1 = $tags[0] ?? '';
         $t2 = $tags[1] ?? '';
@@ -448,10 +480,7 @@ class ModelOptimizer {
             $tag_phrase = implode(', ', $tag_bits);
         }
 
-        $seo_title = $name . ' – Live Cam Model';
-        if ($tag_phrase !== '') {
-            $seo_title .= ' | ' . $tag_phrase;
-        }
+        $seo_title = self::build_model_seo_title($name);
 
         // Meta title should be ~60 chars.
         $meta_title = self::trim_len($seo_title, 60);
@@ -466,20 +495,13 @@ class ModelOptimizer {
         $desc .= '18+ only.';
         $meta_description = self::trim_len($desc, 155);
 
-        $focus = $name . ' live cam model';
+        $focus = $name;
 
         $extras = [];
         foreach (array_slice($tags, 0, 4) as $tg) {
             $tg = trim((string)$tg);
             if ($tg === '') continue;
-            // Keep keywords short and intent-based.
-            $extras[] = strtolower($tg) . ' cam girl';
-        }
-        // Fill remaining with core intent.
-        $fallback = ['private webcam chat', 'live cam show', 'free webcam chat'];
-        foreach ($fallback as $fb) {
-            if (count($extras) >= 4) break;
-            $extras[] = $fb;
+            $extras[] = strtolower($tg);
         }
 
         $intro = self::build_intro($name, $tags, $platforms);
@@ -488,7 +510,7 @@ class ModelOptimizer {
             'seo_title' => $seo_title,
             'meta_title' => $meta_title,
             'meta_description' => $meta_description,
-            'focus_keyword' => strtolower($focus),
+            'focus_keyword' => $focus,
             'extra_keywords' => array_slice(array_values(array_unique($extras)), 0, 4),
             'intro' => $intro,
         ];
@@ -534,6 +556,8 @@ class ModelOptimizer {
             $sentences[] = $p_sentence;
         }
 
+        $sentences[] = 'Explore more models: <a href="/models/">Browse All Models</a>, check fresh clips in <a href="/videos/">Videos</a>, discover galleries in <a href="/photos/">Photos</a>, and read updates on our <a href="/blog/">Blog</a>.';
+
         $sentences[] = 'This page is for adults only (18+).';
 
         $text = implode(' ', $sentences);
@@ -568,7 +592,34 @@ class ModelOptimizer {
             $text = implode(' ', array_slice($words, 0, 240)) . '…';
         }
 
-        return trim($text);
+        return self::ensure_internal_links(trim($text));
+    }
+
+    private static function ensure_internal_links(string $intro): string {
+        $required_links = [
+            '/models/' => 'Browse All Models',
+            '/videos/' => 'Videos',
+            '/photos/' => 'Photos',
+            '/blog/' => 'Blog',
+        ];
+
+        $missing = [];
+        foreach ($required_links as $href => $label) {
+            if (stripos($intro, 'href="' . $href . '"') === false && stripos($intro, "href='" . $href . "'") === false) {
+                $missing[$href] = $label;
+            }
+        }
+
+        if (empty($missing)) {
+            return $intro;
+        }
+
+        $parts = [];
+        foreach ($missing as $href => $label) {
+            $parts[] = '<a href="' . esc_attr($href) . '">' . esc_html($label) . '</a>';
+        }
+
+        return trim($intro) . ' Explore more models: ' . implode(', ', $parts) . '.';
     }
 
     private static function generate_with_openai(string $name, array $tags, array $platforms): array {
@@ -584,7 +635,7 @@ class ModelOptimizer {
 
         $user = [
             'role' => 'user',
-            'content' => "Create SEO suggestions for a cam model profile page.\n\nModel name: {$name}\nAllowed tags (use only if relevant): {$tag_list}\nPlatforms (optional mention): {$platform_list}\n\nRequirements:\n- Output JSON object with keys: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.\n- Intro must be 150-250 words, non-graphic, no explicit act descriptions.\n- Meta title ~60 chars, meta description ~155 chars.\n- Focus keyword should be a natural phrase including the name.\n- Extra keywords should combine top tags with intent terms (cam girl, webcam chat, live cam).\n",
+            'content' => "Create SEO suggestions for a cam model profile page.\n\nModel name: {$name}\nAllowed tags (use only if relevant): {$tag_list}\nPlatforms (optional mention): {$platform_list}\n\nRequirements:\n- Output JSON object with keys: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.\n- Intro must be 150-250 words, non-graphic, no explicit act descriptions.\n- Meta title ~60 chars, meta description ~155 chars.\n- Focus keyword must be exactly the model name: {$name}.\n- Extra keywords should be relevant tag variations only (no appended intent words).\n",
         ];
 
         $res = OpenAI::chat_json([$system, $user], $model, [
@@ -605,8 +656,11 @@ class ModelOptimizer {
             'meta_description' => sanitize_text_field((string)($json['meta_description'] ?? '')),
             'focus_keyword' => sanitize_text_field((string)($json['focus_keyword'] ?? '')),
             'extra_keywords' => is_array($json['extra_keywords'] ?? null) ? array_values(array_map('sanitize_text_field', $json['extra_keywords'])) : [],
-            'intro' => isset($json['intro']) ? wp_kses_post((string)$json['intro']) : '',
+            'intro' => isset($json['intro']) ? self::ensure_internal_links(wp_kses_post((string)$json['intro'])) : '',
         ];
+
+        // Model pages always use the model name as the focus keyword.
+        $suggestions['focus_keyword'] = $name;
 
         // Clamp extra keywords to 4.
         $suggestions['extra_keywords'] = array_slice(array_values(array_unique(array_filter(array_map('trim', $suggestions['extra_keywords'])))), 0, 4);

@@ -1,6 +1,8 @@
 <?php
 namespace TMWSEO\Engine;
 
+use TMWSEO\Engine\Services\Settings;
+
 if (!defined('ABSPATH')) { exit; }
 
 class Admin {
@@ -11,16 +13,13 @@ class Admin {
         add_action('admin_menu', [__CLASS__, 'menu']);
         add_action('admin_init', [__CLASS__, 'register_settings']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
+        add_action('admin_notices', [__CLASS__, 'render_admin_notices']);
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
-        add_action('admin_post_tmwseo_optimize_post_now', function() {
-            error_log('TRACE: admin_post_tmwseo_optimize_post_now reached');
-            debug_print_backtrace();
-        });
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
@@ -624,16 +623,51 @@ class Admin {
         $post_type = get_post_type($post_id) ?: 'post';
         error_log('TMW DISPATCHING JOB');
         Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
-            'context' => 'manual',
             'trigger' => 'manual',
         ]);
-
-        Worker::run();
+        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from manual action', ['post_id' => $post_id, 'post_type' => (string)$post_type]);
 
         $ref = wp_get_referer();
         error_log('TMW ADMIN OPTIMIZE BEFORE REDIRECT');
-        wp_safe_redirect($ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit'));
+        $redirect_url = $ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit');
+        $redirect_url = add_query_arg('tmwseo_notice', 'optimize_queued', $redirect_url);
+        wp_safe_redirect($redirect_url);
+
+        // Kick the worker immediately after sending the redirect.
+        // This avoids Cloudflare 504s while still processing the queued job right away.
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        } else {
+            @ob_end_flush();
+            @flush();
+        }
+
+        if (function_exists('ignore_user_abort')) {
+            @ignore_user_abort(true);
+        }
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+
+        // Process just one queued job (the one we just enqueued).
+        \TMWSEO\Engine\Worker::run(1);
+
         exit;
+    }
+
+    public static function render_admin_notices(): void {
+        if (!isset($_GET['tmwseo_notice'])) {
+            return;
+        }
+
+        $notice = sanitize_text_field(wp_unslash((string) $_GET['tmwseo_notice']));
+        if ($notice !== 'optimize_queued') {
+            return;
+        }
+
+        echo '<div class="notice notice-success is-dismissible"><p>';
+        echo esc_html__('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
+        echo '</p></div>';
     }
 
     // ---------- UI (alpha.8) ----------
@@ -1649,7 +1683,7 @@ private static function header(string $title): void {
         $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
 
         // Phase 1: manual-only by default.
-        $manual_control_mode = !array_key_exists('manual_control_mode', $opts) ? true : !empty($opts['manual_control_mode']);
+        $manual_control_mode = (bool) Settings::get('manual_control_mode', 1);
         $serper_api_key = esc_attr((string)($opts['serper_api_key'] ?? ''));
         $intel_max_seeds = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
         $intel_max_keywords = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
@@ -1659,7 +1693,7 @@ private static function header(string $title): void {
         do_settings_sections('tmwseo_settings');
 
         echo '<h2>Manual Control Mode</h2>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[manual_control_mode]" value="1" ' . checked($manual_control_mode, true, false) . '> Manual-only mode (disable cron + automatic post optimizations)</label>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[manual_control_mode]" value="1" ' . checked($manual_control_mode, true, false) . '> Manual Control Mode (disable cron + auto optimizations)</label>';
         echo '<p class="description">Recommended for live sites. Phase 1 uses analysis + advice only and never auto-edits posts.</p>';
 
         echo '<h2>Intelligence (Phase 1)</h2>';

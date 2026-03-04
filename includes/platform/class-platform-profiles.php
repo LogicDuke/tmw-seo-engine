@@ -22,6 +22,11 @@ class PlatformProfiles {
 
         add_action('add_meta_boxes', [__CLASS__, 'register_metabox']);
         add_action('save_post_model', [__CLASS__, 'save_metabox'], 10, 2);
+
+        // Gutenberg/REST fallback: ensure these fields save even when the block editor
+        // doesn't submit classic metabox POST data (varies by host/plugins).
+        add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
+        add_action('wp_ajax_tmwseo_save_platform_profiles', [__CLASS__, 'ajax_save_platform_profiles']);
     }
 
     public static function register_metabox(): void {
@@ -43,8 +48,10 @@ class PlatformProfiles {
         foreach (self::$platforms as $key => $label) {
             $val = (string) get_post_meta($post->ID, '_tmwseo_platform_' . $key, true);
             echo '<p><label style="font-weight:600">' . esc_html($label) . '</label><br>';
-            echo '<input type="url" style="width:100%" name="tmwseo_platform[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="https://..." /></p>';
+            echo '<input type="text" inputmode="url" style="width:100%" name="tmwseo_platform[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="https://..." /></p>';
         }
+
+        echo '<p><em>' . esc_html__("Tip: If you paste without https:// we’ll automatically add it.", 'tmw-seo-engine') . '</em></p>';
 
         $primary = (string) get_post_meta($post->ID, '_tmwseo_platform_primary', true);
         echo '<p><label style="font-weight:600">Primary platform</label><br>';
@@ -67,7 +74,11 @@ class PlatformProfiles {
         if (!is_array($platforms)) $platforms = [];
 
         foreach (self::$platforms as $key => $label) {
-            $val = isset($platforms[$key]) ? esc_url_raw((string)$platforms[$key]) : '';
+            $val = isset($platforms[$key]) ? trim((string) $platforms[$key]) : '';
+            if ($val !== '' && !preg_match('#^https?://#i', $val)) {
+                $val = 'https://' . $val;
+            }
+            $val = esc_url_raw($val);
             update_post_meta($post_id, '_tmwseo_platform_' . $key, $val);
         }
 
@@ -77,6 +88,67 @@ class PlatformProfiles {
         self::sync_to_table($post_id);
 
         Logs::info('platform', 'Saved platform profiles', ['model_id' => $post_id]);
+    }
+
+
+    public static function enqueue_editor_assets(): void {
+        // Only enqueue in the block editor.
+        if (!function_exists('get_current_screen')) return;
+        $screen = get_current_screen();
+        if (!$screen || ($screen->base ?? '') !== 'post') return;
+        if (($screen->post_type ?? '') !== 'model') return;
+
+        wp_enqueue_script(
+            'tmwseo-platform-profiles-editor',
+            TMWSEO_ENGINE_URL . 'assets/js/platform-profiles-editor.js',
+            ['wp-data'],
+            TMWSEO_ENGINE_VERSION,
+            true
+        );
+
+        wp_localize_script('tmwseo-platform-profiles-editor', 'TMWSEOPlatformProfiles', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce'   => wp_create_nonce('tmwseo_platform_profiles_ajax'),
+        ]);
+    }
+
+    public static function ajax_save_platform_profiles(): void {
+        check_ajax_referer('tmwseo_platform_profiles_ajax');
+
+        $post_id = isset($_POST['post_id']) ? absint($_POST['post_id']) : 0;
+        if (!$post_id) {
+            wp_send_json_error(['message' => 'Missing post_id'], 400);
+        }
+
+        if (get_post_type($post_id) !== 'model') {
+            wp_send_json_error(['message' => 'Invalid post type'], 400);
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => 'Forbidden'], 403);
+        }
+
+        $links_raw = isset($_POST['links']) ? wp_unslash((string) $_POST['links']) : '{}';
+        $links = json_decode($links_raw, true);
+        if (!is_array($links)) {
+            $links = [];
+        }
+
+        foreach (self::$platforms as $key => $label) {
+            $val = isset($links[$key]) ? trim((string) $links[$key]) : '';
+            if ($val !== '' && !preg_match('#^https?://#i', $val)) {
+                $val = 'https://' . $val;
+            }
+            $val = esc_url_raw($val);
+            update_post_meta($post_id, '_tmwseo_platform_' . $key, $val);
+        }
+
+        $primary = isset($_POST['primary']) ? sanitize_text_field((string) wp_unslash($_POST['primary'])) : '';
+        update_post_meta($post_id, '_tmwseo_platform_primary', $primary);
+
+        self::sync_to_table($post_id);
+
+        wp_send_json_success(['saved' => true]);
     }
 
     public static function sync_to_table(int $model_id): void {
