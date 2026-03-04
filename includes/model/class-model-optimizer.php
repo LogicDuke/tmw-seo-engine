@@ -325,6 +325,11 @@ class ModelOptimizer {
             ]);
         }
 
+        $image_id = get_post_thumbnail_id($post_id);
+        if ($image_id) {
+            update_post_meta($image_id, '_wp_attachment_image_alt', $model_name . ' webcam model');
+        }
+
         update_post_meta($post_id, '_tmwseo_modelopt_applied_at', current_time('mysql'));
 
         wp_safe_redirect(get_edit_post_link($post_id, 'url') . '&tmwseo_modelopt_applied=1#tmwseo_model_optimizer');
