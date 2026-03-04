@@ -65,6 +65,27 @@ class ContentEngine {
         return $focus_kw;
     }
 
+    private static function build_model_secondary_keywords(string $primary_keyword): array {
+        $primary_keyword = trim($primary_keyword);
+        if ($primary_keyword === '') return [];
+
+        return [
+            $primary_keyword . ' webcam',
+            $primary_keyword . ' live',
+            $primary_keyword . ' cam',
+            $primary_keyword . ' stream',
+        ];
+    }
+
+    private static function update_model_secondary_keywords_for_post(\WP_Post $post, string $primary_keyword): void {
+        if ($post->post_type !== 'model') return;
+
+        $secondary_keywords = self::build_model_secondary_keywords($primary_keyword);
+        if (empty($secondary_keywords)) return;
+
+        update_post_meta($post->ID, 'rank_math_secondary_keywords', implode(',', $secondary_keywords));
+    }
+
     public static function run_optimize_job(array $job): void {
         error_log('TMW run_optimize_job ENTERED');
         $post_id = (int)($job['entity_id'] ?? 0);
@@ -132,6 +153,7 @@ class ContentEngine {
             if ($focus_kw !== '') {
                 update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
                 update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+                self::update_model_secondary_keywords_for_post($post, $focus_kw);
             }
 
             self::maybe_clear_rank_math_noindex($post);
@@ -174,6 +196,7 @@ class ContentEngine {
             if ($focus_kw !== '') {
                 update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
                 update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+                self::update_model_secondary_keywords_for_post($post, $focus_kw);
             }
 
             self::maybe_clear_rank_math_noindex($post);
@@ -196,6 +219,11 @@ class ContentEngine {
 
         $context = (string)($payload['context'] ?? self::infer_context($post));
         $keyword = (string)($payload['keyword'] ?? get_post_meta($post_id, '_tmwseo_keyword', true));
+        $secondary_keywords = [];
+        if ($post->post_type === 'model') {
+            $primary_keyword = self::normalize_focus_keyword_for_post($post, $keyword);
+            $secondary_keywords = self::build_model_secondary_keywords($primary_keyword);
+        }
 
         $clean_title = TitleFixer::fix((string)$post->post_title);
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
@@ -224,6 +252,7 @@ class ContentEngine {
                 "- Context: {$context}\n" .
                 "- Current title (cleaned): {$clean_title_short}\n" .
                 ($keyword ? "- Primary keyword: {$keyword}\n" : '') .
+                (!empty($secondary_keywords) ? "- Secondary keywords: " . implode(', ', $secondary_keywords) . "\n" : '') .
                 "- Target length: {$length_hint}\n" .
                 "\n" .
                 "WRITE:\n" .
@@ -265,6 +294,7 @@ class ContentEngine {
         if ($focus_kw !== '') {
             update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
             update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+            self::update_model_secondary_keywords_for_post($post, $focus_kw);
         }
 
         // Update content via a dedicated marker block.

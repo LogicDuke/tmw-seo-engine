@@ -285,7 +285,17 @@ class ModelOptimizer {
         if ($apply_rankmath) {
             if ($rm_title !== '') update_post_meta($post_id, 'rank_math_title', $rm_title);
             if ($rm_desc !== '') update_post_meta($post_id, 'rank_math_description', $rm_desc);
-            if ($rm_kw !== '') update_post_meta($post_id, 'rank_math_focus_keyword', $rm_kw);
+            if ($rm_kw !== '') {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $rm_kw);
+
+                $secondary_keywords = [
+                    $rm_kw . ' webcam',
+                    $rm_kw . ' live',
+                    $rm_kw . ' cam',
+                    $rm_kw . ' stream',
+                ];
+                update_post_meta($post_id, 'rank_math_secondary_keywords', implode(',', $secondary_keywords));
+            }
         }
 
         if ($apply_wp_title && $seo_title !== '') {
