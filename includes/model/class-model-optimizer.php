@@ -551,6 +551,8 @@ class ModelOptimizer {
             $sentences[] = $p_sentence;
         }
 
+        $sentences[] = 'Explore more models: <a href="/models/">Browse All Models</a>, check fresh clips in <a href="/videos/">Videos</a>, discover galleries in <a href="/photos/">Photos</a>, and read updates on our <a href="/blog/">Blog</a>.';
+
         $sentences[] = 'This page is for adults only (18+).';
 
         $text = implode(' ', $sentences);
@@ -585,7 +587,34 @@ class ModelOptimizer {
             $text = implode(' ', array_slice($words, 0, 240)) . '…';
         }
 
-        return trim($text);
+        return self::ensure_internal_links(trim($text));
+    }
+
+    private static function ensure_internal_links(string $intro): string {
+        $required_links = [
+            '/models/' => 'Browse All Models',
+            '/videos/' => 'Videos',
+            '/photos/' => 'Photos',
+            '/blog/' => 'Blog',
+        ];
+
+        $missing = [];
+        foreach ($required_links as $href => $label) {
+            if (stripos($intro, 'href="' . $href . '"') === false && stripos($intro, "href='" . $href . "'") === false) {
+                $missing[$href] = $label;
+            }
+        }
+
+        if (empty($missing)) {
+            return $intro;
+        }
+
+        $parts = [];
+        foreach ($missing as $href => $label) {
+            $parts[] = '<a href="' . esc_attr($href) . '">' . esc_html($label) . '</a>';
+        }
+
+        return trim($intro) . ' Explore more models: ' . implode(', ', $parts) . '.';
     }
 
     private static function generate_with_openai(string $name, array $tags, array $platforms): array {
@@ -622,7 +651,7 @@ class ModelOptimizer {
             'meta_description' => sanitize_text_field((string)($json['meta_description'] ?? '')),
             'focus_keyword' => sanitize_text_field((string)($json['focus_keyword'] ?? '')),
             'extra_keywords' => is_array($json['extra_keywords'] ?? null) ? array_values(array_map('sanitize_text_field', $json['extra_keywords'])) : [],
-            'intro' => isset($json['intro']) ? wp_kses_post((string)$json['intro']) : '',
+            'intro' => isset($json['intro']) ? self::ensure_internal_links(wp_kses_post((string)$json['intro'])) : '',
         ];
 
         // Model pages always use the model name as the focus keyword.
