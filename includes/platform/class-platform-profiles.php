@@ -43,8 +43,10 @@ class PlatformProfiles {
         foreach (self::$platforms as $key => $label) {
             $val = (string) get_post_meta($post->ID, '_tmwseo_platform_' . $key, true);
             echo '<p><label style="font-weight:600">' . esc_html($label) . '</label><br>';
-            echo '<input type="url" style="width:100%" name="tmwseo_platform[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="https://..." /></p>';
+            echo '<input type="text" inputmode="url" style="width:100%" name="tmwseo_platform[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="https://..." /></p>';
         }
+
+        echo '<p><em>' . esc_html__("Tip: If you paste without https:// we’ll automatically add it.", 'tmw-seo-engine') . '</em></p>';
 
         $primary = (string) get_post_meta($post->ID, '_tmwseo_platform_primary', true);
         echo '<p><label style="font-weight:600">Primary platform</label><br>';
@@ -67,7 +69,11 @@ class PlatformProfiles {
         if (!is_array($platforms)) $platforms = [];
 
         foreach (self::$platforms as $key => $label) {
-            $val = isset($platforms[$key]) ? esc_url_raw((string)$platforms[$key]) : '';
+            $val = isset($platforms[$key]) ? trim((string) $platforms[$key]) : '';
+            if ($val !== '' && !preg_match('#^https?://#i', $val)) {
+                $val = 'https://' . $val;
+            }
+            $val = esc_url_raw($val);
             update_post_meta($post_id, '_tmwseo_platform_' . $key, $val);
         }
 
