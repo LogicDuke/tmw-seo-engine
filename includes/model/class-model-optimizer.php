@@ -166,16 +166,10 @@ class ModelOptimizer {
         $seo_title = (string)($suggestions['seo_title'] ?? '');
         $meta_title = (string)($suggestions['meta_title'] ?? '');
         $meta_desc  = (string)($suggestions['meta_description'] ?? '');
-        $focus_kw   = (string)($suggestions['focus_keyword'] ?? '');
-        $extra_kws  = $suggestions['extra_keywords'] ?? [];
-        if (!is_array($extra_kws)) $extra_kws = [];
-
         $intro = (string)($suggestions['intro'] ?? '');
 
-        // Build focus keyword string in RankMath format (comma-separated).
-        $kw_list = array_values(array_filter(array_map('trim', array_merge([$focus_kw], $extra_kws))));
-        $kw_list = array_slice(array_unique($kw_list), 0, 5);
-        $kw_csv  = implode(', ', $kw_list);
+        // For model pages, primary keyword must always be the model name.
+        $kw_csv = (string) get_the_title($post->ID);
 
         // Apply form
         echo '<hr />';
@@ -282,6 +276,10 @@ class ModelOptimizer {
         $rm_title  = sanitize_text_field((string)wp_unslash($_POST['rankmath_title'] ?? ''));
         $rm_desc   = sanitize_text_field((string)wp_unslash($_POST['rankmath_description'] ?? ''));
         $rm_kw     = sanitize_text_field((string)wp_unslash($_POST['rankmath_focus_keyword'] ?? ''));
+        $model_name = sanitize_text_field((string)get_the_title($post_id));
+        if ($model_name !== '') {
+            $rm_kw = $model_name;
+        }
         $intro     = wp_kses_post((string)wp_unslash($_POST['intro'] ?? ''));
 
         if ($apply_rankmath) {
@@ -466,20 +464,13 @@ class ModelOptimizer {
         $desc .= '18+ only.';
         $meta_description = self::trim_len($desc, 155);
 
-        $focus = $name . ' live cam model';
+        $focus = $name;
 
         $extras = [];
         foreach (array_slice($tags, 0, 4) as $tg) {
             $tg = trim((string)$tg);
             if ($tg === '') continue;
-            // Keep keywords short and intent-based.
-            $extras[] = strtolower($tg) . ' cam girl';
-        }
-        // Fill remaining with core intent.
-        $fallback = ['private webcam chat', 'live cam show', 'free webcam chat'];
-        foreach ($fallback as $fb) {
-            if (count($extras) >= 4) break;
-            $extras[] = $fb;
+            $extras[] = strtolower($tg);
         }
 
         $intro = self::build_intro($name, $tags, $platforms);
@@ -488,7 +479,7 @@ class ModelOptimizer {
             'seo_title' => $seo_title,
             'meta_title' => $meta_title,
             'meta_description' => $meta_description,
-            'focus_keyword' => strtolower($focus),
+            'focus_keyword' => $focus,
             'extra_keywords' => array_slice(array_values(array_unique($extras)), 0, 4),
             'intro' => $intro,
         ];
@@ -584,7 +575,7 @@ class ModelOptimizer {
 
         $user = [
             'role' => 'user',
-            'content' => "Create SEO suggestions for a cam model profile page.\n\nModel name: {$name}\nAllowed tags (use only if relevant): {$tag_list}\nPlatforms (optional mention): {$platform_list}\n\nRequirements:\n- Output JSON object with keys: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.\n- Intro must be 150-250 words, non-graphic, no explicit act descriptions.\n- Meta title ~60 chars, meta description ~155 chars.\n- Focus keyword should be a natural phrase including the name.\n- Extra keywords should combine top tags with intent terms (cam girl, webcam chat, live cam).\n",
+            'content' => "Create SEO suggestions for a cam model profile page.\n\nModel name: {$name}\nAllowed tags (use only if relevant): {$tag_list}\nPlatforms (optional mention): {$platform_list}\n\nRequirements:\n- Output JSON object with keys: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.\n- Intro must be 150-250 words, non-graphic, no explicit act descriptions.\n- Meta title ~60 chars, meta description ~155 chars.\n- Focus keyword must be exactly the model name: {$name}.\n- Extra keywords should be relevant tag variations only (no appended intent words).\n",
         ];
 
         $res = OpenAI::chat_json([$system, $user], $model, [
@@ -607,6 +598,9 @@ class ModelOptimizer {
             'extra_keywords' => is_array($json['extra_keywords'] ?? null) ? array_values(array_map('sanitize_text_field', $json['extra_keywords'])) : [],
             'intro' => isset($json['intro']) ? wp_kses_post((string)$json['intro']) : '',
         ];
+
+        // Model pages always use the model name as the focus keyword.
+        $suggestions['focus_keyword'] = $name;
 
         // Clamp extra keywords to 4.
         $suggestions['extra_keywords'] = array_slice(array_values(array_unique(array_filter(array_map('trim', $suggestions['extra_keywords'])))), 0, 4);
