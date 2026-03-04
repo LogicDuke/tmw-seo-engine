@@ -20,10 +20,6 @@ class Admin {
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
-        add_action('admin_post_tmwseo_optimize_post_now', function() {
-            error_log('TRACE: admin_post_tmwseo_optimize_post_now reached');
-            debug_print_backtrace();
-        });
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
@@ -627,7 +623,6 @@ class Admin {
         $post_type = get_post_type($post_id) ?: 'post';
         error_log('TMW DISPATCHING JOB');
         Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
-            'context' => 'manual',
             'trigger' => 'manual',
         ]);
         Logs::info('admin', '[TMW-QUEUE] optimize_post queued from manual action', ['post_id' => $post_id, 'post_type' => (string)$post_type]);
