@@ -11,6 +11,10 @@ if (!defined('ABSPATH')) { exit; }
 
 class ContentEngine {
 
+    private const MODEL_MIN_WORDS = 1510;
+    private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
+    private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
+
     /** Post types we auto-optimize on first publish */
     private static array $auto_types = [
         'post',
@@ -276,7 +280,9 @@ class ContentEngine {
             "3) One focus keyword (short).\n" .
             "4) content_html with structured headings and an FAQ section (3-5 Q&As).\n";
 
-        if ($post->post_type === 'model') {
+        $is_model_page = ($post->post_type === 'model');
+
+        if ($is_model_page) {
             $primary_keyword = self::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
             $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
                 "- Use this exact heading structure in content_html:\n" .
@@ -287,7 +293,10 @@ class ContentEngine {
                 "  H2: {$primary_keyword} Live Chat Features\n" .
                 "  H2: {$primary_keyword} Webcam Shows\n" .
                 "  H2: FAQ About {$primary_keyword}\n" .
-                "- Ensure the primary keyword appears in the H1, intro, and at least 3 H2 headings.\n";
+                "- Ensure the primary keyword appears in the H1, intro, and at least 3 H2 headings.\n" .
+                "- content_html must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Expand each section with descriptive paragraphs and practical details.\n" .
+                "- Keep keyword density for the exact primary keyword between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n";
         }
 
         $user = [
@@ -296,9 +305,11 @@ class ContentEngine {
         ];
 
         error_log('TMW run_optimize_job GENERATING CONTENT');
+        $max_tokens = $is_model_page ? 5200 : 2200;
+
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.6,
-            'max_tokens' => 2200,
+            'max_tokens' => $max_tokens,
         ]);
 
         if (!$res['ok']) {
@@ -318,6 +329,13 @@ class ContentEngine {
         $meta_desc = trim($meta_desc);
         $focus_kw  = trim($focus_kw);
         $focus_kw  = self::normalize_focus_keyword_for_post($post, $focus_kw);
+
+        if ($is_model_page) {
+            $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html);
+            $html = $validated['html'];
+            $focus_kw = $validated['focus_keyword'];
+        }
+
         $html      = wp_kses_post(trim($html));
         $generated_content = $html;
         error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
@@ -349,6 +367,88 @@ class ContentEngine {
         self::maybe_clear_rank_math_noindex($post);
 
         Logs::info('content', 'Optimized', ['post_id' => $post_id, 'context' => $context, 'model' => $model]);
+    }
+
+    private static function enforce_model_content_constraints(array $messages, string $model, int $max_tokens, string $focus_kw, string $html): array {
+        $focus_kw = trim($focus_kw);
+        $attempts = 0;
+
+        while ($attempts < 2) {
+            $word_count = self::count_words($html);
+            $density = self::keyword_density_percent($html, $focus_kw);
+
+            if ($word_count >= self::MODEL_MIN_WORDS && $density >= self::MODEL_MIN_KEYWORD_DENSITY && $density <= self::MODEL_MAX_KEYWORD_DENSITY) {
+                break;
+            }
+
+            $feedback = "Rewrite content_html only and return full JSON again while preserving SEO intent.\n" .
+                "- Minimum words: " . self::MODEL_MIN_WORDS . " (current: {$word_count}).\n" .
+                "- Expand sections with additional descriptive paragraphs.\n" .
+                "- Keep exact focus keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "% (current: " . round($density, 2) . "%).\n" .
+                "- Focus keyword must remain: {$focus_kw}.\n";
+
+            $retry_messages = $messages;
+            $retry_messages[] = [
+                'role' => 'assistant',
+                'content' => wp_json_encode([
+                    'focus_keyword' => $focus_kw,
+                    'content_html' => $html,
+                ]),
+            ];
+            $retry_messages[] = [
+                'role' => 'user',
+                'content' => $feedback,
+            ];
+
+            $retry = OpenAI::chat_json($retry_messages, $model, [
+                'temperature' => 0.5,
+                'max_tokens' => $max_tokens,
+            ]);
+
+            if (!$retry['ok']) {
+                break;
+            }
+
+            $json = $retry['json'] ?? [];
+            $new_html = (isset($json['content_html']) && is_string($json['content_html'])) ? trim($json['content_html']) : '';
+            $new_focus = isset($json['focus_keyword']) ? trim((string)$json['focus_keyword']) : '';
+
+            if ($new_html !== '') {
+                $html = $new_html;
+            }
+            if ($new_focus !== '') {
+                $focus_kw = $new_focus;
+            }
+
+            $attempts++;
+        }
+
+        return [
+            'html' => $html,
+            'focus_keyword' => $focus_kw,
+        ];
+    }
+
+    private static function count_words(string $html): int {
+        $text = trim((string) wp_strip_all_tags($html));
+        if ($text === '') return 0;
+
+        preg_match_all('/\b[\p{L}\p{N}\']+\b/u', $text, $matches);
+        return isset($matches[0]) && is_array($matches[0]) ? count($matches[0]) : 0;
+    }
+
+    private static function keyword_density_percent(string $html, string $keyword): float {
+        $keyword = trim($keyword);
+        $word_count = self::count_words($html);
+        if ($keyword === '' || $word_count === 0) return 0.0;
+
+        $text = mb_strtolower((string) wp_strip_all_tags($html), 'UTF-8');
+        $needle = mb_strtolower($keyword, 'UTF-8');
+        $pattern = '/\b' . preg_quote($needle, '/') . '\b/u';
+        preg_match_all($pattern, $text, $matches);
+        $occurrences = isset($matches[0]) && is_array($matches[0]) ? count($matches[0]) : 0;
+
+        return ($occurrences / $word_count) * 100;
     }
 
     private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
