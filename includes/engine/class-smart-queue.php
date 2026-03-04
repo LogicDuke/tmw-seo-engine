@@ -44,8 +44,18 @@ class SmartQueue {
 
             // Skip if already optimized recently
             $last_done = get_post_meta($post_id, '_tmwseo_optimize_done', true);
-            if ($last_done === 'done') {
-                continue;
+            if (!empty($last_done)) {
+                $last_done_ts = is_numeric($last_done) ? (int) $last_done : strtotime((string) $last_done);
+
+                if ($last_done_ts !== false && $last_done_ts > 0) {
+                    if ($last_done_ts > (time() - WEEK_IN_SECONDS)) {
+                        continue;
+                    }
+                } else {
+                    if ((int) get_post_modified_time('U', true, $post_id) > (time() - DAY_IN_SECONDS)) {
+                        continue;
+                    }
+                }
             }
 
             $health = (int) get_post_meta($post_id, '_tmwseo_health_score', true);
@@ -60,9 +70,12 @@ class SmartQueue {
 
                 \TMWSEO\Engine\Jobs::enqueue(
                     'optimize_post',
-                    'post',
+                    'model',
                     $post_id,
-                    [],
+                    [
+                        'context' => 'model',
+                        'trigger' => 'smartqueue',
+                    ],
                     0
                 );
 
