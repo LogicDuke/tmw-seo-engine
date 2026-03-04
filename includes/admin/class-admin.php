@@ -13,6 +13,7 @@ class Admin {
         add_action('admin_menu', [__CLASS__, 'menu']);
         add_action('admin_init', [__CLASS__, 'register_settings']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
+        add_action('admin_notices', [__CLASS__, 'render_admin_notices']);
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
@@ -629,13 +630,29 @@ class Admin {
             'context' => 'manual',
             'trigger' => 'manual',
         ]);
-
-        Worker::run();
+        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from manual action', ['post_id' => $post_id, 'post_type' => (string)$post_type]);
 
         $ref = wp_get_referer();
         error_log('TMW ADMIN OPTIMIZE BEFORE REDIRECT');
-        wp_safe_redirect($ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit'));
+        $redirect_url = $ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit');
+        $redirect_url = add_query_arg('tmwseo_notice', 'optimize_queued', $redirect_url);
+        wp_safe_redirect($redirect_url);
         exit;
+    }
+
+    public static function render_admin_notices(): void {
+        if (!isset($_GET['tmwseo_notice'])) {
+            return;
+        }
+
+        $notice = sanitize_text_field(wp_unslash((string) $_GET['tmwseo_notice']));
+        if ($notice !== 'optimize_queued') {
+            return;
+        }
+
+        echo '<div class="notice notice-success is-dismissible"><p>';
+        echo esc_html__('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
+        echo '</p></div>';
     }
 
     // ---------- UI (alpha.8) ----------
