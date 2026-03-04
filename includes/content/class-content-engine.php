@@ -60,7 +60,7 @@ class ContentEngine {
         error_log('TMW run_optimize_job ENTERED');
         $post_id = (int)($job['entity_id'] ?? 0);
         error_log('TMW run_optimize_job POST_ID=' . $post_id);
-        $dry = Settings::get('tmwseo_dry_run_mode', 0);
+        $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
         error_log('TMW run_optimize_job DRY_MODE=' . $dry);
         if ($post_id <= 0) {
             Logs::warn('content', 'optimize_post missing entity_id');
@@ -83,10 +83,10 @@ class ContentEngine {
             return;
         }
 
-        $dry_run = Settings::get('tmwseo_dry_run_mode', 0);
+        $dry_run = $dry;
         if ($dry_run) {
             error_log('TMW DRY RUN EXECUTED FOR POST ID: ' . $post_id);
-            \TMWSEO\Logs::info('content', 'Dry run branch reached', [
+            Logs::info('content', 'Dry run branch reached', [
                 'post_id' => $post_id
             ]);
 
@@ -149,6 +149,7 @@ class ContentEngine {
             $generated_content = '<h2>SEO Optimized Content</h2>';
             $generated_content .= '<p>This content was generated in offline dry mode.</p>';
             $generated_content .= '<p>Post ID: ' . $post_id . '</p>';
+            error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
 
             error_log('TMW run_optimize_job UPDATING POST');
 
@@ -157,15 +158,22 @@ class ContentEngine {
                 'post_content' => $generated_content,
             ]);
 
-            update_post_meta($post_id, 'rank_math_title', $seo_title);
-            update_post_meta($post_id, 'rank_math_description', $meta_desc);
-            update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
-            update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+            if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
+            if ($focus_kw !== '') {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+                update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+            }
 
             self::maybe_clear_rank_math_noindex($post);
+            error_log('TMW run_optimize_job UPDATE COMPLETE');
 
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'offline_dry');
+
+            Logs::info('content', 'Offline fallback content generated', [
+                'post_id' => $post_id,
+            ]);
 
             error_log('TMW OFFLINE MODE COMPLETE');
 
