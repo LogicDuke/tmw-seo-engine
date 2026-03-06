@@ -171,7 +171,7 @@ class TemplateContent {
 
         // Internal links
         if ($internal_links !== '') {
-            $content_parts[] = '<h2>Explore related tags & categories</h2>';
+            $content_parts[] = '<h2>Explore more</h2>';
             $content_parts[] = $internal_links;
         }
 
@@ -245,7 +245,7 @@ class TemplateContent {
                 $label = 'live cam';
             }
 
-            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="nofollow sponsored noopener">' . esc_html('Watch ' . $name . ' Live on ' . $label) . '</a></p>';
+            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch ' . $name . ' Live on ' . $label) . '</a></p>';
         }
 
         return '';
@@ -262,7 +262,7 @@ class TemplateContent {
             $label = (string)($l['label'] ?? '');
             if ($url === '' || $label === '') continue;
 
-            $lis .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="nofollow sponsored noopener">' . esc_html($name . ' on ' . $label) . '</a></li>';
+            $lis .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html($name . ' on ' . $label) . '</a></li>';
         }
         if ($lis === '') return '';
         return '<ul>' . $lis . '</ul>';
@@ -307,13 +307,9 @@ class TemplateContent {
     }
 
     private static function render_internal_links(\WP_Post $post): string {
-        $links = [];
-        $seen = [];
+        $term_pool = [];
 
-        $taxonomies = ['category', 'post_tag'];
-        $taxonomies = array_unique(array_merge($taxonomies, get_object_taxonomies($post->post_type, 'names')));
-
-        foreach ($taxonomies as $taxonomy) {
+        foreach (['category', 'post_tag'] as $taxonomy) {
             $terms = get_the_terms($post, $taxonomy);
             if (!is_array($terms)) {
                 continue;
@@ -329,22 +325,36 @@ class TemplateContent {
                     continue;
                 }
 
-                if (isset($seen[$term->term_id])) {
-                    continue;
-                }
-
-                $seen[$term->term_id] = true;
-                $label_prefix = ($term->taxonomy === 'post_tag') ? 'Tag' : 'Category';
-                $links[] = '<li><a href="' . esc_url($term_link) . '">' . esc_html($label_prefix . ': ' . $term->name) . '</a></li>';
-
-                if (count($links) >= 6) {
-                    break 2;
-                }
+                $term_pool[$taxonomy . ':' . $term->term_id] = [
+                    'name' => (string)$term->name,
+                    'url' => (string)$term_link,
+                    'taxonomy' => (string)$term->taxonomy,
+                    'count' => (int)$term->count,
+                ];
             }
         }
 
-        if (empty($links)) {
+        if (empty($term_pool)) {
             return '';
+        }
+
+        $terms_sorted = array_values($term_pool);
+        usort($terms_sorted, static function (array $a, array $b): int {
+            if ($a['count'] === $b['count']) {
+                return strnatcasecmp($a['name'], $b['name']);
+            }
+
+            return $b['count'] <=> $a['count'];
+        });
+
+        $max_links = min(6, count($terms_sorted));
+        $link_count = max(2, $max_links);
+        $selected = array_slice($terms_sorted, 0, $link_count);
+
+        $links = [];
+        foreach ($selected as $term) {
+            $label_prefix = ($term['taxonomy'] === 'post_tag') ? 'Tag' : 'Category';
+            $links[] = '<li><a href="' . esc_url($term['url']) . '">' . esc_html($label_prefix . ': ' . $term['name']) . '</a></li>';
         }
 
         return '<ul>' . implode('', $links) . '</ul>';
@@ -366,7 +376,7 @@ class TemplateContent {
                 continue;
             }
 
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="nofollow sponsored noopener">' . esc_html('Watch ' . $name . ' on ' . $platform) . '</a></li>';
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch ' . $name . ' on ' . $platform) . '</a></li>';
 
             if (count($items) >= 4) {
                 break;
@@ -381,7 +391,8 @@ class TemplateContent {
     }
 
     private static function render_contextual_external_link(string $name): string {
-        if (!Settings::get('template_external_link_enabled', 0)) {
+        $enabled = (bool) Settings::get('include_external_info_link', Settings::get('template_external_link_enabled', 0));
+        if (!$enabled) {
             return '';
         }
 

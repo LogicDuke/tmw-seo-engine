@@ -444,6 +444,7 @@ class Admin {
             'tmwseo_dry_run_mode' => !empty($input['tmwseo_dry_run_mode']) ? 1 : 0,
             'auto_clear_noindex' => !empty($input['auto_clear_noindex']) ? 1 : 0,
             'template_external_link_enabled' => !empty($input['template_external_link_enabled']) ? 1 : 0,
+            'include_external_info_link' => !empty($input['include_external_info_link']) ? 1 : 0,
             'dataforseo_login' => sanitize_text_field((string)($input['dataforseo_login'] ?? '')),
             'dataforseo_password' => sanitize_text_field((string)($input['dataforseo_password'] ?? '')),
             'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? '2840')),
@@ -572,6 +573,7 @@ class Admin {
             'tmwseo_dry_run_mode' => isset($_POST['tmwseo_dry_run_mode']) ? 1 : 0,
             'auto_clear_noindex' => isset($_POST['auto_clear_noindex']) ? 1 : 0,
             'template_external_link_enabled' => isset($_POST['template_external_link_enabled']) ? 1 : 0,
+            'include_external_info_link' => isset($_POST['include_external_info_link']) ? 1 : 0,
 
             'dataforseo_login' => sanitize_text_field((string)($_POST['dataforseo_login'] ?? '')),
             'dataforseo_password' => sanitize_text_field((string)($_POST['dataforseo_password'] ?? '')),
@@ -1851,6 +1853,7 @@ private static function header(string $title): void {
         $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
         $auto_clear_noindex = !empty($opts['auto_clear_noindex']);
         $template_external_link_enabled = !empty($opts['template_external_link_enabled']);
+        $include_external_info_link = !empty($opts['include_external_info_link']);
 
         // Phase 1: manual-only by default.
         $manual_control_mode = (bool) Settings::get('manual_control_mode', 1);
@@ -1913,7 +1916,8 @@ private static function header(string $title): void {
         echo '</td></tr>';
 
         echo '<tr><th>Template links</th><td>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[template_external_link_enabled]" value="1" ' . checked($template_external_link_enabled, true, false) . '> Add one contextual external link in Template mode</label>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[include_external_info_link]" value="1" ' . checked($include_external_info_link, true, false) . '> Add one contextual informational external link in Template mode</label>';
+        echo '<br><label><input type="checkbox" name="tmwseo_engine_settings[template_external_link_enabled]" value="1" ' . checked($template_external_link_enabled, true, false) . '> (Legacy) Enable template external link fallback</label>';
         echo '<p class="description">When enabled, generated Template content includes one safe, non-affiliate external resource link.</p>';
         echo '</td></tr>';
 
