@@ -150,7 +150,16 @@ class SuggestionEngine {
             return 0;
         }
 
-        return (int) $wpdb->insert_id;
+        $insert_id = (int) $wpdb->insert_id;
+        Logs::info('suggestions', '[TMW-SUGGEST] Suggestion created', [
+            'event' => 'Suggestion created',
+            'suggestion_id' => $insert_id,
+            'type' => $type,
+            'source_engine' => $source_engine,
+            'requires_user_approval' => true,
+        ]);
+
+        return $insert_id;
     }
 
     /**
@@ -224,6 +233,26 @@ class SuggestionEngine {
                 'status' => $status,
             ]);
             return false;
+        }
+
+        if ($updated > 0) {
+            $event = '';
+            if ($status === 'approved') {
+                $event = 'Suggestion approved';
+            } elseif ($status === 'ignored') {
+                $event = 'Suggestion ignored';
+            } elseif ($status === 'implemented') {
+                $event = 'Suggestion implemented';
+            }
+
+            if ($event !== '') {
+                Logs::info('suggestions', '[TMW-SUGGEST] ' . $event, [
+                    'event' => $event,
+                    'suggestion_id' => $id,
+                    'status' => $status,
+                    'requires_user_approval' => true,
+                ]);
+            }
         }
 
         return $updated > 0;

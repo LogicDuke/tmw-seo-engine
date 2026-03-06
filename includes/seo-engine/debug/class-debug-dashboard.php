@@ -38,6 +38,7 @@ class DebugDashboard {
         echo '</form>';
 
         DebugPanels::render_engine_status();
+        DebugPanels::render_suggestion_activity(100);
 
         if ($post_id > 0) {
             DebugPanels::render_post_inspector($post_id);

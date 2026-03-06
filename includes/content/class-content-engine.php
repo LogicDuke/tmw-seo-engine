@@ -44,7 +44,7 @@ class ContentEngine {
         // Only auto-optimize once.
         if (get_post_meta($post->ID, '_tmwseo_optimize_done', true)) return;
         if (get_post_meta($post->ID, '_tmwseo_optimize_enqueued', true)) return;
-        if ((int) Settings::get('manual_control_mode', 1) === 1) return;
+        if (Settings::is_human_approval_required()) return;
 
         update_post_meta($post->ID, '_tmwseo_optimize_enqueued', 1);
 

@@ -85,15 +85,11 @@ class Settings {
     /**
      * Human-approval guardrail.
      *
-     * Safety policy: content creation, publishing, and indexing actions should
-     * always require explicit human approval unless an operator intentionally
-     * disables manual control and safe mode together.
+     * Safety policy: all actionable operations must require explicit
+     * human approval in every environment.
      */
     public static function is_human_approval_required(): bool {
-        $manual_control = (bool) self::get('manual_control_mode', 1);
-        $safe_mode = (bool) self::get('safe_mode', 1);
-
-        return $manual_control || $safe_mode;
+        return true;
     }
 
     public static function openai_model_for_quality(): string {
