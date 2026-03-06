@@ -19,6 +19,7 @@ class SuggestionsAdminPage {
         add_action('admin_menu', [$ui, 'register_menu'], 99);
         add_action('admin_post_tmwseo_suggestion_action', [$ui, 'handle_row_action']);
         add_action('admin_post_tmwseo_scan_internal_link_opportunities', [$ui, 'handle_scan_internal_link_opportunities']);
+        add_action('admin_post_tmwseo_scan_content_improvements', [$ui, 'handle_scan_content_improvements']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
     }
 
@@ -116,6 +117,26 @@ class SuggestionsAdminPage {
             'created' => (int) ($result['created'] ?? 0),
             'scanned' => (int) ($result['scanned_sources'] ?? 0),
             'targets' => (int) ($result['target_pages'] ?? 0),
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_scan_content_improvements(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_scan_content_improvements');
+
+        $analyzer = new ContentImprovementAnalyzer($this->engine);
+        $result = $analyzer->scan_existing_posts();
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'notice' => 'content_scan_complete',
+            'created' => (int) ($result['created'] ?? 0),
+            'scanned' => (int) ($result['scanned'] ?? 0),
+            'with_issues' => (int) ($result['with_issues'] ?? 0),
         ], admin_url('admin.php')));
         exit;
     }
@@ -296,6 +317,10 @@ class SuggestionsAdminPage {
                 return $type === 'internal_link';
             }
 
+            if ($active_filter === 'content_improvement') {
+                return $type === 'content_improvement';
+            }
+
             if ($active_filter === 'cluster_expansion') {
                 return $type === 'cluster_expansion';
             }
@@ -317,7 +342,13 @@ class SuggestionsAdminPage {
         submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
 
-        if (in_array($notice, ['approve', 'create_draft', 'ignored', 'scan_complete'], true)) {
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 18px;">';
+        wp_nonce_field('tmwseo_scan_content_improvements');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
+        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+
+        if (in_array($notice, ['approve', 'create_draft', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'approve') {
                 echo esc_html__('Suggestion approved and saved as a draft post.', 'tmwseo');
@@ -328,6 +359,11 @@ class SuggestionsAdminPage {
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
                 $targets = isset($_GET['targets']) ? (int) $_GET['targets'] : 0;
                 echo esc_html(sprintf(__('Internal link scan complete: %d suggestions created, %d source pages scanned, %d target pages analyzed.', 'tmwseo'), $created, $scanned, $targets));
+            } elseif ($notice === 'content_scan_complete') {
+                $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
+                $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
+                $with_issues = isset($_GET['with_issues']) ? (int) $_GET['with_issues'] : 0;
+                echo esc_html(sprintf(__('Content improvement scan complete: %d suggestions created, %d pages scanned, %d pages with issues detected.', 'tmwseo'), $created, $scanned, $with_issues));
             } else {
                 echo esc_html__('Suggestion ignored.', 'tmwseo');
             }
@@ -339,6 +375,7 @@ class SuggestionsAdminPage {
             'high_priority' => 'High Priority',
             'content_opportunity' => 'Content Opportunities',
             'internal_linking' => 'Internal Linking',
+            'content_improvement' => 'Content Improvements',
             'cluster_expansion' => 'Cluster Expansion',
             'traffic_keywords' => 'Traffic Keywords',
         ];
