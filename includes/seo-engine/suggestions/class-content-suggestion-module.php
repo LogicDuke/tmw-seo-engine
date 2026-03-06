@@ -13,6 +13,9 @@ if (!defined('ABSPATH')) { exit; }
  * - Generates suggestion records only.
  */
 class ContentSuggestionModule {
+    private const TRAFFIC_KEYWORD_MIN_VOLUME = 200;
+    private const TRAFFIC_KEYWORD_MAX_DIFFICULTY = 30.0;
+    private const WEAK_COMPETITOR_DA_THRESHOLD = 40.0;
 
     private SuggestionEngine $suggestion_engine;
 
@@ -74,6 +77,30 @@ class ContentSuggestionModule {
                 'suggested_action' => 'Generate draft idea only for manual review. Do not auto-create content.',
                 'status' => 'new',
             ];
+
+            $competitor_da_avg = $this->extractCompetitorDomainAuthorityAverage(
+                $row,
+                (array) ($opportunity_map[$keyword] ?? [])
+            );
+
+            if ($this->isTrafficKeywordOpportunity($search_volume, $keyword_difficulty, $competitor_da_avg)) {
+                $suggestions[] = [
+                    'type' => 'traffic_keyword',
+                    'title' => 'New traffic keyword opportunity',
+                    'description' => $this->buildTrafficKeywordDescription(
+                        $keyword,
+                        $search_volume,
+                        $keyword_difficulty,
+                        $competitor_da_avg
+                    ),
+                    'source_engine' => 'traffic_mining_engine',
+                    'priority_score' => $this->calculateTrafficKeywordPriority($search_volume, $keyword_difficulty, $competitor_da_avg),
+                    'estimated_traffic' => (int) round($search_volume * 0.4),
+                    'difficulty' => $keyword_difficulty,
+                    'suggested_action' => 'Create article targeting this keyword. Never create the article automatically.',
+                    'status' => 'new',
+                ];
+            }
         }
 
         Logs::info('suggestions', '[TMW-SUGGEST] Content suggestions generated from SEO pipeline', [
@@ -210,6 +237,109 @@ class ContentSuggestionModule {
             '',
             'Estimated traffic potential:',
             (string) $estimated_traffic,
+        ]);
+    }
+
+    private function isTrafficKeywordOpportunity(int $search_volume, float $keyword_difficulty, ?float $competitor_da_avg): bool {
+        if ($search_volume <= self::TRAFFIC_KEYWORD_MIN_VOLUME) {
+            return false;
+        }
+
+        if ($keyword_difficulty >= self::TRAFFIC_KEYWORD_MAX_DIFFICULTY) {
+            return false;
+        }
+
+        if ($competitor_da_avg === null) {
+            return false;
+        }
+
+        return $competitor_da_avg < self::WEAK_COMPETITOR_DA_THRESHOLD;
+    }
+
+    /**
+     * @param array<string,mixed> $keyword_row
+     * @param array<string,mixed> $opportunity_row
+     */
+    private function extractCompetitorDomainAuthorityAverage(array $keyword_row, array $opportunity_row): ?float {
+        $direct_candidates = [
+            $keyword_row['top_competitor_domain_authority_average'] ?? null,
+            $keyword_row['competitor_domain_authority_average'] ?? null,
+            $keyword_row['serp_competitor_da_avg'] ?? null,
+            $opportunity_row['top_competitor_domain_authority_average'] ?? null,
+            $opportunity_row['competitor_domain_authority_average'] ?? null,
+            $opportunity_row['serp_competitor_da_avg'] ?? null,
+        ];
+
+        foreach ($direct_candidates as $value) {
+            if (is_numeric($value)) {
+                $score = (float) $value;
+                if ($score >= 0 && $score <= 100) {
+                    return $score;
+                }
+            }
+        }
+
+        $scores = [];
+        foreach ([$keyword_row, $opportunity_row] as $row) {
+            foreach (['serp_results', 'serp_competitors', 'competitors'] as $key) {
+                if (!isset($row[$key]) || !is_array($row[$key])) {
+                    continue;
+                }
+
+                foreach ($row[$key] as $competitor) {
+                    if (!is_array($competitor)) {
+                        continue;
+                    }
+
+                    $authority = $competitor['domain_authority'] ?? $competitor['domain_rating'] ?? $competitor['domain_rank'] ?? null;
+                    if (!is_numeric($authority)) {
+                        continue;
+                    }
+
+                    $authority = (float) $authority;
+                    if ($authority >= 0 && $authority <= 100) {
+                        $scores[] = $authority;
+                    }
+                }
+            }
+        }
+
+        if (empty($scores)) {
+            return null;
+        }
+
+        return array_sum($scores) / count($scores);
+    }
+
+    private function calculateTrafficKeywordPriority(int $search_volume, float $keyword_difficulty, ?float $competitor_da_avg): float {
+        $volume_score = min(100.0, $search_volume / 10.0);
+        $difficulty_score = max(0.0, 100.0 - ($keyword_difficulty * 2.0));
+        $authority_score = is_null($competitor_da_avg) ? 0.0 : max(0.0, 100.0 - ($competitor_da_avg * 2.0));
+
+        return max(0.0, min(100.0, ($volume_score * 0.4) + ($difficulty_score * 0.3) + ($authority_score * 0.3)));
+    }
+
+    private function buildTrafficKeywordDescription(
+        string $keyword,
+        int $search_volume,
+        float $keyword_difficulty,
+        float $competitor_da_avg
+    ): string {
+        return implode("\n", [
+            sprintf('Keyword: %s', $keyword),
+            '',
+            sprintf('Volume: %d', $search_volume),
+            sprintf('Difficulty: %.2f', $keyword_difficulty),
+            '',
+            sprintf('Top competitor domain authority average: %.2f', $competitor_da_avg),
+            '',
+            'Estimated traffic if ranked top 5:',
+            (string) ((int) round($search_volume * 0.4)),
+            '',
+            'Suggested action:',
+            'Create article targeting this keyword.',
+            '',
+            'Never create the article automatically.',
         ]);
     }
 }
