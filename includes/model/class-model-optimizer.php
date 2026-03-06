@@ -63,7 +63,7 @@ class ModelOptimizer {
 
     public static function register_menu(): void {
         add_submenu_page(
-            'tmwseo-engine',
+            null,
             __('Model Optimizer', 'tmwseo'),
             __('Model Optimizer', 'tmwseo'),
             'edit_posts',

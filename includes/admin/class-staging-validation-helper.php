@@ -27,7 +27,7 @@ class Staging_Validation_Helper {
 
     public static function register_menu(): void {
         add_submenu_page(
-            Admin::MENU_SLUG,
+            null,
             __('Staging Validation Helper', 'tmwseo'),
             __('↳ Staging Validation Helper', 'tmwseo'),
             'manage_options',

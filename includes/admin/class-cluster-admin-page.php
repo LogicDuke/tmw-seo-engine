@@ -13,7 +13,7 @@ class TMW_Cluster_Admin_Page {
 
     public function register_menu() {
         add_submenu_page(
-            'tmwseo-engine',
+            null,
             'SEO Clusters',
             'SEO Clusters',
             'manage_options',

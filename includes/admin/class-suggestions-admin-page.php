@@ -29,7 +29,7 @@ class SuggestionsAdminPage {
 
     public function register_menu(): void {
         add_submenu_page(
-            Admin::MENU_SLUG,
+            null,
             __('Command Center', 'tmwseo'),
             __('Command Center', 'tmwseo'),
             'manage_options',
@@ -38,7 +38,7 @@ class SuggestionsAdminPage {
         );
 
         add_submenu_page(
-            Admin::MENU_SLUG,
+            null,
             __('Suggestions', 'tmwseo'),
             __('Suggestions', 'tmwseo'),
             'manage_options',
@@ -47,7 +47,7 @@ class SuggestionsAdminPage {
         );
 
         add_submenu_page(
-            Admin::MENU_SLUG,
+            null,
             __('Content Briefs', 'tmwseo'),
             __('Content Briefs', 'tmwseo'),
             'manage_options',
@@ -56,7 +56,7 @@ class SuggestionsAdminPage {
         );
 
         add_submenu_page(
-            Admin::MENU_SLUG,
+            null,
             __('Competitor Domains', 'tmwseo'),
             __('Competitor Domains', 'tmwseo'),
             'manage_options',

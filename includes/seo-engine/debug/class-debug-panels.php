@@ -1,6 +1,8 @@
 <?php
 namespace TMWSEO\Engine\Debug;
 
+use TMWSEO\Engine\Services\DataForSEO;
+
 if (!defined('ABSPATH')) { exit; }
 
 class DebugPanels {
@@ -8,7 +10,7 @@ class DebugPanels {
 
     public static function render_engine_status(): void {
         $status = [
-            'DataForSEO status' => \TMWSEO\Engine\Services\DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
+            'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
             'keyword intelligence status' => self::meta_count('tmw_keyword_pack') > 0 ? 'Ready for Review' : 'Needs Attention',
             'clustering status' => self::table_count('tmw_keyword_clusters') > 0 ? 'Ready for Review' : 'Needs Attention',
             'opportunities status' => self::table_count('tmw_seo_opportunities') > 0 ? 'Ready for Review' : 'Needs Attention',
@@ -29,64 +31,28 @@ class DebugPanels {
         }
 
         if (!current_user_can('manage_options')) {
-            return [
-                'error' => 'Insufficient permissions to run debug testing mode.',
-            ];
+            return ['error' => 'Insufficient permissions to run full validation.'];
         }
 
         check_admin_referer('tmw_debug_run_tests', 'tmw_debug_run_tests_nonce');
 
         $started_at = microtime(true);
-        $memory_start = memory_get_usage(true);
-
-        $keyword_meta_count = self::meta_count('tmw_keyword_pack');
-        $cluster_count = self::table_count('tmw_keyword_clusters');
-        $opportunity_count = self::table_count('tmw_seo_opportunities');
-        $api_calls_before = count(DebugAPIMonitor::get_recent_requests(20));
-
-        $steps = [];
-
-        $steps[] = [
-            'name' => 'simulate keyword pipelines',
-            'status' => $keyword_meta_count > 0 ? 'ok' : 'warning',
-            'details' => sprintf('Detected %d posts with keyword packs for simulation.', $keyword_meta_count),
-        ];
-
-        $steps[] = [
-            'name' => 'run clustering test',
-            'status' => $cluster_count > 0 ? 'ok' : 'warning',
-            'details' => sprintf('Validated %d stored keyword clusters.', $cluster_count),
-        ];
-
-        $steps[] = [
-            'name' => 'run opportunity detection',
-            'status' => $opportunity_count > 0 ? 'ok' : 'warning',
-            'details' => sprintf('Detected %d opportunity rows ready for evaluation.', $opportunity_count),
-        ];
-
-        $generated_suggestions = self::build_test_suggestions($keyword_meta_count, $cluster_count, $opportunity_count);
-
-        $steps[] = [
-            'name' => 'generate test suggestions',
-            'status' => count($generated_suggestions) > 0 ? 'ok' : 'warning',
-            'details' => sprintf('Generated %d debug suggestions.', count($generated_suggestions)),
-        ];
-
-        $runtime_ms = (microtime(true) - $started_at) * 1000;
-        DebugAPIMonitor::record_request('debug/testing-mode/simulation', 200, $runtime_ms, count($generated_suggestions));
-
-        $api_calls_after = count(DebugAPIMonitor::get_recent_requests(20));
-        $memory_end = memory_get_usage(true);
+        $steps = self::build_validation_steps();
+        $problem_count = 0;
+        foreach ($steps as $step) {
+            if (($step['result'] ?? 'CHECK') !== 'PASS') {
+                $problem_count++;
+            }
+        }
 
         $report = [
             'ran_at' => current_time('mysql'),
             'steps' => $steps,
-            'suggestions' => $generated_suggestions,
             'metrics' => [
                 'execution_time_ms' => round((microtime(true) - $started_at) * 1000, 2),
-                'memory_usage_mb' => round(max(0, $memory_end - $memory_start) / 1048576, 2),
-                'suggestions_created' => count($generated_suggestions),
-                'api_calls' => max(0, $api_calls_after - $api_calls_before),
+                'problems_found' => $problem_count,
+                'checks_ran' => count($steps),
+                'mutation_mode' => 'read-safe only',
             ],
         ];
 
@@ -96,18 +62,137 @@ class DebugPanels {
         return $report;
     }
 
+    /** @return array<int,array<string,string>> */
+    private static function build_validation_steps(): array {
+        global $wpdb;
+
+        $keyword_pack_count = self::meta_count('tmw_keyword_pack');
+        $legacy_pack_count = self::meta_count('_tmwseo_keyword_pack');
+        $cluster_count = self::table_count('tmw_keyword_clusters');
+        $opportunity_count = self::table_count('tmw_seo_opportunities');
+        $generated_table = $wpdb->prefix . 'tmw_generated_pages';
+
+        $generated_drafts_count = 0;
+        $generated_non_draft_count = 0;
+        $generated_noindex_count = 0;
+
+        $generated_table_exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $generated_table)) === $generated_table;
+        if ($generated_table_exists) {
+            $generated_drafts_count = (int) $wpdb->get_var("SELECT COUNT(1) FROM {$generated_table} g INNER JOIN {$wpdb->posts} p ON p.ID = g.page_id WHERE p.post_status = 'draft'");
+            $generated_non_draft_count = (int) $wpdb->get_var("SELECT COUNT(1) FROM {$generated_table} g INNER JOIN {$wpdb->posts} p ON p.ID = g.page_id WHERE p.post_status <> 'draft'");
+            $generated_noindex_count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(1) FROM {$generated_table} g INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = g.page_id WHERE pm.meta_key = %s",
+                'rank_math_robots'
+            ));
+        }
+
+        $steps = [];
+        $steps[] = self::step_result(
+            '1. DataForSEO connectivity',
+            DataForSEO::is_configured(),
+            'Credentials are configured for DataForSEO API access.',
+            'Missing DataForSEO credentials in Settings.',
+            'Add DataForSEO login/password in Settings and run validation again.'
+        );
+
+        $steps[] = self::step_result(
+            '2. seed collection',
+            $keyword_pack_count > 0 || $legacy_pack_count > 0,
+            sprintf('Detected %d unified packs and %d legacy packs.', $keyword_pack_count, $legacy_pack_count),
+            'No keyword pack metadata detected.',
+            'Run a keyword refresh cycle from Keywords to seed data.'
+        );
+
+        $steps[] = self::step_result(
+            '3. keyword expansion',
+            $keyword_pack_count > 0,
+            sprintf('Unified keyword pack count: %d', $keyword_pack_count),
+            'Expansion output missing in unified pack metadata.',
+            'Run Unified Keyword Workflow and verify tmw_keyword_pack writes.'
+        );
+
+        $steps[] = self::step_result(
+            '4. filtering',
+            self::meta_count('tmw_keyword_filters_applied') > 0,
+            'Keyword filter metadata exists on one or more posts.',
+            'No filtering metadata found.',
+            'Ensure keyword filtering is executed and stored as tmw_keyword_filters_applied.'
+        );
+
+        $steps[] = self::step_result(
+            '5. scoring',
+            self::table_count('tmw_keyword_candidates') > 0,
+            'Keyword candidate table contains scored/queued rows.',
+            'Keyword candidate rows missing.',
+            'Run keyword cycle and verify candidate ingestion/scoring tables.'
+        );
+
+        $steps[] = self::step_result(
+            '6. clustering',
+            $cluster_count > 0,
+            sprintf('Cluster table has %d rows.', $cluster_count),
+            'No clusters found.',
+            'Generate clusters from the Keywords workflow.'
+        );
+
+        $steps[] = self::step_result(
+            '7. storage',
+            $generated_table_exists,
+            $generated_table_exists ? 'Generated pages table exists.' : 'Generated pages table missing.',
+            $generated_table_exists ? 'None' : 'Required storage table tmw_generated_pages is missing.',
+            $generated_table_exists ? 'None' : 'Run database migration to create missing tables.'
+        );
+
+        $steps[] = self::step_result(
+            '8. opportunity creation',
+            $opportunity_count > 0,
+            sprintf('Opportunity table has %d rows.', $opportunity_count),
+            'No opportunities found for review.',
+            'Run an opportunities scan from the Opportunities page.'
+        );
+
+        $steps[] = self::step_result(
+            '9. draft generation guardrails',
+            $generated_non_draft_count === 0,
+            sprintf('Generated drafts: %d, non-draft generated pages: %d', $generated_drafts_count, $generated_non_draft_count),
+            $generated_non_draft_count === 0 ? 'None' : 'Some generated pages are not in draft status.',
+            'Keep generated pages draft-only and manually review before publishing.'
+        );
+
+        $steps[] = self::step_result(
+            '10. noindex enforcement',
+            $generated_non_draft_count === 0 && ($generated_noindex_count >= $generated_drafts_count),
+            sprintf('Rank Math noindex records: %d, generated drafts: %d', $generated_noindex_count, $generated_drafts_count),
+            'One or more generated drafts may be missing Rank Math noindex metadata.',
+            'Re-apply noindex guardrail before any human publication decision.'
+        );
+
+        return $steps;
+    }
+
+    /** @return array<string,string> */
+    private static function step_result(string $step, bool $ok, string $notes, string $problem, string $fix): array {
+        return [
+            'step' => $step,
+            'result' => $ok ? 'PASS' : 'CHECK',
+            'notes' => $notes,
+            'detected_problems' => $ok ? 'None' : $problem,
+            'recommended_fix' => $ok ? 'No action required.' : $fix,
+        ];
+    }
+
     public static function render_testing_dashboard(?array $report = null): void {
         if (!is_array($report)) {
             $stored = get_option(self::TEST_REPORT_OPTION, []);
             $report = is_array($stored) ? $stored : [];
         }
 
-        echo '<h2>Debug Testing Mode</h2>';
-        echo '<p>Run a full testing simulation from the Debug Dashboard.</p>';
+        echo '<h2>Debug Dashboard — Pipeline Validator</h2>';
+        echo '<p>Run a read-safe full validation of the SEO pipeline. This does not publish pages and does not mutate live content.</p>';
 
         echo '<form method="post" style="margin:12px 0 18px;">';
         wp_nonce_field('tmw_debug_run_tests', 'tmw_debug_run_tests_nonce');
-        submit_button('Run Testing Mode', 'primary', 'tmw_debug_run_tests', false);
+        submit_button('Run Full Validation', 'primary', 'tmw_debug_run_tests', false);
         echo '</form>';
 
         if (isset($report['error'])) {
@@ -116,52 +201,48 @@ class DebugPanels {
         }
 
         if (empty($report)) {
-            echo '<p>No test run captured yet.</p>';
+            echo '<p>No validation report yet.</p>';
             return;
         }
 
         $ran_at = isset($report['ran_at']) ? (string) $report['ran_at'] : '';
         echo '<p><strong>Last run:</strong> ' . esc_html($ran_at === '' ? 'n/a' : $ran_at) . '</p>';
 
-        echo '<h3>Debug Mode Features</h3>';
-        echo '<table class="widefat striped"><thead><tr><th style="width:260px;">Feature</th><th style="width:120px;">Result</th><th>Details</th></tr></thead><tbody>';
+        $metrics = isset($report['metrics']) && is_array($report['metrics']) ? $report['metrics'] : [];
+        echo '<p><strong>Execution time:</strong> ' . esc_html((string)($metrics['execution_time_ms'] ?? 'n/a')) . 'ms';
+        echo ' &nbsp;|&nbsp; <strong>Problems found:</strong> ' . esc_html((string)($metrics['problems_found'] ?? 0));
+        echo ' &nbsp;|&nbsp; <strong>Mode:</strong> ' . esc_html((string)($metrics['mutation_mode'] ?? 'read-safe only'));
+        echo '</p>';
+
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th style="width:220px;">Step</th><th style="width:110px;">Result</th><th>Notes</th><th>Detected Problems</th><th>Recommended Fix</th>';
+        echo '</tr></thead><tbody>';
 
         $steps = isset($report['steps']) && is_array($report['steps']) ? $report['steps'] : [];
         foreach ($steps as $step) {
-            $name = isset($step['name']) ? (string) $step['name'] : '';
-            $status = isset($step['status']) ? (string) $step['status'] : 'warning';
-            $details = isset($step['details']) ? (string) $step['details'] : '';
+            $result = (string) ($step['result'] ?? 'CHECK');
+            $badge = $result === 'PASS' ? '#15803d' : '#b45309';
+
             echo '<tr>';
-            echo '<td>' . esc_html(ucfirst($name)) . '</td>';
-            echo '<td>' . esc_html(strtoupper($status)) . '</td>';
-            echo '<td>' . esc_html($details) . '</td>';
+            echo '<td>' . esc_html((string) ($step['step'] ?? '')) . '</td>';
+            echo '<td><span style="display:inline-block;padding:3px 8px;border-radius:999px;color:#fff;background:' . esc_attr($badge) . ';font-weight:600;">' . esc_html($result) . '</span></td>';
+            echo '<td>' . esc_html((string) ($step['notes'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($step['detected_problems'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($step['recommended_fix'] ?? '')) . '</td>';
             echo '</tr>';
         }
 
         if (empty($steps)) {
-            echo '<tr><td colspan="3">No feature checks completed.</td></tr>';
+            echo '<tr><td colspan="5">No validation steps available.</td></tr>';
         }
 
         echo '</tbody></table>';
-
-        echo '<h3>Metrics</h3>';
-        $metrics = isset($report['metrics']) && is_array($report['metrics']) ? $report['metrics'] : [];
-        echo '<table class="widefat striped"><tbody>';
-        echo '<tr><th style="width:260px;">Execution time</th><td>' . esc_html((string) ($metrics['execution_time_ms'] ?? 0)) . ' ms</td></tr>';
-        echo '<tr><th>Memory usage</th><td>' . esc_html((string) ($metrics['memory_usage_mb'] ?? 0)) . ' MB</td></tr>';
-        echo '<tr><th>Number of suggestions created</th><td>' . esc_html((string) ($metrics['suggestions_created'] ?? 0)) . '</td></tr>';
-        echo '<tr><th>API calls</th><td>' . esc_html((string) ($metrics['api_calls'] ?? 0)) . '</td></tr>';
-        echo '</tbody></table>';
-
-        echo '<h3>Generated Test Suggestions</h3>';
-        $suggestions = isset($report['suggestions']) && is_array($report['suggestions']) ? $report['suggestions'] : [];
-        echo '<pre style="background:#fff;border:1px solid #dcdcde;padding:10px;max-height:220px;overflow:auto;">' . esc_html(wp_json_encode($suggestions, JSON_PRETTY_PRINT)) . '</pre>';
     }
 
-    public static function render_suggestion_activity(int $limit = 50): void {
+    public static function render_suggestion_activity(int $limit = 80): void {
         $rows = \TMWSEO\Engine\Logs::latest($limit);
 
-        echo '<h2>Suggestion Activity Log</h2>';
+        echo '<h2>Suggestion Lifecycle Logs</h2>';
         echo '<table class="widefat striped"><thead><tr>';
         echo '<th style="width:170px;">Time</th><th style="width:120px;">Level</th><th style="width:160px;">Context</th><th>Message</th><th>Data</th>';
         echo '</tr></thead><tbody>';
@@ -243,32 +324,6 @@ class DebugPanels {
             echo '<h3 style="margin-top:16px;">' . esc_html(ucwords($title)) . '</h3>';
             echo '<pre style="background:#fff;border:1px solid #dcdcde;padding:10px;max-height:200px;overflow:auto;">' . esc_html(wp_json_encode($data, JSON_PRETTY_PRINT)) . '</pre>';
         }
-    }
-
-    private static function build_test_suggestions(int $keyword_meta_count, int $cluster_count, int $opportunity_count): array {
-        return [
-            [
-                'type' => 'keyword-pipeline',
-                'priority' => $keyword_meta_count > 0 ? 'medium' : 'high',
-                'suggestion' => $keyword_meta_count > 0
-                    ? 'Keyword packs are present. Validate long-tail coverage for the next refresh cycle.'
-                    : 'No keyword packs detected. Seed at least one keyword pack to validate pipeline quality.',
-            ],
-            [
-                'type' => 'clustering',
-                'priority' => $cluster_count > 10 ? 'low' : 'high',
-                'suggestion' => $cluster_count > 0
-                    ? 'Run a semantic overlap review on existing clusters to remove duplicates.'
-                    : 'No clusters detected. Trigger the clustering workflow for a baseline test.',
-            ],
-            [
-                'type' => 'opportunities',
-                'priority' => $opportunity_count > 0 ? 'medium' : 'high',
-                'suggestion' => $opportunity_count > 0
-                    ? 'Opportunity records exist. Prioritize by score and publish quick-win updates.'
-                    : 'No opportunities found. Refresh rankings and rerun detection to populate opportunities.',
-            ],
-        ];
     }
 
     private static function meta_count(string $meta_key): int {
