@@ -27,6 +27,7 @@ class Schema {
         $keyword_clusters = $wpdb->prefix . 'tmw_keyword_clusters';
         $generated_pages = $wpdb->prefix . 'tmw_generated_pages';
         $opportunities = $wpdb->prefix . 'tmw_seo_opportunities';
+        $suggestions = $wpdb->prefix . 'tmw_seo_suggestions';
         $model_similarity = $wpdb->prefix . 'tmw_model_similarity';
 
         // Legacy table kept for compatibility with alpha.4
@@ -248,6 +249,24 @@ class Schema {
             KEY similar_model_score (similar_model_id, similarity_score)
         ) $charset_collate;";
 
+        $sql_suggestions = "CREATE TABLE $suggestions (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            type VARCHAR(50) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            description TEXT NOT NULL,
+            source_engine VARCHAR(100) NOT NULL,
+            priority_score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            estimated_traffic INT(11) NOT NULL DEFAULT 0,
+            difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+            suggested_action TEXT NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'new',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY status_priority (status, priority_score),
+            KEY source_engine (source_engine),
+            KEY type (type)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -270,6 +289,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_generated_pages);
         dbDelta($sql_opportunities);
         dbDelta($sql_model_similarity);
+        dbDelta($sql_suggestions);
         dbDelta($sql_legacy_rank);
 
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();
