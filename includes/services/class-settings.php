@@ -59,6 +59,9 @@ class Settings {
             'affiliate_link_pattern' => '',
             'affiliate_campaign' => '',
             'affiliate_source' => '',
+
+            // Template mode linking
+            'template_external_link_enabled' => 0,
         ];
     }
 
