@@ -67,6 +67,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-oppor
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-suggestion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-logger.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-panels.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-api-monitor.php';
