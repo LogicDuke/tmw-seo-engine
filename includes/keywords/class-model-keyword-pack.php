@@ -17,6 +17,7 @@ class ModelKeywordPack {
     public static function build(\WP_Post $post): array {
         $name = trim((string)$post->post_title);
         $primary = $name !== '' ? $name : 'live cam model';
+        $allow_generic_tag_queries = self::allow_generic_tag_queries();
 
         $platform_slugs = self::active_platform_slugs($post->ID);
         $safe_tags = self::safe_tag_slugs_for_post($post);
@@ -58,6 +59,7 @@ class ModelKeywordPack {
                         $kw = (string)($it['keyword'] ?? '');
                         $kw = KeywordLibrary::clean_keyword($kw);
                         if ($kw === '') continue;
+                        if (!$allow_generic_tag_queries && !self::keyword_contains_name($kw, $primary)) continue;
                         $score = KeywordLibrary::score($kw, $context);
                         if ($score <= 0) continue;
                         $dfseo[$score . ':' . sprintf('%u', crc32($seed . '|tag|' . $tag_slug . '|' . $kw)) . ':' . $kw] = $kw;
@@ -97,12 +99,14 @@ class ModelKeywordPack {
         foreach ($lib_extra as $kw) {
             $kw = KeywordLibrary::clean_keyword($kw);
             if ($kw === '') continue;
+            if (!$allow_generic_tag_queries && self::is_tag_only_query($kw, $primary, $safe_tags)) continue;
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
         foreach ($dfseo as $kw) {
             // Only take shorter items into "additional".
             $wc = count(array_filter(preg_split('/\s+/u', trim($kw)), 'strlen'));
             if ($wc > 6) continue;
+            if (!$allow_generic_tag_queries && self::is_tag_only_query($kw, $primary, $safe_tags)) continue;
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
@@ -118,11 +122,13 @@ class ModelKeywordPack {
         foreach ($lib_long as $kw) {
             $kw = KeywordLibrary::clean_keyword($kw);
             if ($kw === '') continue;
+            if (!$allow_generic_tag_queries && self::is_tag_only_query($kw, $primary, $safe_tags)) continue;
             $longtail_pool[$kw] = max($longtail_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
         foreach ($dfseo as $kw) {
             $wc = count(array_filter(preg_split('/\s+/u', trim($kw)), 'strlen'));
             if ($wc < 4) continue;
+            if (!$allow_generic_tag_queries && self::is_tag_only_query($kw, $primary, $safe_tags)) continue;
             $longtail_pool[$kw] = max($longtail_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
@@ -227,10 +233,38 @@ class ModelKeywordPack {
 
         foreach (array_slice($tags, 0, 2) as $t) {
             $t = str_replace('-', ' ', $t);
+            $out[] = $name . ' ' . $t . ' live cam';
             $out[] = $name . ' ' . $t . ' live cam show';
         }
 
         return array_values(array_unique(array_filter(array_map('trim', $out), 'strlen')));
+    }
+
+    private static function allow_generic_tag_queries(): bool {
+        $opts = get_option('tmwseo_engine_settings', []);
+        if (!is_array($opts)) return false;
+        return !empty($opts['keyword_allow_generic_tag_queries']);
+    }
+
+    private static function keyword_contains_name(string $keyword, string $name): bool {
+        $name = trim(strtolower($name));
+        if ($name === '') return false;
+        return strpos(strtolower($keyword), $name) !== false;
+    }
+
+    private static function is_tag_only_query(string $keyword, string $name, array $tags): bool {
+        if (self::keyword_contains_name($keyword, $name)) return false;
+
+        $keyword_l = strtolower($keyword);
+        foreach (array_slice($tags, 0, 2) as $tag_slug) {
+            $tag_phrase = trim(strtolower(str_replace('-', ' ', (string)$tag_slug)));
+            if ($tag_phrase === '') continue;
+            if (strpos($keyword_l, $tag_phrase) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
