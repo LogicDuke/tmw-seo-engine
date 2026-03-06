@@ -13,6 +13,7 @@ if (!defined('ABSPATH')) { exit; }
  * - Generates suggestion records only.
  */
 class ContentSuggestionModule {
+    private const DEFAULT_EXPECTED_CTR = 0.3;
     private const TRAFFIC_KEYWORD_MIN_VOLUME = 200;
     private const TRAFFIC_KEYWORD_MAX_DIFFICULTY = 30.0;
     private const WEAK_COMPETITOR_DA_THRESHOLD = 40.0;
@@ -57,7 +58,8 @@ class ContentSuggestionModule {
             }
 
             $cluster_name = (string) ($cluster_map[$keyword] ?? 'Unclustered');
-            $estimated_traffic = (int) round($search_volume * 0.3);
+            $cluster_importance = $this->resolveClusterImportance($cluster_name, $keyword_clusters);
+            $estimated_traffic = $this->calculateEstimatedTraffic($search_volume);
 
             $suggestions[] = [
                 'type' => 'content_opportunity',
@@ -71,7 +73,12 @@ class ContentSuggestionModule {
                     $estimated_traffic
                 ),
                 'source_engine' => 'seo_opportunity_suggestion_engine',
-                'priority_score' => max(0.0, min(100.0, $opportunity_score * 10)),
+                'priority_score' => $this->calculatePriorityScore(
+                    $search_volume,
+                    $opportunity_score,
+                    $cluster_importance,
+                    $keyword_difficulty
+                ),
                 'estimated_traffic' => $estimated_traffic,
                 'difficulty' => $keyword_difficulty,
                 'suggested_action' => 'Generate draft idea only for manual review. Do not auto-create content.',
@@ -94,8 +101,13 @@ class ContentSuggestionModule {
                         $competitor_da_avg
                     ),
                     'source_engine' => 'traffic_mining_engine',
-                    'priority_score' => $this->calculateTrafficKeywordPriority($search_volume, $keyword_difficulty, $competitor_da_avg),
-                    'estimated_traffic' => (int) round($search_volume * 0.4),
+                    'priority_score' => $this->calculateTrafficKeywordPriority(
+                        $search_volume,
+                        $keyword_difficulty,
+                        $competitor_da_avg,
+                        $cluster_importance
+                    ),
+                    'estimated_traffic' => $this->calculateEstimatedTraffic($search_volume),
                     'difficulty' => $keyword_difficulty,
                     'suggested_action' => 'Create article targeting this keyword. Never create the article automatically.',
                     'status' => 'new',
@@ -317,12 +329,22 @@ class ContentSuggestionModule {
         return array_sum($scores) / count($scores);
     }
 
-    private function calculateTrafficKeywordPriority(int $search_volume, float $keyword_difficulty, ?float $competitor_da_avg): float {
-        $volume_score = min(100.0, $search_volume / 10.0);
-        $difficulty_score = max(0.0, 100.0 - ($keyword_difficulty * 2.0));
-        $authority_score = is_null($competitor_da_avg) ? 0.0 : max(0.0, 100.0 - ($competitor_da_avg * 2.0));
+    private function calculateTrafficKeywordPriority(
+        int $search_volume,
+        float $keyword_difficulty,
+        ?float $competitor_da_avg,
+        float $cluster_importance
+    ): float {
+        $opportunity_score = is_null($competitor_da_avg)
+            ? 0.0
+            : max(0.0, min(10.0, 10.0 - ($competitor_da_avg / 10.0)));
 
-        return max(0.0, min(100.0, ($volume_score * 0.4) + ($difficulty_score * 0.3) + ($authority_score * 0.3)));
+        return $this->calculatePriorityScore(
+            $search_volume,
+            $opportunity_score,
+            $cluster_importance,
+            $keyword_difficulty
+        );
     }
 
     private function buildTrafficKeywordDescription(
@@ -340,7 +362,7 @@ class ContentSuggestionModule {
             sprintf('Top competitor domain authority average: %.2f', $competitor_da_avg),
             '',
             'Estimated traffic if ranked top 5:',
-            (string) ((int) round($search_volume * 0.4)),
+            (string) $this->calculateEstimatedTraffic($search_volume),
             '',
             'Suggested action:',
             'Create article targeting this keyword.',
@@ -399,7 +421,7 @@ class ContentSuggestionModule {
                     '',
                 ], $missing_lines)),
                 'source_engine' => 'topic_authority_system',
-                'priority_score' => min(100.0, 50.0 + (count($missing_articles) * 8.0)),
+                'priority_score' => max(1.0, min(10.0, 5.0 + (count($missing_articles) * 0.5))),
                 'estimated_traffic' => 0,
                 'difficulty' => 0,
                 'suggested_action' => 'Generate content briefs for these topics.',
@@ -452,5 +474,64 @@ class ContentSuggestionModule {
         }
 
         return [];
+    }
+
+    private function calculatePriorityScore(
+        int $search_volume,
+        float $opportunity_score,
+        float $cluster_importance,
+        float $keyword_difficulty
+    ): float {
+        $normalized_search_volume = max(0.0, min(10.0, $search_volume / 1000.0));
+        $normalized_opportunity = max(0.0, min(10.0, $opportunity_score));
+        $normalized_cluster_importance = max(0.0, min(10.0, $cluster_importance / 10.0));
+        $normalized_keyword_difficulty = max(0.0, min(10.0, $keyword_difficulty / 10.0));
+
+        $priority_score = ($normalized_search_volume * 0.4)
+            + ($normalized_opportunity * 0.3)
+            + ($normalized_cluster_importance * 0.2)
+            - ($normalized_keyword_difficulty * 0.1);
+
+        return max(1.0, min(10.0, round($priority_score, 1)));
+    }
+
+    private function calculateEstimatedTraffic(int $search_volume, ?float $expected_ctr = null): int {
+        $ctr = is_numeric($expected_ctr) ? (float) $expected_ctr : self::DEFAULT_EXPECTED_CTR;
+        $ctr = max(0.0, min(1.0, $ctr));
+
+        return max(0, (int) round($search_volume * $ctr));
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $keyword_clusters
+     */
+    private function resolveClusterImportance(string $cluster_name, array $keyword_clusters): float {
+        if ($cluster_name === '' || $cluster_name === 'Unclustered') {
+            return 0.0;
+        }
+
+        foreach ($keyword_clusters as $cluster_row) {
+            if (!is_array($cluster_row)) {
+                continue;
+            }
+
+            $candidate_name = trim((string) ($cluster_row['cluster_name'] ?? $cluster_row['cluster'] ?? $cluster_row['primary'] ?? ''));
+            if ($candidate_name === '' || strtolower($candidate_name) !== strtolower($cluster_name)) {
+                continue;
+            }
+
+            foreach (['cluster_importance', 'importance', 'opportunity_score', 'opportunity'] as $importance_key) {
+                if (isset($cluster_row[$importance_key]) && is_numeric($cluster_row[$importance_key])) {
+                    $value = (float) $cluster_row[$importance_key];
+                    if ($value > 10.0) {
+                        $value = $value / 10.0;
+                    }
+
+                    return max(0.0, min(10.0, $value * 10.0));
+                }
+            }
+        }
+
+        return 0.0;
     }
 }
