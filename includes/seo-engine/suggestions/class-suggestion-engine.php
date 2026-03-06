@@ -43,6 +43,7 @@ class SuggestionEngine {
         'topic_authority_system',
         'seo_opportunity_suggestion_engine',
         'traffic_mining_engine',
+        'content_improvement_analyzer',
     ];
 
     public static function table_name(): string {
