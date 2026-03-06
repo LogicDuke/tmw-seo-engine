@@ -43,15 +43,15 @@ class PlatformProfiles {
     public static function render_metabox(\WP_Post $post): void {
         wp_nonce_field('tmwseo_platform_profiles_save', 'tmwseo_platform_profiles_nonce');
 
-        echo "<p style=\"margin-top:0\">Add your model's profile URLs on other platforms. Used for multi-platform linking.</p>";
+        echo "<p style=\"margin-top:0\">Add your model usernames on other platforms. Used for multi-platform linking.</p>";
 
         foreach (self::$platforms as $key => $label) {
-            $val = (string) get_post_meta($post->ID, '_tmwseo_platform_' . $key, true);
+            $val = self::get_username_with_migration($post->ID, $key);
             echo '<p><label style="font-weight:600">' . esc_html($label) . '</label><br>';
-            echo '<input type="text" inputmode="url" style="width:100%" name="tmwseo_platform[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="https://..." /></p>';
+            echo '<input type="text" style="width:100%" name="tmwseo_platform_username[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="username" /></p>';
         }
 
-        echo '<p><em>' . esc_html__("Tip: If you paste without https:// we’ll automatically add it.", 'tmw-seo-engine') . '</em></p>';
+        echo '<p><em>' . esc_html__("Tip: Enter only the username, not the full URL.", 'tmw-seo-engine') . '</em></p>';
 
         $primary = (string) get_post_meta($post->ID, '_tmwseo_platform_primary', true);
         echo '<p><label style="font-weight:600">Primary platform</label><br>';
@@ -70,16 +70,16 @@ class PlatformProfiles {
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
         if (!current_user_can('edit_post', $post_id)) return;
 
-        $platforms = $_POST['tmwseo_platform'] ?? [];
+        $platforms = $_POST['tmwseo_platform_username'] ?? [];
         if (!is_array($platforms)) $platforms = [];
 
         foreach (self::$platforms as $key => $label) {
-            $val = isset($platforms[$key]) ? trim((string) $platforms[$key]) : '';
-            if ($val !== '' && !preg_match('#^https?://#i', $val)) {
-                $val = 'https://' . $val;
+            $val = isset($platforms[$key]) ? sanitize_text_field(trim((string) wp_unslash($platforms[$key]))) : '';
+            update_post_meta($post_id, '_tmwseo_platform_username_' . $key, $val);
+
+            if ($val === '') {
+                self::migrate_username_from_legacy_url($post_id, $key);
             }
-            $val = esc_url_raw($val);
-            update_post_meta($post_id, '_tmwseo_platform_' . $key, $val);
         }
 
         $primary = isset($_POST['tmwseo_platform_primary']) ? sanitize_text_field((string)$_POST['tmwseo_platform_primary']) : '';
@@ -128,19 +128,19 @@ class PlatformProfiles {
             wp_send_json_error(['message' => 'Forbidden'], 403);
         }
 
-        $links_raw = isset($_POST['links']) ? wp_unslash((string) $_POST['links']) : '{}';
-        $links = json_decode($links_raw, true);
-        if (!is_array($links)) {
-            $links = [];
+        $usernames_raw = isset($_POST['usernames']) ? wp_unslash((string) $_POST['usernames']) : '{}';
+        $usernames = json_decode($usernames_raw, true);
+        if (!is_array($usernames)) {
+            $usernames = [];
         }
 
         foreach (self::$platforms as $key => $label) {
-            $val = isset($links[$key]) ? trim((string) $links[$key]) : '';
-            if ($val !== '' && !preg_match('#^https?://#i', $val)) {
-                $val = 'https://' . $val;
+            $val = isset($usernames[$key]) ? sanitize_text_field(trim((string) $usernames[$key])) : '';
+            update_post_meta($post_id, '_tmwseo_platform_username_' . $key, $val);
+
+            if ($val === '') {
+                self::migrate_username_from_legacy_url($post_id, $key);
             }
-            $val = esc_url_raw($val);
-            update_post_meta($post_id, '_tmwseo_platform_' . $key, $val);
         }
 
         $primary = isset($_POST['primary']) ? sanitize_text_field((string) wp_unslash($_POST['primary'])) : '';
@@ -161,7 +161,10 @@ class PlatformProfiles {
         $primary = (string) get_post_meta($model_id, '_tmwseo_platform_primary', true);
 
         foreach (self::$platforms as $key => $label) {
-            $url = (string) get_post_meta($model_id, '_tmwseo_platform_' . $key, true);
+            $username = self::get_username_with_migration($model_id, $key);
+            if ($username === '') continue;
+
+            $url = self::build_profile_url($key, $username);
             $url = trim($url);
             if ($url === '') continue;
 
@@ -207,5 +210,65 @@ class PlatformProfiles {
         $out .= '</ul></div>';
 
         return $out;
+    }
+
+    private static function get_username_with_migration(int $post_id, string $platform): string {
+        $username = (string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true);
+        $username = trim($username);
+        if ($username !== '') {
+            return $username;
+        }
+
+        return self::migrate_username_from_legacy_url($post_id, $platform);
+    }
+
+    private static function migrate_username_from_legacy_url(int $post_id, string $platform): string {
+        $legacy_url = (string) get_post_meta($post_id, '_tmwseo_platform_' . $platform, true);
+        $legacy_url = trim($legacy_url);
+        if ($legacy_url === '') {
+            return '';
+        }
+
+        $username = self::extract_username_from_url($platform, $legacy_url);
+        if ($username === '') {
+            return '';
+        }
+
+        update_post_meta($post_id, '_tmwseo_platform_username_' . $platform, $username);
+        return $username;
+    }
+
+    private static function extract_username_from_url(string $platform, string $url): string {
+        $platform_data = PlatformRegistry::get($platform);
+        if (!is_array($platform_data)) {
+            return '';
+        }
+
+        $pattern = (string) ($platform_data['profile_url_pattern'] ?? '');
+        if ($pattern === '' || strpos($pattern, '{username}') === false) {
+            return '';
+        }
+
+        $escaped = preg_quote($pattern, '#');
+        $regex = str_replace('\{username\}', '([^/?#&]+)', $escaped);
+        if (!preg_match('#^' . $regex . '$#i', $url, $matches)) {
+            return '';
+        }
+
+        return sanitize_text_field(urldecode((string) ($matches[1] ?? '')));
+    }
+
+    private static function build_profile_url(string $platform, string $username): string {
+        $platform_data = PlatformRegistry::get($platform);
+        if (!is_array($platform_data)) {
+            return '';
+        }
+
+        $pattern = (string) ($platform_data['profile_url_pattern'] ?? '');
+        if ($pattern === '' || strpos($pattern, '{username}') === false) {
+            return '';
+        }
+
+        return esc_url_raw(str_replace('{username}', rawurlencode($username), $pattern));
     }
 }
