@@ -79,6 +79,15 @@ class Editor_AI_Metabox {
             . 'data-nonce="' . esc_attr(wp_create_nonce('tmwseo_generate_' . $post->ID)) . '" '
             . 'data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '"'
             . '>' . esc_html__('Generate', 'tmwseo') . '</button></p>';
+        echo '<p style="margin:8px 0 0"><button '
+            . 'type="button" '
+            . 'id="tmwseo-refresh-keywords-btn" '
+            . 'class="button" '
+            . 'style="width:100%" '
+            . 'data-post-id="' . esc_attr((string)$post->ID) . '" '
+            . 'data-nonce="' . esc_attr(wp_create_nonce('tmwseo_generate_' . $post->ID)) . '" '
+            . 'data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '"'
+            . '>' . esc_html__('Refresh Keywords', 'tmwseo') . '</button></p>';
         echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('This runs in the background. After a few seconds, refresh the editor to see the updated content & RankMath fields.', 'tmwseo') . '</p>';
 
         if (!empty($additional) || !empty($longtail)) {
