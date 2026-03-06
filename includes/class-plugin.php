@@ -45,6 +45,10 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php';
 
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-graph.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-related-models.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-engine.php';
+
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
@@ -181,6 +185,9 @@ class Plugin {
         // Platform profiles + affiliate redirects.
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
         \TMWSEO\Engine\Platform\AffiliateLinkBuilder::init();
+
+        // Internal linking on model pages.
+        \TMW_Internal_Link_Engine::init();
 
         // Lighthouse menus + manual actions.
         \TMW\SEO\Lighthouse\Bootstrap::init();
