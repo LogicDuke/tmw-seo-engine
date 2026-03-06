@@ -36,6 +36,10 @@ class DebugLogger {
         self::write('errors', '[TMW-DEBUG][ERROR]', $data);
     }
 
+    public static function log_test_mode(array $data = []): void {
+        self::write('test-mode', '[TMW-TEST][DEBUG-MODE]', $data);
+    }
+
     private static function write(string $channel, string $tag, array $data = []): void {
         if (!self::is_enabled()) {
             return;

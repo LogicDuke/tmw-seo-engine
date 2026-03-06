@@ -37,7 +37,10 @@ class DebugDashboard {
         submit_button('Inspect', 'secondary', 'submit', false);
         echo '</form>';
 
+        $test_report = DebugPanels::maybe_run_testing_mode();
+
         DebugPanels::render_engine_status();
+        DebugPanels::render_testing_dashboard($test_report);
         DebugPanels::render_suggestion_activity(100);
 
         if ($post_id > 0) {
