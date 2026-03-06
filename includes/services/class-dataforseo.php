@@ -2,6 +2,8 @@
 namespace TMWSEO\Engine\Services;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Debug\DebugAPIMonitor;
+use TMWSEO\Engine\Debug\DebugLogger;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -42,6 +44,7 @@ class DataForSEO {
             'Authorization' => 'Basic ' . base64_encode(trim($login) . ':' . trim($pass)),
         ]);
 
+        $started_at = microtime(true);
         $resp = wp_remote_post($url, $args);
 
         if (!is_wp_error($resp) && (int) wp_remote_retrieve_response_code($resp) === 401) {
@@ -55,10 +58,15 @@ class DataForSEO {
             $args['redirection'] = 0;
             $args['headers']['Authorization'] = 'Basic ' . base64_encode($login . ':' . $pass);
 
-            $resp = wp_remote_post($url, $args);
+            $started_at = microtime(true);
+        $resp = wp_remote_post($url, $args);
         }
 
         if (is_wp_error($resp)) {
+            DebugLogger::log_errors([
+                'path' => $path,
+                'error' => $resp->get_error_message(),
+            ]);
             Logs::error('dataforseo', 'WP error', ['error' => $resp->get_error_message(), 'path' => $path]);
             return ['ok' => false, 'error' => $resp->get_error_message()];
         }
@@ -68,6 +76,11 @@ class DataForSEO {
         $json = json_decode($raw, true);
 
         if ($code < 200 || $code >= 300 || !is_array($json)) {
+            DebugLogger::log_errors([
+                'path' => $path,
+                'code' => $code,
+                'body' => substr($raw, 0, 300),
+            ]);
             Logs::error('dataforseo', 'Bad response', ['code' => $code, 'path' => $path, 'body' => substr($raw, 0, 500)]);
             return ['ok' => false, 'error' => 'bad_response', 'code' => $code, 'body' => $raw];
         }
@@ -82,6 +95,10 @@ class DataForSEO {
             ]);
         }
 
+        $response_time_ms = (microtime(true) - $started_at) * 1000;
+        $keywords_returned = self::extract_keywords_count($json);
+        DebugAPIMonitor::record_request($path, $code, $response_time_ms, $keywords_returned);
+
         return ['ok' => true, 'data' => $json];
     }
 
@@ -91,6 +108,15 @@ class DataForSEO {
 
     private static function lang_code(): string {
         return (string) Settings::get('dataforseo_language_code', 'en');
+    }
+
+    private static function extract_keywords_count(array $json): int {
+        $items = $json['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            return 0;
+        }
+
+        return count($items);
     }
 
     public static function keyword_suggestions(string $seed_keyword, int $limit = 200): array {

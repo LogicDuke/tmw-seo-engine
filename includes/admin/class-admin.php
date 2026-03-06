@@ -458,6 +458,7 @@ class Admin {
             'keyword_pages_per_day' => max(0, (int)($input['keyword_pages_per_day'] ?? 3)),
             'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? '')),
             'manual_control_mode' => !empty($input['manual_control_mode']) ? 1 : 0,
+            'debug_mode' => !empty($input['debug_mode']) ? 1 : 0,
             'serper_api_key' => sanitize_text_field((string)($input['serper_api_key'] ?? '')),
             'intel_max_seeds' => max(1, (int)($input['intel_max_seeds'] ?? 3)),
             'intel_max_keywords' => max(50, (int)($input['intel_max_keywords'] ?? 400)),
@@ -581,6 +582,7 @@ class Admin {
             'dataforseo_location_code' => sanitize_text_field((string)($_POST['dataforseo_location_code'] ?? '2840')),
 
             'safe_mode' => isset($_POST['safe_mode']) ? 1 : 0,
+            'debug_mode' => isset($_POST['debug_mode']) ? 1 : 0,
         ];
         update_option('tmwseo_engine_settings', $opts);
         Logs::info('settings', 'Settings saved', [
@@ -1857,6 +1859,7 @@ private static function header(string $title): void {
 
         // Phase 1: manual-only by default.
         $manual_control_mode = (bool) Settings::get('manual_control_mode', 1);
+        $debug_mode = (bool) Settings::get('debug_mode', 0);
         $serper_api_key = esc_attr((string)($opts['serper_api_key'] ?? ''));
         $intel_max_seeds = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
         $intel_max_keywords = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
@@ -1868,6 +1871,10 @@ private static function header(string $title): void {
         echo '<h2>Manual Control Mode</h2>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[manual_control_mode]" value="1" ' . checked($manual_control_mode, true, false) . '> Manual Control Mode (disable cron + auto optimizations)</label>';
         echo '<p class="description">Recommended for live sites. Phase 1 uses analysis + advice only and never auto-edits posts.</p>';
+
+        echo '<h2>Debug</h2>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[debug_mode]" value="1" ' . checked($debug_mode, true, false) . '> Enable Debug Mode</label>';
+        echo '<p class="description">When disabled, debug file logging and the Debug Dashboard are hidden.</p>';
 
         echo '<h2>Intelligence (Phase 1)</h2>';
         echo '<table class="form-table">';

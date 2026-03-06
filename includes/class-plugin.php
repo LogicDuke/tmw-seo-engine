@@ -66,6 +66,10 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-oppor
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-logger.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-panels.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-api-monitor.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-dashboard.php';
 
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
@@ -252,6 +256,7 @@ class Plugin {
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
             \TMWSEO\Engine\Opportunities\OpportunityUI::init();
+            \TMWSEO\Engine\Debug\DebugDashboard::init();
         }
     }
 

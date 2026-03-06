@@ -2,6 +2,7 @@
 
 if (!defined('ABSPATH')) { exit; }
 
+
 class TMW_Internal_Link_Engine {
     private $graph;
     private $related_models;
@@ -58,6 +59,12 @@ class TMW_Internal_Link_Engine {
         }
 
         $links = $this->generate_links((int) $post->ID);
+        \TMWSEO\Engine\Debug\DebugLogger::log_internal_links([
+            'post_id' => (int) $post->ID,
+            'related_models' => count($links['related_models'] ?? []),
+            'tag_links' => count($links['tag_links'] ?? []),
+            'category_links' => count($links['category_links'] ?? []),
+        ]);
 
         $sections = [];
 
