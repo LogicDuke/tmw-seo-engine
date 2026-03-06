@@ -101,6 +101,7 @@ class Admin {
         $allowed_hooks = [
             'toplevel_page_' . self::MENU_SLUG,
             self::MENU_SLUG . '_page_tmwseo-suggestions',
+            self::MENU_SLUG . '_page_tmwseo-command-center',
         ];
 
         if (!in_array($hook, $allowed_hooks, true)) {
@@ -190,6 +191,88 @@ class Admin {
             .tmwseo-priority-low {
                 background:#eff6ff;
                 color:#1d4ed8;
+            }
+
+            .tmwseo-command-center {
+                max-width:1100px;
+            }
+
+            .tmwseo-command-grid {
+                display:grid;
+                grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+                gap:16px;
+                margin-top:20px;
+            }
+
+            .tmwseo-command-widget {
+                display:block;
+                text-decoration:none;
+                border:1px solid #e5e7eb;
+                border-left-width:6px;
+                border-radius:10px;
+                padding:18px;
+                background:#fff;
+                color:#111827;
+                box-shadow:0 3px 8px rgba(0,0,0,0.04);
+                transition:transform 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .tmwseo-command-widget:hover,
+            .tmwseo-command-widget:focus {
+                transform:translateY(-1px);
+                box-shadow:0 6px 16px rgba(0,0,0,0.08);
+                color:#111827;
+            }
+
+            .tmwseo-command-widget-value {
+                display:block;
+                font-size:34px;
+                line-height:1.1;
+                font-weight:700;
+                margin-bottom:8px;
+            }
+
+            .tmwseo-command-widget-label {
+                display:block;
+                font-size:14px;
+                color:#4b5563;
+                margin-bottom:10px;
+            }
+
+            .tmwseo-command-status {
+                display:inline-block;
+                border-radius:999px;
+                padding:4px 10px;
+                font-size:12px;
+                font-weight:600;
+                background:#f3f4f6;
+            }
+
+            .tmwseo-command-good {
+                border-left-color:#16a34a;
+            }
+
+            .tmwseo-command-good .tmwseo-command-status {
+                background:#dcfce7;
+                color:#166534;
+            }
+
+            .tmwseo-command-warn {
+                border-left-color:#eab308;
+            }
+
+            .tmwseo-command-warn .tmwseo-command-status {
+                background:#fef9c3;
+                color:#854d0e;
+            }
+
+            .tmwseo-command-alert {
+                border-left-color:#dc2626;
+            }
+
+            .tmwseo-command-alert .tmwseo-command-status {
+                background:#fee2e2;
+                color:#991b1b;
             }
 
             .tmwseo-card span {
