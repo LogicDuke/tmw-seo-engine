@@ -12,14 +12,13 @@ class TMW_Cluster_Admin_Page {
     }
 
     public function register_menu() {
-        add_menu_page(
+        add_submenu_page(
+            'tmwseo-engine',
             'SEO Clusters',
             'SEO Clusters',
             'manage_options',
             'tmw-seo-clusters',
-            [$this, 'render_page'],
-            'dashicons-chart-line',
-            58
+            [$this, 'render_page']
         );
     }
 
