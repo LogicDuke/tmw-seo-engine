@@ -35,6 +35,13 @@ require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-optimizer.php';
 
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-expander.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-filter.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intent.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
+
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
