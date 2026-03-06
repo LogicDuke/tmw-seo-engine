@@ -26,12 +26,148 @@ class SuggestionsAdminPage {
     public function register_menu(): void {
         add_submenu_page(
             Admin::MENU_SLUG,
+            __('Command Center', 'tmwseo'),
+            __('Command Center', 'tmwseo'),
+            'manage_options',
+            'tmwseo-command-center',
+            [$this, 'render_command_center_page']
+        );
+
+        add_submenu_page(
+            Admin::MENU_SLUG,
             __('Suggestions', 'tmwseo'),
             __('Suggestions', 'tmwseo'),
             'manage_options',
             'tmwseo-suggestions',
             [$this, 'render_page']
         );
+    }
+
+    public function render_command_center_page(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $metrics = $this->get_command_center_metrics();
+        $suggestions_url = admin_url('admin.php?page=tmwseo-suggestions');
+
+        echo '<div class="wrap tmwseo-command-center">';
+        echo '<h1>' . esc_html__('TMW SEO Engine → Command Center', 'tmwseo') . '</h1>';
+        echo '<p>' . esc_html__('A high-level SEO snapshot to surface opportunities quickly. Data is cached for fast loading.', 'tmwseo') . '</p>';
+        echo '<div class="tmwseo-command-grid">';
+
+        foreach ($metrics as $metric) {
+            $label = (string) ($metric['label'] ?? '');
+            $value = (string) ($metric['value'] ?? '0');
+            $status = (string) ($metric['status'] ?? 'warn');
+            $status_label = (string) ($metric['status_label'] ?? 'Improvement needed');
+
+            echo '<a class="tmwseo-command-widget tmwseo-command-' . esc_attr($status) . '" href="' . esc_url($suggestions_url) . '">';
+            echo '<span class="tmwseo-command-widget-value">' . esc_html($value) . '</span>';
+            echo '<span class="tmwseo-command-widget-label">' . esc_html($label) . '</span>';
+            echo '<span class="tmwseo-command-status">' . esc_html($status_label) . '</span>';
+            echo '</a>';
+        }
+
+        echo '</div>';
+        echo '</div>';
+    }
+
+    /**
+     * @return array<int,array<string,string>>
+     */
+    private function get_command_center_metrics(): array {
+        $cache_key = 'tmwseo_command_center_metrics_v1';
+        $cached = get_transient($cache_key);
+        if (is_array($cached) && !empty($cached)) {
+            return $cached;
+        }
+
+        $rows = $this->engine->getSuggestions(['limit' => 1000]);
+        $counts = [
+            'total' => count($rows),
+            'content_opportunity' => 0,
+            'internal_link' => 0,
+            'cluster_expansion' => 0,
+            'traffic_potential' => 0,
+            'waiting_review' => 0,
+        ];
+        $cluster_scores = [];
+
+        foreach ($rows as $row) {
+            $type = (string) ($row['type'] ?? '');
+            $status = (string) ($row['status'] ?? 'new');
+            $priority = (float) ($row['priority_score'] ?? 0);
+            $traffic = (int) ($row['estimated_traffic'] ?? 0);
+
+            if ($type === 'content_opportunity' || $type === 'content_improvement') {
+                $counts['content_opportunity']++;
+            }
+            if ($type === 'internal_link') {
+                $counts['internal_link']++;
+            }
+            if ($type === 'cluster_expansion') {
+                $counts['cluster_expansion']++;
+                $cluster_scores[] = min(100.0, max(0.0, $priority));
+            }
+            if ($traffic > 0) {
+                $counts['traffic_potential'] += $traffic;
+            }
+            if ($status === 'new') {
+                $counts['waiting_review']++;
+            }
+        }
+
+        $cluster_completion = 100;
+        if (!empty($cluster_scores)) {
+            $cluster_completion = (int) round(array_sum($cluster_scores) / count($cluster_scores));
+        }
+
+        $metrics = [
+            $this->build_metric('SEO Opportunities Found', (string) $counts['total'], $counts['total'], 15, 6, true),
+            $this->build_metric('Content Gaps', (string) $counts['content_opportunity'], $counts['content_opportunity'], 10, 4, true),
+            $this->build_metric('Internal Link Suggestions', (string) $counts['internal_link'], $counts['internal_link'], 12, 5, true),
+            $this->build_metric('Cluster Completion Score', $cluster_completion . '%', $cluster_completion, 80, 55, false),
+            $this->build_metric('Traffic Potential', number_format_i18n($counts['traffic_potential']), $counts['traffic_potential'], 2500, 900, false),
+            $this->build_metric('Suggestions Waiting for Review', (string) $counts['waiting_review'], $counts['waiting_review'], 10, 4, true),
+        ];
+
+        set_transient($cache_key, $metrics, 5 * MINUTE_IN_SECONDS);
+
+        return $metrics;
+    }
+
+    /**
+     * @return array<string,string>
+     */
+    private function build_metric(string $label, string $value, float $numeric_value, float $red_threshold, float $yellow_threshold, bool $inverse): array {
+        $status = 'good';
+        $status_label = __('Good', 'tmwseo');
+
+        if ($inverse) {
+            if ($numeric_value >= $red_threshold) {
+                $status = 'alert';
+                $status_label = __('High opportunity', 'tmwseo');
+            } elseif ($numeric_value >= $yellow_threshold) {
+                $status = 'warn';
+                $status_label = __('Improvement needed', 'tmwseo');
+            }
+        } else {
+            if ($numeric_value < $yellow_threshold) {
+                $status = 'alert';
+                $status_label = __('High opportunity', 'tmwseo');
+            } elseif ($numeric_value < $red_threshold) {
+                $status = 'warn';
+                $status_label = __('Improvement needed', 'tmwseo');
+            }
+        }
+
+        return [
+            'label' => $label,
+            'value' => $value,
+            'status' => $status,
+            'status_label' => $status_label,
+        ];
     }
 
 
