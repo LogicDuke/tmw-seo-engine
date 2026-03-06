@@ -129,7 +129,7 @@ class ContentEngine {
         if (!is_array($payload)) $payload = [];
 
         $insert_block = (int)($payload['insert_block'] ?? 1) === 1;
-        $refresh_keywords_only = (int)($payload['refresh_keywords_only'] ?? 0) === 1;
+        $keywords_only = (int)($payload['keywords_only'] ?? 0) === 1 || (int)($payload['refresh_keywords_only'] ?? 0) === 1;
 
         // Strategy precedence: explicit payload > settings.
         $strategy = sanitize_key((string)($payload['strategy'] ?? ''));
@@ -152,9 +152,13 @@ class ContentEngine {
             }
         }
 
-        if ($refresh_keywords_only) {
+        if ($keywords_only) {
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'keywords_refreshed');
+
+            if ($post->post_type === 'model' && !empty($keyword_pack['primary'])) {
+                self::update_model_secondary_keywords_for_post($post, (string)$keyword_pack['primary']);
+            }
 
             Logs::info('content', '[TMW-KEYWORDS] Refreshed keyword pack + RankMath fields only', [
                 'post_id' => $post_id,
