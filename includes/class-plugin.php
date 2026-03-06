@@ -48,6 +48,9 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-graph.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-related-models.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-map.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-page-generator.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-engine.php';
 
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
@@ -188,6 +191,9 @@ class Plugin {
 
         // Internal linking on model pages.
         \TMW_Internal_Link_Engine::init();
+
+        // Topic authority clusters on model pages.
+        \TMW_Topic_Engine::init();
 
         // Lighthouse menus + manual actions.
         \TMW\SEO\Lighthouse\Bootstrap::init();
