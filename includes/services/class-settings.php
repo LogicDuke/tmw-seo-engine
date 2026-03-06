@@ -62,6 +62,7 @@ class Settings {
 
             // Template mode linking
             'template_external_link_enabled' => 0,
+            'include_external_info_link' => 0,
         ];
     }
 
