@@ -7,6 +7,22 @@ class Editor_AI_Metabox {
 
     public static function init(): void {
         add_action('add_meta_boxes', [__CLASS__, 'register_metabox']);
+        add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
+    }
+
+    public static function enqueue_editor_assets(): void {
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if (!$screen || !in_array($screen->post_type, ['model', 'post', 'tmw_category_page'], true)) {
+            return;
+        }
+
+        wp_enqueue_script(
+            'tmwseo-editor-ai-metabox',
+            TMWSEO_ENGINE_URL . 'assets/js/editor-ai-metabox.js',
+            ['wp-data', 'wp-notices', 'wp-edit-post'],
+            defined('TMWSEO_ENGINE_VERSION') ? TMWSEO_ENGINE_VERSION : null,
+            true
+        );
     }
 
     public static function register_metabox(): void {
@@ -42,13 +58,8 @@ class Editor_AI_Metabox {
         echo '<p><strong>' . esc_html__('TMW SEO Engine', 'tmwseo') . '</strong></p>';
         echo '<p style="margin-top:0">' . esc_html__('Generate RankMath fields + intro/bio/FAQ using Template or OpenAI.', 'tmwseo') . '</p>';
 
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        echo '<input type="hidden" name="action" value="tmwseo_optimize_post_now">';
-        echo '<input type="hidden" name="post_id" value="' . esc_attr($post->ID) . '">';
-        wp_nonce_field('tmwseo_optimize_post_' . $post->ID);
-
         echo '<p><label style="font-weight:600">' . esc_html__('Strategy', 'tmwseo') . '</label><br>';
-        echo '<select name="strategy" style="width:100%">';
+        echo '<select id="tmwseo-generate-strategy" style="width:100%">';
         echo '<option value="template">' . esc_html__('Template', 'tmwseo') . '</option>';
         if ($has_openai) {
             echo '<option value="openai" selected>' . esc_html__('OpenAI (if configured)', 'tmwseo') . '</option>';
@@ -57,11 +68,18 @@ class Editor_AI_Metabox {
         }
         echo '</select></p>';
 
-        echo '<p><label><input type="checkbox" name="insert_block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        echo '<p><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
 
-        echo '<p style="margin:0"><button type="submit" class="button button-primary" style="width:100%">' . esc_html__('Generate', 'tmwseo') . '</button></p>';
+        echo '<p style="margin:0"><button '
+            . 'type="button" '
+            . 'id="tmwseo-generate-btn" '
+            . 'class="button button-primary" '
+            . 'style="width:100%" '
+            . 'data-post-id="' . esc_attr((string)$post->ID) . '" '
+            . 'data-nonce="' . esc_attr(wp_create_nonce('tmwseo_generate_' . $post->ID)) . '" '
+            . 'data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '"'
+            . '>' . esc_html__('Generate', 'tmwseo') . '</button></p>';
         echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('This runs in the background. After a few seconds, refresh the editor to see the updated content & RankMath fields.', 'tmwseo') . '</p>';
-        echo '</form>';
 
         if (!empty($additional) || !empty($longtail)) {
             echo '<hr style="margin:12px 0">';
