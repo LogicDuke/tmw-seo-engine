@@ -93,7 +93,7 @@ class TemplateContent {
         $watch_cta_section_html = self::render_watch_cta_section($cta_links, $name);
 
         $internal_links = self::render_internal_links($post);
-        $external_link_html = self::render_contextual_external_link($name);
+        $external_link_html = self::render_contextual_external_link();
 
         $content_parts = [];
 
@@ -245,7 +245,7 @@ class TemplateContent {
                 $label = 'live cam';
             }
 
-            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch ' . $name . ' Live on ' . $label) . '</a></p>';
+            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch ' . $name . ' on ' . $label) . '</a></p>';
         }
 
         return '';
@@ -307,54 +307,75 @@ class TemplateContent {
     }
 
     private static function render_internal_links(\WP_Post $post): string {
-        $term_pool = [];
+        $links = [
+            '<li><a href="' . esc_url(home_url('/models/')) . '">Models</a></li>',
+            '<li><a href="' . esc_url(home_url('/categories/')) . '">Categories</a></li>',
+        ];
 
-        foreach (['category', 'post_tag'] as $taxonomy) {
-            $terms = get_the_terms($post, $taxonomy);
-            if (!is_array($terms)) {
-                continue;
-            }
-
-            foreach ($terms as $term) {
-                if (!($term instanceof \WP_Term)) {
-                    continue;
+        $top_terms = [];
+        $tags = get_the_terms($post, 'post_tag');
+        if (is_array($tags)) {
+            usort($tags, static function (\WP_Term $a, \WP_Term $b): int {
+                if ((int) $a->count === (int) $b->count) {
+                    return strnatcasecmp((string) $a->name, (string) $b->name);
                 }
 
-                $term_link = get_term_link($term);
+                return (int) $b->count <=> (int) $a->count;
+            });
+
+            foreach ($tags as $tag) {
+                $term_link = get_term_link($tag);
                 if (is_wp_error($term_link)) {
                     continue;
                 }
 
-                $term_pool[$taxonomy . ':' . $term->term_id] = [
-                    'name' => (string)$term->name,
-                    'url' => (string)$term_link,
-                    'taxonomy' => (string)$term->taxonomy,
-                    'count' => (int)$term->count,
+                $top_terms['post_tag:' . $tag->term_id] = [
+                    'name' => (string) $tag->name,
+                    'url' => (string) $term_link,
                 ];
+
+                if (count($top_terms) >= 2) {
+                    break;
+                }
             }
         }
 
-        if (empty($term_pool)) {
-            return '';
+        if (count($top_terms) < 2) {
+            $categories = get_the_terms($post, 'category');
+            if (is_array($categories)) {
+                usort($categories, static function (\WP_Term $a, \WP_Term $b): int {
+                    if ((int) $a->count === (int) $b->count) {
+                        return strnatcasecmp((string) $a->name, (string) $b->name);
+                    }
+
+                    return (int) $b->count <=> (int) $a->count;
+                });
+
+                foreach ($categories as $category) {
+                    $key = 'category:' . $category->term_id;
+                    if (isset($top_terms[$key])) {
+                        continue;
+                    }
+
+                    $term_link = get_term_link($category);
+                    if (is_wp_error($term_link)) {
+                        continue;
+                    }
+
+                    $top_terms[$key] = [
+                        'name' => (string) $category->name,
+                        'url' => (string) $term_link,
+                    ];
+
+                    if (count($top_terms) >= 2) {
+                        break;
+                    }
+                }
+            }
         }
 
-        $terms_sorted = array_values($term_pool);
-        usort($terms_sorted, static function (array $a, array $b): int {
-            if ($a['count'] === $b['count']) {
-                return strnatcasecmp($a['name'], $b['name']);
-            }
-
-            return $b['count'] <=> $a['count'];
-        });
-
-        $max_links = min(6, count($terms_sorted));
-        $link_count = max(2, $max_links);
-        $selected = array_slice($terms_sorted, 0, $link_count);
-
-        $links = [];
-        foreach ($selected as $term) {
-            $label_prefix = ($term['taxonomy'] === 'post_tag') ? 'Tag' : 'Category';
-            $links[] = '<li><a href="' . esc_url($term['url']) . '">' . esc_html($label_prefix . ': ' . $term['name']) . '</a></li>';
+        foreach (array_slice(array_values($top_terms), 0, 2) as $term) {
+            $links[] = '<li><a href="' . esc_url($term['url']) . '">' . esc_html($term['name']) . '</a></li>';
         }
 
         return '<ul>' . implode('', $links) . '</ul>';
@@ -390,20 +411,13 @@ class TemplateContent {
         return '<ul>' . implode('', $items) . '</ul>';
     }
 
-    private static function render_contextual_external_link(string $name): string {
-        $enabled = (bool) Settings::get('include_external_info_link', Settings::get('template_external_link_enabled', 0));
+    private static function render_contextual_external_link(): string {
+        $enabled = (bool) Settings::get('include_external_info_link', 0);
         if (!$enabled) {
             return '';
         }
 
-        $clean_name = trim($name);
-        if ($clean_name === '') {
-            return '';
-        }
-
-        $query_url = 'https://en.wikipedia.org/wiki/Special:Search?search=' . rawurlencode($clean_name);
-
-        return '<p><a href="' . esc_url($query_url) . '" target="_blank" rel="noopener noreferrer">Read more background about ' . esc_html($clean_name) . ' on Wikipedia</a></p>';
+        return '<h3>What is a webcam model?</h3><p><a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="nofollow noopener">Read this informational overview on Wikipedia</a>.</p>';
     }
 
 }
