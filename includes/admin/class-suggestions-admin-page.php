@@ -4,6 +4,8 @@ namespace TMWSEO\Engine\Suggestions;
 use TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Plugin;
+use TMWSEO\Engine\Intelligence\IntelligenceStorage;
+use TMWSEO\Engine\Intelligence\ContentBriefGenerator;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -20,6 +22,8 @@ class SuggestionsAdminPage {
         add_action('admin_post_tmwseo_suggestion_action', [$ui, 'handle_row_action']);
         add_action('admin_post_tmwseo_scan_internal_link_opportunities', [$ui, 'handle_scan_internal_link_opportunities']);
         add_action('admin_post_tmwseo_scan_content_improvements', [$ui, 'handle_scan_content_improvements']);
+        add_action('admin_post_tmwseo_add_competitor_domain', [$ui, 'handle_add_competitor_domain']);
+        add_action('admin_post_tmwseo_generate_brief_from_suggestion', [$ui, 'handle_generate_brief_from_suggestion']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
     }
 
@@ -41,6 +45,24 @@ class SuggestionsAdminPage {
             'tmwseo-suggestions',
             [$this, 'render_page']
         );
+
+        add_submenu_page(
+            Admin::MENU_SLUG,
+            __('Content Briefs', 'tmwseo'),
+            __('Content Briefs', 'tmwseo'),
+            'manage_options',
+            'tmwseo-content-briefs',
+            [$this, 'render_briefs_page']
+        );
+
+        add_submenu_page(
+            Admin::MENU_SLUG,
+            __('Competitor Domains', 'tmwseo'),
+            __('Competitor Domains', 'tmwseo'),
+            'manage_options',
+            'tmwseo-competitor-domains',
+            [$this, 'render_competitor_domains_page']
+        );
     }
 
     public function render_command_center_page(): void {
@@ -49,7 +71,6 @@ class SuggestionsAdminPage {
         }
 
         $metrics = $this->get_command_center_metrics();
-        $suggestions_url = admin_url('admin.php?page=tmwseo-suggestions');
 
         echo '<div class="wrap tmwseo-command-center">';
         echo '<h1>' . esc_html__('TMW SEO Engine → Command Center', 'tmwseo') . '</h1>';
@@ -62,10 +83,15 @@ class SuggestionsAdminPage {
             $status = (string) ($metric['status'] ?? 'warn');
             $status_label = (string) ($metric['status_label'] ?? 'Improvement needed');
 
-            echo '<a class="tmwseo-command-widget tmwseo-command-' . esc_attr($status) . '" href="' . esc_url($suggestions_url) . '">';
+            $url = (string) ($metric['url'] ?? admin_url('admin.php?page=tmwseo-suggestions'));
+            $top_item = (string) ($metric['top_item'] ?? '');
+            echo '<a class="tmwseo-command-widget tmwseo-command-' . esc_attr($status) . '" href="' . esc_url($url) . '">';
             echo '<span class="tmwseo-command-widget-value">' . esc_html($value) . '</span>';
             echo '<span class="tmwseo-command-widget-label">' . esc_html($label) . '</span>';
             echo '<span class="tmwseo-command-status">' . esc_html($status_label) . '</span>';
+            if ($top_item !== '') {
+                echo '<span class="tmwseo-command-widget-label" style="margin-top:8px;"><strong>Top:</strong> ' . esc_html(wp_trim_words($top_item, 8, '…')) . '</span>';
+            }
             echo '</a>';
         }
 
@@ -86,13 +112,22 @@ class SuggestionsAdminPage {
         $rows = $this->engine->getSuggestions(['limit' => 1000]);
         $counts = [
             'total' => count($rows),
-            'content_opportunity' => 0,
-            'internal_link' => 0,
-            'cluster_expansion' => 0,
+            'competitor_gap' => 0,
+            'ranking_probability' => 0,
+            'serp_weakness' => 0,
+            'content_briefs_ready' => 0,
+            'authority_cluster' => 0,
             'traffic_potential' => 0,
             'waiting_review' => 0,
         ];
         $cluster_scores = [];
+        $top_items = [
+            'competitor_gap' => '',
+            'ranking_probability' => '',
+            'serp_weakness' => '',
+            'content_briefs_ready' => '',
+            'authority_cluster' => '',
+        ];
 
         foreach ($rows as $row) {
             $type = (string) ($row['type'] ?? '');
@@ -100,14 +135,25 @@ class SuggestionsAdminPage {
             $priority = (float) ($row['priority_score'] ?? 0);
             $traffic = (int) ($row['estimated_traffic'] ?? 0);
 
-            if ($type === 'content_opportunity' || $type === 'content_improvement') {
-                $counts['content_opportunity']++;
+            if ($type === 'competitor_gap') {
+                $counts['competitor_gap']++;
+                if ($top_items['competitor_gap'] === '') { $top_items['competitor_gap'] = (string) ($row['title'] ?? ''); }
             }
-            if ($type === 'internal_link') {
-                $counts['internal_link']++;
+            if ($type === 'ranking_probability') {
+                $counts['ranking_probability']++;
+                if ($top_items['ranking_probability'] === '') { $top_items['ranking_probability'] = (string) ($row['title'] ?? ''); }
             }
-            if ($type === 'cluster_expansion') {
-                $counts['cluster_expansion']++;
+            if ($type === 'serp_weakness') {
+                $counts['serp_weakness']++;
+                if ($top_items['serp_weakness'] === '') { $top_items['serp_weakness'] = (string) ($row['title'] ?? ''); }
+            }
+            if ($type === 'content_brief') {
+                $counts['content_briefs_ready']++;
+                if ($top_items['content_briefs_ready'] === '') { $top_items['content_briefs_ready'] = (string) ($row['title'] ?? ''); }
+            }
+            if ($type === 'authority_cluster') {
+                $counts['authority_cluster']++;
+                if ($top_items['authority_cluster'] === '') { $top_items['authority_cluster'] = (string) ($row['title'] ?? ''); }
                 $normalized_priority = ($priority <= 10.0) ? ($priority * 10.0) : $priority;
                 $cluster_scores[] = min(100.0, max(0.0, $normalized_priority));
             }
@@ -125,12 +171,12 @@ class SuggestionsAdminPage {
         }
 
         $metrics = [
-            $this->build_metric('SEO Opportunities Found', (string) $counts['total'], $counts['total'], 15, 6, true),
-            $this->build_metric('Content Gaps', (string) $counts['content_opportunity'], $counts['content_opportunity'], 10, 4, true),
-            $this->build_metric('Internal Link Suggestions', (string) $counts['internal_link'], $counts['internal_link'], 12, 5, true),
-            $this->build_metric('Cluster Completion Score', $cluster_completion . '%', $cluster_completion, 80, 55, false),
-            $this->build_metric('Traffic Potential', number_format_i18n($counts['traffic_potential']), $counts['traffic_potential'], 2500, 900, false),
-            $this->build_metric('Suggestions Waiting for Review', (string) $counts['waiting_review'], $counts['waiting_review'], 10, 4, true),
+            $this->build_metric('Competitor Gaps Found', (string) $counts['competitor_gap'], $counts['competitor_gap'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=competitor_gap'), $top_items['competitor_gap']),
+            $this->build_metric('High Probability Ranking Opportunities', (string) $counts['ranking_probability'], $counts['ranking_probability'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=ranking_probability'), $top_items['ranking_probability']),
+            $this->build_metric('Weak SERP Opportunities', (string) $counts['serp_weakness'], $counts['serp_weakness'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=serp_weakness'), $top_items['serp_weakness']),
+            $this->build_metric('Content Briefs Ready', (string) $counts['content_briefs_ready'], $counts['content_briefs_ready'], 8, 3, true, admin_url('admin.php?page=tmwseo-content-briefs'), $top_items['content_briefs_ready']),
+            $this->build_metric('Cluster Authority Scores', $cluster_completion . '%', $cluster_completion, 80, 55, false, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=authority_cluster'), $top_items['authority_cluster']),
+            $this->build_metric('Suggestions Waiting for Review', (string) $counts['waiting_review'], $counts['waiting_review'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions'), ''),
         ];
 
         set_transient($cache_key, $metrics, 5 * MINUTE_IN_SECONDS);
@@ -141,7 +187,7 @@ class SuggestionsAdminPage {
     /**
      * @return array<string,string>
      */
-    private function build_metric(string $label, string $value, float $numeric_value, float $red_threshold, float $yellow_threshold, bool $inverse): array {
+    private function build_metric(string $label, string $value, float $numeric_value, float $red_threshold, float $yellow_threshold, bool $inverse, string $url = '', string $top_item = ''): array {
         $status = 'good';
         $status_label = __('Good', 'tmwseo');
 
@@ -168,6 +214,8 @@ class SuggestionsAdminPage {
             'value' => $value,
             'status' => $status,
             'status_label' => $status_label,
+            'url' => $url,
+            'top_item' => $top_item,
         ];
     }
 
@@ -429,6 +477,115 @@ class SuggestionsAdminPage {
         return (int) $post_id;
     }
 
+
+    public function handle_add_competitor_domain(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_add_competitor_domain');
+        $domain = sanitize_text_field((string) ($_POST['domain'] ?? ''));
+        $ok = IntelligenceStorage::add_competitor_domain($domain);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-competitor-domains&notice=' . ($ok ? 'saved' : 'invalid')));
+        exit;
+    }
+
+    public function handle_generate_brief_from_suggestion(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_generate_brief_from_suggestion');
+        $id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+        $rows = $this->engine->getSuggestions(['limit' => 500]);
+        $selected = [];
+
+        foreach ($rows as $row) {
+            if ((int) ($row['id'] ?? 0) === $id) {
+                $selected = $row;
+                break;
+            }
+        }
+
+        if (empty($selected)) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&notice=missing'));
+            exit;
+        }
+
+        $generator = new ContentBriefGenerator();
+        $generator->generate([
+            'primary_keyword' => (string) ($selected['title'] ?? ''),
+            'keyword_cluster' => (string) ($selected['source_engine'] ?? 'General'),
+            'search_intent' => 'Informational',
+            'brief_type' => 'informational guide brief',
+        ]);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&notice=created'));
+        exit;
+    }
+
+    public function render_competitor_domains_page(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $domains = IntelligenceStorage::get_competitor_domains();
+        $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
+
+        echo '<div class="wrap"><h1>Competitor Domains</h1>';
+        echo '<p>Add competitor domains for gap analysis. Human approval required before any publishing or live content changes.</p>';
+
+        if ($notice === 'saved') {
+            echo '<div class="notice notice-success"><p>Competitor domain saved.</p></div>';
+        } elseif ($notice === 'invalid') {
+            echo '<div class="notice notice-error"><p>Invalid domain format.</p></div>';
+        }
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_add_competitor_domain');
+        echo '<input type="hidden" name="action" value="tmwseo_add_competitor_domain" />';
+        echo '<input type="text" name="domain" placeholder="example.com" style="min-width:280px;" /> ';
+        submit_button('Add Domain', 'primary', 'submit', false);
+        echo '</form>';
+
+        echo '<h2>Tracked domains</h2><ul>';
+        foreach ($domains as $domain) {
+            echo '<li>' . esc_html($domain) . '</li>';
+        }
+        if (empty($domains)) {
+            echo '<li>No competitor domains configured yet.</li>';
+        }
+        echo '</ul></div>';
+    }
+
+    public function render_briefs_page(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        global $wpdb;
+        $rows = (array) $wpdb->get_results('SELECT id, primary_keyword, cluster_key, brief_type, status, created_at FROM ' . IntelligenceStorage::table_content_briefs() . ' ORDER BY id DESC LIMIT 200', ARRAY_A);
+
+        echo '<div class="wrap"><h1>Content Briefs</h1>';
+        echo '<p>Suggestion-first briefs only. No automatic publishing or live content updates.</p>';
+        echo '<table class="widefat striped"><thead><tr><th>ID</th><th>Primary Keyword</th><th>Cluster</th><th>Type</th><th>Status</th><th>Created</th></tr></thead><tbody>';
+        foreach ($rows as $row) {
+            echo '<tr>';
+            echo '<td>' . esc_html((string) ($row['id'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['primary_keyword'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['cluster_key'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['brief_type'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['status'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['created_at'] ?? '')) . '</td>';
+            echo '</tr>';
+        }
+        if (empty($rows)) {
+            echo '<tr><td colspan="6">No content briefs generated yet.</td></tr>';
+        }
+        echo '</tbody></table></div>';
+    }
+
     public function render_page(): void {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
@@ -465,12 +622,25 @@ class SuggestionsAdminPage {
             if ($active_filter === 'traffic_keywords') {
                 return $type === 'traffic_keyword';
             }
+            if ($active_filter === 'competitor_gap') {
+                return $type === 'competitor_gap';
+            }
+            if ($active_filter === 'ranking_probability') {
+                return $type === 'ranking_probability';
+            }
+            if ($active_filter === 'serp_weakness') {
+                return $type === 'serp_weakness';
+            }
+            if ($active_filter === 'authority_cluster') {
+                return $type === 'authority_cluster';
+            }
 
             return true;
         }));
 
         echo '<div class="wrap tmwseo-suggestions-page">';
         echo '<h1>' . esc_html__('Suggestions Dashboard', 'tmwseo') . '</h1>';
+        echo '<div class="notice notice-warning"><p><strong>Human approval required before any publishing or live content changes.</strong></p></div>';
         echo '<p>' . esc_html__('Review SEO suggestions and decide what to do next. Actions only create drafts/suggestions and never publish or insert links automatically.', 'tmwseo') . '</p>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 18px;">';
@@ -515,6 +685,10 @@ class SuggestionsAdminPage {
             'content_improvement' => 'Content Improvements',
             'cluster_expansion' => 'Cluster Expansion',
             'traffic_keywords' => 'Traffic Keywords',
+            'competitor_gap' => 'Competitor Gaps',
+            'ranking_probability' => 'Ranking Probability',
+            'serp_weakness' => 'SERP Weakness',
+            'authority_cluster' => 'Authority Clusters',
         ];
 
         echo '<ul class="subsubsub">';
@@ -571,6 +745,14 @@ class SuggestionsAdminPage {
             } else {
                 $this->render_action_button($id, 'create_draft', __('Create Draft', 'tmwseo'), 'secondary');
             }
+
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin:0 6px 6px 0;">';
+            wp_nonce_field('tmwseo_generate_brief_from_suggestion');
+            echo '<input type="hidden" name="action" value="tmwseo_generate_brief_from_suggestion">';
+            echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
+            submit_button(__('Generate Brief', 'tmwseo'), 'secondary small', 'submit', false);
+            echo '</form>';
+
             $this->render_action_button($id, 'approve', __('Approve', 'tmwseo'), 'primary');
             $this->render_action_button($id, 'ignore', __('Ignore', 'tmwseo'), 'delete');
 
