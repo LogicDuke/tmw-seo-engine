@@ -38,19 +38,19 @@
   }
 
   function readProfilesFromDOM() {
-    var links = {};
-    var inputs = document.querySelectorAll('input[name^="tmwseo_platform["]');
+    var usernames = {};
+    var inputs = document.querySelectorAll('input[name^="tmwseo_platform_username["]');
     inputs.forEach(function (inp) {
-      var m = inp.name.match(/^tmwseo_platform\[([^\]]+)\]$/);
+      var m = inp.name.match(/^tmwseo_platform_username\[([^\]]+)\]$/);
       if (!m) return;
-      links[m[1]] = (inp.value || '').trim();
+      usernames[m[1]] = (inp.value || '').trim();
     });
 
     // Metabox uses tmwseo_platform_primary.
     var primarySel = document.querySelector('select[name="tmwseo_platform_primary"]');
     var primary = primarySel ? (primarySel.value || '') : '';
 
-    return { links: links, primary: primary };
+    return { usernames: usernames, primary: primary };
   }
 
   function sendAjaxSave() {
@@ -64,8 +64,8 @@
 
     // If nothing is set, don't spam ajax.
     var hasAny = false;
-    Object.keys(payload.links || {}).forEach(function (k) {
-      if (payload.links[k]) hasAny = true;
+    Object.keys(payload.usernames || {}).forEach(function (k) {
+      if (payload.usernames[k]) hasAny = true;
     });
     if (!hasAny && !payload.primary) return;
 
@@ -74,7 +74,7 @@
     form.append('_ajax_nonce', TMWSEOPlatformProfiles.nonce);
     form.append('post_id', String(postId));
     form.append('primary', String(payload.primary || ''));
-    form.append('links', JSON.stringify(payload.links || {}));
+    form.append('usernames', JSON.stringify(payload.usernames || {}));
 
     window.fetch(TMWSEOPlatformProfiles.ajaxUrl, {
       method: 'POST',
