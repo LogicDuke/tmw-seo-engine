@@ -87,15 +87,8 @@ class ContentEngine {
     private static function update_model_secondary_keywords_for_post(\WP_Post $post, string $primary_keyword): void {
         if ($post->post_type !== 'model') return;
 
-        // Prefer the Engine keyword pack (more relevant than generic suffixes).
-        $pack_raw = get_post_meta($post->ID, '_tmwseo_keyword_pack', true);
-        $pack = [];
-        if (is_string($pack_raw) && $pack_raw !== '') {
-            $decoded = json_decode($pack_raw, true);
-            if (is_array($decoded)) $pack = $decoded;
-        } elseif (is_array($pack_raw)) {
-            $pack = $pack_raw;
-        }
+        // Prefer unified keyword pack, then fallback to legacy storage.
+        $pack = \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::get_pack_with_legacy_fallback((int) $post->ID);
 
         $secondary_keywords = (!empty($pack['additional']) && is_array($pack['additional']))
             ? array_slice(array_values(array_filter(array_map('strval', $pack['additional']))), 0, 4)
@@ -143,6 +136,7 @@ class ContentEngine {
         if ($post->post_type === 'model') {
             $keyword_pack = ModelKeywordPack::build($post);
             update_post_meta($post_id, '_tmwseo_keyword', $keyword_pack['primary']);
+            update_post_meta($post_id, 'tmw_keyword_pack', $keyword_pack);
             update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($keyword_pack));
 
             $cluster_engine = new ClusterEngine();

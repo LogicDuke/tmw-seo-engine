@@ -24,13 +24,17 @@ class OpportunityDatabase {
             search_volume INT(11) NULL,
             difficulty DECIMAL(6,2) NULL,
             opportunity_score DECIMAL(6,2) NOT NULL DEFAULT 0,
-            competitor_url VARCHAR(255) NOT NULL,
+            competitor_url VARCHAR(255) NOT NULL DEFAULT '',
+            source VARCHAR(50) NOT NULL DEFAULT 'keyword_cycle',
+            type VARCHAR(30) NOT NULL DEFAULT 'keyword',
+            recommended_action VARCHAR(50) NOT NULL DEFAULT 'Create Draft',
             status VARCHAR(20) NOT NULL DEFAULT 'new',
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY keyword_competitor (keyword, competitor_url),
-            KEY status_score (status, opportunity_score)
+            KEY status_score (status, opportunity_score),
+            KEY source_type (source, type)
         ) {$charset_collate};";
 
         dbDelta($sql);
@@ -47,8 +51,10 @@ class OpportunityDatabase {
 
         foreach ($opportunities as $row) {
             $keyword = strtolower(trim((string) ($row['keyword'] ?? '')));
+            $source = sanitize_key((string) ($row['source'] ?? 'keyword_cycle'));
+            $type = sanitize_key((string) ($row['type'] ?? 'keyword'));
             $competitor_url = strtolower(trim((string) ($row['competitor_url'] ?? '')));
-            if ($keyword === '' || $competitor_url === '') {
+            if ($keyword === '') {
                 continue;
             }
 
@@ -58,6 +64,9 @@ class OpportunityDatabase {
                 'difficulty' => (float) ($row['difficulty'] ?? 0),
                 'opportunity_score' => (float) ($row['opportunity_score'] ?? 0),
                 'competitor_url' => $competitor_url,
+                'source' => $source !== '' ? $source : 'keyword_cycle',
+                'type' => $type !== '' ? $type : 'keyword',
+                'recommended_action' => sanitize_text_field((string) ($row['recommended_action'] ?? 'Create Draft')),
                 'status' => 'new',
                 'created_at' => current_time('mysql'),
                 'updated_at' => current_time('mysql'),
@@ -76,10 +85,14 @@ class OpportunityDatabase {
                         'search_volume' => $data['search_volume'],
                         'difficulty' => $data['difficulty'],
                         'opportunity_score' => $data['opportunity_score'],
+                        'source' => $data['source'],
+                        'type' => $data['type'],
+                        'recommended_action' => $data['recommended_action'],
+                        'status' => 'new',
                         'updated_at' => $data['updated_at'],
                     ],
                     ['id' => $exists],
-                    ['%d', '%f', '%f', '%s'],
+                    ['%d', '%f', '%f', '%s', '%s', '%s', '%s', '%s'],
                     ['%d']
                 );
                 $stored++;
@@ -89,7 +102,7 @@ class OpportunityDatabase {
             $ok = $wpdb->insert(
                 $table,
                 $data,
-                ['%s', '%d', '%f', '%f', '%s', '%s', '%s', '%s']
+                ['%s', '%d', '%f', '%f', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
             );
 
             if ($ok) {

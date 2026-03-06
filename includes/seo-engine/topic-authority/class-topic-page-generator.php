@@ -20,13 +20,22 @@ class TMW_Topic_Page_Generator {
             return 0;
         }
 
+        if (Settings::is_human_approval_required()) {
+            // Safety change: topic pages are suggestion-first; no automatic creation/update.
+            Logs::info('topic-authority', '[TMW-TOPIC] Human approval required, skipping automatic topic page write', [
+                'model_id' => (int) $model->ID,
+                'topic' => $topic,
+            ]);
+            return 0;
+        }
+
         $existing = get_page_by_path($slug, OBJECT, 'page');
         $page_id = $existing instanceof \WP_Post ? (int) $existing->ID : 0;
 
         $content = $this->build_topic_content($model, $topic);
         $args = [
             'post_type' => 'page',
-            'post_status' => 'publish',
+            'post_status' => 'draft',
             'post_title' => ucwords($topic),
             'post_name' => $slug,
             'post_content' => $content,
@@ -52,6 +61,10 @@ class TMW_Topic_Page_Generator {
 
         update_post_meta($page_id, '_tmw_topic_parent_model_id', (int) $model->ID);
         update_post_meta($page_id, '_tmw_topic_keyword', $topic);
+
+        // Safety hardening: all topic authority pages are always noindex until a
+        // human explicitly reviews and changes indexing settings.
+        update_post_meta($page_id, 'rank_math_robots', ['noindex']);
 
         return (int) $page_id;
     }

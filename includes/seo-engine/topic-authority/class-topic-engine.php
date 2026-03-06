@@ -1,34 +1,26 @@
 <?php
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Opportunities\OpportunityDatabase;
 
 if (!defined('ABSPATH')) { exit; }
 
 class TMW_Topic_Engine {
     private TMW_Topic_Map $topic_map;
-    private TMW_Topic_Page_Generator $page_generator;
 
-    public function __construct(?TMW_Topic_Map $topic_map = null, ?TMW_Topic_Page_Generator $page_generator = null) {
+    public function __construct(?TMW_Topic_Map $topic_map = null) {
         $this->topic_map = $topic_map ?: new TMW_Topic_Map();
-        $this->page_generator = $page_generator ?: new TMW_Topic_Page_Generator();
     }
 
     public static function init(): void {
-        $engine = new self();
-        add_action('save_post_model', [$engine, 'maybe_generate_cluster'], 20, 3);
+        // Safety hardening: do not auto-run topic page generation on model save.
+        // Topic authority now runs as suggestion-only queue entries.
     }
 
-    public function maybe_generate_cluster(int $post_id, \WP_Post $post, bool $update): void {
-        if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
-            return;
-        }
-
-        if (!current_user_can('edit_post', $post_id)) {
-            return;
-        }
-
-        if ($post->post_status !== 'publish') {
-            return;
+    public function queue_topic_suggestions_for_model(int $post_id): int {
+        $post = get_post($post_id);
+        if (!($post instanceof \WP_Post) || $post->post_type !== 'model') {
+            return 0;
         }
 
         $cluster = $this->topic_map->get_cluster($post_id);
@@ -38,68 +30,37 @@ class TMW_Topic_Engine {
         }
 
         if (empty($cluster)) {
-            return;
+            return 0;
         }
 
-        $links = [];
+        $db = new OpportunityDatabase();
+        $rows = [];
         foreach ($cluster as $topic_row) {
-            $page_id = $this->page_generator->upsert_topic_page($post, $topic_row);
-            if ($page_id <= 0) {
+            $topic = sanitize_text_field((string) ($topic_row['topic'] ?? ''));
+            if ($topic === '') {
                 continue;
             }
 
-            $url = get_permalink($page_id);
-            if (is_string($url) && $url !== '') {
-                $links[] = [
-                    'topic' => (string) $topic_row['topic'],
-                    'url' => $url,
-                ];
-            }
+            $rows[] = [
+                'keyword' => strtolower($topic),
+                'search_volume' => 0,
+                'difficulty' => 0,
+                'opportunity_score' => 55,
+                'competitor_url' => 'model:' . (int) $post_id,
+                'source' => 'topic_authority',
+                'type' => 'topic',
+                'recommended_action' => 'Create Draft',
+            ];
         }
 
-        if (!empty($links)) {
-            $this->append_cluster_links_to_model($post, $links);
-            Logs::info('topic-authority', 'Topic cluster generated', ['model_id' => $post_id, 'topics' => count($links)]);
-            error_log('[TMW-TOPIC] Topic cluster generated for model_id=' . $post_id . ' with topics=' . count($links));
-        }
-    }
-
-    /**
-     * @param array<int,array{topic:string,url:string}> $links
-     */
-    private function append_cluster_links_to_model(\WP_Post $post, array $links): void {
-        $content = (string) $post->post_content;
-        $marker_start = '<!-- tmw-topic-cluster:start -->';
-        $marker_end = '<!-- tmw-topic-cluster:end -->';
-
-        $items = [];
-        foreach ($links as $link) {
-            $items[] = '<li><a href="' . esc_url((string) $link['url']) . '">' . esc_html(ucwords((string) $link['topic'])) . '</a></li>';
+        $stored = $db->store($rows);
+        if ($stored > 0) {
+            Logs::info('topic-authority', '[TMW-TOPIC] Topic suggestions queued', [
+                'model_id' => $post_id,
+                'count' => $stored,
+            ]);
         }
 
-        $cluster_html = $marker_start
-            . '<section class="tmw-topic-cluster"><h3>Explore More About ' . esc_html(get_the_title($post)) . '</h3><ul>'
-            . implode('', $items)
-            . '</ul></section>'
-            . $marker_end;
-
-        $updated_content = $content;
-        if (strpos($content, $marker_start) !== false && strpos($content, $marker_end) !== false) {
-            $pattern = '/' . preg_quote($marker_start, '/') . '.*?' . preg_quote($marker_end, '/') . '/s';
-            $updated_content = (string) preg_replace($pattern, $cluster_html, $content);
-        } else {
-            $updated_content .= "\n\n" . $cluster_html;
-        }
-
-        if ($updated_content === $content) {
-            return;
-        }
-
-        remove_action('save_post_model', [$this, 'maybe_generate_cluster'], 20);
-        wp_update_post([
-            'ID' => (int) $post->ID,
-            'post_content' => $updated_content,
-        ]);
-        add_action('save_post_model', [$this, 'maybe_generate_cluster'], 20, 3);
+        return $stored;
     }
 }
