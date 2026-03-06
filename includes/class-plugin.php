@@ -158,7 +158,8 @@ class Plugin {
      * - No automatic post optimization.
      */
     private static function is_manual_control_mode(): bool {
-        return (bool) Settings::get('manual_control_mode', 1);
+        // Safety layer policy: manual control is always enforced.
+        return true;
     }
 
     /**

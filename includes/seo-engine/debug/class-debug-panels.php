@@ -21,6 +21,41 @@ class DebugPanels {
         echo '</tbody></table>';
     }
 
+    public static function render_suggestion_activity(int $limit = 50): void {
+        $rows = \TMWSEO\Engine\Logs::latest($limit);
+
+        echo '<h2>Suggestion Activity Log</h2>';
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th style="width:170px;">Time</th><th style="width:120px;">Level</th><th style="width:160px;">Context</th><th>Message</th><th>Data</th>';
+        echo '</tr></thead><tbody>';
+
+        $shown = 0;
+        foreach ($rows as $row) {
+            $context = isset($row['context']) ? (string) $row['context'] : '';
+            $message = isset($row['message']) ? (string) $row['message'] : '';
+
+            if ($context !== 'suggestions' && stripos($message, 'Suggestion ') === false) {
+                continue;
+            }
+
+            echo '<tr>';
+            echo '<td>' . esc_html((string) ($row['time'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['level'] ?? '')) . '</td>';
+            echo '<td>' . esc_html($context) . '</td>';
+            echo '<td>' . esc_html($message) . '</td>';
+            echo '<td><code style="white-space:pre-wrap;">' . esc_html((string) ($row['data'] ?? '')) . '</code></td>';
+            echo '</tr>';
+
+            $shown++;
+        }
+
+        if ($shown === 0) {
+            echo '<tr><td colspan="5">No suggestion lifecycle activity logged yet.</td></tr>';
+        }
+
+        echo '</tbody></table>';
+    }
+
     public static function render_post_inspector(int $post_id): void {
         $sections = [
             'keyword pack' => get_post_meta($post_id, 'tmw_keyword_pack', true),

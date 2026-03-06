@@ -2038,6 +2038,7 @@ private static function header(string $title): void {
 
         echo '<h2>Safe Mode</h2>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked($safe_mode, true, false) . '> Keep safe mode enabled (no auto-publish / no indexing submissions)</label>';
+        echo '<p class="description">Safety layer is always enforced: never auto-publish, never auto-modify existing content, never auto-insert links. Every action requires explicit user approval.</p>';
 
         echo '<h2>OpenAI</h2>';
         echo '<table class="form-table">';
