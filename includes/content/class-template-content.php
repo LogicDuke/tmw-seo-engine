@@ -2,7 +2,9 @@
 namespace TMWSEO\Engine\Content;
 
 use TMWSEO\Engine\Templates\TemplateEngine;
+use TMWSEO\Engine\Platform\AffiliateLinkBuilder;
 use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Keywords\ModelKeywordPack;
 
 if (!defined('ABSPATH')) { exit; }
@@ -27,13 +29,14 @@ class TemplateContent {
         $seed = $name . '-' . $post->ID;
 
         $platform_links = PlatformProfiles::get_links($post->ID);
+        $cta_links = self::build_platform_cta_links($post->ID, $platform_links);
         $active_platforms = [];
         $primary_platform_label = '';
-        foreach ($platform_links as $r) {
-            $slug = (string)($r['platform'] ?? '');
-            $label = ucfirst($slug);
-            // Try to map label from PlatformProfiles internal map by using rendered metabox labels.
-            // Keep slug-based label for now.
+        foreach ($cta_links as $r) {
+            $label = (string)($r['label'] ?? '');
+            if ($label === '') {
+                continue;
+            }
             $active_platforms[] = $label;
             if (!empty($r['is_primary'])) {
                 $primary_platform_label = $label;
@@ -84,7 +87,8 @@ class TemplateContent {
         $faqs_tpl = TemplateEngine::pick_faq($faq_slug, $seed, 5);
         $faqs_html = self::render_faqs($faqs_tpl, $context);
 
-        $links_html = self::render_platform_links($platform_links, $name);
+        $primary_cta_html = self::render_primary_watch_cta($cta_links, $name);
+        $links_html = self::render_platform_links($cta_links, $name);
 
         $internal_links = self::render_internal_links($post);
 
@@ -99,6 +103,11 @@ class TemplateContent {
         // Quick value props
         $content_parts[] = '<h2>Watch ' . esc_html($name) . ' Live on ' . esc_html($primary_platform_label) . '</h2>';
         $content_parts[] = '<p>Fans searching for <strong>' . esc_html($name) . ' live shows</strong> usually want a fast, safe way to join a real-time room. Below you’ll find trusted links, what to expect, and tips to get the most out of your chat.</p>';
+
+        if ($primary_cta_html !== '') {
+            $content_parts[] = '<h2>Watch ' . esc_html($name) . ' Live</h2>';
+            $content_parts[] = $primary_cta_html;
+        }
 
         // About section
         $content_parts[] = '<h2>About ' . esc_html($name) . '</h2>';
@@ -202,19 +211,84 @@ class TemplateContent {
         return $out;
     }
 
+    /**
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     */
+    private static function render_primary_watch_cta(array $links, string $name): string {
+        foreach ($links as $link) {
+            if (empty($link['is_primary'])) {
+                continue;
+            }
+
+            $go_url = (string)($link['go_url'] ?? '');
+            if ($go_url === '') {
+                continue;
+            }
+
+            $label = (string)($link['label'] ?? '');
+            if ($label === '') {
+                $label = 'live cam';
+            }
+
+            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="nofollow sponsored">' . esc_html('Watch ' . $name . ' Live on ' . $label) . '</a></p>';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     */
     private static function render_platform_links(array $links, string $name): string {
-        if (empty($links)) return '';
+        if (count($links) < 2) return '';
         $lis = '';
         foreach ($links as $l) {
-            $platform = (string)($l['platform'] ?? '');
-            $url = (string)($l['profile_url'] ?? '');
-            if ($platform === '' || $url === '') continue;
-            $label = ucfirst($platform);
-            // For affiliate URLs you might want rel="sponsored". Keep it safe by default.
-            $lis .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow">' . esc_html($name . ' on ' . $label) . '</a></li>';
+            $url = (string)($l['go_url'] ?? '');
+            $label = (string)($l['label'] ?? '');
+            if ($url === '' || $label === '') continue;
+
+            $lis .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="nofollow sponsored">' . esc_html($name . ' on ' . $label) . '</a></li>';
         }
         if ($lis === '') return '';
         return '<ul>' . $lis . '</ul>';
+    }
+
+    /**
+     * @param array<int,array{platform?:string,is_primary?:string|int}> $links
+     * @return array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}>
+     */
+    private static function build_platform_cta_links(int $post_id, array $links): array {
+        $out = [];
+
+        foreach ($links as $link) {
+            $platform = sanitize_key((string)($link['platform'] ?? ''));
+            if ($platform === '') {
+                continue;
+            }
+
+            $username = trim((string)get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
+            if ($username === '') {
+                continue;
+            }
+
+            $go_url = AffiliateLinkBuilder::go_url($platform, $username);
+            if ($go_url === '') {
+                continue;
+            }
+
+            $platform_data = PlatformRegistry::get($platform);
+            $label = (string)($platform_data['name'] ?? ucfirst($platform));
+
+            $out[] = [
+                'platform' => $platform,
+                'label' => $label,
+                'go_url' => $go_url,
+                'is_primary' => !empty($link['is_primary']),
+                'username' => $username,
+            ];
+        }
+
+        return $out;
     }
 
     private static function render_internal_links(\WP_Post $post): string {
