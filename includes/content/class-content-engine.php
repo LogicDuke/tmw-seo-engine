@@ -7,6 +7,7 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Keywords\ModelKeywordPack;
+use TMWSEO\Engine\Clustering\ClusterEngine;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -143,6 +144,9 @@ class ContentEngine {
             $keyword_pack = ModelKeywordPack::build($post);
             update_post_meta($post_id, '_tmwseo_keyword', $keyword_pack['primary']);
             update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($keyword_pack));
+
+            $cluster_engine = new ClusterEngine();
+            $cluster_engine->build_for_post($post_id);
 
             // RankMath: store focus + a few extra keywords (comma separated).
             $focus_list = array_merge([$keyword_pack['primary']], array_slice($keyword_pack['additional'], 0, 4));

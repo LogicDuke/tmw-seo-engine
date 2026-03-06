@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\KeywordIntelligence;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Clustering\ClusterEngine;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -58,6 +59,9 @@ class KeywordIntelligence {
         $pack['seed_keywords'] = $seed_keywords;
 
         update_post_meta($post_id, 'tmw_keyword_pack', $pack);
+
+        $cluster_engine = new ClusterEngine();
+        $cluster_engine->build_for_post($post_id);
 
         Logs::info('keyword_intelligence', '[TMW-KIP] Keyword pack generated', [
             'post_id' => $post_id,
