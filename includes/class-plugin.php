@@ -23,7 +23,13 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.php';
+
+require_once TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php';
+
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-optimizer.php';
 

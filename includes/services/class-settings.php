@@ -30,6 +30,10 @@ class Settings {
             'brand_voice' => 'premium', // premium|neutral
             'tmwseo_dry_run_mode' => 0,
 
+            // Indexing policy
+            // Keep RankMath noindex by default until you explicitly enable auto-clearing.
+            'auto_clear_noindex' => 0,
+
             // DataForSEO
             'dataforseo_login' => '',
             'dataforseo_password' => '',

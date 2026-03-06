@@ -432,6 +432,7 @@ class Admin {
             'openai_model' => ($mode === 'bulk') ? $bulk : $primary,
             'brand_voice' => $voice,
             'tmwseo_dry_run_mode' => !empty($input['tmwseo_dry_run_mode']) ? 1 : 0,
+            'auto_clear_noindex' => !empty($input['auto_clear_noindex']) ? 1 : 0,
             'dataforseo_login' => sanitize_text_field((string)($input['dataforseo_login'] ?? '')),
             'dataforseo_password' => sanitize_text_field((string)($input['dataforseo_password'] ?? '')),
             'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? '2840')),
@@ -518,6 +519,7 @@ class Admin {
 
             'brand_voice' => $voice,
             'tmwseo_dry_run_mode' => isset($_POST['tmwseo_dry_run_mode']) ? 1 : 0,
+            'auto_clear_noindex' => isset($_POST['auto_clear_noindex']) ? 1 : 0,
 
             'dataforseo_login' => sanitize_text_field((string)($_POST['dataforseo_login'] ?? '')),
             'dataforseo_password' => sanitize_text_field((string)($_POST['dataforseo_password'] ?? '')),
@@ -606,29 +608,35 @@ class Admin {
     }
 
     public static function handle_optimize_post_now(): void {
-        error_log('TMW ADMIN OPTIMIZE HANDLER ENTERED');
-
         if (!current_user_can('edit_posts')) wp_die('Permission denied.');
 
-        $post_id = (int)($_GET['post_id'] ?? 0);
+        // Support both GET links and POST form submits.
+        $req = $_REQUEST;
+
+        $post_id = (int)($req['post_id'] ?? 0);
         if ($post_id <= 0) wp_die('Invalid post.');
 
-        if (
-            !isset($_GET['_wpnonce'])
-            || !wp_verify_nonce(sanitize_text_field(wp_unslash((string)$_GET['_wpnonce'])), 'tmwseo_optimize_post_' . $post_id)
-        ) {
+        $nonce = (string)($req['_wpnonce'] ?? '');
+        if ($nonce === '' || !wp_verify_nonce(sanitize_text_field(wp_unslash($nonce)), 'tmwseo_optimize_post_' . $post_id)) {
             wp_die('Invalid or expired nonce.');
         }
 
+        $strategy = sanitize_key((string)($req['strategy'] ?? ''));
+        if (!in_array($strategy, ['template', 'openai'], true)) {
+            $strategy = 'openai';
+        }
+
+        $insert_block = !empty($req['insert_block']) ? 1 : 0;
+
         $post_type = get_post_type($post_id) ?: 'post';
-        error_log('TMW DISPATCHING JOB');
         Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
             'trigger' => 'manual',
+            'strategy' => $strategy,
+            'insert_block' => $insert_block,
         ]);
         Logs::info('admin', '[TMW-QUEUE] optimize_post queued from manual action', ['post_id' => $post_id, 'post_type' => (string)$post_type]);
 
         $ref = wp_get_referer();
-        error_log('TMW ADMIN OPTIMIZE BEFORE REDIRECT');
         $redirect_url = $ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit');
         $redirect_url = add_query_arg('tmwseo_notice', 'optimize_queued', $redirect_url);
         wp_safe_redirect($redirect_url);
@@ -1681,6 +1689,7 @@ private static function header(string $title): void {
         $d_loc = esc_attr((string)($opts['dataforseo_location_code'] ?? '2840'));
         $safe_mode = !empty($opts['safe_mode']);
         $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
+        $auto_clear_noindex = !empty($opts['auto_clear_noindex']);
 
         // Phase 1: manual-only by default.
         $manual_control_mode = (bool) Settings::get('manual_control_mode', 1);
@@ -1737,8 +1746,13 @@ private static function header(string $title): void {
         echo '<p class="description">Affects default writing tone once AI generation is enabled in later versions.</p>';
         echo '</td></tr>';
 
-        echo '<tr><th>Dry Run Mode</th><td>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_dry_run_mode]" value="1" ' . checked($dry_run_mode, true, false) . '> Enable Dry Run Mode (Skip OpenAI, generate placeholder SEO content)</label>';
+        echo '<tr><th>Template Mode</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_dry_run_mode]" value="1" ' . checked($dry_run_mode, true, false) . '> Default to Template mode (skip OpenAI unless explicitly selected in the editor metabox)</label>';
+        echo '</td></tr>';
+
+        echo '<tr><th>Indexing</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[auto_clear_noindex]" value="1" ' . checked($auto_clear_noindex, true, false) . '> Auto-clear RankMath noindex on optimized model/category pages</label>';
+        echo '<p class="description">Leave this OFF until you are happy with the content + keyword packs. When OFF, TMW SEO Engine will not remove <code>noindex</code> automatically.</p>';
         echo '</td></tr>';
 
         // Legacy single-model field (hidden-ish): keep for compatibility / quick overrides.

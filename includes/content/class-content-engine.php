@@ -6,12 +6,14 @@ use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
+use TMWSEO\Engine\Keywords\ModelKeywordPack;
 
 if (!defined('ABSPATH')) { exit; }
 
 class ContentEngine {
 
-    private const MODEL_MIN_WORDS = 1510;
+    // Autopilot-style target: enough depth for RankMath without bloating pages.
+    private const MODEL_MIN_WORDS = 800;
     private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
     private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
 
@@ -84,28 +86,35 @@ class ContentEngine {
     private static function update_model_secondary_keywords_for_post(\WP_Post $post, string $primary_keyword): void {
         if ($post->post_type !== 'model') return;
 
-        $secondary_keywords = self::build_model_secondary_keywords($primary_keyword);
+        // Prefer the Engine keyword pack (more relevant than generic suffixes).
+        $pack_raw = get_post_meta($post->ID, '_tmwseo_keyword_pack', true);
+        $pack = [];
+        if (is_string($pack_raw) && $pack_raw !== '') {
+            $decoded = json_decode($pack_raw, true);
+            if (is_array($decoded)) $pack = $decoded;
+        } elseif (is_array($pack_raw)) {
+            $pack = $pack_raw;
+        }
+
+        $secondary_keywords = (!empty($pack['additional']) && is_array($pack['additional']))
+            ? array_slice(array_values(array_filter(array_map('strval', $pack['additional']))), 0, 4)
+            : self::build_model_secondary_keywords($primary_keyword);
         if (empty($secondary_keywords)) return;
 
         update_post_meta($post->ID, 'rank_math_secondary_keywords', implode(',', $secondary_keywords));
     }
 
     public static function run_optimize_job(array $job): void {
-        error_log('TMW run_optimize_job ENTERED');
         $post_id = (int)($job['entity_id'] ?? 0);
-        error_log('TMW run_optimize_job POST_ID=' . $post_id);
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
-        error_log('TMW run_optimize_job DRY_MODE=' . $dry);
         if ($post_id <= 0) {
             Logs::warn('content', 'optimize_post missing entity_id');
-            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
         $post = get_post($post_id);
         if (!$post) {
             Logs::warn('content', 'Post not found', ['post_id' => $post_id]);
-            error_log('TMW run_optimize_job EARLY RETURN');
             return;
         }
 
@@ -113,137 +122,102 @@ class ContentEngine {
             Logs::info('content', 'Safe mode enabled; skipping AI generation', ['post_id' => $post_id]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'skipped_safe_mode');
-            error_log('TMW run_optimize_job EARLY RETURN');
-            return;
-        }
-
-        $dry_run = $dry;
-        if ($dry_run) {
-            error_log('TMW DRY RUN EXECUTED FOR POST ID: ' . $post_id);
-            Logs::info('content', 'Dry run branch reached', [
-                'post_id' => $post_id
-            ]);
-
-            error_log('TMW run_optimize_job GENERATING CONTENT');
-
-            if ($post->post_type === 'model') {
-                $model_name = trim((string)$post->post_title);
-                $placeholder_content = "\n" .
-                    "<h1>{$model_name} Live Chat</h1>\n" .
-                    "<p>{$model_name} live chat gives fans a direct way to connect in real time, watch streams, and discover the latest updates in one place.</p>\n\n" .
-                    "<h2>Watch {$model_name} Live on Webcam</h2>\n" .
-                    "<p>Browse current streams and see when {$model_name} is online for live webcam sessions.</p>\n\n" .
-                    "<h2>Why Fans Love {$model_name}</h2>\n" .
-                    "<p>Fans return for engaging interactions, consistent schedules, and a friendly on-camera style.</p>\n\n" .
-                    "<h2>{$model_name} Live Chat Features</h2>\n" .
-                    "<p>Find chat options, profile highlights, and fast access to the most important updates.</p>\n\n" .
-                    "<h2>{$model_name} Webcam Shows</h2>\n" .
-                    "<p>Explore show formats, stream themes, and related content to match viewer preferences.</p>\n\n" .
-                    "<h2>FAQ About {$model_name}</h2>\n" .
-                    "<p><strong>Q:</strong> How can I watch {$model_name} live?<br><strong>A:</strong> Use the live section above to join available streams.</p>\n";
-            } else {
-                $placeholder_content = "\n" .
-                    "<h2>About {$post->post_title}</h2>\n" .
-                    "<p>This is structured SEO placeholder content generated in Dry Run Mode.</p>\n\n" .
-                    "<h2>Why Watch {$post->post_title}</h2>\n" .
-                    "<p>Detailed keyword-rich description would appear here.</p>\n\n" .
-                    "<h2>Related Models & Scenes</h2>\n" .
-                    "<p>Internal linking structure placeholder.</p>\n\n" .
-                    "<p><strong>SEO Meta Description:</strong> Optimized preview for {$post->post_title}.</p>\n";
-            }
-
-            $generated_content = $placeholder_content;
-            $seo_title = TitleFixer::shorten(trim((string)$post->post_title), 60);
-            $meta_desc = trim(wp_strip_all_tags($post->post_excerpt !== '' ? $post->post_excerpt : 'Optimized preview for ' . $post->post_title . '.'));
-            $meta_desc = TitleFixer::shorten($meta_desc, 160);
-            $focus_kw  = trim((string)get_post_meta($post_id, '_tmwseo_keyword', true));
-            if ($focus_kw === '') {
-                $focus_kw = trim((string)$post->post_title);
-            }
-            $focus_kw = self::normalize_focus_keyword_for_post($post, $focus_kw);
-            error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
-            error_log('TMW run_optimize_job UPDATING POST');
-
-            wp_update_post([
-                'ID'           => $post_id,
-                'post_content' => $placeholder_content,
-            ]);
-
-            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
-            if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
-            if ($focus_kw !== '') {
-                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
-                update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
-                self::update_model_secondary_keywords_for_post($post, $focus_kw);
-            }
-
-            self::maybe_clear_rank_math_noindex($post);
-            error_log('TMW run_optimize_job UPDATE COMPLETE');
-
-            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
-            update_post_meta($post_id, '_tmwseo_optimize_done', 'dry_run');
-
-            Logs::info('content', 'Dry run content generated', [
-                'post_id' => $post_id,
-            ]);
-
-            error_log('TMW run_optimize_job EARLY RETURN');
-            return;
-        }
-
-        if (!OpenAI::is_configured()) {
-
-            error_log('TMW OFFLINE DRY MODE ACTIVE');
-
-            $seo_title = 'SEO Title for Post ' . $post_id;
-            $meta_desc = 'This is a generated meta description for post ' . $post_id . '.';
-            $focus_kw  = 'sample keyword ' . $post_id;
-            $focus_kw = self::normalize_focus_keyword_for_post($post, $focus_kw);
-
-            $generated_content = '<h2>SEO Optimized Content</h2>';
-            $generated_content .= '<p>This content was generated in offline dry mode.</p>';
-            $generated_content .= '<p>Post ID: ' . $post_id . '</p>';
-            error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
-
-            error_log('TMW run_optimize_job UPDATING POST');
-
-            wp_update_post([
-                'ID' => $post_id,
-                'post_content' => $generated_content,
-            ]);
-
-            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
-            if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
-            if ($focus_kw !== '') {
-                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
-                update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
-                self::update_model_secondary_keywords_for_post($post, $focus_kw);
-            }
-
-            self::maybe_clear_rank_math_noindex($post);
-            error_log('TMW run_optimize_job UPDATE COMPLETE');
-
-            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
-            update_post_meta($post_id, '_tmwseo_optimize_done', 'offline_dry');
-
-            Logs::info('content', 'Offline fallback content generated', [
-                'post_id' => $post_id,
-            ]);
-
-            error_log('TMW OFFLINE MODE COMPLETE');
-
             return;
         }
 
         $payload = $job['payload'] ?? [];
         if (!is_array($payload)) $payload = [];
 
+        $insert_block = (int)($payload['insert_block'] ?? 1) === 1;
+
+        // Strategy precedence: explicit payload > settings.
+        $strategy = sanitize_key((string)($payload['strategy'] ?? ''));
+        if ($strategy === '') {
+            $strategy = ((int)$dry === 1) ? 'template' : 'openai';
+        }
+
+        // Build keyword pack for models (and keep it stored for UI + prompts).
+        $keyword_pack = [];
+        if ($post->post_type === 'model') {
+            $keyword_pack = ModelKeywordPack::build($post);
+            update_post_meta($post_id, '_tmwseo_keyword', $keyword_pack['primary']);
+            update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($keyword_pack));
+
+            // RankMath: store focus + a few extra keywords (comma separated).
+            $focus_list = array_merge([$keyword_pack['primary']], array_slice($keyword_pack['additional'], 0, 4));
+            $focus_list = array_values(array_unique(array_filter(array_map('trim', $focus_list), 'strlen')));
+            if (!empty($focus_list)) {
+                update_post_meta($post_id, 'rank_math_focus_keyword', implode(',', $focus_list));
+            }
+        }
+
+        // Template generation is the default fallback (replaces the old "offline dry" placeholder).
+        if ($strategy === 'template' || !OpenAI::is_configured()) {
+            $focus_kw = '';
+            if ($post->post_type === 'model' && !empty($keyword_pack['primary'])) {
+                $focus_kw = (string)$keyword_pack['primary'];
+            } else {
+                $focus_kw = trim((string)get_post_meta($post_id, '_tmwseo_keyword', true));
+                if ($focus_kw === '') $focus_kw = trim((string)$post->post_title);
+            }
+            $focus_kw = self::normalize_focus_keyword_for_post($post, $focus_kw);
+
+            if ($post->post_type === 'model') {
+                $tpl = \TMWSEO\Engine\Content\TemplateContent::build_model($post, $keyword_pack);
+                $generated_content = (string)$tpl['content'];
+                $seo_title = TitleFixer::shorten((string)$tpl['seo_title'], 70);
+                $meta_desc = TitleFixer::shorten((string)$tpl['meta_description'], 160);
+            } else {
+                // Generic template fallback.
+                $seo_title = TitleFixer::shorten(TitleFixer::fix((string)$post->post_title), 70);
+                $meta_desc = TitleFixer::shorten('Learn more about ' . $post->post_title . ' on ' . get_bloginfo('name') . '.', 160);
+                $generated_content = '<h2>' . esc_html($post->post_title) . '</h2><p>Content template is not configured for this post type yet.</p>';
+            }
+
+            $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
+
+            wp_update_post([
+                'ID'           => $post_id,
+                'post_content' => $final_content,
+            ]);
+
+            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+            if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
+            if ($focus_kw !== '') {
+                // If focus keyword meta was set above as a list, keep it.
+                if (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
+                    update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+                }
+                update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+                self::update_model_secondary_keywords_for_post($post, $focus_kw);
+            }
+
+            // Don't automatically remove noindex unless explicitly enabled.
+            self::maybe_clear_rank_math_noindex($post);
+
+            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            update_post_meta($post_id, '_tmwseo_optimize_done', ($strategy === 'template') ? 'template' : 'template_fallback');
+
+            Logs::info('content', 'Template content generated', [
+                'post_id' => $post_id,
+                'strategy' => $strategy,
+                'openai_configured' => OpenAI::is_configured(),
+            ]);
+
+            return;
+        }
+
         $context = (string)($payload['context'] ?? self::infer_context($post));
         $keyword = (string)($payload['keyword'] ?? get_post_meta($post_id, '_tmwseo_keyword', true));
+        if ($post->post_type === 'model' && !empty($keyword_pack['primary'])) {
+            $keyword = (string)$keyword_pack['primary'];
+        }
         $secondary_keywords = [];
         if ($post->post_type === 'model') {
             $primary_keyword = self::normalize_focus_keyword_for_post($post, $keyword);
-            $secondary_keywords = self::build_model_secondary_keywords($primary_keyword);
+            $secondary_keywords = (!empty($keyword_pack['additional']) && is_array($keyword_pack['additional']))
+                ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['additional']))), 0, 4)
+                : self::build_model_secondary_keywords($primary_keyword);
         }
 
         $clean_title = TitleFixer::fix((string)$post->post_title);
@@ -270,8 +244,9 @@ class ContentEngine {
             "- Post type: {$post->post_type}\n" .
             "- Context: {$context}\n" .
             "- Current title (cleaned): {$clean_title_short}\n" .
-            ($keyword ? "- Primary keyword: {$keyword}\n" : '') .
-            (!empty($secondary_keywords) ? "- Secondary keywords: " . implode(', ', $secondary_keywords) . "\n" : '') .
+            ($keyword ? "- Primary keyword (must be used exactly): {$keyword}\n" : '') .
+            (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
+            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail queries to cover: " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
             "- Target length: {$length_hint}\n" .
             "\n" .
             "WRITE:\n" .
@@ -305,7 +280,7 @@ class ContentEngine {
         ];
 
         error_log('TMW run_optimize_job GENERATING CONTENT');
-        $max_tokens = $is_model_page ? 5200 : 2200;
+        $max_tokens = $is_model_page ? 3200 : 2200;
 
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.6,
@@ -327,6 +302,10 @@ class ContentEngine {
 
         $seo_title = TitleFixer::shorten(trim($seo_title), 60);
         $meta_desc = trim($meta_desc);
+        // For model pages, focus keyword must be the model name.
+        if ($is_model_page && !empty($keyword_pack['primary'])) {
+            $focus_kw = (string)$keyword_pack['primary'];
+        }
         $focus_kw  = trim($focus_kw);
         $focus_kw  = self::normalize_focus_keyword_for_post($post, $focus_kw);
 
@@ -343,13 +322,16 @@ class ContentEngine {
         if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
         if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
         if ($focus_kw !== '') {
-            update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+            // Preserve any comma-separated keyword pack we stored earlier.
+            if (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+            }
             update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
             self::update_model_secondary_keywords_for_post($post, $focus_kw);
         }
 
-        // Update content via a dedicated marker block.
-        $new_content = self::upsert_ai_block((string)$post->post_content, $html);
+        // Update content via a dedicated marker block (optional).
+        $new_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $html) : $html;
 
         // Only update post if content actually changed.
         if ($new_content !== (string)$post->post_content) {
@@ -452,6 +434,10 @@ class ContentEngine {
     }
 
     private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
+        // We keep noindex by default until you explicitly enable auto-indexing.
+        if ((int) Settings::get('auto_clear_noindex', 0) !== 1) {
+            return;
+        }
         if ($post->post_status !== 'publish') return;
         if (!in_array($post->post_type, ['model', 'tmw_category_page'], true)) return;
         if (get_post_meta($post->ID, '_tmwseo_generated', true)) return;

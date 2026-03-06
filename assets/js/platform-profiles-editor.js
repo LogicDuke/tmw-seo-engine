@@ -46,7 +46,8 @@
       links[m[1]] = (inp.value || '').trim();
     });
 
-    var primarySel = document.querySelector('select[name="tmwseo_primary_platform"]');
+    // Metabox uses tmwseo_platform_primary.
+    var primarySel = document.querySelector('select[name="tmwseo_platform_primary"]');
     var primary = primarySel ? (primarySel.value || '') : '';
 
     return { links: links, primary: primary };
@@ -85,15 +86,27 @@
   }
 
   var wasSaving = false;
+  var sentThisSave = false;
 
   subscribe(function () {
     if (currentPostType() !== 'model') return;
 
     var saving = isSaving();
 
+    // When a manual save starts, send a quick AJAX snapshot so the links
+    // survive even if the editor re-renders or navigation happens.
+    if (!wasSaving && saving && !isAutosaving()) {
+      sentThisSave = true;
+      sendAjaxSave();
+    }
+
     // Detect the moment saving finishes (and ignore autosaves)
     if (wasSaving && !saving && !isAutosaving()) {
-      sendAjaxSave();
+      // Also send at the end, as a best-effort confirmation.
+      if (!sentThisSave) {
+        sendAjaxSave();
+      }
+      sentThisSave = false;
     }
 
     wasSaving = saving;
