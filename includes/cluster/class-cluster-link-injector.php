@@ -1,5 +1,8 @@
 <?php
 
+use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Services\Settings;
+
 if (!defined('ABSPATH')) exit;
 
 class TMW_Cluster_Link_Injector {
@@ -13,12 +16,26 @@ class TMW_Cluster_Link_Injector {
 
     public function inject_missing_links($cluster_id) {
         $cluster_id = (int) $cluster_id;
-        $max_links_per_post = 5;
 
         if ($cluster_id <= 0) {
             return [];
         }
 
+        // Safety layer: never auto-insert links into existing content.
+        if (Settings::is_human_approval_required()) {
+            Logs::warn('suggestions', '[TMW-SAFETY] Automatic link insertion blocked; use suggestion workflow and editor review', [
+                'event' => 'Suggestion created',
+                'cluster_id' => $cluster_id,
+                'requires_user_approval' => true,
+            ]);
+
+            return [
+                'updated' => 0,
+                'blocked' => 1,
+            ];
+        }
+
+        $max_links_per_post = 5;
         $analysis = $this->linking_engine->analyze_cluster($cluster_id);
 
         if (empty($analysis['missing_links']) || !is_array($analysis['missing_links'])) {

@@ -23,6 +23,16 @@ class TMW_Intelligence_DB_Migration {
             self::run_migration();
             update_option(self::OPTION_KEY, self::SCHEMA_VERSION);
         }
+
+        if (class_exists('TMWSEO\Engine\Schema') && method_exists('TMWSEO\Engine\Schema', 'ensure_intelligence_schema')) {
+            \TMWSEO\Engine\Schema::ensure_intelligence_schema();
+            return;
+        }
+
+        // Backward-compatible fallback.
+        if (class_exists('TMWSEO\Engine\Schema') && method_exists('TMWSEO\Engine\Schema', 'reconcile_required_intelligence_tables')) {
+            \TMWSEO\Engine\Schema::reconcile_required_intelligence_tables();
+        }
     }
 
     private static function run_migration() {

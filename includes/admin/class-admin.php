@@ -20,6 +20,9 @@ class Admin {
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
+        add_action('admin_post_tmwseo_refresh_keywords_now', [__CLASS__, 'handle_refresh_keywords_now']);
+        add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
+        add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
@@ -95,7 +98,13 @@ class Admin {
     }
 
     public static function enqueue_admin_assets(string $hook): void {
-        if ($hook !== 'toplevel_page_' . self::MENU_SLUG) {
+        $allowed_hooks = [
+            'toplevel_page_' . self::MENU_SLUG,
+            self::MENU_SLUG . '_page_tmwseo-suggestions',
+            self::MENU_SLUG . '_page_tmwseo-command-center',
+        ];
+
+        if (!in_array($hook, $allowed_hooks, true)) {
             return;
         }
 
@@ -148,6 +157,122 @@ class Admin {
             .tmwseo-card h3 {
                 font-size: 28px;
                 margin: 0;
+            }
+
+            .tmwseo-suggestions-page .subsubsub {
+                float:none;
+                margin:12px 0 14px;
+            }
+
+            .tmwseo-suggestions-table td,
+            .tmwseo-suggestions-table th {
+                vertical-align:top;
+            }
+
+            .tmwseo-priority {
+                display:inline-block;
+                padding:4px 10px;
+                border-radius:999px;
+                font-weight:600;
+                font-size:12px;
+                line-height:1.4;
+            }
+
+            .tmwseo-priority-high {
+                background:#fef2f2;
+                color:#b91c1c;
+            }
+
+            .tmwseo-priority-medium {
+                background:#fff7ed;
+                color:#c2410c;
+            }
+
+            .tmwseo-priority-low {
+                background:#eff6ff;
+                color:#1d4ed8;
+            }
+
+            .tmwseo-command-center {
+                max-width:1100px;
+            }
+
+            .tmwseo-command-grid {
+                display:grid;
+                grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+                gap:16px;
+                margin-top:20px;
+            }
+
+            .tmwseo-command-widget {
+                display:block;
+                text-decoration:none;
+                border:1px solid #e5e7eb;
+                border-left-width:6px;
+                border-radius:10px;
+                padding:18px;
+                background:#fff;
+                color:#111827;
+                box-shadow:0 3px 8px rgba(0,0,0,0.04);
+                transition:transform 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .tmwseo-command-widget:hover,
+            .tmwseo-command-widget:focus {
+                transform:translateY(-1px);
+                box-shadow:0 6px 16px rgba(0,0,0,0.08);
+                color:#111827;
+            }
+
+            .tmwseo-command-widget-value {
+                display:block;
+                font-size:34px;
+                line-height:1.1;
+                font-weight:700;
+                margin-bottom:8px;
+            }
+
+            .tmwseo-command-widget-label {
+                display:block;
+                font-size:14px;
+                color:#4b5563;
+                margin-bottom:10px;
+            }
+
+            .tmwseo-command-status {
+                display:inline-block;
+                border-radius:999px;
+                padding:4px 10px;
+                font-size:12px;
+                font-weight:600;
+                background:#f3f4f6;
+            }
+
+            .tmwseo-command-good {
+                border-left-color:#16a34a;
+            }
+
+            .tmwseo-command-good .tmwseo-command-status {
+                background:#dcfce7;
+                color:#166534;
+            }
+
+            .tmwseo-command-warn {
+                border-left-color:#eab308;
+            }
+
+            .tmwseo-command-warn .tmwseo-command-status {
+                background:#fef9c3;
+                color:#854d0e;
+            }
+
+            .tmwseo-command-alert {
+                border-left-color:#dc2626;
+            }
+
+            .tmwseo-command-alert .tmwseo-command-status {
+                background:#fee2e2;
+                color:#991b1b;
             }
 
             .tmwseo-card span {
@@ -411,6 +536,13 @@ class Admin {
     public static function sanitize_settings($input): array {
         $input = is_array($input) ? $input : [];
 
+        if (($input['tmwseo_settings_section'] ?? '') === 'affiliate') {
+            $current = get_option('tmwseo_engine_settings', []);
+            $current = is_array($current) ? $current : [];
+            $current['affiliate'] = self::sanitize_affiliate_settings($input['affiliate'] ?? []);
+            return $current;
+        }
+
         $mode = sanitize_text_field((string)($input['openai_mode'] ?? 'hybrid'));
         if (!in_array($mode, ['quality', 'bulk', 'hybrid'], true)) {
             $mode = 'hybrid';
@@ -433,6 +565,8 @@ class Admin {
             'brand_voice' => $voice,
             'tmwseo_dry_run_mode' => !empty($input['tmwseo_dry_run_mode']) ? 1 : 0,
             'auto_clear_noindex' => !empty($input['auto_clear_noindex']) ? 1 : 0,
+            'template_external_link_enabled' => !empty($input['template_external_link_enabled']) ? 1 : 0,
+            'include_external_info_link' => !empty($input['include_external_info_link']) ? 1 : 0,
             'dataforseo_login' => sanitize_text_field((string)($input['dataforseo_login'] ?? '')),
             'dataforseo_password' => sanitize_text_field((string)($input['dataforseo_password'] ?? '')),
             'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? '2840')),
@@ -446,9 +580,49 @@ class Admin {
             'keyword_pages_per_day' => max(0, (int)($input['keyword_pages_per_day'] ?? 3)),
             'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? '')),
             'manual_control_mode' => !empty($input['manual_control_mode']) ? 1 : 0,
+            'debug_mode' => !empty($input['debug_mode']) ? 1 : 0,
             'serper_api_key' => sanitize_text_field((string)($input['serper_api_key'] ?? '')),
             'intel_max_seeds' => max(1, (int)($input['intel_max_seeds'] ?? 3)),
             'intel_max_keywords' => max(50, (int)($input['intel_max_keywords'] ?? 400)),
+            'affiliate' => self::sanitize_affiliate_settings($input['affiliate'] ?? []),
+        ];
+    }
+
+    private static function sanitize_affiliate_settings($input): array {
+        $input = is_array($input) ? $input : [];
+        $platforms_input = is_array($input['platforms'] ?? null) ? $input['platforms'] : [];
+
+        $platform_defaults = self::get_affiliate_platform_defaults();
+        $platforms = [];
+
+        foreach ($platform_defaults as $platform_key => $defaults) {
+            $platform_input = is_array($platforms_input[$platform_key] ?? null) ? $platforms_input[$platform_key] : [];
+
+            $platforms[$platform_key] = [
+                'enabled' => !empty($platform_input['enabled']) ? 1 : 0,
+                'affiliate_link_pattern' => sanitize_text_field((string)($platform_input['affiliate_link_pattern'] ?? $defaults['affiliate_link_pattern'])),
+                'campaign' => sanitize_text_field((string)($platform_input['campaign'] ?? '')),
+                'source' => sanitize_text_field((string)($platform_input['source'] ?? '')),
+            ];
+        }
+
+        return [
+            'platforms' => $platforms,
+        ];
+    }
+
+    private static function get_affiliate_platform_defaults(): array {
+        return [
+            'livejasmin' => [
+                'label' => 'LiveJasmin',
+                'base_profile_url' => 'https://www.livejasmin.com/en/profile/',
+                'affiliate_link_pattern' => 'https://YOURAFFBASE/?campaign={campaign}&url={encoded_profile_url}',
+            ],
+            'stripchat' => [
+                'label' => 'Stripchat',
+                'base_profile_url' => 'https://stripchat.com/',
+                'affiliate_link_pattern' => 'https://YOURAFFBASE/?campaign={campaign}&url={encoded_profile_url}',
+            ],
         ];
     }
 
@@ -463,17 +637,22 @@ class Admin {
             58
         );
 
-        add_submenu_page(self::MENU_SLUG, __('Overview', 'tmwseo'), __('Overview', 'tmwseo'), 'manage_options', self::MENU_SLUG, [__CLASS__, 'render_overview']);
-        add_submenu_page(self::MENU_SLUG, __('Queue', 'tmwseo'), __('Queue', 'tmwseo'), 'manage_options', 'tmwseo-queue', [__CLASS__, 'render_queue']);
+        // Human-first navigation.
+        add_submenu_page(self::MENU_SLUG, __('Dashboard', 'tmwseo'), __('Dashboard', 'tmwseo'), 'manage_options', self::MENU_SLUG, [__CLASS__, 'render_overview']);
+        add_submenu_page(self::MENU_SLUG, __('Drafts to Review', 'tmwseo'), __('Drafts to Review', 'tmwseo'), 'manage_options', 'tmwseo-generated', [__CLASS__, 'render_generated_pages']);
+        add_submenu_page(self::MENU_SLUG, __('Models', 'tmwseo'), __('Models', 'tmwseo'), 'manage_options', 'tmwseo-models', [__CLASS__, 'render_models_redirect']);
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'), __('Keywords', 'tmwseo'), 'manage_options', 'tmwseo-keywords', [__CLASS__, 'render_keywords']);
-        add_submenu_page(self::MENU_SLUG, __('Import', 'tmwseo'), __('Import', 'tmwseo'), 'manage_options', 'tmwseo-import', [__CLASS__, 'render_import']);
-        add_submenu_page(self::MENU_SLUG, __('Generated Pages', 'tmwseo'), __('Generated Pages', 'tmwseo'), 'manage_options', 'tmwseo-generated', [__CLASS__, 'render_generated_pages']);
-        add_submenu_page(self::MENU_SLUG, __('Indexing', 'tmwseo'), __('Indexing', 'tmwseo'), 'manage_options', 'tmwseo-indexing', [__CLASS__, 'render_indexing']);
-        add_submenu_page(self::MENU_SLUG, __('PageSpeed', 'tmwseo'), __('PageSpeed', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
-        add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
+        add_submenu_page(self::MENU_SLUG, __('Reports', 'tmwseo'), __('Reports', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'), __('Settings', 'tmwseo'), 'manage_options', 'tmwseo-settings', [__CLASS__, 'render_settings']);
-        add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
-        add_submenu_page(self::MENU_SLUG, __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
+        add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'), __('Tools', 'tmwseo'), 'manage_options', 'tmwseo-tools', [__CLASS__, 'render_tools']);
+
+        // Technical screens grouped under Tools.
+        add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('↳ Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
+        add_submenu_page(self::MENU_SLUG, __('Engine Monitor', 'tmwseo'), __('↳ Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
+        add_submenu_page(self::MENU_SLUG, __('Lighthouse', 'tmwseo'), __('↳ Lighthouse', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
+        add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('↳ Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
+        add_submenu_page(self::MENU_SLUG, __('Import', 'tmwseo'), __('↳ Import', 'tmwseo'), 'manage_options', 'tmwseo-import', [__CLASS__, 'render_import']);
+        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('↳ Debug Dashboard', 'tmwseo'), 'manage_options', 'tmw-seo-debug', ['\TMWSEO\Engine\Debug\DebugDashboard', 'render_page']);
     }
 
     public static function run_worker_now(): void {
@@ -520,6 +699,8 @@ class Admin {
             'brand_voice' => $voice,
             'tmwseo_dry_run_mode' => isset($_POST['tmwseo_dry_run_mode']) ? 1 : 0,
             'auto_clear_noindex' => isset($_POST['auto_clear_noindex']) ? 1 : 0,
+            'template_external_link_enabled' => isset($_POST['template_external_link_enabled']) ? 1 : 0,
+            'include_external_info_link' => isset($_POST['include_external_info_link']) ? 1 : 0,
 
             'dataforseo_login' => sanitize_text_field((string)($_POST['dataforseo_login'] ?? '')),
             'dataforseo_password' => sanitize_text_field((string)($_POST['dataforseo_password'] ?? '')),
@@ -527,6 +708,7 @@ class Admin {
             'dataforseo_location_code' => sanitize_text_field((string)($_POST['dataforseo_location_code'] ?? '2840')),
 
             'safe_mode' => isset($_POST['safe_mode']) ? 1 : 0,
+            'debug_mode' => isset($_POST['debug_mode']) ? 1 : 0,
         ];
         update_option('tmwseo_engine_settings', $opts);
         Logs::info('settings', 'Settings saved', [
@@ -577,6 +759,10 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_enable_indexing');
 
+        if (Settings::is_human_approval_required() && !current_user_can('manage_options')) {
+            wp_die(__('Human approval required.', 'tmwseo'));
+        }
+
         $page_id = (int)($_GET['page_id'] ?? 0);
         if ($page_id <= 0) wp_die(__('Missing page_id', 'tmwseo'));
 
@@ -607,6 +793,101 @@ class Admin {
         exit;
     }
 
+    public static function ajax_generate_now(): void {
+        $post_id = (int)($_POST['post_id'] ?? 0);
+        if ($post_id <= 0) {
+            wp_send_json_error(['message' => __('Invalid post.', 'tmwseo')], 400);
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => __('Permission denied.', 'tmwseo')], 403);
+        }
+
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash((string)$_POST['nonce'])) : '';
+        if ($nonce === '' || !wp_verify_nonce($nonce, 'tmwseo_generate_' . $post_id)) {
+            wp_send_json_error(['message' => __('Invalid or expired nonce.', 'tmwseo')], 403);
+        }
+
+        $strategy = sanitize_key((string)($_POST['strategy'] ?? ''));
+        if (!in_array($strategy, ['template', 'openai'], true)) {
+            $strategy = 'openai';
+        }
+
+        $insert_block = !empty($_POST['insert_block']) ? 1 : 0;
+        $refresh_keywords_only = !empty($_POST['refresh_keywords_only']) ? 1 : 0;
+
+        Logs::info('admin', '[TMW-ADMIN] ajax_generate_now HIT', [
+            'post_id' => $post_id,
+            'strategy' => $strategy,
+            'insert_block' => $insert_block,
+            'refresh_keywords_only' => $refresh_keywords_only,
+        ]);
+
+        $post_type = get_post_type($post_id) ?: 'post';
+        Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
+            'trigger' => 'manual',
+            'strategy' => $strategy,
+            'insert_block' => $insert_block,
+            'refresh_keywords_only' => $refresh_keywords_only,
+        ]);
+
+        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from ajax_generate_now', [
+            'post_id' => $post_id,
+            'post_type' => (string)$post_type,
+            'refresh_keywords_only' => $refresh_keywords_only,
+        ]);
+
+        wp_remote_post(admin_url('admin-ajax.php?action=tmwseo_kick_worker'), [
+            'timeout' => 0.01,
+            'blocking' => false,
+            'cookies' => $_COOKIE,
+            'sslverify' => apply_filters('https_local_ssl_verify', false),
+        ]);
+
+        wp_send_json_success(['queued' => true]);
+    }
+
+    public static function ajax_kick_worker(): void {
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['message' => __('Permission denied.', 'tmwseo')], 403);
+        }
+
+        \TMWSEO\Engine\Worker::run();
+        wp_send_json_success(['ran' => true]);
+    }
+
+
+    public static function handle_refresh_keywords_now(): void {
+        $post_id = (int)($_POST['post_id'] ?? 0);
+        if ($post_id <= 0) {
+            wp_die('Invalid post.');
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die('Permission denied.');
+        }
+
+        check_admin_referer('tmwseo_refresh_keywords_' . $post_id);
+
+        $post_type = get_post_type($post_id) ?: 'post';
+        Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
+            'trigger' => 'manual',
+            'keywords_only' => 1,
+        ]);
+
+        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from refresh_keywords_now', [
+            'post_id' => $post_id,
+            'post_type' => (string)$post_type,
+            'keywords_only' => 1,
+        ]);
+
+        $ref = wp_get_referer();
+        $redirect_url = $ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit');
+        $redirect_url = add_query_arg('tmwseo_notice', 'keywords_refresh_queued', $redirect_url);
+        wp_safe_redirect($redirect_url);
+        exit;
+    }
+
     public static function handle_optimize_post_now(): void {
         if (!current_user_can('edit_posts')) wp_die('Permission denied.');
 
@@ -616,17 +897,23 @@ class Admin {
         $post_id = (int)($req['post_id'] ?? 0);
         if ($post_id <= 0) wp_die('Invalid post.');
 
-        $nonce = (string)($req['_wpnonce'] ?? '');
-        if ($nonce === '' || !wp_verify_nonce(sanitize_text_field(wp_unslash($nonce)), 'tmwseo_optimize_post_' . $post_id)) {
-            wp_die('Invalid or expired nonce.');
-        }
-
         $strategy = sanitize_key((string)($req['strategy'] ?? ''));
         if (!in_array($strategy, ['template', 'openai'], true)) {
             $strategy = 'openai';
         }
 
         $insert_block = !empty($req['insert_block']) ? 1 : 0;
+
+        Logs::info('admin', 'optimize_post_now handler HIT', [
+            'post_id' => $post_id,
+            'strategy' => $strategy,
+            'insert_block' => $insert_block,
+        ]);
+
+        $nonce = (string)($req['_wpnonce'] ?? '');
+        if ($nonce === '' || !wp_verify_nonce(sanitize_text_field(wp_unslash($nonce)), 'tmwseo_optimize_post_' . $post_id)) {
+            wp_die('Invalid or expired nonce.');
+        }
 
         $post_type = get_post_type($post_id) ?: 'post';
         Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
@@ -664,21 +951,57 @@ class Admin {
     }
 
     public static function render_admin_notices(): void {
+        if (class_exists('TMWSEO\Engine\Schema') && method_exists('TMWSEO\Engine\Schema', 'get_missing_required_intelligence_tables')) {
+            $missing_tables = \TMWSEO\Engine\Schema::get_missing_required_intelligence_tables();
+            if (!empty($missing_tables)) {
+                echo '<div class="notice notice-warning"><p>';
+                echo esc_html__('Schema mismatch detected: one or more required intelligence tables are missing.', 'tmwseo');
+                echo '</p></div>';
+            }
+        }
+
         if (!isset($_GET['tmwseo_notice'])) {
             return;
         }
 
         $notice = sanitize_text_field(wp_unslash((string) $_GET['tmwseo_notice']));
-        if ($notice !== 'optimize_queued') {
+        $message = '';
+        if ($notice === 'optimize_queued') {
+            $message = __('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
+        } elseif ($notice === 'keywords_refresh_queued') {
+            $message = __('Keyword refresh queued. The worker/cron will update keyword pack and RankMath fields in the background.', 'tmwseo');
+        }
+
+        if ($message === '') {
             return;
         }
 
         echo '<div class="notice notice-success is-dismissible"><p>';
-        echo esc_html__('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
+        echo esc_html($message);
         echo '</p></div>';
     }
 
     // ---------- UI (alpha.8) ----------
+
+
+    public static function render_models_redirect(): void {
+        wp_safe_redirect(admin_url('edit.php?post_type=model'));
+        exit;
+    }
+
+    public static function render_tools(): void {
+        self::header(__('TMW SEO Engine — Tools', 'tmwseo'));
+        echo '<p>Technical tools and diagnostics are available below.</p>';
+        echo '<ul style="line-height:1.9;">';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-logs')) . '">Logs</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-engine-monitor')) . '">Engine Monitor</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-pagespeed')) . '">Lighthouse</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-migration')) . '">Migration</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-import')) . '">Import</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-debug')) . '">Debug Dashboard</a></li>';
+        echo '</ul>';
+        echo '</div>';
+    }
 
     public static function render_keywords(): void {
         self::header(__('TMW SEO Engine — Keywords', 'tmwseo'));
@@ -694,7 +1017,7 @@ class Admin {
         $cluster_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table}");
         $new_clusters = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table} WHERE status='new'");
 
-        echo '<p>This is the Keyword Intelligence layer (DataForSEO + adult relevancy filter + clustering + auto page creation).</p>';
+        echo '<p>This workflow builds keyword suggestions and clusters for review. It does not auto-create or auto-publish pages.</p>';
 
         echo '<div style="display:flex; gap:12px; flex-wrap:wrap; margin:12px 0;">';
         echo '<div class="card" style="padding:12px; min-width:180px;"><strong>Raw keywords</strong><br>' . esc_html($raw_count) . '</div>';
@@ -707,7 +1030,7 @@ class Admin {
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block; margin-right:8px;">';
         wp_nonce_field('tmwseo_run_keyword_cycle');
         echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
-        submit_button('Run Keyword Cycle Now', 'primary', 'submit', false);
+        submit_button('Refresh Suggestions', 'primary', 'submit', false);
         echo '</form>';
 
         echo '<a class="button" href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_run_worker'), 'tmwseo_run_worker')) . '">Run Worker (healthcheck)</a>';
@@ -747,7 +1070,7 @@ class Admin {
     }
 
     public static function render_generated_pages(): void {
-        self::header(__('TMW SEO Engine — Generated Pages', 'tmwseo'));
+        self::header(__('TMW SEO Engine — Drafts to Review', 'tmwseo'));
 
         global $wpdb;
         $gen_table = $wpdb->prefix . 'tmw_generated_pages';
@@ -766,10 +1089,10 @@ class Admin {
             echo '<div class="notice notice-warning"><p><strong>Search engines are currently discouraged (Settings → Reading).</strong> If you want to rank, you must eventually enable indexing (blog_public = 1).</p></div>';
         }
 
-        echo '<p>Generated pages are created as <strong>draft + RankMath noindex</strong> by default. You can publish them and enable indexing when you are ready.</p>';
+        echo '<p>All suggestions become <strong>draft + Rank Math noindex</strong>. Review each draft before publishing.</p>';
 
         if (empty($rows)) {
-            echo '<p>No generated pages yet. Go to <a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">Keywords</a> and run a cycle.</p>';
+            echo '<p>No drafts yet. Review <a href="' . esc_url(admin_url('admin.php?page=tmwseo-opportunities')) . '">Opportunities</a> to create drafts manually.</p>';
             echo '</div>';
             return;
         }
@@ -1690,9 +2013,12 @@ private static function header(string $title): void {
         $safe_mode = !empty($opts['safe_mode']);
         $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
         $auto_clear_noindex = !empty($opts['auto_clear_noindex']);
+        $template_external_link_enabled = !empty($opts['template_external_link_enabled']);
+        $include_external_info_link = !empty($opts['include_external_info_link']);
 
         // Phase 1: manual-only by default.
         $manual_control_mode = (bool) Settings::get('manual_control_mode', 1);
+        $debug_mode = (bool) Settings::get('debug_mode', 0);
         $serper_api_key = esc_attr((string)($opts['serper_api_key'] ?? ''));
         $intel_max_seeds = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
         $intel_max_keywords = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
@@ -1704,6 +2030,10 @@ private static function header(string $title): void {
         echo '<h2>Manual Control Mode</h2>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[manual_control_mode]" value="1" ' . checked($manual_control_mode, true, false) . '> Manual Control Mode (disable cron + auto optimizations)</label>';
         echo '<p class="description">Recommended for live sites. Phase 1 uses analysis + advice only and never auto-edits posts.</p>';
+
+        echo '<h2>Debug</h2>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[debug_mode]" value="1" ' . checked($debug_mode, true, false) . '> Enable Debug Mode</label>';
+        echo '<p class="description">When disabled, debug file logging and the Debug Dashboard are hidden.</p>';
 
         echo '<h2>Intelligence (Phase 1)</h2>';
         echo '<table class="form-table">';
@@ -1717,6 +2047,7 @@ private static function header(string $title): void {
 
         echo '<h2>Safe Mode</h2>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked($safe_mode, true, false) . '> Keep safe mode enabled (no auto-publish / no indexing submissions)</label>';
+        echo '<p class="description">Safety layer is always enforced: never auto-publish, never auto-modify existing content, never auto-insert links. Every action requires explicit user approval.</p>';
 
         echo '<h2>OpenAI</h2>';
         echo '<table class="form-table">';
@@ -1748,6 +2079,13 @@ private static function header(string $title): void {
 
         echo '<tr><th>Template Mode</th><td>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_dry_run_mode]" value="1" ' . checked($dry_run_mode, true, false) . '> Default to Template mode (skip OpenAI unless explicitly selected in the editor metabox)</label>';
+        echo '<p class="description">Template mode now supports smart internal links and optional contextual external linking.</p>';
+        echo '</td></tr>';
+
+        echo '<tr><th>Template links</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[include_external_info_link]" value="1" ' . checked($include_external_info_link, true, false) . '> Add one contextual informational external link in Template mode</label>';
+        echo '<br><label><input type="checkbox" name="tmwseo_engine_settings[template_external_link_enabled]" value="1" ' . checked($template_external_link_enabled, true, false) . '> (Legacy) Enable template external link fallback</label>';
+        echo '<p class="description">When enabled, generated Template content includes one safe, non-affiliate external resource link.</p>';
         echo '</td></tr>';
 
         echo '<tr><th>Indexing</th><td>';
@@ -1799,6 +2137,56 @@ private static function header(string $title): void {
         self::header(__('TMW SEO Engine — Migration', 'tmwseo'));
         echo '<p>Legacy alpha.4 option logs are auto-migrated into the new logs table on activation.</p>';
         echo '<p>If you want to re-run legacy migration, deactivate and activate the plugin (safe), or we can add a button in a later step.</p>';
+        self::footer();
+    }
+
+    public static function render_affiliates(): void {
+        self::header(__('TMW SEO Engine — Affiliates', 'tmwseo'));
+
+        $opts = get_option('tmwseo_engine_settings', []);
+        $opts = is_array($opts) ? $opts : [];
+        $affiliate = is_array($opts['affiliate'] ?? null) ? $opts['affiliate'] : [];
+        $platform_settings = is_array($affiliate['platforms'] ?? null) ? $affiliate['platforms'] : [];
+        $platforms = self::get_affiliate_platform_defaults();
+
+        echo '<form method="post" action="options.php">';
+        settings_fields('tmwseo_settings_group');
+        echo '<input type="hidden" name="tmwseo_engine_settings[tmwseo_settings_section]" value="affiliate">';
+
+        foreach ($platforms as $platform_key => $platform) {
+            $current = is_array($platform_settings[$platform_key] ?? null) ? $platform_settings[$platform_key] : [];
+            $pattern = (string)($current['affiliate_link_pattern'] ?? $platform['affiliate_link_pattern']);
+            $campaign = (string)($current['campaign'] ?? '');
+            $source = (string)($current['source'] ?? '');
+            $username = 'demo' . $platform_key;
+            $profile_url = rtrim((string)$platform['base_profile_url'], '/') . '/' . rawurlencode($username);
+
+            $preview = str_replace(
+                ['{campaign}', '{source}', '{encoded_profile_url}', '{profile_url}'],
+                [rawurlencode($campaign), rawurlencode($source), rawurlencode($profile_url), $profile_url],
+                $pattern
+            );
+
+            echo '<h2>' . esc_html($platform['label']) . '</h2>';
+            echo '<table class="form-table">';
+
+            echo '<tr><th>Enabled</th><td><label><input type="checkbox" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][enabled]" value="1" ' . checked(!empty($current['enabled']), true, false) . '> Enable affiliate links for ' . esc_html($platform['label']) . '</label></td></tr>';
+
+            echo '<tr><th>Affiliate link pattern</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][affiliate_link_pattern]" value="' . esc_attr($pattern) . '" class="large-text code">';
+            echo '<p class="description">Supported placeholders: <code>{campaign}</code>, <code>{source}</code>, <code>{encoded_profile_url}</code>, <code>{profile_url}</code>.</p></td></tr>';
+
+            echo '<tr><th>Campaign</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][campaign]" value="' . esc_attr($campaign) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Source</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][source]" value="' . esc_attr($source) . '" class="regular-text"></td></tr>';
+
+            echo '<tr><th>Preview example link</th><td><code>' . esc_html($preview) . '</code>';
+            echo '<p class="description">Preview uses dummy username <code>' . esc_html($username) . '</code>.</p></td></tr>';
+
+            echo '</table>';
+        }
+
+        submit_button(__('Save affiliate settings', 'tmwseo'));
+        echo '</form>';
+
         self::footer();
     }
 }

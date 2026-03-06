@@ -5,6 +5,153 @@ if (!defined('ABSPATH')) { exit; }
 
 class Schema {
 
+    /**
+     * Required intelligence tables that must exist regardless of stored DB versions.
+     *
+     * @return array<string,string>
+     */
+    private static function required_intelligence_table_sql(string $charset_collate): array {
+        global $wpdb;
+
+        $content_briefs = $wpdb->prefix . 'tmw_seo_content_briefs';
+        $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
+        $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
+        $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
+
+        return [
+            $content_briefs => "CREATE TABLE $content_briefs (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                primary_keyword VARCHAR(255) NOT NULL,
+                cluster_key VARCHAR(255) NOT NULL,
+                brief_type VARCHAR(80) NOT NULL,
+                brief_json LONGTEXT NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'ready',
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY cluster_status (cluster_key, status),
+                KEY keyword (primary_keyword)
+            ) $charset_collate;",
+
+            $serp_analysis => "CREATE TABLE $serp_analysis (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                keyword VARCHAR(255) NOT NULL,
+                serp_weakness_score DECIMAL(4,2) NOT NULL DEFAULT 1,
+                reason TEXT NULL,
+                signals_json LONGTEXT NULL,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY keyword (keyword),
+                KEY score_created (serp_weakness_score, created_at)
+            ) $charset_collate;",
+
+            $seo_competitors => "CREATE TABLE $seo_competitors (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                domain VARCHAR(191) NOT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY domain (domain),
+                KEY active_domain (is_active, domain)
+            ) $charset_collate;",
+
+            $ranking_probability => "CREATE TABLE $ranking_probability (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                keyword VARCHAR(255) NOT NULL,
+                inputs_json LONGTEXT NOT NULL,
+                ranking_probability DECIMAL(6,2) NOT NULL,
+                ranking_tier VARCHAR(20) NOT NULL,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY keyword (keyword),
+                KEY score_tier (ranking_probability, ranking_tier)
+            ) $charset_collate;",
+        ];
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    public static function get_missing_required_intelligence_tables(): array {
+        global $wpdb;
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $required = array_keys(self::required_intelligence_table_sql($charset_collate));
+        $missing = [];
+
+        foreach ($required as $table_name) {
+            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name));
+            if ($exists !== $table_name) {
+                $missing[] = $table_name;
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Ensure required intelligence tables exist even when schema versions are already current.
+     * Safe to run repeatedly.
+     */
+    public static function reconcile_required_intelligence_tables(): void {
+        $missing_tables = self::get_missing_required_intelligence_tables();
+        if (empty($missing_tables)) {
+            return;
+        }
+
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $required_sql = self::required_intelligence_table_sql($charset_collate);
+
+        foreach ($missing_tables as $table_name) {
+            if (isset($required_sql[$table_name])) {
+                dbDelta($required_sql[$table_name]);
+            }
+        }
+    }
+
+    /**
+     * Ensure the intelligence schema is fully present for upgraded installs.
+     * Safe to run repeatedly.
+     */
+    public static function ensure_intelligence_schema(): void {
+        $target_version = 1;
+
+        if (class_exists('TMW_Intelligence_DB_Migration') && defined('TMW_Intelligence_DB_Migration::SCHEMA_VERSION')) {
+            $target_version = (int) constant('TMW_Intelligence_DB_Migration::SCHEMA_VERSION');
+        }
+
+        $stored_version = (int) get_option('tmw_intelligence_schema_version', 0);
+        $missing_tables = self::get_missing_required_intelligence_tables();
+
+        if ($stored_version >= $target_version && empty($missing_tables)) {
+            return;
+        }
+
+        self::create_or_update_tables();
+        update_option('tmw_intelligence_schema_version', $target_version);
+    }
+
+    /**
+     * Keep legacy and checklist cluster version option names aligned.
+     * Safe to run repeatedly.
+     */
+    public static function normalize_cluster_schema_version_option(): void {
+        $cluster_schema_version = get_option('tmw_cluster_schema_version', false);
+        $cluster_db_version = get_option('tmw_cluster_db_version', false);
+
+        if (false !== $cluster_schema_version && (false === $cluster_db_version || (string) $cluster_db_version !== (string) $cluster_schema_version)) {
+            update_option('tmw_cluster_db_version', $cluster_schema_version);
+            return;
+        }
+
+        if (false !== $cluster_db_version && false === $cluster_schema_version) {
+            update_option('tmw_cluster_schema_version', $cluster_db_version);
+        }
+    }
+
     public static function create_or_update_tables(): void {
         global $wpdb;
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -19,12 +166,21 @@ class Schema {
         $competitors = $wpdb->prefix . 'tmw_competitors';
         $indexing = $wpdb->prefix . 'tmw_indexing';
         $pagespeed = $wpdb->prefix . 'tmw_pagespeed';
+        $aff_clicks = $wpdb->prefix . 'tmw_aff_clicks';
 
         // Keyword intelligence (alpha.8)
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
         $keyword_clusters = $wpdb->prefix . 'tmw_keyword_clusters';
         $generated_pages = $wpdb->prefix . 'tmw_generated_pages';
+        $opportunities = $wpdb->prefix . 'tmw_seo_opportunities';
+        $suggestions = $wpdb->prefix . 'tmw_seo_suggestions';
+        $model_similarity = $wpdb->prefix . 'tmw_model_similarity';
+        $content_briefs = $wpdb->prefix . 'tmw_seo_content_briefs';
+        $cluster_scores = $wpdb->prefix . 'tmw_seo_cluster_scores';
+        $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
+        $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
+        $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -132,6 +288,19 @@ class Schema {
             KEY strategy_checked (strategy, checked_at)
         ) $charset_collate;";
 
+
+        $sql_aff_clicks = "CREATE TABLE $aff_clicks (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            platform VARCHAR(50) NOT NULL,
+            username VARCHAR(191) NOT NULL,
+            target_url TEXT NOT NULL,
+            ip_address VARCHAR(64) NULL,
+            user_agent TEXT NULL,
+            clicked_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY platform_clicked (platform, clicked_at),
+            KEY username_clicked (username, clicked_at)
+        ) $charset_collate;";
         
         $sql_keyword_raw = "CREATE TABLE $keyword_raw (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -201,6 +370,77 @@ class Schema {
         ) $charset_collate;";
 
 
+
+        $sql_opportunities = "CREATE TABLE $opportunities (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NULL,
+            difficulty DECIMAL(6,2) NULL,
+            opportunity_score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            competitor_url VARCHAR(255) NOT NULL DEFAULT '',
+            source VARCHAR(50) NOT NULL DEFAULT 'keyword_cycle',
+            type VARCHAR(30) NOT NULL DEFAULT 'keyword',
+            recommended_action VARCHAR(50) NOT NULL DEFAULT 'Create Draft',
+            status VARCHAR(20) NOT NULL DEFAULT 'new',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword_competitor (keyword, competitor_url),
+            KEY status_score (status, opportunity_score),
+            KEY source_type (source, type)
+        ) $charset_collate;";
+
+        $sql_model_similarity = "CREATE TABLE $model_similarity (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            model_id BIGINT(20) UNSIGNED NOT NULL,
+            similar_model_id BIGINT(20) UNSIGNED NOT NULL,
+            similarity_score TINYINT(3) UNSIGNED NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY model_pair (model_id, similar_model_id),
+            KEY model_score (model_id, similarity_score),
+            KEY similar_model_score (similar_model_id, similarity_score)
+        ) $charset_collate;";
+
+
+        $required_intelligence_sql = self::required_intelligence_table_sql($charset_collate);
+        $sql_content_briefs = $required_intelligence_sql[$content_briefs];
+
+        $sql_cluster_scores = "CREATE TABLE $cluster_scores (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            cluster_key VARCHAR(255) NOT NULL,
+            score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            label VARCHAR(20) NOT NULL,
+            explanation TEXT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY cluster_key (cluster_key),
+            KEY score (score)
+        ) $charset_collate;";
+
+        $sql_serp_analysis = $required_intelligence_sql[$serp_analysis];
+
+        $sql_seo_competitors = $required_intelligence_sql[$seo_competitors];
+
+        $sql_ranking_probability = $required_intelligence_sql[$ranking_probability];
+
+        $sql_suggestions = "CREATE TABLE $suggestions (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            type VARCHAR(50) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            description TEXT NOT NULL,
+            source_engine VARCHAR(100) NOT NULL,
+            priority_score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            estimated_traffic INT(11) NOT NULL DEFAULT 0,
+            difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+            suggested_action TEXT NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'new',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY status_priority (status, priority_score),
+            KEY source_engine (source_engine),
+            KEY type (type)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -216,10 +456,19 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_competitors);
         dbDelta($sql_indexing);
         dbDelta($sql_pagespeed);
+        dbDelta($sql_aff_clicks);
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_keyword_clusters);
         dbDelta($sql_generated_pages);
+        dbDelta($sql_opportunities);
+        dbDelta($sql_model_similarity);
+        dbDelta($sql_content_briefs);
+        dbDelta($sql_cluster_scores);
+        dbDelta($sql_serp_analysis);
+        dbDelta($sql_seo_competitors);
+        dbDelta($sql_ranking_probability);
+        dbDelta($sql_suggestions);
         dbDelta($sql_legacy_rank);
 
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();

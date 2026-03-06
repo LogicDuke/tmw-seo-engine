@@ -12,14 +12,13 @@ class TMW_Cluster_Admin_Page {
     }
 
     public function register_menu() {
-        add_menu_page(
+        add_submenu_page(
+            'tmwseo-engine',
             'SEO Clusters',
             'SEO Clusters',
             'manage_options',
             'tmw-seo-clusters',
-            [$this, 'render_page'],
-            'dashicons-chart-line',
-            58
+            [$this, 'render_page']
         );
     }
 
@@ -216,7 +215,11 @@ class TMW_Cluster_Admin_Page {
             $injector = TMW_Main_Class::get_cluster_link_injector();
             $result = $injector->inject_missing_links($cluster_id);
 
-            if (!empty($result['updated'])) {
+            if (!empty($result['blocked'])) {
+                echo '<div class="notice notice-warning"><p>';
+                echo esc_html('Safety rule active: automatic link insertion is disabled. Open suggested edits in the editor for manual approval.');
+                echo '</p></div>';
+            } elseif (!empty($result['updated'])) {
                 echo '<div class="notice notice-success"><p>';
                 echo esc_html($result['updated'] . ' links injected successfully.');
                 echo '</p></div>';
@@ -281,7 +284,7 @@ class TMW_Cluster_Admin_Page {
         wp_nonce_field('tmw_inject_links_nonce');
         echo '<input type="hidden" name="tmw_inject_links" value="1" />';
         echo '<button type="submit" class="button button-primary">';
-        echo esc_html('Auto Fix Missing Links');
+        echo esc_html('Open Suggested Link Edits (Manual Approval)');
         echo '</button>';
         echo '</form>';
 

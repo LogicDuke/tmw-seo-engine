@@ -45,6 +45,8 @@ class TMW_Cluster_DB_Migration {
             self::run_migration();
             update_option(self::OPTION_KEY, self::SCHEMA_VERSION);
         }
+
+        update_option('tmw_cluster_db_version', (int) get_option(self::OPTION_KEY, self::SCHEMA_VERSION));
     }
 
     private static function run_migration() {

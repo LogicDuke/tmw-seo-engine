@@ -8,11 +8,12 @@ class Settings {
     public static function defaults(): array {
         return [
             // Safety
-            'safe_mode' => 0,
+            'safe_mode' => 1,
 
             // Phase 1 policy
             // Manual Control Mode disables all cron + automatic post optimizations.
             'manual_control_mode' => 1,
+            'debug_mode' => 0,
 
             // Optional: Serper API key (People Also Ask / related searches).
             'serper_api_key' => '',
@@ -54,6 +55,15 @@ class Settings {
 
             // PageSpeed Insights (optional)
             'google_pagespeed_api_key' => '',
+
+            // Affiliate links
+            'affiliate_link_pattern' => '',
+            'affiliate_campaign' => '',
+            'affiliate_source' => '',
+
+            // Template mode linking
+            'template_external_link_enabled' => 0,
+            'include_external_info_link' => 0,
         ];
     }
 
@@ -69,7 +79,17 @@ class Settings {
     }
 
     public static function is_safe_mode(): bool {
-        return (bool) self::get('safe_mode', 0);
+        return (bool) self::get('safe_mode', 1);
+    }
+
+    /**
+     * Human-approval guardrail.
+     *
+     * Safety policy: all actionable operations must require explicit
+     * human approval in every environment.
+     */
+    public static function is_human_approval_required(): bool {
+        return true;
     }
 
     public static function openai_model_for_quality(): string {

@@ -191,6 +191,11 @@ class KeywordLibrary {
                     if (preg_match('/\b' . preg_quote($p, '/') . '\b/i', $kw_l)) $hits++;
                 }
                 $score += min(60, $hits * 20);
+
+                // On model pages, generic terms without the model name are not useful.
+                if ($page_type === 'model') {
+                    $score -= 200;
+                }
             }
         }
 
