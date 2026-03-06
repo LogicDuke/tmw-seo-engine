@@ -112,6 +112,7 @@ class ModelKeywordPack {
 
         // pick top 4, preferring those with name.
         $additional = self::pick_top($additional_pool, 4, $primary);
+        $additional = self::ensure_name_in_additional($additional, $primary, $platform_slugs, $safe_tags);
 
         $longtail_pool = [];
         foreach ($fallback_longtail as $kw) {
@@ -233,7 +234,11 @@ class ModelKeywordPack {
 
         foreach (array_slice($tags, 0, 2) as $t) {
             $t = str_replace('-', ' ', $t);
+            if ($t === '') continue;
+            // Strict model+tag longtails for top tags.
             $out[] = $name . ' ' . $t . ' live cam';
+            $out[] = 'watch ' . $name . ' ' . $t . ' webcam';
+            $out[] = $name . ' ' . $t . ' live chat';
             $out[] = $name . ' ' . $t . ' live cam show';
         }
 
@@ -250,6 +255,58 @@ class ModelKeywordPack {
         $name = trim(strtolower($name));
         if ($name === '') return false;
         return strpos(strtolower($keyword), $name) !== false;
+    }
+
+    /**
+     * @param string[] $additional
+     * @param string[] $platforms
+     * @param string[] $tags
+     * @return string[]
+     */
+    private static function ensure_name_in_additional(array $additional, string $name, array $platforms, array $tags): array {
+        $safe = array_values(array_unique(array_filter(array_map(function($kw){
+            return KeywordLibrary::clean_keyword((string)$kw);
+        }, $additional), 'strlen')));
+
+        $fallbacks = self::fallback_additional($name, $platforms, $tags);
+
+        for ($i = 0; $i < 4; $i++) {
+            $kw = $safe[$i] ?? '';
+            if ($kw !== '' && self::keyword_contains_name($kw, $name)) {
+                continue;
+            }
+
+            $replacement = $fallbacks[$i] ?? ($name . ' live cam');
+            $replacement = KeywordLibrary::clean_keyword($replacement);
+            if ($replacement === '') {
+                $replacement = $name . ' live cam';
+            }
+
+            if ($kw !== '' && $kw === $replacement) {
+                continue;
+            }
+
+            $existing_idx = array_search($replacement, $safe, true);
+            if ($existing_idx !== false) {
+                array_splice($safe, (int)$existing_idx, 1);
+            }
+
+            $safe[$i] = $replacement;
+        }
+
+        $safe = array_values(array_filter($safe, 'strlen'));
+        while (count($safe) < 4) {
+            $next = $fallbacks[count($safe)] ?? ($name . ' live cam');
+            $next = KeywordLibrary::clean_keyword($next);
+            if ($next === '') $next = $name . ' live cam';
+            if (!in_array($next, $safe, true)) {
+                $safe[] = $next;
+            } else {
+                break;
+            }
+        }
+
+        return array_slice($safe, 0, 4);
     }
 
     private static function is_tag_only_query(string $keyword, string $name, array $tags): bool {
