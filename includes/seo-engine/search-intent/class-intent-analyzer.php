@@ -158,6 +158,11 @@ class TMW_Intent_Analyzer {
         }
 
         foreach ($clusters as $cluster) {
+            if (is_string($cluster) || is_numeric($cluster)) {
+                $keywords[] = trim((string) $cluster);
+                continue;
+            }
+
             if (!is_array($cluster)) {
                 continue;
             }
