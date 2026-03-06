@@ -29,6 +29,11 @@ class Schema {
         $opportunities = $wpdb->prefix . 'tmw_seo_opportunities';
         $suggestions = $wpdb->prefix . 'tmw_seo_suggestions';
         $model_similarity = $wpdb->prefix . 'tmw_model_similarity';
+        $content_briefs = $wpdb->prefix . 'tmw_seo_content_briefs';
+        $cluster_scores = $wpdb->prefix . 'tmw_seo_cluster_scores';
+        $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
+        $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
+        $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -249,6 +254,67 @@ class Schema {
             KEY similar_model_score (similar_model_id, similarity_score)
         ) $charset_collate;";
 
+
+        $sql_content_briefs = "CREATE TABLE $content_briefs (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            primary_keyword VARCHAR(255) NOT NULL,
+            cluster_key VARCHAR(255) NOT NULL,
+            brief_type VARCHAR(80) NOT NULL,
+            brief_json LONGTEXT NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'ready',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY cluster_status (cluster_key, status),
+            KEY keyword (primary_keyword)
+        ) $charset_collate;";
+
+        $sql_cluster_scores = "CREATE TABLE $cluster_scores (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            cluster_key VARCHAR(255) NOT NULL,
+            score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            label VARCHAR(20) NOT NULL,
+            explanation TEXT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY cluster_key (cluster_key),
+            KEY score (score)
+        ) $charset_collate;";
+
+        $sql_serp_analysis = "CREATE TABLE $serp_analysis (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            serp_weakness_score DECIMAL(4,2) NOT NULL DEFAULT 1,
+            reason TEXT NULL,
+            signals_json LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword (keyword),
+            KEY score_created (serp_weakness_score, created_at)
+        ) $charset_collate;";
+
+        $sql_seo_competitors = "CREATE TABLE $seo_competitors (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            domain VARCHAR(191) NOT NULL,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY domain (domain),
+            KEY active_domain (is_active, domain)
+        ) $charset_collate;";
+
+        $sql_ranking_probability = "CREATE TABLE $ranking_probability (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            inputs_json LONGTEXT NOT NULL,
+            ranking_probability DECIMAL(6,2) NOT NULL,
+            ranking_tier VARCHAR(20) NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword (keyword),
+            KEY score_tier (ranking_probability, ranking_tier)
+        ) $charset_collate;";
+
         $sql_suggestions = "CREATE TABLE $suggestions (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             type VARCHAR(50) NOT NULL,
@@ -289,6 +355,11 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_generated_pages);
         dbDelta($sql_opportunities);
         dbDelta($sql_model_similarity);
+        dbDelta($sql_content_briefs);
+        dbDelta($sql_cluster_scores);
+        dbDelta($sql_serp_analysis);
+        dbDelta($sql_seo_competitors);
+        dbDelta($sql_ranking_probability);
         dbDelta($sql_suggestions);
         dbDelta($sql_legacy_rank);
 

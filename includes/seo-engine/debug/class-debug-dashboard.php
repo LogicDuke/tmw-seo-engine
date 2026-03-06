@@ -42,6 +42,7 @@ class DebugDashboard {
         DebugPanels::render_engine_status();
         DebugPanels::render_testing_dashboard($test_report);
         DebugPanels::render_suggestion_activity(100);
+        DebugPanels::render_intelligence_activity(100);
 
         if ($post_id > 0) {
             DebugPanels::render_post_inspector($post_id);

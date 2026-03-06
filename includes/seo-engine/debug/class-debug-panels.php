@@ -193,6 +193,37 @@ class DebugPanels {
         echo '</tbody></table>';
     }
 
+    public static function render_intelligence_activity(int $limit = 80): void {
+        $rows = \TMWSEO\Engine\Logs::latest($limit);
+
+        echo '<h2>Intelligence Module Logs</h2>';
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th style="width:170px;">Time</th><th style="width:160px;">Module</th><th>Summary</th><th>Data</th>';
+        echo '</tr></thead><tbody>';
+
+        $shown = 0;
+        foreach ($rows as $row) {
+            $message = (string) ($row['message'] ?? '');
+            if (strpos($message, '[TMW-TOPICAL]') === false && strpos($message, '[TMW-SERP]') === false && strpos($message, '[TMW-RANK]') === false && strpos($message, '[TMW-GAP]') === false && strpos($message, '[TMW-BRIEF]') === false) {
+                continue;
+            }
+
+            echo '<tr>';
+            echo '<td>' . esc_html((string) ($row['time'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['context'] ?? 'intelligence')) . '</td>';
+            echo '<td>' . esc_html($message) . '</td>';
+            echo '<td><code style="white-space:pre-wrap;">' . esc_html((string) ($row['data'] ?? '')) . '</code></td>';
+            echo '</tr>';
+            $shown++;
+        }
+
+        if ($shown === 0) {
+            echo '<tr><td colspan="4">No intelligence module logs yet.</td></tr>';
+        }
+
+        echo '</tbody></table>';
+    }
+
     public static function render_post_inspector(int $post_id): void {
         $sections = [
             'keyword pack' => get_post_meta($post_id, 'tmw_keyword_pack', true),

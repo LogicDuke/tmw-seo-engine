@@ -23,6 +23,11 @@ class SuggestionEngine {
         'cluster_expansion',
         'traffic_keyword',
         'technical_seo',
+        'competitor_gap',
+        'ranking_probability',
+        'serp_weakness',
+        'authority_cluster',
+        'content_brief',
     ];
 
     /** @var string[] */
@@ -44,6 +49,11 @@ class SuggestionEngine {
         'seo_opportunity_suggestion_engine',
         'traffic_mining_engine',
         'content_improvement_analyzer',
+        'competitor_gap_ai',
+        'ranking_probability_prediction',
+        'serp_weakness_detection',
+        'content_brief_generator',
+        'topical_authority_scoring',
     ];
 
     public static function table_name(): string {
