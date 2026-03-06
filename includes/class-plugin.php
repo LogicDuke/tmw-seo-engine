@@ -52,6 +52,10 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-si
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-similarity-calculator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-cluster-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-similarity-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-template.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-analyzer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-section-builder.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-map.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-page-generator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-engine.php';
@@ -203,6 +207,7 @@ class Plugin {
         // Internal linking on model pages.
         \TMW_Internal_Link_Engine::init();
         \TMW_Model_Similarity_Engine::init();
+        \TMW_Intent_Engine::init();
 
         // Topic authority clusters on model pages.
         \TMW_Topic_Engine::init();
