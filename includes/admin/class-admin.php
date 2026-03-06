@@ -20,6 +20,7 @@ class Admin {
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
+        add_action('admin_post_tmwseo_refresh_keywords_now', [__CLASS__, 'handle_refresh_keywords_now']);
         add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
@@ -721,6 +722,38 @@ class Admin {
         wp_send_json_success(['ran' => true]);
     }
 
+
+    public static function handle_refresh_keywords_now(): void {
+        $post_id = (int)($_POST['post_id'] ?? 0);
+        if ($post_id <= 0) {
+            wp_die('Invalid post.');
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die('Permission denied.');
+        }
+
+        check_admin_referer('tmwseo_refresh_keywords_' . $post_id);
+
+        $post_type = get_post_type($post_id) ?: 'post';
+        Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
+            'trigger' => 'manual',
+            'keywords_only' => 1,
+        ]);
+
+        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from refresh_keywords_now', [
+            'post_id' => $post_id,
+            'post_type' => (string)$post_type,
+            'keywords_only' => 1,
+        ]);
+
+        $ref = wp_get_referer();
+        $redirect_url = $ref ? $ref : admin_url('post.php?post=' . $post_id . '&action=edit');
+        $redirect_url = add_query_arg('tmwseo_notice', 'keywords_refresh_queued', $redirect_url);
+        wp_safe_redirect($redirect_url);
+        exit;
+    }
+
     public static function handle_optimize_post_now(): void {
         if (!current_user_can('edit_posts')) wp_die('Permission denied.');
 
@@ -789,12 +822,19 @@ class Admin {
         }
 
         $notice = sanitize_text_field(wp_unslash((string) $_GET['tmwseo_notice']));
-        if ($notice !== 'optimize_queued') {
+        $message = '';
+        if ($notice === 'optimize_queued') {
+            $message = __('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
+        } elseif ($notice === 'keywords_refresh_queued') {
+            $message = __('Keyword refresh queued. The worker/cron will update keyword pack and RankMath fields in the background.', 'tmwseo');
+        }
+
+        if ($message === '') {
             return;
         }
 
         echo '<div class="notice notice-success is-dismissible"><p>';
-        echo esc_html__('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
+        echo esc_html($message);
         echo '</p></div>';
     }
 
