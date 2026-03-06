@@ -13,6 +13,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
@@ -272,6 +273,7 @@ class Plugin {
             \TMWSEO\Engine\Opportunities\OpportunityUI::init();
             \TMWSEO\Engine\Suggestions\SuggestionsAdminPage::init();
             \TMWSEO\Engine\Debug\DebugDashboard::init();
+            \TMWSEO\Engine\Admin\Staging_Validation_Helper::init();
         }
     }
 
