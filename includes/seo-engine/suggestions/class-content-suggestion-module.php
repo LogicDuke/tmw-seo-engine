@@ -103,10 +103,16 @@ class ContentSuggestionModule {
             }
         }
 
+        $cluster_expansion_suggestions = $this->buildClusterExpansionSuggestions($keyword_clusters);
+        if (!empty($cluster_expansion_suggestions)) {
+            $suggestions = array_merge($suggestions, $cluster_expansion_suggestions);
+        }
+
         Logs::info('suggestions', '[TMW-SUGGEST] Content suggestions generated from SEO pipeline', [
             'opportunity_input' => count($seo_opportunities),
             'keyword_input' => count($keyword_intelligence),
             'cluster_input' => count($keyword_clusters),
+            'cluster_expansion_generated' => count($cluster_expansion_suggestions),
             'generated' => count($suggestions),
         ]);
 
@@ -341,5 +347,110 @@ class ContentSuggestionModule {
             '',
             'Never create the article automatically.',
         ]);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $keyword_clusters
+     * @return array<int,array<string,mixed>>
+     */
+    private function buildClusterExpansionSuggestions(array $keyword_clusters): array {
+        $suggestions = [];
+
+        foreach ($keyword_clusters as $cluster_row) {
+            if (!is_array($cluster_row)) {
+                continue;
+            }
+
+            $cluster_name = trim((string) ($cluster_row['cluster_name'] ?? $cluster_row['cluster'] ?? $cluster_row['primary'] ?? ''));
+            if ($cluster_name === '') {
+                continue;
+            }
+
+            $current_articles = $this->extractStringList($cluster_row, [
+                'current_articles',
+                'existing_articles',
+                'articles',
+                'published_articles',
+            ]);
+
+            $missing_articles = $this->extractStringList($cluster_row, [
+                'missing_articles',
+                'missing_supporting_articles',
+                'missing_topics',
+                'supporting_topic_gaps',
+            ]);
+
+            if (empty($current_articles) || empty($missing_articles)) {
+                continue;
+            }
+
+            $missing_lines = array_map(
+                static fn(string $topic): string => sprintf('- %s', $topic),
+                $missing_articles
+            );
+
+            $suggestions[] = [
+                'type' => 'cluster_expansion',
+                'title' => 'Expand topic authority cluster',
+                'description' => implode("\n", array_merge([
+                    sprintf('Cluster: %s', $cluster_name),
+                    '',
+                    'Missing articles:',
+                    '',
+                ], $missing_lines)),
+                'source_engine' => 'topic_authority_system',
+                'priority_score' => min(100.0, 50.0 + (count($missing_articles) * 8.0)),
+                'estimated_traffic' => 0,
+                'difficulty' => 0,
+                'suggested_action' => 'Generate content briefs for these topics.',
+                'status' => 'new',
+            ];
+        }
+
+        return $suggestions;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<int,string> $keys
+     * @return array<int,string>
+     */
+    private function extractStringList(array $row, array $keys): array {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+
+            $value = $row[$key];
+            $items = [];
+
+            if (is_array($value)) {
+                foreach ($value as $candidate) {
+                    if (is_array($candidate)) {
+                        $candidate = $candidate['topic'] ?? $candidate['title'] ?? $candidate['keyword'] ?? '';
+                    }
+
+                    $clean = trim((string) $candidate);
+                    if ($clean !== '') {
+                        $items[] = $clean;
+                    }
+                }
+            } elseif (is_string($value)) {
+                $parts = preg_split('/[\r\n,]+/', $value) ?: [];
+                foreach ($parts as $part) {
+                    $clean = trim((string) $part);
+                    if ($clean !== '') {
+                        $items[] = $clean;
+                    }
+                }
+            }
+
+            $items = array_values(array_unique($items));
+            if (!empty($items)) {
+                return $items;
+            }
+        }
+
+        return [];
     }
 }
