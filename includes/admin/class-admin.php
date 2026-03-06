@@ -413,6 +413,13 @@ class Admin {
     public static function sanitize_settings($input): array {
         $input = is_array($input) ? $input : [];
 
+        if (($input['tmwseo_settings_section'] ?? '') === 'affiliate') {
+            $current = get_option('tmwseo_engine_settings', []);
+            $current = is_array($current) ? $current : [];
+            $current['affiliate'] = self::sanitize_affiliate_settings($input['affiliate'] ?? []);
+            return $current;
+        }
+
         $mode = sanitize_text_field((string)($input['openai_mode'] ?? 'hybrid'));
         if (!in_array($mode, ['quality', 'bulk', 'hybrid'], true)) {
             $mode = 'hybrid';
@@ -451,6 +458,45 @@ class Admin {
             'serper_api_key' => sanitize_text_field((string)($input['serper_api_key'] ?? '')),
             'intel_max_seeds' => max(1, (int)($input['intel_max_seeds'] ?? 3)),
             'intel_max_keywords' => max(50, (int)($input['intel_max_keywords'] ?? 400)),
+            'affiliate' => self::sanitize_affiliate_settings($input['affiliate'] ?? []),
+        ];
+    }
+
+    private static function sanitize_affiliate_settings($input): array {
+        $input = is_array($input) ? $input : [];
+        $platforms_input = is_array($input['platforms'] ?? null) ? $input['platforms'] : [];
+
+        $platform_defaults = self::get_affiliate_platform_defaults();
+        $platforms = [];
+
+        foreach ($platform_defaults as $platform_key => $defaults) {
+            $platform_input = is_array($platforms_input[$platform_key] ?? null) ? $platforms_input[$platform_key] : [];
+
+            $platforms[$platform_key] = [
+                'enabled' => !empty($platform_input['enabled']) ? 1 : 0,
+                'affiliate_link_pattern' => sanitize_text_field((string)($platform_input['affiliate_link_pattern'] ?? $defaults['affiliate_link_pattern'])),
+                'campaign' => sanitize_text_field((string)($platform_input['campaign'] ?? '')),
+                'source' => sanitize_text_field((string)($platform_input['source'] ?? '')),
+            ];
+        }
+
+        return [
+            'platforms' => $platforms,
+        ];
+    }
+
+    private static function get_affiliate_platform_defaults(): array {
+        return [
+            'livejasmin' => [
+                'label' => 'LiveJasmin',
+                'base_profile_url' => 'https://www.livejasmin.com/en/profile/',
+                'affiliate_link_pattern' => 'https://YOURAFFBASE/?campaign={campaign}&url={encoded_profile_url}',
+            ],
+            'stripchat' => [
+                'label' => 'Stripchat',
+                'base_profile_url' => 'https://stripchat.com/',
+                'affiliate_link_pattern' => 'https://YOURAFFBASE/?campaign={campaign}&url={encoded_profile_url}',
+            ],
         ];
     }
 
@@ -474,6 +520,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('PageSpeed', 'tmwseo'), __('PageSpeed', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
         add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'), __('Settings', 'tmwseo'), 'manage_options', 'tmwseo-settings', [__CLASS__, 'render_settings']);
+        add_submenu_page(self::MENU_SLUG, __('Affiliates', 'tmwseo'), __('Affiliates', 'tmwseo'), 'manage_options', 'tmwseo-affiliates', [__CLASS__, 'render_affiliates']);
         add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
         add_submenu_page(self::MENU_SLUG, __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
     }
@@ -1863,6 +1910,56 @@ private static function header(string $title): void {
         self::header(__('TMW SEO Engine — Migration', 'tmwseo'));
         echo '<p>Legacy alpha.4 option logs are auto-migrated into the new logs table on activation.</p>';
         echo '<p>If you want to re-run legacy migration, deactivate and activate the plugin (safe), or we can add a button in a later step.</p>';
+        self::footer();
+    }
+
+    public static function render_affiliates(): void {
+        self::header(__('TMW SEO Engine — Affiliates', 'tmwseo'));
+
+        $opts = get_option('tmwseo_engine_settings', []);
+        $opts = is_array($opts) ? $opts : [];
+        $affiliate = is_array($opts['affiliate'] ?? null) ? $opts['affiliate'] : [];
+        $platform_settings = is_array($affiliate['platforms'] ?? null) ? $affiliate['platforms'] : [];
+        $platforms = self::get_affiliate_platform_defaults();
+
+        echo '<form method="post" action="options.php">';
+        settings_fields('tmwseo_settings_group');
+        echo '<input type="hidden" name="tmwseo_engine_settings[tmwseo_settings_section]" value="affiliate">';
+
+        foreach ($platforms as $platform_key => $platform) {
+            $current = is_array($platform_settings[$platform_key] ?? null) ? $platform_settings[$platform_key] : [];
+            $pattern = (string)($current['affiliate_link_pattern'] ?? $platform['affiliate_link_pattern']);
+            $campaign = (string)($current['campaign'] ?? '');
+            $source = (string)($current['source'] ?? '');
+            $username = 'demo' . $platform_key;
+            $profile_url = rtrim((string)$platform['base_profile_url'], '/') . '/' . rawurlencode($username);
+
+            $preview = str_replace(
+                ['{campaign}', '{source}', '{encoded_profile_url}', '{profile_url}'],
+                [rawurlencode($campaign), rawurlencode($source), rawurlencode($profile_url), $profile_url],
+                $pattern
+            );
+
+            echo '<h2>' . esc_html($platform['label']) . '</h2>';
+            echo '<table class="form-table">';
+
+            echo '<tr><th>Enabled</th><td><label><input type="checkbox" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][enabled]" value="1" ' . checked(!empty($current['enabled']), true, false) . '> Enable affiliate links for ' . esc_html($platform['label']) . '</label></td></tr>';
+
+            echo '<tr><th>Affiliate link pattern</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][affiliate_link_pattern]" value="' . esc_attr($pattern) . '" class="large-text code">';
+            echo '<p class="description">Supported placeholders: <code>{campaign}</code>, <code>{source}</code>, <code>{encoded_profile_url}</code>, <code>{profile_url}</code>.</p></td></tr>';
+
+            echo '<tr><th>Campaign</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][campaign]" value="' . esc_attr($campaign) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Source</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][source]" value="' . esc_attr($source) . '" class="regular-text"></td></tr>';
+
+            echo '<tr><th>Preview example link</th><td><code>' . esc_html($preview) . '</code>';
+            echo '<p class="description">Preview uses dummy username <code>' . esc_html($username) . '</code>.</p></td></tr>';
+
+            echo '</table>';
+        }
+
+        submit_button(__('Save affiliate settings', 'tmwseo'));
+        echo '</form>';
+
         self::footer();
     }
 }
