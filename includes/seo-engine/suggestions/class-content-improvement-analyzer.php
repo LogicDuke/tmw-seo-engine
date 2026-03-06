@@ -13,6 +13,7 @@ if (!defined('ABSPATH')) { exit; }
  * - Only records suggestions for manual review.
  */
 class ContentImprovementAnalyzer {
+    private const DEFAULT_EXPECTED_CTR = 0.3;
     private SuggestionEngine $suggestion_engine;
 
     public function __construct(?SuggestionEngine $suggestion_engine = null) {
@@ -194,7 +195,14 @@ class ContentImprovementAnalyzer {
             );
         }
 
-        $priority = $this->calculate_priority_score($missing_volume, $ranking_position, $cluster_importance);
+        $opportunity_score = $this->resolve_opportunity_score($ranking_position);
+        $keyword_difficulty = $this->resolve_keyword_difficulty($ranking_position);
+        $priority = $this->calculate_priority_score(
+            $missing_volume,
+            $opportunity_score,
+            $cluster_importance,
+            $keyword_difficulty
+        );
 
         return [
             'type' => 'content_improvement',
@@ -202,30 +210,58 @@ class ContentImprovementAnalyzer {
             'description' => implode("\n", $description_lines),
             'source_engine' => 'content_improvement_analyzer',
             'priority_score' => $priority,
-            'estimated_traffic' => (int) round($missing_volume * 0.25),
-            'difficulty' => max(0.0, min(100.0, ($ranking_position > 0 ? min(100.0, $ranking_position * 2.5) : 40.0))),
+            'estimated_traffic' => (int) round($missing_volume * self::DEFAULT_EXPECTED_CTR),
+            'difficulty' => $keyword_difficulty,
             'suggested_action' => 'Generate additional sections.',
             'status' => 'new',
         ];
     }
 
-    private function calculate_priority_score(int $missing_keyword_volume, float $ranking_position, float $cluster_importance): float {
-        $volume_score = min(45.0, ($missing_keyword_volume / 12000) * 45.0);
+    private function calculate_priority_score(
+        int $search_volume,
+        float $opportunity_score,
+        float $cluster_importance,
+        float $keyword_difficulty
+    ): float {
+        $normalized_search_volume = max(0.0, min(10.0, $search_volume / 1000.0));
+        $normalized_opportunity = max(0.0, min(10.0, $opportunity_score));
+        $normalized_cluster_importance = max(0.0, min(10.0, $cluster_importance / 10.0));
+        $normalized_keyword_difficulty = max(0.0, min(10.0, $keyword_difficulty / 10.0));
 
-        $ranking_score = 20.0;
-        if ($ranking_position > 0 && $ranking_position <= 3) {
-            $ranking_score = 8.0;
-        } elseif ($ranking_position <= 10) {
-            $ranking_score = 30.0;
-        } elseif ($ranking_position <= 20) {
-            $ranking_score = 24.0;
-        } elseif ($ranking_position <= 40) {
-            $ranking_score = 16.0;
+        $priority_score = ($normalized_search_volume * 0.4)
+            + ($normalized_opportunity * 0.3)
+            + ($normalized_cluster_importance * 0.2)
+            - ($normalized_keyword_difficulty * 0.1);
+
+        return max(1.0, min(10.0, round($priority_score, 1)));
+    }
+
+    private function resolve_opportunity_score(float $ranking_position): float {
+        if ($ranking_position <= 0) {
+            return 5.0;
+        }
+        if ($ranking_position <= 3) {
+            return 2.0;
+        }
+        if ($ranking_position <= 10) {
+            return 9.0;
+        }
+        if ($ranking_position <= 20) {
+            return 7.0;
+        }
+        if ($ranking_position <= 40) {
+            return 5.0;
         }
 
-        $importance_score = min(25.0, ($cluster_importance / 100.0) * 25.0);
+        return 3.0;
+    }
 
-        return max(0.0, min(100.0, $volume_score + $ranking_score + $importance_score));
+    private function resolve_keyword_difficulty(float $ranking_position): float {
+        if ($ranking_position <= 0) {
+            return 40.0;
+        }
+
+        return max(0.0, min(100.0, $ranking_position * 2.5));
     }
 
     /**

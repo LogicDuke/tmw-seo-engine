@@ -108,7 +108,8 @@ class SuggestionsAdminPage {
             }
             if ($type === 'cluster_expansion') {
                 $counts['cluster_expansion']++;
-                $cluster_scores[] = min(100.0, max(0.0, $priority));
+                $normalized_priority = ($priority <= 10.0) ? ($priority * 10.0) : $priority;
+                $cluster_scores[] = min(100.0, max(0.0, $normalized_priority));
             }
             if ($traffic > 0) {
                 $counts['traffic_potential'] += $traffic;
