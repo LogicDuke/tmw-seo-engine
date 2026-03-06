@@ -22,6 +22,12 @@ class TMW_Intelligence_DB_Migration {
         if ($stored_version < self::SCHEMA_VERSION) {
             self::run_migration();
             update_option(self::OPTION_KEY, self::SCHEMA_VERSION);
+            return;
+        }
+
+        // Reconcile required intelligence tables even when stored schema version is current.
+        if (class_exists('TMWSEO\Engine\Schema') && method_exists('TMWSEO\Engine\Schema', 'reconcile_required_intelligence_tables')) {
+            \TMWSEO\Engine\Schema::reconcile_required_intelligence_tables();
         }
     }
 

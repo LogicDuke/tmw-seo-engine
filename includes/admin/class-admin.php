@@ -951,6 +951,15 @@ class Admin {
     }
 
     public static function render_admin_notices(): void {
+        if (class_exists('TMWSEO\Engine\Schema') && method_exists('TMWSEO\Engine\Schema', 'get_missing_required_intelligence_tables')) {
+            $missing_tables = \TMWSEO\Engine\Schema::get_missing_required_intelligence_tables();
+            if (!empty($missing_tables)) {
+                echo '<div class="notice notice-warning"><p>';
+                echo esc_html__('Schema mismatch detected: one or more required intelligence tables are missing.', 'tmwseo');
+                echo '</p></div>';
+            }
+        }
+
         if (!isset($_GET['tmwseo_notice'])) {
             return;
         }
