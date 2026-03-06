@@ -98,7 +98,12 @@ class Admin {
     }
 
     public static function enqueue_admin_assets(string $hook): void {
-        if ($hook !== 'toplevel_page_' . self::MENU_SLUG) {
+        $allowed_hooks = [
+            'toplevel_page_' . self::MENU_SLUG,
+            self::MENU_SLUG . '_page_tmwseo-suggestions',
+        ];
+
+        if (!in_array($hook, $allowed_hooks, true)) {
             return;
         }
 
@@ -151,6 +156,40 @@ class Admin {
             .tmwseo-card h3 {
                 font-size: 28px;
                 margin: 0;
+            }
+
+            .tmwseo-suggestions-page .subsubsub {
+                float:none;
+                margin:12px 0 14px;
+            }
+
+            .tmwseo-suggestions-table td,
+            .tmwseo-suggestions-table th {
+                vertical-align:top;
+            }
+
+            .tmwseo-priority {
+                display:inline-block;
+                padding:4px 10px;
+                border-radius:999px;
+                font-weight:600;
+                font-size:12px;
+                line-height:1.4;
+            }
+
+            .tmwseo-priority-high {
+                background:#fef2f2;
+                color:#b91c1c;
+            }
+
+            .tmwseo-priority-medium {
+                background:#fff7ed;
+                color:#c2410c;
+            }
+
+            .tmwseo-priority-low {
+                background:#eff6ff;
+                color:#1d4ed8;
             }
 
             .tmwseo-card span {
