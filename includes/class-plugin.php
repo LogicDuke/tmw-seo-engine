@@ -30,6 +30,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.ph
 require_once TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-quality-score-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
