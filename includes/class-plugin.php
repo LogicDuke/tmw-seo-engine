@@ -41,6 +41,9 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/clas
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-normalizer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php';
 
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
