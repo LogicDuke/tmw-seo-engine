@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Suggestions;
 
 use TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Plugin;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -17,6 +18,8 @@ class SuggestionsAdminPage {
         $ui = new self();
         add_action('admin_menu', [$ui, 'register_menu'], 99);
         add_action('admin_post_tmwseo_suggestion_action', [$ui, 'handle_row_action']);
+        add_action('admin_post_tmwseo_scan_internal_link_opportunities', [$ui, 'handle_scan_internal_link_opportunities']);
+        add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
     }
 
     public function register_menu(): void {
@@ -28,6 +31,93 @@ class SuggestionsAdminPage {
             'tmwseo-suggestions',
             [$this, 'render_page']
         );
+    }
+
+
+
+    public function render_insert_link_draft_helper(): void {
+        if (!is_admin() || !current_user_can('edit_posts')) {
+            return;
+        }
+
+        $is_insert_link_draft = isset($_GET['tmwseo_insert_link_draft']) ? (int) $_GET['tmwseo_insert_link_draft'] : 0;
+        if ($is_insert_link_draft !== 1) {
+            return;
+        }
+
+        $anchor = isset($_GET['tmwseo_anchor']) ? sanitize_text_field((string) $_GET['tmwseo_anchor']) : '';
+        $target_post_id = isset($_GET['tmwseo_target_post']) ? (int) $_GET['tmwseo_target_post'] : 0;
+        $target_url = $target_post_id > 0 ? get_permalink($target_post_id) : '';
+
+        if ($anchor === '' || !is_string($target_url) || $target_url === '') {
+            return;
+        }
+
+        $target_title = $target_post_id > 0 ? get_the_title($target_post_id) : '';
+        ?>
+        <script>
+        (function(){
+            var anchor = <?php echo wp_json_encode($anchor); ?>;
+            var targetUrl = <?php echo wp_json_encode($target_url); ?>;
+            var targetTitle = <?php echo wp_json_encode($target_title); ?>;
+
+            function showNotice(message){
+                var wrap = document.querySelector('#wpbody-content .wrap') || document.querySelector('#wpbody-content');
+                if(!wrap){ return; }
+                var n = document.createElement('div');
+                n.className = 'notice notice-info';
+                n.innerHTML = '<p><strong>TMW SEO Insert Link Draft:</strong> ' + message + '</p><p>Manual-only safety rule active. This tool never inserts links automatically.</p>';
+                wrap.prepend(n);
+            }
+
+            function highlightClassicEditor(){
+                var textarea = document.getElementById('content');
+                if(!textarea || !anchor){ return false; }
+                var value = textarea.value || '';
+                var index = value.toLowerCase().indexOf(anchor.toLowerCase());
+                if(index === -1){ return false; }
+                textarea.focus();
+                if (typeof textarea.setSelectionRange === 'function') {
+                    textarea.setSelectionRange(index, index + anchor.length);
+                }
+                return true;
+            }
+
+            var highlighted = highlightClassicEditor();
+            var msg = 'Suggested anchor "' + anchor + '" -> ' + (targetTitle || targetUrl) + '. ';
+            msg += highlighted
+                ? 'Anchor text was highlighted in the editor. Add link manually after review.'
+                : 'Anchor text not auto-highlighted (block editor or phrase not found). Search manually and insert after review.';
+            showNotice(msg);
+        })();
+        </script>
+        <?php
+    }
+
+    public function handle_scan_internal_link_opportunities(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_scan_internal_link_opportunities');
+
+        $cluster_service = Plugin::get_cluster_service();
+        if (!$cluster_service) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-suggestions&notice=scan_unavailable'));
+            exit;
+        }
+
+        $scanner = new \TMW_Internal_Link_Opportunity_Scanner($cluster_service, $this->engine);
+        $result = $scanner->scan_existing_posts();
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'notice' => 'scan_complete',
+            'created' => (int) ($result['created'] ?? 0),
+            'scanned' => (int) ($result['scanned_sources'] ?? 0),
+            'targets' => (int) ($result['target_pages'] ?? 0),
+        ], admin_url('admin.php')));
+        exit;
     }
 
     public function handle_row_action(): void {
@@ -53,6 +143,15 @@ class SuggestionsAdminPage {
             }
         }
 
+        if ($row_action === 'insert_link_draft') {
+            $redirect_url = $this->build_internal_link_draft_redirect($id);
+            if ($redirect_url !== '') {
+                $this->engine->updateSuggestionStatus($id, 'approved');
+                wp_safe_redirect($redirect_url);
+                exit;
+            }
+        }
+
         if ($row_action === 'approve' || $row_action === 'create_draft') {
             $draft_id = $this->create_draft_from_suggestion($id);
             if ($draft_id > 0) {
@@ -64,6 +163,42 @@ class SuggestionsAdminPage {
 
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-suggestions&notice=' . rawurlencode($notice) . '&id=' . $id));
         exit;
+    }
+
+
+    private function build_internal_link_draft_redirect(int $suggestion_id): string {
+        global $wpdb;
+
+        $row = $wpdb->get_row($wpdb->prepare(
+            'SELECT suggested_action, type FROM ' . SuggestionEngine::table_name() . ' WHERE id = %d LIMIT 1',
+            $suggestion_id
+        ), ARRAY_A);
+
+        if (!is_array($row) || (string) ($row['type'] ?? '') !== 'internal_link') {
+            return '';
+        }
+
+        $action = (string) ($row['suggested_action'] ?? '');
+
+        preg_match('/SOURCE_POST_ID:\s*(\d+)/', $action, $source_matches);
+        preg_match('/TARGET_POST_ID:\s*(\d+)/', $action, $target_matches);
+        preg_match('/ANCHOR_TEXT:\s*(.+)$/mi', $action, $anchor_matches);
+
+        $source_id = isset($source_matches[1]) ? (int) $source_matches[1] : 0;
+        $target_id = isset($target_matches[1]) ? (int) $target_matches[1] : 0;
+        $anchor = isset($anchor_matches[1]) ? sanitize_text_field(trim((string) $anchor_matches[1])) : '';
+
+        if ($source_id <= 0 || $target_id <= 0 || $anchor === '') {
+            return '';
+        }
+
+        return add_query_arg([
+            'post' => $source_id,
+            'action' => 'edit',
+            'tmwseo_insert_link_draft' => 1,
+            'tmwseo_target_post' => $target_id,
+            'tmwseo_anchor' => $anchor,
+        ], admin_url('post.php'));
     }
 
     private function create_draft_from_suggestion(int $suggestion_id): int {
@@ -174,14 +309,25 @@ class SuggestionsAdminPage {
 
         echo '<div class="wrap tmwseo-suggestions-page">';
         echo '<h1>' . esc_html__('Suggestions Dashboard', 'tmwseo') . '</h1>';
-        echo '<p>' . esc_html__('Review SEO suggestions and decide what to do next. Actions only create drafts and never publish automatically.', 'tmwseo') . '</p>';
+        echo '<p>' . esc_html__('Review SEO suggestions and decide what to do next. Actions only create drafts/suggestions and never publish or insert links automatically.', 'tmwseo') . '</p>';
 
-        if (in_array($notice, ['approve', 'create_draft', 'ignored'], true)) {
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 18px;">';
+        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
+        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+
+        if (in_array($notice, ['approve', 'create_draft', 'ignored', 'scan_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'approve') {
                 echo esc_html__('Suggestion approved and saved as a draft post.', 'tmwseo');
             } elseif ($notice === 'create_draft') {
                 echo esc_html__('Draft post created from suggestion.', 'tmwseo');
+            } elseif ($notice === 'scan_complete') {
+                $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
+                $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
+                $targets = isset($_GET['targets']) ? (int) $_GET['targets'] : 0;
+                echo esc_html(sprintf(__('Internal link scan complete: %d suggestions created, %d source pages scanned, %d target pages analyzed.', 'tmwseo'), $created, $scanned, $targets));
             } else {
                 echo esc_html__('Suggestion ignored.', 'tmwseo');
             }
@@ -246,7 +392,11 @@ class SuggestionsAdminPage {
             echo '<td>' . esc_html(mysql2date(get_option('date_format') . ' ' . get_option('time_format'), (string) ($row['created_at'] ?? ''), true)) . '</td>';
             echo '<td>';
 
-            $this->render_action_button($id, 'create_draft', __('Create Draft', 'tmwseo'), 'secondary');
+            if ((string) ($row['type'] ?? '') === 'internal_link') {
+                $this->render_action_button($id, 'insert_link_draft', __('Insert Link Draft', 'tmwseo'), 'secondary');
+            } else {
+                $this->render_action_button($id, 'create_draft', __('Create Draft', 'tmwseo'), 'secondary');
+            }
             $this->render_action_button($id, 'approve', __('Approve', 'tmwseo'), 'primary');
             $this->render_action_button($id, 'ignore', __('Ignore', 'tmwseo'), 'delete');
 

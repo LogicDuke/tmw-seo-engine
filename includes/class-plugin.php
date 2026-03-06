@@ -49,6 +49,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-graph.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-related-models.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-opportunity-scanner.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-similarity-database.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-similarity-calculator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-cluster-builder.php';
