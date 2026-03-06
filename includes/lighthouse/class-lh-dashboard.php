@@ -10,7 +10,7 @@ class Dashboard {
 
     public static function register_menu(): void {
         add_submenu_page(
-            Admin::MENU_SLUG,
+            null,
             __('Lighthouse', 'tmwseo'),
             __('Lighthouse', 'tmwseo'),
             'manage_options',

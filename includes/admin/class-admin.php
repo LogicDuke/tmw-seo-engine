@@ -25,7 +25,7 @@ class Admin {
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
-        add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
+        add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
     public static function handle_bulk_autofix(): void {
@@ -579,7 +579,7 @@ class Admin {
             'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? 300)),
             'keyword_pages_per_day' => max(0, (int)($input['keyword_pages_per_day'] ?? 3)),
             'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? '')),
-            'manual_control_mode' => !empty($input['manual_control_mode']) ? 1 : 0,
+            'manual_control_mode' => 1,
             'debug_mode' => !empty($input['debug_mode']) ? 1 : 0,
             'serper_api_key' => sanitize_text_field((string)($input['serper_api_key'] ?? '')),
             'intel_max_seeds' => max(1, (int)($input['intel_max_seeds'] ?? 3)),
@@ -646,13 +646,11 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'), __('Settings', 'tmwseo'), 'manage_options', 'tmwseo-settings', [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'), __('Tools', 'tmwseo'), 'manage_options', 'tmwseo-tools', [__CLASS__, 'render_tools']);
 
-        // Technical screens grouped under Tools.
-        add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('↳ Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
-        add_submenu_page(self::MENU_SLUG, __('Engine Monitor', 'tmwseo'), __('↳ Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
-        add_submenu_page(self::MENU_SLUG, __('Lighthouse', 'tmwseo'), __('↳ Lighthouse', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
-        add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('↳ Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
-        add_submenu_page(self::MENU_SLUG, __('Import', 'tmwseo'), __('↳ Import', 'tmwseo'), 'manage_options', 'tmwseo-import', [__CLASS__, 'render_import']);
-        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('↳ Debug Dashboard', 'tmwseo'), 'manage_options', 'tmw-seo-debug', ['\TMWSEO\Engine\Debug\DebugDashboard', 'render_page']);
+        // Technical pages are intentionally hidden from primary navigation.
+        add_submenu_page(null, __('Logs', 'tmwseo'), __('Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
+        add_submenu_page(null, __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
+        add_submenu_page(null, __('Migration', 'tmwseo'), __('Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
+        add_submenu_page(null, __('Import', 'tmwseo'), __('Import', 'tmwseo'), 'manage_options', 'tmwseo-import', [__CLASS__, 'render_import']);
     }
 
     public static function run_worker_now(): void {
@@ -991,11 +989,19 @@ class Admin {
 
     public static function render_tools(): void {
         self::header(__('TMW SEO Engine — Tools', 'tmwseo'));
-        echo '<p>Technical tools and diagnostics are available below.</p>';
+        echo '<p>Technical tools and diagnostics are available below. Safety policies keep publishing human-controlled and draft-first.</p>';
+        echo '<p><strong>Human approval is always required. The plugin only suggests opportunities and creates drafts when you explicitly choose to do so.</strong></p>';
         echo '<ul style="line-height:1.9;">';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '">Suggestions</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-content-briefs')) . '">Content Briefs</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-competitor-domains')) . '">Competitor Domains</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-clusters')) . '">SEO Clusters</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-model-optimizer')) . '">Model Optimizer</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-intelligence')) . '">Legacy Keyword Research</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-staging-validation-helper')) . '">Staging Validation Helper</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-logs')) . '">Logs</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-engine-monitor')) . '">Engine Monitor</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-pagespeed')) . '">Lighthouse</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-lighthouse')) . '">Lighthouse</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-migration')) . '">Migration</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-import')) . '">Import</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-debug')) . '">Debug Dashboard</a></li>';
@@ -2016,8 +2022,8 @@ private static function header(string $title): void {
         $template_external_link_enabled = !empty($opts['template_external_link_enabled']);
         $include_external_info_link = !empty($opts['include_external_info_link']);
 
-        // Phase 1: manual-only by default.
-        $manual_control_mode = (bool) Settings::get('manual_control_mode', 1);
+        // Manual mode is a locked safety policy.
+        $manual_control_mode = true;
         $debug_mode = (bool) Settings::get('debug_mode', 0);
         $serper_api_key = esc_attr((string)($opts['serper_api_key'] ?? ''));
         $intel_max_seeds = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
@@ -2027,9 +2033,12 @@ private static function header(string $title): void {
         settings_fields('tmwseo_settings_group');
         do_settings_sections('tmwseo_settings');
 
-        echo '<h2>Manual Control Mode</h2>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[manual_control_mode]" value="1" ' . checked($manual_control_mode, true, false) . '> Manual Control Mode (disable cron + auto optimizations)</label>';
-        echo '<p class="description">Recommended for live sites. Phase 1 uses analysis + advice only and never auto-edits posts.</p>';
+        echo '<h2>Safety Policies (Locked)</h2>';
+        echo '<table class="form-table">';
+        echo '<tr><th>Human approval</th><td><input type="checkbox" checked disabled> Always required</td></tr>';
+        echo '<tr><th>Manual control mode</th><td><input type="checkbox" checked disabled> Always enabled</td></tr>';
+        echo '</table>';
+        echo '<p class="description">Human approval is always required. The plugin only suggests opportunities and creates drafts when you explicitly choose to do so.</p>';
 
         echo '<h2>Debug</h2>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[debug_mode]" value="1" ' . checked($debug_mode, true, false) . '> Enable Debug Mode</label>';
