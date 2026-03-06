@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Clustering;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Debug\DebugLogger;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -23,6 +24,12 @@ class ClusterEngine {
         $clusters = $this->builder->build($keywords);
 
         update_post_meta($post_id, 'tmw_keyword_clusters', $clusters);
+
+        DebugLogger::log_cluster_generation([
+            'post_id' => $post_id,
+            'keyword_count' => count($keywords),
+            'cluster_count' => count($clusters),
+        ]);
 
         Logs::info('keyword_clustering', '[TMW-CLUSTER] Keyword clusters generated', [
             'post_id' => $post_id,

@@ -13,6 +13,7 @@ class Settings {
             // Phase 1 policy
             // Manual Control Mode disables all cron + automatic post optimizations.
             'manual_control_mode' => 1,
+            'debug_mode' => 0,
 
             // Optional: Serper API key (People Also Ask / related searches).
             'serper_api_key' => '',

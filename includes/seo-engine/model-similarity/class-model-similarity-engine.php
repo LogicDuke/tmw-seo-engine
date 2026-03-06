@@ -67,6 +67,8 @@ class TMW_Model_Similarity_Engine {
             return;
         }
 
+        $saved = 0;
+
         foreach ($candidates as $candidate_id) {
             $candidate_id = (int) $candidate_id;
             if ($candidate_id <= 0) {
@@ -82,7 +84,14 @@ class TMW_Model_Similarity_Engine {
 
             $this->database->save_relationship($model_id, $candidate_id, $score);
             $this->database->save_relationship($candidate_id, $model_id, $score);
+            $saved++;
         }
+
+        \TMWSEO\Engine\Debug\DebugLogger::log_similarity([
+            'model_id' => $model_id,
+            'candidate_count' => count($candidates),
+            'saved_relationships' => $saved,
+        ]);
     }
 
     public function inject_similar_models_section(string $content): string {
