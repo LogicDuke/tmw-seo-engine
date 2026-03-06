@@ -26,6 +26,7 @@ class Schema {
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
         $keyword_clusters = $wpdb->prefix . 'tmw_keyword_clusters';
         $generated_pages = $wpdb->prefix . 'tmw_generated_pages';
+        $opportunities = $wpdb->prefix . 'tmw_seo_opportunities';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -215,6 +216,22 @@ class Schema {
         ) $charset_collate;";
 
 
+
+        $sql_opportunities = "CREATE TABLE $opportunities (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NULL,
+            difficulty DECIMAL(6,2) NULL,
+            opportunity_score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            competitor_url VARCHAR(255) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'new',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword_competitor (keyword, competitor_url),
+            KEY status_score (status, opportunity_score)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -235,6 +252,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_keyword_clusters);
         dbDelta($sql_generated_pages);
+        dbDelta($sql_opportunities);
         dbDelta($sql_legacy_rank);
 
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();

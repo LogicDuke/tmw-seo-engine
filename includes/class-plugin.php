@@ -52,6 +52,13 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-top
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-page-generator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-engine.php';
 
+
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-database.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-scorer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
+
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
@@ -234,6 +241,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
+            \TMWSEO\Engine\Opportunities\OpportunityUI::init();
         }
     }
 

@@ -208,6 +208,31 @@ class DataForSEO {
         return ['ok' => true, 'items' => $items, 'raw' => $res['data']];
     }
 
+    /**
+     * Pull organic keywords a domain ranks for via DataForSEO Labs endpoint.
+     */
+    public static function domain_organic_keywords(string $domain, int $limit = 500): array {
+        $domain = preg_replace('#^https?://#i', '', trim($domain));
+        $domain = preg_replace('#^www\.#i', '', $domain);
+        $domain = preg_replace('#/.*$#', '', $domain);
+
+        $payload = [[
+            'target' => $domain,
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+            'limit' => min(1000, max(10, $limit)),
+            'ignore_synonyms' => true,
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/domain_organic_keywords/live', $payload);
+        if (!$res['ok']) return $res;
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) $items = [];
+
+        return ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+    }
+
 
     /**
      * Search volume enrichment (Google Ads keywords_data endpoint).
