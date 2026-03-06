@@ -677,11 +677,13 @@ class Admin {
         }
 
         $insert_block = !empty($_POST['insert_block']) ? 1 : 0;
+        $refresh_keywords_only = !empty($_POST['refresh_keywords_only']) ? 1 : 0;
 
-        Logs::info('admin', 'ajax_generate_now HIT', [
+        Logs::info('admin', '[TMW-ADMIN] ajax_generate_now HIT', [
             'post_id' => $post_id,
             'strategy' => $strategy,
             'insert_block' => $insert_block,
+            'refresh_keywords_only' => $refresh_keywords_only,
         ]);
 
         $post_type = get_post_type($post_id) ?: 'post';
@@ -689,9 +691,14 @@ class Admin {
             'trigger' => 'manual',
             'strategy' => $strategy,
             'insert_block' => $insert_block,
+            'refresh_keywords_only' => $refresh_keywords_only,
         ]);
 
-        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from ajax_generate_now', ['post_id' => $post_id, 'post_type' => (string)$post_type]);
+        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from ajax_generate_now', [
+            'post_id' => $post_id,
+            'post_type' => (string)$post_type,
+            'refresh_keywords_only' => $refresh_keywords_only,
+        ]);
 
         wp_remote_post(admin_url('admin-ajax.php?action=tmwseo_kick_worker'), [
             'timeout' => 0.01,

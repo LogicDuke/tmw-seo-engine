@@ -1,9 +1,9 @@
 (function () {
-    const setup = () => {
-        const button = document.getElementById('tmwseo-generate-btn');
+    const bindQueueButton = (button, options = {}) => {
         if (!button || button.dataset.bound === '1') {
             return;
         }
+
         button.dataset.bound = '1';
 
         const strategyField = document.getElementById('tmwseo-generate-strategy');
@@ -20,14 +20,18 @@
 
             button.disabled = true;
             const originalText = button.textContent;
-            button.textContent = 'Generating...';
+            button.textContent = options.loadingText || 'Generating...';
 
             const formData = new URLSearchParams();
             formData.append('action', 'tmwseo_generate_now');
             formData.append('post_id', postId);
             formData.append('nonce', nonce);
             formData.append('strategy', strategyField ? strategyField.value : 'openai');
-            formData.append('insert_block', insertBlockField && insertBlockField.checked ? '1' : '0');
+            const insertBlockValue = options.insertBlockValue !== undefined ? options.insertBlockValue : (insertBlockField && insertBlockField.checked ? '1' : '0');
+            formData.append('insert_block', insertBlockValue);
+            if (options.refreshKeywordsOnly) {
+                formData.append('refresh_keywords_only', '1');
+            }
 
             try {
                 const response = await fetch(ajaxUrl, {
@@ -46,7 +50,7 @@
                 }
 
                 if (window.wp && wp.data) {
-                    wp.data.dispatch('core/notices').createNotice('success', 'Queued. Refresh in a few seconds.', {
+                    wp.data.dispatch('core/notices').createNotice('success', options.successText || 'Queued. Refresh in a few seconds.', {
                         type: 'snackbar',
                         isDismissible: true,
                     });
@@ -63,6 +67,23 @@
                 button.disabled = false;
                 button.textContent = originalText;
             }
+        });
+    };
+
+    const setup = () => {
+        const generateButton = document.getElementById('tmwseo-generate-btn');
+        const refreshKeywordsButton = document.getElementById('tmwseo-refresh-keywords-btn');
+
+        bindQueueButton(generateButton, {
+            loadingText: 'Generating...',
+            successText: 'Queued. Refresh in a few seconds.',
+        });
+
+        bindQueueButton(refreshKeywordsButton, {
+            loadingText: 'Refreshing keywords...',
+            insertBlockValue: '0',
+            refreshKeywordsOnly: true,
+            successText: 'Keyword refresh queued. Refresh in a few seconds.',
         });
     };
 

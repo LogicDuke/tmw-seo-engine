@@ -129,6 +129,7 @@ class ContentEngine {
         if (!is_array($payload)) $payload = [];
 
         $insert_block = (int)($payload['insert_block'] ?? 1) === 1;
+        $refresh_keywords_only = (int)($payload['refresh_keywords_only'] ?? 0) === 1;
 
         // Strategy precedence: explicit payload > settings.
         $strategy = sanitize_key((string)($payload['strategy'] ?? ''));
@@ -149,6 +150,18 @@ class ContentEngine {
             if (!empty($focus_list)) {
                 update_post_meta($post_id, 'rank_math_focus_keyword', implode(',', $focus_list));
             }
+        }
+
+        if ($refresh_keywords_only) {
+            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            update_post_meta($post_id, '_tmwseo_optimize_done', 'keywords_refreshed');
+
+            Logs::info('content', '[TMW-KEYWORDS] Refreshed keyword pack + RankMath fields only', [
+                'post_id' => $post_id,
+                'post_type' => $post->post_type,
+            ]);
+
+            return;
         }
 
         // Template generation is the default fallback (replaces the old "offline dry" placeholder).
