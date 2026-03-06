@@ -224,13 +224,17 @@ class Schema {
             search_volume INT(11) NULL,
             difficulty DECIMAL(6,2) NULL,
             opportunity_score DECIMAL(6,2) NOT NULL DEFAULT 0,
-            competitor_url VARCHAR(255) NOT NULL,
+            competitor_url VARCHAR(255) NOT NULL DEFAULT '',
+            source VARCHAR(50) NOT NULL DEFAULT 'keyword_cycle',
+            type VARCHAR(30) NOT NULL DEFAULT 'keyword',
+            recommended_action VARCHAR(50) NOT NULL DEFAULT 'Create Draft',
             status VARCHAR(20) NOT NULL DEFAULT 'new',
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY keyword_competitor (keyword, competitor_url),
-            KEY status_score (status, opportunity_score)
+            KEY status_score (status, opportunity_score),
+            KEY source_type (source, type)
         ) $charset_collate;";
 
         $sql_model_similarity = "CREATE TABLE $model_similarity (

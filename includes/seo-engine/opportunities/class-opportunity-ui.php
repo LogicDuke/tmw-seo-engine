@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Opportunities;
 use TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Jobs;
+use TMWSEO\Engine\Services\Settings;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -18,7 +19,7 @@ class OpportunityUI {
 
     public static function init(): void {
         $ui = new self();
-        add_action('admin_menu', [$ui, 'register_menu']);
+        add_action('admin_menu', [$ui, 'register_menu'], 99);
         add_action('admin_post_tmwseo_run_opportunity_scan', [$ui, 'handle_run_scan']);
         add_action('admin_post_tmwseo_opportunity_action', [$ui, 'handle_row_action']);
     }
@@ -26,8 +27,8 @@ class OpportunityUI {
     public function register_menu(): void {
         add_submenu_page(
             Admin::MENU_SLUG,
-            __('SEO Opportunities', 'tmwseo'),
-            __('SEO Opportunities', 'tmwseo'),
+            __('Opportunities', 'tmwseo'),
+            __('Opportunities', 'tmwseo'),
             'manage_options',
             'tmwseo-opportunities',
             [$this, 'render_page']
@@ -63,8 +64,6 @@ class OpportunityUI {
 
         if ($action === 'ignore') {
             $this->db->update_status($id, 'ignored');
-        } elseif ($action === 'approve') {
-            $this->db->update_status($id, 'approved');
         } elseif ($action === 'generate') {
             $this->generate_draft_page($id);
         }
@@ -77,6 +76,11 @@ class OpportunityUI {
         $row = $this->db->find_by_id($opportunity_id);
         if (!$row) {
             return;
+        }
+
+        if (!Settings::is_human_approval_required()) {
+            // Even if global safety is disabled, this action is always manually initiated.
+            Logs::info('opportunities', '[TMW-OPP] Manual draft creation triggered with relaxed guard', ['id' => $opportunity_id]);
         }
 
         $keyword = trim((string) ($row['keyword'] ?? ''));
@@ -194,8 +198,9 @@ class OpportunityUI {
         $rows = $this->db->list_all('', 300);
         $stored = isset($_GET['scan_stored']) ? (int) $_GET['scan_stored'] : null;
 
-        echo '<div class="wrap"><h1>SEO Opportunities</h1>';
-        echo '<p>Analyze competitors and collect keyword opportunities. This module never auto-publishes and never auto-creates pages.</p>';
+        echo '<div class="wrap"><h1>Suggestions</h1>';
+        echo '<p><strong>Needs Attention:</strong> Review suggested pages and create drafts manually.</p>';
+        echo '<p>This screen is suggestion-first. The plugin never auto-publishes or auto-creates pages in background runs.</p>';
 
         if ($stored !== null) {
             echo '<div class="notice notice-success"><p>Scan completed. Stored opportunities: <strong>' . esc_html((string) $stored) . '</strong>.</p></div>';
@@ -208,20 +213,21 @@ class OpportunityUI {
         echo '</form>';
 
         echo '<table class="widefat striped"><thead><tr>';
-        echo '<th>Keyword</th><th>Search Volume</th><th>Difficulty</th><th>Opportunity Score</th><th>Status</th><th>Actions</th>';
+        echo '<th>Keyword</th><th>Type</th><th>Source</th><th>Score</th><th>Recommended Action</th><th>Status</th><th>Actions</th>';
         echo '</tr></thead><tbody>';
 
         if (empty($rows)) {
-            echo '<tr><td colspan="6">No opportunities found yet.</td></tr>';
+            echo '<tr><td colspan="7">No suggestions found yet.</td></tr>';
         }
 
         foreach ($rows as $row) {
             $id = (int) ($row['id'] ?? 0);
             echo '<tr>';
             echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
-            echo '<td>' . esc_html((string) ((int) ($row['search_volume'] ?? 0))) . '</td>';
-            echo '<td>' . esc_html((string) ((float) ($row['difficulty'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html((string) ($row['type'] ?? 'keyword')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['source'] ?? 'keyword_cycle')) . '</td>';
             echo '<td><strong>' . esc_html((string) ((float) ($row['opportunity_score'] ?? 0))) . '</strong></td>';
+            echo '<td>' . esc_html((string) ($row['recommended_action'] ?? 'Create Draft')) . '</td>';
             echo '<td>' . esc_html((string) ($row['status'] ?? 'new')) . '</td>';
             echo '<td>';
 
@@ -230,15 +236,7 @@ class OpportunityUI {
             echo '<input type="hidden" name="action" value="tmwseo_opportunity_action">';
             echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
             echo '<input type="hidden" name="row_action" value="generate">';
-            submit_button('Generate Draft Page', 'secondary', 'submit', false);
-            echo '</form>';
-
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin-right:5px;">';
-            wp_nonce_field('tmwseo_opportunity_action');
-            echo '<input type="hidden" name="action" value="tmwseo_opportunity_action">';
-            echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
-            echo '<input type="hidden" name="row_action" value="approve">';
-            submit_button('Add To Topic Cluster', 'secondary', 'submit', false);
+            submit_button('Create Draft', 'secondary', 'submit', false);
             echo '</form>';
 
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;">';

@@ -2,8 +2,6 @@
 namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
-use TMWSEO\Engine\Jobs;
-use TMWSEO\Engine\Content\ContentEngine;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\DataForSEO;
 
@@ -73,7 +71,6 @@ class KeywordEngine {
         $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
         $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
-        $gen_table = $wpdb->prefix . 'tmw_generated_pages';
 
         // 1) Collect seeds (adaptive, mix of base + your top categories).
         //    Mode 'import_only' skips discovery and only runs KD + clustering + pages.
@@ -336,8 +333,9 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         // 4) Build clusters (simple clustering by cluster_key)
         self::rebuild_clusters();
 
-        // 5) Auto-create a few pages for the best clusters (draft + noindex)
-        self::auto_create_pages($pages_per_day);
+        // 5) Suggestion-first workflow: queue suggested pages only (no auto-creation).
+        self::store_suggested_pages_from_clusters($pages_per_day);
+        self::store_topic_suggestions($pages_per_day);
 
         Logs::info('keywords', 'Keyword cycle completed');
     }
@@ -507,128 +505,73 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         Logs::info('keywords', 'Clusters rebuilt', ['clusters' => count($clusters)]);
     }
 
-    private static function auto_create_pages(int $limit): void {
+
+    private static function store_topic_suggestions(int $limit): void {
+        $models = get_posts([
+            'post_type' => 'model',
+            'post_status' => 'publish',
+            'posts_per_page' => max(1, $limit),
+            'orderby' => 'modified',
+            'order' => 'DESC',
+            'fields' => 'ids',
+        ]);
+
+        if (!is_array($models) || empty($models)) {
+            return;
+        }
+
+        $engine = new \TMW_Topic_Engine();
+        $stored = 0;
+        foreach ($models as $model_id) {
+            $stored += $engine->queue_topic_suggestions_for_model((int) $model_id);
+        }
+
+        Logs::info('keywords', '[TMW-KW] Topic suggestions queued', ['count' => $stored]);
+    }
+
+    private static function store_suggested_pages_from_clusters(int $limit): void {
         global $wpdb;
         $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
-        $gen_table = $wpdb->prefix . 'tmw_generated_pages';
 
         if ($limit <= 0) return;
 
         $clusters = $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$cluster_table}
-             WHERE status='new' AND (page_id IS NULL OR page_id=0)
+             WHERE status='new'
              ORDER BY opportunity DESC, total_volume DESC
              LIMIT %d",
             $limit
         ), ARRAY_A);
 
         if (empty($clusters)) {
-            Logs::info('keywords', 'No clusters available for auto page creation');
+            Logs::info('keywords', '[TMW-KW] No clusters available for suggested pages');
             return;
         }
 
-        $created = 0;
+        $db = new \TMWSEO\Engine\Opportunities\OpportunityDatabase();
+        $rows = [];
         foreach ($clusters as $c) {
             $keyword = (string)($c['representative'] ?? '');
-            if ($keyword === '') continue;
-
-            // Create a flat URL WordPress Page (NOT CPT) to match your chosen structure.
-            $slug = sanitize_title($keyword);
-            if ($slug === '') continue;
-
-            // Ensure uniqueness (avoid collisions with existing posts/pages).
-            $slug_base = $slug;
-            $i = 2;
-            while (get_page_by_path($slug, OBJECT, 'page')) {
-                $slug = $slug_base . '-' . $i;
-                $i++;
-                if ($i > 20) break;
-            }
-
-            $wpdb->query('START TRANSACTION');
-
-            try {
-                $page_id = wp_insert_post([
-                    'post_type' => 'page',
-                    'post_status' => 'draft',
-                    'post_title' => wp_strip_all_tags($keyword),
-                    'post_name' => $slug,
-                    'post_content' => "<!-- TMWSEO:AI -->\n",
-                    'post_author' => 1,
-                ], true);
-
-                if (is_wp_error($page_id)) {
-                    Logs::warn('keywords', 'Failed to create page', ['keyword' => $keyword, 'error' => $page_id->get_error_message()]);
-                    throw new \RuntimeException($page_id->get_error_message());
-                }
-
-                // Mark as generated + map to cluster/keyword.
-                update_post_meta($page_id, '_tmwseo_generated', 1);
-                update_post_meta($page_id, '_tmwseo_cluster_id', (int)$c['id']);
-                update_post_meta($page_id, '_tmwseo_keyword', $keyword);
-
-                // Manual indexing workflow: default NOINDEX until you enable it.
-                update_post_meta($page_id, 'rank_math_robots', ['noindex']);
-
-                // Store in generated pages table
-                $wpdb->insert($gen_table, [
-                    'page_id' => (int)$page_id,
-                    'cluster_id' => (int)$c['id'],
-                    'keyword' => $keyword,
-                    'kind' => 'keyword',
-                    'indexing' => 'noindex',
-                    'last_generated_at' => current_time('mysql'),
-                ], [
-                    '%d', '%d', '%s', '%s', '%s', '%s'
-                ]);
-
-                // Update cluster
-                $wpdb->update($cluster_table, [
-                    'page_id' => (int)$page_id,
-                    'status' => 'built',
-                    'updated_at' => current_time('mysql'),
-                ], ['id' => (int)$c['id']]);
-
-                $wpdb->query('COMMIT');
-            } catch (\Throwable $e) {
-                $wpdb->query('ROLLBACK');
-                if (!empty($page_id) && !is_wp_error($page_id)) {
-                    wp_delete_post($page_id, true);
-                }
-                error_log('TMW Page Creation Failed: ' . $e->getMessage());
+            if ($keyword === '') {
                 continue;
             }
 
-            // Enqueue content generation (800-1000 words, GPT-4o)
-            Jobs::enqueue('optimize_post', 'page', (int)$page_id, [
-                'context' => 'keyword_page',
-                'keyword' => $keyword,
-            ]);
-
-            // Also log indexing candidate.
-            self::log_indexing_candidate($page_id, $keyword);
-
-            $created++;
+            $rows[] = [
+                'keyword' => strtolower($keyword),
+                'search_volume' => (int) ($c['total_volume'] ?? 0),
+                'difficulty' => (float) ($c['avg_difficulty'] ?? 0),
+                'opportunity_score' => (float) ($c['opportunity'] ?? 0),
+                'competitor_url' => 'cluster:' . (int) ($c['id'] ?? 0),
+                'source' => 'keyword_cycle',
+                'type' => 'keyword_cluster',
+                'recommended_action' => 'Create Draft',
+            ];
         }
 
-        Logs::info('keywords', 'Auto pages created', ['count' => $created]);
-    }
+        $stored = $db->store($rows);
 
-    private static function log_indexing_candidate(int $page_id, string $keyword): void {
-        global $wpdb;
-        $table = $wpdb->prefix . 'tmw_indexing';
-
-        $url = get_permalink($page_id);
-        if (!$url) return;
-
-        $wpdb->insert($table, [
-            'url' => $url,
-            'status' => 'candidate',
-            'provider' => 'manual',
-            'details' => wp_json_encode(['page_id' => $page_id, 'keyword' => $keyword]),
-            'created_at' => current_time('mysql'),
-        ], [
-            '%s', '%s', '%s', '%s', '%s'
+        Logs::info('keywords', '[TMW-KW] Suggested pages queued from keyword clusters', [
+            'count' => $stored,
         ]);
     }
 }

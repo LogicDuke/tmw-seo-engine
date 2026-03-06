@@ -8,7 +8,7 @@ class Settings {
     public static function defaults(): array {
         return [
             // Safety
-            'safe_mode' => 0,
+            'safe_mode' => 1,
 
             // Phase 1 policy
             // Manual Control Mode disables all cron + automatic post optimizations.
@@ -79,7 +79,21 @@ class Settings {
     }
 
     public static function is_safe_mode(): bool {
-        return (bool) self::get('safe_mode', 0);
+        return (bool) self::get('safe_mode', 1);
+    }
+
+    /**
+     * Human-approval guardrail.
+     *
+     * Safety policy: content creation, publishing, and indexing actions should
+     * always require explicit human approval unless an operator intentionally
+     * disables manual control and safe mode together.
+     */
+    public static function is_human_approval_required(): bool {
+        $manual_control = (bool) self::get('manual_control_mode', 1);
+        $safe_mode = (bool) self::get('safe_mode', 1);
+
+        return $manual_control || $safe_mode;
     }
 
     public static function openai_model_for_quality(): string {

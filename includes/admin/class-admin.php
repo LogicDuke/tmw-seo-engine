@@ -515,18 +515,22 @@ class Admin {
             58
         );
 
-        add_submenu_page(self::MENU_SLUG, __('Overview', 'tmwseo'), __('Overview', 'tmwseo'), 'manage_options', self::MENU_SLUG, [__CLASS__, 'render_overview']);
-        add_submenu_page(self::MENU_SLUG, __('Queue', 'tmwseo'), __('Queue', 'tmwseo'), 'manage_options', 'tmwseo-queue', [__CLASS__, 'render_queue']);
+        // Human-first navigation.
+        add_submenu_page(self::MENU_SLUG, __('Dashboard', 'tmwseo'), __('Dashboard', 'tmwseo'), 'manage_options', self::MENU_SLUG, [__CLASS__, 'render_overview']);
+        add_submenu_page(self::MENU_SLUG, __('Drafts to Review', 'tmwseo'), __('Drafts to Review', 'tmwseo'), 'manage_options', 'tmwseo-generated', [__CLASS__, 'render_generated_pages']);
+        add_submenu_page(self::MENU_SLUG, __('Models', 'tmwseo'), __('Models', 'tmwseo'), 'manage_options', 'tmwseo-models', [__CLASS__, 'render_models_redirect']);
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'), __('Keywords', 'tmwseo'), 'manage_options', 'tmwseo-keywords', [__CLASS__, 'render_keywords']);
-        add_submenu_page(self::MENU_SLUG, __('Import', 'tmwseo'), __('Import', 'tmwseo'), 'manage_options', 'tmwseo-import', [__CLASS__, 'render_import']);
-        add_submenu_page(self::MENU_SLUG, __('Generated Pages', 'tmwseo'), __('Generated Pages', 'tmwseo'), 'manage_options', 'tmwseo-generated', [__CLASS__, 'render_generated_pages']);
-        add_submenu_page(self::MENU_SLUG, __('Indexing', 'tmwseo'), __('Indexing', 'tmwseo'), 'manage_options', 'tmwseo-indexing', [__CLASS__, 'render_indexing']);
-        add_submenu_page(self::MENU_SLUG, __('PageSpeed', 'tmwseo'), __('PageSpeed', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
-        add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
+        add_submenu_page(self::MENU_SLUG, __('Reports', 'tmwseo'), __('Reports', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'), __('Settings', 'tmwseo'), 'manage_options', 'tmwseo-settings', [__CLASS__, 'render_settings']);
-        add_submenu_page(self::MENU_SLUG, __('Affiliates', 'tmwseo'), __('Affiliates', 'tmwseo'), 'manage_options', 'tmwseo-affiliates', [__CLASS__, 'render_affiliates']);
-        add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
-        add_submenu_page(self::MENU_SLUG, __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
+        add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'), __('Tools', 'tmwseo'), 'manage_options', 'tmwseo-tools', [__CLASS__, 'render_tools']);
+
+        // Technical screens grouped under Tools.
+        add_submenu_page(self::MENU_SLUG, __('Logs', 'tmwseo'), __('↳ Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
+        add_submenu_page(self::MENU_SLUG, __('Engine Monitor', 'tmwseo'), __('↳ Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
+        add_submenu_page(self::MENU_SLUG, __('Lighthouse', 'tmwseo'), __('↳ Lighthouse', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
+        add_submenu_page(self::MENU_SLUG, __('Migration', 'tmwseo'), __('↳ Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
+        add_submenu_page(self::MENU_SLUG, __('Import', 'tmwseo'), __('↳ Import', 'tmwseo'), 'manage_options', 'tmwseo-import', [__CLASS__, 'render_import']);
+        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('↳ Debug Dashboard', 'tmwseo'), 'manage_options', 'tmw-seo-debug', ['\TMWSEO\Engine\Debug\DebugDashboard', 'render_page']);
     }
 
     public static function run_worker_now(): void {
@@ -632,6 +636,10 @@ class Admin {
     public static function enable_indexing_now(): void {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_enable_indexing');
+
+        if (Settings::is_human_approval_required() && !current_user_can('manage_options')) {
+            wp_die(__('Human approval required.', 'tmwseo'));
+        }
 
         $page_id = (int)($_GET['page_id'] ?? 0);
         if ($page_id <= 0) wp_die(__('Missing page_id', 'tmwseo'));
@@ -844,6 +852,26 @@ class Admin {
 
     // ---------- UI (alpha.8) ----------
 
+
+    public static function render_models_redirect(): void {
+        wp_safe_redirect(admin_url('edit.php?post_type=model'));
+        exit;
+    }
+
+    public static function render_tools(): void {
+        self::header(__('TMW SEO Engine — Tools', 'tmwseo'));
+        echo '<p>Technical tools and diagnostics are available below.</p>';
+        echo '<ul style="line-height:1.9;">';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-logs')) . '">Logs</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-engine-monitor')) . '">Engine Monitor</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-pagespeed')) . '">Lighthouse</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-migration')) . '">Migration</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-import')) . '">Import</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-debug')) . '">Debug Dashboard</a></li>';
+        echo '</ul>';
+        echo '</div>';
+    }
+
     public static function render_keywords(): void {
         self::header(__('TMW SEO Engine — Keywords', 'tmwseo'));
 
@@ -858,7 +886,7 @@ class Admin {
         $cluster_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table}");
         $new_clusters = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table} WHERE status='new'");
 
-        echo '<p>This is the Keyword Intelligence layer (DataForSEO + adult relevancy filter + clustering + auto page creation).</p>';
+        echo '<p>This workflow builds keyword suggestions and clusters for review. It does not auto-create or auto-publish pages.</p>';
 
         echo '<div style="display:flex; gap:12px; flex-wrap:wrap; margin:12px 0;">';
         echo '<div class="card" style="padding:12px; min-width:180px;"><strong>Raw keywords</strong><br>' . esc_html($raw_count) . '</div>';
@@ -871,7 +899,7 @@ class Admin {
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block; margin-right:8px;">';
         wp_nonce_field('tmwseo_run_keyword_cycle');
         echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
-        submit_button('Run Keyword Cycle Now', 'primary', 'submit', false);
+        submit_button('Refresh Suggestions', 'primary', 'submit', false);
         echo '</form>';
 
         echo '<a class="button" href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_run_worker'), 'tmwseo_run_worker')) . '">Run Worker (healthcheck)</a>';
@@ -911,7 +939,7 @@ class Admin {
     }
 
     public static function render_generated_pages(): void {
-        self::header(__('TMW SEO Engine — Generated Pages', 'tmwseo'));
+        self::header(__('TMW SEO Engine — Drafts to Review', 'tmwseo'));
 
         global $wpdb;
         $gen_table = $wpdb->prefix . 'tmw_generated_pages';
@@ -930,10 +958,10 @@ class Admin {
             echo '<div class="notice notice-warning"><p><strong>Search engines are currently discouraged (Settings → Reading).</strong> If you want to rank, you must eventually enable indexing (blog_public = 1).</p></div>';
         }
 
-        echo '<p>Generated pages are created as <strong>draft + RankMath noindex</strong> by default. You can publish them and enable indexing when you are ready.</p>';
+        echo '<p>All suggestions become <strong>draft + Rank Math noindex</strong>. Review each draft before publishing.</p>';
 
         if (empty($rows)) {
-            echo '<p>No generated pages yet. Go to <a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">Keywords</a> and run a cycle.</p>';
+            echo '<p>No drafts yet. Review <a href="' . esc_url(admin_url('admin.php?page=tmwseo-opportunities')) . '">Opportunities</a> to create drafts manually.</p>';
             echo '</div>';
             return;
         }

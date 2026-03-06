@@ -42,7 +42,7 @@ class Worker {
                 return;
 
             case 'keyword_cycle':
-                \TMWSEO\Engine\Keywords\KeywordEngine::run_cycle_job($job);
+                \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::run_cycle($job);
                 return;
 
             case 'pagespeed_cycle':

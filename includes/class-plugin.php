@@ -23,6 +23,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.php';
 
@@ -242,7 +243,7 @@ class Plugin {
 
         $cluster_admin_page = new \TMW_Cluster_Admin_Page(self::$cluster_service, self::$cluster_scoring_engine);
 
-        add_action('admin_menu', [$cluster_admin_page, 'register_menu']);
+        add_action('admin_menu', [$cluster_admin_page, 'register_menu'], 99);
 
         add_filter('manage_post_posts_columns', [$cluster_admin_page, 'register_post_columns']);
         add_filter('manage_page_posts_columns', [$cluster_admin_page, 'register_post_columns']);

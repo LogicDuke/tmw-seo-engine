@@ -21,8 +21,8 @@ class IntelligenceAdmin {
     public static function register_menu(): void {
         add_submenu_page(
             'tmwseo-engine',
-            __('Intelligence', 'tmwseo'),
-            __('Intelligence', 'tmwseo'),
+            __('Legacy Keyword Research', 'tmwseo'),
+            __('↳ Legacy Keyword Research', 'tmwseo'),
             'manage_options',
             self::PAGE_SLUG,
             [__CLASS__, 'render_page']
