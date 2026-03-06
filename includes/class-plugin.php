@@ -32,6 +32,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-optimizer.php';
 
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
@@ -167,8 +168,9 @@ class Plugin {
         // Keyword engine currently has no automatic hooks, safe to init.
         \TMWSEO\Engine\Keywords\KeywordEngine::init();
 
-        // Platform profiles (metabox + shortcode) are safe.
+        // Platform profiles + affiliate redirects.
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
+        \TMWSEO\Engine\Platform\AffiliateLinkBuilder::init();
 
         // Lighthouse menus + manual actions.
         \TMW\SEO\Lighthouse\Bootstrap::init();
@@ -226,12 +228,16 @@ class Plugin {
         }
 
         Migration::maybe_migrate_legacy(true);
+        \TMWSEO\Engine\Platform\AffiliateLinkBuilder::register_rewrite_rule();
+        flush_rewrite_rules();
+
         Logs::info('core', 'Activated ' . TMWSEO_ENGINE_VERSION);
     }
 
     public static function deactivate(): void {
         Cron::unschedule_events();
         SmartQueue::unschedule_daily_scan();
+        flush_rewrite_rules();
         Logs::info('core', 'Deactivated ' . TMWSEO_ENGINE_VERSION);
     }
 }

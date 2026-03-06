@@ -54,6 +54,11 @@ class Settings {
 
             // PageSpeed Insights (optional)
             'google_pagespeed_api_key' => '',
+
+            // Affiliate links
+            'affiliate_link_pattern' => '',
+            'affiliate_campaign' => '',
+            'affiliate_source' => '',
         ];
     }
 

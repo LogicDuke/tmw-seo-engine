@@ -19,6 +19,7 @@ class Schema {
         $competitors = $wpdb->prefix . 'tmw_competitors';
         $indexing = $wpdb->prefix . 'tmw_indexing';
         $pagespeed = $wpdb->prefix . 'tmw_pagespeed';
+        $aff_clicks = $wpdb->prefix . 'tmw_aff_clicks';
 
         // Keyword intelligence (alpha.8)
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
@@ -132,6 +133,19 @@ class Schema {
             KEY strategy_checked (strategy, checked_at)
         ) $charset_collate;";
 
+
+        $sql_aff_clicks = "CREATE TABLE $aff_clicks (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            platform VARCHAR(50) NOT NULL,
+            username VARCHAR(191) NOT NULL,
+            target_url TEXT NOT NULL,
+            ip_address VARCHAR(64) NULL,
+            user_agent TEXT NULL,
+            clicked_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY platform_clicked (platform, clicked_at),
+            KEY username_clicked (username, clicked_at)
+        ) $charset_collate;";
         
         $sql_keyword_raw = "CREATE TABLE $keyword_raw (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -216,6 +230,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_competitors);
         dbDelta($sql_indexing);
         dbDelta($sql_pagespeed);
+        dbDelta($sql_aff_clicks);
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_keyword_clusters);
