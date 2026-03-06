@@ -20,6 +20,8 @@ class Admin {
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
+        add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
+        add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\KeywordEngine', 'run_cycle_job'], 10, 1);
@@ -607,6 +609,62 @@ class Admin {
         exit;
     }
 
+    public static function ajax_generate_now(): void {
+        $post_id = (int)($_POST['post_id'] ?? 0);
+        if ($post_id <= 0) {
+            wp_send_json_error(['message' => __('Invalid post.', 'tmwseo')], 400);
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => __('Permission denied.', 'tmwseo')], 403);
+        }
+
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash((string)$_POST['nonce'])) : '';
+        if ($nonce === '' || !wp_verify_nonce($nonce, 'tmwseo_generate_' . $post_id)) {
+            wp_send_json_error(['message' => __('Invalid or expired nonce.', 'tmwseo')], 403);
+        }
+
+        $strategy = sanitize_key((string)($_POST['strategy'] ?? ''));
+        if (!in_array($strategy, ['template', 'openai'], true)) {
+            $strategy = 'openai';
+        }
+
+        $insert_block = !empty($_POST['insert_block']) ? 1 : 0;
+
+        Logs::info('admin', 'ajax_generate_now HIT', [
+            'post_id' => $post_id,
+            'strategy' => $strategy,
+            'insert_block' => $insert_block,
+        ]);
+
+        $post_type = get_post_type($post_id) ?: 'post';
+        Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
+            'trigger' => 'manual',
+            'strategy' => $strategy,
+            'insert_block' => $insert_block,
+        ]);
+
+        Logs::info('admin', '[TMW-QUEUE] optimize_post queued from ajax_generate_now', ['post_id' => $post_id, 'post_type' => (string)$post_type]);
+
+        wp_remote_post(admin_url('admin-ajax.php?action=tmwseo_kick_worker'), [
+            'timeout' => 0.01,
+            'blocking' => false,
+            'cookies' => $_COOKIE,
+            'sslverify' => apply_filters('https_local_ssl_verify', false),
+        ]);
+
+        wp_send_json_success(['queued' => true]);
+    }
+
+    public static function ajax_kick_worker(): void {
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['message' => __('Permission denied.', 'tmwseo')], 403);
+        }
+
+        \TMWSEO\Engine\Worker::run();
+        wp_send_json_success(['ran' => true]);
+    }
+
     public static function handle_optimize_post_now(): void {
         if (!current_user_can('edit_posts')) wp_die('Permission denied.');
 
@@ -616,17 +674,23 @@ class Admin {
         $post_id = (int)($req['post_id'] ?? 0);
         if ($post_id <= 0) wp_die('Invalid post.');
 
-        $nonce = (string)($req['_wpnonce'] ?? '');
-        if ($nonce === '' || !wp_verify_nonce(sanitize_text_field(wp_unslash($nonce)), 'tmwseo_optimize_post_' . $post_id)) {
-            wp_die('Invalid or expired nonce.');
-        }
-
         $strategy = sanitize_key((string)($req['strategy'] ?? ''));
         if (!in_array($strategy, ['template', 'openai'], true)) {
             $strategy = 'openai';
         }
 
         $insert_block = !empty($req['insert_block']) ? 1 : 0;
+
+        Logs::info('admin', 'optimize_post_now handler HIT', [
+            'post_id' => $post_id,
+            'strategy' => $strategy,
+            'insert_block' => $insert_block,
+        ]);
+
+        $nonce = (string)($req['_wpnonce'] ?? '');
+        if ($nonce === '' || !wp_verify_nonce(sanitize_text_field(wp_unslash($nonce)), 'tmwseo_optimize_post_' . $post_id)) {
+            wp_die('Invalid or expired nonce.');
+        }
 
         $post_type = get_post_type($post_id) ?: 'post';
         Jobs::enqueue('optimize_post', (string)$post_type, $post_id, [
