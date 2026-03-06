@@ -59,6 +59,9 @@ class Editor_AI_Metabox {
 
         $has_openai = class_exists('TMWSEO\\Engine\\Services\\OpenAI') && \TMWSEO\Engine\Services\OpenAI::is_configured();
 
+        $quality_score = (int) get_post_meta($post->ID, '_tmwseo_quality_score', true);
+        $quality_warning = (string) get_post_meta($post->ID, '_tmwseo_quality_warning', true) === '1';
+
         echo '<p><strong>' . esc_html__('TMW SEO Engine', 'tmwseo') . '</strong></p>';
         echo '<p style="margin-top:0">' . esc_html__('Generate RankMath fields + intro/bio/FAQ using Template or OpenAI.', 'tmwseo') . '</p>';
 
@@ -91,6 +94,17 @@ class Editor_AI_Metabox {
         echo '<button type="submit" class="button" style="width:100%">' . esc_html__('Refresh Keywords', 'tmwseo') . '</button>';
         echo '</form>';
         echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('This runs in the background. After a few seconds, refresh the editor to see the updated content & RankMath fields.', 'tmwseo') . '</p>';
+
+
+        if ($quality_score > 0) {
+            echo '<hr style="margin:12px 0">';
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('SEO Quality Score', 'tmwseo') . '</strong>: ' . esc_html((string) $quality_score) . '/100</p>';
+            if ($quality_warning) {
+                echo '<p style="margin:0; color:#b32d2e; font-weight:600">' . esc_html__('This draft may need improvement before publishing.', 'tmwseo') . '</p>';
+            } else {
+                echo '<p style="margin:0; color:#0a7a2f; font-weight:600">' . esc_html__('Draft quality looks good. Publishing is still your decision.', 'tmwseo') . '</p>';
+            }
+        }
 
         if (!empty($additional) || !empty($longtail)) {
             echo '<hr style="margin:12px 0">';

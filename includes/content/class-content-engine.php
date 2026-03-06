@@ -8,6 +8,7 @@ use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Keywords\ModelKeywordPack;
 use TMWSEO\Engine\Clustering\ClusterEngine;
+use TMWSEO\Engine\Content\QualityScoreEngine;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -190,6 +191,7 @@ class ContentEngine {
             }
 
             $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
+            self::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
 
             wp_update_post([
                 'ID'           => $post_id,
@@ -334,6 +336,8 @@ class ContentEngine {
         $generated_content = $html;
         error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
 
+        self::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+
         if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
         if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
         if ($focus_kw !== '') {
@@ -446,6 +450,50 @@ class ContentEngine {
         $occurrences = isset($matches[0]) && is_array($matches[0]) ? count($matches[0]) : 0;
 
         return ($occurrences / $word_count) * 100;
+    }
+
+
+    private static function build_quality_context(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
+        $secondary_keywords = [];
+        if (!empty($keyword_pack['additional']) && is_array($keyword_pack['additional'])) {
+            $secondary_keywords = array_values(array_filter(array_map('strval', $keyword_pack['additional'])));
+        }
+
+        $entities = [];
+        $title = trim((string) $post->post_title);
+        if ($title !== '') {
+            $entities[] = $title;
+        }
+
+        if (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])) {
+            $entities = array_merge($entities, array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6));
+        }
+
+        if ($focus_kw !== '') {
+            $entities[] = $focus_kw;
+        }
+
+        return [
+            'primary_keyword' => $focus_kw,
+            'secondary_keywords' => $secondary_keywords,
+            'entities' => array_values(array_unique(array_filter($entities))),
+        ];
+    }
+
+    private static function persist_quality_score(int $post_id, string $content_html, \WP_Post $post, string $focus_kw, array $keyword_pack): array {
+        $quality = QualityScoreEngine::evaluate($content_html, self::build_quality_context($post, $focus_kw, $keyword_pack));
+
+        update_post_meta($post_id, '_tmwseo_quality_score', (int) ($quality['score'] ?? 0));
+        update_post_meta($post_id, '_tmwseo_quality_warning', !empty($quality['warning']) ? '1' : '0');
+        update_post_meta($post_id, '_tmwseo_quality_score_data', wp_json_encode($quality));
+
+        Logs::info('content', '[TMW-QUALITY] Draft evaluated', [
+            'post_id' => $post_id,
+            'score' => (int) ($quality['score'] ?? 0),
+            'warning' => !empty($quality['warning']),
+        ]);
+
+        return $quality;
     }
 
     private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
