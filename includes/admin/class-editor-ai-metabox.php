@@ -8,6 +8,7 @@ class Editor_AI_Metabox {
     public static function init(): void {
         add_action('add_meta_boxes', [__CLASS__, 'register_metabox']);
         add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
+        add_action('save_post', [__CLASS__, 'save_metabox']);
     }
 
     public static function enqueue_editor_assets(): void {
@@ -41,7 +42,10 @@ class Editor_AI_Metabox {
     }
 
     public static function render($post): void {
+        wp_nonce_field('tmwseo_editor_ai_metabox_' . $post->ID, 'tmwseo_editor_ai_metabox_nonce');
+
         $pack_raw = get_post_meta($post->ID, '_tmwseo_keyword_pack', true);
+        $ready_to_index = (string) get_post_meta($post->ID, '_tmwseo_ready_to_index', true) === '1';
         $pack = [];
         if (is_string($pack_raw) && $pack_raw !== '') {
             $decoded = json_decode($pack_raw, true);
@@ -69,6 +73,7 @@ class Editor_AI_Metabox {
         echo '</select></p>';
 
         echo '<p><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        echo '<p><label><input type="checkbox" name="_tmwseo_ready_to_index" value="1" ' . checked($ready_to_index, true, false) . '> ' . esc_html__('Ready to index', 'tmwseo') . '</label></p>';
 
         echo '<p style="margin:0"><button '
             . 'type="button" '
@@ -103,5 +108,24 @@ class Editor_AI_Metabox {
             echo '</ul>';
             echo '</div>';
         }
+    }
+
+    public static function save_metabox(int $post_id): void {
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+        if (wp_is_post_revision($post_id)) return;
+
+        $post_type = get_post_type($post_id);
+        if (!in_array($post_type, ['model', 'post', 'tmw_category_page'], true)) return;
+
+        $nonce = $_POST['tmwseo_editor_ai_metabox_nonce'] ?? '';
+        if (!is_string($nonce) || !wp_verify_nonce($nonce, 'tmwseo_editor_ai_metabox_' . $post_id)) return;
+        if (!current_user_can('edit_post', $post_id)) return;
+
+        if (isset($_POST['_tmwseo_ready_to_index']) && (string) $_POST['_tmwseo_ready_to_index'] === '1') {
+            update_post_meta($post_id, '_tmwseo_ready_to_index', '1');
+            return;
+        }
+
+        delete_post_meta($post_id, '_tmwseo_ready_to_index');
     }
 }
