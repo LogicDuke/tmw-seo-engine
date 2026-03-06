@@ -452,7 +452,10 @@ class ContentEngine {
 
     private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
         // We keep noindex by default until you explicitly enable auto-indexing.
-        if ((int) Settings::get('auto_clear_noindex', 0) !== 1) {
+        if ((int) Settings::get('auto_clear_rank_math_noindex', 0) !== 1) {
+            return;
+        }
+        if ((string) get_post_meta($post->ID, '_tmwseo_ready_to_index', true) !== '1') {
             return;
         }
         if ($post->post_status !== 'publish') return;
