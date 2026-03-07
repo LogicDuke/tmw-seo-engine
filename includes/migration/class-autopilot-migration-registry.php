@@ -82,6 +82,14 @@ class AutopilotMigrationRegistry {
                 'notes' => 'Advisory-only recommendation path for explicit drafts (category-page-first). Stores review metadata only; never auto-applies, never publishes, never mutates live posts, and never clears noindex.',
             ],
             [
+                'id' => 'suggestion_prepare_human_review_bundle',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'admin_post_tmwseo_prepare_suggestion_review_bundle / admin_post_tmwseo_prepare_draft_review_bundle',
+                'legacy_path' => 'Explicit draft review bundle preparation helper',
+                'notes' => 'Operator-triggered review-only bundle prep for explicit drafts. Aggregates readiness, recommended preset, missing pieces, and trust-safe next steps; stores review-bundle metadata only; never auto-applies, never publishes, never mutates post_content/live posts, and never clears noindex.',
+            ],
+            [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
                 'status' => self::STATUS_STILL_FENCED,
