@@ -597,7 +597,16 @@ class SuggestionsAdminPage {
 
         $filtered_rows = array_values(array_filter($rows, function (array $row) use ($active_filter): bool {
             $type = (string) ($row['type'] ?? '');
+            $status = (string) ($row['status'] ?? 'new');
             $priority = (float) ($row['priority_score'] ?? 0);
+
+            if ($active_filter === 'ignored') {
+                return $status === 'ignored';
+            }
+
+            if (in_array($status, ['ignored', 'implemented'], true)) {
+                return false;
+            }
 
             if ($active_filter === 'high_priority') {
                 return $priority >= 8;
@@ -680,6 +689,7 @@ class SuggestionsAdminPage {
         $tabs = [
             'all' => 'All',
             'high_priority' => 'High Priority',
+            'ignored' => 'Ignored',
             'content_opportunity' => 'Content Opportunities',
             'internal_linking' => 'Internal Linking',
             'content_improvement' => 'Content Improvements',
