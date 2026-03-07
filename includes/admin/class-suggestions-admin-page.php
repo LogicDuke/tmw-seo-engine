@@ -32,6 +32,7 @@ class SuggestionsAdminPage {
     public static function init(): void {
         $ui = new self();
         add_action('admin_menu', [$ui, 'register_menu'], 99);
+        add_action('admin_notices', [$ui, 'render_post_action_guidance_notice']);
         add_action('admin_post_tmwseo_suggestion_action', [$ui, 'handle_row_action']);
         add_action('admin_post_tmwseo_scan_internal_link_opportunities', [$ui, 'handle_scan_internal_link_opportunities']);
         add_action('admin_post_tmwseo_scan_content_improvements', [$ui, 'handle_scan_content_improvements']);
@@ -351,6 +352,25 @@ class SuggestionsAdminPage {
         <?php
     }
 
+    public function render_post_action_guidance_notice(): void {
+        if (!is_admin()) {
+            return;
+        }
+
+        $notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
+        if ($notice !== 'internal_link_helper_opened') {
+            return;
+        }
+
+        if (!current_user_can('edit_posts')) {
+            return;
+        }
+
+        echo '<div class="notice notice-success is-dismissible"><p>';
+        echo esc_html__('Internal-link helper opened in draft edit mode. Review the suggested anchor/context manually before saving. No live link is inserted automatically.', 'tmwseo');
+        echo '</p></div>';
+    }
+
     public function handle_scan_internal_link_opportunities(): void {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
@@ -475,6 +495,7 @@ class SuggestionsAdminPage {
             'post' => $source_id,
             'action' => 'edit',
             'tmwseo_insert_link_draft' => 1,
+            'tmwseo_notice' => 'internal_link_helper_opened',
             'tmwseo_target_post' => $target_id,
             'tmwseo_anchor' => $anchor,
             'tmwseo_context_snippet' => rawurlencode($context_snippet),
@@ -697,7 +718,7 @@ class SuggestionsAdminPage {
             'brief_type' => 'informational guide brief',
         ]);
 
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&notice=created'));
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-suggestions&notice=brief_generated&id=' . $id));
         exit;
     }
 
@@ -840,10 +861,12 @@ class SuggestionsAdminPage {
         submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
 
-        if (in_array($notice, ['draft_created', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
+        if (in_array($notice, ['draft_created', 'brief_generated', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'draft_created') {
                 echo esc_html__('Noindex draft created for manual editing. This suggestion is marked as draft created and is not approved/live content.', 'tmwseo');
+            } elseif ($notice === 'brief_generated') {
+                echo esc_html__('Brief generated and saved in Content Briefs for manual review. Nothing is published or pushed live automatically.', 'tmwseo');
             } elseif ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
@@ -893,7 +916,10 @@ class SuggestionsAdminPage {
 
         echo '<table class="widefat fixed striped tmwseo-suggestions-table"><thead><tr>';
         echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Suggestion Type', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Draft Target Type', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Primary Action', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Title', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Description', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Estimated Traffic', 'tmwseo') . '</th>';
@@ -904,7 +930,7 @@ class SuggestionsAdminPage {
         echo '</tr></thead><tbody>';
 
         if (empty($filtered_rows)) {
-            echo '<tr><td colspan="9">' . esc_html__('No suggestions found for this filter.', 'tmwseo') . '</td></tr>';
+            echo '<tr><td colspan="12">' . esc_html__('No suggestions found for this filter.', 'tmwseo') . '</td></tr>';
         }
 
         foreach ($filtered_rows as $row) {
@@ -912,10 +938,18 @@ class SuggestionsAdminPage {
             $priority_score = (float) ($row['priority_score'] ?? 0);
             $priority_label = $this->priority_label($priority_score);
             $priority_class = strtolower($priority_label);
+            $status = sanitize_key((string) ($row['status'] ?? 'new'));
+            $status_meta = $this->suggestion_status_meta($status);
+            $destination = $this->resolve_draft_destination($row);
+            $destination_meta = $this->destination_type_meta($destination['destination_type']);
+            $primary_action_meta = $this->primary_action_meta((string) ($row['type'] ?? ''));
 
             echo '<tr>';
             echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span></td>';
+            echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span><div class="tmwseo-cell-note">' . esc_html($status_meta['help']) . '</div></td>';
             echo '<td>' . esc_html($this->format_label((string) ($row['type'] ?? ''))) . '</td>';
+            echo '<td><span class="tmwseo-target-badge tmwseo-target-' . esc_attr($destination_meta['class']) . '">' . esc_html($destination_meta['label']) . '</span><div class="tmwseo-cell-note">' . esc_html__('Draft only. Manual review required before any publish.', 'tmwseo') . '</div></td>';
+            echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span><div class="tmwseo-cell-note">' . esc_html($primary_action_meta['help']) . '</div></td>';
             echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong></td>';
             echo '<td>' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 22, '…')) . '</td>';
             echo '<td>' . esc_html(number_format_i18n((int) ($row['estimated_traffic'] ?? 0))) . '</td>';
@@ -957,6 +991,97 @@ class SuggestionsAdminPage {
         echo '<input type="hidden" name="row_action" value="' . esc_attr($action) . '">';
         submit_button($label, $class . ' small', 'submit', false);
         echo '</form>';
+    }
+
+
+    /**
+     * @return array{label:string,class:string,help:string}
+     */
+    private function suggestion_status_meta(string $status): array {
+        if ($status === 'draft_created') {
+            return [
+                'label' => __('Draft Created', 'tmwseo'),
+                'class' => 'draft-created',
+                'help' => __('Draft exists for manual editing. Nothing is live yet.', 'tmwseo'),
+            ];
+        }
+
+        if ($status === 'ignored') {
+            return [
+                'label' => __('Ignored', 'tmwseo'),
+                'class' => 'ignored',
+                'help' => __('Hidden from active queue until manually reconsidered.', 'tmwseo'),
+            ];
+        }
+
+        if ($status === 'implemented') {
+            return [
+                'label' => __('Implemented', 'tmwseo'),
+                'class' => 'implemented',
+                'help' => __('Operator confirmed this suggestion was completed manually.', 'tmwseo'),
+            ];
+        }
+
+        return [
+            'label' => __('New', 'tmwseo'),
+            'class' => 'new',
+            'help' => __('Awaiting operator decision.', 'tmwseo'),
+        ];
+    }
+
+    /**
+     * @return array{label:string,class:string}
+     */
+    private function destination_type_meta(string $destination_type): array {
+        if ($destination_type === 'category_page') {
+            return [
+                'label' => __('Category Page', 'tmwseo'),
+                'class' => 'category-page',
+            ];
+        }
+
+        if ($destination_type === 'model_page') {
+            return [
+                'label' => __('Model Page', 'tmwseo'),
+                'class' => 'model-page',
+            ];
+        }
+
+        if ($destination_type === 'video_page') {
+            return [
+                'label' => __('Video Page', 'tmwseo'),
+                'class' => 'video-page',
+            ];
+        }
+
+        return [
+            'label' => __('Generic Post Fallback', 'tmwseo'),
+            'class' => 'generic-post',
+        ];
+    }
+
+    /**
+     * @return array{label:string,help:string}
+     */
+    private function primary_action_meta(string $type): array {
+        if ($type === 'internal_link') {
+            return [
+                'label' => __('Insert Link Draft', 'tmwseo'),
+                'help' => __('Opens the internal-link helper in editor draft mode. You can also choose Generate Brief. No auto-insert happens.', 'tmwseo'),
+            ];
+        }
+
+        if ($type === 'content_brief') {
+            return [
+                'label' => __('Generate Brief', 'tmwseo'),
+                'help' => __('Builds a content brief for manual review. No publication or live update occurs.', 'tmwseo'),
+            ];
+        }
+
+        return [
+            'label' => __('Create Noindex Draft', 'tmwseo'),
+            'help' => __('Creates a noindex draft for manual review and edits. You can also choose Generate Brief.', 'tmwseo'),
+        ];
     }
 
     private function priority_label(float $score): string {

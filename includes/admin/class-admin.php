@@ -194,6 +194,70 @@ class Admin {
                 color:#1d4ed8;
             }
 
+
+            .tmwseo-status-badge,
+            .tmwseo-target-badge,
+            .tmwseo-action-label {
+                display:inline-block;
+                padding:4px 10px;
+                border-radius:999px;
+                font-weight:600;
+                font-size:12px;
+                line-height:1.4;
+                margin-bottom:6px;
+            }
+
+            .tmwseo-cell-note {
+                font-size:12px;
+                color:#4b5563;
+                line-height:1.45;
+            }
+
+            .tmwseo-status-new {
+                background:#eff6ff;
+                color:#1d4ed8;
+            }
+
+            .tmwseo-status-draft-created {
+                background:#ecfdf5;
+                color:#047857;
+            }
+
+            .tmwseo-status-ignored {
+                background:#f3f4f6;
+                color:#374151;
+            }
+
+            .tmwseo-status-implemented {
+                background:#ede9fe;
+                color:#6d28d9;
+            }
+
+            .tmwseo-target-category-page {
+                background:#fef3c7;
+                color:#92400e;
+            }
+
+            .tmwseo-target-model-page {
+                background:#dcfce7;
+                color:#166534;
+            }
+
+            .tmwseo-target-video-page {
+                background:#fee2e2;
+                color:#991b1b;
+            }
+
+            .tmwseo-target-generic-post {
+                background:#e0f2fe;
+                color:#075985;
+            }
+
+            .tmwseo-action-label {
+                background:#f3e8ff;
+                color:#6b21a8;
+            }
+
             .tmwseo-command-center {
                 max-width:1100px;
             }
