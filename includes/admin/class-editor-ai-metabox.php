@@ -14,6 +14,7 @@ class Editor_AI_Metabox {
         add_action('save_post', [__CLASS__, 'save_metabox']);
         add_action('admin_post_tmwseo_generate_draft_content_preview', [__CLASS__, 'handle_generate_draft_content_preview']);
         add_action('admin_post_tmwseo_apply_draft_content_preview', [__CLASS__, 'handle_apply_draft_content_preview']);
+        add_action('admin_post_tmwseo_prepare_draft_review_bundle', [__CLASS__, 'handle_prepare_draft_review_bundle']);
     }
 
     public static function enqueue_editor_assets(): void {
@@ -99,6 +100,12 @@ class Editor_AI_Metabox {
             echo '<input type="hidden" name="action" value="tmwseo_generate_draft_content_preview">';
             echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post->ID) . '">';
             echo '<button type="submit" class="button button-secondary" style="width:100%">' . esc_html__('Generate Draft Content Preview', 'tmwseo') . '</button>';
+            echo '</form>';
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:8px 0 0">';
+            wp_nonce_field('tmwseo_prepare_draft_review_bundle_' . $post->ID);
+            echo '<input type="hidden" name="action" value="tmwseo_prepare_draft_review_bundle">';
+            echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post->ID) . '">';
+            echo '<button type="submit" class="button button-primary" style="width:100%">' . esc_html__('Prepare for Human Review', 'tmwseo') . '</button>';
             echo '</form>';
             echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Preview-only assist for explicit drafts. Stores proposed SEO/content output in preview metadata only. Never auto-publishes, never writes post content.', 'tmwseo') . '</p>';
             self::render_preview_panel((int) $post->ID);
@@ -222,6 +229,43 @@ class Editor_AI_Metabox {
         exit;
     }
 
+    public static function handle_prepare_draft_review_bundle(): void {
+        $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+        if ($post_id <= 0) {
+            wp_die('Missing post ID');
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_prepare_draft_review_bundle_' . $post_id);
+
+        $template_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_preview_template_type', true));
+        if ($template_type === '') {
+            $template_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_suggestion_destination_type', true));
+        }
+        if ($template_type === '') {
+            $template_type = 'generic_post';
+        }
+
+        $result = AssistedDraftEnrichmentService::prepare_review_bundle_for_explicit_draft($post_id, [
+            'destination_type' => $template_type,
+        ]);
+        $notice = !empty($result['ok']) ? 'review_bundle_prepared' : 'review_bundle_refused';
+        $reason = sanitize_key((string) ($result['reason'] ?? ''));
+
+        $redirect = add_query_arg([
+            'post' => $post_id,
+            'action' => 'edit',
+            'tmwseo_notice' => $notice,
+            'reason' => $reason,
+        ], admin_url('post.php'));
+
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
     private static function render_preview_panel(int $post_id): void {
         $keys = AssistedDraftEnrichmentService::preview_meta_keys();
         $seo_title = (string) get_post_meta($post_id, $keys['seo_title'], true);
@@ -292,6 +336,26 @@ class Editor_AI_Metabox {
                 echo esc_html__('Last reviewed:', 'tmwseo') . ' ' . esc_html($last_reviewed_at);
             }
             echo '</p>';
+        }
+
+        $review_bundle = AssistedDraftEnrichmentService::get_review_bundle_for_explicit_draft($post_id);
+        if (!empty($review_bundle['ok'])) {
+            echo '<div style="border:1px solid #ccd0d4;background:#eef7ff;padding:8px;margin:0 0 8px;">';
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Prepared for Human Review Bundle', 'tmwseo') . '</strong></p>';
+            echo '<p style="margin:0 0 4px; font-size:12px;"><strong>' . esc_html__('Destination:', 'tmwseo') . '</strong> ' . esc_html(self::human_preview_template_label((string) ($review_bundle['destination_type'] ?? ''))) . ' · <strong>' . esc_html__('Template:', 'tmwseo') . '</strong> ' . esc_html(self::human_preview_template_label((string) ($review_bundle['template_type'] ?? ''))) . '</p>';
+            echo '<p style="margin:0 0 4px; font-size:12px;"><strong>' . esc_html__('Readiness:', 'tmwseo') . '</strong> ' . esc_html((string) ($review_bundle['readiness_label'] ?? '')) . ' (' . esc_html((string) ($review_bundle['readiness_score'] ?? 0)) . '/100)</p>';
+            echo '<p style="margin:0 0 4px; font-size:12px;"><strong>' . esc_html__('Recommended preset:', 'tmwseo') . '</strong> ' . esc_html((string) ($review_bundle['recommended_preset_label'] ?? 'n/a')) . '</p>';
+            echo '<p style="margin:0 0 4px; font-size:12px;"><strong>' . esc_html__('Missing pieces:', 'tmwseo') . '</strong> ' . esc_html((string) ($review_bundle['missing_summary'] ?? '')) . '</p>';
+            if ((string) ($review_bundle['destination_type'] ?? '') === 'category_page') {
+                $category_ready = (array) ($review_bundle['category_readiness'] ?? []);
+                echo '<p style="margin:0 0 4px; font-size:12px;"><strong>' . esc_html__('Category-page readiness:', 'tmwseo') . '</strong> '
+                    . esc_html__('SEO metadata', 'tmwseo') . ': ' . esc_html(!empty($category_ready['seo_metadata_ready']) ? 'ready' : 'missing') . ' · '
+                    . esc_html__('Outline', 'tmwseo') . ': ' . esc_html(!empty($category_ready['outline_ready']) ? 'ready' : 'missing') . ' · '
+                    . esc_html__('Content preview', 'tmwseo') . ': ' . esc_html(!empty($category_ready['content_preview_ready']) ? 'ready' : 'missing')
+                    . '</p>';
+            }
+            echo '<p style="margin:0; font-size:12px; opacity:.9;">' . esc_html__('Nothing has been applied automatically. Draft remains draft-only / noindex. Review and apply manually.', 'tmwseo') . '</p>';
+            echo '</div>';
         }
 
         $field_labels = AssistedDraftEnrichmentService::preview_apply_field_labels();

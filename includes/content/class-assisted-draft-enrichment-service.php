@@ -30,6 +30,10 @@ class AssistedDraftEnrichmentService {
     private const REVIEW_META_MISSING_SUMMARY = '_tmwseo_review_missing_summary';
     private const REVIEW_META_READINESS_LABEL = '_tmwseo_review_readiness_label';
     private const REVIEW_META_CONFIDENCE = '_tmwseo_review_confidence';
+    private const REVIEW_BUNDLE_META_PREPARED_AT = '_tmwseo_review_bundle_prepared_at';
+    private const REVIEW_BUNDLE_META_TYPE = '_tmwseo_review_bundle_type';
+    private const REVIEW_BUNDLE_META_SUMMARY = '_tmwseo_review_bundle_summary';
+    private const REVIEW_BUNDLE_META_RECOMMENDED_PRESET = '_tmwseo_review_bundle_recommended_preset';
 
     /**
      * @return array<string,mixed>
@@ -177,6 +181,16 @@ class AssistedDraftEnrichmentService {
             'missing_summary' => self::REVIEW_META_MISSING_SUMMARY,
             'readiness_label' => self::REVIEW_META_READINESS_LABEL,
             'confidence' => self::REVIEW_META_CONFIDENCE,
+        ];
+    }
+
+    /** @return array<string,string> */
+    public static function review_bundle_meta_keys(): array {
+        return [
+            'prepared_at' => self::REVIEW_BUNDLE_META_PREPARED_AT,
+            'bundle_type' => self::REVIEW_BUNDLE_META_TYPE,
+            'summary' => self::REVIEW_BUNDLE_META_SUMMARY,
+            'recommended_preset' => self::REVIEW_BUNDLE_META_RECOMMENDED_PRESET,
         ];
     }
 
@@ -418,6 +432,215 @@ class AssistedDraftEnrichmentService {
             'readiness_score' => $score,
             'readiness_label' => $readiness_label,
             'score_reasons' => $reasons,
+        ];
+    }
+
+    /**
+     * Prepare a review-only bundle for explicit drafts without applying any changes.
+     *
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public static function prepare_review_bundle_for_explicit_draft(int $post_id, array $context = []): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return ['ok' => false, 'reason' => 'post_not_found'];
+        }
+
+        if ($post->post_status !== 'draft') {
+            return ['ok' => false, 'reason' => 'non_draft_refused'];
+        }
+
+        $suggestion_id = (int) get_post_meta($post_id, '_tmwseo_suggestion_id', true);
+        if ($suggestion_id <= 0) {
+            return ['ok' => false, 'reason' => 'non_explicit_draft_refused'];
+        }
+
+        $keys = self::preview_meta_keys();
+        $destination_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_suggestion_destination_type', true));
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) get_post_meta($post_id, $keys['template_type'], true));
+        }
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) ($context['destination_type'] ?? 'generic_post'));
+        }
+        if ($destination_type === '') {
+            $destination_type = 'generic_post';
+        }
+
+        $template_type = sanitize_key((string) get_post_meta($post_id, $keys['template_type'], true));
+        if ($template_type === '') {
+            $template_type = $destination_type;
+        }
+
+        $available_preview_fields = [
+            'seo_title' => trim((string) get_post_meta($post_id, $keys['seo_title'], true)) !== '',
+            'meta_description' => trim((string) get_post_meta($post_id, $keys['meta_description'], true)) !== '',
+            'focus_keyword' => trim((string) get_post_meta($post_id, $keys['focus_keyword'], true)) !== '',
+            'outline' => trim((string) get_post_meta($post_id, $keys['outline'], true)) !== '',
+            'content_html' => trim((string) get_post_meta($post_id, $keys['content_html'], true)) !== '',
+        ];
+
+        $recommendation = self::build_review_recommendation_for_explicit_draft($post_id, [
+            'destination_type' => $destination_type,
+            'priority_score' => isset($context['priority_score']) ? (float) $context['priority_score'] : 0.0,
+            'estimated_traffic' => isset($context['estimated_traffic']) ? (int) $context['estimated_traffic'] : 0,
+        ]);
+
+        if (empty($recommendation['ok'])) {
+            return [
+                'ok' => false,
+                'reason' => (string) ($recommendation['reason'] ?? 'recommendation_failed'),
+            ];
+        }
+
+        $ready_count = count(array_filter($available_preview_fields));
+        $total_count = count($available_preview_fields);
+        $readiness = (string) ($recommendation['readiness_label'] ?? 'Needs preparation');
+        $score = (int) ($recommendation['readiness_score'] ?? 0);
+
+        $bundle_type = $destination_type === 'category_page' ? 'category_page_review_bundle' : 'generic_review_bundle';
+        $summary = sprintf(
+            'Prepared for human review: %d/%d preview assets ready; readiness %s (%d/100); recommended preset %s. Nothing has been applied automatically. Draft remains draft-only/noindex; review and apply manually.',
+            $ready_count,
+            $total_count,
+            $readiness,
+            $score,
+            (string) ($recommendation['recommended_preset_label'] ?? 'n/a')
+        );
+
+        $prepared_at = current_time('mysql');
+        update_post_meta($post_id, self::REVIEW_BUNDLE_META_PREPARED_AT, $prepared_at);
+        update_post_meta($post_id, self::REVIEW_BUNDLE_META_TYPE, $bundle_type);
+        update_post_meta($post_id, self::REVIEW_BUNDLE_META_SUMMARY, $summary);
+        update_post_meta($post_id, self::REVIEW_BUNDLE_META_RECOMMENDED_PRESET, sanitize_key((string) ($recommendation['recommended_preset'] ?? '')));
+
+        Logs::info('content', '[TMW-SEO-AUTO] Prepared assisted draft review bundle (manual review only)', [
+            'post_id' => $post_id,
+            'suggestion_id' => $suggestion_id,
+            'destination_type' => $destination_type,
+            'template_type' => $template_type,
+            'bundle_type' => $bundle_type,
+            'ready_count' => $ready_count,
+            'total_count' => $total_count,
+            'recommended_preset' => (string) ($recommendation['recommended_preset'] ?? ''),
+            'manual_only' => true,
+            'auto_apply' => false,
+            'auto_publish' => false,
+            'auto_noindex_clear' => false,
+            'live_mutation' => false,
+        ]);
+
+        $field_labels = self::preview_apply_field_labels();
+        $available_fields = [];
+        foreach ($available_preview_fields as $field => $is_available) {
+            if ($is_available) {
+                $available_fields[] = (string) ($field_labels[$field] ?? $field);
+            }
+        }
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'suggestion_id' => $suggestion_id,
+            'prepared_at' => $prepared_at,
+            'bundle_type' => $bundle_type,
+            'destination_type' => $destination_type,
+            'template_type' => $template_type,
+            'available_preview_fields' => $available_preview_fields,
+            'available_preview_field_labels' => $available_fields,
+            'recommended_preset' => (string) ($recommendation['recommended_preset'] ?? ''),
+            'recommended_preset_label' => (string) ($recommendation['recommended_preset_label'] ?? ''),
+            'readiness_score' => $score,
+            'readiness_label' => $readiness,
+            'missing_summary' => (string) ($recommendation['missing_summary'] ?? ''),
+            'trust_safe_summary' => $summary,
+            'next_steps' => [
+                'Prepared for human review.',
+                'Nothing has been applied automatically.',
+                'Draft remains draft-only / noindex.',
+                'Review and apply manually.',
+            ],
+            'category_readiness' => [
+                'seo_metadata_ready' => !empty($available_preview_fields['seo_title']) && !empty($available_preview_fields['meta_description']) && !empty($available_preview_fields['focus_keyword']),
+                'outline_ready' => !empty($available_preview_fields['outline']),
+                'content_preview_ready' => !empty($available_preview_fields['content_html']),
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public static function get_review_bundle_for_explicit_draft(int $post_id): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return ['ok' => false, 'reason' => 'post_not_found'];
+        }
+
+        if ($post->post_status !== 'draft') {
+            return ['ok' => false, 'reason' => 'non_draft_refused'];
+        }
+
+        $keys = self::preview_meta_keys();
+        $bundle_keys = self::review_bundle_meta_keys();
+
+        $prepared_at = (string) get_post_meta($post_id, $bundle_keys['prepared_at'], true);
+        if ($prepared_at === '') {
+            return ['ok' => false, 'reason' => 'bundle_not_prepared'];
+        }
+
+        $destination_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_suggestion_destination_type', true));
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) get_post_meta($post_id, $keys['template_type'], true));
+        }
+        if ($destination_type === '') {
+            $destination_type = 'generic_post';
+        }
+
+        $template_type = sanitize_key((string) get_post_meta($post_id, $keys['template_type'], true));
+        if ($template_type === '') {
+            $template_type = $destination_type;
+        }
+
+        $available_preview_fields = [
+            'seo_title' => trim((string) get_post_meta($post_id, $keys['seo_title'], true)) !== '',
+            'meta_description' => trim((string) get_post_meta($post_id, $keys['meta_description'], true)) !== '',
+            'focus_keyword' => trim((string) get_post_meta($post_id, $keys['focus_keyword'], true)) !== '',
+            'outline' => trim((string) get_post_meta($post_id, $keys['outline'], true)) !== '',
+            'content_html' => trim((string) get_post_meta($post_id, $keys['content_html'], true)) !== '',
+        ];
+
+        $recommendation = self::build_review_recommendation_for_explicit_draft($post_id, [
+            'destination_type' => $destination_type,
+        ]);
+
+        if (empty($recommendation['ok'])) {
+            return [
+                'ok' => false,
+                'reason' => (string) ($recommendation['reason'] ?? 'recommendation_failed'),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'prepared_at' => $prepared_at,
+            'bundle_type' => sanitize_key((string) get_post_meta($post_id, $bundle_keys['bundle_type'], true)),
+            'summary' => (string) get_post_meta($post_id, $bundle_keys['summary'], true),
+            'destination_type' => $destination_type,
+            'template_type' => $template_type,
+            'available_preview_fields' => $available_preview_fields,
+            'recommended_preset' => sanitize_key((string) get_post_meta($post_id, $bundle_keys['recommended_preset'], true)),
+            'recommended_preset_label' => (string) ($recommendation['recommended_preset_label'] ?? ''),
+            'readiness_score' => (int) ($recommendation['readiness_score'] ?? 0),
+            'readiness_label' => (string) ($recommendation['readiness_label'] ?? ''),
+            'missing_summary' => (string) ($recommendation['missing_summary'] ?? ''),
+            'category_readiness' => [
+                'seo_metadata_ready' => !empty($available_preview_fields['seo_title']) && !empty($available_preview_fields['meta_description']) && !empty($available_preview_fields['focus_keyword']),
+                'outline_ready' => !empty($available_preview_fields['outline']),
+                'content_preview_ready' => !empty($available_preview_fields['content_html']),
+            ],
         ];
     }
 

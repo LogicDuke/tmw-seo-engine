@@ -1086,6 +1086,10 @@ class Admin {
             $message = __('Reviewed preview fields were manually applied to this draft only. Nothing was published, live content was not changed, and noindex was not cleared automatically.', 'tmwseo');
         } elseif ($notice === 'draft_preview_apply_refused') {
             $message = __('Manual apply from preview was refused. This action requires an explicit draft and at least one selected preview field.', 'tmwseo');
+        } elseif ($notice === 'review_bundle_prepared') {
+            $message = __('Prepared for human review. Nothing has been applied automatically. Draft remains draft-only/noindex and requires manual review + manual apply.', 'tmwseo');
+        } elseif ($notice === 'review_bundle_refused') {
+            $message = __('Prepare for Human Review was refused. This action is allowed only for explicit operator-created draft posts.', 'tmwseo');
         }
 
         if ($message === '') {
