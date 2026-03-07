@@ -296,10 +296,22 @@ class Editor_AI_Metabox {
 
         $field_labels = AssistedDraftEnrichmentService::preview_apply_field_labels();
         $apply_presets = AssistedDraftEnrichmentService::preview_apply_presets_for_destination($template_type);
+        $recommendation = AssistedDraftEnrichmentService::build_review_recommendation_for_explicit_draft($post_id, [
+            'destination_type' => $template_type,
+        ]);
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:8px 0 0">';
         wp_nonce_field('tmwseo_apply_draft_content_preview_' . $post_id);
         echo '<input type="hidden" name="action" value="tmwseo_apply_draft_content_preview">';
         echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post_id) . '">';
+        if (!empty($recommendation['ok'])) {
+            echo '<div style="border:1px solid #ddd; background:#f6f7f7; padding:8px; margin:0 0 8px;">';
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Recommended preset (advisory)', 'tmwseo') . ':</strong> ' . esc_html((string) ($recommendation['recommended_preset_label'] ?? 'n/a')) . '</p>';
+            echo '<p style="margin:0 0 6px; font-size:12px;"><strong>' . esc_html__('Why', 'tmwseo') . ':</strong> ' . esc_html((string) ($recommendation['reason_summary'] ?? '')) . '</p>';
+            echo '<p style="margin:0 0 6px; font-size:12px;"><strong>' . esc_html__('Readiness', 'tmwseo') . ':</strong> ' . esc_html((string) ($recommendation['readiness_label'] ?? '')) . ' (' . esc_html((string) ($recommendation['readiness_score'] ?? 0)) . '/100)</p>';
+            echo '<p style="margin:0; font-size:12px;"><strong>' . esc_html__('Missing before apply', 'tmwseo') . ':</strong> ' . esc_html((string) ($recommendation['missing_summary'] ?? '')) . '</p>';
+            echo '</div>';
+        }
+
         if (!empty($apply_presets)) {
             echo '<p style="margin:0 0 6px"><label><strong>' . esc_html__('Apply preset', 'tmwseo') . '</strong><br><select name="tmwseo_apply_preview_preset" style="width:100%;max-width:100%;margin-top:4px;">';
             echo '<option value="">' . esc_html__('Manual field selection (no preset)', 'tmwseo') . '</option>';

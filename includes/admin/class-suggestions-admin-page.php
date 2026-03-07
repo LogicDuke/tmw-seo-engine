@@ -1506,10 +1506,22 @@ class SuggestionsAdminPage {
                 $destination_type = $this->get_suggestion_destination_type($id);
             }
             $apply_presets = AssistedDraftEnrichmentService::preview_apply_presets_for_destination($destination_type);
+            $recommendation = AssistedDraftEnrichmentService::build_review_recommendation_for_explicit_draft($draft_id, [
+                'destination_type' => $destination_type,
+            ]);
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;vertical-align:top;margin:0 6px 6px 0;max-width:320px;">';
             wp_nonce_field('tmwseo_apply_suggestion_draft_preview');
             echo '<input type="hidden" name="action" value="tmwseo_apply_suggestion_draft_preview">';
             echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
+            if (!empty($recommendation['ok'])) {
+                echo '<div style="border:1px solid #dcdcde;background:#f6f7f7;padding:6px 8px;margin:0 0 6px;">';
+                echo '<p style="margin:0 0 4px;font-size:11px;"><strong>' . esc_html__('Recommended preset (advisory):', 'tmwseo') . '</strong> ' . esc_html((string) ($recommendation['recommended_preset_label'] ?? 'n/a')) . '</p>';
+                echo '<p style="margin:0 0 4px;font-size:11px;line-height:1.3;"><strong>' . esc_html__('Why:', 'tmwseo') . '</strong> ' . esc_html((string) ($recommendation['reason_summary'] ?? '')) . '</p>';
+                echo '<p style="margin:0 0 4px;font-size:11px;line-height:1.3;"><strong>' . esc_html__('Readiness:', 'tmwseo') . '</strong> ' . esc_html((string) ($recommendation['readiness_label'] ?? '')) . ' (' . esc_html((string) ($recommendation['readiness_score'] ?? 0)) . '/100)</p>';
+                echo '<p style="margin:0;font-size:11px;line-height:1.3;"><strong>' . esc_html__('Missing before apply:', 'tmwseo') . '</strong> ' . esc_html((string) ($recommendation['missing_summary'] ?? '')) . '</p>';
+                echo '</div>';
+            }
+
             if (!empty($apply_presets)) {
                 echo '<p style="margin:0 0 6px;font-size:11px;"><strong>' . esc_html__('Preset apply (operator-triggered):', 'tmwseo') . '</strong></p>';
                 echo '<p style="margin:0 0 6px;"><label style="font-size:11px;line-height:1.3;">';
