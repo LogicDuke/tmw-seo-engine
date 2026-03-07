@@ -1144,23 +1144,59 @@ class SuggestionsAdminPage {
             $priority_score = (float) ($row['priority_score'] ?? 0);
             $priority_label = $this->priority_label($priority_score);
             $priority_class = strtolower($priority_label);
+            $priority_confidence = $this->priority_confidence_cue($priority_score);
             $status = sanitize_key((string) ($row['status'] ?? 'new'));
             $status_meta = $this->suggestion_status_meta($status);
             $destination = $this->resolve_draft_destination($row);
             $destination_meta = $this->destination_type_meta($destination['destination_type']);
             $primary_action_meta = $this->primary_action_meta((string) ($row['type'] ?? ''));
+            $type_label = $this->format_label((string) ($row['type'] ?? ''));
+            $source_engine_label = $this->format_label((string) ($row['source_engine'] ?? ''));
+            $description_summary = $this->build_row_summary((string) ($row['title'] ?? ''), (string) ($row['description'] ?? ''));
+            $opportunity_cue = $this->opportunity_cue((int) ($row['estimated_traffic'] ?? 0));
+            $manual_next_step = $this->manual_next_step_text((string) ($row['type'] ?? ''));
 
             echo '<tr>';
-            echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span></td>';
+            echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Confidence cue:', 'tmwseo') . '</strong> ' . esc_html($priority_confidence) . '</div></td>';
             echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Meaning:', 'tmwseo') . '</strong> ' . esc_html($status_meta['help']) . '</div></td>';
-            echo '<td>' . esc_html($this->format_label((string) ($row['type'] ?? ''))) . '</td>';
+            echo '<td>' . esc_html($type_label) . '</td>';
             echo '<td><span class="tmwseo-target-badge tmwseo-target-' . esc_attr($destination_meta['class']) . '">' . esc_html($destination_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Draft destination:', 'tmwseo') . '</strong> ' . esc_html($destination_meta['help']) . '</div></td>';
             echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('On click:', 'tmwseo') . '</strong> ' . esc_html($primary_action_meta['help']) . '</div></td>';
             echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong></td>';
-            echo '<td>' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 22, '…')) . '</td>';
+            echo '<td>';
+            echo '<div class="tmwseo-description-block">';
+            echo '<p class="tmwseo-description-summary"><strong>' . esc_html($description_summary) . '</strong></p>';
+            echo '<ul class="tmwseo-description-details">';
+            echo '<li><strong>' . esc_html__('Why this exists:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 18, '…')) . '</li>';
+            echo '<li><strong>' . esc_html__('Opportunity cue:', 'tmwseo') . '</strong> ' . esc_html($opportunity_cue) . '</li>';
+            echo '<li><strong>' . esc_html__('Source engine:', 'tmwseo') . '</strong> ' . esc_html($source_engine_label) . ' · <strong>' . esc_html__('Suggestion type:', 'tmwseo') . '</strong> ' . esc_html($type_label) . '</li>';
+            echo '<li><strong>' . esc_html__('Destination type:', 'tmwseo') . '</strong> ' . esc_html($destination_meta['label']) . '</li>';
+
+            if ((string) ($row['type'] ?? '') === 'internal_link') {
+                $link_context = $this->internal_link_row_context((string) ($row['description'] ?? ''));
+                if ($link_context['source'] !== '') {
+                    echo '<li><strong>' . esc_html__('Source page/post:', 'tmwseo') . '</strong> ' . esc_html($link_context['source']) . '</li>';
+                }
+                if ($link_context['target'] !== '') {
+                    echo '<li><strong>' . esc_html__('Target page/post:', 'tmwseo') . '</strong> ' . esc_html($link_context['target']) . '</li>';
+                }
+                if ($link_context['anchor'] !== '') {
+                    echo '<li><strong>' . esc_html__('Suggested anchor:', 'tmwseo') . '</strong> ' . esc_html($link_context['anchor']) . '</li>';
+                }
+                if ($link_context['snippet'] !== '') {
+                    echo '<li><strong>' . esc_html__('Context snippet:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($link_context['snippet'], 16, '…')) . '</li>';
+                }
+                echo '<li><strong>' . esc_html__('Manual next step:', 'tmwseo') . '</strong> ' . esc_html__('Open helper draft, review anchor/context, and insert manually only if approved. No automatic insertion occurs.', 'tmwseo') . '</li>';
+            } else {
+                echo '<li><strong>' . esc_html__('Manual next step:', 'tmwseo') . '</strong> ' . esc_html($manual_next_step) . '</li>';
+            }
+
+            echo '</ul>';
+            echo '</div>';
+            echo '</td>';
             echo '<td>' . esc_html(number_format_i18n((int) ($row['estimated_traffic'] ?? 0))) . '</td>';
             echo '<td>' . esc_html(number_format_i18n((float) ($row['difficulty'] ?? 0), 1)) . '</td>';
-            echo '<td>' . esc_html($this->format_label((string) ($row['source_engine'] ?? ''))) . '</td>';
+            echo '<td>' . esc_html($source_engine_label) . '</td>';
             echo '<td>' . esc_html(mysql2date(get_option('date_format') . ' ' . get_option('time_format'), (string) ($row['created_at'] ?? ''), true)) . '</td>';
             echo '<td>';
 
@@ -1494,6 +1530,73 @@ class SuggestionsAdminPage {
         }
 
         return 'Low';
+    }
+
+    private function priority_confidence_cue(float $score): string {
+        if ($score >= 8) {
+            return __('High confidence, review soon.', 'tmwseo');
+        }
+
+        if ($score >= 5) {
+            return __('Moderate confidence, review this cycle.', 'tmwseo');
+        }
+
+        return __('Lower confidence, review when higher-priority items are handled.', 'tmwseo');
+    }
+
+    private function opportunity_cue(int $estimated_traffic): string {
+        if ($estimated_traffic >= 500) {
+            return __('Higher opportunity based on estimated traffic.', 'tmwseo');
+        }
+
+        if ($estimated_traffic >= 100) {
+            return __('Moderate opportunity based on estimated traffic.', 'tmwseo');
+        }
+
+        if ($estimated_traffic > 0) {
+            return __('Early opportunity signal based on estimated traffic.', 'tmwseo');
+        }
+
+        return __('No traffic estimate available; use title and details for manual judgment.', 'tmwseo');
+    }
+
+    private function build_row_summary(string $title, string $description): string {
+        $title = trim($title);
+        $first_line = trim((string) strtok($description, "\n"));
+
+        if ($title !== '' && $first_line !== '') {
+            return wp_trim_words($title . ' — ' . $first_line, 20, '…');
+        }
+
+        if ($title !== '') {
+            return wp_trim_words($title, 20, '…');
+        }
+
+        if ($first_line !== '') {
+            return wp_trim_words($first_line, 20, '…');
+        }
+
+        return __('Suggestion available for manual review.', 'tmwseo');
+    }
+
+    /**
+     * @return array{source:string,target:string,anchor:string,snippet:string}
+     */
+    private function internal_link_row_context(string $description): array {
+        return [
+            'source' => $this->extract_line_value($description, 'Source Page:'),
+            'target' => $this->extract_line_value($description, 'Target Page:'),
+            'anchor' => $this->extract_section_text($description, 'Suggested anchor text:'),
+            'snippet' => $this->extract_section_text($description, 'Context snippet:'),
+        ];
+    }
+
+    private function manual_next_step_text(string $type): string {
+        if ($type === 'content_brief') {
+            return __('Generate and review the brief manually, then decide on execution. No automatic publish occurs.', 'tmwseo');
+        }
+
+        return __('Create a noindex draft, review/edit manually, and publish only with operator approval.', 'tmwseo');
     }
 
     private function format_label(string $value): string {
