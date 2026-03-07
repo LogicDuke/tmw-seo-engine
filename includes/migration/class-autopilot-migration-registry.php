@@ -50,6 +50,14 @@ class AutopilotMigrationRegistry {
                 'notes' => 'Operator-triggered draft creation only; draft stays manual review + manual publish.',
             ],
             [
+                'id' => 'suggestion_draft_metadata_enrichment',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'admin_post_tmwseo_enrich_suggestion_draft_metadata',
+                'legacy_path' => 'ContentEngine safe enrichment subset (keyword/quality/clustering metadata only)',
+                'notes' => 'Operator-triggered draft-only enrichment for explicit drafts. Refuses non-drafts; no live content mutation, no publish automation, no noindex clearing.',
+            ],
+            [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
                 'status' => self::STATUS_STILL_FENCED,
