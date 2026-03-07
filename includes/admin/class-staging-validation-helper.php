@@ -84,7 +84,7 @@ class Staging_Validation_Helper {
 
         echo '<hr />';
         echo '<h2>' . esc_html__('1) Staging Test Data Seeder', 'tmwseo') . '</h2>';
-        echo '<p>' . esc_html__('Creates and clears TEST DATA fixtures only. Published target creation is allowed only when no existing published page/post is available for internal-link validation.', 'tmwseo') . '</p>';
+        echo '<p>' . esc_html__('Creates and clears TEST DATA fixtures only. Internal-link validation always uses dedicated fixture source/target posts for deterministic staging behavior.', 'tmwseo') . '</p>';
 
         if (!$can_mutate) {
             echo '<div class="notice notice-warning"><p>' . esc_html__('Seeding and clear actions are disabled in production environments.', 'tmwseo') . '</p></div>';
@@ -325,6 +325,36 @@ class Staging_Validation_Helper {
             '%' . $wpdb->esc_like(self::TEST_MARKER) . '%',
             '%' . $wpdb->esc_like(self::TEST_MARKER) . '%'
         ));
+
+        $fixture_source_target_ids = get_posts([
+            'post_type' => ['post', 'page'],
+            'post_status' => 'any',
+            'posts_per_page' => 40,
+            'fields' => 'ids',
+            'meta_query' => [
+                'relation' => 'OR',
+                [
+                    'key' => '_tmwseo_staging_fixture_public_target',
+                    'value' => '1',
+                ],
+                [
+                    'key' => '_tmwseo_staging_fixture_public_source',
+                    'value' => '1',
+                ],
+            ],
+        ]);
+
+        foreach ($fixture_source_target_ids as $fixture_post_id) {
+            $source_like = '%' . $wpdb->esc_like('SOURCE_POST_ID: ' . (int) $fixture_post_id) . '%';
+            $target_like = '%' . $wpdb->esc_like('TARGET_POST_ID: ' . (int) $fixture_post_id) . '%';
+            $wpdb->query($wpdb->prepare(
+                'DELETE FROM ' . SuggestionEngine::table_name() . ' WHERE type = %s AND source_engine = %s AND (suggested_action LIKE %s OR suggested_action LIKE %s)',
+                'internal_link',
+                'internal_linking_engine',
+                $source_like,
+                $target_like
+            ));
+        }
 
         $fixture_posts = get_posts([
             'post_type' => 'post',
@@ -675,7 +705,7 @@ class Staging_Validation_Helper {
     }
 
     private static function get_or_create_cluster_target_post_id(): int {
-        $published_post_ids = get_posts([
+        $fixture_target_ids = get_posts([
             'post_type' => ['post', 'page'],
             'post_status' => 'publish',
             'posts_per_page' => 1,
@@ -684,15 +714,16 @@ class Staging_Validation_Helper {
             'fields' => 'ids',
             'meta_query' => [
                 [
-                    'key' => '_tmwseo_staging_fixture',
-                    'compare' => 'NOT EXISTS',
+                    'key' => '_tmwseo_staging_fixture_public_target',
+                    'value' => '1',
                 ],
             ],
         ]);
 
-        $published_post_id = !empty($published_post_ids) ? (int) $published_post_ids[0] : 0;
-        if ($published_post_id > 0) {
-            return $published_post_id;
+        $fixture_target_id = !empty($fixture_target_ids) ? (int) $fixture_target_ids[0] : 0;
+        if ($fixture_target_id > 0) {
+            update_post_meta($fixture_target_id, '_tmwseo_staging_fixture', 1);
+            return $fixture_target_id;
         }
 
         $fixture_post = wp_insert_post([
