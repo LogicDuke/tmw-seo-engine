@@ -357,12 +357,56 @@ class SuggestionsAdminPage {
             return;
         }
 
-        $notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
-        if ($notice !== 'internal_link_helper_opened') {
+        $helper_notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
+        $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
+        if ($helper_notice !== 'internal_link_helper_opened' && !in_array($notice, ['draft_created', 'brief_generated'], true)) {
             return;
         }
 
-        if (!current_user_can('edit_posts')) {
+        $is_suggestions_page = sanitize_key((string) ($_GET['page'] ?? '')) === 'tmwseo-suggestions';
+        if ($helper_notice === 'internal_link_helper_opened' && !current_user_can('edit_posts')) {
+            return;
+        }
+
+        if (in_array($notice, ['draft_created', 'brief_generated'], true) && (!$is_suggestions_page || !current_user_can('manage_options'))) {
+            return;
+        }
+
+        if ($notice === 'draft_created') {
+            $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
+            $draft_target_type = sanitize_key((string) ($_GET['draft_target_type'] ?? ''));
+            $destination_label = $this->format_destination_type_label($draft_target_type);
+
+            echo '<div class="notice notice-success is-dismissible"><p>';
+            echo esc_html__('Noindex draft created', 'tmwseo');
+            if ($destination_label !== '') {
+                echo esc_html(' (' . $destination_label . ')');
+            }
+            echo esc_html__('. Next step: edit the draft manually before any publication. This draft is not live, requires manual editing, and there is no automatic publish or automatic insertion.', 'tmwseo');
+            if ($draft_id > 0) {
+                $edit_link = get_edit_post_link($draft_id, '');
+                if (is_string($edit_link) && $edit_link !== '') {
+                    echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Edit Draft', 'tmwseo') . '</strong></a>';
+                }
+            }
+            echo '</p></div>';
+            return;
+        }
+
+        if ($notice === 'brief_generated') {
+            $briefs_link = admin_url('admin.php?page=tmwseo-content-briefs');
+            $brief_id = isset($_GET['brief_id']) ? (int) $_GET['brief_id'] : 0;
+            $brief_record_link = $brief_id > 0
+                ? add_query_arg('brief_id', $brief_id, $briefs_link) . '#tmwseo-brief-' . $brief_id
+                : '';
+
+            echo '<div class="notice notice-success is-dismissible"><p>';
+            echo esc_html__('Content brief generated. Next step: open Content Briefs and manually review before making content changes. Nothing is live, manual editing is still required, and there is no automatic publish or automatic insertion.', 'tmwseo');
+            echo ' <a href="' . esc_url($briefs_link) . '"><strong>' . esc_html__('Open Content Briefs', 'tmwseo') . '</strong></a>';
+            if ($brief_record_link !== '') {
+                echo ' | <a href="' . esc_url($brief_record_link) . '"><strong>' . esc_html__('Open New Brief Record', 'tmwseo') . '</strong></a>';
+            }
+            echo '</p></div>';
             return;
         }
 
@@ -885,38 +929,9 @@ class SuggestionsAdminPage {
         submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
 
-        if (in_array($notice, ['draft_created', 'brief_generated', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
+        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
-            if ($notice === 'draft_created') {
-                $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
-                $draft_target_type = sanitize_key((string) ($_GET['draft_target_type'] ?? ''));
-                $destination_label = $this->format_destination_type_label($draft_target_type);
-
-                echo esc_html__('Noindex draft created', 'tmwseo');
-                if ($destination_label !== '') {
-                    echo esc_html(' (' . $destination_label . ')');
-                }
-                echo esc_html__('. Next step: open/edit the draft manually and publish only when approved. Nothing is live and no automatic publishing happens.', 'tmwseo');
-
-                if ($draft_id > 0) {
-                    $edit_link = get_edit_post_link($draft_id, '');
-                    if (is_string($edit_link) && $edit_link !== '') {
-                        echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Edit Draft', 'tmwseo') . '</strong></a>';
-                    }
-                }
-            } elseif ($notice === 'brief_generated') {
-                $briefs_link = admin_url('admin.php?page=tmwseo-content-briefs');
-                $brief_id = isset($_GET['brief_id']) ? (int) $_GET['brief_id'] : 0;
-                $brief_record_link = $brief_id > 0
-                    ? add_query_arg('brief_id', $brief_id, $briefs_link) . '#tmwseo-brief-' . $brief_id
-                    : '';
-
-                echo esc_html__('Brief generated and saved in Content Briefs. Next step: review the brief manually before any content changes. Nothing is live and no automatic publishing happens.', 'tmwseo');
-                echo ' <a href="' . esc_url($briefs_link) . '"><strong>' . esc_html__('Open Content Briefs', 'tmwseo') . '</strong></a>';
-                if ($brief_record_link !== '') {
-                    echo ' | <a href="' . esc_url($brief_record_link) . '"><strong>' . esc_html__('Open New Brief Record', 'tmwseo') . '</strong></a>';
-                }
-            } elseif ($notice === 'scan_complete') {
+            if ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
                 $targets = isset($_GET['targets']) ? (int) $_GET['targets'] : 0;
