@@ -223,10 +223,33 @@ class Admin {
                 color:#111827;
             }
 
+            .tmwseo-description-details-inline {
+                margin:0;
+                color:#374151;
+                font-size:12px;
+            }
+
             .tmwseo-description-details {
                 margin:0;
                 padding-left:16px;
                 color:#374151;
+            }
+
+            .tmwseo-inline-preview {
+                padding:6px 8px;
+                border:1px solid #e5e7eb;
+                border-radius:8px;
+                background:#f9fafb;
+            }
+
+            .tmwseo-inline-preview summary {
+                cursor:pointer;
+                color:#111827;
+                margin-bottom:6px;
+            }
+
+            .tmwseo-inline-preview[open] summary {
+                margin-bottom:8px;
             }
 
             .tmwseo-description-details li {
