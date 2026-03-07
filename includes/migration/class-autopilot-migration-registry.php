@@ -99,6 +99,14 @@ class AutopilotMigrationRegistry {
                 'notes' => 'Operator-triggered explicit draft-only review handoff export. Reuses preview/recommendation/review-bundle metadata into copy-friendly handoff text; stores export metadata only; never auto-applies, never publishes, never mutates post_content/live posts, and never clears noindex.',
             ],
             [
+                'id' => 'suggestion_reviewer_checklist_signoff',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'admin_post_tmwseo_update_draft_review_signoff',
+                'legacy_path' => 'Explicit draft reviewer checklist + manual signoff state',
+                'notes' => 'Operator-triggered explicit draft-only review-state layer (checklist, notes, signoff metadata). Reuses preview/recommendation/review-bundle context; stores review state only; never auto-applies, never publishes, never mutates live posts, and never clears noindex.',
+            ],
+            [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
                 'status' => self::STATUS_STILL_FENCED,

@@ -16,6 +16,7 @@ class Editor_AI_Metabox {
         add_action('admin_post_tmwseo_apply_draft_content_preview', [__CLASS__, 'handle_apply_draft_content_preview']);
         add_action('admin_post_tmwseo_prepare_draft_review_bundle', [__CLASS__, 'handle_prepare_draft_review_bundle']);
         add_action('admin_post_tmwseo_export_draft_review_handoff', [__CLASS__, 'handle_export_draft_review_handoff']);
+        add_action('admin_post_tmwseo_update_draft_review_signoff', [__CLASS__, 'handle_update_draft_review_signoff']);
     }
 
     public static function enqueue_editor_assets(): void {
@@ -116,6 +117,7 @@ class Editor_AI_Metabox {
             echo '</form>';
             echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Preview-only assist for explicit drafts. Stores proposed SEO/content output in preview metadata only. Never auto-publishes, never writes post content.', 'tmwseo') . '</p>';
             self::render_preview_panel((int) $post->ID);
+            self::render_reviewer_signoff_panel((int) $post->ID, (string) $post->post_type);
         }
 
 
@@ -311,6 +313,56 @@ class Editor_AI_Metabox {
         exit;
     }
 
+    public static function handle_update_draft_review_signoff(): void {
+        $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+        if ($post_id <= 0) {
+            wp_die('Missing post ID');
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_update_draft_review_signoff_' . $post_id);
+
+        $action_key = isset($_POST['tmwseo_review_action']) ? sanitize_key((string) wp_unslash($_POST['tmwseo_review_action'])) : 'save_review_state';
+        $state = isset($_POST['tmwseo_review_state']) ? sanitize_key((string) wp_unslash($_POST['tmwseo_review_state'])) : 'not_reviewed';
+        $review_notes = isset($_POST['tmwseo_review_notes']) ? (string) wp_unslash($_POST['tmwseo_review_notes']) : '';
+
+        $raw_checklist = isset($_POST['tmwseo_review_checklist']) && is_array($_POST['tmwseo_review_checklist'])
+            ? (array) wp_unslash($_POST['tmwseo_review_checklist'])
+            : [];
+        $checklist = [];
+        foreach ($raw_checklist as $item_key => $item_value) {
+            $safe_key = sanitize_key((string) $item_key);
+            if ($safe_key === '') {
+                continue;
+            }
+
+            $checklist[$safe_key] = (string) $item_value === '1';
+        }
+
+        $result = AssistedDraftEnrichmentService::update_reviewer_signoff_for_explicit_draft($post_id, [
+            'action' => $action_key,
+            'state' => $state,
+            'checklist' => $checklist,
+            'review_notes' => $review_notes,
+        ]);
+
+        $notice = !empty($result['ok']) ? 'review_signoff_updated' : 'review_signoff_refused';
+        $reason = sanitize_key((string) ($result['reason'] ?? ''));
+
+        $redirect = add_query_arg([
+            'post' => $post_id,
+            'action' => 'edit',
+            'tmwseo_notice' => $notice,
+            'reason' => $reason,
+        ], admin_url('post.php'));
+
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
     private static function render_preview_panel(int $post_id): void {
         $keys = AssistedDraftEnrichmentService::preview_meta_keys();
         $seo_title = (string) get_post_meta($post_id, $keys['seo_title'], true);
@@ -464,6 +516,92 @@ class Editor_AI_Metabox {
         echo '<button type="submit" class="button button-primary" style="width:100%">' . esc_html__('Apply Reviewed Preview to Draft', 'tmwseo') . '</button>';
         echo '</form>';
         echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Manual operator action only. Applies selected preview fields into this draft only. Never publishes, never mutates live posts, and does not clear noindex.', 'tmwseo') . '</p>';
+    }
+
+    private static function render_reviewer_signoff_panel(int $post_id, string $post_type): void {
+        $signoff = AssistedDraftEnrichmentService::get_reviewer_signoff_for_explicit_draft($post_id);
+        if (empty($signoff['ok'])) {
+            return;
+        }
+
+        $state = sanitize_key((string) ($signoff['state'] ?? 'not_reviewed'));
+        $state_labels = [
+            'not_reviewed' => __('Not reviewed', 'tmwseo'),
+            'in_review' => __('In review', 'tmwseo'),
+            'reviewed_signed_off' => __('Signed off for manual next step', 'tmwseo'),
+            'needs_changes' => __('Needs changes', 'tmwseo'),
+        ];
+
+        $signed_off_at = (string) ($signoff['signed_off_at'] ?? '');
+        $signed_off_by = (int) ($signoff['signed_off_by'] ?? 0);
+        $signed_off_user = $signed_off_by > 0 ? get_userdata($signed_off_by) : false;
+        $notes = (string) ($signoff['review_notes'] ?? '');
+        $last_updated_at = (string) ($signoff['last_updated_at'] ?? '');
+        $checklist_items = is_array($signoff['checklist_items'] ?? null) ? $signoff['checklist_items'] : [];
+        $checklist = is_array($signoff['checklist'] ?? null) ? $signoff['checklist'] : [];
+        $is_category = sanitize_key((string) ($signoff['destination_type'] ?? '')) === 'category_page' || $post_type === 'tmw_category_page';
+
+        echo '<hr style="margin:12px 0">';
+        echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Reviewer Checklist + Signoff', 'tmwseo') . '</strong></p>';
+        echo '<p style="margin:0 0 8px; font-size:12px; opacity:.9">' . esc_html__('Signed off for manual next step. Nothing has been published automatically. Draft remains draft-only / noindex. Human signoff does not publish or apply anything automatically.', 'tmwseo') . '</p>';
+
+        echo '<div style="border:1px solid #ddd; background:#f6f7f7; padding:8px; margin:0 0 8px;">';
+        echo '<p style="margin:0 0 4px; font-size:12px;"><strong>' . esc_html__('Review status:', 'tmwseo') . '</strong> ' . esc_html((string) ($state_labels[$state] ?? $state)) . '</p>';
+        if ($last_updated_at !== '') {
+            echo '<p style="margin:0 0 4px; font-size:12px;"><strong>' . esc_html__('Last updated:', 'tmwseo') . '</strong> ' . esc_html($last_updated_at) . '</p>';
+        }
+        if ($signed_off_at !== '') {
+            $reviewer_label = $signed_off_user instanceof \WP_User ? (string) $signed_off_user->display_name : __('Unknown reviewer', 'tmwseo');
+            echo '<p style="margin:0; font-size:12px;"><strong>' . esc_html__('Signed off:', 'tmwseo') . '</strong> ' . esc_html($signed_off_at . ' · ' . $reviewer_label) . '</p>';
+        }
+        echo '</div>';
+
+        if ($is_category) {
+            echo '<p style="margin:0 0 8px; font-size:12px; color:#0a4b78;"><strong>' . esc_html__('Category-page first review path:', 'tmwseo') . '</strong> ' . esc_html__('Confirm SEO metadata readiness, outline readiness, content preview readiness, recommended preset review, and category intent/destination fit before manual next step.', 'tmwseo') . '</p>';
+        }
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:8px 0 0">';
+        wp_nonce_field('tmwseo_update_draft_review_signoff_' . $post_id);
+        echo '<input type="hidden" name="action" value="tmwseo_update_draft_review_signoff">';
+        echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post_id) . '">';
+
+        echo '<div style="border:1px solid #ddd; background:#fff; padding:8px; margin:0 0 8px;">';
+        echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Reviewer Checklist', 'tmwseo') . '</strong></p>';
+        foreach ($checklist_items as $item) {
+            $item_key = sanitize_key((string) ($item['key'] ?? ''));
+            if ($item_key === '') {
+                continue;
+            }
+
+            $item_label = (string) ($item['label'] ?? $item_key);
+            $item_desc = (string) ($item['description'] ?? '');
+            $checked = !empty($checklist[$item_key]);
+            echo '<p style="margin:0 0 6px"><label><input type="checkbox" name="tmwseo_review_checklist[' . esc_attr($item_key) . ']" value="1" ' . checked($checked, true, false) . '> ' . esc_html($item_label) . '</label>';
+            if ($item_desc !== '') {
+                echo '<br><span style="font-size:11px; opacity:.85; margin-left:18px; display:inline-block;">' . esc_html($item_desc) . '</span>';
+            }
+            echo '</p>';
+        }
+        echo '</div>';
+
+        echo '<p style="margin:0 0 8px"><label><strong>' . esc_html__('Reviewer state', 'tmwseo') . '</strong><br><select name="tmwseo_review_state" style="width:100%;margin-top:4px;">';
+        foreach ((array) ($signoff['states'] ?? []) as $state_key) {
+            $safe_state_key = sanitize_key((string) $state_key);
+            echo '<option value="' . esc_attr($safe_state_key) . '" ' . selected($safe_state_key, $state, false) . '>' . esc_html((string) ($state_labels[$safe_state_key] ?? $safe_state_key)) . '</option>';
+        }
+        echo '</select></label></p>';
+
+        echo '<p style="margin:0 0 8px"><label><strong>' . esc_html__('Review notes (optional)', 'tmwseo') . '</strong><br><textarea name="tmwseo_review_notes" rows="3" style="width:100%;margin-top:4px;" placeholder="' . esc_attr__('Short operator notes only. No implementation implied.', 'tmwseo') . '">' . esc_textarea($notes) . '</textarea></label></p>';
+
+        echo '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 0 8px;">';
+        echo '<button type="submit" class="button" name="tmwseo_review_action" value="mark_in_review">' . esc_html__('Mark In Review', 'tmwseo') . '</button>';
+        echo '<button type="submit" class="button" name="tmwseo_review_action" value="save_review_state">' . esc_html__('Save Review Notes', 'tmwseo') . '</button>';
+        echo '<button type="submit" class="button button-primary" name="tmwseo_review_action" value="sign_off_manual_next_step">' . esc_html__('Sign Off for Manual Next Step', 'tmwseo') . '</button>';
+        echo '<button type="submit" class="button button-secondary" name="tmwseo_review_action" value="reset_review_state">' . esc_html__('Reset Review State', 'tmwseo') . '</button>';
+        echo '</div>';
+
+        echo '<p style="margin:0; font-size:12px; opacity:.9">' . esc_html__('Trust-safe reminder: this review state never publishes, never auto-applies, never clears noindex, and never mutates live content.', 'tmwseo') . '</p>';
+        echo '</form>';
     }
 
     private static function human_preview_template_label(string $template_type): string {

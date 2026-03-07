@@ -20,6 +20,7 @@ class DebugPanels {
         $review_recommendation_count = self::meta_count('_tmwseo_review_recommended_preset');
         $review_bundle_count = self::meta_count('_tmwseo_review_bundle_prepared_at');
         $review_handoff_count = self::meta_count('_tmwseo_review_handoff_exported_at');
+        $review_signoff_count = self::meta_count('_tmwseo_review_state');
 
         $status = [
             'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
@@ -43,6 +44,7 @@ class DebugPanels {
             'draft review recommendations generated' => (string) $review_recommendation_count,
             'prepared human-review bundles' => (string) $review_bundle_count,
             'exported review handoffs' => (string) $review_handoff_count,
+            'reviewer checklist/signoff states saved' => (string) $review_signoff_count,
         ];
 
         echo '<h2>Engine Status</h2><table class="widefat striped"><tbody>';
@@ -53,7 +55,7 @@ class DebugPanels {
 
         $paths = AutopilotMigrationRegistry::all_paths();
         echo '<h3 style="margin-top:16px;">Phase C Legacy Autopilot Migration Registry</h3>';
-        echo '<p>Classification and migration state for legacy automation paths. Safe paths are operator-triggered only (including assisted draft-only metadata enrichment, preview-only draft content assist, manual preview apply to drafts with destination-aware apply presets, advisory-only explicit-draft review scoring recommendations, and explicit draft review-bundle preparation for human review, plus explicit draft review handoff export); live mutation paths remain fenced/disallowed in Phase C.</p>';
+        echo '<p>Classification and migration state for legacy automation paths. Safe paths are operator-triggered only (including assisted draft-only metadata enrichment, preview-only draft content assist, manual preview apply to drafts with destination-aware apply presets, advisory-only explicit-draft review scoring recommendations, explicit draft review-bundle preparation for human review, explicit draft review handoff export, and explicit draft reviewer checklist/signoff state); live mutation paths remain fenced/disallowed in Phase C.</p>';
         echo '<table class="widefat striped"><thead><tr>';
         echo '<th style="width:220px;">Path ID</th><th style="width:220px;">Bucket</th><th style="width:160px;">Status</th><th style="width:250px;">Operator Entry Point</th><th>Notes</th>';
         echo '</tr></thead><tbody>';
