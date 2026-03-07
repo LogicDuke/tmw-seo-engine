@@ -4,6 +4,8 @@ if (!defined('ABSPATH')) { exit; }
 
 class TMW_Model_Similarity_Engine {
     private const MIN_SCORE_TO_STORE = 61;
+    private const EMPTY_CLUSTER_REBUILD_META_KEY = '_tmw_similarity_empty_cluster_rebuild_at';
+    private const EMPTY_CLUSTER_REBUILD_COOLDOWN = 43200;
 
     private $calculator;
     private $database;
@@ -38,15 +40,15 @@ class TMW_Model_Similarity_Engine {
         $this->rebuild_relationships_for_model($post_id);
     }
 
-    public function rebuild_relationships_for_model(int $model_id): void {
+    public function rebuild_relationships_for_model(int $model_id): int {
         $model = get_post($model_id);
         if (!($model instanceof \WP_Post) || $model->post_type !== 'model' || $model->post_status !== 'publish') {
-            return;
+            return 0;
         }
 
         $source = $this->collect_model_metadata($model_id);
         if (empty($source)) {
-            return;
+            return 0;
         }
 
         $this->database->delete_for_model($model_id);
@@ -64,8 +66,10 @@ class TMW_Model_Similarity_Engine {
         ]);
 
         if (empty($candidates) || !is_array($candidates)) {
-            return;
+            return 0;
         }
+
+        $saved_relationships = 0;
 
         foreach ($candidates as $candidate_id) {
             $candidate_id = (int) $candidate_id;
@@ -82,7 +86,10 @@ class TMW_Model_Similarity_Engine {
 
             $this->database->save_relationship($model_id, $candidate_id, $score);
             $this->database->save_relationship($candidate_id, $model_id, $score);
+            $saved_relationships++;
         }
+
+        return $saved_relationships;
     }
 
     public function inject_similar_models_section(string $content): string {
@@ -96,8 +103,9 @@ class TMW_Model_Similarity_Engine {
         }
 
         $cluster = $this->cluster_builder->get_cluster($model_id, 5);
-        if (empty($cluster)) {
-            $this->rebuild_relationships_for_model($model_id);
+        if (empty($cluster) && $this->should_attempt_empty_cluster_rebuild($model_id)) {
+            $saved_relationships = $this->rebuild_relationships_for_model($model_id);
+            $this->record_empty_cluster_rebuild_attempt($model_id, $saved_relationships > 0);
             $cluster = $this->cluster_builder->get_cluster($model_id, 5);
         }
 
@@ -116,6 +124,24 @@ class TMW_Model_Similarity_Engine {
         $section = '<section class="tmw-similar-cam-models"><h3>Similar Cam Models</h3><ul>' . implode('', $items) . '</ul></section>';
 
         return $content . "\n" . $section;
+    }
+
+    private function should_attempt_empty_cluster_rebuild(int $model_id): bool {
+        $last_attempt = (int) get_post_meta($model_id, self::EMPTY_CLUSTER_REBUILD_META_KEY, true);
+        if ($last_attempt <= 0) {
+            return true;
+        }
+
+        return (time() - $last_attempt) >= self::EMPTY_CLUSTER_REBUILD_COOLDOWN;
+    }
+
+    private function record_empty_cluster_rebuild_attempt(int $model_id, bool $relationships_found): void {
+        if ($relationships_found) {
+            delete_post_meta($model_id, self::EMPTY_CLUSTER_REBUILD_META_KEY);
+            return;
+        }
+
+        update_post_meta($model_id, self::EMPTY_CLUSTER_REBUILD_META_KEY, time());
     }
 
     private function collect_model_metadata(int $model_id): array {

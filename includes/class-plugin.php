@@ -151,6 +151,30 @@ class Plugin {
      * If the site used an older build that scheduled cron jobs,
      * we actively remove them when Manual Control Mode is enabled.
      */
+
+    private static function ensure_model_similarity_table(): void {
+        global $wpdb;
+
+        $readiness_option = 'tmwseo_model_similarity_table_ready_version';
+        $readiness_version = (string) get_option($readiness_option, '');
+
+        if ($readiness_version === (string) TMWSEO_ENGINE_VERSION) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'tmw_model_similarity';
+        $table_exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+
+        if ($table_exists !== $table) {
+            Schema::create_or_update_tables();
+            $table_exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        }
+
+        if ($table_exists === $table) {
+            update_option($readiness_option, (string) TMWSEO_ENGINE_VERSION);
+        }
+    }
+
     private static function apply_manual_control_mode(): void {
         $applied_key = 'tmwseo_manual_control_applied_version';
         $already = (string) get_option($applied_key, '');
@@ -202,6 +226,9 @@ class Plugin {
 
         // Internal linking on model pages.
         \TMW_Internal_Link_Engine::init();
+
+        // Ensure schema upgrades are applied on already-active installs before similarity hooks run.
+        self::ensure_model_similarity_table();
         \TMW_Model_Similarity_Engine::init();
 
         // Topic authority clusters on model pages.
