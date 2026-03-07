@@ -38,6 +38,12 @@ class AssistedDraftEnrichmentService {
     private const REVIEW_HANDOFF_META_FORMAT = '_tmwseo_review_handoff_format';
     private const REVIEW_HANDOFF_META_SUMMARY_HASH = '_tmwseo_review_handoff_summary_hash';
     private const REVIEW_HANDOFF_META_TEXT = '_tmwseo_review_handoff_text';
+    private const REVIEW_META_CHECKLIST = '_tmwseo_review_checklist';
+    private const REVIEW_META_STATE = '_tmwseo_review_state';
+    private const REVIEW_META_SIGNED_OFF_AT = '_tmwseo_review_signed_off_at';
+    private const REVIEW_META_SIGNED_OFF_BY = '_tmwseo_review_signed_off_by';
+    private const REVIEW_META_NOTES = '_tmwseo_review_notes';
+    private const REVIEW_META_LAST_UPDATED_AT = '_tmwseo_review_last_updated_at';
 
     /**
      * @return array<string,mixed>
@@ -205,6 +211,259 @@ class AssistedDraftEnrichmentService {
             'format' => self::REVIEW_HANDOFF_META_FORMAT,
             'summary_hash' => self::REVIEW_HANDOFF_META_SUMMARY_HASH,
             'text' => self::REVIEW_HANDOFF_META_TEXT,
+        ];
+    }
+
+    /** @return array<string,string> */
+    public static function review_signoff_meta_keys(): array {
+        return [
+            'checklist' => self::REVIEW_META_CHECKLIST,
+            'state' => self::REVIEW_META_STATE,
+            'signed_off_at' => self::REVIEW_META_SIGNED_OFF_AT,
+            'signed_off_by' => self::REVIEW_META_SIGNED_OFF_BY,
+            'notes' => self::REVIEW_META_NOTES,
+            'last_updated_at' => self::REVIEW_META_LAST_UPDATED_AT,
+        ];
+    }
+
+    /** @return array<int,string> */
+    public static function review_state_options(): array {
+        return ['not_reviewed', 'in_review', 'reviewed_signed_off', 'needs_changes'];
+    }
+
+    /**
+     * @param array<string,mixed> $context
+     * @return array<int,array<string,mixed>>
+     */
+    public static function review_checklist_items_for_destination(string $destination_type, array $context = []): array {
+        $is_category_page = sanitize_key($destination_type) === 'category_page';
+        $recommended_preset_label = trim((string) ($context['recommended_preset_label'] ?? ''));
+        if ($recommended_preset_label === '') {
+            $recommended_preset_label = 'recommended preset';
+        }
+
+        $outline_label = $is_category_page
+            ? 'Category-page outline + content preview readiness reviewed'
+            : 'Outline/content preview reviewed';
+        $destination_label = $is_category_page
+            ? 'Category intent / destination fit reviewed'
+            : 'Destination fit reviewed';
+
+        return [
+            [
+                'key' => 'preview_reviewed',
+                'label' => 'Preview reviewed',
+                'description' => 'Confirm preview strategy and generated preview output were reviewed by a human.',
+            ],
+            [
+                'key' => 'recommended_preset_reviewed',
+                'label' => $is_category_page ? 'Category-page preset recommendation reviewed' : 'Recommended preset reviewed',
+                'description' => 'Advisory recommendation checked: ' . $recommended_preset_label . '.',
+            ],
+            [
+                'key' => 'seo_metadata_reviewed',
+                'label' => $is_category_page ? 'Category-page SEO metadata readiness reviewed' : 'SEO metadata reviewed',
+                'description' => 'SEO title, meta description, and focus keyword checked for manual next steps.',
+            ],
+            [
+                'key' => 'outline_content_preview_reviewed',
+                'label' => $outline_label,
+                'description' => 'Outline and content preview quality reviewed for manual draft-only workflow.',
+            ],
+            [
+                'key' => 'destination_fit_reviewed',
+                'label' => $destination_label,
+                'description' => 'Draft destination intent validated by reviewer before any manual apply decision.',
+            ],
+            [
+                'key' => 'trust_safety_acknowledged',
+                'label' => 'Trust/safety reminder acknowledged',
+                'description' => 'Human signoff does not publish or apply anything automatically.',
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public static function get_reviewer_signoff_for_explicit_draft(int $post_id, array $context = []): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return ['ok' => false, 'reason' => 'post_not_found'];
+        }
+
+        if ($post->post_status !== 'draft') {
+            return ['ok' => false, 'reason' => 'non_draft_refused'];
+        }
+
+        $suggestion_id = (int) get_post_meta($post_id, '_tmwseo_suggestion_id', true);
+        if ($suggestion_id <= 0) {
+            return ['ok' => false, 'reason' => 'non_explicit_draft_refused'];
+        }
+
+        $destination_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_suggestion_destination_type', true));
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) get_post_meta($post_id, self::PREVIEW_META_TEMPLATE_TYPE, true));
+        }
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) ($context['destination_type'] ?? 'generic_post'));
+        }
+        if ($destination_type === '') {
+            $destination_type = 'generic_post';
+        }
+
+        $recommendation = !empty($context['recommendation']) && is_array($context['recommendation'])
+            ? $context['recommendation']
+            : self::build_review_recommendation_for_explicit_draft($post_id, ['destination_type' => $destination_type]);
+        $recommended_preset_label = (string) ($recommendation['recommended_preset_label'] ?? 'recommended preset');
+
+        $checklist_items = self::review_checklist_items_for_destination($destination_type, [
+            'recommended_preset_label' => $recommended_preset_label,
+        ]);
+        $allowed_states = self::review_state_options();
+
+        $saved_state = sanitize_key((string) get_post_meta($post_id, self::REVIEW_META_STATE, true));
+        if (!in_array($saved_state, $allowed_states, true)) {
+            $saved_state = 'not_reviewed';
+        }
+
+        $saved_checklist_raw = (string) get_post_meta($post_id, self::REVIEW_META_CHECKLIST, true);
+        $saved_checklist = json_decode($saved_checklist_raw, true);
+        $saved_checklist = is_array($saved_checklist) ? $saved_checklist : [];
+
+        $resolved_checklist = [];
+        $completed_count = 0;
+        foreach ($checklist_items as $item) {
+            $key = (string) ($item['key'] ?? '');
+            if ($key === '') {
+                continue;
+            }
+
+            $is_checked = !empty($saved_checklist[$key]);
+            $resolved_checklist[$key] = $is_checked;
+            if ($is_checked) {
+                $completed_count++;
+            }
+        }
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'suggestion_id' => $suggestion_id,
+            'destination_type' => $destination_type,
+            'state' => $saved_state,
+            'states' => $allowed_states,
+            'checklist_items' => $checklist_items,
+            'checklist' => $resolved_checklist,
+            'checklist_completed_count' => $completed_count,
+            'checklist_total_count' => count($checklist_items),
+            'all_checklist_items_completed' => count($checklist_items) > 0 && $completed_count === count($checklist_items),
+            'recommended_preset_label' => $recommended_preset_label,
+            'review_notes' => (string) get_post_meta($post_id, self::REVIEW_META_NOTES, true),
+            'signed_off_at' => (string) get_post_meta($post_id, self::REVIEW_META_SIGNED_OFF_AT, true),
+            'signed_off_by' => (int) get_post_meta($post_id, self::REVIEW_META_SIGNED_OFF_BY, true),
+            'last_updated_at' => (string) get_post_meta($post_id, self::REVIEW_META_LAST_UPDATED_AT, true),
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public static function update_reviewer_signoff_for_explicit_draft(int $post_id, array $payload): array {
+        $snapshot = self::get_reviewer_signoff_for_explicit_draft($post_id, [
+            'destination_type' => (string) ($payload['destination_type'] ?? ''),
+        ]);
+        if (empty($snapshot['ok'])) {
+            return $snapshot;
+        }
+
+        $allowed_states = self::review_state_options();
+        $requested_state = sanitize_key((string) ($payload['state'] ?? ''));
+        if (!in_array($requested_state, $allowed_states, true)) {
+            $requested_state = (string) ($snapshot['state'] ?? 'not_reviewed');
+        }
+
+        $checklist_items = is_array($snapshot['checklist_items'] ?? null) ? $snapshot['checklist_items'] : [];
+        $incoming_checklist = is_array($payload['checklist'] ?? null) ? $payload['checklist'] : [];
+        $resolved_checklist = [];
+        foreach ($checklist_items as $item) {
+            $item_key = (string) ($item['key'] ?? '');
+            if ($item_key === '') {
+                continue;
+            }
+            $resolved_checklist[$item_key] = !empty($incoming_checklist[$item_key]);
+        }
+
+        $action = sanitize_key((string) ($payload['action'] ?? 'save_review_state'));
+        if ($action === 'mark_in_review') {
+            $requested_state = 'in_review';
+        } elseif ($action === 'reset_review_state') {
+            $requested_state = 'not_reviewed';
+            foreach (array_keys($resolved_checklist) as $item_key) {
+                $resolved_checklist[$item_key] = false;
+            }
+        } elseif ($action === 'sign_off_manual_next_step') {
+            $requested_state = 'reviewed_signed_off';
+        }
+
+        $all_checklist_complete = !empty($resolved_checklist) && !in_array(false, $resolved_checklist, true);
+        if ($action === 'sign_off_manual_next_step' && !$all_checklist_complete) {
+            return [
+                'ok' => false,
+                'reason' => 'checklist_incomplete',
+                'state' => $requested_state,
+            ];
+        }
+
+        $review_notes = isset($payload['review_notes']) ? sanitize_textarea_field((string) $payload['review_notes']) : (string) ($snapshot['review_notes'] ?? '');
+        $review_notes = trim(wp_html_excerpt($review_notes, 1000, ''));
+        $updated_at = current_time('mysql');
+
+        update_post_meta($post_id, self::REVIEW_META_CHECKLIST, wp_json_encode($resolved_checklist));
+        update_post_meta($post_id, self::REVIEW_META_STATE, $requested_state);
+        update_post_meta($post_id, self::REVIEW_META_NOTES, $review_notes);
+        update_post_meta($post_id, self::REVIEW_META_LAST_UPDATED_AT, $updated_at);
+
+        $signed_off_at = '';
+        $signed_off_by = 0;
+        if ($requested_state === 'reviewed_signed_off') {
+            $signed_off_at = current_time('mysql');
+            $signed_off_by = get_current_user_id();
+            update_post_meta($post_id, self::REVIEW_META_SIGNED_OFF_AT, $signed_off_at);
+            update_post_meta($post_id, self::REVIEW_META_SIGNED_OFF_BY, (string) $signed_off_by);
+        } else {
+            delete_post_meta($post_id, self::REVIEW_META_SIGNED_OFF_AT);
+            delete_post_meta($post_id, self::REVIEW_META_SIGNED_OFF_BY);
+        }
+
+        Logs::info('content', '[TMW-SEO-AUTO] Reviewer checklist/signoff updated for explicit draft (manual review state only)', [
+            'post_id' => $post_id,
+            'suggestion_id' => (int) ($snapshot['suggestion_id'] ?? 0),
+            'destination_type' => (string) ($snapshot['destination_type'] ?? ''),
+            'review_action' => $action,
+            'review_state' => $requested_state,
+            'checklist_complete' => $all_checklist_complete,
+            'signed_off_at' => $signed_off_at,
+            'signed_off_by' => $signed_off_by,
+            'manual_only' => true,
+            'auto_apply' => false,
+            'auto_publish' => false,
+            'auto_noindex_clear' => false,
+            'live_mutation' => false,
+        ]);
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'state' => $requested_state,
+            'checklist' => $resolved_checklist,
+            'review_notes' => $review_notes,
+            'last_updated_at' => $updated_at,
+            'signed_off_at' => $signed_off_at,
+            'signed_off_by' => $signed_off_by,
+            'all_checklist_items_completed' => $all_checklist_complete,
         ];
     }
 
