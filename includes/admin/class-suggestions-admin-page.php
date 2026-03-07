@@ -433,8 +433,8 @@ class SuggestionsAdminPage {
         if ($row_action === 'approve' || $row_action === 'create_draft') {
             $draft_id = $this->create_draft_from_suggestion($id);
             if ($draft_id > 0) {
-                $this->engine->updateSuggestionStatus($id, 'approved');
-                $notice = $row_action;
+                $this->engine->updateSuggestionStatus($id, 'draft_created');
+                $notice = 'draft_created';
             }
         }
 
@@ -840,12 +840,10 @@ class SuggestionsAdminPage {
         submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
 
-        if (in_array($notice, ['approve', 'create_draft', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
+        if (in_array($notice, ['draft_created', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
-            if ($notice === 'approve') {
-                echo esc_html__('Suggestion approved for draft creation. A noindex draft has been saved for human review.', 'tmwseo');
-            } elseif ($notice === 'create_draft') {
-                echo esc_html__('Draft post created for review. Suggestion status is approved for draft and not implemented.', 'tmwseo');
+            if ($notice === 'draft_created') {
+                echo esc_html__('Noindex draft created for manual editing. This suggestion is marked as draft created and is not approved/live content.', 'tmwseo');
             } elseif ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
@@ -929,7 +927,7 @@ class SuggestionsAdminPage {
             if ((string) ($row['type'] ?? '') === 'internal_link') {
                 $this->render_action_button($id, 'insert_link_draft', __('Insert Link Draft', 'tmwseo'), 'secondary');
             } else {
-                $this->render_action_button($id, 'create_draft', __('Create Draft', 'tmwseo'), 'secondary');
+                $this->render_action_button($id, 'create_draft', __('Create Noindex Draft', 'tmwseo'), 'secondary');
             }
 
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin:0 6px 6px 0;">';
@@ -939,7 +937,6 @@ class SuggestionsAdminPage {
             submit_button(__('Generate Brief', 'tmwseo'), 'secondary small', 'submit', false);
             echo '</form>';
 
-            $this->render_action_button($id, 'approve', __('Approve for Draft', 'tmwseo'), 'primary');
             $this->render_action_button($id, 'ignore', __('Ignore', 'tmwseo'), 'delete');
 
             $this->render_suggestion_details($row);
