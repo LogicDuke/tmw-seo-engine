@@ -24,6 +24,12 @@ class AssistedDraftEnrichmentService {
     private const PREVIEW_META_APPLY_PRESET = '_tmwseo_preview_apply_preset';
     private const PREVIEW_META_APPLY_PRESET_AT = '_tmwseo_preview_apply_preset_at';
     private const DRAFT_META_REVIEWED_OUTLINE = '_tmwseo_draft_reviewed_outline';
+    private const REVIEW_META_RECOMMENDED_PRESET = '_tmwseo_review_recommended_preset';
+    private const REVIEW_META_SCORE = '_tmwseo_review_score';
+    private const REVIEW_META_SCORE_REASONS = '_tmwseo_review_score_reasons';
+    private const REVIEW_META_MISSING_SUMMARY = '_tmwseo_review_missing_summary';
+    private const REVIEW_META_READINESS_LABEL = '_tmwseo_review_readiness_label';
+    private const REVIEW_META_CONFIDENCE = '_tmwseo_review_confidence';
 
     /**
      * @return array<string,mixed>
@@ -162,6 +168,18 @@ class AssistedDraftEnrichmentService {
         ];
     }
 
+    /** @return array<string,string> */
+    public static function review_recommendation_meta_keys(): array {
+        return [
+            'recommended_preset' => self::REVIEW_META_RECOMMENDED_PRESET,
+            'score' => self::REVIEW_META_SCORE,
+            'score_reasons' => self::REVIEW_META_SCORE_REASONS,
+            'missing_summary' => self::REVIEW_META_MISSING_SUMMARY,
+            'readiness_label' => self::REVIEW_META_READINESS_LABEL,
+            'confidence' => self::REVIEW_META_CONFIDENCE,
+        ];
+    }
+
     /**
      * @return array<string,string>
      */
@@ -235,6 +253,171 @@ class AssistedDraftEnrichmentService {
         return [
             'fields' => $requested_fields,
             'preset_key' => '',
+        ];
+    }
+
+    /**
+     * Build an advisory-only review score and preset recommendation for explicit drafts.
+     *
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public static function build_review_recommendation_for_explicit_draft(int $post_id, array $context = []): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return ['ok' => false, 'reason' => 'post_not_found'];
+        }
+
+        if ($post->post_status !== 'draft') {
+            return ['ok' => false, 'reason' => 'non_draft_refused'];
+        }
+
+        $keys = self::preview_meta_keys();
+        $destination_type = sanitize_key((string) get_post_meta($post_id, $keys['template_type'], true));
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) ($context['destination_type'] ?? 'generic_post'));
+        }
+        if ($destination_type === '') {
+            $destination_type = 'generic_post';
+        }
+
+        $seo_title = trim((string) get_post_meta($post_id, $keys['seo_title'], true));
+        $meta_description = trim((string) get_post_meta($post_id, $keys['meta_description'], true));
+        $focus_keyword = trim((string) get_post_meta($post_id, $keys['focus_keyword'], true));
+        $outline = trim((string) get_post_meta($post_id, $keys['outline'], true));
+        $content_html = trim((string) get_post_meta($post_id, $keys['content_html'], true));
+
+        $score = 0;
+        $reasons = [];
+        $missing = [];
+
+        $seo_len = mb_strlen($seo_title);
+        if ($seo_len >= 35 && $seo_len <= 65) {
+            $score += 20;
+            $reasons[] = 'SEO title preview is present and near ideal length.';
+        } elseif ($seo_len > 0) {
+            $score += 10;
+            $reasons[] = 'SEO title preview exists but length should be refined.';
+        } else {
+            $missing[] = 'SEO title preview is missing';
+        }
+
+        $meta_len = mb_strlen($meta_description);
+        if ($meta_len >= 120 && $meta_len <= 160) {
+            $score += 20;
+            $reasons[] = 'Meta description preview is present and near ideal length.';
+        } elseif ($meta_len > 0) {
+            $score += 10;
+            $reasons[] = 'Meta description preview exists but length should be refined.';
+        } else {
+            $missing[] = 'Meta description preview is missing';
+        }
+
+        if ($focus_keyword !== '') {
+            $score += 15;
+            $reasons[] = 'Focus keyword is present for manual review.';
+        } else {
+            $missing[] = 'Focus keyword missing, review before applying';
+        }
+
+        $outline_lines = array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $outline) ?: [])));
+        if (count($outline_lines) >= 3) {
+            $score += 20;
+            $reasons[] = 'Outline preview is complete enough for assisted apply review.';
+        } elseif ($outline !== '') {
+            $score += 10;
+            $reasons[] = 'Outline preview exists but is still sparse.';
+        } else {
+            $missing[] = 'Outline preview is missing';
+        }
+
+        $content_text_len = mb_strlen(trim(wp_strip_all_tags($content_html)));
+        $has_content_preview = $content_text_len >= 250;
+        if ($has_content_preview) {
+            $score += 15;
+            $reasons[] = 'Content preview is available for side-by-side review.';
+        } elseif ($content_text_len > 0) {
+            $score += 8;
+            $reasons[] = 'Content preview exists but is short.';
+            $missing[] = 'Content preview is short; consider regenerating before full apply';
+        } else {
+            $missing[] = 'Content preview missing';
+        }
+
+        if ($destination_type === 'category_page') {
+            $score += 10;
+            $reasons[] = 'Category page draft detected; category-first preset path is prioritized.';
+        }
+
+        $priority_score = isset($context['priority_score']) ? (float) $context['priority_score'] : 0.0;
+        if ($priority_score >= 8.0) {
+            $score += 5;
+            $reasons[] = 'High opportunity cue: priority score is high.';
+        }
+
+        $estimated_traffic = isset($context['estimated_traffic']) ? (int) $context['estimated_traffic'] : 0;
+        if ($estimated_traffic >= 500) {
+            $score += 5;
+            $reasons[] = 'Opportunity cue: estimated traffic is strong.';
+        }
+
+        $score = min(100, max(0, $score));
+        $readiness_label = $score >= 80 ? 'Apply-ready (manual review)' : ($score >= 55 ? 'Needs review' : 'Needs preparation');
+        $confidence = $score >= 80 ? 'high' : ($score >= 55 ? 'medium' : 'low');
+
+        $metadata_ready = ($seo_len > 0 ? 1 : 0) + ($meta_len > 0 ? 1 : 0) + ($focus_keyword !== '' ? 1 : 0);
+        $has_outline = $outline !== '';
+
+        $recommended_preset = 'generic_seo_metadata_only';
+        if ($destination_type === 'category_page') {
+            $recommended_preset = 'category_seo_metadata_only';
+            if ($metadata_ready >= 2 && $has_outline) {
+                $recommended_preset = $has_content_preview
+                    ? 'category_seo_outline_content'
+                    : 'category_seo_outline';
+            }
+        } elseif ($metadata_ready >= 2 && $has_outline) {
+            $recommended_preset = 'generic_seo_outline';
+        }
+
+        $presets = self::preview_apply_presets_for_destination($destination_type);
+        $recommended_label = (string) ($presets[$recommended_preset]['label'] ?? $recommended_preset);
+
+        if ($destination_type === 'category_page' && $has_content_preview && $metadata_ready >= 2 && $has_outline) {
+            $reason_summary = 'Category page preview has SEO metadata, outline, and content preview ready.';
+        } elseif ($destination_type === 'category_page' && $metadata_ready >= 2 && $has_outline) {
+            $reason_summary = 'Content preview missing, so SEO Metadata + Outline is recommended.';
+        } elseif ($focus_keyword === '') {
+            $reason_summary = 'Focus keyword missing, review before applying.';
+        } else {
+            $reason_summary = 'Recommended based on available preview metadata and destination type.';
+        }
+
+        $missing_summary = empty($missing)
+            ? 'No blocking gaps detected. Manual review still required before apply.'
+            : implode('; ', $missing) . '.';
+
+        self::store_review_recommendation_meta($post_id, [
+            'recommended_preset' => $recommended_preset,
+            'score' => $score,
+            'score_reasons' => $reasons,
+            'missing_summary' => $missing_summary,
+            'readiness_label' => $readiness_label,
+            'confidence' => $confidence,
+        ]);
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'destination_type' => $destination_type,
+            'recommended_preset' => $recommended_preset,
+            'recommended_preset_label' => $recommended_label,
+            'confidence' => $confidence,
+            'reason_summary' => $reason_summary,
+            'missing_summary' => $missing_summary,
+            'readiness_score' => $score,
+            'readiness_label' => $readiness_label,
+            'score_reasons' => $reasons,
         ];
     }
 
@@ -405,6 +588,18 @@ class AssistedDraftEnrichmentService {
         update_post_meta($post_id, self::PREVIEW_META_GENERATED_AT, (string) ($preview['generated_at'] ?? current_time('mysql')));
         update_post_meta($post_id, self::PREVIEW_META_STRATEGY, (string) ($preview['strategy'] ?? ''));
         update_post_meta($post_id, self::PREVIEW_META_TEMPLATE_TYPE, (string) ($preview['template_type'] ?? ''));
+    }
+
+    /**
+     * @param array<string,mixed> $recommendation
+     */
+    private static function store_review_recommendation_meta(int $post_id, array $recommendation): void {
+        update_post_meta($post_id, self::REVIEW_META_RECOMMENDED_PRESET, sanitize_key((string) ($recommendation['recommended_preset'] ?? '')));
+        update_post_meta($post_id, self::REVIEW_META_SCORE, (string) ((int) ($recommendation['score'] ?? 0)));
+        update_post_meta($post_id, self::REVIEW_META_SCORE_REASONS, wp_json_encode($recommendation['score_reasons'] ?? []));
+        update_post_meta($post_id, self::REVIEW_META_MISSING_SUMMARY, (string) ($recommendation['missing_summary'] ?? ''));
+        update_post_meta($post_id, self::REVIEW_META_READINESS_LABEL, (string) ($recommendation['readiness_label'] ?? ''));
+        update_post_meta($post_id, self::REVIEW_META_CONFIDENCE, sanitize_key((string) ($recommendation['confidence'] ?? '')));
     }
 
     /**

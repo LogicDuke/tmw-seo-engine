@@ -74,6 +74,14 @@ class AutopilotMigrationRegistry {
                 'notes' => 'Operator-triggered draft-only apply from reviewed preview metadata, including destination-aware apply presets for category-page-first review. Refuses non-drafts, applies only selected/preset fields via the same draft-only apply service, never publishes, never mutates live posts, and never clears noindex.',
             ],
             [
+                'id' => 'suggestion_draft_review_scoring_recommendation',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'assisted_draft_review_score (suggestions list + editor metabox advisory UI)',
+                'legacy_path' => 'Explicit draft preview review scoring + preset recommendation',
+                'notes' => 'Advisory-only recommendation path for explicit drafts (category-page-first). Stores review metadata only; never auto-applies, never publishes, never mutates live posts, and never clears noindex.',
+            ],
+            [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
                 'status' => self::STATUS_STILL_FENCED,
