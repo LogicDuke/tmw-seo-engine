@@ -33,6 +33,7 @@ class SuggestionEngine {
     /** @var string[] */
     private const ALLOWED_STATUSES = [
         'new',
+        'draft_created',
         'approved',
         'ignored',
         'implemented',
@@ -249,6 +250,8 @@ class SuggestionEngine {
             $event = '';
             if ($status === 'approved') {
                 $event = 'Suggestion approved';
+            } elseif ($status === 'draft_created') {
+                $event = 'Suggestion draft created';
             } elseif ($status === 'ignored') {
                 $event = 'Suggestion ignored';
             } elseif ($status === 'implemented') {
