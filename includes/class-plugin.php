@@ -214,8 +214,10 @@ class Plugin {
         Schema::ensure_intelligence_schema();
         Schema::normalize_cluster_schema_version_option();
 
-        // Phase 1: analysis-only, so we do NOT auto-hook ContentEngine.
+        // Phase 1 / Phase A: analysis-only, so we do NOT auto-hook ContentEngine.
+        // Legacy publish-trigger autopilot is additionally hard-fenced inside ContentEngine.
         if (!$manual) {
+            Logs::warn('core', '[TMW-SEO-AUTO] Manual mode disabled by policy override; ContentEngine init remains Phase A fenced');
             \TMWSEO\Engine\Content\ContentEngine::init();
         }
 
