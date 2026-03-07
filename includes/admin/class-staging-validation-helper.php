@@ -97,17 +97,20 @@ class Staging_Validation_Helper {
 
         echo '<div style="margin-top:14px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">';
 
+        $seed_button_attrs = $can_mutate ? [] : ['disabled' => 'disabled'];
+        $clear_button_attrs = $can_mutate ? [] : ['disabled' => 'disabled'];
+
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         echo '<input type="hidden" name="action" value="tmwseo_seed_staging_test_data" />';
         wp_nonce_field(self::NONCE_SEED);
         echo '<p><label><input type="checkbox" name="create_draft_fixtures" value="1" /> ' . esc_html__('Also create draft-only fixture posts (never publish).', 'tmwseo') . '</label></p>';
-        submit_button(__('Seed TEST DATA fixtures', 'tmwseo'), 'primary', 'submit', false, ['disabled' => $can_mutate ? false : true]);
+        submit_button(__('Seed TEST DATA fixtures', 'tmwseo'), 'primary', 'submit', false, $seed_button_attrs);
         echo '</form>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         echo '<input type="hidden" name="action" value="tmwseo_clear_staging_test_data" />';
         wp_nonce_field(self::NONCE_CLEAR);
-        submit_button(__('Clear TEST DATA fixtures only', 'tmwseo'), 'secondary', 'submit', false, ['disabled' => $can_mutate ? false : true]);
+        submit_button(__('Clear TEST DATA fixtures only', 'tmwseo'), 'secondary', 'submit', false, $clear_button_attrs);
         echo '</form>';
 
         echo '</div>';
