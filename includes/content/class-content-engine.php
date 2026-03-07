@@ -6,9 +6,7 @@ use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
-use TMWSEO\Engine\Keywords\ModelKeywordPack;
-use TMWSEO\Engine\Clustering\ClusterEngine;
-use TMWSEO\Engine\Content\QualityScoreEngine;
+use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -104,41 +102,6 @@ class ContentEngine {
         return 'video_or_post';
     }
 
-    private static function normalize_focus_keyword_for_post(\WP_Post $post, string $focus_kw): string {
-        if ($post->post_type === 'model') {
-            $model_name = trim((string)get_the_title($post->ID));
-            return $model_name !== '' ? $model_name : $focus_kw;
-        }
-
-        return $focus_kw;
-    }
-
-    private static function build_model_secondary_keywords(string $primary_keyword): array {
-        $primary_keyword = trim($primary_keyword);
-        if ($primary_keyword === '') return [];
-
-        return [
-            $primary_keyword . ' webcam',
-            $primary_keyword . ' live',
-            $primary_keyword . ' cam',
-            $primary_keyword . ' stream',
-        ];
-    }
-
-    private static function update_model_secondary_keywords_for_post(\WP_Post $post, string $primary_keyword): void {
-        if ($post->post_type !== 'model') return;
-
-        // Prefer unified keyword pack, then fallback to legacy storage.
-        $pack = \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::get_pack_with_legacy_fallback((int) $post->ID);
-
-        $secondary_keywords = (!empty($pack['additional']) && is_array($pack['additional']))
-            ? array_slice(array_values(array_filter(array_map('strval', $pack['additional']))), 0, 4)
-            : self::build_model_secondary_keywords($primary_keyword);
-        if (empty($secondary_keywords)) return;
-
-        update_post_meta($post->ID, 'rank_math_secondary_keywords', implode(',', $secondary_keywords));
-    }
-
     public static function run_optimize_job(array $job): void {
         $post_id = (int)($job['entity_id'] ?? 0);
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
@@ -175,20 +138,8 @@ class ContentEngine {
         // Build keyword pack for models (and keep it stored for UI + prompts).
         $keyword_pack = [];
         if ($post->post_type === 'model') {
-            $keyword_pack = ModelKeywordPack::build($post);
-            update_post_meta($post_id, '_tmwseo_keyword', $keyword_pack['primary']);
-            update_post_meta($post_id, 'tmw_keyword_pack', $keyword_pack);
-            update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($keyword_pack));
-
-            $cluster_engine = new ClusterEngine();
-            $cluster_engine->build_for_post($post_id);
-
-            // RankMath: store focus + a few extra keywords (comma separated).
-            $focus_list = array_merge([$keyword_pack['primary']], array_slice($keyword_pack['additional'], 0, 4));
-            $focus_list = array_values(array_unique(array_filter(array_map('trim', $focus_list), 'strlen')));
-            if (!empty($focus_list)) {
-                update_post_meta($post_id, 'rank_math_focus_keyword', implode(',', $focus_list));
-            }
+            $keyword_pack = AssistedDraftEnrichmentService::build_and_store_keyword_pack_for_post($post, true);
+            AssistedDraftEnrichmentService::enrich_rank_math_keywords($post, $keyword_pack);
         }
 
         if ($keywords_only) {
@@ -196,7 +147,7 @@ class ContentEngine {
             update_post_meta($post_id, '_tmwseo_optimize_done', 'keywords_refreshed');
 
             if ($post->post_type === 'model' && !empty($keyword_pack['primary'])) {
-                self::update_model_secondary_keywords_for_post($post, (string)$keyword_pack['primary']);
+                AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, (string)$keyword_pack['primary']);
             }
 
             Logs::info('content', '[TMW-KEYWORDS] Refreshed keyword pack + RankMath fields only', [
@@ -216,7 +167,7 @@ class ContentEngine {
                 $focus_kw = trim((string)get_post_meta($post_id, '_tmwseo_keyword', true));
                 if ($focus_kw === '') $focus_kw = trim((string)$post->post_title);
             }
-            $focus_kw = self::normalize_focus_keyword_for_post($post, $focus_kw);
+            $focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
 
             if ($post->post_type === 'model') {
                 $tpl = \TMWSEO\Engine\Content\TemplateContent::build_model($post, $keyword_pack);
@@ -231,7 +182,7 @@ class ContentEngine {
             }
 
             $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
-            self::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+            AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
 
             wp_update_post([
                 'ID'           => $post_id,
@@ -246,7 +197,7 @@ class ContentEngine {
                     update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
                 }
                 update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
-                self::update_model_secondary_keywords_for_post($post, $focus_kw);
+                AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
             }
 
             // Don't automatically remove noindex unless explicitly enabled.
@@ -271,10 +222,10 @@ class ContentEngine {
         }
         $secondary_keywords = [];
         if ($post->post_type === 'model') {
-            $primary_keyword = self::normalize_focus_keyword_for_post($post, $keyword);
+            $primary_keyword = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $keyword);
             $secondary_keywords = (!empty($keyword_pack['additional']) && is_array($keyword_pack['additional']))
                 ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['additional']))), 0, 4)
-                : self::build_model_secondary_keywords($primary_keyword);
+                : AssistedDraftEnrichmentService::build_model_secondary_keywords($primary_keyword);
         }
 
         $clean_title = TitleFixer::fix((string)$post->post_title);
@@ -315,7 +266,7 @@ class ContentEngine {
         $is_model_page = ($post->post_type === 'model');
 
         if ($is_model_page) {
-            $primary_keyword = self::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
+            $primary_keyword = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
             $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
                 "- Use this exact heading structure in content_html:\n" .
                 "  H1: {$primary_keyword} Live Chat\n" .
@@ -364,7 +315,7 @@ class ContentEngine {
             $focus_kw = (string)$keyword_pack['primary'];
         }
         $focus_kw  = trim($focus_kw);
-        $focus_kw  = self::normalize_focus_keyword_for_post($post, $focus_kw);
+        $focus_kw  = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
 
         if ($is_model_page) {
             $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html);
@@ -376,7 +327,7 @@ class ContentEngine {
         $generated_content = $html;
         error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content));
 
-        self::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+        AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
 
         if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
         if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
@@ -386,7 +337,7 @@ class ContentEngine {
                 update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
             }
             update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
-            self::update_model_secondary_keywords_for_post($post, $focus_kw);
+            AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
         }
 
         // Update content via a dedicated marker block (optional).
@@ -492,49 +443,6 @@ class ContentEngine {
         return ($occurrences / $word_count) * 100;
     }
 
-
-    private static function build_quality_context(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
-        $secondary_keywords = [];
-        if (!empty($keyword_pack['additional']) && is_array($keyword_pack['additional'])) {
-            $secondary_keywords = array_values(array_filter(array_map('strval', $keyword_pack['additional'])));
-        }
-
-        $entities = [];
-        $title = trim((string) $post->post_title);
-        if ($title !== '') {
-            $entities[] = $title;
-        }
-
-        if (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])) {
-            $entities = array_merge($entities, array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6));
-        }
-
-        if ($focus_kw !== '') {
-            $entities[] = $focus_kw;
-        }
-
-        return [
-            'primary_keyword' => $focus_kw,
-            'secondary_keywords' => $secondary_keywords,
-            'entities' => array_values(array_unique(array_filter($entities))),
-        ];
-    }
-
-    private static function persist_quality_score(int $post_id, string $content_html, \WP_Post $post, string $focus_kw, array $keyword_pack): array {
-        $quality = QualityScoreEngine::evaluate($content_html, self::build_quality_context($post, $focus_kw, $keyword_pack));
-
-        update_post_meta($post_id, '_tmwseo_quality_score', (int) ($quality['score'] ?? 0));
-        update_post_meta($post_id, '_tmwseo_quality_warning', !empty($quality['warning']) ? '1' : '0');
-        update_post_meta($post_id, '_tmwseo_quality_score_data', wp_json_encode($quality));
-
-        Logs::info('content', '[TMW-QUALITY] Draft evaluated', [
-            'post_id' => $post_id,
-            'score' => (int) ($quality['score'] ?? 0),
-            'warning' => !empty($quality['warning']),
-        ]);
-
-        return $quality;
-    }
 
     private static function maybe_clear_rank_math_noindex(\WP_Post $post): void {
         // We keep noindex by default until you explicitly enable auto-indexing.
