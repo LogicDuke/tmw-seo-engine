@@ -15,6 +15,7 @@ class Staging_Validation_Helper {
     private const NONCE_CLEAR = 'tmwseo_clear_staging_test_data';
     private const TEST_MARKER = '[TEST DATA]';
     private const CLUSTER_FIXTURE_SLUG = 'test-data-internal-link-validation-cluster';
+    private const CLUSTER_FIXTURE_KEYWORD = self::TEST_MARKER . ' internal link validation keyword';
 
     public static function init(): void {
         if (!is_admin()) {
@@ -632,7 +633,7 @@ class Staging_Validation_Helper {
         $keyword_id = (int) $wpdb->get_var($wpdb->prepare(
             'SELECT id FROM ' . $keywords_table . ' WHERE cluster_id = %d AND keyword = %s LIMIT 1',
             $cluster_id,
-            self::TEST_MARKER . ' internal link validation keyword'
+            self::CLUSTER_FIXTURE_KEYWORD
         ));
 
         if ($keyword_id <= 0) {
@@ -640,7 +641,7 @@ class Staging_Validation_Helper {
                 $keywords_table,
                 [
                     'cluster_id' => $cluster_id,
-                    'keyword' => self::TEST_MARKER . ' internal link validation keyword',
+                    'keyword' => self::CLUSTER_FIXTURE_KEYWORD,
                     'intent' => 'informational',
                 ],
                 ['%d', '%s', '%s']
@@ -651,6 +652,8 @@ class Staging_Validation_Helper {
         if ($target_post_id <= 0) {
             return;
         }
+
+        self::get_or_create_cluster_source_post_id($target_post_id);
 
         $page_mapping_id = (int) $wpdb->get_var($wpdb->prepare(
             'SELECT id FROM ' . $pages_table . ' WHERE cluster_id = %d AND post_id = %d LIMIT 1',
@@ -711,6 +714,54 @@ class Staging_Validation_Helper {
         return $fixture_post_id;
     }
 
+    private static function get_or_create_cluster_source_post_id(int $target_post_id): int {
+        $fixture_source_ids = get_posts([
+            'post_type' => ['post', 'page'],
+            'post_status' => 'publish',
+            'posts_per_page' => 1,
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'fields' => 'ids',
+            'post__not_in' => [$target_post_id],
+            'meta_query' => [
+                [
+                    'key' => '_tmwseo_staging_fixture_public_source',
+                    'value' => '1',
+                ],
+            ],
+        ]);
+
+        $source_content = self::CLUSTER_FIXTURE_KEYWORD . ' appears in this published source fixture content as plain text only.';
+        $source_post_id = !empty($fixture_source_ids) ? (int) $fixture_source_ids[0] : 0;
+
+        if ($source_post_id <= 0) {
+            $fixture_source = wp_insert_post([
+                'post_type' => 'page',
+                'post_status' => 'publish',
+                'post_title' => self::TEST_MARKER . ' Internal Link Source Fixture',
+                'post_content' => $source_content,
+                'post_author' => get_current_user_id() ?: 1,
+            ], true);
+
+            if (is_wp_error($fixture_source) || (int) $fixture_source <= 0) {
+                return 0;
+            }
+
+            $source_post_id = (int) $fixture_source;
+            update_post_meta($source_post_id, '_tmwseo_staging_fixture', 1);
+            update_post_meta($source_post_id, '_tmwseo_staging_fixture_public_source', 1);
+
+            return $source_post_id;
+        }
+
+        wp_update_post([
+            'ID' => $source_post_id,
+            'post_content' => $source_content,
+        ]);
+
+        return $source_post_id;
+    }
+
     private static function clear_cluster_validation_fixture(): void {
         global $wpdb;
 
@@ -742,11 +793,16 @@ class Staging_Validation_Helper {
         $published_fixture_posts = get_posts([
             'post_type' => ['post', 'page'],
             'post_status' => 'publish',
-            'posts_per_page' => 20,
+            'posts_per_page' => 40,
             'fields' => 'ids',
             'meta_query' => [
+                'relation' => 'OR',
                 [
                     'key' => '_tmwseo_staging_fixture_public_target',
+                    'value' => '1',
+                ],
+                [
+                    'key' => '_tmwseo_staging_fixture_public_source',
                     'value' => '1',
                 ],
             ],
