@@ -411,7 +411,8 @@ class SuggestionsAdminPage {
         if ($row_action === 'insert_link_draft') {
             $redirect_url = $this->build_internal_link_draft_redirect($id);
             if ($redirect_url !== '') {
-                $this->engine->updateSuggestionStatus($id, 'approved');
+                // Keep this helper flow fully manual: opening the editor does not
+                // imply a link was inserted, so suggestion status must remain unchanged.
                 wp_safe_redirect($redirect_url);
                 exit;
             }
