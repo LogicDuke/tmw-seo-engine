@@ -17,6 +17,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helpe
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-trust-policy.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-title-fixer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-openai.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
@@ -167,7 +168,7 @@ class Plugin {
      */
     private static function is_manual_control_mode(): bool {
         // Safety layer policy: manual control is always enforced.
-        return true;
+        return \TMWSEO\Engine\Services\TrustPolicy::is_manual_only();
     }
 
     /**
