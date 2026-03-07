@@ -8,6 +8,10 @@ class AutopilotMigrationRegistry {
     public const ASSISTED_DRAFT_ONLY = 'ASSISTED_DRAFT_ONLY';
     public const DISALLOWED_LIVE_MUTATION = 'DISALLOWED_LIVE_MUTATION';
 
+    public const STATUS_MIGRATED_SAFELY = 'migrated_safely';
+    public const STATUS_STILL_FENCED = 'still_fenced';
+    public const STATUS_PHASE_C_DISALLOWED = 'phase_c_disallowed';
+
     /**
      * @return array<int,array<string,string>>
      */
@@ -16,7 +20,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'smartqueue_candidate_discovery_snapshot',
                 'bucket' => self::SAFE_DISCOVERY_ONLY,
-                'status' => 'migrated_safely',
+                'status' => self::STATUS_MIGRATED_SAFELY,
                 'entry_point' => 'admin_post_tmwseo_run_phase_c_discovery_snapshot',
                 'legacy_path' => 'SmartQueue::scan candidate selection (read-safe subset)',
                 'notes' => 'Operator-triggered snapshot only. No queue enqueue, no content mutation, no publishing.',
@@ -24,7 +28,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'suggestion_scan_internal_links',
                 'bucket' => self::SAFE_DISCOVERY_ONLY,
-                'status' => 'migrated_safely',
+                'status' => self::STATUS_MIGRATED_SAFELY,
                 'entry_point' => 'admin_post_tmwseo_scan_internal_link_opportunities',
                 'legacy_path' => 'Internal link opportunity scanner',
                 'notes' => 'Manual scan only; produces suggestions for operator review and manual insertion.',
@@ -32,7 +36,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'suggestion_scan_content_improvements',
                 'bucket' => self::SAFE_DISCOVERY_ONLY,
-                'status' => 'migrated_safely',
+                'status' => self::STATUS_MIGRATED_SAFELY,
                 'entry_point' => 'admin_post_tmwseo_scan_content_improvements',
                 'legacy_path' => 'Content improvement analyzer scan',
                 'notes' => 'Manual scan only; no live updates and no publication automation.',
@@ -40,7 +44,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'suggestion_create_noindex_draft',
                 'bucket' => self::ASSISTED_DRAFT_ONLY,
-                'status' => 'migrated_safely',
+                'status' => self::STATUS_MIGRATED_SAFELY,
                 'entry_point' => 'admin_post_tmwseo_suggestion_action (create_draft)',
                 'legacy_path' => 'Suggestion action: create noindex draft',
                 'notes' => 'Operator-triggered draft creation only; draft stays manual review + manual publish.',
@@ -48,7 +52,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
-                'status' => 'still_fenced',
+                'status' => self::STATUS_STILL_FENCED,
                 'entry_point' => 'transition_post_status',
                 'legacy_path' => 'ContentEngine::on_transition_post_status',
                 'notes' => 'Hard fence keeps publish autopilot hooks OFF in Phase C.',
@@ -56,7 +60,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'legacy_smartqueue_cron_mutation',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
-                'status' => 'still_fenced',
+                'status' => self::STATUS_STILL_FENCED,
                 'entry_point' => 'tmwseo_daily_scan',
                 'legacy_path' => 'SmartQueue::scan enqueue optimize_post jobs',
                 'notes' => 'Cron disabled by trust policy/manual mode. No background content mutation enabled.',
@@ -64,7 +68,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'legacy_optimize_post_mutation_job',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
-                'status' => 'phase_c_disallowed',
+                'status' => self::STATUS_PHASE_C_DISALLOWED,
                 'entry_point' => 'Worker::dispatch optimize_post',
                 'legacy_path' => 'ContentEngine::run_optimize_job',
                 'notes' => 'Not migrated in this patch. Any mutate/optimize path stays manual and fenced.',
@@ -72,7 +76,7 @@ class AutopilotMigrationRegistry {
             [
                 'id' => 'legacy_auto_clear_noindex',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
-                'status' => 'phase_c_disallowed',
+                'status' => self::STATUS_PHASE_C_DISALLOWED,
                 'entry_point' => 'ContentEngine::maybe_clear_rank_math_noindex',
                 'legacy_path' => 'Automatic noindex clearing',
                 'notes' => 'Remains opt-in and not auto-enabled for Phase C migration.',
@@ -85,9 +89,9 @@ class AutopilotMigrationRegistry {
      */
     public static function status_counts(): array {
         $counts = [
-            'migrated_safely' => 0,
-            'still_fenced' => 0,
-            'phase_c_disallowed' => 0,
+            self::STATUS_MIGRATED_SAFELY => 0,
+            self::STATUS_STILL_FENCED => 0,
+            self::STATUS_PHASE_C_DISALLOWED => 0,
         ];
 
         foreach (self::all_paths() as $path) {
@@ -99,5 +103,40 @@ class AutopilotMigrationRegistry {
 
         return $counts;
     }
-}
 
+    public static function is_phase_c1_allowed(string $path_id): bool {
+        $path = self::path($path_id);
+        if (empty($path)) {
+            return false;
+        }
+
+        return (string) ($path['status'] ?? '') === self::STATUS_MIGRATED_SAFELY;
+    }
+
+    /** @return array<string,string> */
+    public static function path(string $path_id): array {
+        foreach (self::all_paths() as $path) {
+            if ((string) ($path['id'] ?? '') === $path_id) {
+                return $path;
+            }
+        }
+
+        return [];
+    }
+
+    public static function status_label(string $status): string {
+        if ($status === self::STATUS_MIGRATED_SAFELY) {
+            return 'migrated safely';
+        }
+
+        if ($status === self::STATUS_STILL_FENCED) {
+            return 'still fenced';
+        }
+
+        if ($status === self::STATUS_PHASE_C_DISALLOWED) {
+            return 'explicitly disallowed in current phase';
+        }
+
+        return $status;
+    }
+}
