@@ -11,6 +11,18 @@ use TMWSEO\Engine\Services\TrustPolicy;
 if (!defined('ABSPATH')) { exit; }
 
 class SuggestionsAdminPage {
+    private const SUGGESTION_DESTINATION_FALLBACK = 'generic_post';
+
+    /**
+     * @var array<string,string>
+     */
+    private const SUGGESTION_DESTINATION_POST_TYPE_MAP = [
+        'category_page' => 'tmw_category_page',
+        'model_page' => 'model',
+        'video_page' => 'post',
+        'generic_post' => 'post',
+    ];
+
     private SuggestionEngine $engine;
 
     public function __construct(?SuggestionEngine $engine = null) {
@@ -481,8 +493,10 @@ class SuggestionsAdminPage {
             return 0;
         }
 
+        $draft_destination = $this->resolve_draft_destination($row);
+
         $existing = get_posts([
-            'post_type' => 'post',
+            'post_type' => array_values(array_unique(array_values(self::SUGGESTION_DESTINATION_POST_TYPE_MAP))),
             'post_status' => ['draft', 'pending', 'publish', 'future', 'private'],
             'posts_per_page' => 1,
             'fields' => 'ids',
@@ -525,7 +539,7 @@ class SuggestionsAdminPage {
         $content .= '<p>' . esc_html($suggested_action) . '</p>';
 
         $post_id = wp_insert_post([
-            'post_type' => 'post',
+            'post_type' => $draft_destination['post_type'],
             'post_status' => 'draft',
             'post_title' => wp_strip_all_tags($title),
             'post_content' => $content,
@@ -545,6 +559,9 @@ class SuggestionsAdminPage {
         update_post_meta($post_id, '_tmwseo_suggestion_type', sanitize_key((string) ($row['type'] ?? '')));
         update_post_meta($post_id, '_tmwseo_suggestion_source_engine', sanitize_key((string) ($row['source_engine'] ?? '')));
         update_post_meta($post_id, '_tmwseo_suggestion_priority', (float) ($row['priority_score'] ?? 0));
+        update_post_meta($post_id, '_tmwseo_suggestion_destination_type', $draft_destination['destination_type']);
+        update_post_meta($post_id, '_tmwseo_suggestion_destination_post_type', $draft_destination['post_type']);
+        update_post_meta($post_id, '_tmwseo_autopilot_migration_status', 'not_migrated');
         update_post_meta($post_id, 'rank_math_robots', ['noindex']);
 
         Logs::info('suggestions', '[TMW-SUGGEST] Draft created from suggestion (manual action)', [
@@ -553,6 +570,87 @@ class SuggestionsAdminPage {
         ]);
 
         return (int) $post_id;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @return array{destination_type:string,post_type:string}
+     */
+    private function resolve_draft_destination(array $row): array {
+        $explicit_destination = $this->extract_destination_type((string) ($row['suggested_action'] ?? ''));
+
+        if ($explicit_destination === '') {
+            $explicit_destination = $this->extract_destination_type((string) ($row['description'] ?? ''));
+        }
+
+        if ($explicit_destination === '') {
+            $explicit_destination = $this->infer_destination_type((string) ($row['title'] ?? ''), (string) ($row['description'] ?? ''));
+        }
+
+        if (!isset(self::SUGGESTION_DESTINATION_POST_TYPE_MAP[$explicit_destination])) {
+            $explicit_destination = self::SUGGESTION_DESTINATION_FALLBACK;
+        }
+
+        return [
+            'destination_type' => $explicit_destination,
+            'post_type' => self::SUGGESTION_DESTINATION_POST_TYPE_MAP[$explicit_destination],
+        ];
+    }
+
+    private function extract_destination_type(string $text): string {
+        if ($text === '') {
+            return '';
+        }
+
+        if (preg_match('/(?:DESTINATION_TYPE|Destination type):\s*([a-z_\- ]+)/i', $text, $matches)) {
+            return $this->normalize_destination_type((string) ($matches[1] ?? ''));
+        }
+
+        return '';
+    }
+
+    private function infer_destination_type(string $title, string $description): string {
+        $haystack = strtolower(trim($title . "\n" . $description));
+        if ($haystack === '') {
+            return '';
+        }
+
+        if (strpos($haystack, 'category page') !== false || strpos($haystack, 'suggested content type: category') !== false) {
+            return 'category_page';
+        }
+
+        if (strpos($haystack, 'model page') !== false || strpos($haystack, 'model profile') !== false) {
+            return 'model_page';
+        }
+
+        if (strpos($haystack, 'video page') !== false || strpos($haystack, 'video post') !== false) {
+            return 'video_page';
+        }
+
+        return '';
+    }
+
+    private function normalize_destination_type(string $raw): string {
+        $normalized = strtolower(trim($raw));
+        $normalized = str_replace(['-', ' '], '_', $normalized);
+
+        if ($normalized === 'post' || $normalized === 'article') {
+            return 'generic_post';
+        }
+
+        if ($normalized === 'category' || $normalized === 'category_archive') {
+            return 'category_page';
+        }
+
+        if ($normalized === 'model') {
+            return 'model_page';
+        }
+
+        if ($normalized === 'video') {
+            return 'video_page';
+        }
+
+        return $normalized;
     }
 
 
