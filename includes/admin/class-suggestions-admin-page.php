@@ -455,6 +455,15 @@ class SuggestionsAdminPage {
             if ($draft_id > 0) {
                 $this->engine->updateSuggestionStatus($id, 'draft_created');
                 $notice = 'draft_created';
+                $destination_type = sanitize_key((string) get_post_meta($draft_id, '_tmwseo_suggestion_destination_type', true));
+                wp_safe_redirect(add_query_arg([
+                    'page' => 'tmwseo-suggestions',
+                    'notice' => $notice,
+                    'id' => $id,
+                    'draft_id' => $draft_id,
+                    'draft_target_type' => $destination_type,
+                ], admin_url('admin.php')));
+                exit;
             }
         }
 
@@ -711,14 +720,20 @@ class SuggestionsAdminPage {
         }
 
         $generator = new ContentBriefGenerator();
-        $generator->generate([
+        $brief = $generator->generate([
             'primary_keyword' => (string) ($selected['title'] ?? ''),
             'keyword_cluster' => (string) ($selected['source_engine'] ?? 'General'),
             'search_intent' => 'Informational',
             'brief_type' => 'informational guide brief',
         ]);
 
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-suggestions&notice=brief_generated&id=' . $id));
+        $brief_id = (int) ($brief['id'] ?? 0);
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'notice' => 'brief_generated',
+            'id' => $id,
+            'brief_id' => $brief_id,
+        ], admin_url('admin.php')));
         exit;
     }
 
@@ -763,12 +778,17 @@ class SuggestionsAdminPage {
 
         global $wpdb;
         $rows = (array) $wpdb->get_results('SELECT id, primary_keyword, cluster_key, brief_type, status, created_at FROM ' . IntelligenceStorage::table_content_briefs() . ' ORDER BY id DESC LIMIT 200', ARRAY_A);
+        $focus_brief_id = isset($_GET['brief_id']) ? (int) $_GET['brief_id'] : 0;
 
         echo '<div class="wrap"><h1>Content Briefs</h1>';
         echo '<p>Suggestion-first briefs only. No automatic publishing or live content updates.</p>';
         echo '<table class="widefat striped"><thead><tr><th>ID</th><th>Primary Keyword</th><th>Cluster</th><th>Type</th><th>Status</th><th>Created</th></tr></thead><tbody>';
         foreach ($rows as $row) {
-            echo '<tr>';
+            $row_id = (int) ($row['id'] ?? 0);
+            $highlight_style = ($focus_brief_id > 0 && $focus_brief_id === $row_id)
+                ? ' style="background:#fff8e5;"'
+                : '';
+            echo '<tr id="tmwseo-brief-' . esc_attr((string) $row_id) . '"' . $highlight_style . '>';
             echo '<td>' . esc_html((string) ($row['id'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($row['primary_keyword'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($row['cluster_key'] ?? '')) . '</td>';
@@ -799,6 +819,10 @@ class SuggestionsAdminPage {
 
             if ($active_filter === 'ignored') {
                 return $status === 'ignored';
+            }
+
+            if ($active_filter === 'draft_created') {
+                return $status === 'draft_created';
             }
 
             if (in_array($status, ['ignored', 'implemented'], true)) {
@@ -864,9 +888,34 @@ class SuggestionsAdminPage {
         if (in_array($notice, ['draft_created', 'brief_generated', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'draft_created') {
-                echo esc_html__('Noindex draft created. Next step: open the draft, review/edit manually, and publish only when approved. This suggestion stays in draft-created state and is never live by default.', 'tmwseo');
+                $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
+                $draft_target_type = sanitize_key((string) ($_GET['draft_target_type'] ?? ''));
+                $destination_label = $this->format_destination_type_label($draft_target_type);
+
+                echo esc_html__('Noindex draft created', 'tmwseo');
+                if ($destination_label !== '') {
+                    echo esc_html(' (' . $destination_label . ')');
+                }
+                echo esc_html__('. Next step: open/edit the draft manually and publish only when approved. Nothing is live and no automatic publishing happens.', 'tmwseo');
+
+                if ($draft_id > 0) {
+                    $edit_link = get_edit_post_link($draft_id, '');
+                    if (is_string($edit_link) && $edit_link !== '') {
+                        echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Edit Draft', 'tmwseo') . '</strong></a>';
+                    }
+                }
             } elseif ($notice === 'brief_generated') {
-                echo esc_html__('Brief generated and saved in Content Briefs. Next step: review and decide manually whether to create/edit content. Nothing is published or pushed live automatically.', 'tmwseo');
+                $briefs_link = admin_url('admin.php?page=tmwseo-content-briefs');
+                $brief_id = isset($_GET['brief_id']) ? (int) $_GET['brief_id'] : 0;
+                $brief_record_link = $brief_id > 0
+                    ? add_query_arg('brief_id', $brief_id, $briefs_link) . '#tmwseo-brief-' . $brief_id
+                    : '';
+
+                echo esc_html__('Brief generated and saved in Content Briefs. Next step: review the brief manually before any content changes. Nothing is live and no automatic publishing happens.', 'tmwseo');
+                echo ' <a href="' . esc_url($briefs_link) . '"><strong>' . esc_html__('Open Content Briefs', 'tmwseo') . '</strong></a>';
+                if ($brief_record_link !== '') {
+                    echo ' | <a href="' . esc_url($brief_record_link) . '"><strong>' . esc_html__('Open New Brief Record', 'tmwseo') . '</strong></a>';
+                }
             } elseif ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
@@ -886,6 +935,7 @@ class SuggestionsAdminPage {
         $tabs = [
             'all' => 'All',
             'high_priority' => 'High Priority',
+            'draft_created' => 'Draft Created',
             'ignored' => 'Ignored',
             'content_opportunity' => 'Content Opportunities',
             'internal_linking' => 'Internal Linking',
@@ -916,6 +966,10 @@ class SuggestionsAdminPage {
 
         echo '<div class="notice notice-info" style="margin:10px 0 16px;"><p><strong>' . esc_html__('Operator quick guide:', 'tmwseo') . '</strong> ';
         echo esc_html__('Statuses track workflow only (New → Draft Created → Implemented, or Ignored). Draft Target Type shows where a draft will be created (Category, Model, Video, or Generic fallback). Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');
+        echo '</p></div>';
+
+        echo '<div class="notice notice-info" style="margin:10px 0 16px;"><p><strong>' . esc_html__('Next step guidance:', 'tmwseo') . '</strong> ';
+        echo esc_html__('Draft created → open/edit the draft manually. Brief generated → review the brief manually. Internal-link helper opened → review anchor/context and insert manually only if approved. Nothing is published or inserted live automatically.', 'tmwseo');
         echo '</p></div>';
 
         echo '<table class="widefat fixed striped tmwseo-suggestions-table"><thead><tr>';
@@ -1066,6 +1120,16 @@ class SuggestionsAdminPage {
             'class' => 'generic-post',
             'help' => __('Creates a noindex draft in the generic post fallback when no specific destination is detected.', 'tmwseo'),
         ];
+    }
+
+    private function format_destination_type_label(string $destination_type): string {
+        $destination_type = sanitize_key($destination_type);
+        if ($destination_type === '') {
+            return '';
+        }
+
+        $meta = $this->destination_type_meta($destination_type);
+        return (string) ($meta['label'] ?? '');
     }
 
     /**
