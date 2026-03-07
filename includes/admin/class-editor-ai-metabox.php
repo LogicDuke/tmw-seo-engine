@@ -13,6 +13,7 @@ class Editor_AI_Metabox {
         add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
         add_action('save_post', [__CLASS__, 'save_metabox']);
         add_action('admin_post_tmwseo_generate_draft_content_preview', [__CLASS__, 'handle_generate_draft_content_preview']);
+        add_action('admin_post_tmwseo_apply_draft_content_preview', [__CLASS__, 'handle_apply_draft_content_preview']);
     }
 
     public static function enqueue_editor_assets(): void {
@@ -178,6 +179,37 @@ class Editor_AI_Metabox {
         exit;
     }
 
+    public static function handle_apply_draft_content_preview(): void {
+        $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+        if ($post_id <= 0) {
+            wp_die('Missing post ID');
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_apply_draft_content_preview_' . $post_id);
+
+        $requested_fields = isset($_POST['tmwseo_apply_preview_fields']) && is_array($_POST['tmwseo_apply_preview_fields'])
+            ? array_values(array_map('strval', wp_unslash($_POST['tmwseo_apply_preview_fields'])))
+            : [];
+
+        $result = AssistedDraftEnrichmentService::apply_reviewed_preview_to_explicit_draft($post_id, $requested_fields);
+        $notice = !empty($result['ok']) ? 'draft_preview_applied' : 'draft_preview_apply_refused';
+        $reason = sanitize_key((string) ($result['reason'] ?? ''));
+
+        $redirect = add_query_arg([
+            'post' => $post_id,
+            'action' => 'edit',
+            'tmwseo_notice' => $notice,
+            'reason' => $reason,
+        ], admin_url('post.php'));
+
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
     private static function render_preview_panel(int $post_id): void {
         $keys = AssistedDraftEnrichmentService::preview_meta_keys();
         $seo_title = (string) get_post_meta($post_id, $keys['seo_title'], true);
@@ -187,6 +219,12 @@ class Editor_AI_Metabox {
         $content_html = (string) get_post_meta($post_id, $keys['content_html'], true);
         $strategy = (string) get_post_meta($post_id, $keys['strategy'], true);
         $generated_at = (string) get_post_meta($post_id, $keys['generated_at'], true);
+        $applied_at = (string) get_post_meta($post_id, $keys['applied_at'], true);
+        $last_reviewed_at = (string) get_post_meta($post_id, $keys['last_reviewed_at'], true);
+
+        $applied_fields_raw = (string) get_post_meta($post_id, $keys['applied_fields'], true);
+        $applied_fields = json_decode($applied_fields_raw, true);
+        $applied_fields = is_array($applied_fields) ? array_values(array_map('strval', $applied_fields)) : [];
 
         if ($seo_title === '' && $meta_desc === '' && $content_html === '') {
             return;
@@ -215,5 +253,37 @@ class Editor_AI_Metabox {
         if ($content_html !== '') {
             echo '<details style="margin:6px 0"><summary><strong>' . esc_html__('Proposed Content Preview', 'tmwseo') . '</strong></summary><div style="max-height:220px; overflow:auto; border:1px solid #ddd; padding:8px; background:#fff">' . wp_kses_post($content_html) . '</div></details>';
         }
+
+        if ($applied_at !== '' || $last_reviewed_at !== '') {
+            echo '<p style="margin:8px 0 6px; font-size:12px; opacity:.85">';
+            if ($applied_at !== '') {
+                echo esc_html__('Last applied:', 'tmwseo') . ' ' . esc_html($applied_at);
+                if (!empty($applied_fields)) {
+                    echo ' · ' . esc_html__('Fields:', 'tmwseo') . ' ' . esc_html(implode(', ', $applied_fields));
+                }
+            }
+
+            if ($last_reviewed_at !== '') {
+                if ($applied_at !== '') {
+                    echo '<br>';
+                }
+                echo esc_html__('Last reviewed:', 'tmwseo') . ' ' . esc_html($last_reviewed_at);
+            }
+            echo '</p>';
+        }
+
+        $field_labels = AssistedDraftEnrichmentService::preview_apply_field_labels();
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:8px 0 0">';
+        wp_nonce_field('tmwseo_apply_draft_content_preview_' . $post_id);
+        echo '<input type="hidden" name="action" value="tmwseo_apply_draft_content_preview">';
+        echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post_id) . '">';
+        echo '<div style="border:1px solid #ddd; background:#fff; padding:8px; margin:0 0 8px; max-height:180px; overflow:auto">';
+        foreach ($field_labels as $field => $label) {
+            echo '<p style="margin:0 0 6px"><label><input type="checkbox" name="tmwseo_apply_preview_fields[]" value="' . esc_attr($field) . '"> ' . esc_html($label) . '</label></p>';
+        }
+        echo '</div>';
+        echo '<button type="submit" class="button button-primary" style="width:100%">' . esc_html__('Apply Reviewed Preview to Draft', 'tmwseo') . '</button>';
+        echo '</form>';
+        echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Manual operator action only. Applies selected preview fields into this draft only. Never publishes, never mutates live posts, and does not clear noindex.', 'tmwseo') . '</p>';
     }
 }

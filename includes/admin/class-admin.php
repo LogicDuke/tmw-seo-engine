@@ -1082,6 +1082,10 @@ class Admin {
             $message = __('Draft content preview generated in preview metadata only. No post content was changed and nothing was published automatically.', 'tmwseo');
         } elseif ($notice === 'draft_preview_refused') {
             $message = __('Draft content preview was refused. This action is allowed only for explicit draft posts.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_applied') {
+            $message = __('Reviewed preview fields were manually applied to this draft only. Nothing was published, live content was not changed, and noindex was not cleared automatically.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_apply_refused') {
+            $message = __('Manual apply from preview was refused. This action requires an explicit draft and at least one selected preview field.', 'tmwseo');
         }
 
         if ($message === '') {

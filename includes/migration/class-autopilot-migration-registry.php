@@ -66,6 +66,14 @@ class AutopilotMigrationRegistry {
                 'notes' => 'Operator-triggered explicit draft-only preview generation. Stores proposed SEO/content output in preview meta only; refuses non-drafts; no post_content writes, no publish automation, no noindex clearing.',
             ],
             [
+                'id' => 'suggestion_draft_preview_manual_apply',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'admin_post_tmwseo_apply_draft_content_preview',
+                'legacy_path' => 'Reviewed preview-to-draft field apply (manual, granular)',
+                'notes' => 'Operator-triggered draft-only apply from reviewed preview metadata. Refuses non-drafts, applies only selected fields, never publishes, never mutates live posts, and never clears noindex.',
+            ],
+            [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
                 'status' => self::STATUS_STILL_FENCED,
