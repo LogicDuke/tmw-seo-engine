@@ -63,7 +63,7 @@ class AutopilotMigrationRegistry {
                 'status' => self::STATUS_MIGRATED_SAFELY,
                 'entry_point' => 'admin_post_tmwseo_generate_suggestion_draft_content_preview',
                 'legacy_path' => 'ContentEngine generation subset extracted to preview-only draft assist',
-                'notes' => 'Operator-triggered explicit draft-only preview generation. Stores proposed SEO/content output in preview meta only; refuses non-drafts; no post_content writes, no publish automation, no noindex clearing.',
+                'notes' => 'Operator-triggered explicit draft-only preview generation with destination-aware template strategies (category/model/video/generic). Stores proposed SEO/content output in preview meta only; refuses non-drafts; no post_content writes, no publish automation, no noindex clearing.',
             ],
             [
                 'id' => 'suggestion_draft_preview_manual_apply',

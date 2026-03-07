@@ -218,6 +218,7 @@ class Editor_AI_Metabox {
         $outline = (string) get_post_meta($post_id, $keys['outline'], true);
         $content_html = (string) get_post_meta($post_id, $keys['content_html'], true);
         $strategy = (string) get_post_meta($post_id, $keys['strategy'], true);
+        $template_type = (string) get_post_meta($post_id, $keys['template_type'], true);
         $generated_at = (string) get_post_meta($post_id, $keys['generated_at'], true);
         $applied_at = (string) get_post_meta($post_id, $keys['applied_at'], true);
         $last_reviewed_at = (string) get_post_meta($post_id, $keys['last_reviewed_at'], true);
@@ -235,6 +236,7 @@ class Editor_AI_Metabox {
         if ($strategy !== '' || $generated_at !== '') {
             echo '<p style="margin:0 0 8px; font-size:12px; opacity:.85">';
             echo esc_html__('Strategy:', 'tmwseo') . ' ' . esc_html($strategy !== '' ? $strategy : 'n/a') . ' · ';
+            echo esc_html__('Preview Template:', 'tmwseo') . ' ' . esc_html(self::human_preview_template_label($template_type)) . ' · ';
             echo esc_html__('Generated:', 'tmwseo') . ' ' . esc_html($generated_at !== '' ? $generated_at : 'n/a');
             echo '</p>';
         }
@@ -285,5 +287,26 @@ class Editor_AI_Metabox {
         echo '<button type="submit" class="button button-primary" style="width:100%">' . esc_html__('Apply Reviewed Preview to Draft', 'tmwseo') . '</button>';
         echo '</form>';
         echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Manual operator action only. Applies selected preview fields into this draft only. Never publishes, never mutates live posts, and does not clear noindex.', 'tmwseo') . '</p>';
+    }
+
+    private static function human_preview_template_label(string $template_type): string {
+        $key = sanitize_key($template_type);
+        if ($key === 'category_page') {
+            return 'Category Page';
+        }
+
+        if ($key === 'model_page') {
+            return 'Model Page';
+        }
+
+        if ($key === 'video_page') {
+            return 'Video Page';
+        }
+
+        if ($key === 'generic_post') {
+            return 'Generic Post';
+        }
+
+        return 'n/a';
     }
 }
