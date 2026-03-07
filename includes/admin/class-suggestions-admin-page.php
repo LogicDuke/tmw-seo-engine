@@ -881,9 +881,10 @@ class SuggestionsAdminPage {
 
         $rows = $this->engine->getSuggestions(['limit' => 500]);
         $active_filter = sanitize_key((string) ($_GET['tmw_filter'] ?? 'all'));
+        $active_destination_filter = $this->sanitize_destination_filter((string) ($_GET['tmw_destination_filter'] ?? 'all'));
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
 
-        $filtered_rows = array_values(array_filter($rows, function (array $row) use ($active_filter): bool {
+        $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter): bool {
             $type = (string) ($row['type'] ?? '');
             $status = (string) ($row['status'] ?? 'new');
             $priority = (float) ($row['priority_score'] ?? 0);
@@ -937,6 +938,16 @@ class SuggestionsAdminPage {
             }
 
             return true;
+        }));
+
+        $destination_counts = $this->build_destination_filter_counts($queue_rows);
+        $filtered_rows = array_values(array_filter($queue_rows, function (array $row) use ($active_destination_filter): bool {
+            if ($active_destination_filter === 'all') {
+                return true;
+            }
+
+            $destination = $this->resolve_draft_destination($row);
+            return sanitize_key((string) ($destination['destination_type'] ?? '')) === $active_destination_filter;
         }));
 
         echo '<div class="wrap tmwseo-suggestions-page">';
@@ -996,6 +1007,7 @@ class SuggestionsAdminPage {
             $url = add_query_arg([
                 'page' => 'tmwseo-suggestions',
                 'tmw_filter' => $key,
+                'tmw_destination_filter' => $active_destination_filter,
             ], admin_url('admin.php'));
             $class = $active_filter === $key ? 'current' : '';
             if (!$first) {
@@ -1003,6 +1015,36 @@ class SuggestionsAdminPage {
             }
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a></li>';
             $first = false;
+        }
+        echo '</ul>';
+
+        $destination_tabs = [
+            'all' => __('All', 'tmwseo'),
+            'category_page' => __('Category Pages', 'tmwseo'),
+            'model_page' => __('Model Pages', 'tmwseo'),
+            'video_page' => __('Video Pages', 'tmwseo'),
+            'generic_post' => __('Generic Posts', 'tmwseo'),
+        ];
+
+        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Destination Queue', 'tmwseo') . '</h2>';
+        echo '<p style="margin:0 0 8px;">' . esc_html__('Quickly focus the queue by draft destination type. Category pages are typically reviewed first, and all outcomes stay manual-only.', 'tmwseo') . '</p>';
+        echo '<ul class="subsubsub">';
+        $first_destination_tab = true;
+        foreach ($destination_tabs as $key => $label) {
+            $url = add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'tmw_filter' => $active_filter,
+                'tmw_destination_filter' => $key,
+            ], admin_url('admin.php'));
+
+            $class = $active_destination_filter === $key ? 'current' : '';
+            if (!$first_destination_tab) {
+                echo ' | ';
+            }
+
+            $count = (int) ($destination_counts[$key] ?? 0);
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
+            $first_destination_tab = false;
         }
         echo '</ul>';
 
@@ -1135,9 +1177,9 @@ class SuggestionsAdminPage {
     private function destination_type_meta(string $destination_type): array {
         if ($destination_type === 'category_page') {
             return [
-                'label' => __('Category Page', 'tmwseo'),
+                'label' => __('Category Page (Priority)', 'tmwseo'),
                 'class' => 'category-page',
-                'help' => __('Creates a noindex draft targeting a category page workflow.', 'tmwseo'),
+                'help' => __('Priority destination for manual triage. Creates a noindex draft targeting a category page workflow.', 'tmwseo'),
             ];
         }
 
@@ -1172,6 +1214,43 @@ class SuggestionsAdminPage {
 
         $meta = $this->destination_type_meta($destination_type);
         return (string) ($meta['label'] ?? '');
+    }
+
+    private function sanitize_destination_filter(string $raw_filter): string {
+        $filter = sanitize_key($raw_filter);
+        $allowed_filters = ['all', 'category_page', 'model_page', 'video_page', 'generic_post'];
+
+        if (!in_array($filter, $allowed_filters, true)) {
+            return 'all';
+        }
+
+        return $filter;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array{all:int,category_page:int,model_page:int,video_page:int,generic_post:int}
+     */
+    private function build_destination_filter_counts(array $rows): array {
+        $counts = [
+            'all' => count($rows),
+            'category_page' => 0,
+            'model_page' => 0,
+            'video_page' => 0,
+            'generic_post' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            $destination = $this->resolve_draft_destination($row);
+            $destination_key = sanitize_key((string) ($destination['destination_type'] ?? ''));
+            if (!isset($counts[$destination_key])) {
+                $destination_key = self::SUGGESTION_DESTINATION_FALLBACK;
+            }
+
+            $counts[$destination_key]++;
+        }
+
+        return $counts;
     }
 
     /**

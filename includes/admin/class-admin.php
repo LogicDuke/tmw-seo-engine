@@ -236,6 +236,8 @@ class Admin {
             .tmwseo-target-category-page {
                 background:#fef3c7;
                 color:#92400e;
+                border:1px solid #f59e0b;
+                box-shadow:inset 0 0 0 1px rgba(245, 158, 11, 0.25);
             }
 
             .tmwseo-target-model-page {
