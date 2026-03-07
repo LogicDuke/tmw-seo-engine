@@ -10,7 +10,7 @@ class DebugDashboard {
 
     public static function register_menu(): void {
         add_submenu_page(
-            null,
+            \TMWSEO\Engine\Admin::MENU_SLUG,
             __('Debug Dashboard', 'tmwseo'),
             __('↳ Debug Dashboard', 'tmwseo'),
             'manage_options',
