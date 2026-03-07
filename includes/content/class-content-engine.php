@@ -14,6 +14,16 @@ if (!defined('ABSPATH')) { exit; }
 
 class ContentEngine {
 
+    /**
+     * Phase A hard fence: legacy publish-trigger autopilot must stay OFF.
+     *
+     * Deliberate migration path (future phase, not now):
+     * 1) add a migration that explicitly flips this via filter,
+     * 2) ship rollout checks + tests,
+     * 3) document operational runbook.
+     */
+    private const PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE = true;
+
     // Autopilot-style target: enough depth for RankMath without bloating pages.
     private const MODEL_MIN_WORDS = 800;
     private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
@@ -27,8 +37,27 @@ class ContentEngine {
         'tmw_category_page',
     ];
 
+    private static function is_publish_autopilot_allowed(): bool {
+        if (self::PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE) {
+            return false;
+        }
+
+        /**
+         * Future migration gate.
+         *
+         * Intentionally defaults to false. A dedicated migration must opt-in
+         * with an explicit filter override.
+         */
+        return (bool) apply_filters('tmwseo_allow_publish_autopilot_hooks', false);
+    }
+
     public static function init(): void {
-        add_action('transition_post_status', [__CLASS__, 'on_transition_post_status'], 10, 3);
+        // Phase A safety fence: keep legacy autopilot-on-publish hook disconnected.
+        if (self::is_publish_autopilot_allowed()) {
+            add_action('transition_post_status', [__CLASS__, 'on_transition_post_status'], 10, 3);
+        } else {
+            Logs::info('content', '[TMW-SEO-AUTO] Phase A hard fence active: transition_post_status autopilot hook is OFF');
+        }
 
         // Shortcode: show generated keyword (for templates)
         add_shortcode('tmwseo_keyword', function($atts){
@@ -39,6 +68,17 @@ class ContentEngine {
     }
 
     public static function on_transition_post_status(string $new_status, string $old_status, \WP_Post $post): void {
+        if (!self::is_publish_autopilot_allowed()) {
+            // Defensive double-fence: even if this callback is wired manually, do nothing.
+            Logs::warn('content', '[TMW-SEO-AUTO] Blocked legacy publish-trigger autopilot path (Phase A hard fence)', [
+                'post_id' => (int) $post->ID,
+                'post_type' => (string) $post->post_type,
+                'new_status' => (string) $new_status,
+                'old_status' => (string) $old_status,
+            ]);
+            return;
+        }
+
         if ($new_status !== 'publish' || $old_status === 'publish') return;
         if (!in_array($post->post_type, self::$auto_types, true)) return;
 
@@ -527,5 +567,17 @@ class ContentEngine {
         $content = rtrim($content);
         if ($content !== '') $content .= "\n\n";
         return $content . $marker . "\n" . $html . "\n";
+    }
+
+    public static function get_publish_autopilot_hook_status(): array {
+        $allowed = self::is_publish_autopilot_allowed();
+
+        return [
+            'phase' => 'A',
+            'legacy_publish_autopilot_hooks' => $allowed ? 'ON' : 'OFF',
+            'hard_fence' => self::PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE ? 'ENABLED' : 'DISABLED',
+            'hook_registered' => has_action('transition_post_status', [__CLASS__, 'on_transition_post_status']) !== false ? 'yes' : 'no',
+            'migration_required_to_enable' => 'yes',
+        ];
     }
 }

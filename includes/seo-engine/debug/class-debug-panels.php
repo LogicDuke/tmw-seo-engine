@@ -11,6 +11,7 @@ class DebugPanels {
 
     public static function render_engine_status(): void {
         $policy = TrustPolicy::flags();
+        $publish_autopilot_status = \TMWSEO\Engine\Content\ContentEngine::get_publish_autopilot_hook_status();
 
         $status = [
             'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
@@ -23,6 +24,9 @@ class DebugPanels {
             'auto_publish' => TrustPolicy::bool_text(!empty($policy['auto_publish'])),
             'auto_link_insertion' => TrustPolicy::bool_text(!empty($policy['auto_link_insertion'])),
             'cron_enabled' => TrustPolicy::bool_text(!empty($policy['cron_enabled'])),
+            'legacy publish autopilot hooks' => (string) ($publish_autopilot_status['legacy_publish_autopilot_hooks'] ?? 'OFF'),
+            'publish autopilot hard fence' => (string) ($publish_autopilot_status['hard_fence'] ?? 'ENABLED'),
+            'publish transition hook registered' => (string) ($publish_autopilot_status['hook_registered'] ?? 'no'),
         ];
 
         echo '<h2>Engine Status</h2><table class="widefat striped"><tbody>';
