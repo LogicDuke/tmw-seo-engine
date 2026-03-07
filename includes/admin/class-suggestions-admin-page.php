@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Suggestions;
 use TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Plugin;
+use TMWSEO\Engine\AutopilotMigrationRegistry;
 use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Intelligence\ContentBriefGenerator;
 use TMWSEO\Engine\Services\TrustPolicy;
@@ -482,6 +483,18 @@ class SuggestionsAdminPage {
         }
 
         check_admin_referer('tmwseo_run_phase_c_discovery_snapshot');
+
+        if (!AutopilotMigrationRegistry::is_phase_c1_allowed('smartqueue_candidate_discovery_snapshot')) {
+            Logs::warn('suggestions', '[TMW-SEO-AUTO] Blocked Phase C discovery snapshot: path not allowed in current phase', [
+                'path_id' => 'smartqueue_candidate_discovery_snapshot',
+            ]);
+
+            wp_safe_redirect(add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'notice' => 'phase_c_discovery_snapshot_blocked',
+            ], admin_url('admin.php')));
+            exit;
+        }
 
         $snapshot = \TMWSEO\Engine\SmartQueue::discovery_snapshot(20);
         $scanned = (int) ($snapshot['scanned'] ?? 0);
@@ -1025,7 +1038,7 @@ class SuggestionsAdminPage {
         echo '<p class="description" style="margin-top:6px;">' . esc_html__('Read-safe only: analyzes legacy smart-queue discovery candidates for operator review. This does not enqueue optimization jobs, publish posts, or mutate live content.', 'tmwseo') . '</p>';
         echo '</form>';
 
-        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete'], true)) {
+        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete', 'phase_c_discovery_snapshot_blocked'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
@@ -1041,6 +1054,8 @@ class SuggestionsAdminPage {
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
                 $eligible = isset($_GET['eligible']) ? (int) $_GET['eligible'] : 0;
                 echo esc_html(sprintf(__('Phase C discovery snapshot complete: %d posts scanned and %d legacy candidates identified for manual review. No jobs were enqueued and no content was mutated.', 'tmwseo'), $scanned, $eligible));
+            } elseif ($notice === 'phase_c_discovery_snapshot_blocked') {
+                echo esc_html__('Phase C discovery snapshot is currently fenced for this migration phase. No jobs were enqueued and no content was mutated.', 'tmwseo');
             } else {
                 echo esc_html__('Suggestion ignored.', 'tmwseo');
             }

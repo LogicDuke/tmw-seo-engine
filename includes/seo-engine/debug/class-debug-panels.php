@@ -51,7 +51,8 @@ class DebugPanels {
             echo '<tr>';
             echo '<td><code>' . esc_html((string) ($path['id'] ?? '')) . '</code></td>';
             echo '<td>' . esc_html((string) ($path['bucket'] ?? '')) . '</td>';
-            echo '<td>' . esc_html((string) ($path['status'] ?? '')) . '</td>';
+            $raw_status = (string) ($path['status'] ?? '');
+            echo '<td>' . esc_html(AutopilotMigrationRegistry::status_label($raw_status)) . '</td>';
             echo '<td>' . esc_html((string) ($path['entry_point'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($path['notes'] ?? '')) . '</td>';
             echo '</tr>';

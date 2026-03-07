@@ -581,9 +581,9 @@ class ContentEngine {
             'hard_fence' => self::PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE ? 'ENABLED' : 'DISABLED',
             'hook_registered' => has_action('transition_post_status', [__CLASS__, 'on_transition_post_status']) !== false ? 'yes' : 'no',
             'migration_required_to_enable' => 'yes',
-            'phase_c_migrated_safely' => (string) ($migration_counts['migrated_safely'] ?? 0),
-            'phase_c_still_fenced' => (string) ($migration_counts['still_fenced'] ?? 0),
-            'phase_c_disallowed' => (string) ($migration_counts['phase_c_disallowed'] ?? 0),
+            'phase_c_migrated_safely' => (string) ($migration_counts[\TMWSEO\Engine\AutopilotMigrationRegistry::STATUS_MIGRATED_SAFELY] ?? 0),
+            'phase_c_still_fenced' => (string) ($migration_counts[\TMWSEO\Engine\AutopilotMigrationRegistry::STATUS_STILL_FENCED] ?? 0),
+            'phase_c_disallowed' => (string) ($migration_counts[\TMWSEO\Engine\AutopilotMigrationRegistry::STATUS_PHASE_C_DISALLOWED] ?? 0),
         ];
     }
 }
