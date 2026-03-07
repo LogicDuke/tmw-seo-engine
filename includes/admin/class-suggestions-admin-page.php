@@ -6,6 +6,7 @@ use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Plugin;
 use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Intelligence\ContentBriefGenerator;
+use TMWSEO\Engine\Services\TrustPolicy;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -250,9 +251,10 @@ class SuggestionsAdminPage {
             var targetUrl = <?php echo wp_json_encode($target_url); ?>;
             var targetTitle = <?php echo wp_json_encode($target_title); ?>;
             var contextSnippet = <?php echo wp_json_encode($context_snippet); ?>;
+            var policyNotice = <?php echo wp_json_encode(TrustPolicy::insert_link_notice()); ?>;
 
             function getNoticeText(message){
-                return 'TMW SEO Insert Link Draft: ' + message + ' Manual-only safety rule active. No automatic link insertion occurs.';
+                return 'TMW SEO Insert Link Draft: ' + message + ' ' + policyNotice;
             }
 
             function showBlockEditorNotice(message){
@@ -300,7 +302,7 @@ class SuggestionsAdminPage {
                 var n = document.createElement('div');
                 n.id = 'tmwseo-insert-link-draft-helper';
                 n.className = 'notice notice-info';
-                n.innerHTML = '<p><strong>TMW SEO Insert Link Draft:</strong> ' + message + '</p><p>Manual-only safety rule active. No automatic link insertion occurs.</p>';
+                n.innerHTML = '<p><strong>TMW SEO Insert Link Draft:</strong> ' + message + '</p><p>' + policyNotice + '</p>';
                 if (typeof wrap.prepend === 'function') {
                     wrap.prepend(n);
                 } else {

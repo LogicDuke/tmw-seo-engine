@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine;
 
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Services\TrustPolicy;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -2030,7 +2031,7 @@ private static function header(string $title): void {
         $include_external_info_link = !empty($opts['include_external_info_link']);
 
         // Manual mode is a locked safety policy.
-        $manual_control_mode = true;
+        $manual_control_mode = TrustPolicy::is_manual_only();
         $debug_mode = (bool) Settings::get('debug_mode', 0);
         $serper_api_key = esc_attr((string)($opts['serper_api_key'] ?? ''));
         $intel_max_seeds = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
@@ -2045,7 +2046,7 @@ private static function header(string $title): void {
         echo '<tr><th>Human approval</th><td><input type="checkbox" checked disabled> Always required</td></tr>';
         echo '<tr><th>Manual control mode</th><td><input type="checkbox" checked disabled> Always enabled</td></tr>';
         echo '</table>';
-        echo '<p class="description">Human approval is always required. The plugin only suggests opportunities and creates drafts when you explicitly choose to do so.</p>';
+        echo '<p class="description">' . esc_html(TrustPolicy::draft_creation_summary()) . '</p>';
 
         echo '<h2>Debug</h2>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[debug_mode]" value="1" ' . checked($debug_mode, true, false) . '> Enable Debug Mode</label>';
@@ -2063,7 +2064,7 @@ private static function header(string $title): void {
 
         echo '<h2>Safe Mode</h2>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked($safe_mode, true, false) . '> Keep safe mode enabled (no auto-publish / no indexing submissions)</label>';
-        echo '<p class="description">Safety layer is always enforced: never auto-publish, never auto-modify existing content, never auto-insert links. Every action requires explicit user approval.</p>';
+        echo '<p class="description">' . esc_html(TrustPolicy::safety_summary()) . '</p>';
 
         echo '<h2>OpenAI</h2>';
         echo '<table class="form-table">';

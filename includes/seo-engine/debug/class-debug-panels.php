@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Debug;
 
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\Services\TrustPolicy;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -9,6 +10,8 @@ class DebugPanels {
     private const TEST_REPORT_OPTION = 'tmwseo_debug_last_test_report';
 
     public static function render_engine_status(): void {
+        $policy = TrustPolicy::flags();
+
         $status = [
             'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
             'keyword intelligence status' => self::meta_count('tmw_keyword_pack') > 0 ? 'Ready for Review' : 'Needs Attention',
@@ -16,6 +19,10 @@ class DebugPanels {
             'opportunities status' => self::table_count('tmw_seo_opportunities') > 0 ? 'Ready for Review' : 'Needs Attention',
             'topic suggestions status' => self::meta_count('tmw_topic_cluster') > 0 ? 'Ready for Review' : 'Needs Attention',
             'debug mode status' => DebugLogger::is_enabled() ? 'On' : 'Off',
+            'manual_only' => TrustPolicy::bool_text(!empty($policy['manual_only'])),
+            'auto_publish' => TrustPolicy::bool_text(!empty($policy['auto_publish'])),
+            'auto_link_insertion' => TrustPolicy::bool_text(!empty($policy['auto_link_insertion'])),
+            'cron_enabled' => TrustPolicy::bool_text(!empty($policy['cron_enabled'])),
         ];
 
         echo '<h2>Engine Status</h2><table class="widefat striped"><tbody>';

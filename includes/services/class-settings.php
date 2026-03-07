@@ -89,7 +89,7 @@ class Settings {
      * human approval in every environment.
      */
     public static function is_human_approval_required(): bool {
-        return true;
+        return TrustPolicy::is_human_approval_required();
     }
 
     public static function openai_model_for_quality(): string {
