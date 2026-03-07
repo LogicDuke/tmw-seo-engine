@@ -107,6 +107,14 @@ class AutopilotMigrationRegistry {
                 'notes' => 'Operator-triggered explicit draft-only review-state layer (checklist, notes, signoff metadata). Reuses preview/recommendation/review-bundle context; stores review state only; never auto-applies, never publishes, never mutates live posts, and never clears noindex.',
             ],
             [
+                'id' => 'suggestion_reviewer_handoff_queue_views',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'admin.php?page=tmwseo-suggestions (review queue filters/views)',
+                'legacy_path' => 'Explicit draft review + handoff triage queues',
+                'notes' => 'Read-only queue segmentation for explicit drafts using existing review/signoff/bundle/handoff metadata. No auto-apply, no publishing, no live content mutation, and no noindex clearing.',
+            ],
+            [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
                 'status' => self::STATUS_STILL_FENCED,

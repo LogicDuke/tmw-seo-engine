@@ -27,6 +27,9 @@ class SuggestionsAdminPage {
 
     private SuggestionEngine $engine;
 
+    /** @var array<int,int> */
+    private array $draft_id_cache = [];
+
     public function __construct(?SuggestionEngine $engine = null) {
         $this->engine = $engine ?: new SuggestionEngine();
     }
@@ -1297,11 +1300,41 @@ class SuggestionsAdminPage {
         $active_destination_filter = $this->sanitize_destination_filter((string) ($_GET['tmw_destination_filter'] ?? ($active_view_preset['destination_filter'] ?? 'all')));
         $active_sort = $this->sanitize_sort((string) ($_GET['tmw_sort'] ?? ($active_view_preset['sort'] ?? 'priority_desc')));
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
+        $review_queue_counts = $this->build_review_queue_counts($rows, $active_destination_filter);
 
         $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter): bool {
             $type = (string) ($row['type'] ?? '');
             $status = (string) ($row['status'] ?? 'new');
             $priority = (float) ($row['priority_score'] ?? 0);
+            $review_queue_state = $this->review_queue_state_for_row($row);
+
+            if ($active_filter === 'review_drafts_all') {
+                return $review_queue_state !== '';
+            }
+
+            if ($active_filter === 'review_not_reviewed') {
+                return $review_queue_state === 'not_reviewed';
+            }
+
+            if ($active_filter === 'review_in_review') {
+                return $review_queue_state === 'in_review';
+            }
+
+            if ($active_filter === 'review_signed_off') {
+                return $review_queue_state === 'reviewed_signed_off';
+            }
+
+            if ($active_filter === 'review_needs_changes') {
+                return $review_queue_state === 'needs_changes';
+            }
+
+            if ($active_filter === 'review_handoff_ready') {
+                return $review_queue_state === 'handoff_ready';
+            }
+
+            if ($active_filter === 'review_handoff_exported') {
+                return $review_queue_state === 'handoff_exported';
+            }
 
             if ($active_filter === 'ignored') {
                 return $status === 'ignored';
@@ -1380,6 +1413,7 @@ class SuggestionsAdminPage {
         echo '<h1>' . esc_html__('Suggestions Dashboard', 'tmwseo') . '</h1>';
         echo '<div class="notice notice-warning"><p><strong>Human approval required before any publishing or live content changes.</strong></p></div>';
         echo '<p>' . esc_html__('Review SEO suggestions and decide what to do next. Every action is manual-review-first: drafts and briefs are prepared for operators, and nothing is published or inserted into live content automatically.', 'tmwseo') . '</p>';
+        echo '<p class="description" style="margin:-4px 0 10px;">' . esc_html__('Review only queues are draft-only. Signed off for manual next step still means nothing has been published automatically; draft remains draft-only / noindex.', 'tmwseo') . '</p>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 18px;">';
         wp_nonce_field('tmwseo_scan_internal_link_opportunities');
@@ -1426,6 +1460,13 @@ class SuggestionsAdminPage {
 
         $tabs = [
             'all' => 'All',
+            'review_drafts_all' => 'All Review Drafts',
+            'review_not_reviewed' => 'Not Reviewed',
+            'review_in_review' => 'In Review',
+            'review_signed_off' => 'Signed Off',
+            'review_needs_changes' => 'Needs Changes',
+            'review_handoff_ready' => 'Handoff Ready',
+            'review_handoff_exported' => 'Handoff Exported',
             'high_priority' => 'High Priority',
             'draft_created' => 'Draft Created',
             'review_ready' => 'Review Ready',
@@ -1454,10 +1495,58 @@ class SuggestionsAdminPage {
             if (!$first) {
                 echo ' | ';
             }
+            if (isset($review_queue_counts[$key])) {
+                $label = sprintf('%s (%d)', $label, (int) $review_queue_counts[$key]);
+            }
+
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a></li>';
             $first = false;
         }
         echo '</ul>';
+
+        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Review Draft Queues', 'tmwseo') . '</h2>';
+        echo '<p style="margin:0 0 8px;">' . esc_html__('Trust-safe reviewer handoff queues for explicit drafts only. Review only, manual-only, and never auto-publish.', 'tmwseo') . '</p>';
+        echo '<ul class="subsubsub">';
+        $review_views = $this->review_queue_views();
+        $first_review_tab = true;
+        foreach ($review_views as $review_meta) {
+            $review_filter = (string) ($review_meta['filter'] ?? 'all');
+            $url = add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'tmw_filter' => $review_filter,
+                'tmw_destination_filter' => $active_destination_filter,
+                'tmw_sort' => (string) ($review_meta['sort'] ?? 'priority_desc'),
+            ], admin_url('admin.php'));
+            $class = $active_filter === $review_filter ? 'current' : '';
+            if (!$first_review_tab) {
+                echo ' | ';
+            }
+
+            $count = (int) ($review_queue_counts[$review_filter] ?? 0);
+            $label = (string) ($review_meta['label'] ?? $review_filter);
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
+            $first_review_tab = false;
+        }
+        echo '</ul>';
+
+        echo '<p style="margin:0 0 8px;">';
+        echo '<strong>' . esc_html__('Category-page-first reviewer pivots:', 'tmwseo') . '</strong> ';
+        $in_review_category_url = add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'tmw_filter' => 'review_in_review',
+            'tmw_destination_filter' => 'category_page',
+            'tmw_sort' => 'priority_desc',
+        ], admin_url('admin.php'));
+        $signed_off_category_url = add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'tmw_filter' => 'review_signed_off',
+            'tmw_destination_filter' => 'category_page',
+            'tmw_sort' => 'priority_desc',
+        ], admin_url('admin.php'));
+        echo '<a href="' . esc_url($in_review_category_url) . '">' . esc_html__('In Review → Category Pages', 'tmwseo') . '</a>';
+        echo ' · ';
+        echo '<a href="' . esc_url($signed_off_category_url) . '">' . esc_html__('Signed Off → Category Pages', 'tmwseo') . '</a>';
+        echo '</p>';
 
         echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Triage Quick Views', 'tmwseo') . '</h2>';
         echo '<p style="margin:0 0 8px;">' . esc_html__('Open queue-focused views in one click. All output remains manual-only: drafts require manual editing, and links require manual insertion.', 'tmwseo') . '</p>';
@@ -1587,10 +1676,17 @@ class SuggestionsAdminPage {
             $description_summary = $this->build_row_summary((string) ($row['title'] ?? ''), (string) ($row['description'] ?? ''));
             $opportunity_cue = $this->opportunity_cue((int) ($row['estimated_traffic'] ?? 0));
             $manual_next_step = $this->manual_next_step_text((string) ($row['type'] ?? ''));
+            $review_state_badges = $this->build_review_state_badges($row);
 
             echo '<tr>';
             echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Confidence cue:', 'tmwseo') . '</strong> ' . esc_html($priority_confidence) . '</div></td>';
-            echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Meaning:', 'tmwseo') . '</strong> ' . esc_html($status_meta['help']) . '</div></td>';
+            echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span>';
+            if (!empty($review_state_badges)) {
+                foreach ($review_state_badges as $badge) {
+                    echo '<div style="margin-top:4px;"><span class="tmwseo-target-badge" style="background:#eef7ff;border:1px solid #ccd0d4;">' . esc_html($badge) . '</span></div>';
+                }
+            }
+            echo '<div class="tmwseo-cell-note"><strong>' . esc_html__('Meaning:', 'tmwseo') . '</strong> ' . esc_html($status_meta['help']) . '</div></td>';
             echo '<td>' . esc_html($type_label) . '</td>';
             echo '<td><span class="tmwseo-target-badge tmwseo-target-' . esc_attr($destination_meta['class']) . '">' . esc_html($destination_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Draft destination:', 'tmwseo') . '</strong> ' . esc_html($destination_meta['help']) . '</div></td>';
             echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('On click:', 'tmwseo') . '</strong> ' . esc_html($primary_action_meta['help']) . '</div></td>';
@@ -1771,6 +1867,10 @@ class SuggestionsAdminPage {
     }
 
     private function find_suggestion_draft_id(int $suggestion_id): int {
+        if (isset($this->draft_id_cache[$suggestion_id])) {
+            return (int) $this->draft_id_cache[$suggestion_id];
+        }
+
         $existing = get_posts([
             'post_type' => array_values(array_unique(array_values(self::SUGGESTION_DESTINATION_POST_TYPE_MAP))),
             'post_status' => ['draft', 'pending', 'publish', 'future', 'private'],
@@ -1785,9 +1885,11 @@ class SuggestionsAdminPage {
         ]);
 
         if (empty($existing)) {
+            $this->draft_id_cache[$suggestion_id] = 0;
             return 0;
         }
 
+        $this->draft_id_cache[$suggestion_id] = (int) $existing[0];
         return (int) $existing[0];
     }
 
@@ -1972,6 +2074,49 @@ class SuggestionsAdminPage {
     }
 
     /**
+     * @return array<string,array{label:string,filter:string,sort:string}>
+     */
+    private function review_queue_views(): array {
+        return [
+            'all_review_drafts' => [
+                'label' => __('All Review Drafts', 'tmwseo'),
+                'filter' => 'review_drafts_all',
+                'sort' => 'priority_desc',
+            ],
+            'not_reviewed' => [
+                'label' => __('Not Reviewed', 'tmwseo'),
+                'filter' => 'review_not_reviewed',
+                'sort' => 'priority_desc',
+            ],
+            'in_review' => [
+                'label' => __('In Review', 'tmwseo'),
+                'filter' => 'review_in_review',
+                'sort' => 'priority_desc',
+            ],
+            'signed_off' => [
+                'label' => __('Signed Off', 'tmwseo'),
+                'filter' => 'review_signed_off',
+                'sort' => 'priority_desc',
+            ],
+            'needs_changes' => [
+                'label' => __('Needs Changes', 'tmwseo'),
+                'filter' => 'review_needs_changes',
+                'sort' => 'priority_desc',
+            ],
+            'handoff_ready' => [
+                'label' => __('Handoff Ready', 'tmwseo'),
+                'filter' => 'review_handoff_ready',
+                'sort' => 'priority_desc',
+            ],
+            'handoff_exported' => [
+                'label' => __('Handoff Exported', 'tmwseo'),
+                'filter' => 'review_handoff_exported',
+                'sort' => 'priority_desc',
+            ],
+        ];
+    }
+
+    /**
      * @return array<string,string>
      */
     private function sort_options(): array {
@@ -2113,6 +2258,170 @@ class SuggestionsAdminPage {
         }
 
         return $counts;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,int>
+     */
+    private function build_review_queue_counts(array $rows, string $destination_filter): array {
+        $counts = [
+            'review_drafts_all' => 0,
+            'review_not_reviewed' => 0,
+            'review_in_review' => 0,
+            'review_signed_off' => 0,
+            'review_needs_changes' => 0,
+            'review_handoff_ready' => 0,
+            'review_handoff_exported' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            if ($destination_filter !== 'all') {
+                $destination = $this->resolve_draft_destination($row);
+                if (sanitize_key((string) ($destination['destination_type'] ?? '')) !== $destination_filter) {
+                    continue;
+                }
+            }
+
+            $review_state = $this->review_queue_state_for_row($row);
+            if ($review_state === '') {
+                continue;
+            }
+
+            $counts['review_drafts_all']++;
+
+            if ($review_state === 'not_reviewed') {
+                $counts['review_not_reviewed']++;
+            } elseif ($review_state === 'in_review') {
+                $counts['review_in_review']++;
+            } elseif ($review_state === 'reviewed_signed_off') {
+                $counts['review_signed_off']++;
+            } elseif ($review_state === 'needs_changes') {
+                $counts['review_needs_changes']++;
+            } elseif ($review_state === 'handoff_ready') {
+                $counts['review_handoff_ready']++;
+            } elseif ($review_state === 'handoff_exported') {
+                $counts['review_handoff_exported']++;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     */
+    private function review_queue_state_for_row(array $row): string {
+        $suggestion_id = (int) ($row['id'] ?? 0);
+        if ($suggestion_id <= 0) {
+            return '';
+        }
+
+        $draft_id = $this->find_suggestion_draft_id($suggestion_id);
+        if ($draft_id <= 0) {
+            return '';
+        }
+
+        $draft = get_post($draft_id);
+        if (!$draft instanceof \WP_Post || $draft->post_status !== 'draft') {
+            return '';
+        }
+
+        $review_signoff_keys = AssistedDraftEnrichmentService::review_signoff_meta_keys();
+        $review_bundle_keys = AssistedDraftEnrichmentService::review_bundle_meta_keys();
+        $review_handoff_keys = AssistedDraftEnrichmentService::review_handoff_meta_keys();
+
+        $review_state = sanitize_key((string) get_post_meta($draft_id, $review_signoff_keys['state'], true));
+        if ($review_state === '') {
+            $review_state = 'not_reviewed';
+        }
+
+        $checklist = get_post_meta($draft_id, $review_signoff_keys['checklist'], true);
+        $checklist_completed = is_array($checklist) && !empty($checklist);
+        $bundle_prepared_at = trim((string) get_post_meta($draft_id, $review_bundle_keys['prepared_at'], true));
+        $handoff_exported_at = trim((string) get_post_meta($draft_id, $review_handoff_keys['exported_at'], true));
+
+        if ($handoff_exported_at !== '') {
+            return 'handoff_exported';
+        }
+
+        if ($review_state === 'reviewed_signed_off' && $bundle_prepared_at !== '' && $checklist_completed) {
+            return 'handoff_ready';
+        }
+
+        if (in_array($review_state, ['not_reviewed', 'in_review', 'reviewed_signed_off', 'needs_changes'], true)) {
+            return $review_state;
+        }
+
+        return 'not_reviewed';
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @return array<int,string>
+     */
+    private function build_review_state_badges(array $row): array {
+        $badges = [];
+        $suggestion_id = (int) ($row['id'] ?? 0);
+        if ($suggestion_id <= 0) {
+            return $badges;
+        }
+
+        $draft_id = $this->find_suggestion_draft_id($suggestion_id);
+        if ($draft_id <= 0) {
+            return $badges;
+        }
+
+        $draft = get_post($draft_id);
+        if (!$draft instanceof \WP_Post || $draft->post_status !== 'draft') {
+            return $badges;
+        }
+
+        $review_signoff_keys = AssistedDraftEnrichmentService::review_signoff_meta_keys();
+        $review_bundle_keys = AssistedDraftEnrichmentService::review_bundle_meta_keys();
+        $review_handoff_keys = AssistedDraftEnrichmentService::review_handoff_meta_keys();
+        $state_labels = [
+            'not_reviewed' => __('Not Reviewed', 'tmwseo'),
+            'in_review' => __('In Review', 'tmwseo'),
+            'reviewed_signed_off' => __('Signed off for manual next step', 'tmwseo'),
+            'needs_changes' => __('Needs Changes', 'tmwseo'),
+            'handoff_ready' => __('Review Handoff Ready', 'tmwseo'),
+            'handoff_exported' => __('Review Handoff Exported', 'tmwseo'),
+        ];
+
+        $queue_state = $this->review_queue_state_for_row($row);
+        if ($queue_state !== '') {
+            $badges[] = sprintf(
+                /* translators: %s: reviewer queue state label */
+                __('Review only: %s', 'tmwseo'),
+                (string) ($state_labels[$queue_state] ?? $queue_state)
+            );
+        }
+
+        $signed_off_at = trim((string) get_post_meta($draft_id, $review_signoff_keys['signed_off_at'], true));
+        if ($signed_off_at !== '') {
+            $badges[] = sprintf(
+                /* translators: %s: signed-off timestamp */
+                __('Signed off at %s', 'tmwseo'),
+                $signed_off_at
+            );
+        }
+
+        $bundle_prepared_at = trim((string) get_post_meta($draft_id, $review_bundle_keys['prepared_at'], true));
+        if ($bundle_prepared_at !== '') {
+            $badges[] = __('Prepared for human review', 'tmwseo');
+        }
+
+        $handoff_exported_at = trim((string) get_post_meta($draft_id, $review_handoff_keys['exported_at'], true));
+        if ($handoff_exported_at !== '') {
+            $badges[] = sprintf(
+                /* translators: %s: handoff export timestamp */
+                __('Handoff exported at %s', 'tmwseo'),
+                $handoff_exported_at
+            );
+        }
+
+        return $badges;
     }
 
     /**
