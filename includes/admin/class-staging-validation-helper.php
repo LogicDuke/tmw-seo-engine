@@ -15,7 +15,7 @@ class Staging_Validation_Helper {
     private const NONCE_CLEAR = 'tmwseo_clear_staging_test_data';
     private const TEST_MARKER = '[TEST DATA]';
     private const CLUSTER_FIXTURE_SLUG = 'test-data-internal-link-validation-cluster';
-    private const CLUSTER_FIXTURE_KEYWORD = self::TEST_MARKER . ' internal link validation keyword';
+    private const CLUSTER_FIXTURE_KEYWORD = 'internal link validation keyword test fixture';
 
     public static function init(): void {
         if (!is_admin()) {
