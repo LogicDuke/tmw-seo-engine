@@ -303,6 +303,28 @@ class Admin {
                 color:#6b21a8;
             }
 
+            .tmwseo-aging-badge {
+                border:1px solid #d1d5db;
+            }
+
+            .tmwseo-aging-fresh {
+                background:#dcfce7;
+                color:#166534;
+                border-color:#86efac;
+            }
+
+            .tmwseo-aging-aging {
+                background:#fef3c7;
+                color:#92400e;
+                border-color:#fcd34d;
+            }
+
+            .tmwseo-aging-overdue {
+                background:#fee2e2;
+                color:#991b1b;
+                border-color:#fca5a5;
+            }
+
             .tmwseo-command-center {
                 max-width:1100px;
             }
