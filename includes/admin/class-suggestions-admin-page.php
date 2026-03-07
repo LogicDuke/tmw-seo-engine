@@ -1166,32 +1166,11 @@ class SuggestionsAdminPage {
             echo '<td>';
             echo '<div class="tmwseo-description-block">';
             echo '<p class="tmwseo-description-summary"><strong>' . esc_html($description_summary) . '</strong></p>';
-            echo '<ul class="tmwseo-description-details">';
-            echo '<li><strong>' . esc_html__('Why this exists:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 18, '…')) . '</li>';
-            echo '<li><strong>' . esc_html__('Opportunity cue:', 'tmwseo') . '</strong> ' . esc_html($opportunity_cue) . '</li>';
-            echo '<li><strong>' . esc_html__('Source engine:', 'tmwseo') . '</strong> ' . esc_html($source_engine_label) . ' · <strong>' . esc_html__('Suggestion type:', 'tmwseo') . '</strong> ' . esc_html($type_label) . '</li>';
-            echo '<li><strong>' . esc_html__('Destination type:', 'tmwseo') . '</strong> ' . esc_html($destination_meta['label']) . '</li>';
-
-            if ((string) ($row['type'] ?? '') === 'internal_link') {
-                $link_context = $this->internal_link_row_context((string) ($row['description'] ?? ''));
-                if ($link_context['source'] !== '') {
-                    echo '<li><strong>' . esc_html__('Source page/post:', 'tmwseo') . '</strong> ' . esc_html($link_context['source']) . '</li>';
-                }
-                if ($link_context['target'] !== '') {
-                    echo '<li><strong>' . esc_html__('Target page/post:', 'tmwseo') . '</strong> ' . esc_html($link_context['target']) . '</li>';
-                }
-                if ($link_context['anchor'] !== '') {
-                    echo '<li><strong>' . esc_html__('Suggested anchor:', 'tmwseo') . '</strong> ' . esc_html($link_context['anchor']) . '</li>';
-                }
-                if ($link_context['snippet'] !== '') {
-                    echo '<li><strong>' . esc_html__('Context snippet:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($link_context['snippet'], 16, '…')) . '</li>';
-                }
-                echo '<li><strong>' . esc_html__('Manual next step:', 'tmwseo') . '</strong> ' . esc_html__('Open helper draft, review anchor/context, and insert manually only if approved. No automatic insertion occurs.', 'tmwseo') . '</li>';
-            } else {
-                echo '<li><strong>' . esc_html__('Manual next step:', 'tmwseo') . '</strong> ' . esc_html($manual_next_step) . '</li>';
-            }
-
-            echo '</ul>';
+            echo '<p class="tmwseo-description-details-inline">';
+            echo '<strong>' . esc_html__('Opportunity cue:', 'tmwseo') . '</strong> ' . esc_html($opportunity_cue) . ' · ';
+            echo '<strong>' . esc_html__('Source engine:', 'tmwseo') . '</strong> ' . esc_html($source_engine_label);
+            echo '</p>';
+            $this->render_inline_preview_panel($row, $destination_meta['label'], $source_engine_label, $priority_confidence, $manual_next_step);
             echo '</div>';
             echo '</td>';
             echo '<td>' . esc_html(number_format_i18n((int) ($row['estimated_traffic'] ?? 0))) . '</td>';
@@ -1214,15 +1193,64 @@ class SuggestionsAdminPage {
             echo '</form>';
 
             $this->render_action_button($id, 'ignore', __('Ignore', 'tmwseo'), 'delete');
-
-            $this->render_suggestion_details($row);
-
             echo '</td>';
             echo '</tr>';
         }
 
         echo '</tbody></table>';
         echo '</div>';
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     */
+    private function render_inline_preview_panel(array $row, string $destination_label, string $source_engine_label, string $priority_confidence, string $manual_next_step): void {
+        $type = (string) ($row['type'] ?? '');
+        $description = (string) ($row['description'] ?? '');
+        $suggested_action = trim((string) ($row['suggested_action'] ?? ''));
+        $next_step = $suggested_action !== '' ? wp_trim_words($suggested_action, 18, '…') : $manual_next_step;
+
+        echo '<details class="tmwseo-inline-preview" style="margin-top:6px;">';
+        echo '<summary><strong>' . esc_html__('Preview details', 'tmwseo') . '</strong> <span class="tmwseo-cell-note">' . esc_html__('(inline review only; no automatic publishing or insertion)', 'tmwseo') . '</span></summary>';
+        echo '<ul class="tmwseo-description-details">';
+
+        if ($type === 'internal_link') {
+            $link_context = $this->internal_link_row_context($description);
+            if ($link_context['source'] !== '') {
+                echo '<li><strong>' . esc_html__('Source page/post:', 'tmwseo') . '</strong> ' . esc_html($link_context['source']) . '</li>';
+            }
+            if ($link_context['target'] !== '') {
+                echo '<li><strong>' . esc_html__('Target page/post:', 'tmwseo') . '</strong> ' . esc_html($link_context['target']) . '</li>';
+            }
+            if ($link_context['anchor'] !== '') {
+                echo '<li><strong>' . esc_html__('Suggested anchor text:', 'tmwseo') . '</strong> ' . esc_html($link_context['anchor']) . '</li>';
+            }
+            if ($link_context['snippet'] !== '') {
+                echo '<li><strong>' . esc_html__('Context snippet:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($link_context['snippet'], 20, '…')) . '</li>';
+            }
+            echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Open helper draft, review, and insert the link manually only if approved. No automatic insertion occurs.', 'tmwseo') . '</li>';
+        } elseif ($type === 'content_brief') {
+            $cluster_cue = $this->extract_line_value($description, 'Cluster:');
+            $keyword = trim((string) ($row['primary_keyword'] ?? ''));
+            if ($keyword === '') {
+                $keyword = (string) ($row['title'] ?? '');
+            }
+
+            echo '<li><strong>' . esc_html__('Primary keyword/title:', 'tmwseo') . '</strong> ' . esc_html($keyword) . '</li>';
+            echo '<li><strong>' . esc_html__('Source engine / cluster cue:', 'tmwseo') . '</strong> ' . esc_html($source_engine_label . ($cluster_cue !== '' ? ' · ' . $cluster_cue : '')) . '</li>';
+            echo '<li><strong>' . esc_html__('Why this suggestion exists:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($description, 22, '…')) . '</li>';
+            echo '<li><strong>' . esc_html__('Manual next step:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Generate/review the brief manually, then decide execution manually. Nothing goes live automatically.', 'tmwseo') . '</li>';
+        } else {
+            echo '<li><strong>' . esc_html__('Destination type:', 'tmwseo') . '</strong> ' . esc_html($destination_label) . '</li>';
+            echo '<li><strong>' . esc_html__('Source engine:', 'tmwseo') . '</strong> ' . esc_html($source_engine_label) . '</li>';
+            echo '<li><strong>' . esc_html__('Priority cue:', 'tmwseo') . '</strong> ' . esc_html($priority_confidence) . '</li>';
+            echo '<li><strong>' . esc_html__('Problem / why it matters:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($description, 22, '…')) . '</li>';
+            echo '<li><strong>' . esc_html__('Suggested next step:', 'tmwseo') . '</strong> ' . esc_html($next_step) . '</li>';
+            echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Draft editing is manual and nothing is published automatically.', 'tmwseo') . '</li>';
+        }
+
+        echo '</ul>';
+        echo '</details>';
     }
 
     private function render_action_button(int $id, string $action, string $label, string $class): void {
@@ -1602,44 +1630,6 @@ class SuggestionsAdminPage {
     private function format_label(string $value): string {
         $value = str_replace(['_', '-'], ' ', $value);
         return ucwords(trim($value));
-    }
-
-    /**
-     * @param array<string,mixed> $row
-     */
-    private function render_suggestion_details(array $row): void {
-        $type = (string) ($row['type'] ?? '');
-        $description = (string) ($row['description'] ?? '');
-        $suggested_action = (string) ($row['suggested_action'] ?? '');
-
-        echo '<details style="margin:8px 0 0;">';
-        echo '<summary><strong>' . esc_html__('View Details', 'tmwseo') . '</strong></summary>';
-
-        if ($type === 'internal_link') {
-            $source_page = $this->extract_line_value($description, 'Source Page:');
-            $target_page = $this->extract_line_value($description, 'Target Page:');
-            $anchor = $this->extract_section_text($description, 'Suggested anchor text:');
-            $snippet = $this->extract_section_text($description, 'Context snippet:');
-
-            echo '<p><strong>' . esc_html__('Source page:', 'tmwseo') . '</strong> ' . esc_html($source_page) . '</p>';
-            echo '<p><strong>' . esc_html__('Target page:', 'tmwseo') . '</strong> ' . esc_html($target_page) . '</p>';
-            echo '<p><strong>' . esc_html__('Suggested anchor:', 'tmwseo') . '</strong> ' . esc_html($anchor) . '</p>';
-            echo '<p><strong>' . esc_html__('Context snippet:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($snippet)) . '</p>';
-            echo '<p><strong>' . esc_html__('Recommended insertion guidance:', 'tmwseo') . '</strong> ' . esc_html__('Insert the link on this phrase in the paragraph shown below after review.', 'tmwseo') . '</p>';
-            echo '<p><strong>' . esc_html__('Full description:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($description)) . '</p>';
-            echo '<p><strong>' . esc_html__('Suggested next step:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($suggested_action)) . '</p>';
-        } elseif ($type === 'content_improvement') {
-            echo '<p><strong>' . esc_html__('Missing topics:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($this->extract_section_text($description, 'Missing topics detected:'))) . '</p>';
-            echo '<p><strong>' . esc_html__('Suggested sections:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($this->extract_section_text($description, 'Suggested sections:'))) . '</p>';
-            echo '<p><strong>' . esc_html__('Semantic term gaps:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($this->extract_section_text($description, 'Missing semantic terms:'))) . '</p>';
-            echo '<p><strong>' . esc_html__('Heading issues & word count recommendation:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($this->extract_section_text($description, 'Suggested action:'))) . '</p>';
-            echo '<p><strong>' . esc_html__('Full description:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($description)) . '</p>';
-        } else {
-            echo '<p><strong>' . esc_html__('Full description:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($description)) . '</p>';
-            echo '<p><strong>' . esc_html__('Suggested next step:', 'tmwseo') . '</strong><br>' . nl2br(esc_html($suggested_action)) . '</p>';
-        }
-
-        echo '</details>';
     }
 
     private function extract_line_value(string $description, string $prefix): string {
