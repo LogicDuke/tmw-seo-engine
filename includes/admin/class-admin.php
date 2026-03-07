@@ -358,6 +358,23 @@ class Admin {
                 background:#f3f4f6;
             }
 
+            .tmwseo-command-trust-copy {
+                margin-top:10px;
+                margin-bottom:0;
+                font-size:12px;
+                color:#1f2937;
+            }
+
+            .tmwseo-command-sub-link {
+                font-weight:600;
+                text-decoration:none;
+            }
+
+            .tmwseo-command-sub-link:hover,
+            .tmwseo-command-sub-link:focus {
+                text-decoration:underline;
+            }
+
             .tmwseo-command-good {
                 border-left-color:#16a34a;
             }
