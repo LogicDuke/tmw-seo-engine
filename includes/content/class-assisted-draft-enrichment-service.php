@@ -164,6 +164,8 @@ class AssistedDraftEnrichmentService {
             'applied_at' => self::PREVIEW_META_APPLIED_AT,
             'applied_fields' => self::PREVIEW_META_APPLIED_FIELDS,
             'last_reviewed_at' => self::PREVIEW_META_LAST_REVIEWED_AT,
+            'apply_preset' => self::PREVIEW_META_APPLY_PRESET,
+            'apply_preset_at' => self::PREVIEW_META_APPLY_PRESET_AT,
             'draft_reviewed_outline' => self::DRAFT_META_REVIEWED_OUTLINE,
         ];
     }
