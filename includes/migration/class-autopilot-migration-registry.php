@@ -71,7 +71,7 @@ class AutopilotMigrationRegistry {
                 'status' => self::STATUS_MIGRATED_SAFELY,
                 'entry_point' => 'admin_post_tmwseo_apply_draft_content_preview',
                 'legacy_path' => 'Reviewed preview-to-draft field apply (manual, granular)',
-                'notes' => 'Operator-triggered draft-only apply from reviewed preview metadata. Refuses non-drafts, applies only selected fields, never publishes, never mutates live posts, and never clears noindex.',
+                'notes' => 'Operator-triggered draft-only apply from reviewed preview metadata, including destination-aware apply presets for category-page-first review. Refuses non-drafts, applies only selected/preset fields via the same draft-only apply service, never publishes, never mutates live posts, and never clears noindex.',
             ],
             [
                 'id' => 'legacy_publish_transition_hook',

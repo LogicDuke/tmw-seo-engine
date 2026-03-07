@@ -195,7 +195,19 @@ class Editor_AI_Metabox {
             ? array_values(array_map('strval', wp_unslash($_POST['tmwseo_apply_preview_fields'])))
             : [];
 
-        $result = AssistedDraftEnrichmentService::apply_reviewed_preview_to_explicit_draft($post_id, $requested_fields);
+        $template_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_preview_template_type', true));
+        if ($template_type === '') {
+            $template_type = 'generic_post';
+        }
+
+        $requested_preset = isset($_POST['tmwseo_apply_preview_preset']) ? sanitize_key((string) wp_unslash($_POST['tmwseo_apply_preview_preset'])) : '';
+        $resolved = AssistedDraftEnrichmentService::resolve_preview_apply_fields($requested_fields, $template_type, $requested_preset);
+
+        $result = AssistedDraftEnrichmentService::apply_reviewed_preview_to_explicit_draft(
+            $post_id,
+            (array) ($resolved['fields'] ?? []),
+            (string) ($resolved['preset_key'] ?? '')
+        );
         $notice = !empty($result['ok']) ? 'draft_preview_applied' : 'draft_preview_apply_refused';
         $reason = sanitize_key((string) ($result['reason'] ?? ''));
 
@@ -222,6 +234,8 @@ class Editor_AI_Metabox {
         $generated_at = (string) get_post_meta($post_id, $keys['generated_at'], true);
         $applied_at = (string) get_post_meta($post_id, $keys['applied_at'], true);
         $last_reviewed_at = (string) get_post_meta($post_id, $keys['last_reviewed_at'], true);
+        $applied_preset = sanitize_key((string) get_post_meta($post_id, '_tmwseo_preview_apply_preset', true));
+        $applied_preset_at = (string) get_post_meta($post_id, '_tmwseo_preview_apply_preset_at', true);
 
         $applied_fields_raw = (string) get_post_meta($post_id, $keys['applied_fields'], true);
         $applied_fields = json_decode($applied_fields_raw, true);
@@ -263,6 +277,12 @@ class Editor_AI_Metabox {
                 if (!empty($applied_fields)) {
                     echo ' · ' . esc_html__('Fields:', 'tmwseo') . ' ' . esc_html(implode(', ', $applied_fields));
                 }
+                if ($applied_preset !== '') {
+                    echo ' · ' . esc_html__('Preset:', 'tmwseo') . ' ' . esc_html($applied_preset);
+                    if ($applied_preset_at !== '') {
+                        echo ' (' . esc_html($applied_preset_at) . ')';
+                    }
+                }
             }
 
             if ($last_reviewed_at !== '') {
@@ -275,15 +295,40 @@ class Editor_AI_Metabox {
         }
 
         $field_labels = AssistedDraftEnrichmentService::preview_apply_field_labels();
+        $apply_presets = AssistedDraftEnrichmentService::preview_apply_presets_for_destination($template_type);
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:8px 0 0">';
         wp_nonce_field('tmwseo_apply_draft_content_preview_' . $post_id);
         echo '<input type="hidden" name="action" value="tmwseo_apply_draft_content_preview">';
         echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post_id) . '">';
+        if (!empty($apply_presets)) {
+            echo '<p style="margin:0 0 6px"><label><strong>' . esc_html__('Apply preset', 'tmwseo') . '</strong><br><select name="tmwseo_apply_preview_preset" style="width:100%;max-width:100%;margin-top:4px;">';
+            echo '<option value="">' . esc_html__('Manual field selection (no preset)', 'tmwseo') . '</option>';
+            foreach ($apply_presets as $preset_key => $preset_meta) {
+                echo '<option value="' . esc_attr((string) $preset_key) . '">' . esc_html((string) ($preset_meta['label'] ?? $preset_key)) . '</option>';
+            }
+            echo '</select></label></p>';
+
+            echo '<div style="border:1px solid #ddd; background:#fff; padding:8px; margin:0 0 8px;">';
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Preset scope preview', 'tmwseo') . '</strong></p>';
+            foreach ($apply_presets as $preset_meta) {
+                $preset_label = (string) ($preset_meta['label'] ?? '');
+                $preset_fields = !empty($preset_meta['fields']) && is_array($preset_meta['fields'])
+                    ? array_values(array_map('strval', $preset_meta['fields']))
+                    : [];
+                $field_names = [];
+                foreach ($preset_fields as $field) {
+                    $field_names[] = (string) ($field_labels[$field] ?? $field);
+                }
+                echo '<p style="margin:0 0 6px; font-size:12px;"><strong>' . esc_html($preset_label) . ':</strong> ' . esc_html(implode(', ', $field_names)) . '</p>';
+            }
+            echo '</div>';
+        }
         echo '<div style="border:1px solid #ddd; background:#fff; padding:8px; margin:0 0 8px; max-height:180px; overflow:auto">';
         foreach ($field_labels as $field => $label) {
             echo '<p style="margin:0 0 6px"><label><input type="checkbox" name="tmwseo_apply_preview_fields[]" value="' . esc_attr($field) . '"> ' . esc_html($label) . '</label></p>';
         }
         echo '</div>';
+        echo '<p style="margin:0 0 8px; font-size:12px; opacity:.85">' . esc_html__('If a preset is selected, the preset field bundle is used as-is. Manual checkboxes apply only when no preset is selected.', 'tmwseo') . '</p>';
         echo '<button type="submit" class="button button-primary" style="width:100%">' . esc_html__('Apply Reviewed Preview to Draft', 'tmwseo') . '</button>';
         echo '</form>';
         echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Manual operator action only. Applies selected preview fields into this draft only. Never publishes, never mutates live posts, and does not clear noindex.', 'tmwseo') . '</p>';
