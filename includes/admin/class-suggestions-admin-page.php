@@ -14,6 +14,12 @@ if (!defined('ABSPATH')) { exit; }
 
 class SuggestionsAdminPage {
     private const SUGGESTION_DESTINATION_FALLBACK = 'generic_post';
+    private const REVIEW_AGING_BUCKET_ALL = 'all';
+    private const REVIEW_AGING_BUCKET_FRESH = 'fresh';
+    private const REVIEW_AGING_BUCKET_AGING = 'aging';
+    private const REVIEW_AGING_BUCKET_OVERDUE = 'overdue';
+    private const REVIEW_AGING_FRESH_MAX_DAYS = 2;
+    private const REVIEW_AGING_AGING_MAX_DAYS = 7;
 
     /**
      * @var array<string,string>
@@ -29,6 +35,9 @@ class SuggestionsAdminPage {
 
     /** @var array<int,int> */
     private array $draft_id_cache = [];
+
+    /** @var array<int,array<string,mixed>> */
+    private array $review_aging_cache = [];
 
     public function __construct(?SuggestionEngine $engine = null) {
         $this->engine = $engine ?: new SuggestionEngine();
@@ -97,6 +106,7 @@ class SuggestionsAdminPage {
 
         $metrics = $this->get_command_center_metrics();
         $review_workload_widgets = $this->get_reviewer_workload_widgets();
+        $review_aging_widgets = $this->get_reviewer_aging_widgets();
 
         echo '<div class="wrap tmwseo-command-center">';
         echo '<h1>' . esc_html__('TMW SEO Engine → Command Center', 'tmwseo') . '</h1>';
@@ -145,6 +155,36 @@ class SuggestionsAdminPage {
                 echo '<span class="tmwseo-command-widget-label tmwseo-command-trust-copy">' . esc_html($trust_copy) . '</span>';
             }
             echo '<span class="tmwseo-command-widget-label" style="margin-top:6px;"><a class="tmwseo-command-sub-link" href="' . esc_url($url) . '">' . esc_html__('Open Review Queue', 'tmwseo') . '</a></span>';
+            if ($sub_label !== '' && $sub_url !== '') {
+                echo '<span class="tmwseo-command-widget-label" style="margin-top:6px;"><a class="tmwseo-command-sub-link" href="' . esc_url($sub_url) . '">' . esc_html($sub_label) . '</a></span>';
+            }
+            echo '</div>';
+        }
+
+        echo '</div>';
+
+        echo '<h2 style="margin-top:24px;">' . esc_html__('Reviewer Aging SLA (Draft-Only)', 'tmwseo') . '</h2>';
+        echo '<p>' . esc_html__('Review-only aging visibility for explicit draft queues. Manual next step pending, draft-only / noindex, and nothing is published automatically.', 'tmwseo') . '</p>';
+        echo '<div class="tmwseo-command-grid">';
+
+        foreach ($review_aging_widgets as $metric) {
+            $label = (string) ($metric['label'] ?? '');
+            $value = (string) ($metric['value'] ?? '0');
+            $status = (string) ($metric['status'] ?? 'warn');
+            $status_label = (string) ($metric['status_label'] ?? 'Improvement needed');
+
+            $url = (string) ($metric['url'] ?? admin_url('admin.php?page=tmwseo-suggestions'));
+            $trust_copy = (string) ($metric['trust_copy'] ?? '');
+            $sub_label = (string) ($metric['sub_label'] ?? '');
+            $sub_url = (string) ($metric['sub_url'] ?? '');
+            echo '<div class="tmwseo-command-widget tmwseo-command-' . esc_attr($status) . '">';
+            echo '<span class="tmwseo-command-widget-value">' . esc_html($value) . '</span>';
+            echo '<span class="tmwseo-command-widget-label">' . esc_html($label) . '</span>';
+            echo '<span class="tmwseo-command-status">' . esc_html($status_label) . '</span>';
+            if ($trust_copy !== '') {
+                echo '<span class="tmwseo-command-widget-label tmwseo-command-trust-copy">' . esc_html($trust_copy) . '</span>';
+            }
+            echo '<span class="tmwseo-command-widget-label" style="margin-top:6px;"><a class="tmwseo-command-sub-link" href="' . esc_url($url) . '">' . esc_html__('Open Overdue Queue', 'tmwseo') . '</a></span>';
             if ($sub_label !== '' && $sub_url !== '') {
                 echo '<span class="tmwseo-command-widget-label" style="margin-top:6px;"><a class="tmwseo-command-sub-link" href="' . esc_url($sub_url) . '">' . esc_html($sub_label) . '</a></span>';
             }
@@ -244,7 +284,7 @@ class SuggestionsAdminPage {
      * @return array<int,array<string,string>>
      */
     private function get_reviewer_workload_widgets(): array {
-        $cache_key = 'tmwseo_reviewer_workload_widgets_v1';
+        $cache_key = 'tmwseo_reviewer_workload_widgets_v2';
         $cached = get_transient($cache_key);
         if (is_array($cached) && !empty($cached)) {
             return $cached;
@@ -348,17 +388,130 @@ class SuggestionsAdminPage {
         return $widgets;
     }
 
-    private function build_suggestions_queue_url(string $filter, string $sort = 'priority_desc', string $destination_filter = 'all'): string {
-        return add_query_arg([
+    /**
+     * @return array<int,array<string,string>>
+     */
+    private function get_reviewer_aging_widgets(): array {
+        $cache_key = 'tmwseo_reviewer_aging_widgets_v1';
+        $cached = get_transient($cache_key);
+        if (is_array($cached) && !empty($cached)) {
+            return $cached;
+        }
+
+        $rows = $this->engine->getSuggestions(['limit' => 1000]);
+        $counts = $this->build_review_aging_state_counts($rows, 'all');
+        $category_page_counts = $this->build_review_aging_state_counts($rows, 'category_page');
+        $common_trust_copy = __('Review-only aging · manual next step pending · draft-only / noindex · nothing is published automatically.', 'tmwseo');
+
+        $widgets = [
+            $this->build_metric(
+                __('Not Reviewed Aging', 'tmwseo'),
+                sprintf(__('Overdue: %d', 'tmwseo'), (int) ($counts['review_not_reviewed']['overdue'] ?? 0)),
+                (float) ($counts['review_not_reviewed']['overdue'] ?? 0),
+                5,
+                1,
+                true,
+                $this->build_review_queue_url('review_not_reviewed', 'all', 'priority_desc', self::REVIEW_AGING_BUCKET_OVERDUE),
+                '',
+                __('Fresh 0-2d · Aging 3-7d · Overdue 8+d', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages overdue: %d', 'tmwseo'), (int) ($category_page_counts['review_not_reviewed']['overdue'] ?? 0)),
+                $this->build_review_queue_url('review_not_reviewed', 'category_page', 'priority_desc', self::REVIEW_AGING_BUCKET_OVERDUE)
+            ),
+            $this->build_metric(
+                __('In Review Aging', 'tmwseo'),
+                sprintf(__('Overdue: %d', 'tmwseo'), (int) ($counts['review_in_review']['overdue'] ?? 0)),
+                (float) ($counts['review_in_review']['overdue'] ?? 0),
+                5,
+                1,
+                true,
+                $this->build_review_queue_url('review_in_review', 'all', 'priority_desc', self::REVIEW_AGING_BUCKET_OVERDUE),
+                '',
+                __('Fresh 0-2d · Aging 3-7d · Overdue 8+d', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages overdue: %d', 'tmwseo'), (int) ($category_page_counts['review_in_review']['overdue'] ?? 0)),
+                $this->build_review_queue_url('review_in_review', 'category_page', 'priority_desc', self::REVIEW_AGING_BUCKET_OVERDUE)
+            ),
+            $this->build_metric(
+                __('Needs Changes Aging', 'tmwseo'),
+                sprintf(__('Overdue: %d', 'tmwseo'), (int) ($counts['review_needs_changes']['overdue'] ?? 0)),
+                (float) ($counts['review_needs_changes']['overdue'] ?? 0),
+                5,
+                1,
+                true,
+                $this->build_review_queue_url('review_needs_changes', 'all', 'priority_desc', self::REVIEW_AGING_BUCKET_OVERDUE),
+                '',
+                __('Fresh 0-2d · Aging 3-7d · Overdue 8+d', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages overdue: %d', 'tmwseo'), (int) ($category_page_counts['review_needs_changes']['overdue'] ?? 0)),
+                $this->build_review_queue_url('review_needs_changes', 'category_page', 'priority_desc', self::REVIEW_AGING_BUCKET_OVERDUE)
+            ),
+            $this->build_metric(
+                __('Signed Off Waiting Aging', 'tmwseo'),
+                sprintf(__('Aging/Overdue: %d', 'tmwseo'), (int) (($counts['review_signed_off']['aging'] ?? 0) + ($counts['review_signed_off']['overdue'] ?? 0))),
+                (float) (($counts['review_signed_off']['aging'] ?? 0) + ($counts['review_signed_off']['overdue'] ?? 0)),
+                5,
+                2,
+                true,
+                $this->build_review_queue_url('review_signed_off', 'all', 'priority_desc', self::REVIEW_AGING_BUCKET_AGING),
+                '',
+                __('Fresh 0-2d · Aging 3-7d · Overdue 8+d', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages aging/overdue: %d', 'tmwseo'), (int) (($category_page_counts['review_signed_off']['aging'] ?? 0) + ($category_page_counts['review_signed_off']['overdue'] ?? 0))),
+                $this->build_review_queue_url('review_signed_off', 'category_page', 'priority_desc', self::REVIEW_AGING_BUCKET_AGING)
+            ),
+            $this->build_metric(
+                __('Handoff Ready Aging', 'tmwseo'),
+                sprintf(__('Aging/Overdue: %d', 'tmwseo'), (int) (($counts['review_handoff_ready']['aging'] ?? 0) + ($counts['review_handoff_ready']['overdue'] ?? 0))),
+                (float) (($counts['review_handoff_ready']['aging'] ?? 0) + ($counts['review_handoff_ready']['overdue'] ?? 0)),
+                5,
+                2,
+                true,
+                $this->build_review_queue_url('review_handoff_ready', 'all', 'priority_desc', self::REVIEW_AGING_BUCKET_AGING),
+                '',
+                __('Fresh 0-2d · Aging 3-7d · Overdue 8+d', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages aging/overdue: %d', 'tmwseo'), (int) (($category_page_counts['review_handoff_ready']['aging'] ?? 0) + ($category_page_counts['review_handoff_ready']['overdue'] ?? 0))),
+                $this->build_review_queue_url('review_handoff_ready', 'category_page', 'priority_desc', self::REVIEW_AGING_BUCKET_AGING)
+            ),
+            $this->build_metric(
+                __('Handoff Exported Aging', 'tmwseo'),
+                sprintf(__('Aging/Overdue: %d', 'tmwseo'), (int) (($counts['review_handoff_exported']['aging'] ?? 0) + ($counts['review_handoff_exported']['overdue'] ?? 0))),
+                (float) (($counts['review_handoff_exported']['aging'] ?? 0) + ($counts['review_handoff_exported']['overdue'] ?? 0)),
+                5,
+                2,
+                true,
+                $this->build_review_queue_url('review_handoff_exported', 'all', 'priority_desc', self::REVIEW_AGING_BUCKET_AGING),
+                '',
+                __('Fresh 0-2d · Aging 3-7d · Overdue 8+d', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages aging/overdue: %d', 'tmwseo'), (int) (($category_page_counts['review_handoff_exported']['aging'] ?? 0) + ($category_page_counts['review_handoff_exported']['overdue'] ?? 0))),
+                $this->build_review_queue_url('review_handoff_exported', 'category_page', 'priority_desc', self::REVIEW_AGING_BUCKET_AGING)
+            ),
+        ];
+
+        set_transient($cache_key, $widgets, 5 * MINUTE_IN_SECONDS);
+
+        return $widgets;
+    }
+
+    private function build_suggestions_queue_url(string $filter, string $sort = 'priority_desc', string $destination_filter = 'all', string $review_aging = self::REVIEW_AGING_BUCKET_ALL): string {
+        $query_args = [
             'page' => 'tmwseo-suggestions',
             'tmw_filter' => $filter,
             'tmw_destination_filter' => $destination_filter,
             'tmw_sort' => $sort,
-        ], admin_url('admin.php'));
+        ];
+
+        if ($review_aging !== self::REVIEW_AGING_BUCKET_ALL) {
+            $query_args['tmw_review_age'] = $review_aging;
+        }
+
+        return add_query_arg($query_args, admin_url('admin.php'));
     }
 
-    private function build_review_queue_url(string $filter, string $destination_filter = 'all', string $sort = 'priority_desc'): string {
-        return $this->build_suggestions_queue_url($filter, $sort, $destination_filter);
+    private function build_review_queue_url(string $filter, string $destination_filter = 'all', string $sort = 'priority_desc', string $review_aging = self::REVIEW_AGING_BUCKET_ALL): string {
+        return $this->build_suggestions_queue_url($filter, $sort, $destination_filter, $review_aging);
     }
 
     /**
@@ -1449,41 +1602,58 @@ class SuggestionsAdminPage {
         $active_filter = sanitize_key((string) ($_GET['tmw_filter'] ?? ($active_view_preset['filter'] ?? 'all')));
         $active_destination_filter = $this->sanitize_destination_filter((string) ($_GET['tmw_destination_filter'] ?? ($active_view_preset['destination_filter'] ?? 'all')));
         $active_sort = $this->sanitize_sort((string) ($_GET['tmw_sort'] ?? ($active_view_preset['sort'] ?? 'priority_desc')));
+        $active_review_aging = $this->sanitize_review_aging_bucket((string) ($_GET['tmw_review_age'] ?? self::REVIEW_AGING_BUCKET_ALL));
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
         $review_queue_counts = $this->build_review_queue_counts($rows, $active_destination_filter);
+        $review_aging_bucket_counts = $this->build_review_aging_bucket_counts($rows, $active_destination_filter, $active_filter);
 
-        $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter): bool {
+        $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter, $active_review_aging): bool {
             $type = (string) ($row['type'] ?? '');
             $status = (string) ($row['status'] ?? 'new');
             $priority = (float) ($row['priority_score'] ?? 0);
             $review_queue_state = $this->review_queue_state_for_row($row);
+            $review_matches_filter = false;
 
             if ($active_filter === 'review_drafts_all') {
-                return $review_queue_state !== '';
+                $review_matches_filter = $review_queue_state !== '';
             }
 
             if ($active_filter === 'review_not_reviewed') {
-                return $review_queue_state === 'not_reviewed';
+                $review_matches_filter = $review_queue_state === 'not_reviewed';
             }
 
             if ($active_filter === 'review_in_review') {
-                return $review_queue_state === 'in_review';
+                $review_matches_filter = $review_queue_state === 'in_review';
             }
 
             if ($active_filter === 'review_signed_off') {
-                return $review_queue_state === 'reviewed_signed_off';
+                $review_matches_filter = $review_queue_state === 'reviewed_signed_off';
             }
 
             if ($active_filter === 'review_needs_changes') {
-                return $review_queue_state === 'needs_changes';
+                $review_matches_filter = $review_queue_state === 'needs_changes';
             }
 
             if ($active_filter === 'review_handoff_ready') {
-                return $review_queue_state === 'handoff_ready';
+                $review_matches_filter = $review_queue_state === 'handoff_ready';
             }
 
             if ($active_filter === 'review_handoff_exported') {
-                return $review_queue_state === 'handoff_exported';
+                $review_matches_filter = $review_queue_state === 'handoff_exported';
+            }
+
+            if ($this->is_review_queue_filter($active_filter)) {
+                if (!$review_matches_filter) {
+                    return false;
+                }
+
+                if ($active_review_aging === self::REVIEW_AGING_BUCKET_ALL) {
+                    return true;
+                }
+
+                $aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
+
+                return !empty($aging) && (string) ($aging['bucket'] ?? '') === $active_review_aging;
             }
 
             if ($active_filter === 'ignored') {
@@ -1640,6 +1810,7 @@ class SuggestionsAdminPage {
                 'page' => 'tmwseo-suggestions',
                 'tmw_filter' => $key,
                 'tmw_destination_filter' => $active_destination_filter,
+                'tmw_review_age' => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_filter === $key ? 'current' : '';
             if (!$first) {
@@ -1666,6 +1837,7 @@ class SuggestionsAdminPage {
                 'tmw_filter' => $review_filter,
                 'tmw_destination_filter' => $active_destination_filter,
                 'tmw_sort' => (string) ($review_meta['sort'] ?? 'priority_desc'),
+                'tmw_review_age' => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_filter === $review_filter ? 'current' : '';
             if (!$first_review_tab) {
@@ -1678,6 +1850,39 @@ class SuggestionsAdminPage {
             $first_review_tab = false;
         }
         echo '</ul>';
+
+        if ($this->is_review_queue_filter($active_filter)) {
+            $review_aging_tabs = [
+                self::REVIEW_AGING_BUCKET_ALL => __('All Ages', 'tmwseo'),
+                self::REVIEW_AGING_BUCKET_FRESH => __('Fresh (0-2d)', 'tmwseo'),
+                self::REVIEW_AGING_BUCKET_AGING => __('Aging (3-7d)', 'tmwseo'),
+                self::REVIEW_AGING_BUCKET_OVERDUE => __('Overdue (8+d)', 'tmwseo'),
+            ];
+            echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Review Aging Buckets', 'tmwseo') . '</h2>';
+            echo '<p style="margin:0 0 8px;">' . esc_html__('Review-only aging visibility for draft queues. Buckets are triage cues only and never auto-apply or publish.', 'tmwseo') . '</p>';
+            echo '<ul class="subsubsub">';
+            $first_aging_tab = true;
+            foreach ($review_aging_tabs as $aging_key => $aging_label) {
+                $url = add_query_arg([
+                    'page' => 'tmwseo-suggestions',
+                    'tmw_filter' => $active_filter,
+                    'tmw_destination_filter' => $active_destination_filter,
+                    'tmw_sort' => $active_sort,
+                    'tmw_view' => $active_view,
+                    'tmw_review_age' => $aging_key,
+                ], admin_url('admin.php'));
+
+                $class = $active_review_aging === $aging_key ? 'current' : '';
+                if (!$first_aging_tab) {
+                    echo ' | ';
+                }
+
+                $count = (int) ($review_aging_bucket_counts[$aging_key] ?? 0);
+                echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $aging_label, $count)) . '</a></li>';
+                $first_aging_tab = false;
+            }
+            echo '</ul>';
+        }
 
         echo '<p style="margin:0 0 8px;">';
         echo '<strong>' . esc_html__('Category-page-first reviewer pivots:', 'tmwseo') . '</strong> ';
@@ -1732,6 +1937,7 @@ class SuggestionsAdminPage {
                 'tmw_destination_filter' => $active_destination_filter,
                 'tmw_sort' => $sort_key,
                 'tmw_view' => $active_view,
+                'tmw_review_age' => $active_review_aging,
             ], admin_url('admin.php'));
 
             $class = $active_sort === $sort_key ? 'current' : '';
@@ -1770,6 +1976,8 @@ class SuggestionsAdminPage {
                 'page' => 'tmwseo-suggestions',
                 'tmw_filter' => $active_filter,
                 'tmw_destination_filter' => $key,
+                'tmw_sort' => $active_sort,
+                'tmw_review_age' => $active_review_aging,
             ], admin_url('admin.php'));
 
             $class = $active_destination_filter === $key ? 'current' : '';
@@ -1803,11 +2011,12 @@ class SuggestionsAdminPage {
         echo '<th>' . esc_html__('Difficulty', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Source Engine', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Date Created', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Review Aging', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Actions', 'tmwseo') . '</th>';
         echo '</tr></thead><tbody>';
 
         if (empty($filtered_rows)) {
-            echo '<tr><td colspan="12">' . esc_html__('No suggestions found for this filter.', 'tmwseo') . '</td></tr>';
+            echo '<tr><td colspan="13">' . esc_html__('No suggestions found for this filter.', 'tmwseo') . '</td></tr>';
         }
 
         foreach ($filtered_rows as $row) {
@@ -1827,6 +2036,8 @@ class SuggestionsAdminPage {
             $opportunity_cue = $this->opportunity_cue((int) ($row['estimated_traffic'] ?? 0));
             $manual_next_step = $this->manual_next_step_text((string) ($row['type'] ?? ''));
             $review_state_badges = $this->build_review_state_badges($row);
+            $review_queue_state = $this->review_queue_state_for_row($row);
+            $review_aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
 
             echo '<tr>';
             echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Confidence cue:', 'tmwseo') . '</strong> ' . esc_html($priority_confidence) . '</div></td>';
@@ -1855,6 +2066,19 @@ class SuggestionsAdminPage {
             echo '<td>' . esc_html(number_format_i18n((float) ($row['difficulty'] ?? 0), 1)) . '</td>';
             echo '<td>' . esc_html($source_engine_label) . '</td>';
             echo '<td>' . esc_html(mysql2date(get_option('date_format') . ' ' . get_option('time_format'), (string) ($row['created_at'] ?? ''), true)) . '</td>';
+            echo '<td>';
+            if (!empty($review_aging)) {
+                $bucket = (string) ($review_aging['bucket'] ?? self::REVIEW_AGING_BUCKET_FRESH);
+                $bucket_label = (string) ($review_aging['bucket_label'] ?? __('Fresh', 'tmwseo'));
+                $days_waiting = (int) ($review_aging['days_waiting'] ?? 0);
+                $last_updated_label = (string) ($review_aging['last_updated_label'] ?? __('Unknown', 'tmwseo'));
+                echo '<span class="tmwseo-target-badge tmwseo-aging-badge tmwseo-aging-' . esc_attr($bucket) . '">' . esc_html($bucket_label) . '</span>';
+                echo '<div class="tmwseo-cell-note"><strong>' . esc_html__('Days waiting:', 'tmwseo') . '</strong> ' . esc_html((string) $days_waiting) . '</div>';
+                echo '<div class="tmwseo-cell-note"><strong>' . esc_html__('Last review update:', 'tmwseo') . '</strong> ' . esc_html($last_updated_label) . '</div>';
+            } else {
+                echo '<span class="tmwseo-cell-note">' . esc_html__('Not in review queue', 'tmwseo') . '</span>';
+            }
+            echo '</td>';
             echo '<td>';
 
             if ((string) ($row['type'] ?? '') === 'internal_link') {
@@ -2384,6 +2608,34 @@ class SuggestionsAdminPage {
         return 9;
     }
 
+    private function sanitize_review_aging_bucket(string $bucket): string {
+        $normalized = sanitize_key($bucket);
+        $allowed = [
+            self::REVIEW_AGING_BUCKET_ALL,
+            self::REVIEW_AGING_BUCKET_FRESH,
+            self::REVIEW_AGING_BUCKET_AGING,
+            self::REVIEW_AGING_BUCKET_OVERDUE,
+        ];
+
+        if (!in_array($normalized, $allowed, true)) {
+            return self::REVIEW_AGING_BUCKET_ALL;
+        }
+
+        return $normalized;
+    }
+
+    private function is_review_queue_filter(string $filter): bool {
+        return in_array($filter, [
+            'review_drafts_all',
+            'review_not_reviewed',
+            'review_in_review',
+            'review_signed_off',
+            'review_needs_changes',
+            'review_handoff_ready',
+            'review_handoff_exported',
+        ], true);
+    }
+
     /**
      * @param array<int,array<string,mixed>> $rows
      * @return array{all:int,category_page:int,model_page:int,video_page:int,generic_post:int}
@@ -2456,6 +2708,248 @@ class SuggestionsAdminPage {
         }
 
         return $counts;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,array{fresh:int,aging:int,overdue:int}>
+     */
+    private function build_review_aging_state_counts(array $rows, string $destination_filter): array {
+        $counts = [
+            'review_not_reviewed' => ['fresh' => 0, 'aging' => 0, 'overdue' => 0],
+            'review_in_review' => ['fresh' => 0, 'aging' => 0, 'overdue' => 0],
+            'review_signed_off' => ['fresh' => 0, 'aging' => 0, 'overdue' => 0],
+            'review_needs_changes' => ['fresh' => 0, 'aging' => 0, 'overdue' => 0],
+            'review_handoff_ready' => ['fresh' => 0, 'aging' => 0, 'overdue' => 0],
+            'review_handoff_exported' => ['fresh' => 0, 'aging' => 0, 'overdue' => 0],
+        ];
+
+        foreach ($rows as $row) {
+            if ($destination_filter !== 'all') {
+                $destination = $this->resolve_draft_destination($row);
+                if (sanitize_key((string) ($destination['destination_type'] ?? '')) !== $destination_filter) {
+                    continue;
+                }
+            }
+
+            $review_state = $this->review_queue_state_for_row($row);
+            if ($review_state === '') {
+                continue;
+            }
+
+            $review_filter = $this->review_filter_for_state($review_state);
+            if ($review_filter === '') {
+                continue;
+            }
+
+            $aging = $this->build_review_aging_profile_for_row($row, $review_state);
+            $bucket = (string) ($aging['bucket'] ?? '');
+            if ($bucket === '' || !isset($counts[$review_filter][$bucket])) {
+                continue;
+            }
+
+            $counts[$review_filter][$bucket]++;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array{all:int,fresh:int,aging:int,overdue:int}
+     */
+    private function build_review_aging_bucket_counts(array $rows, string $destination_filter, string $active_filter): array {
+        $counts = [
+            self::REVIEW_AGING_BUCKET_ALL => 0,
+            self::REVIEW_AGING_BUCKET_FRESH => 0,
+            self::REVIEW_AGING_BUCKET_AGING => 0,
+            self::REVIEW_AGING_BUCKET_OVERDUE => 0,
+        ];
+
+        foreach ($rows as $row) {
+            if ($destination_filter !== 'all') {
+                $destination = $this->resolve_draft_destination($row);
+                if (sanitize_key((string) ($destination['destination_type'] ?? '')) !== $destination_filter) {
+                    continue;
+                }
+            }
+
+            $review_state = $this->review_queue_state_for_row($row);
+            if ($review_state === '') {
+                continue;
+            }
+
+            if ($active_filter !== 'review_drafts_all' && $this->review_filter_for_state($review_state) !== $active_filter) {
+                continue;
+            }
+
+            $aging = $this->build_review_aging_profile_for_row($row, $review_state);
+            $bucket = (string) ($aging['bucket'] ?? '');
+            if ($bucket === '' || !isset($counts[$bucket])) {
+                continue;
+            }
+
+            $counts[self::REVIEW_AGING_BUCKET_ALL]++;
+            $counts[$bucket]++;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private function build_review_aging_profile_for_row(array $row, string $queue_state = ''): array {
+        $suggestion_id = (int) ($row['id'] ?? 0);
+        if ($suggestion_id <= 0) {
+            return [];
+        }
+
+        if (isset($this->review_aging_cache[$suggestion_id])) {
+            return $this->review_aging_cache[$suggestion_id];
+        }
+
+        if ($queue_state === '') {
+            $queue_state = $this->review_queue_state_for_row($row);
+        }
+
+        if ($queue_state === '') {
+            $this->review_aging_cache[$suggestion_id] = [];
+            return [];
+        }
+
+        $draft_id = $this->find_suggestion_draft_id($suggestion_id);
+        $draft = $draft_id > 0 ? get_post($draft_id) : null;
+        if (!$draft instanceof \WP_Post || $draft->post_status !== 'draft') {
+            $this->review_aging_cache[$suggestion_id] = [];
+            return [];
+        }
+
+        [$reference_time, $source_label] = $this->resolve_review_aging_reference_time($draft_id, $draft, $row, $queue_state);
+        if ($reference_time <= 0) {
+            $this->review_aging_cache[$suggestion_id] = [];
+            return [];
+        }
+
+        $now = (int) current_time('timestamp', true);
+        $days_waiting = (int) floor(max(0, $now - $reference_time) / DAY_IN_SECONDS);
+        $bucket = $this->review_aging_bucket_for_days($days_waiting);
+
+        $profile = [
+            'bucket' => $bucket,
+            'bucket_label' => $this->review_aging_bucket_label($bucket),
+            'days_waiting' => $days_waiting,
+            'last_updated_label' => $source_label,
+        ];
+
+        $this->review_aging_cache[$suggestion_id] = $profile;
+
+        return $profile;
+    }
+
+    private function review_filter_for_state(string $review_state): string {
+        if ($review_state === 'not_reviewed') {
+            return 'review_not_reviewed';
+        }
+        if ($review_state === 'in_review') {
+            return 'review_in_review';
+        }
+        if ($review_state === 'reviewed_signed_off') {
+            return 'review_signed_off';
+        }
+        if ($review_state === 'needs_changes') {
+            return 'review_needs_changes';
+        }
+        if ($review_state === 'handoff_ready') {
+            return 'review_handoff_ready';
+        }
+        if ($review_state === 'handoff_exported') {
+            return 'review_handoff_exported';
+        }
+
+        return '';
+    }
+
+    private function review_aging_bucket_for_days(int $days_waiting): string {
+        if ($days_waiting <= self::REVIEW_AGING_FRESH_MAX_DAYS) {
+            return self::REVIEW_AGING_BUCKET_FRESH;
+        }
+
+        if ($days_waiting <= self::REVIEW_AGING_AGING_MAX_DAYS) {
+            return self::REVIEW_AGING_BUCKET_AGING;
+        }
+
+        return self::REVIEW_AGING_BUCKET_OVERDUE;
+    }
+
+    private function review_aging_bucket_label(string $bucket): string {
+        if ($bucket === self::REVIEW_AGING_BUCKET_OVERDUE) {
+            return __('Overdue (8+d)', 'tmwseo');
+        }
+
+        if ($bucket === self::REVIEW_AGING_BUCKET_AGING) {
+            return __('Aging (3-7d)', 'tmwseo');
+        }
+
+        return __('Fresh (0-2d)', 'tmwseo');
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @return array{0:int,1:string}
+     */
+    private function resolve_review_aging_reference_time(int $draft_id, \WP_Post $draft, array $row, string $queue_state): array {
+        $review_signoff_keys = AssistedDraftEnrichmentService::review_signoff_meta_keys();
+        $review_bundle_keys = AssistedDraftEnrichmentService::review_bundle_meta_keys();
+        $review_handoff_keys = AssistedDraftEnrichmentService::review_handoff_meta_keys();
+
+        $timestamps = [];
+
+        $review_last_updated = trim((string) get_post_meta($draft_id, $review_signoff_keys['last_updated_at'], true));
+        if ($review_last_updated !== '') {
+            $timestamps[] = ['value' => $review_last_updated, 'label' => __('Review update timestamp', 'tmwseo')];
+        }
+
+        $signed_off_at = trim((string) get_post_meta($draft_id, $review_signoff_keys['signed_off_at'], true));
+        $bundle_prepared_at = trim((string) get_post_meta($draft_id, $review_bundle_keys['prepared_at'], true));
+        $handoff_exported_at = trim((string) get_post_meta($draft_id, $review_handoff_keys['exported_at'], true));
+        $preview_generated_at = trim((string) get_post_meta($draft_id, '_tmwseo_preview_generated_at', true));
+
+        if ($queue_state === 'reviewed_signed_off' && $signed_off_at !== '') {
+            $timestamps[] = ['value' => $signed_off_at, 'label' => __('Signed off timestamp', 'tmwseo')];
+        }
+
+        if ($queue_state === 'handoff_ready' && $bundle_prepared_at !== '') {
+            $timestamps[] = ['value' => $bundle_prepared_at, 'label' => __('Handoff prepared timestamp', 'tmwseo')];
+        }
+
+        if ($queue_state === 'handoff_exported' && $handoff_exported_at !== '') {
+            $timestamps[] = ['value' => $handoff_exported_at, 'label' => __('Handoff exported timestamp', 'tmwseo')];
+        }
+
+        if ($preview_generated_at !== '') {
+            $timestamps[] = ['value' => $preview_generated_at, 'label' => __('Preview generated timestamp', 'tmwseo')];
+        }
+
+        $timestamps[] = ['value' => (string) ($draft->post_modified_gmt ?: $draft->post_modified), 'label' => __('Draft last modified timestamp', 'tmwseo')];
+        $timestamps[] = ['value' => (string) ($draft->post_date_gmt ?: $draft->post_date), 'label' => __('Draft created timestamp', 'tmwseo')];
+        $timestamps[] = ['value' => (string) ($row['created_at'] ?? ''), 'label' => __('Suggestion created timestamp', 'tmwseo')];
+
+        foreach ($timestamps as $candidate) {
+            $raw = trim((string) ($candidate['value'] ?? ''));
+            if ($raw === '' || $raw === '0000-00-00 00:00:00') {
+                continue;
+            }
+
+            $timestamp = strtotime($raw);
+            if ($timestamp !== false && $timestamp > 0) {
+                $formatted = mysql2date(get_option('date_format') . ' ' . get_option('time_format'), gmdate('Y-m-d H:i:s', $timestamp), true);
+                return [$timestamp, sprintf('%s: %s', (string) ($candidate['label'] ?? __('Timestamp', 'tmwseo')), $formatted)];
+            }
+        }
+
+        return [0, __('Unknown', 'tmwseo')];
     }
 
     /**
@@ -2546,6 +3040,16 @@ class SuggestionsAdminPage {
                 __('Review only: %s', 'tmwseo'),
                 (string) ($state_labels[$queue_state] ?? $queue_state)
             );
+
+            $aging = $this->build_review_aging_profile_for_row($row, $queue_state);
+            if (!empty($aging)) {
+                $badges[] = sprintf(
+                    /* translators: 1: aging bucket label, 2: days waiting */
+                    __('Aging: %1$s (%2$d days waiting)', 'tmwseo'),
+                    (string) ($aging['bucket_label'] ?? __('Fresh (0-2d)', 'tmwseo')),
+                    (int) ($aging['days_waiting'] ?? 0)
+                );
+            }
         }
 
         $signed_off_at = trim((string) get_post_meta($draft_id, $review_signoff_keys['signed_off_at'], true));
