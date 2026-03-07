@@ -376,6 +376,9 @@ class SuggestionsAdminPage {
             $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
             $draft_target_type = sanitize_key((string) ($_GET['draft_target_type'] ?? ''));
             if ($draft_target_type === '') {
+                $draft_target_type = $this->get_draft_destination_type($draft_id);
+            }
+            if ($draft_target_type === '') {
                 $suggestion_id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
                 $draft_target_type = $this->get_suggestion_destination_type($suggestion_id);
             }
@@ -696,6 +699,14 @@ class SuggestionsAdminPage {
 
         $destination = $this->resolve_draft_destination($row);
         return sanitize_key((string) ($destination['destination_type'] ?? ''));
+    }
+
+    private function get_draft_destination_type(int $draft_id): string {
+        if ($draft_id <= 0) {
+            return '';
+        }
+
+        return sanitize_key((string) get_post_meta($draft_id, '_tmwseo_suggestion_destination_type', true));
     }
 
     private function extract_destination_type(string $text): string {
