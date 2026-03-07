@@ -96,6 +96,7 @@ class SuggestionsAdminPage {
         }
 
         $metrics = $this->get_command_center_metrics();
+        $review_workload_widgets = $this->get_reviewer_workload_widgets();
 
         echo '<div class="wrap tmwseo-command-center">';
         echo '<h1>' . esc_html__('TMW SEO Engine → Command Center', 'tmwseo') . '</h1>';
@@ -121,6 +122,36 @@ class SuggestionsAdminPage {
         }
 
         echo '</div>';
+
+        echo '<h2 style="margin-top:24px;">' . esc_html__('Reviewer Workload (Draft-Only)', 'tmwseo') . '</h2>';
+        echo '<p>' . esc_html__('Visibility and triage widgets for explicit drafts only. Review stays manual-only, nothing auto-applies, and nothing is published automatically.', 'tmwseo') . '</p>';
+        echo '<div class="tmwseo-command-grid">';
+
+        foreach ($review_workload_widgets as $metric) {
+            $label = (string) ($metric['label'] ?? '');
+            $value = (string) ($metric['value'] ?? '0');
+            $status = (string) ($metric['status'] ?? 'warn');
+            $status_label = (string) ($metric['status_label'] ?? 'Improvement needed');
+
+            $url = (string) ($metric['url'] ?? admin_url('admin.php?page=tmwseo-suggestions'));
+            $trust_copy = (string) ($metric['trust_copy'] ?? '');
+            $sub_label = (string) ($metric['sub_label'] ?? '');
+            $sub_url = (string) ($metric['sub_url'] ?? '');
+            echo '<div class="tmwseo-command-widget tmwseo-command-' . esc_attr($status) . '">';
+            echo '<span class="tmwseo-command-widget-value">' . esc_html($value) . '</span>';
+            echo '<span class="tmwseo-command-widget-label">' . esc_html($label) . '</span>';
+            echo '<span class="tmwseo-command-status">' . esc_html($status_label) . '</span>';
+            if ($trust_copy !== '') {
+                echo '<span class="tmwseo-command-widget-label tmwseo-command-trust-copy">' . esc_html($trust_copy) . '</span>';
+            }
+            echo '<span class="tmwseo-command-widget-label" style="margin-top:6px;"><a class="tmwseo-command-sub-link" href="' . esc_url($url) . '">' . esc_html__('Open Review Queue', 'tmwseo') . '</a></span>';
+            if ($sub_label !== '' && $sub_url !== '') {
+                echo '<span class="tmwseo-command-widget-label" style="margin-top:6px;"><a class="tmwseo-command-sub-link" href="' . esc_url($sub_url) . '">' . esc_html($sub_label) . '</a></span>';
+            }
+            echo '</div>';
+        }
+
+        echo '</div>';
         echo '</div>';
     }
 
@@ -128,7 +159,7 @@ class SuggestionsAdminPage {
      * @return array<int,array<string,string>>
      */
     private function get_command_center_metrics(): array {
-        $cache_key = 'tmwseo_command_center_metrics_v1';
+        $cache_key = 'tmwseo_command_center_metrics_v2';
         $cached = get_transient($cache_key);
         if (is_array($cached) && !empty($cached)) {
             return $cached;
@@ -209,6 +240,114 @@ class SuggestionsAdminPage {
         return $metrics;
     }
 
+    /**
+     * @return array<int,array<string,string>>
+     */
+    private function get_reviewer_workload_widgets(): array {
+        $cache_key = 'tmwseo_reviewer_workload_widgets_v1';
+        $cached = get_transient($cache_key);
+        if (is_array($cached) && !empty($cached)) {
+            return $cached;
+        }
+
+        $rows = $this->engine->getSuggestions(['limit' => 1000]);
+        $counts = $this->build_review_queue_counts($rows, 'all');
+        $category_page_counts = $this->build_review_queue_counts($rows, 'category_page');
+
+        $common_trust_copy = __('Review only · manual next step · draft-only / noindex · nothing is published automatically.', 'tmwseo');
+
+        $widgets = [
+            $this->build_metric(
+                __('Drafts Not Reviewed', 'tmwseo'),
+                (string) ($counts['review_not_reviewed'] ?? 0),
+                (float) ($counts['review_not_reviewed'] ?? 0),
+                12,
+                5,
+                true,
+                $this->build_review_queue_url('review_not_reviewed'),
+                '',
+                __('Review only', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages: %d', 'tmwseo'), (int) ($category_page_counts['review_not_reviewed'] ?? 0)),
+                $this->build_review_queue_url('review_not_reviewed', 'category_page')
+            ),
+            $this->build_metric(
+                __('Drafts In Review', 'tmwseo'),
+                (string) ($counts['review_in_review'] ?? 0),
+                (float) ($counts['review_in_review'] ?? 0),
+                10,
+                4,
+                true,
+                $this->build_review_queue_url('review_in_review'),
+                '',
+                __('Manual review in progress', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages: %d', 'tmwseo'), (int) ($category_page_counts['review_in_review'] ?? 0)),
+                $this->build_review_queue_url('review_in_review', 'category_page')
+            ),
+            $this->build_metric(
+                __('Drafts Signed Off', 'tmwseo'),
+                (string) ($counts['review_signed_off'] ?? 0),
+                (float) ($counts['review_signed_off'] ?? 0),
+                8,
+                3,
+                true,
+                $this->build_review_queue_url('review_signed_off'),
+                '',
+                __('Signed off for manual next step', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages: %d', 'tmwseo'), (int) ($category_page_counts['review_signed_off'] ?? 0)),
+                $this->build_review_queue_url('review_signed_off', 'category_page')
+            ),
+            $this->build_metric(
+                __('Drafts Needs Changes', 'tmwseo'),
+                (string) ($counts['review_needs_changes'] ?? 0),
+                (float) ($counts['review_needs_changes'] ?? 0),
+                8,
+                3,
+                true,
+                $this->build_review_queue_url('review_needs_changes'),
+                '',
+                __('Manual edits required before next step', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages: %d', 'tmwseo'), (int) ($category_page_counts['review_needs_changes'] ?? 0)),
+                $this->build_review_queue_url('review_needs_changes', 'category_page')
+            ),
+            $this->build_metric(
+                __('Handoff Ready', 'tmwseo'),
+                (string) ($counts['review_handoff_ready'] ?? 0),
+                (float) ($counts['review_handoff_ready'] ?? 0),
+                8,
+                3,
+                true,
+                $this->build_review_queue_url('review_handoff_ready'),
+                '',
+                __('Review handoff ready for manual-only next step', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages: %d', 'tmwseo'), (int) ($category_page_counts['review_handoff_ready'] ?? 0)),
+                $this->build_review_queue_url('review_handoff_ready', 'category_page')
+            ),
+            $this->build_metric(
+                __('Handoff Exported', 'tmwseo'),
+                (string) ($counts['review_handoff_exported'] ?? 0),
+                (float) ($counts['review_handoff_exported'] ?? 0),
+                8,
+                3,
+                true,
+                $this->build_review_queue_url('review_handoff_exported'),
+                '',
+                __('Export generated for manual follow-up', 'tmwseo'),
+                $common_trust_copy,
+                sprintf(__('Category Pages: %d', 'tmwseo'), (int) ($category_page_counts['review_handoff_exported'] ?? 0)),
+                $this->build_review_queue_url('review_handoff_exported', 'category_page')
+            ),
+        ];
+
+        set_transient($cache_key, $widgets, 5 * MINUTE_IN_SECONDS);
+
+        return $widgets;
+    }
+
     private function build_suggestions_queue_url(string $filter, string $sort = 'priority_desc', string $destination_filter = 'all'): string {
         return add_query_arg([
             'page' => 'tmwseo-suggestions',
@@ -218,10 +357,14 @@ class SuggestionsAdminPage {
         ], admin_url('admin.php'));
     }
 
+    private function build_review_queue_url(string $filter, string $destination_filter = 'all', string $sort = 'priority_desc'): string {
+        return $this->build_suggestions_queue_url($filter, $sort, $destination_filter);
+    }
+
     /**
      * @return array<string,string>
      */
-    private function build_metric(string $label, string $value, float $numeric_value, float $red_threshold, float $yellow_threshold, bool $inverse, string $url = '', string $top_item = ''): array {
+    private function build_metric(string $label, string $value, float $numeric_value, float $red_threshold, float $yellow_threshold, bool $inverse, string $url = '', string $top_item = '', string $status_label_override = '', string $trust_copy = '', string $sub_label = '', string $sub_url = ''): array {
         $status = 'good';
         $status_label = __('Good', 'tmwseo');
 
@@ -243,6 +386,10 @@ class SuggestionsAdminPage {
             }
         }
 
+        if ($status_label_override !== '') {
+            $status_label = $status_label_override;
+        }
+
         return [
             'label' => $label,
             'value' => $value,
@@ -250,6 +397,9 @@ class SuggestionsAdminPage {
             'status_label' => $status_label,
             'url' => $url,
             'top_item' => $top_item,
+            'trust_copy' => $trust_copy,
+            'sub_label' => $sub_label,
+            'sub_url' => $sub_url,
         ];
     }
 
