@@ -34,6 +34,10 @@ class AssistedDraftEnrichmentService {
     private const REVIEW_BUNDLE_META_TYPE = '_tmwseo_review_bundle_type';
     private const REVIEW_BUNDLE_META_SUMMARY = '_tmwseo_review_bundle_summary';
     private const REVIEW_BUNDLE_META_RECOMMENDED_PRESET = '_tmwseo_review_bundle_recommended_preset';
+    private const REVIEW_HANDOFF_META_EXPORTED_AT = '_tmwseo_review_handoff_exported_at';
+    private const REVIEW_HANDOFF_META_FORMAT = '_tmwseo_review_handoff_format';
+    private const REVIEW_HANDOFF_META_SUMMARY_HASH = '_tmwseo_review_handoff_summary_hash';
+    private const REVIEW_HANDOFF_META_TEXT = '_tmwseo_review_handoff_text';
 
     /**
      * @return array<string,mixed>
@@ -191,6 +195,16 @@ class AssistedDraftEnrichmentService {
             'bundle_type' => self::REVIEW_BUNDLE_META_TYPE,
             'summary' => self::REVIEW_BUNDLE_META_SUMMARY,
             'recommended_preset' => self::REVIEW_BUNDLE_META_RECOMMENDED_PRESET,
+        ];
+    }
+
+    /** @return array<string,string> */
+    public static function review_handoff_meta_keys(): array {
+        return [
+            'exported_at' => self::REVIEW_HANDOFF_META_EXPORTED_AT,
+            'format' => self::REVIEW_HANDOFF_META_FORMAT,
+            'summary_hash' => self::REVIEW_HANDOFF_META_SUMMARY_HASH,
+            'text' => self::REVIEW_HANDOFF_META_TEXT,
         ];
     }
 
@@ -641,6 +655,205 @@ class AssistedDraftEnrichmentService {
                 'outline_ready' => !empty($available_preview_fields['outline']),
                 'content_preview_ready' => !empty($available_preview_fields['content_html']),
             ],
+        ];
+    }
+
+    /**
+     * Export a clean read-only review handoff summary for explicit drafts.
+     *
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public static function export_review_handoff_for_explicit_draft(int $post_id, array $context = [], string $format = 'markdown'): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return ['ok' => false, 'reason' => 'post_not_found'];
+        }
+
+        if ($post->post_status !== 'draft') {
+            return ['ok' => false, 'reason' => 'non_draft_refused'];
+        }
+
+        $suggestion_id = (int) get_post_meta($post_id, '_tmwseo_suggestion_id', true);
+        if ($suggestion_id <= 0) {
+            return ['ok' => false, 'reason' => 'non_explicit_draft_refused'];
+        }
+
+        $safe_format = sanitize_key($format);
+        if ($safe_format === '') {
+            $safe_format = 'markdown';
+        }
+
+        $keys = self::preview_meta_keys();
+        $destination_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_suggestion_destination_type', true));
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) get_post_meta($post_id, $keys['template_type'], true));
+        }
+        if ($destination_type === '') {
+            $destination_type = sanitize_key((string) ($context['destination_type'] ?? 'generic_post'));
+        }
+        if ($destination_type === '') {
+            $destination_type = 'generic_post';
+        }
+
+        $review_bundle = self::prepare_review_bundle_for_explicit_draft($post_id, [
+            'destination_type' => $destination_type,
+            'priority_score' => isset($context['priority_score']) ? (float) $context['priority_score'] : 0.0,
+            'estimated_traffic' => isset($context['estimated_traffic']) ? (int) $context['estimated_traffic'] : 0,
+        ]);
+        if (empty($review_bundle['ok'])) {
+            return [
+                'ok' => false,
+                'reason' => (string) ($review_bundle['reason'] ?? 'review_bundle_failed'),
+            ];
+        }
+
+        $field_labels = self::preview_apply_field_labels();
+        $available_preview_fields = (array) ($review_bundle['available_preview_fields'] ?? []);
+        $available_field_labels = [];
+        foreach ($available_preview_fields as $field => $available) {
+            if (!empty($available)) {
+                $available_field_labels[] = (string) ($field_labels[(string) $field] ?? $field);
+            }
+        }
+
+        $category_readiness = (array) ($review_bundle['category_readiness'] ?? []);
+        $missing_summary = (string) ($review_bundle['missing_summary'] ?? 'Missing summary unavailable.');
+        $prepared_at = (string) ($review_bundle['prepared_at'] ?? '');
+        $preview_generated_at = (string) get_post_meta($post_id, $keys['generated_at'], true);
+        $preview_applied_at = (string) get_post_meta($post_id, $keys['applied_at'], true);
+
+        $trust_safe_steps = [
+            'Review handoff export generated.',
+            'Nothing has been applied automatically.',
+            'Draft remains draft-only / noindex.',
+            'Review and apply manually.',
+        ];
+
+        $suggestions_link = add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'id' => $suggestion_id,
+        ], admin_url('admin.php'));
+        $edit_link = get_edit_post_link($post_id, '') ?: '';
+
+        $export_lines = [
+            '## Review Handoff Export',
+            '- Draft ID: ' . $post_id,
+            '- Draft Title: ' . trim((string) $post->post_title),
+            '- Destination Type: ' . $destination_type,
+            '- Preview Template Type: ' . (string) ($review_bundle['template_type'] ?? ''),
+            '- Review Readiness: ' . (string) ($review_bundle['readiness_label'] ?? '') . ' (' . (string) ($review_bundle['readiness_score'] ?? 0) . '/100)',
+            '- Recommended Preset: ' . (string) ($review_bundle['recommended_preset_label'] ?? 'n/a'),
+            '- Available Preview Fields: ' . (!empty($available_field_labels) ? implode(', ', $available_field_labels) : 'None available yet'),
+            '- Missing Pieces: ' . $missing_summary,
+            '',
+            '### Trust-Safe Next Steps',
+        ];
+        foreach ($trust_safe_steps as $step) {
+            $export_lines[] = '- ' . $step;
+        }
+
+        $export_lines[] = '';
+        $export_lines[] = '### Review Action References';
+        if ($edit_link !== '') {
+            $export_lines[] = '- Edit Draft: ' . $edit_link;
+        }
+        $export_lines[] = '- Suggestion Queue Item: ' . $suggestions_link;
+        $export_lines[] = '- Preview Generated At: ' . ($preview_generated_at !== '' ? $preview_generated_at : 'n/a');
+        $export_lines[] = '- Review Bundle Prepared At: ' . ($prepared_at !== '' ? $prepared_at : 'n/a');
+        $export_lines[] = '- Preview Applied At: ' . ($preview_applied_at !== '' ? $preview_applied_at : 'n/a');
+
+        if ($destination_type === 'category_page') {
+            $export_lines[] = '';
+            $export_lines[] = '### Category Page Readiness';
+            $export_lines[] = '- SEO metadata readiness: ' . (!empty($category_readiness['seo_metadata_ready']) ? 'Ready' : 'Missing pieces');
+            $export_lines[] = '- Outline readiness: ' . (!empty($category_readiness['outline_ready']) ? 'Ready' : 'Missing pieces');
+            $export_lines[] = '- Content preview readiness: ' . (!empty($category_readiness['content_preview_ready']) ? 'Ready' : 'Missing pieces');
+            $export_lines[] = '- Recommended category-page preset: ' . (string) ($review_bundle['recommended_preset_label'] ?? 'n/a');
+            $export_lines[] = '- Missing items before human review/apply: ' . $missing_summary;
+        }
+
+        $export_text = implode("\n", $export_lines);
+        $summary_hash = md5($export_text);
+        $exported_at = current_time('mysql');
+
+        update_post_meta($post_id, self::REVIEW_HANDOFF_META_EXPORTED_AT, $exported_at);
+        update_post_meta($post_id, self::REVIEW_HANDOFF_META_FORMAT, $safe_format);
+        update_post_meta($post_id, self::REVIEW_HANDOFF_META_SUMMARY_HASH, $summary_hash);
+        update_post_meta($post_id, self::REVIEW_HANDOFF_META_TEXT, $export_text);
+
+        Logs::info('content', '[TMW-SEO-AUTO] Review handoff export generated (manual-safe)', [
+            'post_id' => $post_id,
+            'suggestion_id' => $suggestion_id,
+            'destination_type' => $destination_type,
+            'template_type' => (string) ($review_bundle['template_type'] ?? ''),
+            'format' => $safe_format,
+            'auto_apply' => false,
+            'post_content_write' => false,
+            'auto_publish' => false,
+            'auto_noindex_clear' => false,
+            'live_mutation' => false,
+        ]);
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'suggestion_id' => $suggestion_id,
+            'draft_title' => trim((string) $post->post_title),
+            'destination_type' => $destination_type,
+            'template_type' => (string) ($review_bundle['template_type'] ?? ''),
+            'readiness_score' => (int) ($review_bundle['readiness_score'] ?? 0),
+            'readiness_label' => (string) ($review_bundle['readiness_label'] ?? ''),
+            'recommended_preset' => (string) ($review_bundle['recommended_preset'] ?? ''),
+            'recommended_preset_label' => (string) ($review_bundle['recommended_preset_label'] ?? ''),
+            'available_preview_fields' => $available_preview_fields,
+            'available_preview_field_labels' => $available_field_labels,
+            'missing_summary' => $missing_summary,
+            'category_readiness' => $category_readiness,
+            'trust_safe_next_steps' => $trust_safe_steps,
+            'review_references' => [
+                'edit_draft' => $edit_link,
+                'suggestions_item' => $suggestions_link,
+            ],
+            'timestamps' => [
+                'preview_generated_at' => $preview_generated_at,
+                'review_bundle_prepared_at' => $prepared_at,
+                'preview_applied_at' => $preview_applied_at,
+                'review_handoff_exported_at' => $exported_at,
+            ],
+            'format' => $safe_format,
+            'summary_hash' => $summary_hash,
+            'export_text' => $export_text,
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public static function get_review_handoff_export_for_explicit_draft(int $post_id): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return ['ok' => false, 'reason' => 'post_not_found'];
+        }
+
+        if ($post->post_status !== 'draft') {
+            return ['ok' => false, 'reason' => 'non_draft_refused'];
+        }
+
+        $meta_keys = self::review_handoff_meta_keys();
+        $exported_at = (string) get_post_meta($post_id, $meta_keys['exported_at'], true);
+        $export_text = (string) get_post_meta($post_id, $meta_keys['text'], true);
+        if ($exported_at === '' || $export_text === '') {
+            return ['ok' => false, 'reason' => 'handoff_not_exported'];
+        }
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'exported_at' => $exported_at,
+            'format' => sanitize_key((string) get_post_meta($post_id, $meta_keys['format'], true)),
+            'summary_hash' => (string) get_post_meta($post_id, $meta_keys['summary_hash'], true),
+            'export_text' => $export_text,
         ];
     }
 

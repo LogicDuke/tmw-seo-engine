@@ -89,6 +89,15 @@ class AutopilotMigrationRegistry {
                 'legacy_path' => 'Explicit draft review bundle preparation helper',
                 'notes' => 'Operator-triggered review-only bundle prep for explicit drafts. Aggregates readiness, recommended preset, missing pieces, and trust-safe next steps; stores review-bundle metadata only; never auto-applies, never publishes, never mutates post_content/live posts, and never clears noindex.',
             ],
+
+            [
+                'id' => 'suggestion_export_review_handoff',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'admin_post_tmwseo_export_suggestion_review_handoff / admin_post_tmwseo_export_draft_review_handoff',
+                'legacy_path' => 'Explicit draft review handoff export helper',
+                'notes' => 'Operator-triggered explicit draft-only review handoff export. Reuses preview/recommendation/review-bundle metadata into copy-friendly handoff text; stores export metadata only; never auto-applies, never publishes, never mutates post_content/live posts, and never clears noindex.',
+            ],
             [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
