@@ -880,8 +880,13 @@ class SuggestionsAdminPage {
         }
 
         $rows = $this->engine->getSuggestions(['limit' => 500]);
-        $active_filter = sanitize_key((string) ($_GET['tmw_filter'] ?? 'all'));
-        $active_destination_filter = $this->sanitize_destination_filter((string) ($_GET['tmw_destination_filter'] ?? 'all'));
+        $quick_views = $this->quick_view_presets();
+        $active_view = sanitize_key((string) ($_GET['tmw_view'] ?? ''));
+        $active_view_preset = $quick_views[$active_view] ?? null;
+
+        $active_filter = sanitize_key((string) ($_GET['tmw_filter'] ?? ($active_view_preset['filter'] ?? 'all')));
+        $active_destination_filter = $this->sanitize_destination_filter((string) ($_GET['tmw_destination_filter'] ?? ($active_view_preset['destination_filter'] ?? 'all')));
+        $active_sort = $this->sanitize_sort((string) ($_GET['tmw_sort'] ?? ($active_view_preset['sort'] ?? 'priority_desc')));
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
 
         $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter): bool {
@@ -950,6 +955,10 @@ class SuggestionsAdminPage {
             return sanitize_key((string) ($destination['destination_type'] ?? '')) === $active_destination_filter;
         }));
 
+        usort($filtered_rows, function (array $left, array $right) use ($active_sort): int {
+            return $this->compare_suggestions($left, $right, $active_sort);
+        });
+
         echo '<div class="wrap tmwseo-suggestions-page">';
         echo '<h1>' . esc_html__('Suggestions Dashboard', 'tmwseo') . '</h1>';
         echo '<div class="notice notice-warning"><p><strong>Human approval required before any publishing or live content changes.</strong></p></div>';
@@ -1017,6 +1026,61 @@ class SuggestionsAdminPage {
             $first = false;
         }
         echo '</ul>';
+
+        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Triage Quick Views', 'tmwseo') . '</h2>';
+        echo '<p style="margin:0 0 8px;">' . esc_html__('Open queue-focused views in one click. All output remains manual-only: drafts require manual editing, and links require manual insertion.', 'tmwseo') . '</p>';
+        echo '<ul class="subsubsub">';
+        $first_view_tab = true;
+        foreach ($quick_views as $view_key => $view_meta) {
+            $url = add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'tmw_view' => $view_key,
+                'tmw_filter' => $view_meta['filter'],
+                'tmw_destination_filter' => $view_meta['destination_filter'],
+                'tmw_sort' => $view_meta['sort'],
+            ], admin_url('admin.php'));
+
+            $class = $active_view === $view_key ? 'current' : '';
+            if (!$first_view_tab) {
+                echo ' | ';
+            }
+
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html((string) ($view_meta['label'] ?? '')) . '</a></li>';
+            $first_view_tab = false;
+        }
+        echo '</ul>';
+
+        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Sorting', 'tmwseo') . '</h2>';
+        echo '<ul class="subsubsub">';
+        $sort_options = $this->sort_options();
+        $first_sort_tab = true;
+        foreach ($sort_options as $sort_key => $sort_label) {
+            $url = add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'tmw_filter' => $active_filter,
+                'tmw_destination_filter' => $active_destination_filter,
+                'tmw_sort' => $sort_key,
+                'tmw_view' => $active_view,
+            ], admin_url('admin.php'));
+
+            $class = $active_sort === $sort_key ? 'current' : '';
+            if (!$first_sort_tab) {
+                echo ' | ';
+            }
+
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($sort_label) . '</a></li>';
+            $first_sort_tab = false;
+        }
+        echo '</ul>';
+
+        $active_sort_label = $sort_options[$active_sort] ?? $sort_options['priority_desc'];
+        $active_queue_label = $active_view !== '' && isset($quick_views[$active_view])
+            ? (string) ($quick_views[$active_view]['label'] ?? __('Custom Queue', 'tmwseo'))
+            : __('Custom Queue', 'tmwseo');
+        echo '<p class="description" style="margin:6px 0 10px;">';
+        echo '<strong>' . esc_html__('Active queue:', 'tmwseo') . '</strong> ' . esc_html($active_queue_label) . ' · ';
+        echo '<strong>' . esc_html__('Active sort:', 'tmwseo') . '</strong> ' . esc_html($active_sort_label);
+        echo '</p>';
 
         $destination_tabs = [
             'all' => __('All', 'tmwseo'),
@@ -1225,6 +1289,150 @@ class SuggestionsAdminPage {
         }
 
         return $filter;
+    }
+
+    /**
+     * @return array<string,array{label:string,filter:string,destination_filter:string,sort:string}>
+     */
+    private function quick_view_presets(): array {
+        return [
+            'category_new_high' => [
+                'label' => __('Category Pages → New First → High Priority', 'tmwseo'),
+                'filter' => 'all',
+                'destination_filter' => 'category_page',
+                'sort' => 'status',
+            ],
+            'draft_created_newest' => [
+                'label' => __('Draft Created → Newest First', 'tmwseo'),
+                'filter' => 'draft_created',
+                'destination_filter' => 'all',
+                'sort' => 'newest',
+            ],
+            'brief_candidates' => [
+                'label' => __('Needs Brief / Brief Candidates → High Priority', 'tmwseo'),
+                'filter' => 'content_opportunity',
+                'destination_filter' => 'all',
+                'sort' => 'priority_desc',
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string,string>
+     */
+    private function sort_options(): array {
+        return [
+            'priority_desc' => __('Priority: Highest First', 'tmwseo'),
+            'priority_asc' => __('Priority: Lowest First', 'tmwseo'),
+            'newest' => __('Date: Newest First', 'tmwseo'),
+            'oldest' => __('Date: Oldest First', 'tmwseo'),
+            'status' => __('Status', 'tmwseo'),
+            'destination' => __('Destination Type', 'tmwseo'),
+        ];
+    }
+
+    private function sanitize_sort(string $raw_sort): string {
+        $sort = sanitize_key($raw_sort);
+        $options = $this->sort_options();
+        if (!isset($options[$sort])) {
+            return 'priority_desc';
+        }
+
+        return $sort;
+    }
+
+    /**
+     * @param array<string,mixed> $left
+     * @param array<string,mixed> $right
+     */
+    private function compare_suggestions(array $left, array $right, string $sort): int {
+        if ($sort === 'priority_asc') {
+            $priority_compare = (float) ($left['priority_score'] ?? 0) <=> (float) ($right['priority_score'] ?? 0);
+            if ($priority_compare !== 0) {
+                return $priority_compare;
+            }
+        } elseif ($sort === 'newest' || $sort === 'oldest') {
+            $date_compare = $this->compare_suggestion_dates($left, $right);
+            if ($date_compare !== 0) {
+                return $sort === 'newest' ? -$date_compare : $date_compare;
+            }
+        } elseif ($sort === 'status') {
+            $left_status = $this->status_sort_rank((string) ($left['status'] ?? 'new'));
+            $right_status = $this->status_sort_rank((string) ($right['status'] ?? 'new'));
+            $status_compare = $left_status <=> $right_status;
+            if ($status_compare !== 0) {
+                return $status_compare;
+            }
+
+            $priority_compare = (float) ($right['priority_score'] ?? 0) <=> (float) ($left['priority_score'] ?? 0);
+            if ($priority_compare !== 0) {
+                return $priority_compare;
+            }
+        } elseif ($sort === 'destination') {
+            $left_destination = $this->destination_sort_rank((string) ($this->resolve_draft_destination($left)['destination_type'] ?? ''));
+            $right_destination = $this->destination_sort_rank((string) ($this->resolve_draft_destination($right)['destination_type'] ?? ''));
+            $destination_compare = $left_destination <=> $right_destination;
+            if ($destination_compare !== 0) {
+                return $destination_compare;
+            }
+        } else {
+            $priority_compare = (float) ($right['priority_score'] ?? 0) <=> (float) ($left['priority_score'] ?? 0);
+            if ($priority_compare !== 0) {
+                return $priority_compare;
+            }
+        }
+
+        $date_compare = $this->compare_suggestion_dates($left, $right);
+        if ($date_compare !== 0) {
+            return -$date_compare;
+        }
+
+        return (int) ($right['id'] ?? 0) <=> (int) ($left['id'] ?? 0);
+    }
+
+    /**
+     * @param array<string,mixed> $left
+     * @param array<string,mixed> $right
+     */
+    private function compare_suggestion_dates(array $left, array $right): int {
+        $left_date = strtotime((string) ($left['created_at'] ?? '')) ?: 0;
+        $right_date = strtotime((string) ($right['created_at'] ?? '')) ?: 0;
+
+        return $left_date <=> $right_date;
+    }
+
+    private function status_sort_rank(string $status): int {
+        if ($status === 'new') {
+            return 0;
+        }
+        if ($status === 'draft_created') {
+            return 1;
+        }
+        if ($status === 'implemented') {
+            return 2;
+        }
+        if ($status === 'ignored') {
+            return 3;
+        }
+
+        return 9;
+    }
+
+    private function destination_sort_rank(string $destination): int {
+        if ($destination === 'category_page') {
+            return 0;
+        }
+        if ($destination === 'model_page') {
+            return 1;
+        }
+        if ($destination === 'video_page') {
+            return 2;
+        }
+        if ($destination === 'generic_post') {
+            return 3;
+        }
+
+        return 9;
     }
 
     /**
