@@ -12,9 +12,9 @@ class TMW_Cluster_Repository {
     public function __construct($wpdb) {
         $this->wpdb = $wpdb;
         $this->clusters_table = $wpdb->prefix . 'tmw_clusters';
-        $this->keywords_table = $wpdb->prefix . 'tmw_keywords';
-        $this->pages_table = $wpdb->prefix . 'tmw_pages';
-        $this->metrics_table = $wpdb->prefix . 'tmw_metrics';
+        $this->keywords_table = $wpdb->prefix . 'tmw_cluster_keywords';
+        $this->pages_table = $wpdb->prefix . 'tmw_cluster_pages';
+        $this->metrics_table = $wpdb->prefix . 'tmw_cluster_metrics';
     }
 
     public function get_cluster($id) {
