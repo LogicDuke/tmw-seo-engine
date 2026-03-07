@@ -102,6 +102,223 @@ class ContentEngine {
         return 'video_or_post';
     }
 
+    /**
+     * Preview-only helper for assisted draft content generation.
+     *
+     * @param array<string,mixed> $keyword_pack
+     * @return array<string,mixed>
+     */
+    public static function build_preview_only_content_assist(\WP_Post $post, array $keyword_pack = []): array {
+        $post_id = (int) $post->ID;
+        $strategy = OpenAI::is_configured() ? 'openai' : 'template';
+        $context = self::infer_context($post);
+        $focus_kw = '';
+
+        if ($post->post_type === 'model' && !empty($keyword_pack['primary'])) {
+            $focus_kw = (string) $keyword_pack['primary'];
+        }
+
+        if ($focus_kw === '') {
+            $focus_kw = trim((string) get_post_meta($post_id, '_tmwseo_keyword', true));
+            if ($focus_kw === '') {
+                $focus_kw = trim((string) $post->post_title);
+            }
+        }
+
+        $focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
+
+        $secondary_keywords = [];
+        if ($post->post_type === 'model') {
+            $secondary_keywords = (!empty($keyword_pack['additional']) && is_array($keyword_pack['additional']))
+                ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['additional']))), 0, 4)
+                : AssistedDraftEnrichmentService::build_model_secondary_keywords($focus_kw);
+        }
+
+        if ($strategy === 'template') {
+            if ($post->post_type === 'model') {
+                $tpl = \TMWSEO\Engine\Content\TemplateContent::build_model($post, $keyword_pack);
+                $generated_content = (string) ($tpl['content'] ?? '');
+                $seo_title = TitleFixer::shorten((string) ($tpl['seo_title'] ?? ''), 70);
+                $meta_desc = TitleFixer::shorten((string) ($tpl['meta_description'] ?? ''), 160);
+            } else {
+                $seo_title = TitleFixer::shorten(TitleFixer::fix((string) $post->post_title), 70);
+                $meta_desc = TitleFixer::shorten('Learn more about ' . $post->post_title . ' on ' . get_bloginfo('name') . '.', 160);
+                $generated_content = '<h2>' . esc_html($post->post_title) . '</h2><p>Content template is not configured for this post type yet.</p>';
+            }
+
+            $quality = QualityScoreEngine::evaluate($generated_content, [
+                'primary_keyword' => $focus_kw,
+                'secondary_keywords' => $secondary_keywords,
+                'entities' => array_values(array_filter(array_unique(array_merge(
+                    [$focus_kw, (string) $post->post_title],
+                    !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
+                        ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6)
+                        : []
+                )))),
+            ]);
+
+            return [
+                'strategy' => 'template',
+                'seo_title' => $seo_title,
+                'meta_description' => $meta_desc,
+                'focus_keyword' => $focus_kw,
+                'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
+                'content_html' => wp_kses_post(trim($generated_content)),
+                'outline' => self::extract_outline_from_html($generated_content),
+                'quality_summary' => $quality,
+                'generated_at' => current_time('mysql'),
+            ];
+        }
+
+        $clean_title = TitleFixer::fix((string) $post->post_title);
+        $clean_title_short = TitleFixer::shorten($clean_title, 70);
+        $model = Settings::openai_model_for_quality();
+        $is_model_page = ($post->post_type === 'model');
+        $length_hint = ($context === 'keyword_page' || $context === 'model' || $context === 'category_page') ? '800-1000 words' : '250-400 words';
+
+        $system = [
+            'role' => 'system',
+            'content' =>
+                "You are an SEO copywriter for top-models.webcam.\n" .
+                "Write informative, helpful content about adult webcam / live video chat.\n" .
+                "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
+                "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
+                "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, content_html.\n" .
+                "seo_title <= 60 characters. meta_description 150-160 characters.\n" .
+                "content_html must be valid HTML (h1, h2, h3, p, ul, li).\n"
+        ];
+
+        $user_content =
+            "PAGE CONTEXT\n" .
+            "- Post type: {$post->post_type}\n" .
+            "- Context: {$context}\n" .
+            "- Current title (cleaned): {$clean_title_short}\n" .
+            ($focus_kw ? "- Primary keyword (must be used exactly): {$focus_kw}\n" : '') .
+            (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
+            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail queries to cover: " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            "- Target length: {$length_hint}\n\n" .
+            "WRITE:\n" .
+            "1) SEO title that matches the page and includes the keyword naturally.\n" .
+            "2) Meta description with a clear value proposition.\n" .
+            "3) One focus keyword (short).\n" .
+            "4) content_html with structured headings and an FAQ section (3-5 Q&As).\n";
+
+        if ($is_model_page) {
+            $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
+                "- Use this exact heading structure in content_html:\n" .
+                "  H1: {$focus_kw} Live Chat\n" .
+                "  Intro paragraph including the exact primary keyword: {$focus_kw}\n" .
+                "  H2: Watch {$focus_kw} Live on Webcam\n" .
+                "  H2: Why Fans Love {$focus_kw}\n" .
+                "  H2: {$focus_kw} Live Chat Features\n" .
+                "  H2: {$focus_kw} Webcam Shows\n" .
+                "  H2: FAQ About {$focus_kw}\n" .
+                "- Ensure the primary keyword appears in the H1, intro, and at least 3 H2 headings.\n" .
+                "- content_html must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Expand each section with descriptive paragraphs and practical details.\n" .
+                "- Keep keyword density for the exact primary keyword between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n";
+        }
+
+        $res = OpenAI::chat_json([
+            $system,
+            ['role' => 'user', 'content' => $user_content],
+        ], $model, [
+            'temperature' => 0.6,
+            'max_tokens' => $is_model_page ? 3200 : 2200,
+        ]);
+
+        if (!$res['ok']) {
+            return [
+                'strategy' => 'openai',
+                'error' => (string) ($res['error'] ?? 'generation_failed'),
+                'generated_at' => current_time('mysql'),
+            ];
+        }
+
+        $j = is_array($res['json'] ?? null) ? $res['json'] : [];
+        $seo_title = TitleFixer::shorten(trim((string) ($j['seo_title'] ?? '')), 60);
+        $meta_desc = trim((string) ($j['meta_description'] ?? ''));
+        $generated_focus_kw = trim((string) ($j['focus_keyword'] ?? ''));
+        if ($is_model_page && !empty($keyword_pack['primary'])) {
+            $generated_focus_kw = (string) $keyword_pack['primary'];
+        }
+        $generated_focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $generated_focus_kw !== '' ? $generated_focus_kw : $focus_kw);
+        $html = trim((string) ($j['content_html'] ?? ''));
+
+        if ($is_model_page) {
+            $validated = self::enforce_model_content_constraints([$system, ['role' => 'user', 'content' => $user_content]], $model, 3200, $generated_focus_kw, $html);
+            $html = (string) ($validated['html'] ?? $html);
+            $generated_focus_kw = trim((string) ($validated['focus_keyword'] ?? $generated_focus_kw));
+        }
+
+        $html = wp_kses_post($html);
+
+        $quality = QualityScoreEngine::evaluate($html, [
+            'primary_keyword' => $generated_focus_kw,
+            'secondary_keywords' => $secondary_keywords,
+            'entities' => array_values(array_filter(array_unique(array_merge(
+                [$generated_focus_kw, (string) $post->post_title],
+                !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
+                    ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6)
+                    : []
+            )))),
+        ]);
+
+        return [
+            'strategy' => 'openai',
+            'seo_title' => $seo_title,
+            'meta_description' => $meta_desc,
+            'focus_keyword' => $generated_focus_kw,
+            'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
+            'content_html' => $html,
+            'outline' => self::extract_outline_from_html($html),
+            'quality_summary' => $quality,
+            'generated_at' => current_time('mysql'),
+        ];
+    }
+
+    /** @param array<string,mixed> $keyword_pack */
+    private static function build_keyword_pack_summary(array $keyword_pack): string {
+        $primary = trim((string) ($keyword_pack['primary'] ?? ''));
+        $additional = !empty($keyword_pack['additional']) && is_array($keyword_pack['additional'])
+            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['additional']))), 0, 4)
+            : [];
+        $longtail = !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
+            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6)
+            : [];
+
+        return trim(
+            ($primary !== '' ? 'Primary: ' . $primary . '. ' : '') .
+            (!empty($additional) ? 'Additional: ' . implode(', ', $additional) . '. ' : '') .
+            (!empty($longtail) ? 'Long-tail: ' . implode('; ', $longtail) . '.' : '')
+        );
+    }
+
+    private static function extract_outline_from_html(string $html): string {
+        if (trim($html) === '') {
+            return '';
+        }
+
+        preg_match_all('/<h[1-3][^>]*>(.*?)<\/h[1-3]>/is', $html, $matches);
+        $items = [];
+        if (!empty($matches[1]) && is_array($matches[1])) {
+            foreach ($matches[1] as $heading) {
+                $clean = trim((string) wp_strip_all_tags((string) $heading));
+                if ($clean !== '') {
+                    $items[] = $clean;
+                }
+            }
+        }
+
+        if (empty($items)) {
+            return '';
+        }
+
+        return implode("\n", array_map(static function (string $item): string {
+            return '- ' . $item;
+        }, $items));
+    }
+
     public static function run_optimize_job(array $job): void {
         $post_id = (int)($job['entity_id'] ?? 0);
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);

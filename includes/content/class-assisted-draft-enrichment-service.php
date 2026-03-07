@@ -8,6 +8,16 @@ use TMWSEO\Engine\Clustering\ClusterEngine;
 if (!defined('ABSPATH')) { exit; }
 
 class AssistedDraftEnrichmentService {
+    private const PREVIEW_META_SEO_TITLE = '_tmwseo_preview_seo_title';
+    private const PREVIEW_META_DESCRIPTION = '_tmwseo_preview_meta_description';
+    private const PREVIEW_META_FOCUS_KEYWORD = '_tmwseo_preview_focus_keyword';
+    private const PREVIEW_META_KEYWORD_PACK_SUMMARY = '_tmwseo_preview_keyword_pack_summary';
+    private const PREVIEW_META_OUTLINE = '_tmwseo_preview_outline';
+    private const PREVIEW_META_CONTENT_HTML = '_tmwseo_preview_content_html';
+    private const PREVIEW_META_QUALITY_SUMMARY = '_tmwseo_preview_quality_summary';
+    private const PREVIEW_META_GENERATED_AT = '_tmwseo_preview_generated_at';
+    private const PREVIEW_META_STRATEGY = '_tmwseo_preview_strategy';
+
     /**
      * @return array<string,mixed>
      */
@@ -61,6 +71,98 @@ class AssistedDraftEnrichmentService {
             'keyword_pack_primary' => (string) ($keyword_pack['primary'] ?? ''),
             'quality_score' => (int) ($quality['score'] ?? 0),
         ];
+    }
+
+    /**
+     * Generate and store preview-only content assistance for explicit drafts.
+     *
+     * @return array<string,mixed>
+     */
+    public static function generate_preview_for_explicit_draft(int $post_id): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return [
+                'ok' => false,
+                'reason' => 'post_not_found',
+            ];
+        }
+
+        if ($post->post_status !== 'draft') {
+            Logs::warn('content', '[TMW-SEO-AUTO] Draft preview content assist refused: post is not draft', [
+                'post_id' => $post_id,
+                'post_status' => (string) $post->post_status,
+            ]);
+
+            return [
+                'ok' => false,
+                'reason' => 'non_draft_refused',
+                'post_status' => (string) $post->post_status,
+            ];
+        }
+
+        Logs::info('content', '[TMW-SEO-AUTO] Assisted draft preview generation started (manual-safe)', [
+            'post_id' => $post_id,
+            'post_type' => (string) $post->post_type,
+            'post_status' => (string) $post->post_status,
+            'manual_only' => true,
+            'preview_only' => true,
+            'live_mutation' => false,
+            'post_content_write' => false,
+            'auto_publish' => false,
+            'auto_noindex_clear' => false,
+        ]);
+
+        $keyword_pack = self::build_and_store_keyword_pack_for_post($post, true);
+        self::enrich_rank_math_keywords($post, $keyword_pack);
+
+        $preview = ContentEngine::build_preview_only_content_assist($post, $keyword_pack);
+        if (!empty($preview['error'])) {
+            return [
+                'ok' => false,
+                'reason' => 'generation_failed',
+                'error' => (string) $preview['error'],
+            ];
+        }
+
+        self::store_preview_meta($post_id, $preview);
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'post_status' => (string) $post->post_status,
+            'strategy' => (string) ($preview['strategy'] ?? ''),
+            'generated_at' => (string) ($preview['generated_at'] ?? ''),
+        ];
+    }
+
+    /** @return array<string,string> */
+    public static function preview_meta_keys(): array {
+        return [
+            'seo_title' => self::PREVIEW_META_SEO_TITLE,
+            'meta_description' => self::PREVIEW_META_DESCRIPTION,
+            'focus_keyword' => self::PREVIEW_META_FOCUS_KEYWORD,
+            'keyword_pack_summary' => self::PREVIEW_META_KEYWORD_PACK_SUMMARY,
+            'outline' => self::PREVIEW_META_OUTLINE,
+            'content_html' => self::PREVIEW_META_CONTENT_HTML,
+            'quality_summary' => self::PREVIEW_META_QUALITY_SUMMARY,
+            'generated_at' => self::PREVIEW_META_GENERATED_AT,
+            'strategy' => self::PREVIEW_META_STRATEGY,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $preview
+     */
+    private static function store_preview_meta(int $post_id, array $preview): void {
+        update_post_meta($post_id, self::PREVIEW_META_SEO_TITLE, (string) ($preview['seo_title'] ?? ''));
+        update_post_meta($post_id, self::PREVIEW_META_DESCRIPTION, (string) ($preview['meta_description'] ?? ''));
+        update_post_meta($post_id, self::PREVIEW_META_FOCUS_KEYWORD, (string) ($preview['focus_keyword'] ?? ''));
+        update_post_meta($post_id, self::PREVIEW_META_KEYWORD_PACK_SUMMARY, (string) ($preview['keyword_pack_summary'] ?? ''));
+        update_post_meta($post_id, self::PREVIEW_META_OUTLINE, (string) ($preview['outline'] ?? ''));
+        update_post_meta($post_id, self::PREVIEW_META_CONTENT_HTML, (string) ($preview['content_html'] ?? ''));
+        update_post_meta($post_id, self::PREVIEW_META_QUALITY_SUMMARY, wp_json_encode($preview['quality_summary'] ?? []));
+        update_post_meta($post_id, self::PREVIEW_META_GENERATED_AT, (string) ($preview['generated_at'] ?? current_time('mysql')));
+        update_post_meta($post_id, self::PREVIEW_META_STRATEGY, (string) ($preview['strategy'] ?? ''));
     }
 
     /**

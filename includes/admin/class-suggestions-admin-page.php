@@ -40,6 +40,7 @@ class SuggestionsAdminPage {
         add_action('admin_post_tmwseo_scan_content_improvements', [$ui, 'handle_scan_content_improvements']);
         add_action('admin_post_tmwseo_run_phase_c_discovery_snapshot', [$ui, 'handle_phase_c_discovery_snapshot']);
         add_action('admin_post_tmwseo_enrich_suggestion_draft_metadata', [$ui, 'handle_enrich_suggestion_draft_metadata']);
+        add_action('admin_post_tmwseo_generate_suggestion_draft_content_preview', [$ui, 'handle_generate_suggestion_draft_content_preview']);
         add_action('admin_post_tmwseo_add_competitor_domain', [$ui, 'handle_add_competitor_domain']);
         add_action('admin_post_tmwseo_generate_brief_from_suggestion', [$ui, 'handle_generate_brief_from_suggestion']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
@@ -372,7 +373,7 @@ class SuggestionsAdminPage {
 
         $helper_notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
-        if ($helper_notice !== 'internal_link_helper_opened' && !in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused'], true)) {
+        if ($helper_notice !== 'internal_link_helper_opened' && !in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused'], true)) {
             return;
         }
 
@@ -381,7 +382,33 @@ class SuggestionsAdminPage {
             return;
         }
 
-        if (in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused'], true) && (!$is_suggestions_page || !current_user_can('manage_options'))) {
+        if (in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused'], true) && (!$is_suggestions_page || !current_user_can('manage_options'))) {
+            return;
+        }
+
+        if ($notice === 'draft_preview_generated' || $notice === 'draft_preview_refused') {
+            $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
+            $refused_reason = sanitize_key((string) ($_GET['reason'] ?? ''));
+
+            if ($notice === 'draft_preview_generated') {
+                echo '<div class="notice notice-success is-dismissible"><p>';
+                echo esc_html__('Draft content preview generated in assisted draft-only mode. Preview data was stored in dedicated metadata only; no post content changes, no publish automation, and no noindex changes were performed.', 'tmwseo');
+            } else {
+                echo '<div class="notice notice-warning is-dismissible"><p>';
+                echo esc_html__('Draft content preview generation was refused because the selected content is not an eligible draft. This action is restricted to explicit operator-created drafts only.', 'tmwseo');
+                if ($refused_reason !== '') {
+                    echo ' <em>(' . esc_html($refused_reason) . ')</em>';
+                }
+            }
+
+            if ($draft_id > 0) {
+                $edit_link = get_edit_post_link($draft_id, '');
+                if (is_string($edit_link) && $edit_link !== '') {
+                    echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Open Draft Preview', 'tmwseo') . '</strong></a>';
+                }
+            }
+
+            echo '</p></div>';
             return;
         }
 
@@ -479,6 +506,39 @@ class SuggestionsAdminPage {
 
         $result = AssistedDraftEnrichmentService::enrich_explicit_draft($draft_id);
         $notice = !empty($result['ok']) ? 'draft_enriched' : 'draft_enrich_refused';
+        $reason = sanitize_key((string) ($result['reason'] ?? ''));
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'id' => $suggestion_id,
+            'draft_id' => $draft_id,
+            'notice' => $notice,
+            'reason' => $reason,
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_generate_suggestion_draft_content_preview(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_generate_suggestion_draft_content_preview');
+
+        $suggestion_id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+        if ($suggestion_id <= 0) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-suggestions&notice=draft_preview_refused&reason=missing_suggestion'));
+            exit;
+        }
+
+        $draft_id = $this->find_suggestion_draft_id($suggestion_id);
+        if ($draft_id <= 0) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-suggestions&notice=draft_preview_refused&reason=missing_draft&id=' . $suggestion_id));
+            exit;
+        }
+
+        $result = AssistedDraftEnrichmentService::generate_preview_for_explicit_draft($draft_id);
+        $notice = !empty($result['ok']) ? 'draft_preview_generated' : 'draft_preview_refused';
         $reason = sanitize_key((string) ($result['reason'] ?? ''));
 
         wp_safe_redirect(add_query_arg([
@@ -1342,6 +1402,13 @@ class SuggestionsAdminPage {
         echo '<input type="hidden" name="action" value="tmwseo_enrich_suggestion_draft_metadata">';
         echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
         submit_button(__('Enrich Draft Metadata', 'tmwseo'), 'secondary small', 'submit', false);
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin:0 6px 6px 0;">';
+        wp_nonce_field('tmwseo_generate_suggestion_draft_content_preview');
+        echo '<input type="hidden" name="action" value="tmwseo_generate_suggestion_draft_content_preview">';
+        echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
+        submit_button(__('Generate Draft Content Preview', 'tmwseo'), 'secondary small', 'submit', false);
         echo '</form>';
     }
 

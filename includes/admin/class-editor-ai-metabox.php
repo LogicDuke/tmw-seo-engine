@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
+use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -11,6 +12,7 @@ class Editor_AI_Metabox {
         add_action('add_meta_boxes', [__CLASS__, 'register_metabox']);
         add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
         add_action('save_post', [__CLASS__, 'save_metabox']);
+        add_action('admin_post_tmwseo_generate_draft_content_preview', [__CLASS__, 'handle_generate_draft_content_preview']);
     }
 
     public static function enqueue_editor_assets(): void {
@@ -90,6 +92,17 @@ class Editor_AI_Metabox {
         echo '</form>';
         echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('This runs in the background. After a few seconds, refresh the editor to see the updated content & RankMath fields.', 'tmwseo') . '</p>';
 
+        if ((string) $post->post_status === 'draft') {
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:8px 0 0">';
+            wp_nonce_field('tmwseo_generate_draft_content_preview_' . $post->ID);
+            echo '<input type="hidden" name="action" value="tmwseo_generate_draft_content_preview">';
+            echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post->ID) . '">';
+            echo '<button type="submit" class="button button-secondary" style="width:100%">' . esc_html__('Generate Draft Content Preview', 'tmwseo') . '</button>';
+            echo '</form>';
+            echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Preview-only assist for explicit drafts. Stores proposed SEO/content output in preview metadata only. Never auto-publishes, never writes post content.', 'tmwseo') . '</p>';
+            self::render_preview_panel((int) $post->ID);
+        }
+
 
         if ($quality_score > 0) {
             echo '<hr style="margin:12px 0">';
@@ -136,5 +149,71 @@ class Editor_AI_Metabox {
         }
 
         delete_post_meta($post_id, '_tmwseo_ready_to_index');
+    }
+
+    public static function handle_generate_draft_content_preview(): void {
+        $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+        if ($post_id <= 0) {
+            wp_die('Missing post ID');
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_generate_draft_content_preview_' . $post_id);
+
+        $result = AssistedDraftEnrichmentService::generate_preview_for_explicit_draft($post_id);
+        $notice = !empty($result['ok']) ? 'draft_preview_generated' : 'draft_preview_refused';
+        $reason = sanitize_key((string) ($result['reason'] ?? ''));
+
+        $redirect = add_query_arg([
+            'post' => $post_id,
+            'action' => 'edit',
+            'tmwseo_notice' => $notice,
+            'reason' => $reason,
+        ], admin_url('post.php'));
+
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
+    private static function render_preview_panel(int $post_id): void {
+        $keys = AssistedDraftEnrichmentService::preview_meta_keys();
+        $seo_title = (string) get_post_meta($post_id, $keys['seo_title'], true);
+        $meta_desc = (string) get_post_meta($post_id, $keys['meta_description'], true);
+        $focus_kw = (string) get_post_meta($post_id, $keys['focus_keyword'], true);
+        $outline = (string) get_post_meta($post_id, $keys['outline'], true);
+        $content_html = (string) get_post_meta($post_id, $keys['content_html'], true);
+        $strategy = (string) get_post_meta($post_id, $keys['strategy'], true);
+        $generated_at = (string) get_post_meta($post_id, $keys['generated_at'], true);
+
+        if ($seo_title === '' && $meta_desc === '' && $content_html === '') {
+            return;
+        }
+
+        echo '<hr style="margin:12px 0">';
+        echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Draft Content Preview (review-only)', 'tmwseo') . '</strong></p>';
+        if ($strategy !== '' || $generated_at !== '') {
+            echo '<p style="margin:0 0 8px; font-size:12px; opacity:.85">';
+            echo esc_html__('Strategy:', 'tmwseo') . ' ' . esc_html($strategy !== '' ? $strategy : 'n/a') . ' · ';
+            echo esc_html__('Generated:', 'tmwseo') . ' ' . esc_html($generated_at !== '' ? $generated_at : 'n/a');
+            echo '</p>';
+        }
+        if ($seo_title !== '') {
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Proposed SEO Title:', 'tmwseo') . '</strong> ' . esc_html($seo_title) . '</p>';
+        }
+        if ($meta_desc !== '') {
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Proposed Meta Description:', 'tmwseo') . '</strong> ' . esc_html($meta_desc) . '</p>';
+        }
+        if ($focus_kw !== '') {
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Proposed Focus Keyword:', 'tmwseo') . '</strong> ' . esc_html($focus_kw) . '</p>';
+        }
+        if ($outline !== '') {
+            echo '<details style="margin:6px 0"><summary><strong>' . esc_html__('Proposed Outline', 'tmwseo') . '</strong></summary><pre style="white-space:pre-wrap">' . esc_html($outline) . '</pre></details>';
+        }
+        if ($content_html !== '') {
+            echo '<details style="margin:6px 0"><summary><strong>' . esc_html__('Proposed Content Preview', 'tmwseo') . '</strong></summary><div style="max-height:220px; overflow:auto; border:1px solid #ddd; padding:8px; background:#fff">' . wp_kses_post($content_html) . '</div></details>';
+        }
     }
 }
