@@ -288,9 +288,11 @@ class TMW_Internal_Link_Opportunity_Scanner {
         $table = SuggestionEngine::table_name();
         $rows = $wpdb->get_col(
             $wpdb->prepare(
-                "SELECT suggested_action FROM {$table} WHERE type = %s AND source_engine = %s",
+                "SELECT suggested_action FROM {$table} WHERE type = %s AND source_engine = %s AND status IN (%s, %s)",
                 'internal_link',
-                'internal_linking_engine'
+                'internal_linking_engine',
+                'new',
+                'approved'
             )
         );
 
