@@ -367,7 +367,7 @@ class SuggestionsAdminPage {
         }
 
         echo '<div class="notice notice-success is-dismissible"><p>';
-        echo esc_html__('Internal-link helper opened in draft edit mode. Review the suggested anchor/context manually before saving. No live link is inserted automatically.', 'tmwseo');
+        echo esc_html__('Internal-link helper opened in draft edit mode. Next step: review the suggested anchor/context and insert manually only if approved. No live link is inserted automatically.', 'tmwseo');
         echo '</p></div>';
     }
 
@@ -847,7 +847,7 @@ class SuggestionsAdminPage {
         echo '<div class="wrap tmwseo-suggestions-page">';
         echo '<h1>' . esc_html__('Suggestions Dashboard', 'tmwseo') . '</h1>';
         echo '<div class="notice notice-warning"><p><strong>Human approval required before any publishing or live content changes.</strong></p></div>';
-        echo '<p>' . esc_html__('Review SEO suggestions and decide what to do next. Actions only create drafts/suggestions and never publish or insert links automatically.', 'tmwseo') . '</p>';
+        echo '<p>' . esc_html__('Review SEO suggestions and decide what to do next. Every action is manual-review-first: drafts and briefs are prepared for operators, and nothing is published or inserted into live content automatically.', 'tmwseo') . '</p>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 18px;">';
         wp_nonce_field('tmwseo_scan_internal_link_opportunities');
@@ -864,9 +864,9 @@ class SuggestionsAdminPage {
         if (in_array($notice, ['draft_created', 'brief_generated', 'ignored', 'scan_complete', 'content_scan_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'draft_created') {
-                echo esc_html__('Noindex draft created for manual editing. This suggestion is marked as draft created and is not approved/live content.', 'tmwseo');
+                echo esc_html__('Noindex draft created. Next step: open the draft, review/edit manually, and publish only when approved. This suggestion stays in draft-created state and is never live by default.', 'tmwseo');
             } elseif ($notice === 'brief_generated') {
-                echo esc_html__('Brief generated and saved in Content Briefs for manual review. Nothing is published or pushed live automatically.', 'tmwseo');
+                echo esc_html__('Brief generated and saved in Content Briefs. Next step: review and decide manually whether to create/edit content. Nothing is published or pushed live automatically.', 'tmwseo');
             } elseif ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
@@ -914,6 +914,10 @@ class SuggestionsAdminPage {
         }
         echo '</ul>';
 
+        echo '<div class="notice notice-info" style="margin:10px 0 16px;"><p><strong>' . esc_html__('Operator quick guide:', 'tmwseo') . '</strong> ';
+        echo esc_html__('Statuses track workflow only (New → Draft Created → Implemented, or Ignored). Draft Target Type shows where a draft will be created (Category, Model, Video, or Generic fallback). Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');
+        echo '</p></div>';
+
         echo '<table class="widefat fixed striped tmwseo-suggestions-table"><thead><tr>';
         echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
@@ -946,10 +950,10 @@ class SuggestionsAdminPage {
 
             echo '<tr>';
             echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span></td>';
-            echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span><div class="tmwseo-cell-note">' . esc_html($status_meta['help']) . '</div></td>';
+            echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Meaning:', 'tmwseo') . '</strong> ' . esc_html($status_meta['help']) . '</div></td>';
             echo '<td>' . esc_html($this->format_label((string) ($row['type'] ?? ''))) . '</td>';
-            echo '<td><span class="tmwseo-target-badge tmwseo-target-' . esc_attr($destination_meta['class']) . '">' . esc_html($destination_meta['label']) . '</span><div class="tmwseo-cell-note">' . esc_html__('Draft only. Manual review required before any publish.', 'tmwseo') . '</div></td>';
-            echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span><div class="tmwseo-cell-note">' . esc_html($primary_action_meta['help']) . '</div></td>';
+            echo '<td><span class="tmwseo-target-badge tmwseo-target-' . esc_attr($destination_meta['class']) . '">' . esc_html($destination_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('Draft destination:', 'tmwseo') . '</strong> ' . esc_html($destination_meta['help']) . '</div></td>';
+            echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('On click:', 'tmwseo') . '</strong> ' . esc_html($primary_action_meta['help']) . '</div></td>';
             echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong></td>';
             echo '<td>' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 22, '…')) . '</td>';
             echo '<td>' . esc_html(number_format_i18n((int) ($row['estimated_traffic'] ?? 0))) . '</td>';
@@ -1002,7 +1006,7 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Draft Created', 'tmwseo'),
                 'class' => 'draft-created',
-                'help' => __('Draft exists for manual editing. Nothing is live yet.', 'tmwseo'),
+                'help' => __('A draft exists for manual editing and approval. Nothing is live yet.', 'tmwseo'),
             ];
         }
 
@@ -1010,7 +1014,7 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Ignored', 'tmwseo'),
                 'class' => 'ignored',
-                'help' => __('Hidden from active queue until manually reconsidered.', 'tmwseo'),
+                'help' => __('Removed from active queue until an operator manually revisits it.', 'tmwseo'),
             ];
         }
 
@@ -1018,25 +1022,26 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Implemented', 'tmwseo'),
                 'class' => 'implemented',
-                'help' => __('Operator confirmed this suggestion was completed manually.', 'tmwseo'),
+                'help' => __('Operator manually confirmed this suggestion has been completed.', 'tmwseo'),
             ];
         }
 
         return [
             'label' => __('New', 'tmwseo'),
             'class' => 'new',
-            'help' => __('Awaiting operator decision.', 'tmwseo'),
+            'help' => __('Awaiting operator review and action selection.', 'tmwseo'),
         ];
     }
 
     /**
-     * @return array{label:string,class:string}
+     * @return array{label:string,class:string,help:string}
      */
     private function destination_type_meta(string $destination_type): array {
         if ($destination_type === 'category_page') {
             return [
                 'label' => __('Category Page', 'tmwseo'),
                 'class' => 'category-page',
+                'help' => __('Creates a noindex draft targeting a category page workflow.', 'tmwseo'),
             ];
         }
 
@@ -1044,6 +1049,7 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Model Page', 'tmwseo'),
                 'class' => 'model-page',
+                'help' => __('Creates a noindex draft targeting a model page workflow.', 'tmwseo'),
             ];
         }
 
@@ -1051,12 +1057,14 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Video Page', 'tmwseo'),
                 'class' => 'video-page',
+                'help' => __('Creates a noindex draft targeting a video page workflow.', 'tmwseo'),
             ];
         }
 
         return [
             'label' => __('Generic Post Fallback', 'tmwseo'),
             'class' => 'generic-post',
+            'help' => __('Creates a noindex draft in the generic post fallback when no specific destination is detected.', 'tmwseo'),
         ];
     }
 
@@ -1067,20 +1075,20 @@ class SuggestionsAdminPage {
         if ($type === 'internal_link') {
             return [
                 'label' => __('Insert Link Draft', 'tmwseo'),
-                'help' => __('Opens the internal-link helper in editor draft mode. You can also choose Generate Brief. No auto-insert happens.', 'tmwseo'),
+                'help' => __('Opens the internal-link helper in editor draft mode so you can insert the link manually after review. No auto-insert happens.', 'tmwseo'),
             ];
         }
 
         if ($type === 'content_brief') {
             return [
                 'label' => __('Generate Brief', 'tmwseo'),
-                'help' => __('Builds a content brief for manual review. No publication or live update occurs.', 'tmwseo'),
+                'help' => __('Generates and saves a content brief for manual review. No publication or live update occurs.', 'tmwseo'),
             ];
         }
 
         return [
             'label' => __('Create Noindex Draft', 'tmwseo'),
-            'help' => __('Creates a noindex draft for manual review and edits. You can also choose Generate Brief.', 'tmwseo'),
+            'help' => __('Creates a noindex draft for manual review and edits. It will not go live unless an operator publishes it.', 'tmwseo'),
         ];
     }
 
