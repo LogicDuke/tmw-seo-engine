@@ -185,17 +185,26 @@ class SuggestionsAdminPage {
         }
 
         $metrics = [
-            $this->build_metric('Competitor Gaps Found', (string) $counts['competitor_gap'], $counts['competitor_gap'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=competitor_gap'), $top_items['competitor_gap']),
-            $this->build_metric('High Probability Ranking Opportunities', (string) $counts['ranking_probability'], $counts['ranking_probability'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=ranking_probability'), $top_items['ranking_probability']),
-            $this->build_metric('Weak SERP Opportunities', (string) $counts['serp_weakness'], $counts['serp_weakness'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=serp_weakness'), $top_items['serp_weakness']),
-            $this->build_metric('Content Briefs Ready', (string) $counts['content_briefs_ready'], $counts['content_briefs_ready'], 8, 3, true, admin_url('admin.php?page=tmwseo-content-briefs'), $top_items['content_briefs_ready']),
-            $this->build_metric('Cluster Authority Scores', $cluster_completion . '%', $cluster_completion, 80, 55, false, admin_url('admin.php?page=tmwseo-suggestions&tmw_filter=authority_cluster'), $top_items['authority_cluster']),
-            $this->build_metric('Suggestions Waiting for Review', (string) $counts['waiting_review'], $counts['waiting_review'], 10, 4, true, admin_url('admin.php?page=tmwseo-suggestions'), ''),
+            $this->build_metric('Competitor Gaps Found', (string) $counts['competitor_gap'], $counts['competitor_gap'], 10, 4, true, $this->build_suggestions_queue_url('competitor_gap', 'priority_desc'), $top_items['competitor_gap']),
+            $this->build_metric('High Probability Ranking Opportunities', (string) $counts['ranking_probability'], $counts['ranking_probability'], 10, 4, true, $this->build_suggestions_queue_url('ranking_probability', 'priority_desc'), $top_items['ranking_probability']),
+            $this->build_metric('Weak SERP Opportunities', (string) $counts['serp_weakness'], $counts['serp_weakness'], 10, 4, true, $this->build_suggestions_queue_url('serp_weakness', 'priority_desc'), $top_items['serp_weakness']),
+            $this->build_metric('Content Briefs Ready', (string) $counts['content_briefs_ready'], $counts['content_briefs_ready'], 8, 3, true, $this->build_suggestions_queue_url('content_brief', 'priority_desc'), $top_items['content_briefs_ready']),
+            $this->build_metric('Cluster Authority Scores', $cluster_completion . '%', $cluster_completion, 80, 55, false, $this->build_suggestions_queue_url('authority_cluster', 'priority_desc', 'category_page'), $top_items['authority_cluster']),
+            $this->build_metric('Suggestions Waiting for Review', (string) $counts['waiting_review'], $counts['waiting_review'], 10, 4, true, $this->build_suggestions_queue_url('review_ready', 'priority_desc'), ''),
         ];
 
         set_transient($cache_key, $metrics, 5 * MINUTE_IN_SECONDS);
 
         return $metrics;
+    }
+
+    private function build_suggestions_queue_url(string $filter, string $sort = 'priority_desc', string $destination_filter = 'all'): string {
+        return add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'tmw_filter' => $filter,
+            'tmw_destination_filter' => $destination_filter,
+            'tmw_sort' => $sort,
+        ], admin_url('admin.php'));
     }
 
     /**
@@ -899,6 +908,10 @@ class SuggestionsAdminPage {
                 return $status === 'draft_created';
             }
 
+            if ($active_filter === 'review_ready') {
+                return $status === 'new';
+            }
+
             if (in_array($status, ['ignored', 'implemented'], true)) {
                 return false;
             }
@@ -937,6 +950,10 @@ class SuggestionsAdminPage {
             }
             if ($active_filter === 'authority_cluster') {
                 return $type === 'authority_cluster';
+            }
+
+            if ($active_filter === 'content_brief') {
+                return $type === 'content_brief';
             }
 
             return true;
@@ -995,6 +1012,7 @@ class SuggestionsAdminPage {
             'all' => 'All',
             'high_priority' => 'High Priority',
             'draft_created' => 'Draft Created',
+            'review_ready' => 'Review Ready',
             'ignored' => 'Ignored',
             'content_opportunity' => 'Content Opportunities',
             'internal_linking' => 'Internal Linking',
@@ -1005,6 +1023,7 @@ class SuggestionsAdminPage {
             'ranking_probability' => 'Ranking Probability',
             'serp_weakness' => 'SERP Weakness',
             'authority_cluster' => 'Authority Clusters',
+            'content_brief' => 'Content Briefs',
         ];
 
         echo '<ul class="subsubsub">';
