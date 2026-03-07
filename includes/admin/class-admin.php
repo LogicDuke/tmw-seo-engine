@@ -213,6 +213,26 @@ class Admin {
                 line-height:1.45;
             }
 
+            .tmwseo-description-block {
+                font-size:12px;
+                line-height:1.45;
+            }
+
+            .tmwseo-description-summary {
+                margin:0 0 6px;
+                color:#111827;
+            }
+
+            .tmwseo-description-details {
+                margin:0;
+                padding-left:16px;
+                color:#374151;
+            }
+
+            .tmwseo-description-details li {
+                margin:0 0 4px;
+            }
+
             .tmwseo-status-new {
                 background:#eff6ff;
                 color:#1d4ed8;
