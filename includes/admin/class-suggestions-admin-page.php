@@ -539,13 +539,10 @@ class SuggestionsAdminPage {
         $description = (string) ($row['description'] ?? '');
         $context_snippet = $this->extract_section_text($description, 'Context snippet:');
 
-        preg_match('/SOURCE_POST_ID:\s*(\d+)/', $action, $source_matches);
-        preg_match('/TARGET_POST_ID:\s*(\d+)/', $action, $target_matches);
-        preg_match('/ANCHOR_TEXT:\s*(.+)$/mi', $action, $anchor_matches);
-
-        $source_id = isset($source_matches[1]) ? (int) $source_matches[1] : 0;
-        $target_id = isset($target_matches[1]) ? (int) $target_matches[1] : 0;
-        $anchor = isset($anchor_matches[1]) ? sanitize_text_field(trim((string) $anchor_matches[1])) : '';
+        $action_context = $this->parse_internal_link_action_context($action);
+        $source_id = $action_context['source_id'];
+        $target_id = $action_context['target_id'];
+        $anchor = $action_context['anchor'];
 
         if ($source_id <= 0 || $target_id <= 0 || $anchor === '') {
             return '';
@@ -1215,7 +1212,7 @@ class SuggestionsAdminPage {
         echo '<ul class="tmwseo-description-details">';
 
         if ($type === 'internal_link') {
-            $link_context = $this->internal_link_row_context($description);
+            $link_context = $this->internal_link_row_context($description, (string) ($row['suggested_action'] ?? ''));
             if ($link_context['source'] !== '') {
                 echo '<li><strong>' . esc_html__('Source page/post:', 'tmwseo') . '</strong> ' . esc_html($link_context['source']) . '</li>';
             }
@@ -1610,12 +1607,52 @@ class SuggestionsAdminPage {
     /**
      * @return array{source:string,target:string,anchor:string,snippet:string}
      */
-    private function internal_link_row_context(string $description): array {
+    private function internal_link_row_context(string $description, string $suggested_action = ''): array {
+        $source = $this->extract_line_value($description, 'Source Page:');
+        $target = $this->extract_line_value($description, 'Target Page:');
+        $anchor = $this->extract_section_text($description, 'Suggested anchor text:');
+        $snippet = $this->extract_section_text($description, 'Context snippet:');
+
+        $action_context = $this->parse_internal_link_action_context($suggested_action);
+
+        if ($source === '' && $action_context['source_id'] > 0) {
+            $source_title = get_the_title($action_context['source_id']);
+            $source = is_string($source_title) && $source_title !== ''
+                ? sprintf('%s (#%d)', $source_title, $action_context['source_id'])
+                : sprintf(__('Post ID #%d', 'tmwseo'), $action_context['source_id']);
+        }
+
+        if ($target === '' && $action_context['target_id'] > 0) {
+            $target_title = get_the_title($action_context['target_id']);
+            $target = is_string($target_title) && $target_title !== ''
+                ? sprintf('%s (#%d)', $target_title, $action_context['target_id'])
+                : sprintf(__('Post ID #%d', 'tmwseo'), $action_context['target_id']);
+        }
+
+        if ($anchor === '' && $action_context['anchor'] !== '') {
+            $anchor = $action_context['anchor'];
+        }
+
         return [
-            'source' => $this->extract_line_value($description, 'Source Page:'),
-            'target' => $this->extract_line_value($description, 'Target Page:'),
-            'anchor' => $this->extract_section_text($description, 'Suggested anchor text:'),
-            'snippet' => $this->extract_section_text($description, 'Context snippet:'),
+            'source' => $source,
+            'target' => $target,
+            'anchor' => $anchor,
+            'snippet' => $snippet,
+        ];
+    }
+
+    /**
+     * @return array{source_id:int,target_id:int,anchor:string}
+     */
+    private function parse_internal_link_action_context(string $suggested_action): array {
+        preg_match('/SOURCE_POST_ID:\s*(\d+)/', $suggested_action, $source_matches);
+        preg_match('/TARGET_POST_ID:\s*(\d+)/', $suggested_action, $target_matches);
+        preg_match('/ANCHOR_TEXT:\s*(.+)$/mi', $suggested_action, $anchor_matches);
+
+        return [
+            'source_id' => isset($source_matches[1]) ? (int) $source_matches[1] : 0,
+            'target_id' => isset($target_matches[1]) ? (int) $target_matches[1] : 0,
+            'anchor' => isset($anchor_matches[1]) ? sanitize_text_field(trim((string) $anchor_matches[1])) : '',
         ];
     }
 
