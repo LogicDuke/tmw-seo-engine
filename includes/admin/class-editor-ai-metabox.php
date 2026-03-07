@@ -1,6 +1,8 @@
 <?php
 namespace TMWSEO\Engine\Admin;
 
+use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
+
 if (!defined('ABSPATH')) { exit; }
 
 class Editor_AI_Metabox {
@@ -44,15 +46,8 @@ class Editor_AI_Metabox {
     public static function render($post): void {
         wp_nonce_field('tmwseo_editor_ai_metabox_' . $post->ID, 'tmwseo_editor_ai_metabox_nonce');
 
-        $pack_raw = get_post_meta($post->ID, '_tmwseo_keyword_pack', true);
         $ready_to_index = (string) get_post_meta($post->ID, '_tmwseo_ready_to_index', true) === '1';
-        $pack = [];
-        if (is_string($pack_raw) && $pack_raw !== '') {
-            $decoded = json_decode($pack_raw, true);
-            if (is_array($decoded)) $pack = $decoded;
-        } elseif (is_array($pack_raw)) {
-            $pack = $pack_raw;
-        }
+        $pack = UnifiedKeywordWorkflowService::get_pack_with_legacy_fallback((int) $post->ID);
 
         $additional = is_array($pack['additional'] ?? null) ? array_values(array_filter(array_map('strval', $pack['additional']))) : [];
         $longtail   = is_array($pack['longtail'] ?? null) ? array_values(array_filter(array_map('strval', $pack['longtail']))) : [];

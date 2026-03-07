@@ -10,7 +10,7 @@ class DebugDashboard {
 
     public static function register_menu(): void {
         add_submenu_page(
-            'tmwseo-engine',
+            \TMWSEO\Engine\Admin::MENU_SLUG,
             __('Debug Dashboard', 'tmwseo'),
             __('↳ Debug Dashboard', 'tmwseo'),
             'manage_options',
@@ -27,8 +27,8 @@ class DebugDashboard {
         $post_id = isset($_GET['post_id']) ? (int) $_GET['post_id'] : 0;
 
         echo '<div class="wrap">';
-        echo '<h1>TMW SEO Engine Inspector</h1>';
-        echo '<p>Suggestions, status, and diagnostics for human review.</p>';
+        echo '<h1>TMW SEO Engine Debug Dashboard</h1>';
+        echo '<p>Step-by-step validation for the suggestion-first pipeline. All checks are read-safe and never publish content.</p>';
 
         echo '<form method="get" style="margin:12px 0;">';
         echo '<input type="hidden" name="page" value="tmw-seo-debug" />';

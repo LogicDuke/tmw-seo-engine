@@ -20,7 +20,7 @@ class IntelligenceAdmin {
 
     public static function register_menu(): void {
         add_submenu_page(
-            'tmwseo-engine',
+            null,
             __('Legacy Keyword Research', 'tmwseo'),
             __('↳ Legacy Keyword Research', 'tmwseo'),
             'manage_options',

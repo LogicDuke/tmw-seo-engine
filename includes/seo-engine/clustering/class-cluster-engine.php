@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Clustering;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Debug\DebugLogger;
+use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -44,12 +45,29 @@ class ClusterEngine {
     private function keywords_from_existing_packs(int $post_id): array {
         $keywords = [];
 
-        // Keyword intelligence pack: tmw_keyword_pack.
-        $pack = get_post_meta($post_id, 'tmw_keyword_pack', true);
+        // Unified keyword pack (tmw_keyword_pack with legacy fallback support).
+        $pack = UnifiedKeywordWorkflowService::get_pack_with_legacy_fallback($post_id);
         if (is_array($pack)) {
             $primary = trim((string) ($pack['primary_keyword'] ?? ''));
             if ($primary !== '') {
                 $keywords[] = $primary;
+            }
+
+            $legacy_primary = trim((string) ($pack['primary'] ?? ''));
+            if ($legacy_primary !== '') {
+                $keywords[] = $legacy_primary;
+            }
+
+            foreach (['additional', 'longtail'] as $bucket) {
+                if (!isset($pack[$bucket]) || !is_array($pack[$bucket])) {
+                    continue;
+                }
+                foreach ($pack[$bucket] as $item) {
+                    $keyword = trim((string) $item);
+                    if ($keyword !== '') {
+                        $keywords[] = $keyword;
+                    }
+                }
             }
 
             $rows = $pack['keywords'] ?? [];
@@ -66,30 +84,8 @@ class ClusterEngine {
             }
         }
 
-        // Legacy model keyword pack: _tmwseo_keyword_pack.
-        $legacy_raw = get_post_meta($post_id, '_tmwseo_keyword_pack', true);
-        if (is_string($legacy_raw) && $legacy_raw !== '') {
-            $legacy = json_decode($legacy_raw, true);
-            if (is_array($legacy)) {
-                $primary = trim((string) ($legacy['primary'] ?? ''));
-                if ($primary !== '') {
-                    $keywords[] = $primary;
-                }
 
-                foreach (['additional', 'longtail'] as $bucket) {
-                    $items = $legacy[$bucket] ?? [];
-                    if (!is_array($items)) {
-                        continue;
-                    }
-                    foreach ($items as $item) {
-                        $keyword = trim((string) $item);
-                        if ($keyword !== '') {
-                            $keywords[] = $keyword;
-                        }
-                    }
-                }
-            }
-        }
+
 
         $fallback = trim((string) get_post_meta($post_id, '_tmwseo_keyword', true));
         if ($fallback !== '') {

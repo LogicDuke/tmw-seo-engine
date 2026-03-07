@@ -184,16 +184,30 @@ class TMW_Model_Similarity_Engine {
     }
 
     private function collect_keyword_pack(int $model_id): array {
-        $pack = get_post_meta($model_id, '_tmwseo_keyword_pack', true);
-        if (is_string($pack) && $pack !== '') {
-            $decoded = json_decode($pack, true);
-            if (is_array($decoded)) {
-                $keywords = [];
-                $keywords[] = (string) ($decoded['primary'] ?? '');
-                $keywords = array_merge($keywords, (array) ($decoded['additional'] ?? []), (array) ($decoded['longtail'] ?? []));
-
-                return array_values(array_unique(array_filter(array_map('sanitize_title', array_map('strval', $keywords)), 'strlen')));
+        $pack = \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::get_pack_with_legacy_fallback($model_id);
+        if (is_array($pack) && !empty($pack)) {
+            $keywords = [];
+            if (isset($pack['primary'])) {
+                $keywords[] = (string) $pack['primary'];
             }
+            if (isset($pack['primary_keyword'])) {
+                $keywords[] = (string) $pack['primary_keyword'];
+            }
+            if (isset($pack['additional']) && is_array($pack['additional'])) {
+                $keywords = array_merge($keywords, $pack['additional']);
+            }
+            if (isset($pack['longtail']) && is_array($pack['longtail'])) {
+                $keywords = array_merge($keywords, $pack['longtail']);
+            }
+            if (isset($pack['keywords']) && is_array($pack['keywords'])) {
+                foreach ($pack['keywords'] as $row) {
+                    if (is_array($row) && isset($row['keyword'])) {
+                        $keywords[] = (string) $row['keyword'];
+                    }
+                }
+            }
+
+            return array_values(array_unique(array_filter(array_map('sanitize_title', array_map('strval', $keywords)), 'strlen')));
         }
 
         $fallback = array_filter([
