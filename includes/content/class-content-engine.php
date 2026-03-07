@@ -571,13 +571,19 @@ class ContentEngine {
 
     public static function get_publish_autopilot_hook_status(): array {
         $allowed = self::is_publish_autopilot_allowed();
+        $migration_counts = class_exists('\TMWSEO\Engine\AutopilotMigrationRegistry')
+            ? \TMWSEO\Engine\AutopilotMigrationRegistry::status_counts()
+            : [];
 
         return [
-            'phase' => 'A',
+            'phase' => 'C',
             'legacy_publish_autopilot_hooks' => $allowed ? 'ON' : 'OFF',
             'hard_fence' => self::PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE ? 'ENABLED' : 'DISABLED',
             'hook_registered' => has_action('transition_post_status', [__CLASS__, 'on_transition_post_status']) !== false ? 'yes' : 'no',
             'migration_required_to_enable' => 'yes',
+            'phase_c_migrated_safely' => (string) ($migration_counts['migrated_safely'] ?? 0),
+            'phase_c_still_fenced' => (string) ($migration_counts['still_fenced'] ?? 0),
+            'phase_c_disallowed' => (string) ($migration_counts['phase_c_disallowed'] ?? 0),
         ];
     }
 }

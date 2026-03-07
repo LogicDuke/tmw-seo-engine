@@ -36,6 +36,7 @@ class SuggestionsAdminPage {
         add_action('admin_post_tmwseo_suggestion_action', [$ui, 'handle_row_action']);
         add_action('admin_post_tmwseo_scan_internal_link_opportunities', [$ui, 'handle_scan_internal_link_opportunities']);
         add_action('admin_post_tmwseo_scan_content_improvements', [$ui, 'handle_scan_content_improvements']);
+        add_action('admin_post_tmwseo_run_phase_c_discovery_snapshot', [$ui, 'handle_phase_c_discovery_snapshot']);
         add_action('admin_post_tmwseo_add_competitor_domain', [$ui, 'handle_add_competitor_domain']);
         add_action('admin_post_tmwseo_generate_brief_from_suggestion', [$ui, 'handle_generate_brief_from_suggestion']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
@@ -470,6 +471,33 @@ class SuggestionsAdminPage {
             'created' => (int) ($result['created'] ?? 0),
             'scanned' => (int) ($result['scanned'] ?? 0),
             'with_issues' => (int) ($result['with_issues'] ?? 0),
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+
+    public function handle_phase_c_discovery_snapshot(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_run_phase_c_discovery_snapshot');
+
+        $snapshot = \TMWSEO\Engine\SmartQueue::discovery_snapshot(20);
+        $scanned = (int) ($snapshot['scanned'] ?? 0);
+        $eligible = (int) ($snapshot['eligible_candidates'] ?? 0);
+
+        Logs::info('suggestions', '[TMW-SEO-AUTO] Phase C manual discovery snapshot executed', [
+            'scanned' => $scanned,
+            'eligible_candidates' => $eligible,
+            'mutation' => 'none',
+        ]);
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'notice' => 'phase_c_discovery_snapshot_complete',
+            'scanned' => $scanned,
+            'eligible' => $eligible,
         ], admin_url('admin.php')));
         exit;
     }
@@ -990,7 +1018,14 @@ class SuggestionsAdminPage {
         submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
 
-        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete'], true)) {
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 18px;">';
+        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
+        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
+        submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
+        echo '<p class="description" style="margin-top:6px;">' . esc_html__('Read-safe only: analyzes legacy smart-queue discovery candidates for operator review. This does not enqueue optimization jobs, publish posts, or mutate live content.', 'tmwseo') . '</p>';
+        echo '</form>';
+
+        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
@@ -1002,6 +1037,10 @@ class SuggestionsAdminPage {
                 $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
                 $with_issues = isset($_GET['with_issues']) ? (int) $_GET['with_issues'] : 0;
                 echo esc_html(sprintf(__('Content improvement scan complete: %d suggestions created, %d pages scanned, %d pages with issues detected.', 'tmwseo'), $created, $scanned, $with_issues));
+            } elseif ($notice === 'phase_c_discovery_snapshot_complete') {
+                $scanned = isset($_GET['scanned']) ? (int) $_GET['scanned'] : 0;
+                $eligible = isset($_GET['eligible']) ? (int) $_GET['eligible'] : 0;
+                echo esc_html(sprintf(__('Phase C discovery snapshot complete: %d posts scanned and %d legacy candidates identified for manual review. No jobs were enqueued and no content was mutated.', 'tmwseo'), $scanned, $eligible));
             } else {
                 echo esc_html__('Suggestion ignored.', 'tmwseo');
             }
