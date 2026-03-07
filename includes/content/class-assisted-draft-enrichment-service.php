@@ -17,6 +17,10 @@ class AssistedDraftEnrichmentService {
     private const PREVIEW_META_QUALITY_SUMMARY = '_tmwseo_preview_quality_summary';
     private const PREVIEW_META_GENERATED_AT = '_tmwseo_preview_generated_at';
     private const PREVIEW_META_STRATEGY = '_tmwseo_preview_strategy';
+    private const PREVIEW_META_APPLIED_AT = '_tmwseo_preview_applied_at';
+    private const PREVIEW_META_APPLIED_FIELDS = '_tmwseo_preview_applied_fields';
+    private const PREVIEW_META_LAST_REVIEWED_AT = '_tmwseo_preview_last_reviewed_at';
+    private const DRAFT_META_REVIEWED_OUTLINE = '_tmwseo_draft_reviewed_outline';
 
     /**
      * @return array<string,mixed>
@@ -147,6 +151,172 @@ class AssistedDraftEnrichmentService {
             'quality_summary' => self::PREVIEW_META_QUALITY_SUMMARY,
             'generated_at' => self::PREVIEW_META_GENERATED_AT,
             'strategy' => self::PREVIEW_META_STRATEGY,
+            'applied_at' => self::PREVIEW_META_APPLIED_AT,
+            'applied_fields' => self::PREVIEW_META_APPLIED_FIELDS,
+            'last_reviewed_at' => self::PREVIEW_META_LAST_REVIEWED_AT,
+            'draft_reviewed_outline' => self::DRAFT_META_REVIEWED_OUTLINE,
+        ];
+    }
+
+    /**
+     * @return array<string,string>
+     */
+    public static function preview_apply_field_labels(): array {
+        return [
+            'seo_title' => 'Apply SEO Title',
+            'meta_description' => 'Apply Meta Description',
+            'focus_keyword' => 'Apply Focus Keyword',
+            'draft_title' => 'Apply Draft Post Title (from preview SEO title)',
+            'draft_content' => 'Apply Draft Content Preview',
+            'outline_meta' => 'Apply Outline to Draft Reviewed Outline meta',
+        ];
+    }
+
+    /**
+     * @param array<int,string> $requested_fields
+     * @return array<string,mixed>
+     */
+    public static function apply_reviewed_preview_to_explicit_draft(int $post_id, array $requested_fields): array {
+        $post = get_post($post_id);
+        if (!$post instanceof \WP_Post) {
+            return [
+                'ok' => false,
+                'reason' => 'post_not_found',
+            ];
+        }
+
+        if ($post->post_status !== 'draft') {
+            Logs::warn('content', '[TMW-SEO-AUTO] Draft preview apply refused: post is not draft', [
+                'post_id' => $post_id,
+                'post_status' => (string) $post->post_status,
+                'manual_only' => true,
+            ]);
+
+            return [
+                'ok' => false,
+                'reason' => 'non_draft_refused',
+                'post_status' => (string) $post->post_status,
+            ];
+        }
+
+        $allowed_fields = array_keys(self::preview_apply_field_labels());
+        $fields = array_values(array_intersect($allowed_fields, array_values(array_filter(array_map('sanitize_key', $requested_fields)))));
+        if (empty($fields)) {
+            return [
+                'ok' => false,
+                'reason' => 'no_fields_selected',
+            ];
+        }
+
+        $keys = self::preview_meta_keys();
+        $seo_title = trim((string) get_post_meta($post_id, $keys['seo_title'], true));
+        $meta_description = trim((string) get_post_meta($post_id, $keys['meta_description'], true));
+        $focus_keyword = trim((string) get_post_meta($post_id, $keys['focus_keyword'], true));
+        $outline = trim((string) get_post_meta($post_id, $keys['outline'], true));
+        $content_html = (string) get_post_meta($post_id, $keys['content_html'], true);
+
+        $applied_fields = [];
+        $skipped_fields = [];
+
+        if (in_array('seo_title', $fields, true)) {
+            if ($seo_title !== '') {
+                update_post_meta($post_id, 'rank_math_title', $seo_title);
+                $applied_fields[] = 'seo_title';
+            } else {
+                $skipped_fields[] = 'seo_title';
+            }
+        }
+
+        if (in_array('meta_description', $fields, true)) {
+            if ($meta_description !== '') {
+                update_post_meta($post_id, 'rank_math_description', $meta_description);
+                $applied_fields[] = 'meta_description';
+            } else {
+                $skipped_fields[] = 'meta_description';
+            }
+        }
+
+        if (in_array('focus_keyword', $fields, true)) {
+            if ($focus_keyword !== '') {
+                update_post_meta($post_id, 'rank_math_focus_keyword', $focus_keyword);
+                $applied_fields[] = 'focus_keyword';
+            } else {
+                $skipped_fields[] = 'focus_keyword';
+            }
+        }
+
+        if (in_array('draft_title', $fields, true)) {
+            if ($seo_title !== '') {
+                wp_update_post([
+                    'ID' => $post_id,
+                    'post_title' => $seo_title,
+                    'post_status' => 'draft',
+                ]);
+                $applied_fields[] = 'draft_title';
+            } else {
+                $skipped_fields[] = 'draft_title';
+            }
+        }
+
+        if (in_array('draft_content', $fields, true)) {
+            if (trim($content_html) !== '') {
+                wp_update_post([
+                    'ID' => $post_id,
+                    'post_content' => wp_kses_post($content_html),
+                    'post_status' => 'draft',
+                ]);
+                $applied_fields[] = 'draft_content';
+            } else {
+                $skipped_fields[] = 'draft_content';
+            }
+        }
+
+        if (in_array('outline_meta', $fields, true)) {
+            if ($outline !== '') {
+                update_post_meta($post_id, self::DRAFT_META_REVIEWED_OUTLINE, $outline);
+                $applied_fields[] = 'outline_meta';
+            } else {
+                $skipped_fields[] = 'outline_meta';
+            }
+        }
+
+        $applied_at = current_time('mysql');
+        update_post_meta($post_id, self::PREVIEW_META_LAST_REVIEWED_AT, $applied_at);
+        if (!empty($applied_fields)) {
+            update_post_meta($post_id, self::PREVIEW_META_APPLIED_AT, $applied_at);
+            update_post_meta($post_id, self::PREVIEW_META_APPLIED_FIELDS, wp_json_encode($applied_fields));
+        }
+
+        Logs::info('content', '[TMW-SEO-AUTO] Draft preview manually applied (operator-triggered, draft-only)', [
+            'post_id' => $post_id,
+            'post_status' => (string) $post->post_status,
+            'requested_fields' => $fields,
+            'applied_fields' => $applied_fields,
+            'skipped_fields' => $skipped_fields,
+            'manual_only' => true,
+            'preview_only_source' => true,
+            'live_mutation' => false,
+            'auto_publish' => false,
+            'auto_noindex_clear' => false,
+        ]);
+
+        if (empty($applied_fields)) {
+            return [
+                'ok' => false,
+                'reason' => 'no_preview_values_available',
+                'requested_fields' => $fields,
+                'skipped_fields' => $skipped_fields,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'post_id' => $post_id,
+            'post_status' => (string) $post->post_status,
+            'requested_fields' => $fields,
+            'applied_fields' => $applied_fields,
+            'skipped_fields' => $skipped_fields,
+            'applied_at' => $applied_at,
         ];
     }
 
