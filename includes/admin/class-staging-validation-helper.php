@@ -139,12 +139,15 @@ class Staging_Validation_Helper {
             [
                 'type' => 'competitor_gap',
                 'title' => self::TEST_MARKER . ' Competitor Gap: cam model studio seo',
-                'description' => self::TEST_MARKER . ' Staging fixture for competitor gap validation.',
+                'description' => self::TEST_MARKER . ' Staging fixture for competitor gap validation. Suggested content type: category page.',
                 'source_engine' => 'competitor_gap_ai',
                 'priority_score' => 72,
                 'estimated_traffic' => 640,
                 'difficulty' => 44,
-                'suggested_action' => self::TEST_MARKER . ' Create a draft landing page targeting this content gap.',
+                'suggested_action' => implode("\n", [
+                    'DESTINATION_TYPE: category_page',
+                    self::TEST_MARKER . ' Create a draft landing page targeting this content gap.',
+                ]),
             ],
             [
                 'type' => 'ranking_probability',

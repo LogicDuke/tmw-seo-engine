@@ -81,7 +81,10 @@ class ContentSuggestionModule {
                 ),
                 'estimated_traffic' => $estimated_traffic,
                 'difficulty' => $keyword_difficulty,
-                'suggested_action' => 'Generate draft idea only for manual review. Do not auto-create content.',
+                'suggested_action' => implode("\n", [
+                    'DESTINATION_TYPE: generic_post',
+                    'Generate draft idea only for manual review. Do not auto-create content.',
+                ]),
                 'status' => 'new',
             ];
 
@@ -109,7 +112,10 @@ class ContentSuggestionModule {
                     ),
                     'estimated_traffic' => $this->calculateEstimatedTraffic($search_volume),
                     'difficulty' => $keyword_difficulty,
-                    'suggested_action' => 'Create article targeting this keyword. Never create the article automatically.',
+                    'suggested_action' => implode("\n", [
+                        'DESTINATION_TYPE: generic_post',
+                        'Create article targeting this keyword. Never create the article automatically.',
+                    ]),
                     'status' => 'new',
                 ];
             }
@@ -424,7 +430,10 @@ class ContentSuggestionModule {
                 'priority_score' => max(1.0, min(10.0, 5.0 + (count($missing_articles) * 0.5))),
                 'estimated_traffic' => 0,
                 'difficulty' => 0,
-                'suggested_action' => 'Generate content briefs for these topics.',
+                'suggested_action' => implode("\n", [
+                    'DESTINATION_TYPE: generic_post',
+                    'Generate content briefs for these topics.',
+                ]),
                 'status' => 'new',
             ];
         }
