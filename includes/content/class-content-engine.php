@@ -27,6 +27,11 @@ class ContentEngine {
     private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
     private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
 
+    private const PREVIEW_TEMPLATE_CATEGORY_PAGE = 'category_page';
+    private const PREVIEW_TEMPLATE_MODEL_PAGE = 'model_page';
+    private const PREVIEW_TEMPLATE_VIDEO_PAGE = 'video_page';
+    private const PREVIEW_TEMPLATE_GENERIC_POST = 'generic_post';
+
     /** Post types we auto-optimize on first publish */
     private static array $auto_types = [
         'post',
@@ -126,6 +131,7 @@ class ContentEngine {
         }
 
         $focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
+        $template_type = self::resolve_preview_template_type($post, $context);
 
         $secondary_keywords = [];
         if ($post->post_type === 'model') {
@@ -135,16 +141,11 @@ class ContentEngine {
         }
 
         if ($strategy === 'template') {
-            if ($post->post_type === 'model') {
-                $tpl = \TMWSEO\Engine\Content\TemplateContent::build_model($post, $keyword_pack);
-                $generated_content = (string) ($tpl['content'] ?? '');
-                $seo_title = TitleFixer::shorten((string) ($tpl['seo_title'] ?? ''), 70);
-                $meta_desc = TitleFixer::shorten((string) ($tpl['meta_description'] ?? ''), 160);
-            } else {
-                $seo_title = TitleFixer::shorten(TitleFixer::fix((string) $post->post_title), 70);
-                $meta_desc = TitleFixer::shorten('Learn more about ' . $post->post_title . ' on ' . get_bloginfo('name') . '.', 160);
-                $generated_content = '<h2>' . esc_html($post->post_title) . '</h2><p>Content template is not configured for this post type yet.</p>';
-            }
+            $template_preview = self::build_template_preview_payload($post, $keyword_pack, $focus_kw, $template_type);
+            $seo_title = (string) ($template_preview['seo_title'] ?? '');
+            $meta_desc = (string) ($template_preview['meta_description'] ?? '');
+            $generated_content = (string) ($template_preview['content_html'] ?? '');
+            $outline = (string) ($template_preview['outline'] ?? self::extract_outline_from_html($generated_content));
 
             $quality = QualityScoreEngine::evaluate($generated_content, [
                 'primary_keyword' => $focus_kw,
@@ -159,12 +160,13 @@ class ContentEngine {
 
             return [
                 'strategy' => 'template',
+                'template_type' => $template_type,
                 'seo_title' => $seo_title,
                 'meta_description' => $meta_desc,
                 'focus_keyword' => $focus_kw,
                 'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
                 'content_html' => wp_kses_post(trim($generated_content)),
-                'outline' => self::extract_outline_from_html($generated_content),
+                'outline' => $outline,
                 'quality_summary' => $quality,
                 'generated_at' => current_time('mysql'),
             ];
@@ -217,6 +219,25 @@ class ContentEngine {
                 "- content_html must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
                 "- Expand each section with descriptive paragraphs and practical details.\n" .
                 "- Keep keyword density for the exact primary keyword between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n";
+        } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
+            $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
+                "- Purpose: help users compare and choose options within this category intent.\n" .
+                "- Use this heading structure in content_html:\n" .
+                "  H1: Best {$focus_kw} Sites\n" .
+                "  H2: What to Expect From {$focus_kw}\n" .
+                "  H2: How to Choose the Right {$focus_kw} Platform\n" .
+                "  H2: Features That Matter for {$focus_kw}\n" .
+                "  H2: Safety, Privacy, and Billing Tips\n" .
+                "  H2: FAQ About {$focus_kw}\n" .
+                "- Include a short related-subtopics block near the end using an unordered list.\n" .
+                "- Keep sections practical, comparison-focused, and category-intent aligned.\n";
+        } elseif ($template_type === self::PREVIEW_TEMPLATE_VIDEO_PAGE) {
+            $user_content .= "\nVIDEO PAGE TEMPLATE (required):\n" .
+                "- Focus on watch intent and user expectations for the specific video topic.\n" .
+                "- Include: H1, 3-5 H2 sections, and a short FAQ.\n";
+        } else {
+            $user_content .= "\nGENERIC POST TEMPLATE (required):\n" .
+                "- Provide an informative explainer structure with H1, 3-4 H2 sections, and FAQ.\n";
         }
 
         $res = OpenAI::chat_json([
@@ -266,6 +287,7 @@ class ContentEngine {
 
         return [
             'strategy' => 'openai',
+            'template_type' => $template_type,
             'seo_title' => $seo_title,
             'meta_description' => $meta_desc,
             'focus_keyword' => $generated_focus_kw,
@@ -274,6 +296,118 @@ class ContentEngine {
             'outline' => self::extract_outline_from_html($html),
             'quality_summary' => $quality,
             'generated_at' => current_time('mysql'),
+        ];
+    }
+
+    private static function resolve_preview_template_type(\WP_Post $post, string $context): string {
+        if ($post->post_type === 'tmw_category_page' || $context === 'category_page') {
+            return self::PREVIEW_TEMPLATE_CATEGORY_PAGE;
+        }
+
+        if ($post->post_type === 'model' || $context === 'model') {
+            return self::PREVIEW_TEMPLATE_MODEL_PAGE;
+        }
+
+        if ($post->post_type === 'post' || $context === 'video_or_post') {
+            return self::PREVIEW_TEMPLATE_VIDEO_PAGE;
+        }
+
+        return self::PREVIEW_TEMPLATE_GENERIC_POST;
+    }
+
+    /**
+     * @param array<string,mixed> $keyword_pack
+     * @return array<string,string>
+     */
+    private static function build_template_preview_payload(\WP_Post $post, array $keyword_pack, string $focus_kw, string $template_type): array {
+        if ($template_type === self::PREVIEW_TEMPLATE_MODEL_PAGE) {
+            $tpl = \TMWSEO\Engine\Content\TemplateContent::build_model($post, $keyword_pack);
+            return [
+                'seo_title' => TitleFixer::shorten((string) ($tpl['seo_title'] ?? ''), 70),
+                'meta_description' => TitleFixer::shorten((string) ($tpl['meta_description'] ?? ''), 160),
+                'content_html' => (string) ($tpl['content'] ?? ''),
+                'outline' => self::extract_outline_from_html((string) ($tpl['content'] ?? '')),
+            ];
+        }
+
+        if ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
+            return self::build_category_page_template_preview($post, $focus_kw, $keyword_pack);
+        }
+
+        if ($template_type === self::PREVIEW_TEMPLATE_VIDEO_PAGE) {
+            return self::build_video_page_template_preview($post, $focus_kw);
+        }
+
+        return self::build_generic_post_template_preview($post, $focus_kw);
+    }
+
+    /**
+     * @param array<string,mixed> $keyword_pack
+     * @return array<string,string>
+     */
+    private static function build_category_page_template_preview(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
+        $blog_name = (string) get_bloginfo('name');
+        $category_term = $focus_kw !== '' ? $focus_kw : (string) $post->post_title;
+        $seo_title = TitleFixer::shorten('Best ' . $category_term . ' Sites: Features, Safety & Tips', 70);
+        $meta_description = TitleFixer::shorten('Compare top ' . $category_term . ' options with safety tips, feature breakdowns, and practical guidance to choose the right live chat platform.', 160);
+
+        $related_topics = !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
+            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 4)
+            : [];
+
+        $related_block = '';
+        if (!empty($related_topics)) {
+            $items = '';
+            foreach ($related_topics as $topic) {
+                $items .= '<li>' . esc_html($topic) . '</li>';
+            }
+            $related_block = '<h2>Related ' . esc_html($category_term) . ' Subtopics</h2><ul>' . $items . '</ul>';
+        }
+
+        $content =
+            '<h1>Best ' . esc_html($category_term) . ' Sites</h1>' .
+            '<p>This draft preview helps visitors evaluate <strong>' . esc_html($category_term) . '</strong> options quickly, with emphasis on trust, feature fit, and user intent.</p>' .
+            '<h2>What to Expect From ' . esc_html($category_term) . '</h2>' .
+            '<p>Explain the category scope, common user goals, and the kinds of experiences people usually want from this page type.</p>' .
+            '<h2>How to Choose the Right ' . esc_html($category_term) . ' Platform</h2>' .
+            '<p>Provide practical selection criteria: onboarding quality, performer variety, language support, and platform reliability.</p>' .
+            '<h2>Features That Matter for ' . esc_html($category_term) . '</h2>' .
+            '<ul><li>Search/filter depth for faster matching</li><li>Transparent pricing and token options</li><li>Mobile and desktop usability</li></ul>' .
+            '<h2>Safety, Privacy, and Billing Tips</h2>' .
+            '<p>Include concise guidance on account security, payment clarity, and personal boundaries when using live chat products.</p>' .
+            '<h2>FAQ About ' . esc_html($category_term) . '</h2>' .
+            '<h3>How do I compare options in this category?</h3><p>Use the same shortlist criteria across platforms to make a fair comparison.</p>' .
+            '<h3>What should I check before spending?</h3><p>Review billing terms, trial options, and moderation/safety settings first.</p>' .
+            $related_block .
+            '<p><em>Preview intent summary:</em> This category-page draft is structured for taxonomy intent and operator review before any manual draft apply in ' . esc_html($blog_name) . '.</p>';
+
+        return [
+            'seo_title' => $seo_title,
+            'meta_description' => $meta_description,
+            'content_html' => $content,
+            'outline' => "- Best {$category_term} Sites\n- What to Expect From {$category_term}\n- How to Choose the Right {$category_term} Platform\n- Features That Matter for {$category_term}\n- Safety, Privacy, and Billing Tips\n- FAQ About {$category_term}",
+        ];
+    }
+
+    /** @return array<string,string> */
+    private static function build_video_page_template_preview(\WP_Post $post, string $focus_kw): array {
+        $topic = $focus_kw !== '' ? $focus_kw : (string) $post->post_title;
+        return [
+            'seo_title' => TitleFixer::shorten($topic . ' Video Guide: What to Watch For', 70),
+            'meta_description' => TitleFixer::shorten('A practical preview guide for ' . $topic . ' with viewing tips, feature highlights, and safety guidance before you choose a platform.', 160),
+            'content_html' => '<h1>' . esc_html($topic) . ' Video Guide</h1><p>This preview is designed for video-intent readers seeking practical context before they watch.</p><h2>What This Video Topic Covers</h2><p>Summarize what visitors can expect.</p><h2>How to Evaluate the Experience</h2><p>Share quality and usability checks.</p><h2>FAQ</h2><h3>Is this topic beginner-friendly?</h3><p>Yes, explain terms clearly and avoid assumptions.</p>',
+            'outline' => "- {$topic} Video Guide\n- What This Video Topic Covers\n- How to Evaluate the Experience\n- FAQ",
+        ];
+    }
+
+    /** @return array<string,string> */
+    private static function build_generic_post_template_preview(\WP_Post $post, string $focus_kw): array {
+        $topic = $focus_kw !== '' ? $focus_kw : (string) $post->post_title;
+        return [
+            'seo_title' => TitleFixer::shorten(TitleFixer::fix((string) $post->post_title), 70),
+            'meta_description' => TitleFixer::shorten('Learn more about ' . $topic . ' with a structured draft preview focused on user intent and practical guidance.', 160),
+            'content_html' => '<h1>' . esc_html($topic) . '</h1><p>Preview-only draft starter for manual editorial review.</p><h2>Overview</h2><p>Introduce the topic and user intent.</p><h2>Key Points</h2><p>Cover the most important considerations.</p><h2>FAQ</h2><h3>Where should readers begin?</h3><p>Start with the overview and compare options based on goals.</p>',
+            'outline' => "- {$topic}\n- Overview\n- Key Points\n- FAQ",
         ];
     }
 

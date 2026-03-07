@@ -17,6 +17,7 @@ class AssistedDraftEnrichmentService {
     private const PREVIEW_META_QUALITY_SUMMARY = '_tmwseo_preview_quality_summary';
     private const PREVIEW_META_GENERATED_AT = '_tmwseo_preview_generated_at';
     private const PREVIEW_META_STRATEGY = '_tmwseo_preview_strategy';
+    private const PREVIEW_META_TEMPLATE_TYPE = '_tmwseo_preview_template_type';
     private const PREVIEW_META_APPLIED_AT = '_tmwseo_preview_applied_at';
     private const PREVIEW_META_APPLIED_FIELDS = '_tmwseo_preview_applied_fields';
     private const PREVIEW_META_LAST_REVIEWED_AT = '_tmwseo_preview_last_reviewed_at';
@@ -151,6 +152,7 @@ class AssistedDraftEnrichmentService {
             'quality_summary' => self::PREVIEW_META_QUALITY_SUMMARY,
             'generated_at' => self::PREVIEW_META_GENERATED_AT,
             'strategy' => self::PREVIEW_META_STRATEGY,
+            'template_type' => self::PREVIEW_META_TEMPLATE_TYPE,
             'applied_at' => self::PREVIEW_META_APPLIED_AT,
             'applied_fields' => self::PREVIEW_META_APPLIED_FIELDS,
             'last_reviewed_at' => self::PREVIEW_META_LAST_REVIEWED_AT,
@@ -333,6 +335,7 @@ class AssistedDraftEnrichmentService {
         update_post_meta($post_id, self::PREVIEW_META_QUALITY_SUMMARY, wp_json_encode($preview['quality_summary'] ?? []));
         update_post_meta($post_id, self::PREVIEW_META_GENERATED_AT, (string) ($preview['generated_at'] ?? current_time('mysql')));
         update_post_meta($post_id, self::PREVIEW_META_STRATEGY, (string) ($preview['strategy'] ?? ''));
+        update_post_meta($post_id, self::PREVIEW_META_TEMPLATE_TYPE, (string) ($preview['template_type'] ?? ''));
     }
 
     /**
