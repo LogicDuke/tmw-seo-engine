@@ -15,6 +15,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-trust-policy.php';

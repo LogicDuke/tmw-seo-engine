@@ -1,6 +1,7 @@
 <?php
 namespace TMWSEO\Engine\Debug;
 
+use TMWSEO\Engine\AutopilotMigrationRegistry;
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\TrustPolicy;
 
@@ -12,6 +13,8 @@ class DebugPanels {
     public static function render_engine_status(): void {
         $policy = TrustPolicy::flags();
         $publish_autopilot_status = \TMWSEO\Engine\Content\ContentEngine::get_publish_autopilot_hook_status();
+
+        $migration_counts = AutopilotMigrationRegistry::status_counts();
 
         $status = [
             'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
@@ -27,11 +30,34 @@ class DebugPanels {
             'legacy publish autopilot hooks' => (string) ($publish_autopilot_status['legacy_publish_autopilot_hooks'] ?? 'OFF'),
             'publish autopilot hard fence' => (string) ($publish_autopilot_status['hard_fence'] ?? 'ENABLED'),
             'publish transition hook registered' => (string) ($publish_autopilot_status['hook_registered'] ?? 'no'),
+            'phase c migrated safely (legacy paths)' => (string) ($migration_counts['migrated_safely'] ?? 0),
+            'phase c still fenced (legacy paths)' => (string) ($migration_counts['still_fenced'] ?? 0),
+            'phase c disallowed (legacy paths)' => (string) ($migration_counts['phase_c_disallowed'] ?? 0),
         ];
 
         echo '<h2>Engine Status</h2><table class="widefat striped"><tbody>';
         foreach ($status as $label => $value) {
             echo '<tr><th style="width:260px;">' . esc_html($label) . '</th><td>' . esc_html($value) . '</td></tr>';
+        }
+        echo '</tbody></table>';
+
+        $paths = AutopilotMigrationRegistry::all_paths();
+        echo '<h3 style="margin-top:16px;">Phase C Legacy Autopilot Migration Registry</h3>';
+        echo '<p>Classification and migration state for legacy automation paths. Safe paths are operator-triggered only; live mutation paths remain fenced/disallowed in Phase C.</p>';
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th style="width:220px;">Path ID</th><th style="width:220px;">Bucket</th><th style="width:160px;">Status</th><th style="width:250px;">Operator Entry Point</th><th>Notes</th>';
+        echo '</tr></thead><tbody>';
+        foreach ($paths as $path) {
+            echo '<tr>';
+            echo '<td><code>' . esc_html((string) ($path['id'] ?? '')) . '</code></td>';
+            echo '<td>' . esc_html((string) ($path['bucket'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($path['status'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($path['entry_point'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($path['notes'] ?? '')) . '</td>';
+            echo '</tr>';
+        }
+        if (empty($paths)) {
+            echo '<tr><td colspan="5">No legacy autopilot paths registered.</td></tr>';
         }
         echo '</tbody></table>';
     }
