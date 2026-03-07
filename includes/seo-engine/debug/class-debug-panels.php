@@ -16,6 +16,7 @@ class DebugPanels {
 
         $migration_counts = AutopilotMigrationRegistry::status_counts();
         $preview_apply_count = self::meta_count('_tmwseo_preview_applied_at');
+        $preview_apply_preset_count = self::meta_count('_tmwseo_preview_apply_preset_at');
 
         $status = [
             'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
@@ -35,6 +36,7 @@ class DebugPanels {
             'phase c still fenced (legacy paths)' => (string) ($migration_counts['still_fenced'] ?? 0),
             'phase c disallowed (legacy paths)' => (string) ($migration_counts['phase_c_disallowed'] ?? 0),
             'manual draft preview applies' => (string) $preview_apply_count,
+            'manual draft preset applies' => (string) $preview_apply_preset_count,
         ];
 
         echo '<h2>Engine Status</h2><table class="widefat striped"><tbody>';
@@ -45,7 +47,7 @@ class DebugPanels {
 
         $paths = AutopilotMigrationRegistry::all_paths();
         echo '<h3 style="margin-top:16px;">Phase C Legacy Autopilot Migration Registry</h3>';
-        echo '<p>Classification and migration state for legacy automation paths. Safe paths are operator-triggered only (including assisted draft-only metadata enrichment, preview-only draft content assist, and manual preview apply to drafts); live mutation paths remain fenced/disallowed in Phase C.</p>';
+        echo '<p>Classification and migration state for legacy automation paths. Safe paths are operator-triggered only (including assisted draft-only metadata enrichment, preview-only draft content assist, and manual preview apply to drafts, including destination-aware apply presets); live mutation paths remain fenced/disallowed in Phase C.</p>';
         echo '<table class="widefat striped"><thead><tr>';
         echo '<th style="width:220px;">Path ID</th><th style="width:220px;">Bucket</th><th style="width:160px;">Status</th><th style="width:250px;">Operator Entry Point</th><th>Notes</th>';
         echo '</tr></thead><tbody>';

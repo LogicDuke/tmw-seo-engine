@@ -21,6 +21,8 @@ class AssistedDraftEnrichmentService {
     private const PREVIEW_META_APPLIED_AT = '_tmwseo_preview_applied_at';
     private const PREVIEW_META_APPLIED_FIELDS = '_tmwseo_preview_applied_fields';
     private const PREVIEW_META_LAST_REVIEWED_AT = '_tmwseo_preview_last_reviewed_at';
+    private const PREVIEW_META_APPLY_PRESET = '_tmwseo_preview_apply_preset';
+    private const PREVIEW_META_APPLY_PRESET_AT = '_tmwseo_preview_apply_preset_at';
     private const DRAFT_META_REVIEWED_OUTLINE = '_tmwseo_draft_reviewed_outline';
 
     /**
@@ -175,10 +177,72 @@ class AssistedDraftEnrichmentService {
     }
 
     /**
+     * @return array<string,array<string,mixed>>
+     */
+    public static function preview_apply_presets_for_destination(string $destination): array {
+        $destination = sanitize_key($destination);
+
+        $category_presets = [
+            'category_seo_metadata_only' => [
+                'label' => 'Category Page: SEO Metadata Only',
+                'fields' => ['seo_title', 'meta_description', 'focus_keyword'],
+            ],
+            'category_seo_outline' => [
+                'label' => 'Category Page: SEO Metadata + Outline',
+                'fields' => ['seo_title', 'meta_description', 'focus_keyword', 'outline_meta'],
+            ],
+            'category_seo_outline_content' => [
+                'label' => 'Category Page: SEO Metadata + Outline + Draft Content Preview',
+                'fields' => ['seo_title', 'meta_description', 'focus_keyword', 'outline_meta', 'draft_content'],
+            ],
+        ];
+
+        $generic_presets = [
+            'generic_seo_metadata_only' => [
+                'label' => 'SEO Metadata Only',
+                'fields' => ['seo_title', 'meta_description', 'focus_keyword'],
+            ],
+            'generic_seo_outline' => [
+                'label' => 'SEO Metadata + Outline',
+                'fields' => ['seo_title', 'meta_description', 'focus_keyword', 'outline_meta'],
+            ],
+        ];
+
+        if ($destination === 'category_page') {
+            return $category_presets;
+        }
+
+        return $generic_presets;
+    }
+
+    /**
+     * @return array{fields:array<int,string>,preset_key:string}
+     */
+    public static function resolve_preview_apply_fields(array $requested_fields, string $destination = 'generic_post', string $preset_key = ''): array {
+        $resolved_preset_key = sanitize_key($preset_key);
+        if ($resolved_preset_key !== '') {
+            $presets = self::preview_apply_presets_for_destination($destination);
+            if (!empty($presets[$resolved_preset_key]['fields']) && is_array($presets[$resolved_preset_key]['fields'])) {
+                /** @var array<int,string> $preset_fields */
+                $preset_fields = array_values(array_map('strval', $presets[$resolved_preset_key]['fields']));
+                return [
+                    'fields' => $preset_fields,
+                    'preset_key' => $resolved_preset_key,
+                ];
+            }
+        }
+
+        return [
+            'fields' => $requested_fields,
+            'preset_key' => '',
+        ];
+    }
+
+    /**
      * @param array<int,string> $requested_fields
      * @return array<string,mixed>
      */
-    public static function apply_reviewed_preview_to_explicit_draft(int $post_id, array $requested_fields): array {
+    public static function apply_reviewed_preview_to_explicit_draft(int $post_id, array $requested_fields, string $preset_key = ''): array {
         $post = get_post($post_id);
         if (!$post instanceof \WP_Post) {
             return [
@@ -287,6 +351,10 @@ class AssistedDraftEnrichmentService {
         if (!empty($applied_fields)) {
             update_post_meta($post_id, self::PREVIEW_META_APPLIED_AT, $applied_at);
             update_post_meta($post_id, self::PREVIEW_META_APPLIED_FIELDS, wp_json_encode($applied_fields));
+            if ($preset_key !== '') {
+                update_post_meta($post_id, self::PREVIEW_META_APPLY_PRESET, sanitize_key($preset_key));
+                update_post_meta($post_id, self::PREVIEW_META_APPLY_PRESET_AT, $applied_at);
+            }
         }
 
         Logs::info('content', '[TMW-SEO-AUTO] Draft preview manually applied (operator-triggered, draft-only)', [
@@ -295,6 +363,7 @@ class AssistedDraftEnrichmentService {
             'requested_fields' => $fields,
             'applied_fields' => $applied_fields,
             'skipped_fields' => $skipped_fields,
+            'preset_key' => $preset_key,
             'manual_only' => true,
             'preview_only_source' => true,
             'live_mutation' => false,
