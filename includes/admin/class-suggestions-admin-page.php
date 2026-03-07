@@ -247,13 +247,62 @@ class SuggestionsAdminPage {
             var targetUrl = <?php echo wp_json_encode($target_url); ?>;
             var targetTitle = <?php echo wp_json_encode($target_title); ?>;
 
+            function getNoticeText(message){
+                return 'TMW SEO Insert Link Draft: ' + message + ' Manual-only safety rule active. No automatic link insertion occurs.';
+            }
+
+            function showBlockEditorNotice(message){
+                if(
+                    !window.wp ||
+                    !window.wp.data ||
+                    typeof window.wp.data.dispatch !== 'function' ||
+                    !window.wp.data.select ||
+                    typeof window.wp.data.select !== 'function'
+                ){
+                    return false;
+                }
+
+                var editorStore = null;
+                try {
+                    editorStore = window.wp.data.select('core/editor');
+                } catch (e) {
+                    editorStore = null;
+                }
+                if (!editorStore) {
+                    return false;
+                }
+
+                var noticesStore = window.wp.data.dispatch('core/notices');
+                if (!noticesStore || typeof noticesStore.createNotice !== 'function') {
+                    return false;
+                }
+
+                noticesStore.createNotice('info', getNoticeText(message), {
+                    id: 'tmwseo-insert-link-draft-helper',
+                    isDismissible: true,
+                    type: 'default'
+                });
+
+                return true;
+            }
+
             function showNotice(message){
                 var wrap = document.querySelector('#wpbody-content .wrap') || document.querySelector('#wpbody-content');
-                if(!wrap){ return; }
+                var shownInBlockEditor = showBlockEditorNotice(message);
+                if(!wrap){ return shownInBlockEditor; }
+                if (document.getElementById('tmwseo-insert-link-draft-helper')) {
+                    return true;
+                }
                 var n = document.createElement('div');
+                n.id = 'tmwseo-insert-link-draft-helper';
                 n.className = 'notice notice-info';
-                n.innerHTML = '<p><strong>TMW SEO Insert Link Draft:</strong> ' + message + '</p><p>Manual-only safety rule active. This tool never inserts links automatically.</p>';
-                wrap.prepend(n);
+                n.innerHTML = '<p><strong>TMW SEO Insert Link Draft:</strong> ' + message + '</p><p>Manual-only safety rule active. No automatic link insertion occurs.</p>';
+                if (typeof wrap.prepend === 'function') {
+                    wrap.prepend(n);
+                } else {
+                    wrap.insertBefore(n, wrap.firstChild);
+                }
+                return true;
             }
 
             function highlightClassicEditor(){
