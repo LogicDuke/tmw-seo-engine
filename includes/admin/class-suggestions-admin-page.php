@@ -375,6 +375,10 @@ class SuggestionsAdminPage {
         if ($notice === 'draft_created') {
             $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
             $draft_target_type = sanitize_key((string) ($_GET['draft_target_type'] ?? ''));
+            if ($draft_target_type === '') {
+                $suggestion_id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+                $draft_target_type = $this->get_suggestion_destination_type($suggestion_id);
+            }
             $destination_label = $this->format_destination_type_label($draft_target_type);
 
             echo '<div class="notice notice-success is-dismissible"><p>';
@@ -382,7 +386,7 @@ class SuggestionsAdminPage {
             if ($destination_label !== '') {
                 echo esc_html(' (' . $destination_label . ')');
             }
-            echo esc_html__('. Next step: edit the draft manually before any publication. This draft is not live, requires manual editing, and there is no automatic publish or automatic insertion.', 'tmwseo');
+            echo esc_html__('. Next step: edit the draft manually before any publication. This draft is set to noindex, is not live, requires manual editing, and there is no automatic publish or automatic insertion.', 'tmwseo');
             if ($draft_id > 0) {
                 $edit_link = get_edit_post_link($draft_id, '');
                 if (is_string($edit_link) && $edit_link !== '') {
@@ -500,6 +504,9 @@ class SuggestionsAdminPage {
                 $this->engine->updateSuggestionStatus($id, 'draft_created');
                 $notice = 'draft_created';
                 $destination_type = sanitize_key((string) get_post_meta($draft_id, '_tmwseo_suggestion_destination_type', true));
+                if ($destination_type === '') {
+                    $destination_type = $this->get_suggestion_destination_type($id);
+                }
                 wp_safe_redirect(add_query_arg([
                     'page' => 'tmwseo-suggestions',
                     'notice' => $notice,
@@ -669,6 +676,26 @@ class SuggestionsAdminPage {
             'destination_type' => $explicit_destination,
             'post_type' => self::SUGGESTION_DESTINATION_POST_TYPE_MAP[$explicit_destination],
         ];
+    }
+
+    private function get_suggestion_destination_type(int $suggestion_id): string {
+        if ($suggestion_id <= 0) {
+            return '';
+        }
+
+        global $wpdb;
+
+        $row = $wpdb->get_row($wpdb->prepare(
+            'SELECT title, description, suggested_action FROM ' . SuggestionEngine::table_name() . ' WHERE id = %d LIMIT 1',
+            $suggestion_id
+        ), ARRAY_A);
+
+        if (!is_array($row)) {
+            return '';
+        }
+
+        $destination = $this->resolve_draft_destination($row);
+        return sanitize_key((string) ($destination['destination_type'] ?? ''));
     }
 
     private function extract_destination_type(string $text): string {
