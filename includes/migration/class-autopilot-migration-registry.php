@@ -58,6 +58,14 @@ class AutopilotMigrationRegistry {
                 'notes' => 'Operator-triggered draft-only enrichment for explicit drafts. Refuses non-drafts; no live content mutation, no publish automation, no noindex clearing.',
             ],
             [
+                'id' => 'suggestion_draft_content_preview_assist',
+                'bucket' => self::ASSISTED_DRAFT_ONLY,
+                'status' => self::STATUS_MIGRATED_SAFELY,
+                'entry_point' => 'admin_post_tmwseo_generate_suggestion_draft_content_preview',
+                'legacy_path' => 'ContentEngine generation subset extracted to preview-only draft assist',
+                'notes' => 'Operator-triggered explicit draft-only preview generation. Stores proposed SEO/content output in preview meta only; refuses non-drafts; no post_content writes, no publish automation, no noindex clearing.',
+            ],
+            [
                 'id' => 'legacy_publish_transition_hook',
                 'bucket' => self::DISALLOWED_LIVE_MUTATION,
                 'status' => self::STATUS_STILL_FENCED,

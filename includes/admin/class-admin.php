@@ -1078,6 +1078,10 @@ class Admin {
             $message = __('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
         } elseif ($notice === 'keywords_refresh_queued') {
             $message = __('Keyword refresh queued. The worker/cron will update keyword pack and RankMath fields in the background.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_generated') {
+            $message = __('Draft content preview generated in preview metadata only. No post content was changed and nothing was published automatically.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_refused') {
+            $message = __('Draft content preview was refused. This action is allowed only for explicit draft posts.', 'tmwseo');
         }
 
         if ($message === '') {
