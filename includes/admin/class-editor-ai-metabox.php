@@ -15,6 +15,7 @@ class Editor_AI_Metabox {
         add_action('admin_post_tmwseo_generate_draft_content_preview', [__CLASS__, 'handle_generate_draft_content_preview']);
         add_action('admin_post_tmwseo_apply_draft_content_preview', [__CLASS__, 'handle_apply_draft_content_preview']);
         add_action('admin_post_tmwseo_prepare_draft_review_bundle', [__CLASS__, 'handle_prepare_draft_review_bundle']);
+        add_action('admin_post_tmwseo_export_draft_review_handoff', [__CLASS__, 'handle_export_draft_review_handoff']);
     }
 
     public static function enqueue_editor_assets(): void {
@@ -106,6 +107,12 @@ class Editor_AI_Metabox {
             echo '<input type="hidden" name="action" value="tmwseo_prepare_draft_review_bundle">';
             echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post->ID) . '">';
             echo '<button type="submit" class="button button-primary" style="width:100%">' . esc_html__('Prepare for Human Review', 'tmwseo') . '</button>';
+            echo '</form>';
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:8px 0 0">';
+            wp_nonce_field('tmwseo_export_draft_review_handoff_' . $post->ID);
+            echo '<input type="hidden" name="action" value="tmwseo_export_draft_review_handoff">';
+            echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post->ID) . '">';
+            echo '<button type="submit" class="button button-secondary" style="width:100%">' . esc_html__('Export Review Handoff', 'tmwseo') . '</button>';
             echo '</form>';
             echo '<p style="margin:8px 0 0; font-size:12px; opacity:.85">' . esc_html__('Preview-only assist for explicit drafts. Stores proposed SEO/content output in preview metadata only. Never auto-publishes, never writes post content.', 'tmwseo') . '</p>';
             self::render_preview_panel((int) $post->ID);
@@ -266,6 +273,44 @@ class Editor_AI_Metabox {
         exit;
     }
 
+
+    public static function handle_export_draft_review_handoff(): void {
+        $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+        if ($post_id <= 0) {
+            wp_die('Missing post ID');
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_export_draft_review_handoff_' . $post_id);
+
+        $template_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_preview_template_type', true));
+        if ($template_type === '') {
+            $template_type = sanitize_key((string) get_post_meta($post_id, '_tmwseo_suggestion_destination_type', true));
+        }
+        if ($template_type === '') {
+            $template_type = 'generic_post';
+        }
+
+        $result = AssistedDraftEnrichmentService::export_review_handoff_for_explicit_draft($post_id, [
+            'destination_type' => $template_type,
+        ]);
+        $notice = !empty($result['ok']) ? 'review_handoff_exported' : 'review_handoff_export_refused';
+        $reason = sanitize_key((string) ($result['reason'] ?? ''));
+
+        $redirect = add_query_arg([
+            'post' => $post_id,
+            'action' => 'edit',
+            'tmwseo_notice' => $notice,
+            'reason' => $reason,
+        ], admin_url('post.php'));
+
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
     private static function render_preview_panel(int $post_id): void {
         $keys = AssistedDraftEnrichmentService::preview_meta_keys();
         $seo_title = (string) get_post_meta($post_id, $keys['seo_title'], true);
@@ -355,6 +400,17 @@ class Editor_AI_Metabox {
                     . '</p>';
             }
             echo '<p style="margin:0; font-size:12px; opacity:.9;">' . esc_html__('Nothing has been applied automatically. Draft remains draft-only / noindex. Review and apply manually.', 'tmwseo') . '</p>';
+            echo '</div>';
+        }
+
+
+        $review_handoff = AssistedDraftEnrichmentService::get_review_handoff_export_for_explicit_draft($post_id);
+        if (!empty($review_handoff['ok'])) {
+            echo '<div style="border:1px solid #ccd0d4;background:#f8f9ff;padding:8px;margin:0 0 8px;">';
+            echo '<p style="margin:0 0 6px"><strong>' . esc_html__('Review Handoff Export', 'tmwseo') . '</strong></p>';
+            echo '<p style="margin:0 0 6px; font-size:12px;">' . esc_html__('Review handoff export generated. Nothing has been applied automatically. Draft remains draft-only / noindex. Review and apply manually.', 'tmwseo') . '</p>';
+            echo '<p style="margin:0 0 6px; font-size:12px;"><strong>' . esc_html__('Exported:', 'tmwseo') . '</strong> ' . esc_html((string) ($review_handoff['exported_at'] ?? 'n/a')) . '</p>';
+            echo '<textarea readonly rows="12" style="width:100%;font-family:monospace;white-space:pre;">' . esc_textarea((string) ($review_handoff['export_text'] ?? '')) . '</textarea>';
             echo '</div>';
         }
 

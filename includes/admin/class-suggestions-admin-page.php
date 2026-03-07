@@ -43,6 +43,7 @@ class SuggestionsAdminPage {
         add_action('admin_post_tmwseo_generate_suggestion_draft_content_preview', [$ui, 'handle_generate_suggestion_draft_content_preview']);
         add_action('admin_post_tmwseo_apply_suggestion_draft_preview', [$ui, 'handle_apply_suggestion_draft_preview']);
         add_action('admin_post_tmwseo_prepare_suggestion_review_bundle', [$ui, 'handle_prepare_suggestion_review_bundle']);
+        add_action('admin_post_tmwseo_export_suggestion_review_handoff', [$ui, 'handle_export_suggestion_review_handoff']);
         add_action('admin_post_tmwseo_add_competitor_domain', [$ui, 'handle_add_competitor_domain']);
         add_action('admin_post_tmwseo_generate_brief_from_suggestion', [$ui, 'handle_generate_brief_from_suggestion']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
@@ -375,7 +376,7 @@ class SuggestionsAdminPage {
 
         $helper_notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
-        if ($helper_notice !== 'internal_link_helper_opened' && !in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused'], true)) {
+        if ($helper_notice !== 'internal_link_helper_opened' && !in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused', 'review_handoff_exported', 'review_handoff_export_refused'], true)) {
             return;
         }
 
@@ -384,7 +385,7 @@ class SuggestionsAdminPage {
             return;
         }
 
-        if (in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused'], true) && (!$is_suggestions_page || !current_user_can('manage_options'))) {
+        if (in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused', 'review_handoff_exported', 'review_handoff_export_refused'], true) && (!$is_suggestions_page || !current_user_can('manage_options'))) {
             return;
         }
 
@@ -398,6 +399,33 @@ class SuggestionsAdminPage {
             } else {
                 echo '<div class="notice notice-warning is-dismissible"><p>';
                 echo esc_html__('Prepare for Human Review was refused for safety. This action is restricted to explicit operator-created drafts only.', 'tmwseo');
+                if ($refused_reason !== '') {
+                    echo ' <em>(' . esc_html($refused_reason) . ')</em>';
+                }
+            }
+
+            if ($draft_id > 0) {
+                $edit_link = get_edit_post_link($draft_id, '');
+                if (is_string($edit_link) && $edit_link !== '') {
+                    echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Open Draft Review Panel', 'tmwseo') . '</strong></a>';
+                }
+            }
+
+            echo '</p></div>';
+            return;
+        }
+
+
+        if ($notice === 'review_handoff_exported' || $notice === 'review_handoff_export_refused') {
+            $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
+            $refused_reason = sanitize_key((string) ($_GET['reason'] ?? ''));
+
+            if ($notice === 'review_handoff_exported') {
+                echo '<div class="notice notice-success is-dismissible"><p>';
+                echo esc_html__('Review handoff export generated. Nothing has been applied automatically. Draft remains draft-only / noindex. Review and apply manually.', 'tmwseo');
+            } else {
+                echo '<div class="notice notice-warning is-dismissible"><p>';
+                echo esc_html__('Export Review Handoff was refused for safety. This action is restricted to explicit operator-created drafts only.', 'tmwseo');
                 if ($refused_reason !== '') {
                     echo ' <em>(' . esc_html($refused_reason) . ')</em>';
                 }
@@ -702,6 +730,56 @@ class SuggestionsAdminPage {
         ]);
 
         $notice = !empty($result['ok']) ? 'review_bundle_prepared' : 'review_bundle_refused';
+        $reason = sanitize_key((string) ($result['reason'] ?? ''));
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-suggestions',
+            'id' => $suggestion_id,
+            'draft_id' => $draft_id,
+            'notice' => $notice,
+            'reason' => $reason,
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+
+    public function handle_export_suggestion_review_handoff(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_export_suggestion_review_handoff');
+
+        $suggestion_id = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+        if ($suggestion_id <= 0) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-suggestions&notice=review_handoff_export_refused&reason=missing_suggestion'));
+            exit;
+        }
+
+        $draft_id = $this->find_suggestion_draft_id($suggestion_id);
+        if ($draft_id <= 0) {
+            wp_safe_redirect(add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'id' => $suggestion_id,
+                'notice' => 'review_handoff_export_refused',
+                'reason' => 'missing_draft',
+            ], admin_url('admin.php')));
+            exit;
+        }
+
+        $destination_type = sanitize_key((string) get_post_meta($draft_id, '_tmwseo_suggestion_destination_type', true));
+        if ($destination_type === '') {
+            $destination_type = $this->get_suggestion_destination_type($suggestion_id);
+        }
+
+        $row = $this->engine->getSuggestion($suggestion_id) ?: [];
+        $result = AssistedDraftEnrichmentService::export_review_handoff_for_explicit_draft($draft_id, [
+            'destination_type' => $destination_type,
+            'priority_score' => isset($row['priority_score']) ? (float) $row['priority_score'] : 0.0,
+            'estimated_traffic' => isset($row['estimated_traffic']) ? (int) $row['estimated_traffic'] : 0,
+        ]);
+
+        $notice = !empty($result['ok']) ? 'review_handoff_exported' : 'review_handoff_export_refused';
         $reason = sanitize_key((string) ($result['reason'] ?? ''));
 
         wp_safe_redirect(add_query_arg([
@@ -1581,6 +1659,13 @@ class SuggestionsAdminPage {
         submit_button(__('Prepare for Human Review', 'tmwseo'), 'primary small', 'submit', false);
         echo '</form>';
 
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin:0 6px 6px 0;">';
+        wp_nonce_field('tmwseo_export_suggestion_review_handoff');
+        echo '<input type="hidden" name="action" value="tmwseo_export_suggestion_review_handoff">';
+        echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
+        submit_button(__('Export Review Handoff', 'tmwseo'), 'secondary small', 'submit', false);
+        echo '</form>';
+
         $draft_id = $this->find_suggestion_draft_id($id);
         if ($draft_id > 0 && $this->draft_has_preview_values($draft_id)) {
             $field_labels = AssistedDraftEnrichmentService::preview_apply_field_labels();
@@ -1602,6 +1687,16 @@ class SuggestionsAdminPage {
                 echo '<p style="margin:0;font-size:11px;line-height:1.3;opacity:.9;">' . esc_html__('Nothing has been applied automatically. Draft remains draft-only / noindex. Review and apply manually.', 'tmwseo') . '</p>';
                 echo '</div>';
             }
+
+            $review_handoff = AssistedDraftEnrichmentService::get_review_handoff_export_for_explicit_draft($draft_id);
+            if (!empty($review_handoff['ok'])) {
+                echo '<div style="border:1px solid #ccd0d4;background:#f8f9ff;padding:6px 8px;margin:0 0 6px;max-width:560px;">';
+                echo '<p style="margin:0 0 4px;font-size:11px;"><strong>' . esc_html__('Review handoff export', 'tmwseo') . '</strong></p>';
+                echo '<p style="margin:0 0 4px;font-size:11px;line-height:1.3;">' . esc_html__('Review handoff export generated. Nothing has been applied automatically. Draft remains draft-only / noindex. Review and apply manually.', 'tmwseo') . '</p>';
+                echo '<textarea readonly rows="10" style="width:100%;font-size:11px;font-family:monospace;white-space:pre;">' . esc_textarea((string) ($review_handoff['export_text'] ?? '')) . '</textarea>';
+                echo '</div>';
+            }
+
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;vertical-align:top;margin:0 6px 6px 0;max-width:320px;">';
             wp_nonce_field('tmwseo_apply_suggestion_draft_preview');
             echo '<input type="hidden" name="action" value="tmwseo_apply_suggestion_draft_preview">';
