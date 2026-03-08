@@ -115,7 +115,8 @@ class ContentEngine {
      */
     public static function build_preview_only_content_assist(\WP_Post $post, array $keyword_pack = []): array {
         $post_id = (int) $post->ID;
-        $strategy = OpenAI::is_configured() ? 'openai' : 'template';
+        $dry_run = (int) Settings::get('tmwseo_dry_run_mode', 0) === 1;
+        $strategy = ( $dry_run || !OpenAI::is_configured() ) ? 'template' : 'openai';
         $context = self::infer_context($post);
         $focus_kw = '';
 
@@ -159,7 +160,7 @@ class ContentEngine {
             ]);
 
             return [
-                'strategy' => 'template',
+                'strategy' => $dry_run ? 'template_dry_run' : 'template',
                 'template_type' => $template_type,
                 'seo_title' => $seo_title,
                 'meta_description' => $meta_desc,
