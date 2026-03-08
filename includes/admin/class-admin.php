@@ -2254,6 +2254,10 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Monthly AI budget (USD)', 'tmwseo') . '</th><td>';
         echo '<input type="number" name="tmwseo_engine_settings[tmwseo_openai_budget_usd]" value="' . $ai_budget . '" class="small-text" min="0" step="1">';
         echo '<p class="description">' . esc_html__('Monthly spend cap in USD. Set to 0 for unlimited. Tracked across both providers.', 'tmwseo') . '</p>';
+        echo '</td></tr>';
+        echo '<tr><th>' . esc_html__('Dry-run mode', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_dry_run_mode]" value="1" ' . checked($dry_run_mode, true, false) . '> ' . esc_html__('Dry-run mode', 'tmwseo') . '</label>';
+        echo '<p class="description">Use template generation for previews/testing and avoid OpenAI API cost. Recommended while validating workflows.</p>';
         echo '</td></tr></table>';
 
         // ── OpenAI ────────────────────────────────────────────────────────
