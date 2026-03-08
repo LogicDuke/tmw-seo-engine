@@ -764,11 +764,11 @@ class AdminDashboardV2 {
                 self::table(
                     [ 'Title', 'Type', 'Word Count', 'Last Modified', 'Action' ],
                     array_map( fn( $o ) => [
-                        '<a href="' . esc_url( get_edit_post_link( (int) $o['post_id'] ) ) . '">' . esc_html( $o['title'] ) . '</a>',
+                        '<a href="' . esc_url( get_edit_post_link( (int) $o['post_id'] ) ?? '' ) . '">' . esc_html( $o['title'] ) . '</a>',
                         esc_html( $o['post_type'] ),
                         esc_html( number_format( (int) $o['word_count'] ) ),
                         esc_html( $o['modified'] ),
-                        '<a class="td-btn td-btn-tiny" href="' . esc_url( get_edit_post_link( (int) $o['post_id'] ) ) . '">Edit</a>',
+                        '<a class="td-btn td-btn-tiny" href="' . esc_url( get_edit_post_link( (int) $o['post_id'] ) ?? '' ) . '">Edit</a>',
                     ], $orphans ),
                     count( $orphans ) . ' orphan pages found'
                 );
@@ -786,7 +786,7 @@ class AdminDashboardV2 {
             });
             </script>
 
-        elseif ( $tab === 'pagespeed' ) :
+        <?php elseif ( $tab === 'pagespeed' ) :
             $ps_rows = $wpdb->get_results( "SELECT url, strategy, score, checked_at FROM {$wpdb->prefix}tmw_pagespeed ORDER BY checked_at DESC LIMIT 30", ARRAY_A );
             ?>
             <div style="margin-bottom:16px;">
@@ -813,7 +813,7 @@ class AdminDashboardV2 {
                 ?>
             <?php endif; ?>
 
-        elseif ( $tab === 'ai' ) :
+        <?php elseif ( $tab === 'ai' ) :
             $stats  = AIRouter::get_token_stats();
             $tokens = (array) ( $stats['tokens'] ?? [] );
             $spend  = $stats['spend_usd'];
