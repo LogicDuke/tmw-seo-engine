@@ -1324,7 +1324,7 @@ class SuggestionsAdminPage {
             }
         }
 
-        $content = '<!-- TMWSEO:SUGGESTION -->\n';
+        $content = "<!-- TMWSEO:SUGGESTION -->\n";
         $content .= '<h2>' . esc_html__('Problem', 'tmwseo') . '</h2>';
         $content .= '<p>' . esc_html($problem) . '</p>';
         $content .= '<h2>' . esc_html__('Why it matters', 'tmwseo') . '</h2>';
