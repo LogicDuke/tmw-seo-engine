@@ -1019,6 +1019,7 @@ class AdminDashboardV2 {
                 self::select_field( 'openai_mode', 'Mode', $opts, [ 'hybrid' => 'Hybrid (recommended)', 'quality' => 'Quality only', 'bulk' => 'Bulk only' ], 'Hybrid uses GPT-4o for quality tasks, GPT-4o-mini for bulk batches.' ),
                 self::text_field( 'openai_model_primary', 'Primary Model', $opts, 'text', 'Default: gpt-4o' ),
                 self::text_field( 'openai_model_bulk',    'Bulk Model',    $opts, 'text', 'Default: gpt-4o-mini' ),
+                self::checkbox_field( 'tmwseo_dry_run_mode', 'Dry-run mode', $opts, 'Use template generation for previews/testing and avoid OpenAI API cost. Recommended while validating workflows.' ),
                 self::text_field( 'tmwseo_openai_budget_usd', 'Monthly Budget (USD)', $opts, 'number', 'Set to 0 for unlimited. All AI calls are blocked once the cap is hit.' ),
             ] );
             self::settings_section( 'Anthropic Claude (Fallback)', [
