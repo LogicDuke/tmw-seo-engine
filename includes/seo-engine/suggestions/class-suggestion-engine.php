@@ -221,6 +221,34 @@ class SuggestionEngine {
         return (array) $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A);
     }
 
+    /**
+     * Fetch a single suggestion row by its primary-key ID.
+     * Returns null if not found.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function getSuggestion(int $id): ?array {
+        global $wpdb;
+        $id = (int) $id;
+        if ($id <= 0) {
+            return null;
+        }
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id, type, title, description, source_engine, priority_score,
+                        estimated_traffic, difficulty, suggested_action, created_at, status
+                   FROM " . self::table_name() . "
+                  WHERE id = %d
+                  LIMIT 1",
+                $id
+            ),
+            ARRAY_A
+        );
+
+        return is_array($row) ? $row : null;
+    }
+
     public function updateSuggestionStatus(int $id, string $status): bool {
         global $wpdb;
 
