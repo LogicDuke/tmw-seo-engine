@@ -413,7 +413,7 @@ class CommandCenter {
         // Category-page shortcut
         if ( $d['category_page_new'] > 0 ) {
             echo '<div class="tmwcc-cat-banner">';
-            echo '&#127775; <strong>' . esc_html( $d['category_page_new'] ) . ' category-page suggestion(s)</strong> awaiting review — highest-priority page type.';
+            echo '&#127775; <strong>' . esc_html( $d['category_page_new'] ) . ' category-page suggestion(s)</strong> awaiting review — authority hub support for model pages.';
             echo ' <a href="' . esc_url( $base . '&tmw_filter=new&tmw_destination_filter=category_page' ) . '" class="tmwcc-cat-link">Open category-page queue &rarr;</a>';
             echo '</div>';
         }

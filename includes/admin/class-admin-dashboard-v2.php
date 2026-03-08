@@ -1040,9 +1040,9 @@ class AdminDashboardV2 {
                 self::text_field( 'gsc_client_secret', 'OAuth2 Client Secret', $opts, 'password', '' ),
                 self::text_field( 'gsc_site_url',      'Site Property URL',    $opts, 'text', 'e.g. sc-domain:example.com or https://example.com/' ),
             ] );
-            if ( GSCApi::is_configured() && ! GSCApi::is_connected() ) {
+            if ( GSCApi::is_configured() && ! GSCApi::is_connected() ) :
                 echo '<div style="padding:16px 0;"><a href="' . esc_url( GSCApi::get_auth_url() ) . '" class="td-btn td-btn-primary">🔑 Connect Google Search Console →</a></div>';
-            }
+            endif;
 
         elseif ( $stab === 'indexing' ) :
             self::settings_section( 'Google Indexing API', [

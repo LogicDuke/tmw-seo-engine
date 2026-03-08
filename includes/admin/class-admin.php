@@ -748,10 +748,9 @@ class Admin {
         $sanitized = [
             // Safety — always locked on
             'manual_control_mode' => 1,
-            // safe_mode: use array_key_exists to detect explicit "uncheck" vs absent (other-tab save).
-            // When unchecked, HTML omits the key → array_key_exists returns false → preserve existing.
-            // When checked → 1. When explicitly submitted unchecked from its own tab → 0.
-            'safe_mode' => !empty($input['safe_mode']) ? 1 : (!array_key_exists('safe_mode', $input) ? (int)($existing['safe_mode'] ?? 1) : 0),
+            // safe_mode: simple checkbox. Admin::render_settings() is a single-page form —
+            // absent key = user explicitly unchecked. Intentional OFF saves correctly.
+            'safe_mode' => !empty($input['safe_mode']) ? 1 : 0,
 
             // OpenAI
             'openai_api_key'        => sanitize_text_field((string)($input['openai_api_key'] ?? $existing['openai_api_key'] ?? '')),
@@ -785,10 +784,10 @@ class Admin {
             'google_indexing_service_account_json' => sanitize_textarea_field((string)($input['google_indexing_service_account_json'] ?? $existing['google_indexing_service_account_json'] ?? '')),
             'indexing_api_post_types'              => sanitize_text_field((string)($input['indexing_api_post_types'] ?? $existing['indexing_api_post_types'] ?? 'model,video,tmw_video')),
 
-            // v4.2: Schema + Orphan
-            'schema_enabled'    => !empty($input['schema_enabled']) ? 1 : (!array_key_exists('schema_enabled', $input) ? (int)($existing['schema_enabled'] ?? 1) : 0),
+            // v4.2: Schema + Orphan — single-page form, absent = unchecked = 0.
+            'schema_enabled'    => !empty($input['schema_enabled']) ? 1 : 0,
             'schema_post_types' => sanitize_text_field((string)($input['schema_post_types'] ?? $existing['schema_post_types'] ?? 'model,video,tmw_video')),
-            'orphan_scan_enabled' => !empty($input['orphan_scan_enabled']) ? 1 : (!array_key_exists('orphan_scan_enabled', $input) ? (int)($existing['orphan_scan_enabled'] ?? 1) : 0),
+            'orphan_scan_enabled' => !empty($input['orphan_scan_enabled']) ? 1 : 0,
 
             // Keyword engine
             'keyword_min_volume'     => max(0, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30)),

@@ -14,15 +14,20 @@
  *
  * 2. safe_mode (Settings::is_safe_mode())
  *    - Operator-configurable; defaults to ON (1) for new installs.
- *    - Controls: whether GoogleIndexingAPI is active (pings Google on publish).
- *    - Think of this as the "external API fence" — operators can lower it intentionally
- *      once they have confirmed their Google Indexing API service account is set up.
+ *    - When ON, blocks ALL external API calls and AI activity:
+ *      - Google Indexing API pings (suppressed)
+ *      - OpenAI / Anthropic AI generation calls (suppressed)
+ *      - PageSpeed Insights cycles (suppressed)
+ *      - Model optimizer AI flows (suppressed)
+ *    - Think of this as the "external API and AI fence" — operators lower it once they are
+ *      satisfied their credentials and content quality are ready.
  *    - Does NOT affect manual_only behavior or content mutation guards.
+ *    - Recommended: keep ON during initial setup and review period.
  *
  * Summary:
- *   manual_only = true  → plugin NEVER auto-publishes or auto-mutates content
- *   safe_mode   = true  → Indexing API pings are suppressed (extra caution)
- *   safe_mode   = false → Indexing API will ping Google when new content is published
+ *   manual_only = true  → plugin NEVER auto-publishes or auto-mutates content (always true)
+ *   safe_mode   = true  → all external API/AI calls are suppressed (operator-controlled)
+ *   safe_mode   = false → AI generation, Indexing API, and PageSpeed cycles are active
  *
  * @package TMWSEO\Engine\Services
  * @since   4.2.2
@@ -50,9 +55,9 @@ class TrustPolicy {
     }
 
     /**
-     * Returns true if safe_mode is enabled (Google Indexing API pings suppressed).
-     * Delegates to Settings. Provided here so callers can check both trust flags
-     * from one place.
+     * Returns true if safe_mode is enabled.
+     * When true: all external API and AI calls (Indexing API, OpenAI, PageSpeed) are suppressed.
+     * Delegates to Settings. Provided here so callers can check both trust flags from one place.
      */
     public static function is_safe_mode(): bool {
         return Settings::is_safe_mode();
