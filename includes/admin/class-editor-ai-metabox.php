@@ -230,12 +230,14 @@ class Editor_AI_Metabox {
         $result = AssistedDraftEnrichmentService::generate_preview_for_explicit_draft($post_id);
         $notice = !empty($result['ok']) ? 'draft_preview_generated' : 'draft_preview_refused';
         $reason = sanitize_key((string) ($result['reason'] ?? ''));
+        $strategy = sanitize_key((string) ($result['strategy'] ?? ''));
 
         $redirect = add_query_arg([
             'post' => $post_id,
             'action' => 'edit',
             'tmwseo_notice' => $notice,
             'reason' => $reason,
+            'preview_strategy' => $strategy,
         ], admin_url('post.php'));
 
         wp_safe_redirect($redirect);
