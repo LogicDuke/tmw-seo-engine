@@ -546,6 +546,241 @@ class SuggestionsAdminPage {
 
 
 
+    // ── Focused Model Mode Renderer ───────────────────────────────────────
+    // A clean, model-only operator screen. Suppresses generic workload widgets,
+    // aging widgets, category-page pivots, and cross-destination triage clutter.
+    // Trust policy is unchanged: everything is manual-only, draft-only.
+
+    /**
+     * @param array<int,array<string,mixed>> $all_rows
+     */
+    private function render_focused_model_page(
+        array $all_rows,
+        string $active_filter,
+        string $active_sort,
+        string $active_review_aging = self::REVIEW_AGING_BUCKET_ALL
+    ): void {
+        $base = admin_url('admin.php?page=tmwseo-suggestions&tmw_destination_filter=model_page');
+
+        // ── Build model-only counts ──────────────────────────────────────
+        // Filter to model_page rows only.
+        $model_rows = array_values(array_filter($all_rows, function (array $row): bool {
+            $dest = $this->resolve_draft_destination($row);
+            return ($dest['destination_type'] ?? '') === 'model_page';
+        }));
+
+        $model_counts = [
+            'all'    => count($model_rows),
+            'new'    => 0,
+            'draft'  => 0,
+        ];
+        foreach ($model_rows as $row) {
+            $s = (string) ($row['status'] ?? 'new');
+            if ($s === 'new') { $model_counts['new']++; }
+            if ($s === 'draft_created') { $model_counts['draft']++; }
+        }
+
+        $review_queue_counts = $this->build_review_queue_counts($model_rows, 'model_page');
+
+        // ── Apply filter to model rows ───────────────────────────────────
+        $filtered_rows = array_values(array_filter($model_rows, function (array $row) use ($active_filter, $active_review_aging): bool {
+            $status = (string) ($row['status'] ?? 'new');
+            $review_queue_state = $this->review_queue_state_for_row($row);
+
+            if ($active_filter === 'new')    { return $status === 'new'; }
+            if ($active_filter === 'approved') { return $status === 'approved'; }
+
+            if ($active_filter === 'review_not_reviewed') {
+                if ($review_queue_state !== 'not_reviewed') { return false; }
+                if ($active_review_aging === self::REVIEW_AGING_BUCKET_ALL) { return true; }
+                $aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
+                return !empty($aging) && ($aging['bucket'] ?? '') === $active_review_aging;
+            }
+
+            if ($active_filter === 'review_needs_changes') {
+                if ($review_queue_state !== 'needs_changes') { return false; }
+                if ($active_review_aging === self::REVIEW_AGING_BUCKET_ALL) { return true; }
+                $aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
+                return !empty($aging) && ($aging['bucket'] ?? '') === $active_review_aging;
+            }
+
+            if ($active_filter === 'review_drafts_all') {
+                return $review_queue_state !== '';
+            }
+
+            // 'all' — show everything except ignored/implemented
+            return !in_array($status, ['ignored', 'implemented'], true);
+        }));
+
+        usort($filtered_rows, function (array $left, array $right) use ($active_sort): int {
+            return $this->compare_suggestions($left, $right, $active_sort);
+        });
+
+        // ── Render ───────────────────────────────────────────────────────
+        echo '<div class="wrap tmwseo-suggestions-page tmwseo-model-focused-wrap">';
+
+        // Header
+        echo '<div class="tmwseo-mf-header">';
+        echo '<h1 class="tmwseo-mf-title">&#127918; Model Page Suggestions</h1>';
+        echo '<p class="tmwseo-mf-subtitle">Focused model-only operator queue. <strong>Manual-only / draft-only mode enforced</strong> — nothing publishes automatically, no links inserted automatically, every action requires your explicit approval.</p>';
+        echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '" class="tmwseo-mf-all-link">&larr; Back to full Suggestions Dashboard</a>';
+        echo '</div>';
+
+        // KPI strip
+        echo '<div class="tmwseo-mf-kpi-strip">';
+        $kpi_items = [
+            ['label' => 'Total Model Suggestions', 'count' => $model_counts['all'],  'url' => $base . '&tmw_filter=all'],
+            ['label' => 'New / Unactioned',          'count' => $model_counts['new'],  'url' => $base . '&tmw_filter=new'],
+            ['label' => 'Drafts Created',             'count' => $model_counts['draft'],'url' => $base . '&tmw_filter=review_drafts_all'],
+            ['label' => 'Not Reviewed',               'count' => (int) ($review_queue_counts['review_not_reviewed'] ?? 0), 'url' => $base . '&tmw_filter=review_not_reviewed'],
+            ['label' => 'Needs Changes',              'count' => (int) ($review_queue_counts['review_needs_changes'] ?? 0), 'url' => $base . '&tmw_filter=review_needs_changes'],
+            ['label' => 'Signed Off',                 'count' => (int) ($review_queue_counts['review_signed_off'] ?? 0),   'url' => $base . '&tmw_filter=review_not_reviewed'],
+        ];
+        foreach ($kpi_items as $kpi) {
+            $active = $kpi['count'] > 0;
+            echo '<a href="' . esc_url($kpi['url']) . '" class="tmwseo-mf-kpi' . ($active ? ' tmwseo-mf-kpi-active' : '') . '">';
+            echo '<span class="tmwseo-mf-kpi-value">' . esc_html((string) $kpi['count']) . '</span>';
+            echo '<span class="tmwseo-mf-kpi-label">' . esc_html($kpi['label']) . '</span>';
+            echo '</a>';
+        }
+        echo '</div>';
+
+        // Filter tabs (compact, model-relevant only)
+        $filter_tabs = [
+            'all'                  => 'All Model',
+            'new'                  => 'New',
+            'review_not_reviewed'  => 'Not Reviewed',
+            'review_needs_changes' => 'Needs Changes',
+            'review_drafts_all'    => 'All Drafts',
+            'approved'             => 'Approved',
+        ];
+        echo '<ul class="subsubsub tmwseo-mf-filters">';
+        $first = true;
+        foreach ($filter_tabs as $key => $label) {
+            $url = add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'tmw_filter' => $key,
+                'tmw_destination_filter' => 'model_page',
+            ], admin_url('admin.php'));
+            $class = $active_filter === $key ? 'current' : '';
+            if (!$first) { echo ' | '; }
+            if (isset($review_queue_counts[$key])) {
+                $label = sprintf('%s (%d)', $label, (int) $review_queue_counts[$key]);
+            } elseif ($key === 'new') {
+                $label = sprintf('%s (%d)', $label, $model_counts['new']);
+            } elseif ($key === 'all') {
+                $label = sprintf('%s (%d)', $label, $model_counts['all']);
+            }
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a></li>';
+            $first = false;
+        }
+        echo '</ul>';
+
+        echo '<p class="description" style="margin:4px 0 14px;"><strong>Trust reminder:</strong> Draft-only · noindex · no autopublish · no auto link insertion · manual next step required on every action.</p>';
+
+        // Table or empty state
+        if (empty($filtered_rows)) {
+            echo '<div class="tmwseo-mf-empty">';
+            echo '<div class="tmwseo-mf-empty-icon">&#127918;</div>';
+            echo '<div class="tmwseo-mf-empty-title">No model-page suggestions in this queue</div>';
+            echo '<p class="tmwseo-mf-empty-sub">Run a Discovery Snapshot or keyword cycle to generate model-page suggestions, or check other filter tabs above.</p>';
+            echo '<a href="' . esc_url($base . '&tmw_filter=all') . '" class="button button-primary">View All Model Suggestions</a>';
+            echo ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-command-center')) . '" class="button">Back to Command Center</a>';
+            echo '</div>';
+        } else {
+            echo '<table class="widefat fixed striped tmwseo-suggestions-table">';
+            echo '<thead><tr>';
+            echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Suggestion Type', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Primary Action', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Title', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Description', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Est. Traffic', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Review State', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Actions', 'tmwseo') . '</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ($filtered_rows as $row) {
+                $id = (int) ($row['id'] ?? 0);
+                $priority_score = (float) ($row['priority_score'] ?? 0);
+                $priority_label = $this->priority_label($priority_score);
+                $priority_class = strtolower($priority_label);
+                $status = sanitize_key((string) ($row['status'] ?? 'new'));
+                $status_meta = $this->suggestion_status_meta($status);
+                $primary_action_meta = $this->primary_action_meta((string) ($row['type'] ?? ''));
+                $type_label = $this->format_label((string) ($row['type'] ?? ''));
+                $review_state_badges = $this->build_review_state_badges($row);
+                $review_queue_state  = $this->review_queue_state_for_row($row);
+                $review_aging        = $this->build_review_aging_profile_for_row($row, $review_queue_state);
+
+                echo '<tr>';
+                echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span></td>';
+                echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span>';
+                if (!empty($review_state_badges)) {
+                    foreach ($review_state_badges as $badge) {
+                        echo '<div style="margin-top:4px;"><span class="tmwseo-target-badge" style="background:#f5f3ff;border:1px solid #c4b5fd;color:#5b21b6;">' . esc_html($badge) . '</span></div>';
+                    }
+                }
+                echo '</td>';
+                echo '<td>' . esc_html($type_label) . '</td>';
+                echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span></td>';
+                echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong></td>';
+                echo '<td><p style="margin:0;font-size:12px;">' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 16, '…')) . '</p></td>';
+                echo '<td>' . esc_html(number_format_i18n((int) ($row['estimated_traffic'] ?? 0))) . '</td>';
+                echo '<td>';
+                if (!empty($review_aging)) {
+                    $bucket = (string) ($review_aging['bucket'] ?? self::REVIEW_AGING_BUCKET_FRESH);
+                    $bucket_label = (string) ($review_aging['bucket_label'] ?? __('Fresh', 'tmwseo'));
+                    echo '<span class="tmwseo-target-badge tmwseo-aging-badge tmwseo-aging-' . esc_attr($bucket) . '">' . esc_html($bucket_label) . '</span>';
+                    echo '<div class="tmwseo-cell-note">' . esc_html((int) ($review_aging['days_waiting'] ?? 0)) . 'd waiting</div>';
+                } else {
+                    echo '<span class="tmwseo-cell-note">—</span>';
+                }
+                echo '</td>';
+                echo '<td>';
+                if ((string) ($row['type'] ?? '') === 'internal_link') {
+                    $this->render_action_button($id, 'insert_link_draft', __('Insert Link Draft', 'tmwseo'), 'secondary');
+                } else {
+                    $this->render_action_button($id, 'create_draft', __('Create Noindex Draft', 'tmwseo'), 'secondary');
+                }
+                if ($status === 'draft_created' && $this->find_suggestion_draft_id($id) > 0) {
+                    $this->render_assisted_draft_enrichment_button($id);
+                }
+                $this->render_action_button($id, 'ignore', __('Ignore', 'tmwseo'), 'delete');
+                echo '</td>';
+                echo '</tr>';
+            }
+
+            echo '</tbody></table>';
+        }
+
+        // Focused model mode CSS
+        echo '<style>
+.tmwseo-model-focused-wrap { max-width: 1180px; }
+.tmwseo-mf-header { background: linear-gradient(135deg,#faf5ff 0%,#fff 100%); border-left: 4px solid #7c3aed; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+.tmwseo-mf-title { font-size: 20px; font-weight: 700; color: #4c1d95; margin: 0 0 6px; }
+.tmwseo-mf-subtitle { font-size: 13px; color: #4b5563; margin: 0 0 8px; }
+.tmwseo-mf-all-link { font-size: 12px; color: #7c3aed; text-decoration: none; }
+.tmwseo-mf-all-link:hover { text-decoration: underline; }
+.tmwseo-mf-kpi-strip { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.tmwseo-mf-kpi { display: flex; flex-direction: column; align-items: center; padding: 12px 16px; border: 1px solid #e9d5ff; border-radius: 8px; background: #fff; text-decoration: none; color: #111827; min-width: 100px; transition: box-shadow .15s; }
+.tmwseo-mf-kpi:hover { box-shadow: 0 2px 8px rgba(124,58,237,.15); color: #111827; }
+.tmwseo-mf-kpi-active { border-color: #7c3aed; background: #f5f3ff; }
+.tmwseo-mf-kpi-value { font-size: 24px; font-weight: 700; color: #5b21b6; }
+.tmwseo-mf-kpi-label { font-size: 11px; color: #6b7280; text-align: center; margin-top: 4px; }
+.tmwseo-mf-filters { margin: 0 0 8px; }
+.tmwseo-mf-empty { text-align: center; padding: 48px 24px; background: #faf5ff; border: 2px dashed #c4b5fd; border-radius: 12px; margin: 20px 0; }
+.tmwseo-mf-empty-icon { font-size: 48px; margin-bottom: 12px; }
+.tmwseo-mf-empty-title { font-size: 18px; font-weight: 700; color: #4c1d95; margin-bottom: 8px; }
+.tmwseo-mf-empty-sub { font-size: 13px; color: #6b7280; max-width: 480px; margin: 0 auto 16px; }
+</style>';
+
+        echo '</div>';
+    }
+
+    // ── End Focused Model Mode Renderer ───────────────────────────────────
+
     public function render_insert_link_draft_helper(): void {
         if (!is_admin() || !current_user_can('edit_posts')) {
             return;
@@ -1597,6 +1832,22 @@ class SuggestionsAdminPage {
         $active_destination_filter = $this->sanitize_destination_filter((string) ($_GET['tmw_destination_filter'] ?? ($active_view_preset['destination_filter'] ?? 'all')));
         $active_sort = $this->sanitize_sort((string) ($_GET['tmw_sort'] ?? ($active_view_preset['sort'] ?? 'priority_desc')));
         $active_review_aging = $this->sanitize_review_aging_bucket((string) ($_GET['tmw_review_age'] ?? self::REVIEW_AGING_BUCKET_ALL));
+
+        // ── Focused Model Mode ──────────────────────────────────────────────
+        // Activated when the page is opened from a Command Center model CTA
+        // (tmw_destination_filter=model_page with a model-relevant filter).
+        // Renders a clean, model-only operator screen suppressing all generic
+        // cross-destination widgets, aging widgets, and triage clutter.
+        // Does NOT change trust behaviour — everything stays manual-only.
+        $model_focused_filters = ['all', 'new', 'review_not_reviewed', 'review_needs_changes', 'review_drafts_all', 'approved'];
+        if (
+            $active_destination_filter === 'model_page' &&
+            in_array($active_filter, $model_focused_filters, true)
+        ) {
+            $this->render_focused_model_page($rows, $active_filter, $active_sort, $active_review_aging);
+            return;
+        }
+        // ── End Focused Model Mode check ────────────────────────────────────
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
         $review_queue_counts = $this->build_review_queue_counts($rows, $active_destination_filter);
         $review_aging_bucket_counts = $this->build_review_aging_bucket_counts($rows, $active_destination_filter, $active_filter);
