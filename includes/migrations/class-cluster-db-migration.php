@@ -34,6 +34,7 @@ if (! defined('ABSPATH')) {
  * - No functional behavior changes are introduced by this documentation.
  */
 
+if (!class_exists('TMW_Cluster_DB_Migration', false)) {
 class TMW_Cluster_DB_Migration {
     const SCHEMA_VERSION = 1;
     const OPTION_KEY     = 'tmw_cluster_schema_version';
@@ -112,4 +113,5 @@ class TMW_Cluster_DB_Migration {
             ) {$charset_collate};",
         );
     }
+}
 }

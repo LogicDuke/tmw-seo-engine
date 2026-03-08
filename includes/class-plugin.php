@@ -155,6 +155,8 @@ require_once TMWSEO_ENGINE_PATH . 'includes/intelligence/class-intelligence-runn
 require_once TMWSEO_ENGINE_PATH . 'includes/intelligence/class-intelligence-admin.php';
 
 class Plugin {
+    private static $did_init = false;
+
 
     private static $instance;
     private static $cluster_service;
@@ -255,6 +257,12 @@ class Plugin {
     }
 
     public static function init(): void {
+        if (self::$did_init) {
+            return;
+        }
+
+        self::$did_init = true;
+
         $manual = self::is_manual_control_mode();
 
         // Safety first: ensure no scheduled tasks remain when manual mode is enabled.
@@ -388,6 +396,10 @@ class Plugin {
     }
 
     public static function activate(): void {
+        if (function_exists('tmwseo_engine_run_migrations')) {
+            tmwseo_engine_run_migrations();
+        }
+
         Schema::create_or_update_tables();
         Schema::ensure_intelligence_schema();
         Schema::normalize_cluster_schema_version_option();

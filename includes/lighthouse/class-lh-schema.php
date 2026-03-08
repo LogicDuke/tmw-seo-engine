@@ -13,19 +13,20 @@ class Schema {
         $runs = $wpdb->prefix . 'tmw_lighthouse_runs';
 
         $sql_targets = "CREATE TABLE {$targets} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             url TEXT NOT NULL,
             post_id BIGINT UNSIGNED NULL,
             type VARCHAR(50) DEFAULT 'post',
             last_scanned_mobile DATETIME NULL,
             last_scanned_desktop DATETIME NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
             KEY post_id (post_id),
             KEY type (type)
         ) {$charset_collate};";
 
         $sql_runs = "CREATE TABLE {$runs} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             target_id BIGINT UNSIGNED NOT NULL,
             strategy ENUM('mobile','desktop') NOT NULL,
             lighthouse_version VARCHAR(20) NOT NULL,
@@ -36,9 +37,10 @@ class Schema {
             inp FLOAT,
             raw_json LONGTEXT NOT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX (target_id),
-            INDEX (strategy),
-            INDEX (created_at)
+            PRIMARY KEY  (id),
+            KEY target_id (target_id),
+            KEY strategy (strategy),
+            KEY created_at (created_at)
         ) {$charset_collate};";
 
         dbDelta($sql_targets);
