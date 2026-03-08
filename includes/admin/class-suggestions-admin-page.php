@@ -1006,10 +1006,19 @@ class SuggestionsAdminPage {
         if ($notice === 'draft_preview_generated' || $notice === 'draft_preview_refused') {
             $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
             $refused_reason = sanitize_key((string) ($_GET['reason'] ?? ''));
+            $preview_strategy = sanitize_key((string) ($_GET['preview_strategy'] ?? ''));
 
             if ($notice === 'draft_preview_generated') {
                 echo '<div class="notice notice-success is-dismissible"><p>';
                 echo esc_html__('Draft content preview generated in assisted draft-only mode. Preview data was stored in dedicated metadata only; no post content changes, no publish automation, and no noindex changes were performed.', 'tmwseo');
+                if ( $preview_strategy !== '' ) {
+                    $strategy_label = $preview_strategy === 'template_dry_run'
+                        ? __( 'Template (dry-run mode — no API cost)', 'tmwseo' )
+                        : ( $preview_strategy === 'template'
+                            ? __( 'Template (no API key configured)', 'tmwseo' )
+                            : __( 'OpenAI', 'tmwseo' ) );
+                    echo ' <strong>' . esc_html__( 'Strategy:', 'tmwseo' ) . ' ' . esc_html( $strategy_label ) . '</strong>';
+                }
             } else {
                 echo '<div class="notice notice-warning is-dismissible"><p>';
                 echo esc_html__('Draft content preview generation was refused because the selected content is not an eligible draft. This action is restricted to explicit operator-created drafts only.', 'tmwseo');
@@ -1157,6 +1166,7 @@ class SuggestionsAdminPage {
         $result = AssistedDraftEnrichmentService::generate_preview_for_explicit_draft($draft_id);
         $notice = !empty($result['ok']) ? 'draft_preview_generated' : 'draft_preview_refused';
         $reason = sanitize_key((string) ($result['reason'] ?? ''));
+        $strategy = sanitize_key((string) ($result['strategy'] ?? ''));
 
         wp_safe_redirect(add_query_arg([
             'page' => 'tmwseo-suggestions',
@@ -1164,6 +1174,7 @@ class SuggestionsAdminPage {
             'draft_id' => $draft_id,
             'notice' => $notice,
             'reason' => $reason,
+            'preview_strategy' => $strategy,
         ], admin_url('admin.php')));
         exit;
     }
