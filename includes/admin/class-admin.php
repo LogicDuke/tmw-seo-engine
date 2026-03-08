@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine;
 
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Services\TrustPolicy;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -11,6 +12,7 @@ class Admin {
 
     public static function init(): void {
         add_action('admin_menu', [__CLASS__, 'menu']);
+        add_action('admin_menu', [__CLASS__, 'reorder_admin_menus'], 9999);
         add_action('admin_init', [__CLASS__, 'register_settings']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
         add_action('admin_notices', [__CLASS__, 'render_admin_notices']);
@@ -102,6 +104,16 @@ class Admin {
             'toplevel_page_' . self::MENU_SLUG,
             self::MENU_SLUG . '_page_tmwseo-suggestions',
             self::MENU_SLUG . '_page_tmwseo-command-center',
+            self::MENU_SLUG . '_page_tmwseo-content-briefs',
+            self::MENU_SLUG . '_page_tmwseo-competitor-domains',
+            self::MENU_SLUG . '_page_tmwseo-keywords',
+            self::MENU_SLUG . '_page_tmwseo-opportunities',
+            self::MENU_SLUG . '_page_tmwseo-ranking-probability',
+            self::MENU_SLUG . '_page_tmwseo-reports',
+            self::MENU_SLUG . '_page_tmwseo-connections',
+            self::MENU_SLUG . '_page_tmwseo-settings',
+            self::MENU_SLUG . '_page_tmwseo-tools',
+            self::MENU_SLUG . '_page_tmw-seo-debug',
         ];
 
         if (!in_array($hook, $allowed_hooks, true)) {
@@ -193,6 +205,156 @@ class Admin {
                 color:#1d4ed8;
             }
 
+
+            .tmwseo-status-badge,
+            .tmwseo-target-badge,
+            .tmwseo-action-label {
+                display:inline-block;
+                padding:4px 10px;
+                border-radius:999px;
+                font-weight:600;
+                font-size:12px;
+                line-height:1.4;
+                margin-bottom:6px;
+            }
+
+            .tmwseo-cell-note {
+                font-size:12px;
+                color:#4b5563;
+                line-height:1.45;
+            }
+
+            .tmwseo-description-block {
+                font-size:12px;
+                line-height:1.45;
+            }
+
+            .tmwseo-description-summary {
+                margin:0 0 6px;
+                color:#111827;
+            }
+
+            .tmwseo-description-details-inline {
+                margin:0;
+                color:#374151;
+                font-size:12px;
+            }
+
+            .tmwseo-description-details {
+                margin:0;
+                padding-left:16px;
+                color:#374151;
+            }
+
+            .tmwseo-inline-preview {
+                padding:6px 8px;
+                border:1px solid #e5e7eb;
+                border-radius:8px;
+                background:#f9fafb;
+            }
+
+            .tmwseo-inline-preview summary {
+                cursor:pointer;
+                color:#111827;
+                margin-bottom:6px;
+            }
+
+            .tmwseo-inline-preview[open] summary {
+                margin-bottom:8px;
+            }
+
+            .tmwseo-description-details li {
+                margin:0 0 4px;
+            }
+
+            .tmwseo-status-new {
+                background:#eff6ff;
+                color:#1d4ed8;
+            }
+
+            .tmwseo-status-draft-created {
+                background:#ecfdf5;
+                color:#047857;
+            }
+
+            .tmwseo-status-ignored {
+                background:#f3f4f6;
+                color:#374151;
+            }
+
+            .tmwseo-status-implemented {
+                background:#ede9fe;
+                color:#6d28d9;
+            }
+
+            .tmwseo-target-category-page {
+                background:#fef3c7;
+                color:#92400e;
+                border:1px solid #f59e0b;
+                box-shadow:inset 0 0 0 1px rgba(245, 158, 11, 0.25);
+            }
+
+            .tmwseo-target-model-page {
+                background:#f3e8ff;
+                color:#5b21b6;
+                border:1px solid #c4b5fd;
+                box-shadow:inset 0 0 0 1px rgba(124,58,237,0.20);
+                font-weight:700;
+            }
+            .tmwseo-model-intel-cue {
+                margin-top: 5px;
+                font-size: 11px;
+                color: #6b7280;
+                line-height: 1.5;
+            }
+            .tmwseo-model-intel-tag {
+                display: inline-block;
+                background: #faf5ff;
+                border: 1px solid #e9d5ff;
+                border-radius: 4px;
+                padding: 1px 6px;
+                margin-right: 3px;
+                color: #6d28d9;
+                font-size: 11px;
+            }
+
+            .tmwseo-target-video-page {
+                background:#fee2e2;
+                color:#991b1b;
+            }
+
+            .tmwseo-target-generic-post {
+                background:#e0f2fe;
+                color:#075985;
+            }
+
+            .tmwseo-action-label {
+                background:#f3e8ff;
+                color:#6b21a8;
+            }
+
+            .tmwseo-aging-badge {
+                border:1px solid #d1d5db;
+            }
+
+            .tmwseo-aging-fresh {
+                background:#dcfce7;
+                color:#166534;
+                border-color:#86efac;
+            }
+
+            .tmwseo-aging-aging {
+                background:#fef3c7;
+                color:#92400e;
+                border-color:#fcd34d;
+            }
+
+            .tmwseo-aging-overdue {
+                background:#fee2e2;
+                color:#991b1b;
+                border-color:#fca5a5;
+            }
+
             .tmwseo-command-center {
                 max-width:1100px;
             }
@@ -246,6 +408,23 @@ class Admin {
                 font-size:12px;
                 font-weight:600;
                 background:#f3f4f6;
+            }
+
+            .tmwseo-command-trust-copy {
+                margin-top:10px;
+                margin-bottom:0;
+                font-size:12px;
+                color:#1f2937;
+            }
+
+            .tmwseo-command-sub-link {
+                font-weight:600;
+                text-decoration:none;
+            }
+
+            .tmwseo-command-sub-link:hover,
+            .tmwseo-command-sub-link:focus {
+                text-decoration:underline;
             }
 
             .tmwseo-command-good {
@@ -543,49 +722,94 @@ class Admin {
             return $current;
         }
 
-        $mode = sanitize_text_field((string)($input['openai_mode'] ?? 'hybrid'));
+        // Preserve any existing settings keys not present in this form submission,
+        // so that partial saves (e.g., tabbed Settings pages) don't wipe keys.
+        $existing = get_option('tmwseo_engine_settings', []);
+        $existing = is_array($existing) ? $existing : [];
+
+        $mode = sanitize_text_field((string)($input['openai_mode'] ?? $existing['openai_mode'] ?? 'hybrid'));
         if (!in_array($mode, ['quality', 'bulk', 'hybrid'], true)) {
             $mode = 'hybrid';
         }
 
-        $primary = sanitize_text_field((string)($input['openai_model_primary'] ?? 'gpt-4o'));
-        $bulk = sanitize_text_field((string)($input['openai_model_bulk'] ?? 'gpt-4o-mini'));
+        $primary = sanitize_text_field((string)($input['openai_model_primary'] ?? $existing['openai_model_primary'] ?? 'gpt-4o'));
+        $bulk    = sanitize_text_field((string)($input['openai_model_bulk'] ?? $existing['openai_model_bulk'] ?? 'gpt-4o-mini'));
 
-        $voice = sanitize_text_field((string)($input['brand_voice'] ?? 'premium'));
+        $voice = sanitize_text_field((string)($input['brand_voice'] ?? $existing['brand_voice'] ?? 'premium'));
         if (!in_array($voice, ['premium', 'neutral'], true)) {
             $voice = 'premium';
         }
 
-        return [
-            'openai_api_key' => sanitize_text_field((string)($input['openai_api_key'] ?? '')),
-            'openai_mode' => $mode,
-            'openai_model_primary' => $primary,
-            'openai_model_bulk' => $bulk,
-            'openai_model' => ($mode === 'bulk') ? $bulk : $primary,
-            'brand_voice' => $voice,
-            'tmwseo_dry_run_mode' => !empty($input['tmwseo_dry_run_mode']) ? 1 : 0,
-            'auto_clear_noindex' => !empty($input['auto_clear_noindex']) ? 1 : 0,
-            'template_external_link_enabled' => !empty($input['template_external_link_enabled']) ? 1 : 0,
-            'include_external_info_link' => !empty($input['include_external_info_link']) ? 1 : 0,
-            'dataforseo_login' => sanitize_text_field((string)($input['dataforseo_login'] ?? '')),
-            'dataforseo_password' => sanitize_text_field((string)($input['dataforseo_password'] ?? '')),
-            'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? '2840')),
-            'dataforseo_language_code' => sanitize_text_field((string)($input['dataforseo_language_code'] ?? 'en')),
-            'safe_mode' => !empty($input['safe_mode']) ? 1 : 0,
-            'competitor_domains' => sanitize_textarea_field((string)($input['competitor_domains'] ?? '')),
-            'keyword_min_volume' => max(0, (int)($input['keyword_min_volume'] ?? 30)),
-            'keyword_max_kd' => max(0, (int)($input['keyword_max_kd'] ?? 60)),
-            'keyword_new_limit' => max(0, (int)($input['keyword_new_limit'] ?? 300)),
-            'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? 300)),
-            'keyword_pages_per_day' => max(0, (int)($input['keyword_pages_per_day'] ?? 3)),
-            'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? '')),
+        $ai_primary = sanitize_text_field((string)($input['tmwseo_ai_primary'] ?? $existing['tmwseo_ai_primary'] ?? 'openai'));
+        if (!in_array($ai_primary, ['openai', 'anthropic'], true)) {
+            $ai_primary = 'openai';
+        }
+
+        $sanitized = [
+            // Safety — always locked on
             'manual_control_mode' => 1,
-            'debug_mode' => !empty($input['debug_mode']) ? 1 : 0,
-            'serper_api_key' => sanitize_text_field((string)($input['serper_api_key'] ?? '')),
-            'intel_max_seeds' => max(1, (int)($input['intel_max_seeds'] ?? 3)),
-            'intel_max_keywords' => max(50, (int)($input['intel_max_keywords'] ?? 400)),
-            'affiliate' => self::sanitize_affiliate_settings($input['affiliate'] ?? []),
+            // safe_mode: use array_key_exists to detect explicit "uncheck" vs absent (other-tab save).
+            // When unchecked, HTML omits the key → array_key_exists returns false → preserve existing.
+            // When checked → 1. When explicitly submitted unchecked from its own tab → 0.
+            'safe_mode' => !empty($input['safe_mode']) ? 1 : (!array_key_exists('safe_mode', $input) ? (int)($existing['safe_mode'] ?? 1) : 0),
+
+            // OpenAI
+            'openai_api_key'        => sanitize_text_field((string)($input['openai_api_key'] ?? $existing['openai_api_key'] ?? '')),
+            'openai_mode'           => $mode,
+            'openai_model_primary'  => $primary,
+            'openai_model_bulk'     => $bulk,
+            'openai_model'          => ($mode === 'bulk') ? $bulk : $primary,
+            'brand_voice'           => $voice,
+            'tmwseo_dry_run_mode'   => !empty($input['tmwseo_dry_run_mode']) ? 1 : 0,
+            'auto_clear_noindex'    => !empty($input['auto_clear_noindex']) ? 1 : 0,
+            'template_external_link_enabled' => !empty($input['template_external_link_enabled']) ? 1 : 0,
+            'include_external_info_link'     => !empty($input['include_external_info_link']) ? 1 : 0,
+
+            // v4.2: Anthropic / AI Router
+            'tmwseo_anthropic_api_key' => sanitize_text_field((string)($input['tmwseo_anthropic_api_key'] ?? $existing['tmwseo_anthropic_api_key'] ?? '')),
+            'tmwseo_ai_primary'        => $ai_primary,
+            'tmwseo_openai_budget_usd' => max(0.0, (float)($input['tmwseo_openai_budget_usd'] ?? $existing['tmwseo_openai_budget_usd'] ?? 20.0)),
+
+            // DataForSEO
+            'dataforseo_login'         => sanitize_text_field((string)($input['dataforseo_login'] ?? $existing['dataforseo_login'] ?? '')),
+            'dataforseo_password'      => sanitize_text_field((string)($input['dataforseo_password'] ?? $existing['dataforseo_password'] ?? '')),
+            'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? $existing['dataforseo_location_code'] ?? '2840')),
+            'dataforseo_language_code' => sanitize_text_field((string)($input['dataforseo_language_code'] ?? $existing['dataforseo_language_code'] ?? 'en')),
+
+            // v4.2: Google Search Console OAuth2
+            'gsc_client_id'     => sanitize_text_field((string)($input['gsc_client_id'] ?? $existing['gsc_client_id'] ?? '')),
+            'gsc_client_secret' => sanitize_text_field((string)($input['gsc_client_secret'] ?? $existing['gsc_client_secret'] ?? '')),
+            'gsc_site_url'      => esc_url_raw((string)($input['gsc_site_url'] ?? $existing['gsc_site_url'] ?? '')),
+
+            // v4.2: Google Indexing API
+            'google_indexing_service_account_json' => sanitize_textarea_field((string)($input['google_indexing_service_account_json'] ?? $existing['google_indexing_service_account_json'] ?? '')),
+            'indexing_api_post_types'              => sanitize_text_field((string)($input['indexing_api_post_types'] ?? $existing['indexing_api_post_types'] ?? 'model,video,tmw_video')),
+
+            // v4.2: Schema + Orphan
+            'schema_enabled'    => !empty($input['schema_enabled']) ? 1 : (!array_key_exists('schema_enabled', $input) ? (int)($existing['schema_enabled'] ?? 1) : 0),
+            'schema_post_types' => sanitize_text_field((string)($input['schema_post_types'] ?? $existing['schema_post_types'] ?? 'model,video,tmw_video')),
+            'orphan_scan_enabled' => !empty($input['orphan_scan_enabled']) ? 1 : (!array_key_exists('orphan_scan_enabled', $input) ? (int)($existing['orphan_scan_enabled'] ?? 1) : 0),
+
+            // Keyword engine
+            'keyword_min_volume'     => max(0, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30)),
+            'keyword_max_kd'         => max(0, (int)($input['keyword_max_kd'] ?? $existing['keyword_max_kd'] ?? 60)),
+            'keyword_new_limit'      => max(0, (int)($input['keyword_new_limit'] ?? $existing['keyword_new_limit'] ?? 300)),
+            'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? $existing['keyword_kd_batch_limit'] ?? 300)),
+            'keyword_pages_per_day'  => max(0, (int)($input['keyword_pages_per_day'] ?? $existing['keyword_pages_per_day'] ?? 3)),
+            'competitor_domains'     => sanitize_textarea_field((string)($input['competitor_domains'] ?? $existing['competitor_domains'] ?? '')),
+
+            // Misc
+            'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? $existing['google_pagespeed_api_key'] ?? '')),
+            'serper_api_key'           => sanitize_text_field((string)($input['serper_api_key'] ?? $existing['serper_api_key'] ?? '')),
+            'intel_max_seeds'          => max(1, (int)($input['intel_max_seeds'] ?? $existing['intel_max_seeds'] ?? 3)),
+            'intel_max_keywords'       => max(50, (int)($input['intel_max_keywords'] ?? $existing['intel_max_keywords'] ?? 400)),
+            'debug_mode'               => !empty($input['debug_mode']) ? 1 : 0,
+
+            // Affiliates (preserved from existing)
+            'affiliate' => self::sanitize_affiliate_settings($input['affiliate'] ?? ($existing['affiliate'] ?? [])),
         ];
+
+        return $sanitized;
     }
 
     private static function sanitize_affiliate_settings($input): array {
@@ -627,30 +851,263 @@ class Admin {
     }
 
     public static function menu(): void {
+        // ── Top-level entry point → Command Center directly (no redirect) ──
         add_menu_page(
             __('TMW SEO Engine', 'tmwseo'),
             __('TMW SEO Engine', 'tmwseo'),
             'manage_options',
             self::MENU_SLUG,
-            [__CLASS__, 'render_overview'],
+            ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render'],
             'dashicons-chart-area',
             58
         );
 
-        // Human-first navigation.
-        add_submenu_page(self::MENU_SLUG, __('Dashboard', 'tmwseo'), __('Dashboard', 'tmwseo'), 'manage_options', self::MENU_SLUG, [__CLASS__, 'render_overview']);
-        add_submenu_page(self::MENU_SLUG, __('Drafts to Review', 'tmwseo'), __('Drafts to Review', 'tmwseo'), 'manage_options', 'tmwseo-generated', [__CLASS__, 'render_generated_pages']);
-        add_submenu_page(self::MENU_SLUG, __('Models', 'tmwseo'), __('Models', 'tmwseo'), 'manage_options', 'tmwseo-models', [__CLASS__, 'render_models_redirect']);
-        add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'), __('Keywords', 'tmwseo'), 'manage_options', 'tmwseo-keywords', [__CLASS__, 'render_keywords']);
-        add_submenu_page(self::MENU_SLUG, __('Reports', 'tmwseo'), __('Reports', 'tmwseo'), 'manage_options', 'tmwseo-pagespeed', [__CLASS__, 'render_pagespeed']);
-        add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'), __('Settings', 'tmwseo'), 'manage_options', 'tmwseo-settings', [__CLASS__, 'render_settings']);
-        add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'), __('Tools', 'tmwseo'), 'manage_options', 'tmwseo-tools', [__CLASS__, 'render_tools']);
+        // First submenu entry shares slug with top-level — relabels the sidebar item.
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('Command Center', 'tmwseo'),
+            __('&#9881; Command Center', 'tmwseo'),
+            'manage_options',
+            self::MENU_SLUG,
+            ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render']
+        );
 
-        // Technical pages are intentionally hidden from primary navigation.
-        add_submenu_page(null, __('Logs', 'tmwseo'), __('Logs', 'tmwseo'), 'manage_options', 'tmwseo-logs', [__CLASS__, 'render_logs']);
-        add_submenu_page(null, __('Engine Monitor', 'tmwseo'), __('Engine Monitor', 'tmwseo'), 'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
-        add_submenu_page(null, __('Migration', 'tmwseo'), __('Migration', 'tmwseo'), 'manage_options', 'tmwseo-migration', [__CLASS__, 'render_migration']);
-        add_submenu_page(null, __('Import', 'tmwseo'), __('Import', 'tmwseo'), 'manage_options', 'tmwseo-import', [__CLASS__, 'render_import']);
+        // ── Workflow ───────────────────────────────────────────────────────
+        add_submenu_page(self::MENU_SLUG, __('Suggestions', 'tmwseo'),    __('Suggestions', 'tmwseo'),    'manage_options', 'tmwseo-suggestions',    ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_suggestions']);
+        add_submenu_page(self::MENU_SLUG, __('Content Briefs', 'tmwseo'), __('Content Briefs', 'tmwseo'), 'manage_options', 'tmwseo-content-briefs', ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_briefs']);
+
+        // ── Intelligence ───────────────────────────────────────────────────
+        add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
+        add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
+        add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
+        add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
+
+        // ── Content ────────────────────────────────────────────────────────
+        add_submenu_page(self::MENU_SLUG, __('Models', 'tmwseo'), __('Models', 'tmwseo'), 'manage_options', 'tmwseo-models', [__CLASS__, 'render_models_redirect']);
+
+        // ── Reports ────────────────────────────────────────────────────────
+        add_submenu_page(self::MENU_SLUG, __('Reports', 'tmwseo'), __('Reports', 'tmwseo'), 'manage_options', 'tmwseo-reports', ['\\TMWSEO\\Engine\\Admin\\AdminDashboardV2', 'page_reports']);
+
+        // ── System ─────────────────────────────────────────────────────────
+        add_submenu_page(self::MENU_SLUG, __('Connections', 'tmwseo'), __('Connections', 'tmwseo'), 'manage_options', 'tmwseo-connections', ['\\TMWSEO\\Engine\\Admin\\AdminDashboardV2', 'page_connections']);
+        add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
+        add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
+        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmw-seo-debug', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
+
+        // ── Hidden (legacy routes — direct URLs still work) ────────────────
+        add_submenu_page(null, __('Drafts to Review', 'tmwseo'), __('Drafts to Review', 'tmwseo'), 'manage_options', 'tmwseo-generated',   [__CLASS__, 'render_generated_pages']);
+        add_submenu_page(null, __('Logs', 'tmwseo'),             __('Logs', 'tmwseo'),             'manage_options', 'tmwseo-logs',        [__CLASS__, 'render_logs']);
+        add_submenu_page(null, __('Engine Monitor', 'tmwseo'),   __('Engine Monitor', 'tmwseo'),   'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
+        add_submenu_page(null, __('Migration', 'tmwseo'),        __('Migration', 'tmwseo'),        'manage_options', 'tmwseo-migration',   [__CLASS__, 'render_migration']);
+        add_submenu_page(null, __('Import', 'tmwseo'),           __('Import', 'tmwseo'),           'manage_options', 'tmwseo-import',      [__CLASS__, 'render_import']);
+
+        // Legacy V2 slugs → server-side redirect to canonical pages (no JS bounces)
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-command-center',   ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render']); // keep old slug working
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-engine-v2',        [__CLASS__, 'legacy_redirect_command_center']);
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-pagespeed',        [__CLASS__, 'render_pagespeed_redirect']);
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-cfg',              [__CLASS__, 'render_settings_redirect']);
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-kw',              [__CLASS__, 'render_keywords_redirect']);
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-reports-legacy',   [__CLASS__, 'render_reports_redirect']);
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-connections-legacy',[__CLASS__, 'render_connections_redirect']);
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-diag',            [__CLASS__, 'render_debug_redirect']);
+    }
+
+    public static function legacy_redirect_command_center(): void {
+        wp_safe_redirect( admin_url( 'admin.php?page=' . self::MENU_SLUG ) );
+        exit;
+    }
+
+    /**
+     * Rebuild $submenu for our top-level slug in the desired canonical order,
+     * removing any duplicates registered by other classes.
+     * Runs at priority 9999 (after all admin_menu callbacks fire).
+     */
+    public static function reorder_admin_menus(): void {
+        global $submenu;
+        $slug = self::MENU_SLUG;
+        if (!isset($submenu[$slug]) || !is_array($submenu[$slug])) {
+            return;
+        }
+
+        // Desired visible order (slug → keep).
+        $desired_order = [
+            self::MENU_SLUG,              // Command Center (top entry)
+            'tmwseo-suggestions',
+            'tmwseo-content-briefs',
+            'tmwseo-keywords',
+            'tmwseo-opportunities',
+            'tmwseo-competitor-domains',
+            'tmwseo-ranking-probability',
+            'tmwseo-models',
+            'tmwseo-reports',
+            'tmwseo-connections',
+            'tmwseo-settings',
+            'tmwseo-tools',
+            'tmw-seo-debug',
+        ];
+
+        // Index by slug (first registration wins for dedup).
+        $by_slug = [];
+        foreach ($submenu[$slug] as $item) {
+            $item_slug = $item[2] ?? '';
+            if ($item_slug !== '' && !isset($by_slug[$item_slug])) {
+                $by_slug[$item_slug] = $item;
+            }
+        }
+
+        // Rebuild in desired order.
+        $new_submenu = [];
+        foreach ($desired_order as $item_slug) {
+            if (isset($by_slug[$item_slug])) {
+                $new_submenu[] = $by_slug[$item_slug];
+            }
+        }
+
+        $submenu[$slug] = array_values($new_submenu);
+    }
+
+    // ── Legacy redirects ───────────────────────────────────────────────────
+
+    public static function render_pagespeed_redirect(): void {
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-reports'));
+        exit;
+    }
+
+    public static function render_settings_redirect(): void {
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-settings'));
+        exit;
+    }
+
+    public static function render_keywords_redirect(): void {
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords'));
+        exit;
+    }
+
+    public static function render_reports_redirect(): void {
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-reports'));
+        exit;
+    }
+
+    public static function render_connections_redirect(): void {
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-connections'));
+        exit;
+    }
+
+    public static function render_debug_redirect(): void {
+        wp_safe_redirect(admin_url('admin.php?page=tmw-seo-debug'));
+        exit;
+    }
+
+    // ── Ranking Probability page ───────────────────────────────────────────
+
+    public static function render_ranking_probability(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        global $wpdb;
+        $intel_table = $wpdb->prefix . 'tmwseo_intelligence';
+
+        $rows      = [];
+        $last_run  = '';
+
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$intel_table}'") === $intel_table) {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT post_id, signal_type, signal_value, computed_at
+                 FROM {$intel_table}
+                 WHERE signal_type = %s
+                 ORDER BY CAST(signal_value AS DECIMAL(5,2)) DESC
+                 LIMIT 50",
+                'ranking_probability'
+            ), ARRAY_A) ?: [];
+
+            // Most recent computation timestamp
+            $last_run = (string) $wpdb->get_var(
+                "SELECT MAX(computed_at) FROM {$intel_table} WHERE signal_type = 'ranking_probability'"
+            );
+        }
+
+        // Handle "Run Now" POST
+        if (isset($_POST['tmwseo_run_ranking_probability']) && check_admin_referer('tmwseo_run_ranking_probability')) {
+            if (class_exists('\\TMWSEO\\Engine\\Intelligence\\RankingProbabilityOrchestrator')) {
+                try {
+                    \TMWSEO\Engine\Intelligence\RankingProbabilityOrchestrator::run_all();
+                    wp_safe_redirect(admin_url('admin.php?page=tmwseo-ranking-probability&tmw_ran=1'));
+                    exit;
+                } catch (\Throwable $e) {
+                    // fall through to show page with error
+                }
+            }
+        }
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__('Ranking Probability', 'tmwseo') . '</h1>';
+        echo '<p>' . esc_html__('Estimates how likely each page is to rank for its target keyword — scored from 7 signals: content quality, domain authority, keyword difficulty, backlink profile, SERP weakness, topical authority, and freshness.', 'tmwseo') . '</p>';
+
+        // Trust notice
+        echo '<div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:10px 14px;margin-bottom:20px;font-size:13px;border-radius:0 6px 6px 0;">';
+        echo '<strong>✅ Read-only intelligence.</strong> This page does not publish, modify, or schedule anything automatically. All data is generated on demand via the Run button below.';
+        echo '</div>';
+
+        // Status bar
+        echo '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">';
+
+        // Run Now form
+        echo '<form method="post" style="display:inline;">';
+        wp_nonce_field('tmwseo_run_ranking_probability');
+        echo '<input type="hidden" name="tmwseo_run_ranking_probability" value="1">';
+        echo '<button class="button button-primary">&#9654; Run Ranking Probability Scan</button>';
+        echo '</form>';
+
+        if ($last_run) {
+            echo '<span style="color:#6b7280;font-size:13px;">Last computed: ' . esc_html(substr($last_run, 0, 16)) . '</span>';
+        } else {
+            echo '<span style="color:#9ca3af;font-size:13px;">No data yet — click Run to generate scores.</span>';
+        }
+
+        echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-tools')) . '" class="button" style="margin-left:auto;">← Back to Tools</a>';
+        echo '</div>';
+
+        if (isset($_GET['tmw_ran'])) {
+            echo '<div class="notice notice-success is-dismissible"><p>Ranking probability scan completed. Scores updated below.</p></div>';
+        }
+
+        if (empty($rows)) {
+            echo '<div class="notice notice-info"><p>';
+            echo esc_html__('No ranking probability scores yet. Click "Run Ranking Probability Scan" above to generate them.', 'tmwseo');
+            echo '</p></div>';
+        } else {
+            echo '<p style="color:#6b7280;font-size:13px;">' . esc_html(count($rows)) . ' pages scored. Showing top 50 by probability.</p>';
+            echo '<table class="widefat striped">';
+            echo '<thead><tr>';
+            echo '<th>' . esc_html__('Page', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Probability Score', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Signal Bar', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Computed', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Actions', 'tmwseo') . '</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ($rows as $row) {
+                $pid   = (int) $row['post_id'];
+                $prob  = min(100, max(0, round((float) $row['signal_value'] * 100)));
+                $date  = substr((string) $row['computed_at'], 0, 10);
+                $title = get_the_title($pid) ?: "Post #{$pid}";
+                $edit  = get_edit_post_link($pid);
+                $color = $prob >= 70 ? '#16a34a' : ($prob >= 40 ? '#ca8a04' : '#dc2626');
+
+                echo '<tr>';
+                echo '<td><a href="' . esc_url($edit ?: '#') . '">' . esc_html($title) . '</a></td>';
+                echo '<td><strong style="color:' . esc_attr($color) . ';font-size:16px;">' . esc_html($prob) . '%</strong></td>';
+                echo '<td><div style="background:#e5e7eb;border-radius:4px;height:8px;width:120px;overflow:hidden;"><div style="background:' . esc_attr($color) . ';height:100%;width:' . esc_attr($prob) . '%;"></div></div></td>';
+                echo '<td style="color:#9ca3af;font-size:12px;">' . esc_html($date) . '</td>';
+                echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">Edit</a></td>';
+                echo '</tr>';
+            }
+
+            echo '</tbody></table>';
+        }
+
+        echo '</div>';
     }
 
     public static function run_worker_now(): void {
@@ -968,6 +1425,18 @@ class Admin {
             $message = __('Optimization queued. The worker/cron will process this post in the background.', 'tmwseo');
         } elseif ($notice === 'keywords_refresh_queued') {
             $message = __('Keyword refresh queued. The worker/cron will update keyword pack and RankMath fields in the background.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_generated') {
+            $message = __('Draft content preview generated in preview metadata only. No post content was changed and nothing was published automatically.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_refused') {
+            $message = __('Draft content preview was refused. This action is allowed only for explicit draft posts.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_applied') {
+            $message = __('Reviewed preview fields were manually applied to this draft only. Nothing was published, live content was not changed, and noindex was not cleared automatically.', 'tmwseo');
+        } elseif ($notice === 'draft_preview_apply_refused') {
+            $message = __('Manual apply from preview was refused. This action requires an explicit draft and at least one selected preview field.', 'tmwseo');
+        } elseif ($notice === 'review_bundle_prepared') {
+            $message = __('Prepared for human review. Nothing has been applied automatically. Draft remains draft-only/noindex and requires manual review + manual apply.', 'tmwseo');
+        } elseif ($notice === 'review_bundle_refused') {
+            $message = __('Prepare for Human Review was refused. This action is allowed only for explicit operator-created draft posts.', 'tmwseo');
         }
 
         if ($message === '') {
@@ -982,31 +1451,162 @@ class Admin {
     // ---------- UI (alpha.8) ----------
 
 
+    /**
+     * Legacy overview page — renders Command Center directly.
+     */
+    public static function render_overview(): void {
+        \TMWSEO\Engine\Admin\CommandCenter::render();
+    }
+
     public static function render_models_redirect(): void {
         wp_safe_redirect(admin_url('edit.php?post_type=model'));
         exit;
     }
 
     public static function render_tools(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
         self::header(__('TMW SEO Engine — Tools', 'tmwseo'));
-        echo '<p>Technical tools and diagnostics are available below. Safety policies keep publishing human-controlled and draft-first.</p>';
-        echo '<p><strong>Human approval is always required. The plugin only suggests opportunities and creates drafts when you explicitly choose to do so.</strong></p>';
-        echo '<ul style="line-height:1.9;">';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '">Suggestions</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-content-briefs')) . '">Content Briefs</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-competitor-domains')) . '">Competitor Domains</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-clusters')) . '">SEO Clusters</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-model-optimizer')) . '">Model Optimizer</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-intelligence')) . '">Legacy Keyword Research</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-staging-validation-helper')) . '">Staging Validation Helper</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-logs')) . '">Logs</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-engine-monitor')) . '">Engine Monitor</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-lighthouse')) . '">Lighthouse</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-migration')) . '">Migration</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-import')) . '">Import</a></li>';
-        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-debug')) . '">Debug Dashboard</a></li>';
-        echo '</ul>';
+
+        echo '<p>' . esc_html__('Operator-triggered utilities. Every tool below requires explicit action — nothing runs automatically. No content is published.', 'tmwseo') . '</p>';
+        echo '<p style="background:#fefce8;border-left:4px solid #eab308;padding:10px 14px;margin-bottom:24px;"><strong>' . esc_html__('Manual-Only Mode Active:', 'tmwseo') . '</strong> ' . esc_html__('All scans are read-only or create drafts for your review. Nothing is auto-published.', 'tmwseo') . '</p>';
+
+        // ── Scan Tools ──────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Content Scans', 'tmwseo') . '</h2>';
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:32px;">';
+
+        // Internal Link Opportunities
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('Internal Link Opportunities', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Scans published content to find where internal links are missing or weak. Results are added to Suggestions for review.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
+        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form></div>';
+
+        // Content Improvement Scan
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('Content Improvement Scan', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Analyzes existing content for SEO gaps: missing keywords, thin content, meta issues. Results go to Suggestions.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_content_improvements');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
+        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form></div>';
+
+        // Orphan Page Scan
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('Orphan Page Scan', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Finds published pages with zero inbound internal links. Orphan pages are invisible to Googlebot unless linked from elsewhere.', 'tmwseo') . '</p>';
+        $orphan_last = get_option(\TMWSEO\Engine\InternalLinks\OrphanPageDetector::OPTION_LAST_SCAN, '');
+        if ($orphan_last) {
+            echo '<p><small>' . esc_html__('Last scan:', 'tmwseo') . ' ' . esc_html((string) $orphan_last) . '</small></p>';
+        }
+        echo '<button type="button" class="button" id="tmwseo-orphan-scan-btn">' . esc_html__('Scan Orphan Pages', 'tmwseo') . '</button>';
+        echo '<div id="tmwseo-orphan-scan-result" style="margin-top:8px;"></div>';
         echo '</div>';
+
+        // Competitor Monitor
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('Competitor Domain Scan', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Checks competitor domains for new content targeting keywords you rank for. Results are stored for review.', 'tmwseo') . '</p>';
+        $comp_last = get_option(\TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::OPTION_LAST_RUN, '');
+        if ($comp_last) {
+            echo '<p><small>' . esc_html__('Last scan:', 'tmwseo') . ' ' . esc_html(date('Y-m-d H:i', (int) $comp_last)) . '</small></p>';
+        }
+        echo '<button type="button" class="button" id="tmwseo-competitor-scan-btn">' . esc_html__('Run Competitor Scan', 'tmwseo') . '</button>';
+        echo '<div id="tmwseo-competitor-scan-result" style="margin-top:8px;"></div>';
+        echo '</div>';
+
+        echo '</div>';
+
+        // ── Phase C Discovery Snapshot ───────────────────────────────────────
+        echo '<h2>' . esc_html__('Discovery & Intelligence', 'tmwseo') . '</h2>';
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:32px;">';
+
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('Discovery Snapshot (Phase C)', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Runs a safe read-only snapshot of the keyword + opportunity landscape. Does not publish anything. Results feed the Suggestions queue.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
+        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
+        submit_button(__('Run Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form></div>';
+
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('Keyword Cycle', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Refreshes keyword data from DataForSEO: discovery, KD scoring, clustering. Creates new candidate clusters for review.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_run_keyword_cycle');
+        echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
+        submit_button(__('Run Keyword Cycle', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form></div>';
+
+        echo '</div>';
+
+        // ── Maintenance ──────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Maintenance', 'tmwseo') . '</h2>';
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:32px;">';
+
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('Auto Fix Missing SEO', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Fills in missing focus keywords and meta descriptions using post titles. Safe batch fix — does not touch content or publish anything.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_bulk_autofix');
+        echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
+        submit_button(__('Auto Fix Missing SEO', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form></div>';
+
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__('System Worker', 'tmwseo') . '</h3>';
+        echo '<p>' . esc_html__('Runs a healthcheck job and processes any queued tasks. Use this to unstick the queue if the background worker missed a job.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_run_worker');
+        echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
+        submit_button(__('Run Worker Now', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form></div>';
+
+        echo '</div>';
+
+        // ── Advanced Links ───────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Advanced', 'tmwseo') . '</h2>';
+        echo '<ul style="line-height:2;">';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-logs')) . '">' . esc_html__('View Logs', 'tmwseo') . '</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-engine-monitor')) . '">' . esc_html__('Engine Monitor', 'tmwseo') . '</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-model-optimizer')) . '">' . esc_html__('Model Optimizer', 'tmwseo') . '</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-intelligence')) . '">' . esc_html__('Legacy Keyword Research', 'tmwseo') . '</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-staging-validation-helper')) . '">' . esc_html__('Staging Validation Helper', 'tmwseo') . '</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-import')) . '">' . esc_html__('Import Keywords (CSV)', 'tmwseo') . '</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-migration')) . '">' . esc_html__('Migration Info', 'tmwseo') . '</a></li>';
+        echo '</ul>';
+
+        // AJAX for orphan + competitor scan buttons
+        wp_add_inline_script('jquery', '
+            jQuery(function($){
+                $("#tmwseo-orphan-scan-btn").on("click", function(){
+                    var btn = $(this);
+                    btn.prop("disabled", true).text("' . esc_js(__('Scanning…', 'tmwseo')) . '");
+                    $.post(ajaxurl, {action:"tmwseo_orphan_scan", nonce:"' . wp_create_nonce('tmwseo_orphan_scan') . '"}, function(res){
+                        btn.prop("disabled", false).text("' . esc_js(__('Scan Orphan Pages', 'tmwseo')) . '");
+                        var msg = res.success ? res.data.message : (res.data||"Error");
+                        $("#tmwseo-orphan-scan-result").html("<p style=\'color:green\'>"+msg+"</p>");
+                    }).fail(function(){ btn.prop("disabled",false); $("#tmwseo-orphan-scan-result").html("<p style=\'color:red\'>' . esc_js(__('Request failed.', 'tmwseo')) . '</p>"); });
+                });
+                $("#tmwseo-competitor-scan-btn").on("click", function(){
+                    var btn = $(this);
+                    btn.prop("disabled", true).text("' . esc_js(__('Scanning…', 'tmwseo')) . '");
+                    $.post(ajaxurl, {action:"tmwseo_competitor_scan", nonce:"' . wp_create_nonce('tmwseo_competitor_scan') . '"}, function(res){
+                        btn.prop("disabled", false).text("' . esc_js(__('Run Competitor Scan', 'tmwseo')) . '");
+                        var msg = res.success ? res.data.message : (res.data||"Error");
+                        $("#tmwseo-competitor-scan-result").html("<p style=\'color:green\'>"+msg+"</p>");
+                    }).fail(function(){ btn.prop("disabled",false); $("#tmwseo-competitor-scan-result").html("<p style=\'color:red\'>' . esc_js(__('Request failed.', 'tmwseo')) . '</p>"); });
+                });
+            });
+        ');
+
+        self::footer();
     }
 
     public static function render_keywords(): void {
@@ -1373,427 +1973,6 @@ private static function header(string $title): void {
 
     private static function footer(): void { echo '</div>'; }
 
-    public static function render_overview(): void {
-        self::header(__('TMW SEO Engine — Overview', 'tmwseo'));
-
-        if (isset($_GET['bulk_updated'])) {
-            $count = intval($_GET['bulk_updated']);
-            echo '<div class="notice notice-success is-dismissible">';
-            echo '<p>⚡ Auto Fix completed. Updated ' . esc_html((string)$count) . ' posts.</p>';
-            echo '</div>';
-        }
-
-        $tracked_post_types = ['post', 'page', 'model', 'blog', 'photos', 'tmw_category_page'];
-        $seo_breakdown_post_types = [
-            'post' => __('Videos', 'tmwseo'),
-            'model' => __('Models', 'tmwseo'),
-            'tmw_category_page' => __('Category Pages', 'tmwseo'),
-        ];
-
-        $total_posts = self::count_posts_with_query([
-            'post_type' => $tracked_post_types,
-            'post_status' => 'any',
-        ]);
-
-        $optimized_posts = self::count_posts_with_query([
-            'post_type' => $tracked_post_types,
-            'post_status' => 'any',
-            'meta_query' => [
-                [
-                    'key' => '_tmwseo_optimize_done',
-                    'compare' => 'EXISTS',
-                ],
-            ],
-        ]);
-
-        $pending_optimization = self::count_posts_with_query([
-            'post_type' => $tracked_post_types,
-            'post_status' => 'any',
-            'meta_query' => [
-                [
-                    'key' => '_tmwseo_optimize_enqueued',
-                    'compare' => 'EXISTS',
-                ],
-            ],
-        ]);
-
-        $missing_focus_keyword = self::count_posts_with_query([
-            'post_type' => $tracked_post_types,
-            'post_status' => 'any',
-            'meta_query' => [
-                'relation' => 'OR',
-                [
-                    'key' => '_tmwseo_keyword',
-                    'compare' => 'NOT EXISTS',
-                ],
-                [
-                    'key' => '_tmwseo_keyword',
-                    'value' => '',
-                    'compare' => '=',
-                ],
-            ],
-        ]);
-
-        $missing_meta_description = self::count_posts_with_query([
-            'post_type' => $tracked_post_types,
-            'post_status' => 'any',
-            'meta_query' => [
-                'relation' => 'OR',
-                [
-                    'key' => '_yoast_wpseo_metadesc',
-                    'compare' => 'NOT EXISTS',
-                ],
-                [
-                    'key' => '_yoast_wpseo_metadesc',
-                    'value' => '',
-                    'compare' => '=',
-                ],
-            ],
-        ]);
-
-        $missing_keyword = $missing_focus_keyword;
-        $missing_meta = $missing_meta_description;
-
-        $optimized_ratio = $optimized_posts / max($total_posts,1);
-        $keyword_ratio = 1 - ($missing_keyword / max($total_posts,1));
-        $meta_ratio = 1 - ($missing_meta / max($total_posts,1));
-
-        $health_score = round(
-            ($optimized_ratio * 0.4 +
-             $keyword_ratio * 0.3 +
-             $meta_ratio * 0.3) * 100
-        );
-
-        $health_class = 'bad';
-        if ($health_score >= 80) {
-            $health_class = 'good';
-        } elseif ($health_score >= 50) {
-            $health_class = 'warning';
-        }
-
-        $rankmath_sync_post_types = ['post', 'model', 'tmw_category_page'];
-        $rankmath_total_posts = self::count_posts_with_query([
-            'post_type' => $rankmath_sync_post_types,
-            'post_status' => 'any',
-        ]);
-
-        $rankmath_synced_posts = self::count_posts_with_query([
-            'post_type' => $rankmath_sync_post_types,
-            'post_status' => 'any',
-            'meta_query' => [
-                'relation' => 'AND',
-                [
-                    'relation' => 'AND',
-                    [
-                        'key' => 'rank_math_title',
-                        'compare' => 'EXISTS',
-                    ],
-                    [
-                        'key' => 'rank_math_title',
-                        'value' => '',
-                        'compare' => '!=',
-                    ],
-                ],
-                [
-                    'relation' => 'AND',
-                    [
-                        'key' => 'rank_math_description',
-                        'compare' => 'EXISTS',
-                    ],
-                    [
-                        'key' => 'rank_math_description',
-                        'value' => '',
-                        'compare' => '!=',
-                    ],
-                ],
-                [
-                    'relation' => 'AND',
-                    [
-                        'key' => 'rank_math_focus_keyword',
-                        'compare' => 'EXISTS',
-                    ],
-                    [
-                        'key' => 'rank_math_focus_keyword',
-                        'value' => '',
-                        'compare' => '!=',
-                    ],
-                ],
-            ],
-        ]);
-
-        $rankmath_synced_ratio = $rankmath_synced_posts / max($rankmath_total_posts, 1);
-        $rankmath_sync_score = round($rankmath_synced_ratio * 100);
-
-        $optimization_progress_post_ids = get_posts([
-            'post_type' => ['post', 'model', 'tmw_category_page'],
-            'post_status' => 'any',
-            'fields' => 'ids',
-            'posts_per_page' => -1,
-            'no_found_rows' => true,
-            'ignore_sticky_posts' => true,
-            'cache_results' => false,
-            'update_post_meta_cache' => false,
-            'update_post_term_cache' => false,
-        ]);
-
-        $optimization_total_posts = count($optimization_progress_post_ids);
-        $count_ready = 0;
-
-        foreach ($optimization_progress_post_ids as $optimization_post_id) {
-            $has_keyword = trim((string)get_post_meta((int)$optimization_post_id, 'rank_math_focus_keyword', true)) !== '';
-            $has_meta = trim((string)get_post_meta((int)$optimization_post_id, 'rank_math_description', true)) !== '';
-            $post_content = (string)get_post_field('post_content', (int)$optimization_post_id);
-            $has_content = strlen(trim(strip_tags($post_content))) > 300;
-
-            if ($has_keyword && $has_meta && $has_content) {
-                $count_ready++;
-            }
-        }
-
-        $ready_ratio = $count_ready / max($optimization_total_posts, 1);
-        $ready_percent = round($ready_ratio * 100);
-
-        $internal_link_post_ids = get_posts([
-            'post_type' => ['post', 'model', 'tmw_category_page'],
-            'post_status' => 'any',
-            'fields' => 'ids',
-            'posts_per_page' => -1,
-            'no_found_rows' => true,
-            'ignore_sticky_posts' => true,
-            'cache_results' => false,
-            'update_post_meta_cache' => false,
-            'update_post_term_cache' => false,
-        ]);
-
-        $internal_home_url = home_url();
-        $internal_link_pattern = '/<a\s+[^>]*href=["\'](' . preg_quote($internal_home_url, '/') . '.*?)["\']/i';
-        $total_internal_posts = 0;
-        $total_internal_links = 0;
-        $posts_with_zero_links = 0;
-
-        foreach ($internal_link_post_ids as $internal_post_id) {
-            $total_internal_posts++;
-            $post_content = (string)get_post_field('post_content', (int)$internal_post_id);
-            $internal_match_count = preg_match_all($internal_link_pattern, $post_content);
-            $internal_match_count = is_int($internal_match_count) ? $internal_match_count : 0;
-            $total_internal_links += $internal_match_count;
-
-            if ($internal_match_count === 0) {
-                $posts_with_zero_links++;
-            }
-        }
-
-        $avg_internal_links = round($total_internal_links / max($total_internal_posts, 1), 2);
-        $zero_internal_ratio = round(($posts_with_zero_links / max($total_internal_posts, 1)) * 100);
-
-        $seven_days_ago = gmdate('Y-m-d H:i:s', time() - (7 * DAY_IN_SECONDS));
-        $last_7_days_optimized = self::count_posts_with_query([
-            'post_type' => $tracked_post_types,
-            'post_status' => 'any',
-            'meta_query' => [
-                'relation' => 'OR',
-                [
-                    'key' => '_tmwseo_optimize_done_date',
-                    'value' => $seven_days_ago,
-                    'compare' => '>=',
-                    'type' => 'DATETIME',
-                ],
-                [
-                    'relation' => 'AND',
-                    [
-                        'key' => '_tmwseo_optimize_done_date',
-                        'compare' => 'NOT EXISTS',
-                    ],
-                    [
-                        'key' => '_tmwseo_optimize_done',
-                        'value' => 'offline_dry',
-                        'compare' => '=',
-                    ],
-                ],
-            ],
-        ]);
-
-        $type_breakdown = [];
-        foreach ($seo_breakdown_post_types as $post_type => $label) {
-            $total = self::count_posts_with_query([
-                'post_type' => [$post_type],
-                'post_status' => 'any',
-            ]);
-
-            $optimized = self::count_posts_with_query([
-                'post_type' => [$post_type],
-                'post_status' => 'any',
-                'meta_query' => [
-                    [
-                        'key' => '_tmwseo_optimize_done',
-                        'compare' => 'EXISTS',
-                    ],
-                ],
-            ]);
-
-            $missing_keyword = self::count_posts_with_query([
-                'post_type' => [$post_type],
-                'post_status' => 'any',
-                'meta_query' => [
-                    'relation' => 'OR',
-                    [
-                        'key' => '_tmwseo_keyword',
-                        'compare' => 'NOT EXISTS',
-                    ],
-                    [
-                        'key' => '_tmwseo_keyword',
-                        'value' => '',
-                        'compare' => '=',
-                    ],
-                ],
-            ]);
-
-            $missing_meta = self::count_posts_with_query([
-                'post_type' => [$post_type],
-                'post_status' => 'any',
-                'meta_query' => [
-                    'relation' => 'OR',
-                    [
-                        'key' => '_yoast_wpseo_metadesc',
-                        'compare' => 'NOT EXISTS',
-                    ],
-                    [
-                        'key' => '_yoast_wpseo_metadesc',
-                        'value' => '',
-                        'compare' => '=',
-                    ],
-                ],
-            ]);
-
-            $optimized_ratio = $optimized / max($total, 1);
-            $keyword_ratio = 1 - ($missing_keyword / max($total, 1));
-            $meta_ratio = 1 - ($missing_meta / max($total, 1));
-            $type_health_score = round((
-                ($optimized_ratio * 0.4) +
-                ($keyword_ratio * 0.3) +
-                ($meta_ratio * 0.3)
-            ) * 100);
-
-            $type_breakdown[] = [
-                'label' => $label,
-                'score' => $type_health_score,
-            ];
-        }
-
-        echo '<div class="tmwseo-dashboard">';
-        echo '<div class="tmwseo-row executive-row">';
-        echo '<div class="tmwseo-health-card ' . esc_attr($health_class) . '">';
-        echo '<div class="tmwseo-health-circle">' . esc_html((string)$health_score) . '%</div>';
-        echo '<div class="tmwseo-health-label">SEO Health Score</div>';
-        echo '</div>';
-
-        echo '<div class="tmwseo-rankmath-card">';
-        echo '<div class="tmwseo-health-circle rankmath-circle">93%</div>';
-        echo '<div class="tmwseo-health-label">' . esc_html__('RankMath Sync Health', 'tmwseo') . '</div>';
-        echo '</div>';
-
-        $optimization_percent = $ready_percent;
-        $optimized_posts = $count_ready;
-        $total_posts = $optimization_total_posts;
-
-        echo '<div class="tmwseo-card tmwseo-progress-card">';
-        echo '<div class="tmwseo-progress-kpi">';
-        echo '<div class="tmwseo-progress-percent">' . esc_html((string)$optimization_percent) . '%</div>';
-        echo '<div class="tmwseo-progress-label">' . esc_html__('Optimization Progress', 'tmwseo') . '</div>';
-        echo '</div>';
-        echo '<div class="tmwseo-progress-wrapper">';
-        echo '<div class="tmwseo-progress-bar" style="width: ' . esc_attr((string)$optimization_percent) . '%;">' . esc_html((string)$optimization_percent) . '%</div>';
-        echo '</div>';
-        echo '<p class="tmwseo-progress-meta">' . esc_html(sprintf('%d of %d posts fully optimized', $optimized_posts, $total_posts)) . '</p>';
-        echo '</div>';
-        echo '</div>';
-
-        echo '<div class="tmwseo-row">';
-        echo '<div class="tmwseo-detail-card">';
-        echo '<h2>' . esc_html__('SEO Breakdown by Post Type', 'tmwseo') . '</h2>';
-        echo '<div class="tmwseo-type-grid">';
-        foreach ($type_breakdown as $item) {
-            echo '<div class="tmwseo-type-card">';
-            echo '<h3>' . esc_html((string)$item['label']) . '</h3>';
-            echo '<div class="score">' . esc_html((string)$item['score']) . '%</div>';
-            echo '</div>';
-        }
-        echo '</div>';
-        echo '</div>';
-
-        echo '<div class="tmwseo-detail-card">';
-        echo '<h2>' . esc_html__('Internal Link Density', 'tmwseo') . '</h2>';
-        echo '<ul>';
-        echo '<li><strong>' . esc_html__('Average Links per Post', 'tmwseo') . ':</strong> ' . esc_html(number_format_i18n($avg_internal_links, 2)) . '</li>';
-        echo '<li><strong>' . esc_html__('Posts with Zero Links (%)', 'tmwseo') . ':</strong> ' . esc_html((string)$zero_internal_ratio) . '%</li>';
-        echo '</ul>';
-        echo '</div>';
-        echo '</div>';
-
-        echo '<div class="tmwseo-actions-card">';
-        echo '<h2>' . esc_html__('Quick Actions', 'tmwseo') . '</h2>';
-        echo '<div class="tmwseo-primary-action">';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;">';
-        wp_nonce_field('tmwseo_bulk_autofix');
-        echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
-        echo '<button class="button button-primary">⚡ Auto Fix Missing SEO</button>';
-        echo '</form>';
-        echo '</div>';
-        echo '<div class="tmwseo-secondary-actions">';
-        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=bulk_optimize_all')) . '">' . esc_html__('Bulk Optimize All', 'tmwseo') . '</a>';
-        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_action=optimize_missing_seo')) . '">' . esc_html__('Optimize Only Missing SEO', 'tmwseo') . '</a>';
-        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords&tmwseo_action=generate_clusters')) . '">' . esc_html__('Generate Clusters', 'tmwseo') . '</a>';
-        echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-indexing&tmwseo_action=rebuild_indexing')) . '">' . esc_html__('Rebuild Indexing', 'tmwseo') . '</a>';
-        echo '</div>';
-        echo '</div>';
-
-        $counts = Jobs::counts();
-        echo '<div class="tmwseo-system-card">';
-        echo '<details>';
-        echo '<summary>' . esc_html__('System Info', 'tmwseo') . '</summary>';
-
-        echo '<div class="tmwseo-row">';
-        self::render_stat_card($total_posts, __('Total Posts', 'tmwseo'));
-
-        echo '<div class="tmwseo-card">';
-        echo '<h2>' . esc_html__('Queue Status', 'tmwseo') . '</h2><ul>';
-        foreach ($counts as $k => $v) {
-            echo '<li><strong>' . esc_html(ucfirst($k)) . ':</strong> ' . esc_html((string)$v) . '</li>';
-        }
-        echo '</ul>';
-        echo '</div>';
-        echo '</div>';
-
-        echo '<div class="tmwseo-row">';
-        echo '<div class="tmwseo-card">';
-        echo '<h2>' . esc_html__('Detected Mapping', 'tmwseo') . '</h2><ul>';
-        echo '<li><strong>Models:</strong> post_type <code>model</code></li>';
-        echo '<li><strong>Videos:</strong> post_type <code>post</code></li>';
-        echo '<li><strong>Video categories:</strong> taxonomy <code>category</code></li>';
-        echo '<li><strong>Category Pages:</strong> post_type <code>tmw_category_page</code> (matched by slug to category term)</li>';
-        echo '<li><strong>Model tags:</strong> taxonomy <code>models</code></li>';
-        echo '</ul>';
-        echo '</div>';
-
-        echo '<div class="tmwseo-card">';
-        echo '<h2>' . esc_html__('Worker', 'tmwseo') . '</h2>';
-        echo '<p><strong>alpha.7.1 baseline</strong>: DB tables + queue + worker + logs + settings shell (+ model routing + voice preset). No AI calls yet.</p>';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_run_worker');
-        echo '<input type="hidden" name="action" value="tmwseo_run_worker" />';
-        echo '<p><button class="button button-primary">Run Worker Now</button></p>';
-        echo '</form>';
-        echo '</div>';
-        echo '</div>';
-
-        echo '</details>';
-        echo '</div>';
-
-        echo '</div>';
-
-        self::footer();
-    }
-
     private static function count_posts_with_query(array $args): int {
         $query = new \WP_Query(array_merge([
             'post_type' => 'post',
@@ -2007,141 +2186,178 @@ private static function header(string $title): void {
 
     public static function render_settings(): void {
         self::header(__('TMW SEO Engine — Settings', 'tmwseo'));
-        $opts = get_option('tmwseo_engine_settings', []);
-        if (!is_array($opts)) $opts = [];
+        $opts = \TMWSEO\Engine\Services\Settings::all();
 
-        $openai_api_key = esc_attr((string)($opts['openai_api_key'] ?? ''));
-        $openai_mode = esc_attr((string)($opts['openai_mode'] ?? 'hybrid'));
-        // New fields (alpha.6) with sensible fallbacks.
-        $openai_model_primary = esc_attr((string)($opts['openai_model_primary'] ?? ($opts['openai_model'] ?? 'gpt-4o')));
-        $openai_model_bulk = esc_attr((string)($opts['openai_model_bulk'] ?? 'gpt-4o-mini'));
-        // Legacy (kept for compatibility).
-        $openai_model = esc_attr((string)($opts['openai_model'] ?? $openai_model_primary));
+        $openai_api_key         = esc_attr((string)($opts['openai_api_key'] ?? ''));
+        $openai_mode            = esc_attr((string)($opts['openai_mode'] ?? 'hybrid'));
+        $openai_model_primary   = esc_attr((string)($opts['openai_model_primary'] ?? 'gpt-4o'));
+        $openai_model_bulk      = esc_attr((string)($opts['openai_model_bulk'] ?? 'gpt-4o-mini'));
+        $openai_model           = esc_attr((string)($opts['openai_model'] ?? $openai_model_primary));
+        $brand_voice            = esc_attr((string)($opts['brand_voice'] ?? 'premium'));
+        $anthropic_key          = esc_attr((string)($opts['tmwseo_anthropic_api_key'] ?? ''));
+        $ai_primary             = esc_attr((string)($opts['tmwseo_ai_primary'] ?? 'openai'));
+        $ai_budget              = esc_attr((string)($opts['tmwseo_openai_budget_usd'] ?? 20.0));
+        $d_login                = esc_attr((string)($opts['dataforseo_login'] ?? ''));
+        $d_pass                 = esc_attr((string)($opts['dataforseo_password'] ?? ''));
+        $d_loc                  = esc_attr((string)($opts['dataforseo_location_code'] ?? '2840'));
+        $d_lang                 = esc_attr((string)($opts['dataforseo_language_code'] ?? 'en'));
+        $gsc_client_id          = esc_attr((string)($opts['gsc_client_id'] ?? ''));
+        $gsc_client_secret      = esc_attr((string)($opts['gsc_client_secret'] ?? ''));
+        $gsc_site_url           = esc_attr((string)($opts['gsc_site_url'] ?? ''));
+        $indexing_json          = esc_textarea((string)($opts['google_indexing_service_account_json'] ?? ''));
+        $indexing_post_types    = esc_attr((string)($opts['indexing_api_post_types'] ?? 'model,video,tmw_video'));
+        $schema_enabled         = (bool)($opts['schema_enabled'] ?? 1);
+        $schema_post_types      = esc_attr((string)($opts['schema_post_types'] ?? 'model,video,tmw_video'));
+        $orphan_scan_enabled    = (bool)($opts['orphan_scan_enabled'] ?? 1);
+        $safe_mode              = !empty($opts['safe_mode']);
+        $dry_run_mode           = !empty($opts['tmwseo_dry_run_mode']);
+        $auto_clear_noindex     = !empty($opts['auto_clear_noindex']);
+        $debug_mode             = (bool)($opts['debug_mode'] ?? 0);
+        $serper_api_key         = esc_attr((string)($opts['serper_api_key'] ?? ''));
+        $intel_max_seeds        = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
+        $intel_max_keywords     = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
 
-        $brand_voice = esc_attr((string)($opts['brand_voice'] ?? 'premium'));
-
-        $d_login = esc_attr((string)($opts['dataforseo_login'] ?? ''));
-        $d_pass = esc_attr((string)($opts['dataforseo_password'] ?? ''));
-        $d_loc = esc_attr((string)($opts['dataforseo_location_code'] ?? '2840'));
-        $safe_mode = !empty($opts['safe_mode']);
-        $dry_run_mode = !empty($opts['tmwseo_dry_run_mode']);
-        $auto_clear_noindex = !empty($opts['auto_clear_noindex']);
-        $template_external_link_enabled = !empty($opts['template_external_link_enabled']);
-        $include_external_info_link = !empty($opts['include_external_info_link']);
-
-        // Manual mode is a locked safety policy.
-        $manual_control_mode = true;
-        $debug_mode = (bool) Settings::get('debug_mode', 0);
-        $serper_api_key = esc_attr((string)($opts['serper_api_key'] ?? ''));
-        $intel_max_seeds = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
-        $intel_max_keywords = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
+        echo '<p>' . esc_html__('Settings are grouped by subsystem. Save once at the bottom. The Connections page provides live status cards for each integration.', 'tmwseo') . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">' . esc_html__('Go to Connections →', 'tmwseo') . '</a></p>';
 
         echo '<form method="post" action="options.php">';
         settings_fields('tmwseo_settings_group');
         do_settings_sections('tmwseo_settings');
 
-        echo '<h2>Safety Policies (Locked)</h2>';
+        // ── Safety (locked) ───────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Safety Policies (Locked)', 'tmwseo') . '</h2>';
+        echo '<div style="background:#fefce8;border-left:4px solid #eab308;padding:12px 16px;margin-bottom:16px;">';
+        echo '<strong>' . esc_html__('These policies are always enforced and cannot be disabled.', 'tmwseo') . '</strong>';
+        echo '</div>';
         echo '<table class="form-table">';
-        echo '<tr><th>Human approval</th><td><input type="checkbox" checked disabled> Always required</td></tr>';
-        echo '<tr><th>Manual control mode</th><td><input type="checkbox" checked disabled> Always enabled</td></tr>';
-        echo '</table>';
-        echo '<p class="description">Human approval is always required. The plugin only suggests opportunities and creates drafts when you explicitly choose to do so.</p>';
-
-        echo '<h2>Debug</h2>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[debug_mode]" value="1" ' . checked($debug_mode, true, false) . '> Enable Debug Mode</label>';
-        echo '<p class="description">When disabled, debug file logging and the Debug Dashboard are hidden.</p>';
-
-        echo '<h2>Intelligence (Phase 1)</h2>';
-        echo '<table class="form-table">';
-        echo '<tr><th>Max seeds per intelligence run</th><td><input type="number" name="tmwseo_engine_settings[intel_max_seeds]" value="' . $intel_max_seeds . '" class="small-text" min="1" max="10"> <span class="description">Default: 3</span></td></tr>';
-        echo '<tr><th>Max keywords per intelligence run</th><td><input type="number" name="tmwseo_engine_settings[intel_max_keywords]" value="' . $intel_max_keywords . '" class="small-text" min="50" max="2000"> <span class="description">Cost control cap before KD/volume enrichment.</span></td></tr>';
+        echo '<tr><th>' . esc_html__('Human approval', 'tmwseo') . '</th><td><input type="checkbox" checked disabled> ' . esc_html__('Always required', 'tmwseo') . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Manual control mode', 'tmwseo') . '</th><td><input type="checkbox" checked disabled> ' . esc_html__('Always enabled', 'tmwseo') . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Auto-publish', 'tmwseo') . '</th><td><input type="checkbox" disabled> ' . esc_html__('Always disabled', 'tmwseo') . '</td></tr>';
+        echo '<tr><th>' . esc_html__('Auto-link insertion', 'tmwseo') . '</th><td><input type="checkbox" disabled> ' . esc_html__('Always disabled', 'tmwseo') . '</td></tr>';
         echo '</table>';
 
-        echo '<h2>Serper (optional)</h2>';
-        echo '<table class="form-table"><tr><th>Serper API key</th><td><input type="password" name="tmwseo_engine_settings[serper_api_key]" value="' . $serper_api_key . '" class="regular-text" autocomplete="off">';
-        echo '<p class="description">Optional. Enables People Also Ask + related searches as an extra keyword source in Intelligence runs.</p></td></tr></table>';
+        // ── Safe Mode ─────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Safe Mode', 'tmwseo') . '</h2>';
+        echo '<table class="form-table"><tr><th>' . esc_html__('Safe Mode', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked($safe_mode, true, false) . '> ' . esc_html__('Enable safe mode', 'tmwseo') . '</label>';
+        echo '<p class="description">' . esc_html__('When ON: blocks Google Indexing API pings, OpenAI/AI calls, and PageSpeed cycles. Recommended until you are satisfied with your setup. Turn OFF to allow AI-powered features and indexing submissions.', 'tmwseo') . '</p>';
+        echo '</td></tr></table>';
 
-        echo '<h2>Safe Mode</h2>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked($safe_mode, true, false) . '> Keep safe mode enabled (no auto-publish / no indexing submissions)</label>';
-        echo '<p class="description">Safety layer is always enforced: never auto-publish, never auto-modify existing content, never auto-insert links. Every action requires explicit user approval.</p>';
-
-        echo '<h2>OpenAI</h2>';
+        // ── AI Provider / Router ──────────────────────────────────────────
+        echo '<h2>' . esc_html__('AI Provider', 'tmwseo') . '</h2>';
         echo '<table class="form-table">';
-        echo '<tr><th>API Key</th><td><input type="password" name="tmwseo_engine_settings[openai_api_key]" value="' . $openai_api_key . '" class="regular-text" autocomplete="off">';
-        echo '<p class="description">Store your OpenAI API key here.</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Primary provider', 'tmwseo') . '</th><td>';
+        echo '<select name="tmwseo_engine_settings[tmwseo_ai_primary]">';
+        echo '<option value="openai"' . selected($ai_primary, 'openai', false) . '>OpenAI (primary)</option>';
+        echo '<option value="anthropic"' . selected($ai_primary, 'anthropic', false) . '>Anthropic Claude (primary)</option>';
+        echo '</select>';
+        echo '<p class="description">' . esc_html__('If the primary provider fails, the other is tried automatically.', 'tmwseo') . '</p>';
+        echo '</td></tr>';
+        echo '<tr><th>' . esc_html__('Monthly AI budget (USD)', 'tmwseo') . '</th><td>';
+        echo '<input type="number" name="tmwseo_engine_settings[tmwseo_openai_budget_usd]" value="' . $ai_budget . '" class="small-text" min="0" step="1">';
+        echo '<p class="description">' . esc_html__('Monthly spend cap in USD. Set to 0 for unlimited. Tracked across both providers.', 'tmwseo') . '</p>';
+        echo '</td></tr></table>';
 
-        echo '<tr><th>Mode</th><td>';
+        // ── OpenAI ────────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('OpenAI', 'tmwseo') . '</h2>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('API Key', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[openai_api_key]" value="' . $openai_api_key . '" class="regular-text" autocomplete="off"></td></tr>';
+        echo '<tr><th>' . esc_html__('Mode', 'tmwseo') . '</th><td>';
         echo '<select name="tmwseo_engine_settings[openai_mode]">';
         echo '<option value="hybrid"' . selected($openai_mode, 'hybrid', false) . '>Hybrid (recommended)</option>';
         echo '<option value="quality"' . selected($openai_mode, 'quality', false) . '>Quality (always primary)</option>';
         echo '<option value="bulk"' . selected($openai_mode, 'bulk', false) . '>Bulk (always bulk model)</option>';
-        echo '</select>';
-        echo '<p class="description">Hybrid balances quality + cost: primary model for high-value jobs, bulk model for large batches.</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th>Primary model</th><td><input type="text" name="tmwseo_engine_settings[openai_model_primary]" value="' . $openai_model_primary . '" class="regular-text">';
-        echo '<p class="description">Default: <code>gpt-4o</code></p></td></tr>';
-
-        echo '<tr><th>Bulk model</th><td><input type="text" name="tmwseo_engine_settings[openai_model_bulk]" value="' . $openai_model_bulk . '" class="regular-text">';
-        echo '<p class="description">Default: <code>gpt-4o-mini</code></p></td></tr>';
-
-        echo '<tr><th>Brand voice</th><td>';
-        echo '<select name="tmwseo_engine_settings[brand_voice]">';
-        echo '<option value="premium"' . selected($brand_voice, 'premium', false) . '>Premium (recommended)</option>';
-        echo '<option value="neutral"' . selected($brand_voice, 'neutral', false) . '>Neutral</option>';
-        echo '</select>';
-        echo '<p class="description">Affects default writing tone once AI generation is enabled in later versions.</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th>Template Mode</th><td>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_dry_run_mode]" value="1" ' . checked($dry_run_mode, true, false) . '> Default to Template mode (skip OpenAI unless explicitly selected in the editor metabox)</label>';
-        echo '<p class="description">Template mode now supports smart internal links and optional contextual external linking.</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th>Template links</th><td>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[include_external_info_link]" value="1" ' . checked($include_external_info_link, true, false) . '> Add one contextual informational external link in Template mode</label>';
-        echo '<br><label><input type="checkbox" name="tmwseo_engine_settings[template_external_link_enabled]" value="1" ' . checked($template_external_link_enabled, true, false) . '> (Legacy) Enable template external link fallback</label>';
-        echo '<p class="description">When enabled, generated Template content includes one safe, non-affiliate external resource link.</p>';
-        echo '</td></tr>';
-
-        echo '<tr><th>Indexing</th><td>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[auto_clear_noindex]" value="1" ' . checked($auto_clear_noindex, true, false) . '> Auto-clear RankMath noindex on optimized model/category pages</label>';
-        echo '<p class="description">Leave this OFF until you are happy with the content + keyword packs. When OFF, TMW SEO Engine will not remove <code>noindex</code> automatically.</p>';
-        echo '</td></tr>';
-
-        // Legacy single-model field (hidden-ish): keep for compatibility / quick overrides.
-        echo '<tr><th>Legacy model (auto)</th><td><input type="text" name="tmwseo_engine_settings[openai_model]" value="' . $openai_model . '" class="regular-text" readonly>'; 
-        echo '<p class="description">This is kept for backward compatibility; it auto-syncs based on Mode.</p></td></tr>';
-
+        echo '</select></td></tr>';
+        echo '<tr><th>' . esc_html__('Primary model', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[openai_model_primary]" value="' . $openai_model_primary . '" class="regular-text"><p class="description">Default: <code>gpt-4o</code></p></td></tr>';
+        echo '<tr><th>' . esc_html__('Bulk model', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[openai_model_bulk]" value="' . $openai_model_bulk . '" class="regular-text"><p class="description">Default: <code>gpt-4o-mini</code></p></td></tr>';
+        echo '<tr><th>' . esc_html__('Brand voice', 'tmwseo') . '</th><td>';
+        echo '<select name="tmwseo_engine_settings[brand_voice]"><option value="premium"' . selected($brand_voice, 'premium', false) . '>Premium</option><option value="neutral"' . selected($brand_voice, 'neutral', false) . '>Neutral</option></select></td></tr>';
+        echo '<input type="hidden" name="tmwseo_engine_settings[openai_model]" value="' . $openai_model . '">';
         echo '</table>';
 
-        echo '<h2>DataForSEO</h2>';
-        echo '<table class="form-table"><tr><th>Login</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_login]" value="' . $d_login . '" class="regular-text"></td></tr>';
-        echo '<tr><th>Password</th><td><input type="password" name="tmwseo_engine_settings[dataforseo_password]" value="' . $d_pass . '" class="regular-text" autocomplete="off"></td></tr></table>';
+        // ── Anthropic ────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Anthropic Claude', 'tmwseo') . '</h2>';
+        echo '<table class="form-table"><tr><th>' . esc_html__('API Key', 'tmwseo') . '</th><td>';
+        echo '<input type="password" name="tmwseo_engine_settings[tmwseo_anthropic_api_key]" value="' . $anthropic_key . '" class="regular-text" autocomplete="off">';
+        echo '<p class="description">' . esc_html__('Required if Anthropic is your primary or fallback provider.', 'tmwseo') . '</p>';
+        echo '</td></tr></table>';
 
-        echo '<table class="form-table"><tr><th>Location code</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_location_code]" value="' . $d_loc . '" class="regular-text">';
-        echo '<p class="description">Default: <code>2840</code> (United States). Change later if you want geo-specific keyword data.</p></td></tr></table>';
-
-
-        echo '<table class="form-table"><tr><th>Language code</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_language_code]" value="' . esc_attr((string)($opts['dataforseo_language_code'] ?? 'en')) . '" class="regular-text">';
-        echo '<p class="description">Default: <code>en</code>. Example: <code>nl</code>, <code>de</code>, <code>fr</code>.</p></td></tr></table>';
-
-        echo '<h2>Keyword Engine</h2>';
-        echo '<table class="form-table"><tr><th>Competitor domains (one per line)</th><td><textarea name="tmwseo_engine_settings[competitor_domains]" rows="7" class="large-text code">' . esc_textarea((string)($opts['competitor_domains'] ?? '')) . '</textarea>';
-        echo '<p class="description">Used for competitor rotation seeds. Domains only (no https://).</p></td></tr></table>';
-
+        // ── Google Search Console ─────────────────────────────────────────
+        echo '<h2>' . esc_html__('Google Search Console (OAuth2)', 'tmwseo') . '</h2>';
+        $gsc_connected = \TMWSEO\Engine\Integrations\GSCApi::is_connected();
+        if ($gsc_connected) {
+            echo '<div style="background:#dcfce7;border-left:4px solid #16a34a;padding:10px 14px;margin-bottom:12px;">✓ ' . esc_html__('GSC is connected.', 'tmwseo') . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">' . esc_html__('Manage on Connections page', 'tmwseo') . '</a></div>';
+        }
         echo '<table class="form-table">';
-        echo '<tr><th>Min search volume</th><td><input type="number" name="tmwseo_engine_settings[keyword_min_volume]" value="' . esc_attr((string)($opts['keyword_min_volume'] ?? 30)) . '" class="small-text"> <span class="description">Filter low-volume noise.</span></td></tr>';
-        echo '<tr><th>Max KD</th><td><input type="number" name="tmwseo_engine_settings[keyword_max_kd]" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"> <span class="description">Auto-reject too difficult keywords.</span></td></tr>';
-        echo '<tr><th>New keywords per run</th><td><input type="number" name="tmwseo_engine_settings[keyword_new_limit]" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
-        echo '<tr><th>KD batch size</th><td><input type="number" name="tmwseo_engine_settings[keyword_kd_batch_limit]" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
-        echo '<tr><th>Pages per day</th><td><input type="number" name="tmwseo_engine_settings[keyword_pages_per_day]" value="' . esc_attr((string)($opts['keyword_pages_per_day'] ?? 3)) . '" class="small-text"> <span class="description">Auto-created drafts (noindex) from top clusters.</span></td></tr>';
+        echo '<tr><th>' . esc_html__('Client ID', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[gsc_client_id]" value="' . $gsc_client_id . '" class="regular-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Client Secret', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[gsc_client_secret]" value="' . $gsc_client_secret . '" class="regular-text" autocomplete="off"></td></tr>';
+        echo '<tr><th>' . esc_html__('Verified Site URL', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[gsc_site_url]" value="' . $gsc_site_url . '" class="regular-text">';
+        echo '<p class="description">' . esc_html__('Exact URL as shown in GSC (with trailing slash if required).', 'tmwseo') . '</p></td></tr>';
+        echo '</table>';
+        if (!$gsc_connected && !empty($gsc_client_id) && !empty($gsc_client_secret)) {
+            $auth_url = \TMWSEO\Engine\Integrations\GSCApi::get_auth_url();
+            echo '<p><a class="button" href="' . esc_url($auth_url) . '" target="_blank">' . esc_html__('Connect GSC →', 'tmwseo') . '</a></p>';
+        }
+
+        // ── Google Indexing API ────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Google Indexing API', 'tmwseo') . '</h2>';
+        echo '<div style="background:#fefce8;border-left:4px solid #eab308;padding:10px 14px;margin-bottom:12px;">';
+        echo esc_html__('Indexing API is only active when Safe Mode is OFF. It notifies Google when posts are published — it does not auto-publish content.', 'tmwseo');
+        echo '</div>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('Service Account JSON', 'tmwseo') . '</th><td>';
+        echo '<textarea name="tmwseo_engine_settings[google_indexing_service_account_json]" rows="6" class="large-text code">' . $indexing_json . '</textarea>';
+        echo '<p class="description">' . esc_html__('Paste the full JSON from your Google Cloud service account key file.', 'tmwseo') . '</p>';
+        echo '</td></tr>';
+        echo '<tr><th>' . esc_html__('Post types to index', 'tmwseo') . '</th><td>';
+        echo '<input type="text" name="tmwseo_engine_settings[indexing_api_post_types]" value="' . $indexing_post_types . '" class="regular-text">';
+        echo '<p class="description">' . esc_html__('Comma-separated list of post types to notify Google about on publish.', 'tmwseo') . '</p>';
+        echo '</td></tr></table>';
+
+        // ── DataForSEO ────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('DataForSEO', 'tmwseo') . '</h2>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('Login', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_login]" value="' . $d_login . '" class="regular-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Password', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[dataforseo_password]" value="' . $d_pass . '" class="regular-text" autocomplete="off"></td></tr>';
+        echo '<tr><th>' . esc_html__('Location code', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_location_code]" value="' . $d_loc . '" class="regular-text"><p class="description">Default: <code>2840</code> (US)</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Language code', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_language_code]" value="' . $d_lang . '" class="regular-text"><p class="description">Default: <code>en</code></p></td></tr>';
         echo '</table>';
 
-        echo '<h2>PageSpeed Insights</h2>';
-        echo '<table class="form-table"><tr><th>Google PageSpeed API key (optional)</th><td><input type="text" name="tmwseo_engine_settings[google_pagespeed_api_key]" value="' . esc_attr((string)($opts['google_pagespeed_api_key'] ?? '')) . '" class="regular-text" autocomplete="off">';
-        echo '<p class="description">Optional. If empty, PSI may still work but can be rate-limited.</p></td></tr></table>';
+        // ── Schema ────────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('JSON-LD Schema', 'tmwseo') . '</h2>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('Enable Schema', 'tmwseo') . '</th><td><label><input type="checkbox" name="tmwseo_engine_settings[schema_enabled]" value="1" ' . checked($schema_enabled, true, false) . '> ' . esc_html__('Output JSON-LD schema in &lt;head&gt;', 'tmwseo') . '</label></td></tr>';
+        echo '<tr><th>' . esc_html__('Post types', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[schema_post_types]" value="' . $schema_post_types . '" class="regular-text"><p class="description">' . esc_html__('Comma-separated post types.', 'tmwseo') . '</p></td></tr>';
+        echo '</table>';
 
+        // ── Orphan Detection ──────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Orphan Page Detection', 'tmwseo') . '</h2>';
+        echo '<table class="form-table"><tr><th>' . esc_html__('Enable detection', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[orphan_scan_enabled]" value="1" ' . checked($orphan_scan_enabled, true, false) . '> ' . esc_html__('Enable orphan page detection (AJAX scan from Tools page)', 'tmwseo') . '</label>';
+        echo '</td></tr></table>';
+
+        // ── Keyword Engine ────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Keyword Engine', 'tmwseo') . '</h2>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('Competitor domains', 'tmwseo') . '</th><td><textarea name="tmwseo_engine_settings[competitor_domains]" rows="6" class="large-text code">' . esc_textarea((string)($opts['competitor_domains'] ?? '')) . '</textarea><p class="description">' . esc_html__('One domain per line. No https://. Used for competitor seeding.', 'tmwseo') . '</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Min search volume', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_min_volume]" value="' . esc_attr((string)($opts['keyword_min_volume'] ?? 30)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Max KD', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_max_kd]" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('New keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_new_limit]" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('KD batch size', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_kd_batch_limit]" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '</table>';
+
+        // ── Intelligence ──────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Intelligence', 'tmwseo') . '</h2>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('Serper API key', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[serper_api_key]" value="' . $serper_api_key . '" class="regular-text" autocomplete="off"><p class="description">' . esc_html__('Optional. Enables People Also Ask keyword expansion.', 'tmwseo') . '</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Max seeds per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_seeds]" value="' . $intel_max_seeds . '" class="small-text" min="1" max="10"></td></tr>';
+        echo '<tr><th>' . esc_html__('Max keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_keywords]" value="' . $intel_max_keywords . '" class="small-text" min="50" max="2000"></td></tr>';
+        echo '</table>';
+
+        // ── Debug ─────────────────────────────────────────────────────────
+        echo '<h2>' . esc_html__('Debug', 'tmwseo') . '</h2>';
+        echo '<table class="form-table"><tr><th>' . esc_html__('Debug mode', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[debug_mode]" value="1" ' . checked($debug_mode, true, false) . '> ' . esc_html__('Enable debug logging', 'tmwseo') . '</label>';
+        echo '</td></tr></table>';
 
         submit_button();
         echo '</form>';

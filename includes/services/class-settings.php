@@ -64,6 +64,30 @@ class Settings {
             // Template mode linking
             'template_external_link_enabled' => 0,
             'include_external_info_link' => 0,
+
+            // ── v4.2 additions ─────────────────────────────────────────────
+            // Google Search Console OAuth2
+            'gsc_client_id'      => '',
+            'gsc_client_secret'  => '',
+            'gsc_site_url'       => '',
+
+            // Google Indexing API (service account JSON)
+            'google_indexing_service_account_json' => '',
+            'indexing_api_post_types'              => 'model,video,tmw_video',
+
+            // Anthropic Claude (fallback AI)
+            'tmwseo_anthropic_api_key' => '',
+            'tmwseo_ai_primary'        => 'openai', // openai | anthropic
+
+            // AI budget cap (USD per month, 0 = unlimited)
+            'tmwseo_openai_budget_usd' => 20.0,
+
+            // JSON-LD Schema
+            'schema_enabled'   => 1,
+            'schema_post_types'=> 'model,video,tmw_video',
+
+            // Orphan page detection
+            'orphan_scan_enabled' => 1,
         ];
     }
 
@@ -89,7 +113,7 @@ class Settings {
      * human approval in every environment.
      */
     public static function is_human_approval_required(): bool {
-        return true;
+        return TrustPolicy::is_human_approval_required();
     }
 
     public static function openai_model_for_quality(): string {

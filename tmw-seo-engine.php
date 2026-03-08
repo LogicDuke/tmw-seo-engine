@@ -1,15 +1,15 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core (Phase 2) — Manual analysis, reporting, and Model SEO Optimizer. No automatic actions.
- * Version: 4.0.2-intelligence-phase2-proud
+ * Description: Intelligence Core v4.2 — Real GSC, AI Router (OpenAI+Claude), SERP data, Ranking Probability Orchestrator, JSON-LD Schema, Orphan Detector, CSV Export, Competitor Monitor.
+ * Version: 4.2.2
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
 
 if (!defined('ABSPATH')) { exit; }
 
-define('TMWSEO_ENGINE_VERSION', '4.0.2-intelligence-phase2-proud');
+define('TMWSEO_ENGINE_VERSION', '4.2.2');
 define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 

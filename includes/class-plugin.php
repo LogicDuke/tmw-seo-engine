@@ -12,11 +12,55 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
+
+// ── Autopilot integration: new classes ────────────────────────────────────────
+// Keyword usage deduplication (anti-cannibalization)
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-usage.php';
+// Curated keyword library (30 niche CSV categories)
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-curated-keyword-library.php';
+// Background keyword data maintenance crons (data-only, respects manual mode)
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-scheduler.php';
+// Rollback (snapshot + restore pre-generation state)
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-rollback.php';
+// Content uniqueness / similarity checker
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-uniqueness-checker.php';
+// Automated image ALT / title / caption / description
+require_once TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-generator.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-hooks.php';
+// WP-CLI commands
+if (defined('WP_CLI') && WP_CLI) {
+    require_once TMWSEO_ENGINE_PATH . 'includes/cli/class-cli.php';
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── v4.2: New integrations, AI, Schema, Export, Competitor Monitor ────────────
+// AI Router (OpenAI primary + Anthropic Claude fallback + token/budget tracking)
+require_once TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php';
+// Real Google Search Console API (replaces fake rand() data)
+require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
+// Google Indexing API (pings Google on publish)
+require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-indexing-api.php';
+// Ranking Probability Orchestrator (assembles all 7 real signals)
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-orchestrator.php';
+// JSON-LD Schema Generator (Person, VideoObject, FAQPage)
+require_once TMWSEO_ENGINE_PATH . 'includes/schema/class-schema-generator.php';
+// Orphan Page Detector (zero inbound internal links)
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-orphan-page-detector.php';
+// CSV Exporter
+require_once TMWSEO_ENGINE_PATH . 'includes/export/class-csv-exporter.php';
+// Competitor Monitor (weekly domain authority + keyword threat detection)
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/competitor-monitor/class-competitor-monitor.php';
+// Admin Dashboard v2
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-dashboard-v2.php';
+// ─────────────────────────────────────────────────────────────────────────────
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-trust-policy.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-title-fixer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-openai.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
@@ -31,12 +75,14 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.ph
 require_once TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-assisted-draft-enrichment-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-quality-score-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-optimizer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-intelligence.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-expander.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-filter.php';
@@ -167,7 +213,7 @@ class Plugin {
      */
     private static function is_manual_control_mode(): bool {
         // Safety layer policy: manual control is always enforced.
-        return true;
+        return \TMWSEO\Engine\Services\TrustPolicy::is_manual_only();
     }
 
     /**
@@ -184,6 +230,12 @@ class Plugin {
         // Kill all known scheduled hooks.
         Cron::unschedule_events();
         SmartQueue::unschedule_daily_scan();
+        \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
+        \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
+        // Note: KeywordScheduler is intentionally NOT cleared here — it only
+        // updates keyword CSV data files and never writes post content, so it
+        // is safe in manual-only mode. Operators can call KeywordScheduler::unschedule()
+        // manually if they want to stop keyword data refreshes too.
 
         // Defensive: clear any lingering events by name.
         wp_clear_scheduled_hook('tmwseo_process_queue');
@@ -191,6 +243,10 @@ class Plugin {
         wp_clear_scheduled_hook('tmwseo_daily');
         wp_clear_scheduled_hook('tmwseo_weekly');
         wp_clear_scheduled_hook('tmw_lighthouse_weekly_scan');
+        wp_clear_scheduled_hook('tmwseo_orphan_scan_weekly');
+        wp_clear_scheduled_hook('tmwseo_competitor_monitor_weekly');
+        wp_clear_scheduled_hook('tmwseo_keyword_scheduler_monthly');
+        wp_clear_scheduled_hook('tmw_keyword_refresh_monthly');
 
         update_option($applied_key, (string) TMWSEO_ENGINE_VERSION);
         Logs::info('core', 'Manual Control Mode applied (cron/auto hooks disabled)', [
@@ -209,12 +265,63 @@ class Plugin {
             SmartQueue::init();
         }
 
+        // ── Always boot (manual or not) ────────────────────────────────────
+        // Keyword usage tracking (anti-cannibalization) — DB-only, no automation
+        \TMWSEO\Engine\Keywords\KeywordUsage::maybe_upgrade();
+        // Keyword data crons (update CSV files only, no content writing)
+        \TMWSEO\Engine\Keywords\KeywordScheduler::init();
+        // Automated image ALT/title/caption on featured image assignment
+        \TMWSEO\Engine\Media\ImageMetaHooks::init();
+        // Cron custom schedules for keyword scheduler
+        add_filter('cron_schedules', function($schedules) {
+            if (!isset($schedules['tmwseo_monthly'])) {
+                $schedules['tmwseo_monthly'] = ['interval' => 30 * DAY_IN_SECONDS, 'display' => 'Monthly (TMW SEO)'];
+            }
+            return $schedules;
+        });
+
+        // ── v4.2 boots ─────────────────────────────────────────────────────
+        // Google Indexing API — pings Google on publish. Only active when safe_mode is OFF
+        // and the operator has configured the service account. Non-mutating; just notifies Google.
+        if (!(bool) \TMWSEO\Engine\Services\Settings::get('safe_mode', 1)) {
+            \TMWSEO\Engine\Integrations\GoogleIndexingAPI::init();
+        }
+        // JSON-LD Schema output in <head>
+        if ((bool) \TMWSEO\Engine\Services\Settings::get('schema_enabled', 1)) {
+            \TMWSEO\Engine\Schema\SchemaGenerator::init();
+        }
+        // GSC OAuth callback handler
+        if (!empty($_GET['tmwseo_gsc_callback'])) {
+            add_action('admin_init', function() {
+                $code  = sanitize_text_field($_GET['code'] ?? '');
+                $state = sanitize_text_field($_GET['state'] ?? '');
+                if ($code !== '') {
+                    \TMWSEO\Engine\Integrations\GSCApi::handle_oauth_callback($code, $state);
+                    wp_safe_redirect(admin_url('admin.php?page=tmwseo-settings&tmwseo_gsc_connected=1'));
+                    exit;
+                }
+            });
+        }
+        // Orphan page detector init
+        if ((bool) \TMWSEO\Engine\Services\Settings::get('orphan_scan_enabled', 1)) {
+            \TMWSEO\Engine\InternalLinks\OrphanPageDetector::init();
+        }
+        // CSV exporter
+        \TMWSEO\Engine\Export\CSVExporter::init();
+        // Competitor monitor
+        \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::init();
+        // Admin Dashboard v2
+        \TMWSEO\Engine\Admin\AdminDashboardV2::init();
+        // ──────────────────────────────────────────────────────────────────
+
         Migration::maybe_migrate_legacy();
         Schema::ensure_intelligence_schema();
         Schema::normalize_cluster_schema_version_option();
 
-        // Phase 1: analysis-only, so we do NOT auto-hook ContentEngine.
+        // Phase 1 / Phase A: analysis-only, so we do NOT auto-hook ContentEngine.
+        // Legacy publish-trigger autopilot is additionally hard-fenced inside ContentEngine.
         if (!$manual) {
+            Logs::warn('core', '[TMW-SEO-AUTO] Manual mode disabled by policy override; ContentEngine init remains Phase A fenced');
             \TMWSEO\Engine\Content\ContentEngine::init();
         }
 
@@ -269,6 +376,7 @@ class Plugin {
 
         if (is_admin()) {
             Admin::init();
+            \TMWSEO\Engine\Admin\CommandCenter::init();
             \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
@@ -284,7 +392,10 @@ class Plugin {
         Schema::ensure_intelligence_schema();
         Schema::normalize_cluster_schema_version_option();
 
-        // Phase 1 default: manual-only => do NOT schedule cron.
+        // ── Keyword usage tables (anti-cannibalization) ────────────────────
+        \TMWSEO\Engine\Keywords\KeywordUsage::install();
+
+        // Phase 1 default: manual-only => do NOT schedule content-writing cron.
         if (!self::is_manual_control_mode()) {
             Cron::schedule_events();
             SmartQueue::schedule_daily_scan();
@@ -292,6 +403,18 @@ class Plugin {
             // Ensure no old scheduled tasks exist.
             Cron::unschedule_events();
             SmartQueue::unschedule_daily_scan();
+        }
+
+        // ── Keyword data maintenance crons (safe in manual mode) ───────────
+        // These only update keyword CSV data files, never write post content.
+        \TMWSEO\Engine\Keywords\KeywordScheduler::schedule();
+
+        // ── v4.2 crons — only schedule if NOT in manual mode ───────────────
+        // These are read-only scans, but we respect the manual-only trust policy.
+        // Operators can trigger scans manually from the Tools page.
+        if (!self::is_manual_control_mode()) {
+            \TMWSEO\Engine\InternalLinks\OrphanPageDetector::schedule();
+            \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::schedule();
         }
 
         Migration::maybe_migrate_legacy(true);
@@ -304,6 +427,9 @@ class Plugin {
     public static function deactivate(): void {
         Cron::unschedule_events();
         SmartQueue::unschedule_daily_scan();
+        \TMWSEO\Engine\Keywords\KeywordScheduler::unschedule();
+        \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
+        \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
         flush_rewrite_rules();
         Logs::info('core', 'Deactivated ' . TMWSEO_ENGINE_VERSION);
     }

@@ -27,13 +27,29 @@ class QualityScoreEngine {
         $internal_links = self::score_internal_links($html, $site_host);
         $readability = self::score_readability($text);
 
+        // ── Uniqueness score (new) ─────────────────────────────────────────
+        $exclude_post_id   = (int) ($context['post_id'] ?? 0);
+        $post_type_context = (string) ($context['post_type'] ?? 'model');
+        $uniqueness_score  = 0.0;
+        $uniqueness_pct    = 0.0;
+        $uniqueness_verdict = [];
+        if ($text !== '' && class_exists('\\TMWSEO\\Engine\\Content\\UniquenessChecker')) {
+            $similarity = UniquenessChecker::similarity_score($text, $post_type_context, 12, $exclude_post_id);
+            // Convert similarity → uniqueness: 100% similar = 0.0, 0% similar = 1.0
+            $uniqueness_score   = max(0.0, min(1.0, 1.0 - ($similarity / 100)));
+            $uniqueness_pct     = (int) round($uniqueness_score * 100);
+            $uniqueness_verdict = UniquenessChecker::verdict($similarity);
+        }
+
+        // Rebalanced weights (total still = 100, uniqueness takes 15 from readability)
         $weights = [
             'semantic_keyword_coverage' => 25,
-            'heading_structure' => 15,
-            'word_count' => 20,
-            'entity_coverage' => 15,
-            'internal_links' => 10,
-            'readability' => 15,
+            'heading_structure'         => 15,
+            'word_count'                => 20,
+            'entity_coverage'           => 10,
+            'internal_links'            => 10,
+            'readability'               => 10,
+            'uniqueness'                => 10,
         ];
 
         $raw_score =
@@ -42,7 +58,8 @@ class QualityScoreEngine {
             ($word_count_score * $weights['word_count']) +
             ($entity_coverage * $weights['entity_coverage']) +
             ($internal_links * $weights['internal_links']) +
-            ($readability * $weights['readability']);
+            ($readability * $weights['readability']) +
+            ($uniqueness_score * $weights['uniqueness']);
 
         $score = (int) round(max(1, min(100, $raw_score)));
 
@@ -57,7 +74,9 @@ class QualityScoreEngine {
                 'entity_coverage' => (int) round($entity_coverage * 100),
                 'internal_links' => (int) round($internal_links * 100),
                 'readability' => (int) round($readability * 100),
+                'uniqueness' => $uniqueness_pct,
             ],
+            'uniqueness_verdict' => $uniqueness_verdict,
             'word_count' => $word_count,
         ];
     }

@@ -301,26 +301,56 @@ class KeywordIntelligenceRunner {
     /**
      * Build suggest query variations.
      *
+     * Uses category-specific seed patterns from the curated library when
+     * a category context is available in $options, otherwise falls back
+     * to the generic modifiers.
+     *
      * @param string[] $seeds
      * @param bool $expand_modifiers
      * @return array<int, array{0:string,1:string}>
      */
     private static function build_suggest_queries(array $seeds, bool $expand_modifiers): array {
-        $queries = [];
-        $mods = ['free', 'no signup', 'no registration', 'private', 'best'];
+        $queries      = [];
+        $generic_mods = ['free', 'no signup', 'no registration', 'private', 'best'];
 
         foreach ($seeds as $seed) {
             $queries[] = [$seed, $seed];
-            if ($expand_modifiers) {
-                foreach ($mods as $m) {
-                    $queries[] = [$seed, trim($seed . ' ' . $m)];
+
+            if (!$expand_modifiers) {
+                continue;
+            }
+
+            // Try to get category-specific modifiers from the curated library
+            $cat_mods     = [];
+            $cat_suffixes = [];
+
+            if (class_exists('\\TMWSEO\\Engine\\Keywords\\CuratedKeywordLibrary')) {
+                // Infer category from the seed phrase itself (best-effort)
+                $categories = \TMWSEO\Engine\Keywords\CuratedKeywordLibrary::categories();
+                foreach ($categories as $cat) {
+                    if (stripos($seed, str_replace('-', ' ', $cat)) !== false
+                        || stripos($seed, $cat) !== false) {
+                        $patterns     = \TMWSEO\Engine\Keywords\CuratedKeywordLibrary::get_seed_patterns($cat);
+                        $cat_mods     = $patterns['modifiers'] ?? [];
+                        $cat_suffixes = $patterns['suffixes'] ?? [];
+                        break;
+                    }
                 }
+            }
+
+            $mods = !empty($cat_mods) ? $cat_mods : $generic_mods;
+
+            foreach ($mods as $m) {
+                $queries[] = [$seed, trim($seed . ' ' . $m)];
+            }
+            foreach ($cat_suffixes as $s) {
+                $queries[] = [$seed, trim($seed . ' ' . $s)];
             }
         }
 
         // Dedupe queries while preserving seed association.
         $seen = [];
-        $out = [];
+        $out  = [];
         foreach ($queries as [$seed, $q]) {
             $key = mb_strtolower($q, 'UTF-8');
             if (isset($seen[$seed . '|' . $key])) continue;
@@ -331,32 +361,74 @@ class KeywordIntelligenceRunner {
     }
 
     private static function fetch_google_suggest(string $query): array {
-        $url = 'https://suggestqueries.google.com/complete/search?client=firefox&q=' . rawurlencode($query);
-        $resp = wp_remote_get($url, [
-            'timeout' => 12,
-            'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (compatible; TMWSEO/4.0; +https://example.com)',
-                'Accept' => 'application/json',
-            ],
-        ]);
-
-        if (is_wp_error($resp)) {
+        $query = trim($query);
+        if ($query === '') {
             return [];
         }
 
-        $body = (string) wp_remote_retrieve_body($resp);
-        $json = json_decode($body, true);
-        if (!is_array($json) || !isset($json[1]) || !is_array($json[1])) {
-            return [];
+        // ── Transient cache (1 hour) ─────────────────────────────────────
+        $cache_key = 'tmwseo_gs_suggest_' . md5(strtolower($query));
+        $cached    = get_transient($cache_key);
+        if ($cached !== false && is_array($cached)) {
+            return $cached;
         }
 
-        $out = [];
-        foreach ($json[1] as $s) {
-            $s = trim((string)$s);
-            if ($s !== '') $out[] = $s;
+        // ── Multiple endpoints with retry + backoff ──────────────────────
+        $endpoints = [
+            'https://suggestqueries.google.com/complete/search',
+            'https://clients1.google.com/complete/search',
+            'https://www.google.com/complete/search',
+        ];
+        $backoff_ms = [300, 900, 1800];
+        $user_agent = 'Mozilla/5.0 (compatible; TMWSEO-Engine/4.1; +' . home_url('/') . ')';
+        $out        = [];
+
+        foreach ($endpoints as $base_url) {
+            $url  = $base_url . '?client=firefox&q=' . rawurlencode($query);
+            $done = false;
+
+            for ($attempt = 0; $attempt <= 2; $attempt++) {
+                if ($attempt > 0 && isset($backoff_ms[$attempt - 1])) {
+                    usleep($backoff_ms[$attempt - 1] * 1000);
+                }
+
+                $resp = wp_remote_get($url, [
+                    'timeout' => 12,
+                    'headers' => [
+                        'User-Agent' => $user_agent,
+                        'Accept'     => 'application/json',
+                    ],
+                ]);
+
+                if (is_wp_error($resp)) {
+                    continue;
+                }
+
+                $code = (int) wp_remote_retrieve_response_code($resp);
+                if ($code === 429 || $code >= 500) {
+                    continue; // rate-limited or server error — retry
+                }
+
+                $body = (string) wp_remote_retrieve_body($resp);
+                $json = json_decode($body, true);
+                if (is_array($json) && isset($json[1]) && is_array($json[1])) {
+                    foreach ($json[1] as $s) {
+                        $s = trim((string)$s);
+                        if ($s !== '') $out[] = $s;
+                    }
+                    $done = true;
+                }
+                break;
+            }
+
+            if ($done) {
+                break; // Got results — no need to try next endpoint
+            }
         }
 
-        return array_values(array_unique($out));
+        $out = array_values(array_unique($out));
+        set_transient($cache_key, $out, HOUR_IN_SECONDS);
+        return $out;
     }
 
     private static function fetch_bing_suggest(string $query): array {

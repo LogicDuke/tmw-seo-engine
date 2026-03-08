@@ -1,7 +1,9 @@
 <?php
 namespace TMWSEO\Engine\Debug;
 
+use TMWSEO\Engine\AutopilotMigrationRegistry;
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\Services\TrustPolicy;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -9,6 +11,17 @@ class DebugPanels {
     private const TEST_REPORT_OPTION = 'tmwseo_debug_last_test_report';
 
     public static function render_engine_status(): void {
+        $policy = TrustPolicy::flags();
+        $publish_autopilot_status = \TMWSEO\Engine\Content\ContentEngine::get_publish_autopilot_hook_status();
+
+        $migration_counts = AutopilotMigrationRegistry::status_counts();
+        $preview_apply_count = self::meta_count('_tmwseo_preview_applied_at');
+        $preview_apply_preset_count = self::meta_count('_tmwseo_preview_apply_preset_at');
+        $review_recommendation_count = self::meta_count('_tmwseo_review_recommended_preset');
+        $review_bundle_count = self::meta_count('_tmwseo_review_bundle_prepared_at');
+        $review_handoff_count = self::meta_count('_tmwseo_review_handoff_exported_at');
+        $review_signoff_count = self::meta_count('_tmwseo_review_state');
+
         $status = [
             'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
             'keyword intelligence status' => self::meta_count('tmw_keyword_pack') > 0 ? 'Ready for Review' : 'Needs Attention',
@@ -16,11 +29,48 @@ class DebugPanels {
             'opportunities status' => self::table_count('tmw_seo_opportunities') > 0 ? 'Ready for Review' : 'Needs Attention',
             'topic suggestions status' => self::meta_count('tmw_topic_cluster') > 0 ? 'Ready for Review' : 'Needs Attention',
             'debug mode status' => DebugLogger::is_enabled() ? 'On' : 'Off',
+            'manual_only' => TrustPolicy::bool_text(!empty($policy['manual_only'])),
+            'auto_publish' => TrustPolicy::bool_text(!empty($policy['auto_publish'])),
+            'auto_link_insertion' => TrustPolicy::bool_text(!empty($policy['auto_link_insertion'])),
+            'cron_enabled' => TrustPolicy::bool_text(!empty($policy['cron_enabled'])),
+            'legacy publish autopilot hooks' => (string) ($publish_autopilot_status['legacy_publish_autopilot_hooks'] ?? 'OFF'),
+            'publish autopilot hard fence' => (string) ($publish_autopilot_status['hard_fence'] ?? 'ENABLED'),
+            'publish transition hook registered' => (string) ($publish_autopilot_status['hook_registered'] ?? 'no'),
+            'phase c migrated safely (legacy paths)' => (string) ($migration_counts['migrated_safely'] ?? 0),
+            'phase c still fenced (legacy paths)' => (string) ($migration_counts['still_fenced'] ?? 0),
+            'phase c disallowed (legacy paths)' => (string) ($migration_counts['phase_c_disallowed'] ?? 0),
+            'manual draft preview applies' => (string) $preview_apply_count,
+            'manual draft preset applies' => (string) $preview_apply_preset_count,
+            'draft review recommendations generated' => (string) $review_recommendation_count,
+            'prepared human-review bundles' => (string) $review_bundle_count,
+            'exported review handoffs' => (string) $review_handoff_count,
+            'reviewer checklist/signoff states saved' => (string) $review_signoff_count,
         ];
 
         echo '<h2>Engine Status</h2><table class="widefat striped"><tbody>';
         foreach ($status as $label => $value) {
             echo '<tr><th style="width:260px;">' . esc_html($label) . '</th><td>' . esc_html($value) . '</td></tr>';
+        }
+        echo '</tbody></table>';
+
+        $paths = AutopilotMigrationRegistry::all_paths();
+        echo '<h3 style="margin-top:16px;">Phase C Legacy Autopilot Migration Registry</h3>';
+        echo '<p>Classification and migration state for legacy automation paths. Safe paths are operator-triggered only (including assisted draft-only metadata enrichment, preview-only draft content assist, manual preview apply to drafts with destination-aware apply presets, advisory-only explicit-draft review scoring recommendations, explicit draft review-bundle preparation for human review, explicit draft review handoff export, and explicit draft reviewer checklist/signoff state); live mutation paths remain fenced/disallowed in Phase C.</p>';
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th style="width:220px;">Path ID</th><th style="width:220px;">Bucket</th><th style="width:160px;">Status</th><th style="width:250px;">Operator Entry Point</th><th>Notes</th>';
+        echo '</tr></thead><tbody>';
+        foreach ($paths as $path) {
+            echo '<tr>';
+            echo '<td><code>' . esc_html((string) ($path['id'] ?? '')) . '</code></td>';
+            echo '<td>' . esc_html((string) ($path['bucket'] ?? '')) . '</td>';
+            $raw_status = (string) ($path['status'] ?? '');
+            echo '<td>' . esc_html(AutopilotMigrationRegistry::status_label($raw_status)) . '</td>';
+            echo '<td>' . esc_html((string) ($path['entry_point'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($path['notes'] ?? '')) . '</td>';
+            echo '</tr>';
+        }
+        if (empty($paths)) {
+            echo '<tr><td colspan="5">No legacy autopilot paths registered.</td></tr>';
         }
         echo '</tbody></table>';
     }

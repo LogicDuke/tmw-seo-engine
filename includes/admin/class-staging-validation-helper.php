@@ -14,6 +14,8 @@ class Staging_Validation_Helper {
     private const NONCE_SEED = 'tmwseo_seed_staging_test_data';
     private const NONCE_CLEAR = 'tmwseo_clear_staging_test_data';
     private const TEST_MARKER = '[TEST DATA]';
+    private const CLUSTER_FIXTURE_SLUG = 'test-data-internal-link-validation-cluster';
+    private const CLUSTER_FIXTURE_KEYWORD = 'internal link validation keyword test fixture';
 
     public static function init(): void {
         if (!is_admin()) {
@@ -82,7 +84,7 @@ class Staging_Validation_Helper {
 
         echo '<hr />';
         echo '<h2>' . esc_html__('1) Staging Test Data Seeder', 'tmwseo') . '</h2>';
-        echo '<p>' . esc_html__('Creates and clears TEST DATA fixtures only. No published post writes are performed.', 'tmwseo') . '</p>';
+        echo '<p>' . esc_html__('Creates and clears TEST DATA fixtures only. Internal-link validation always uses dedicated fixture source/target posts for deterministic staging behavior.', 'tmwseo') . '</p>';
 
         if (!$can_mutate) {
             echo '<div class="notice notice-warning"><p>' . esc_html__('Seeding and clear actions are disabled in production environments.', 'tmwseo') . '</p></div>';
@@ -137,12 +139,15 @@ class Staging_Validation_Helper {
             [
                 'type' => 'competitor_gap',
                 'title' => self::TEST_MARKER . ' Competitor Gap: cam model studio seo',
-                'description' => self::TEST_MARKER . ' Staging fixture for competitor gap validation.',
+                'description' => self::TEST_MARKER . ' Staging fixture for competitor gap validation. Suggested content type: category page.',
                 'source_engine' => 'competitor_gap_ai',
                 'priority_score' => 72,
                 'estimated_traffic' => 640,
                 'difficulty' => 44,
-                'suggested_action' => self::TEST_MARKER . ' Create a draft landing page targeting this content gap.',
+                'suggested_action' => implode("\n", [
+                    'DESTINATION_TYPE: category_page',
+                    self::TEST_MARKER . ' Create a draft landing page targeting this content gap.',
+                ]),
             ],
             [
                 'type' => 'ranking_probability',
@@ -268,6 +273,8 @@ class Staging_Validation_Helper {
             }
         }
 
+        self::seed_cluster_validation_fixture();
+
         Logs::info('staging-helper', '[TMW-VALIDATION] Seeded staging TEST DATA fixtures', [
             'actor' => get_current_user_id(),
             'environment' => function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'unknown',
@@ -322,6 +329,36 @@ class Staging_Validation_Helper {
             '%' . $wpdb->esc_like(self::TEST_MARKER) . '%'
         ));
 
+        $fixture_source_target_ids = get_posts([
+            'post_type' => ['post', 'page'],
+            'post_status' => 'any',
+            'posts_per_page' => 40,
+            'fields' => 'ids',
+            'meta_query' => [
+                'relation' => 'OR',
+                [
+                    'key' => '_tmwseo_staging_fixture_public_target',
+                    'value' => '1',
+                ],
+                [
+                    'key' => '_tmwseo_staging_fixture_public_source',
+                    'value' => '1',
+                ],
+            ],
+        ]);
+
+        foreach ($fixture_source_target_ids as $fixture_post_id) {
+            $source_like = '%' . $wpdb->esc_like('SOURCE_POST_ID: ' . (int) $fixture_post_id) . '%';
+            $target_like = '%' . $wpdb->esc_like('TARGET_POST_ID: ' . (int) $fixture_post_id) . '%';
+            $wpdb->query($wpdb->prepare(
+                'DELETE FROM ' . SuggestionEngine::table_name() . ' WHERE type = %s AND source_engine = %s AND (suggested_action LIKE %s OR suggested_action LIKE %s)',
+                'internal_link',
+                'internal_linking_engine',
+                $source_like,
+                $target_like
+            ));
+        }
+
         $fixture_posts = get_posts([
             'post_type' => 'post',
             'post_status' => 'draft',
@@ -338,6 +375,8 @@ class Staging_Validation_Helper {
         foreach ($fixture_posts as $post_id) {
             wp_delete_post((int) $post_id, true);
         }
+
+        self::clear_cluster_validation_fixture();
 
         Logs::info('staging-helper', '[TMW-VALIDATION] Cleared staging TEST DATA fixtures', [
             'actor' => get_current_user_id(),
@@ -574,14 +613,238 @@ class Staging_Validation_Helper {
             ],
         ]));
 
+        $clusters = (int) $wpdb->get_var($wpdb->prepare(
+            'SELECT COUNT(*) FROM ' . $wpdb->prefix . 'tmw_clusters WHERE slug = %s',
+            self::CLUSTER_FIXTURE_SLUG
+        ));
+
         return [
             'Suggestions (intelligence types)' => $suggestions,
             'Content briefs' => $briefs,
             'Competitor domains' => $competitors,
             'Ranking probability rows' => $ranking,
             'SERP analysis rows' => $serp,
+            'Cluster validation fixtures' => $clusters,
             'Draft-only fixtures' => $drafts,
         ];
+    }
+
+
+    private static function seed_cluster_validation_fixture(): void {
+        global $wpdb;
+
+        $clusters_table = $wpdb->prefix . 'tmw_clusters';
+        $keywords_table = $wpdb->prefix . 'tmw_cluster_keywords';
+        $pages_table = $wpdb->prefix . 'tmw_cluster_pages';
+
+        if (!self::table_exists($clusters_table) || !self::table_exists($keywords_table) || !self::table_exists($pages_table)) {
+            return;
+        }
+
+        $cluster_id = (int) $wpdb->get_var($wpdb->prepare(
+            'SELECT id FROM ' . $clusters_table . ' WHERE slug = %s LIMIT 1',
+            self::CLUSTER_FIXTURE_SLUG
+        ));
+
+        if ($cluster_id <= 0) {
+            $wpdb->insert(
+                $clusters_table,
+                [
+                    'name' => self::TEST_MARKER . ' Internal Link Validation Cluster',
+                    'slug' => self::CLUSTER_FIXTURE_SLUG,
+                    'status' => 'active',
+                ],
+                ['%s', '%s', '%s']
+            );
+            $cluster_id = (int) $wpdb->insert_id;
+        }
+
+        if ($cluster_id <= 0) {
+            return;
+        }
+
+        $keyword_id = (int) $wpdb->get_var($wpdb->prepare(
+            'SELECT id FROM ' . $keywords_table . ' WHERE cluster_id = %d AND keyword = %s LIMIT 1',
+            $cluster_id,
+            self::CLUSTER_FIXTURE_KEYWORD
+        ));
+
+        if ($keyword_id <= 0) {
+            $wpdb->insert(
+                $keywords_table,
+                [
+                    'cluster_id' => $cluster_id,
+                    'keyword' => self::CLUSTER_FIXTURE_KEYWORD,
+                    'intent' => 'informational',
+                ],
+                ['%d', '%s', '%s']
+            );
+        }
+
+        $target_post_id = self::get_or_create_cluster_target_post_id();
+        if ($target_post_id <= 0) {
+            return;
+        }
+
+        self::get_or_create_cluster_source_post_id($target_post_id);
+
+        $page_mapping_id = (int) $wpdb->get_var($wpdb->prepare(
+            'SELECT id FROM ' . $pages_table . ' WHERE cluster_id = %d AND post_id = %d LIMIT 1',
+            $cluster_id,
+            $target_post_id
+        ));
+
+        if ($page_mapping_id <= 0) {
+            $wpdb->insert(
+                $pages_table,
+                [
+                    'cluster_id' => $cluster_id,
+                    'post_id' => $target_post_id,
+                    'role' => 'pillar',
+                ],
+                ['%d', '%d', '%s']
+            );
+        }
+    }
+
+    private static function get_or_create_cluster_target_post_id(): int {
+        $fixture_target_ids = get_posts([
+            'post_type' => ['post', 'page'],
+            'post_status' => 'publish',
+            'posts_per_page' => 1,
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'fields' => 'ids',
+            'meta_query' => [
+                [
+                    'key' => '_tmwseo_staging_fixture_public_target',
+                    'value' => '1',
+                ],
+            ],
+        ]);
+
+        $fixture_target_id = !empty($fixture_target_ids) ? (int) $fixture_target_ids[0] : 0;
+        if ($fixture_target_id > 0) {
+            update_post_meta($fixture_target_id, '_tmwseo_staging_fixture', 1);
+            return $fixture_target_id;
+        }
+
+        $fixture_post = wp_insert_post([
+            'post_type' => 'page',
+            'post_status' => 'publish',
+            'post_title' => self::TEST_MARKER . ' Internal Link Target Fixture',
+            'post_content' => self::TEST_MARKER . ' Published only to support deterministic staging internal-link validation.',
+            'post_author' => get_current_user_id() ?: 1,
+        ], true);
+
+        if (is_wp_error($fixture_post) || (int) $fixture_post <= 0) {
+            return 0;
+        }
+
+        $fixture_post_id = (int) $fixture_post;
+        update_post_meta($fixture_post_id, '_tmwseo_staging_fixture', 1);
+        update_post_meta($fixture_post_id, '_tmwseo_staging_fixture_public_target', 1);
+
+        return $fixture_post_id;
+    }
+
+    private static function get_or_create_cluster_source_post_id(int $target_post_id): int {
+        $fixture_source_ids = get_posts([
+            'post_type' => ['post', 'page'],
+            'post_status' => 'publish',
+            'posts_per_page' => 1,
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'fields' => 'ids',
+            'post__not_in' => [$target_post_id],
+            'meta_query' => [
+                [
+                    'key' => '_tmwseo_staging_fixture_public_source',
+                    'value' => '1',
+                ],
+            ],
+        ]);
+
+        $source_content = self::CLUSTER_FIXTURE_KEYWORD . ' appears in this published source fixture content as plain text only.';
+        $source_post_id = !empty($fixture_source_ids) ? (int) $fixture_source_ids[0] : 0;
+
+        if ($source_post_id <= 0) {
+            $fixture_source = wp_insert_post([
+                'post_type' => 'page',
+                'post_status' => 'publish',
+                'post_title' => self::TEST_MARKER . ' Internal Link Source Fixture',
+                'post_content' => $source_content,
+                'post_author' => get_current_user_id() ?: 1,
+            ], true);
+
+            if (is_wp_error($fixture_source) || (int) $fixture_source <= 0) {
+                return 0;
+            }
+
+            $source_post_id = (int) $fixture_source;
+            update_post_meta($source_post_id, '_tmwseo_staging_fixture', 1);
+            update_post_meta($source_post_id, '_tmwseo_staging_fixture_public_source', 1);
+
+            return $source_post_id;
+        }
+
+        wp_update_post([
+            'ID' => $source_post_id,
+            'post_content' => $source_content,
+        ]);
+
+        return $source_post_id;
+    }
+
+    private static function clear_cluster_validation_fixture(): void {
+        global $wpdb;
+
+        $clusters_table = $wpdb->prefix . 'tmw_clusters';
+        $keywords_table = $wpdb->prefix . 'tmw_cluster_keywords';
+        $pages_table = $wpdb->prefix . 'tmw_cluster_pages';
+
+        if (!self::table_exists($clusters_table)) {
+            return;
+        }
+
+        $cluster_id = (int) $wpdb->get_var($wpdb->prepare(
+            'SELECT id FROM ' . $clusters_table . ' WHERE slug = %s LIMIT 1',
+            self::CLUSTER_FIXTURE_SLUG
+        ));
+
+        if ($cluster_id > 0) {
+            if (self::table_exists($pages_table)) {
+                $wpdb->delete($pages_table, ['cluster_id' => $cluster_id], ['%d']);
+            }
+
+            if (self::table_exists($keywords_table)) {
+                $wpdb->delete($keywords_table, ['cluster_id' => $cluster_id], ['%d']);
+            }
+
+            $wpdb->delete($clusters_table, ['id' => $cluster_id], ['%d']);
+        }
+
+        $published_fixture_posts = get_posts([
+            'post_type' => ['post', 'page'],
+            'post_status' => 'publish',
+            'posts_per_page' => 40,
+            'fields' => 'ids',
+            'meta_query' => [
+                'relation' => 'OR',
+                [
+                    'key' => '_tmwseo_staging_fixture_public_target',
+                    'value' => '1',
+                ],
+                [
+                    'key' => '_tmwseo_staging_fixture_public_source',
+                    'value' => '1',
+                ],
+            ],
+        ]);
+
+        foreach ($published_fixture_posts as $post_id) {
+            wp_delete_post((int) $post_id, true);
+        }
     }
 
     private static function redirect_with_notice(string $notice): void {

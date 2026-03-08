@@ -63,6 +63,41 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority' => 70,
         ],
+        'imlive' => [
+            'name' => 'ImLive',
+            'slug' => 'imlive',
+            'profile_url_pattern' => 'https://www.imlive.com/live-sex-cams/{username}',
+            'affiliate_link_pattern' => '',
+            'priority' => 80,
+        ],
+        'streamate' => [
+            'name' => 'Streamate',
+            'slug' => 'streamate',
+            'profile_url_pattern' => 'https://www.streamate.com/cam/{username}/',
+            'affiliate_link_pattern' => '',
+            'priority' => 90,
+        ],
+        'flirt4free' => [
+            'name' => 'Flirt4Free',
+            'slug' => 'flirt4free',
+            'profile_url_pattern' => 'https://www.flirt4free.com/live-sex-cam-model/{username}/',
+            'affiliate_link_pattern' => '',
+            'priority' => 100,
+        ],
+        'jerkmate' => [
+            'name' => 'Jerkmate',
+            'slug' => 'jerkmate',
+            'profile_url_pattern' => 'https://jerkmate.com/cam/{username}',
+            'affiliate_link_pattern' => '',
+            'priority' => 110,
+        ],
+        'camscom' => [
+            'name' => 'Cams.com',
+            'slug' => 'camscom',
+            'profile_url_pattern' => 'https://www.cams.com/{username}',
+            'affiliate_link_pattern' => '',
+            'priority' => 120,
+        ],
     ];
 
     public static function get_platforms(): array {

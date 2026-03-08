@@ -471,6 +471,39 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_suggestions);
         dbDelta($sql_legacy_rank);
 
+        // ── Keyword usage deduplication tables (anti-cannibalization) ──────
+        $kw_usage     = $wpdb->prefix . 'tmwseo_keyword_usage';
+        $kw_usage_log = $wpdb->prefix . 'tmwseo_keyword_usage_log';
+
+        $sql_kw_usage = "CREATE TABLE $kw_usage (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_hash CHAR(32) NOT NULL,
+            keyword_text TEXT NOT NULL,
+            category VARCHAR(64) NOT NULL DEFAULT '',
+            type VARCHAR(16) NOT NULL DEFAULT '',
+            used_count INT UNSIGNED NOT NULL DEFAULT 0,
+            last_used_at DATETIME NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY keyword_hash (keyword_hash)
+        ) $charset_collate;";
+
+        $sql_kw_usage_log = "CREATE TABLE $kw_usage_log (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_hash CHAR(32) NOT NULL,
+            keyword_text TEXT NOT NULL,
+            category VARCHAR(64) NOT NULL DEFAULT '',
+            type VARCHAR(16) NOT NULL DEFAULT '',
+            post_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            post_type VARCHAR(32) NOT NULL DEFAULT '',
+            used_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword_hash (keyword_hash),
+            KEY used_at (used_at)
+        ) $charset_collate;";
+
+        dbDelta($sql_kw_usage);
+        dbDelta($sql_kw_usage_log);
+
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();
 
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);

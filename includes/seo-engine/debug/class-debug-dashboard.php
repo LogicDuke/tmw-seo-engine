@@ -9,10 +9,12 @@ class DebugDashboard {
     }
 
     public static function register_menu(): void {
+        // Menu registration centrally managed by Admin::menu().
+        // Hidden fallback ensures direct URL access still works.
         add_submenu_page(
-            \TMWSEO\Engine\Admin::MENU_SLUG,
+            null,
             __('Debug Dashboard', 'tmwseo'),
-            __('↳ Debug Dashboard', 'tmwseo'),
+            __('Debug Dashboard', 'tmwseo'),
             'manage_options',
             'tmw-seo-debug',
             [__CLASS__, 'render_page']

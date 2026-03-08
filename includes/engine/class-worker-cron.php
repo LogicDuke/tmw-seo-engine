@@ -10,7 +10,9 @@ class WorkerCron {
 
     public static function init(): void
     {
-        error_log('TMW WorkerCron INIT CALLED');
+        if ((bool) \TMWSEO\Engine\Services\Settings::get('debug_mode', false)) {
+            error_log('TMW WorkerCron INIT CALLED');
+        }
 
         add_filter('cron_schedules', [self::class, 'register_interval']);
         add_action('tmwseo_process_queue', [self::class, 'process_queue']);
@@ -44,7 +46,9 @@ class WorkerCron {
 
     public static function process_queue(): void
     {
-        error_log('TMW WorkerCron PROCESS QUEUE CALLED');
+        if ((bool) \TMWSEO\Engine\Services\Settings::get('debug_mode', false)) {
+            error_log('TMW WorkerCron PROCESS QUEUE CALLED');
+        }
 
         if (get_transient('tmwseo_worker_lock')) {
             return;

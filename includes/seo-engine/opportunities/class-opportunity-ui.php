@@ -25,14 +25,12 @@ class OpportunityUI {
     }
 
     public function register_menu(): void {
-        add_submenu_page(
-            Admin::MENU_SLUG,
-            __('Opportunities', 'tmwseo'),
-            __('Opportunities', 'tmwseo'),
-            'manage_options',
-            'tmwseo-opportunities',
-            [$this, 'render_page']
-        );
+        // Menu registration is centrally managed by Admin::menu() which calls render_static() directly.
+    }
+
+    /** Static wrapper — allows Admin::menu() to register this as a direct callback. */
+    public static function render_static(): void {
+        ( new self() )->render_page();
     }
 
     public function handle_run_scan(): void {

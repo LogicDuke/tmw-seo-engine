@@ -46,14 +46,12 @@ class TMW_Topic_Page_Generator {
             $result = wp_update_post($args, true);
             if (is_wp_error($result)) {
                 Logs::error('topic-authority', 'Failed to update topic page', ['model_id' => $model->ID, 'slug' => $slug]);
-                error_log('[TMW-TOPIC] Failed to update topic page: ' . $slug);
                 return 0;
             }
         } else {
             $result = wp_insert_post($args, true);
             if (is_wp_error($result)) {
                 Logs::error('topic-authority', 'Failed to create topic page', ['model_id' => $model->ID, 'slug' => $slug]);
-                error_log('[TMW-TOPIC] Failed to create topic page: ' . $slug);
                 return 0;
             }
             $page_id = (int) $result;
@@ -133,7 +131,6 @@ class TMW_Topic_Page_Generator {
 
         if (empty($response['ok'])) {
             Logs::warn('topic-authority', 'AI content generation failed', ['topic' => $topic, 'error' => $response['error'] ?? 'unknown']);
-            error_log('[TMW-TOPIC] AI generation failed for topic: ' . $topic);
             return '';
         }
 

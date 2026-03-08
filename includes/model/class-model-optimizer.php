@@ -34,6 +34,7 @@ class ModelOptimizer {
         add_action('add_meta_boxes', [__CLASS__, 'register_metabox']);
         add_action('admin_post_tmwseo_modelopt_generate', [__CLASS__, 'handle_generate']);
         add_action('admin_post_tmwseo_modelopt_apply', [__CLASS__, 'handle_apply']);
+        add_action('wp_ajax_tmwseo_rollback', ['\TMWSEO\Engine\Model\Rollback', 'handle_rollback']);
     }
 
     private static function model_post_types(): array {
@@ -267,6 +268,9 @@ class ModelOptimizer {
         }
 
         check_admin_referer('tmwseo_modelopt_apply_' . $post_id);
+
+        // ── Snapshot before ANY changes (enables rollback) ─────────────────
+        \TMWSEO\Engine\Model\Rollback::snapshot($post_id);
 
         $apply_rankmath = !empty($_POST['apply_rankmath']);
         $apply_wp_title = !empty($_POST['apply_wp_title']);

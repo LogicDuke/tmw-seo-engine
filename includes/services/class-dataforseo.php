@@ -303,4 +303,172 @@ class DataForSEO {
 
         return ['ok' => true, 'map' => $map, 'raw' => $res['data']];
     }
+
+    // ── NEW: SERP Live (feeds SerpWeaknessEngine with real data) ──────────
+
+    /**
+     * Fetches live SERP results for a keyword.
+     *
+     * @return array{ok:bool, items:array}
+     */
+    public static function serp_live(string $keyword, int $depth = 10): array {
+        $keyword = mb_strtolower(trim($keyword), 'UTF-8');
+        if ($keyword === '') return ['ok' => false, 'error' => 'empty_keyword'];
+
+        // Transient cache: SERP data valid for 6 hours
+        $cache_key = 'tmwseo_serp_' . md5($keyword . self::loc_code() . self::lang_code());
+        $cached    = get_transient($cache_key);
+        if ($cached !== false && is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keyword'       => $keyword,
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+            'depth'         => min(100, max(10, $depth)),
+        ]];
+
+        $res = self::post('/v3/serp/google/organic/live/advanced', $payload);
+        if (!$res['ok']) return $res;
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) $items = [];
+
+        // Normalise to what SerpWeaknessEngine expects
+        $normalised = [];
+        foreach ($items as $item) {
+            if (($item['type'] ?? '') !== 'organic') continue;
+            $normalised[] = [
+                'url'            => $item['url'] ?? '',
+                'title'          => $item['title'] ?? '',
+                'snippet'        => $item['description'] ?? '',
+                'domain_rating'  => (float) ($item['domain_info']['domain_rank'] ?? $item['domain_rank'] ?? 50),
+                'word_count'     => (int) ($item['estimated_paid_traffic_cost'] ?? 0), // fallback — DFS doesn't return word count here
+                'age_days'       => isset($item['timestamp']) ? (int) ((time() - strtotime((string)$item['timestamp'])) / 86400) : 0,
+                'heading_count'  => 0, // not available at this endpoint
+                'faq_count'      => 0,
+                'position'       => (int) ($item['rank_absolute'] ?? 0),
+            ];
+        }
+
+        $result = ['ok' => true, 'items' => $normalised, 'raw' => $res['data']];
+        set_transient($cache_key, $result, 6 * HOUR_IN_SECONDS);
+        return $result;
+    }
+
+    // ── NEW: Domain intersection (keywords two domains share) ─────────────
+
+    /**
+     * Keywords that both domain1 and domain2 rank for — easiest competitor gaps.
+     */
+    public static function domain_intersection(string $domain1, string $domain2, int $limit = 200): array {
+        foreach ([$domain1, $domain2] as &$d) {
+            $d = preg_replace('#^https?://#i', '', trim($d));
+            $d = preg_replace('#^www\.#i', '', $d);
+            $d = preg_replace('#/.*$#', '', $d);
+        }
+        unset($d);
+
+        $payload = [[
+            'target1'       => $domain1,
+            'target2'       => $domain2,
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+            'limit'         => min(1000, max(10, $limit)),
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/domain_intersection/live', $payload);
+        if (!$res['ok']) return $res;
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) $items = [];
+        return ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+    }
+
+    // ── NEW: Backlinks summary (domain authority) ─────────────────────────
+
+    /**
+     * Returns domain authority metrics for a domain.
+     *
+     * @return array{ok:bool, domain_rank:int, backlinks:int, referring_domains:int}
+     */
+    public static function backlinks_summary(string $domain): array {
+        $domain = preg_replace('#^https?://#i', '', trim($domain));
+        $domain = preg_replace('#^www\.#i', '', $domain);
+        $domain = preg_replace('#/.*$#', '', $domain);
+
+        $cache_key = 'tmwseo_bl_summ_' . md5($domain);
+        $cached    = get_transient($cache_key);
+        if ($cached !== false && is_array($cached)) return $cached;
+
+        $payload = [[
+            'target'             => $domain,
+            'include_subdomains' => true,
+        ]];
+
+        $res = self::post('/v3/backlinks/summary/live', $payload);
+        if (!$res['ok']) return $res;
+
+        $data = $res['data']['tasks'][0]['result'][0] ?? [];
+        $result = [
+            'ok'                => true,
+            'domain_rank'       => (int) ($data['rank'] ?? 0),
+            'backlinks'         => (int) ($data['backlinks'] ?? 0),
+            'referring_domains' => (int) ($data['referring_domains'] ?? 0),
+            'broken_backlinks'  => (int) ($data['broken_backlinks'] ?? 0),
+            'raw'               => $data,
+        ];
+
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
+        return $result;
+    }
+
+    // ── NEW: Historical search volume ─────────────────────────────────────
+
+    /**
+     * Returns monthly search volume history for keywords (last 12 months).
+     *
+     * @param string[] $keywords
+     * @return array{ok:bool, map:array}  map[keyword] = [{month:'2024-01', volume:int}]
+     */
+    public static function historical_search_volume(array $keywords): array {
+        $keywords = array_values(array_unique(array_filter(array_map('strval', $keywords))));
+        $keywords = array_slice($keywords, 0, 100);
+        if (empty($keywords)) return ['ok' => false, 'error' => 'empty_keywords'];
+
+        $payload = [[
+            'keywords'      => array_map(fn($k) => mb_strtolower($k, 'UTF-8'), $keywords),
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+        ]];
+
+        $res = self::post('/v3/keywords_data/google_ads/search_volume/live', $payload);
+        if (!$res['ok']) return $res;
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        $map   = [];
+        if (is_array($items)) {
+            foreach ($items as $it) {
+                $kw = $it['keyword'] ?? null;
+                if (!is_string($kw) || $kw === '') continue;
+                $monthly = [];
+                foreach ((array) ($it['monthly_searches'] ?? []) as $m) {
+                    $monthly[] = [
+                        'month'  => sprintf('%04d-%02d', $m['year'] ?? 0, $m['month'] ?? 0),
+                        'volume' => (int) ($m['search_volume'] ?? 0),
+                    ];
+                }
+                $map[$kw] = [
+                    'search_volume' => (int) ($it['search_volume'] ?? 0),
+                    'trend'         => $monthly,
+                    'competition'   => (float) ($it['competition'] ?? 0),
+                    'cpc'           => (float) ($it['cpc'] ?? 0),
+                ];
+            }
+        }
+
+        return ['ok' => true, 'map' => $map, 'raw' => $res['data']];
+    }
 }
+
