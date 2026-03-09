@@ -25,7 +25,7 @@ class ContentImprovementAnalyzer {
      */
     public function scan_existing_posts(int $max_posts = 200, int $min_word_count = 900): array {
         $posts = get_posts([
-            'post_type' => ['post', 'page', 'model', 'tmw_category_page'],
+            'post_type' => ['post', 'page', 'model', 'tmw_category_page', 'video'],
             'post_status' => 'publish',
             'posts_per_page' => max(1, min(1000, $max_posts)),
             'orderby' => 'date',
@@ -207,13 +207,26 @@ class ContentImprovementAnalyzer {
         );
 
         $post_type = (string) ($analysis['post_type'] ?? 'post');
+        $source_post_id = (int) ($analysis['post_id'] ?? 0);
+
         if ( $post_type === 'model' ) {
             $destination_tag = 'model_page';
         } elseif ( $post_type === 'tmw_category_page' ) {
             $destination_tag = 'category_page';
+        } elseif ( $post_type === 'video' ) {
+            $destination_tag = 'video_page';
         } else {
             $destination_tag = 'generic_post';
         }
+
+        // For existing-target destinations, embed the source post ID so the action
+        // handler can bind to the correct post without a fragile title-search fallback.
+        // generic_post is the only destination type that creates a brand-new draft.
+        $action_lines = [ 'DESTINATION_TYPE: ' . $destination_tag ];
+        if ( $destination_tag !== 'generic_post' && $source_post_id > 0 ) {
+            $action_lines[] = 'TARGET_POST_ID: ' . $source_post_id;
+        }
+        $action_lines[] = 'Generate additional sections.';
 
         return [
             'type' => 'content_improvement',
@@ -223,10 +236,7 @@ class ContentImprovementAnalyzer {
             'priority_score' => $priority,
             'estimated_traffic' => (int) round($missing_volume * self::DEFAULT_EXPECTED_CTR),
             'difficulty' => $keyword_difficulty,
-            'suggested_action' => implode("\n", [
-                'DESTINATION_TYPE: ' . $destination_tag,
-                'Generate additional sections.',
-            ]),
+            'suggested_action' => implode("\n", $action_lines),
             'status' => 'new',
         ];
     }
