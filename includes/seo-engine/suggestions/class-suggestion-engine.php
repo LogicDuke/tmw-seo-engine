@@ -34,6 +34,7 @@ class SuggestionEngine {
     private const ALLOWED_STATUSES = [
         'new',
         'draft_created',
+        'target_bound',   // Suggestion linked to an already-existing published post; no new draft created.
         'approved',
         'ignored',
         'implemented',
@@ -280,6 +281,8 @@ class SuggestionEngine {
                 $event = 'Suggestion approved';
             } elseif ($status === 'draft_created') {
                 $event = 'Suggestion draft created';
+            } elseif ($status === 'target_bound') {
+                $event = 'Suggestion bound to existing post';
             } elseif ($status === 'ignored') {
                 $event = 'Suggestion ignored';
             } elseif ($status === 'implemented') {
