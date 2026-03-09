@@ -113,9 +113,12 @@ class CommandCenter {
         foreach ( $all_rows as $row ) {
             $status     = (string) ( $row['status'] ?? 'new' );
             $type       = (string) ( $row['type']   ?? '' );
-            $dest       = (string) ( $row['destination_type'] ?? '' );
             $score      = (float)  ( $row['priority_score'] ?? 0 );
             $created_at = (string) ( $row['created_at'] ?? '' );
+
+            // destination_type is NOT a DB column — parse it from suggested_action text,
+            // then fall back to title/description inference (same logic as SuggestionsAdminPage).
+            $dest = self::parse_destination_type_from_row( $row );
 
             if ( isset( $status_counts[ $status ] ) ) { $status_counts[ $status ]++; }
             if ( isset( $type_counts[ $type ] ) )     { $type_counts[ $type ]++; }
@@ -700,6 +703,55 @@ class CommandCenter {
             'errors'     => $result['errors'] ?? 0,
             'model_count'=> $result['processed'] ?? 0,
         ] );
+    }
+
+    // ── Destination Type Parser ───────────────────────────────────────────
+    // destination_type is NOT a DB column. It is embedded as "DESTINATION_TYPE: <value>"
+    // inside the suggested_action text by each suggestion generator.
+    // This mirrors the parsing logic in SuggestionsAdminPage::extract_destination_type()
+    // and ::infer_destination_type() so both pages agree on the same values.
+
+    /**
+     * @param array<string,mixed> $row
+     */
+    private static function parse_destination_type_from_row( array $row ): string {
+        $suggested_action = (string) ( $row['suggested_action'] ?? '' );
+        $title            = (string) ( $row['title']            ?? '' );
+        $description      = (string) ( $row['description']      ?? '' );
+
+        // 1. Explicit DESTINATION_TYPE: tag in suggested_action or description.
+        foreach ( [ $suggested_action, $description ] as $text ) {
+            if ( $text === '' ) { continue; }
+            if ( preg_match( '/DESTINATION_TYPE:\s*([a-z_\-]+)/i', $text, $m ) ) {
+                return self::normalize_destination_type_key( (string) $m[1] );
+            }
+        }
+
+        // 2. Text-inference from title + description.
+        $haystack = strtolower( trim( $title . "\n" . $description ) );
+        if ( $haystack === '' ) { return 'generic_post'; }
+
+        if ( strpos( $haystack, 'category page' ) !== false || strpos( $haystack, 'suggested content type: category' ) !== false ) {
+            return 'category_page';
+        }
+        if ( strpos( $haystack, 'model page' ) !== false || strpos( $haystack, 'model profile' ) !== false ) {
+            return 'model_page';
+        }
+        if ( strpos( $haystack, 'video page' ) !== false || strpos( $haystack, 'video post' ) !== false ) {
+            return 'video_page';
+        }
+
+        return 'generic_post';
+    }
+
+    private static function normalize_destination_type_key( string $raw ): string {
+        $n = str_replace( [ '-', ' ' ], '_', strtolower( trim( $raw ) ) );
+        if ( $n === 'post' || $n === 'article' )                 { return 'generic_post'; }
+        if ( $n === 'category' || $n === 'category_archive' )    { return 'category_page'; }
+        if ( $n === 'model' )                                     { return 'model_page'; }
+        if ( $n === 'video' )                                     { return 'video_page'; }
+        $allowed = [ 'category_page', 'model_page', 'video_page', 'generic_post' ];
+        return in_array( $n, $allowed, true ) ? $n : 'generic_post';
     }
 
     // ── Card / UI Helpers ─────────────────────────────────────────────────

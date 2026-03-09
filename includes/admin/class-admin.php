@@ -3,6 +3,7 @@ namespace TMWSEO\Engine;
 
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TrustPolicy;
+use TMWSEO\Engine\Admin\AdminUI;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -119,6 +120,8 @@ class Admin {
         if (!in_array($hook, $allowed_hooks, true)) {
             return;
         }
+
+        AdminUI::enqueue();
 
         wp_register_style('tmwseo-admin-overview', false);
         wp_enqueue_style('tmwseo-admin-overview');
@@ -1007,8 +1010,8 @@ class Admin {
         global $wpdb;
         $intel_table = $wpdb->prefix . 'tmwseo_intelligence';
 
-        $rows      = [];
-        $last_run  = '';
+        $rows     = [];
+        $last_run = '';
 
         if ($wpdb->get_var("SHOW TABLES LIKE '{$intel_table}'") === $intel_table) {
             $rows = $wpdb->get_results($wpdb->prepare(
@@ -1039,44 +1042,46 @@ class Admin {
             }
         }
 
+        // ── Page shell ───────────────────────────────────────────────────────
         echo '<div class="wrap">';
-        echo '<h1>' . esc_html__('Ranking Probability', 'tmwseo') . '</h1>';
-        echo '<p>' . esc_html__('Estimates how likely each page is to rank for its target keyword — scored from 7 signals: content quality, domain authority, keyword difficulty, backlink profile, SERP weakness, topical authority, and freshness.', 'tmwseo') . '</p>';
+        AdminUI::page_header(
+            __('Ranking Probability', 'tmwseo'),
+            __('Estimated ranking scores from multiple signals. Read-only — nothing is published.', 'tmwseo')
+        );
 
-        // Trust notice
-        echo '<div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:10px 14px;margin-bottom:20px;font-size:13px;border-radius:0 6px 6px 0;">';
-        echo '<strong>✅ Read-only intelligence.</strong> This page does not publish, modify, or schedule anything automatically. All data is generated on demand via the Run button below.';
-        echo '</div>';
+        AdminUI::trust_reminder(
+            __('Read-only intelligence. This page does not publish, modify, or schedule anything automatically. All data is generated on demand via the Run button below.', 'tmwseo')
+        );
 
-        // Status bar
-        echo '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">';
-
-        // Run Now form
+        // ── Action row ───────────────────────────────────────────────────────
+        echo '<div class="tmwui-cta-row">';
         echo '<form method="post" style="display:inline;">';
         wp_nonce_field('tmwseo_run_ranking_probability');
         echo '<input type="hidden" name="tmwseo_run_ranking_probability" value="1">';
-        echo '<button class="button button-primary">&#9654; Run Ranking Probability Scan</button>';
+        echo '<button class="button button-primary">&#9654; ' . esc_html__('Run Ranking Probability Scan', 'tmwseo') . '</button>';
         echo '</form>';
-
         if ($last_run) {
-            echo '<span style="color:#6b7280;font-size:13px;">Last computed: ' . esc_html(substr($last_run, 0, 16)) . '</span>';
+            echo '<span style="color:#6b7280;font-size:13px;">' . esc_html__('Last computed:', 'tmwseo') . ' ' . esc_html(substr($last_run, 0, 16)) . '</span>';
         } else {
-            echo '<span style="color:#9ca3af;font-size:13px;">No data yet — click Run to generate scores.</span>';
+            echo '<span style="color:#9ca3af;font-size:13px;">' . esc_html__('No data yet — click Run to generate scores.', 'tmwseo') . '</span>';
         }
-
-        echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-tools')) . '" class="button" style="margin-left:auto;">← Back to Tools</a>';
+        echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-tools')) . '" class="button" style="margin-left:auto;">' . esc_html__('← Back to Tools', 'tmwseo') . '</a>';
         echo '</div>';
 
+        // ── Success notice ───────────────────────────────────────────────────
         if (isset($_GET['tmw_ran'])) {
-            echo '<div class="notice notice-success is-dismissible"><p>Ranking probability scan completed. Scores updated below.</p></div>';
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Ranking probability scan completed. Scores updated below.', 'tmwseo') . '</p></div>';
         }
 
+        // ── Results ──────────────────────────────────────────────────────────
+        AdminUI::section_start( __('Ranking Scores', 'tmwseo') );
         if (empty($rows)) {
-            echo '<div class="notice notice-info"><p>';
-            echo esc_html__('No ranking probability scores yet. Click "Run Ranking Probability Scan" above to generate them.', 'tmwseo');
-            echo '</p></div>';
+            AdminUI::empty_state(
+                __('No ranking probability scores yet. Click "Run Ranking Probability Scan" above to generate them.', 'tmwseo')
+            );
         } else {
-            echo '<p style="color:#6b7280;font-size:13px;">' . esc_html(count($rows)) . ' pages scored. Showing top 50 by probability.</p>';
+            echo '<p style="color:#6b7280;font-size:13px;margin-top:0;">' . esc_html(count($rows)) . ' ' . esc_html__('pages scored. Showing top 50 by probability.', 'tmwseo') . '</p>';
+            echo '<div class="tmwui-table-wrap">';
             echo '<table class="widefat striped">';
             echo '<thead><tr>';
             echo '<th>' . esc_html__('Page', 'tmwseo') . '</th>';
@@ -1099,12 +1104,14 @@ class Admin {
                 echo '<td><strong style="color:' . esc_attr($color) . ';font-size:16px;">' . esc_html($prob) . '%</strong></td>';
                 echo '<td><div style="background:#e5e7eb;border-radius:4px;height:8px;width:120px;overflow:hidden;"><div style="background:' . esc_attr($color) . ';height:100%;width:' . esc_attr($prob) . '%;"></div></div></td>';
                 echo '<td style="color:#9ca3af;font-size:12px;">' . esc_html($date) . '</td>';
-                echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">Edit</a></td>';
+                echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">' . esc_html__('Edit', 'tmwseo') . '</a></td>';
                 echo '</tr>';
             }
 
             echo '</tbody></table>';
+            echo '</div>';
         }
+        AdminUI::section_end();
 
         echo '</div>';
     }
@@ -1466,39 +1473,44 @@ class Admin {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
         }
-        self::header(__('TMW SEO Engine — Tools', 'tmwseo'));
 
-        echo '<p>' . esc_html__('Operator-triggered utilities. Every tool below requires explicit action — nothing runs automatically. No content is published.', 'tmwseo') . '</p>';
-        echo '<p style="background:#fefce8;border-left:4px solid #eab308;padding:10px 14px;margin-bottom:24px;"><strong>' . esc_html__('Manual-Only Mode Active:', 'tmwseo') . '</strong> ' . esc_html__('All scans are read-only or create drafts for your review. Nothing is auto-published.', 'tmwseo') . '</p>';
+        // ── Page shell ───────────────────────────────────────────────────────
+        echo '<div class="wrap">';
+        AdminUI::page_header(
+            __('TMW SEO Engine — Tools', 'tmwseo'),
+            __('Operator-triggered utilities. Every action requires explicit approval — nothing runs automatically.', 'tmwseo')
+        );
 
-        // ── Scan Tools ──────────────────────────────────────────────────────
-        echo '<h2>' . esc_html__('Content Scans', 'tmwseo') . '</h2>';
-        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:32px;">';
+        // ── Content Scans ────────────────────────────────────────────────────
+        AdminUI::section_start( __('Content Scans', 'tmwseo') );
+        echo '<div class="tmwui-card-grid">';
 
         // Internal Link Opportunities
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('Internal Link Opportunities', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Scans published content to find where internal links are missing or weak. Results are added to Suggestions for review.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Internal Link Opportunities', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Scans published content to find where internal links are missing or weak. Results are added to Suggestions for review.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_scan_internal_link_opportunities');
         echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
         submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form></div>';
+        echo '</form>';
+        echo '</div>';
 
         // Content Improvement Scan
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('Content Improvement Scan', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Analyzes existing content for SEO gaps: missing keywords, thin content, meta issues. Results go to Suggestions.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Content Improvement Scan', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Analyzes existing content for SEO gaps: missing keywords, thin content, meta issues. Results go to Suggestions.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_scan_content_improvements');
         echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
         submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form></div>';
+        echo '</form>';
+        echo '</div>';
 
         // Orphan Page Scan
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('Orphan Page Scan', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Finds published pages with zero inbound internal links. Orphan pages are invisible to Googlebot unless linked from elsewhere.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Orphan Page Scan', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Finds published pages with zero inbound internal links. Orphan pages are invisible to Googlebot unless linked from elsewhere.', 'tmwseo') . '</p>';
         $orphan_last = get_option(\TMWSEO\Engine\InternalLinks\OrphanPageDetector::OPTION_LAST_SCAN, '');
         if ($orphan_last) {
             echo '<p><small>' . esc_html__('Last scan:', 'tmwseo') . ' ' . esc_html((string) $orphan_last) . '</small></p>';
@@ -1508,9 +1520,9 @@ class Admin {
         echo '</div>';
 
         // Competitor Monitor
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('Competitor Domain Scan', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Checks competitor domains for new content targeting keywords you rank for. Results are stored for review.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Competitor Domain Scan', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Checks competitor domains for new content targeting keywords you rank for. Results are stored for review.', 'tmwseo') . '</p>';
         $comp_last = get_option(\TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::OPTION_LAST_RUN, '');
         if ($comp_last) {
             echo '<p><small>' . esc_html__('Last scan:', 'tmwseo') . ' ' . esc_html(date('Y-m-d H:i', (int) $comp_last)) . '</small></p>';
@@ -1519,58 +1531,65 @@ class Admin {
         echo '<div id="tmwseo-competitor-scan-result" style="margin-top:8px;"></div>';
         echo '</div>';
 
-        echo '</div>';
+        echo '</div>'; // .tmwui-card-grid
+        AdminUI::section_end();
 
-        // ── Phase C Discovery Snapshot ───────────────────────────────────────
-        echo '<h2>' . esc_html__('Discovery & Intelligence', 'tmwseo') . '</h2>';
-        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:32px;">';
+        // ── Discovery & Intelligence ──────────────────────────────────────────
+        AdminUI::section_start( __('Discovery & Intelligence', 'tmwseo') );
+        echo '<div class="tmwui-card-grid">';
 
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('Discovery Snapshot (Phase C)', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Runs a safe read-only snapshot of the keyword + opportunity landscape. Does not publish anything. Results feed the Suggestions queue.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Discovery Snapshot (Phase C)', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Runs a safe read-only snapshot of the keyword + opportunity landscape. Does not publish anything. Results feed the Suggestions queue.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
         echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
         submit_button(__('Run Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form></div>';
+        echo '</form>';
+        echo '</div>';
 
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('Keyword Cycle', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Refreshes keyword data from DataForSEO: discovery, KD scoring, clustering. Creates new candidate clusters for review.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Keyword Cycle', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Refreshes keyword data from DataForSEO: discovery, KD scoring, clustering. Creates new candidate clusters for review.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_keyword_cycle');
         echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
         submit_button(__('Run Keyword Cycle', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form></div>';
-
+        echo '</form>';
         echo '</div>';
 
-        // ── Maintenance ──────────────────────────────────────────────────────
-        echo '<h2>' . esc_html__('Maintenance', 'tmwseo') . '</h2>';
-        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:32px;">';
+        echo '</div>'; // .tmwui-card-grid
+        AdminUI::section_end();
 
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('Auto Fix Missing SEO', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Fills in missing focus keywords and meta descriptions using post titles. Safe batch fix — does not touch content or publish anything.', 'tmwseo') . '</p>';
+        // ── Maintenance ───────────────────────────────────────────────────────
+        AdminUI::section_start( __('Maintenance', 'tmwseo') );
+        echo '<div class="tmwui-card-grid">';
+
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Auto Fix Missing SEO', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Fills in missing focus keywords and meta descriptions using post titles. Safe batch fix — does not touch content or publish anything.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_bulk_autofix');
         echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
         submit_button(__('Auto Fix Missing SEO', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form></div>';
+        echo '</form>';
+        echo '</div>';
 
-        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;">';
-        echo '<h3 style="margin-top:0;">' . esc_html__('System Worker', 'tmwseo') . '</h3>';
-        echo '<p>' . esc_html__('Runs a healthcheck job and processes any queued tasks. Use this to unstick the queue if the background worker missed a job.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('System Worker', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Runs a healthcheck job and processes any queued tasks. Use this to unstick the queue if the background worker missed a job.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_worker');
         echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
         submit_button(__('Run Worker Now', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form></div>';
-
+        echo '</form>';
         echo '</div>';
 
-        // ── Advanced Links ───────────────────────────────────────────────────
-        echo '<h2>' . esc_html__('Advanced', 'tmwseo') . '</h2>';
+        echo '</div>'; // .tmwui-card-grid
+        AdminUI::section_end();
+
+        // ── Advanced Links ────────────────────────────────────────────────────
+        AdminUI::section_start( __('Advanced', 'tmwseo') );
         echo '<ul style="line-height:2;">';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-logs')) . '">' . esc_html__('View Logs', 'tmwseo') . '</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmw-engine-monitor')) . '">' . esc_html__('Engine Monitor', 'tmwseo') . '</a></li>';
@@ -1580,8 +1599,9 @@ class Admin {
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-import')) . '">' . esc_html__('Import Keywords (CSV)', 'tmwseo') . '</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-migration')) . '">' . esc_html__('Migration Info', 'tmwseo') . '</a></li>';
         echo '</ul>';
+        AdminUI::section_end();
 
-        // AJAX for orphan + competitor scan buttons
+        // AJAX for orphan + competitor scan buttons — IDs, actions, and nonces unchanged
         wp_add_inline_script('jquery', '
             jQuery(function($){
                 $("#tmwseo-orphan-scan-btn").on("click", function(){
@@ -1609,39 +1629,44 @@ class Admin {
     }
 
     public static function render_keywords(): void {
-        self::header(__('TMW SEO Engine — Keywords', 'tmwseo'));
-
         global $wpdb;
-        $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
-        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $raw_table    = $wpdb->prefix . 'tmw_keyword_raw';
+        $cand_table   = $wpdb->prefix . 'tmw_keyword_candidates';
         $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
 
-        $raw_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$raw_table}");
-        $cand_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cand_table}");
+        $raw_count     = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$raw_table}");
+        $cand_count    = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cand_table}");
         $approved_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cand_table} WHERE status='approved'");
-        $cluster_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table}");
-        $new_clusters = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table} WHERE status='new'");
+        $cluster_count  = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table}");
+        $new_clusters   = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table} WHERE status='new'");
 
-        echo '<p>This workflow builds keyword suggestions and clusters for review. It does not auto-create or auto-publish pages.</p>';
+        // ── Page shell ───────────────────────────────────────────────────────
+        echo '<div class="wrap">';
+        AdminUI::page_header(
+            __('TMW SEO Engine — Keywords', 'tmwseo'),
+            __('Keyword workflow for review. It does not auto-create or auto-publish pages.', 'tmwseo')
+        );
 
-        echo '<div style="display:flex; gap:12px; flex-wrap:wrap; margin:12px 0;">';
-        echo '<div class="card" style="padding:12px; min-width:180px;"><strong>Raw keywords</strong><br>' . esc_html($raw_count) . '</div>';
-        echo '<div class="card" style="padding:12px; min-width:180px;"><strong>Candidates</strong><br>' . esc_html($cand_count) . '</div>';
-        echo '<div class="card" style="padding:12px; min-width:180px;"><strong>Approved</strong><br>' . esc_html($approved_count) . '</div>';
-        echo '<div class="card" style="padding:12px; min-width:180px;"><strong>Clusters</strong><br>' . esc_html($cluster_count) . ' (new: ' . esc_html($new_clusters) . ')</div>';
-        echo '</div>';
+        // ── KPI cards ────────────────────────────────────────────────────────
+        AdminUI::kpi_row([
+            [ 'value' => $raw_count,     'label' => __('Raw Keywords', 'tmwseo'),  'color' => 'neutral' ],
+            [ 'value' => $cand_count,    'label' => __('Candidates', 'tmwseo'),    'color' => 'neutral' ],
+            [ 'value' => $approved_count,'label' => __('Approved', 'tmwseo'),      'color' => $approved_count > 0 ? 'ok' : 'neutral' ],
+            [ 'value' => $cluster_count, 'label' => __('Clusters', 'tmwseo'),      'color' => 'neutral',
+              'sub' => sprintf( __('%d new', 'tmwseo'), $new_clusters ) ],
+        ]);
 
-        echo '<p>';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block; margin-right:8px;">';
+        // ── Actions ──────────────────────────────────────────────────────────
+        echo '<div class="tmwui-cta-row">';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_keyword_cycle');
         echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
         submit_button('Refresh Suggestions', 'primary', 'submit', false);
         echo '</form>';
-
         echo '<a class="button" href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_run_worker'), 'tmwseo_run_worker')) . '">Run Worker (healthcheck)</a>';
-        echo '</p>';
+        echo '</div>';
 
-        // Top clusters preview
+        // ── Top Clusters table ────────────────────────────────────────────────
         $clusters = $wpdb->get_results(
             "SELECT id, cluster_key, representative, total_volume, avg_difficulty, opportunity, status, page_id
              FROM {$cluster_table}
@@ -1650,10 +1675,11 @@ class Admin {
             ARRAY_A
         );
 
-        echo '<h2>Top Clusters</h2>';
+        AdminUI::section_start( __('Top Clusters', 'tmwseo') );
         if (empty($clusters)) {
-            echo '<p>No clusters yet. Run the keyword cycle.</p>';
+            AdminUI::empty_state( __('No clusters yet. Run the keyword cycle.', 'tmwseo') );
         } else {
+            echo '<div class="tmwui-table-wrap">';
             echo '<table class="widefat striped">';
             echo '<thead><tr><th>Opportunity</th><th>Volume</th><th>Avg KD</th><th>Representative Keyword</th><th>Status</th><th>Page</th></tr></thead><tbody>';
             foreach ($clusters as $c) {
@@ -1669,9 +1695,11 @@ class Admin {
                 echo '</tr>';
             }
             echo '</tbody></table>';
+            echo '</div>';
         }
+        AdminUI::section_end();
 
-        echo '</div>';
+        self::footer();
     }
 
     public static function render_generated_pages(): void {
@@ -2254,6 +2282,10 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Monthly AI budget (USD)', 'tmwseo') . '</th><td>';
         echo '<input type="number" name="tmwseo_engine_settings[tmwseo_openai_budget_usd]" value="' . $ai_budget . '" class="small-text" min="0" step="1">';
         echo '<p class="description">' . esc_html__('Monthly spend cap in USD. Set to 0 for unlimited. Tracked across both providers.', 'tmwseo') . '</p>';
+        echo '</td></tr>';
+        echo '<tr><th>' . esc_html__('Dry-run mode', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_dry_run_mode]" value="1" ' . checked($dry_run_mode, true, false) . '> ' . esc_html__('Dry-run mode', 'tmwseo') . '</label>';
+        echo '<p class="description">Use template generation for previews/testing and avoid OpenAI API cost. Recommended while validating workflows.</p>';
         echo '</td></tr></table>';
 
         // ── OpenAI ────────────────────────────────────────────────────────

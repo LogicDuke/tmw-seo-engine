@@ -25,7 +25,7 @@ class ContentImprovementAnalyzer {
      */
     public function scan_existing_posts(int $max_posts = 200, int $min_word_count = 900): array {
         $posts = get_posts([
-            'post_type' => ['post', 'page'],
+            'post_type' => ['post', 'page', 'model', 'tmw_category_page'],
             'post_status' => 'publish',
             'posts_per_page' => max(1, min(1000, $max_posts)),
             'orderby' => 'date',
@@ -77,6 +77,7 @@ class ContentImprovementAnalyzer {
         $post = get_post($post_id);
         $title = $post ? (string) $post->post_title : '';
         $content = $post ? (string) $post->post_content : '';
+        $post_type = $post ? (string) $post->post_type : 'post';
 
         $word_count = str_word_count(wp_strip_all_tags($content));
         $headings = $this->extract_headings($content);
@@ -120,6 +121,7 @@ class ContentImprovementAnalyzer {
         return [
             'post_id' => $post_id,
             'title' => $title,
+            'post_type' => $post_type,
             'word_count' => $word_count,
             'min_word_count' => $min_word_count,
             'missing_topics' => $missing_topics,
@@ -204,6 +206,15 @@ class ContentImprovementAnalyzer {
             $keyword_difficulty
         );
 
+        $post_type = (string) ($analysis['post_type'] ?? 'post');
+        if ( $post_type === 'model' ) {
+            $destination_tag = 'model_page';
+        } elseif ( $post_type === 'tmw_category_page' ) {
+            $destination_tag = 'category_page';
+        } else {
+            $destination_tag = 'generic_post';
+        }
+
         return [
             'type' => 'content_improvement',
             'title' => sprintf('Improve SEO coverage for: %s', $title),
@@ -212,7 +223,10 @@ class ContentImprovementAnalyzer {
             'priority_score' => $priority,
             'estimated_traffic' => (int) round($missing_volume * self::DEFAULT_EXPECTED_CTR),
             'difficulty' => $keyword_difficulty,
-            'suggested_action' => 'Generate additional sections.',
+            'suggested_action' => implode("\n", [
+                'DESTINATION_TYPE: ' . $destination_tag,
+                'Generate additional sections.',
+            ]),
             'status' => 'new',
         ];
     }

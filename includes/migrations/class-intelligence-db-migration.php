@@ -12,6 +12,7 @@ if (!defined('ABSPATH')) {
  * - No destructive changes.
  * - WordPress-safe (no foreign keys).
  */
+if (!class_exists('TMW_Intelligence_DB_Migration', false)) {
 class TMW_Intelligence_DB_Migration {
     const SCHEMA_VERSION = 1;
     const OPTION_KEY     = 'tmw_intelligence_schema_version';
@@ -84,4 +85,5 @@ class TMW_Intelligence_DB_Migration {
             ) {$charset_collate};",
         ];
     }
+}
 }

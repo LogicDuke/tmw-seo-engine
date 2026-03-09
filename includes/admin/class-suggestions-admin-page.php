@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Suggestions;
 
 use TMWSEO\Engine\Admin;
+use TMWSEO\Engine\Admin\AdminUI;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Plugin;
 use TMWSEO\Engine\AutopilotMigrationRegistry;
@@ -546,6 +547,241 @@ class SuggestionsAdminPage {
 
 
 
+    // ── Focused Model Mode Renderer ───────────────────────────────────────
+    // A clean, model-only operator screen. Suppresses generic workload widgets,
+    // aging widgets, category-page pivots, and cross-destination triage clutter.
+    // Trust policy is unchanged: everything is manual-only, draft-only.
+
+    /**
+     * @param array<int,array<string,mixed>> $all_rows
+     */
+    private function render_focused_model_page(
+        array $all_rows,
+        string $active_filter,
+        string $active_sort,
+        string $active_review_aging = self::REVIEW_AGING_BUCKET_ALL
+    ): void {
+        $base = admin_url('admin.php?page=tmwseo-suggestions&tmw_destination_filter=model_page');
+
+        // ── Build model-only counts ──────────────────────────────────────
+        // Filter to model_page rows only.
+        $model_rows = array_values(array_filter($all_rows, function (array $row): bool {
+            $dest = $this->resolve_draft_destination($row);
+            return ($dest['destination_type'] ?? '') === 'model_page';
+        }));
+
+        $model_counts = [
+            'all'    => count($model_rows),
+            'new'    => 0,
+            'draft'  => 0,
+        ];
+        foreach ($model_rows as $row) {
+            $s = (string) ($row['status'] ?? 'new');
+            if ($s === 'new') { $model_counts['new']++; }
+            if ($s === 'draft_created') { $model_counts['draft']++; }
+        }
+
+        $review_queue_counts = $this->build_review_queue_counts($model_rows, 'model_page');
+
+        // ── Apply filter to model rows ───────────────────────────────────
+        $filtered_rows = array_values(array_filter($model_rows, function (array $row) use ($active_filter, $active_review_aging): bool {
+            $status = (string) ($row['status'] ?? 'new');
+            $review_queue_state = $this->review_queue_state_for_row($row);
+
+            if ($active_filter === 'new')    { return $status === 'new'; }
+            if ($active_filter === 'approved') { return $status === 'approved'; }
+
+            if ($active_filter === 'review_not_reviewed') {
+                if ($review_queue_state !== 'not_reviewed') { return false; }
+                if ($active_review_aging === self::REVIEW_AGING_BUCKET_ALL) { return true; }
+                $aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
+                return !empty($aging) && ($aging['bucket'] ?? '') === $active_review_aging;
+            }
+
+            if ($active_filter === 'review_needs_changes') {
+                if ($review_queue_state !== 'needs_changes') { return false; }
+                if ($active_review_aging === self::REVIEW_AGING_BUCKET_ALL) { return true; }
+                $aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
+                return !empty($aging) && ($aging['bucket'] ?? '') === $active_review_aging;
+            }
+
+            if ($active_filter === 'review_drafts_all') {
+                return $review_queue_state !== '';
+            }
+
+            // 'all' — show everything except ignored/implemented
+            return !in_array($status, ['ignored', 'implemented'], true);
+        }));
+
+        usort($filtered_rows, function (array $left, array $right) use ($active_sort): int {
+            return $this->compare_suggestions($left, $right, $active_sort);
+        });
+
+        // ── Render ───────────────────────────────────────────────────────
+        echo '<div class="wrap tmwseo-suggestions-page tmwseo-model-focused-wrap">';
+
+        // Header
+        echo '<div class="tmwseo-mf-header">';
+        echo '<h1 class="tmwseo-mf-title">&#127918; Model Page Suggestions</h1>';
+        echo '<p class="tmwseo-mf-subtitle">Focused model-only operator queue. <strong>Manual-only / draft-only mode enforced</strong> — nothing publishes automatically, no links inserted automatically, every action requires your explicit approval.</p>';
+        echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '" class="tmwseo-mf-all-link">&larr; Back to full Suggestions Dashboard</a>';
+        echo '</div>';
+
+        // KPI strip
+        echo '<div class="tmwseo-mf-kpi-strip">';
+        $kpi_items = [
+            ['label' => 'Total Model Suggestions', 'count' => $model_counts['all'],  'url' => $base . '&tmw_filter=all'],
+            ['label' => 'New / Unactioned',          'count' => $model_counts['new'],  'url' => $base . '&tmw_filter=new'],
+            ['label' => 'Drafts Created',             'count' => $model_counts['draft'],'url' => $base . '&tmw_filter=review_drafts_all'],
+            ['label' => 'Not Reviewed',               'count' => (int) ($review_queue_counts['review_not_reviewed'] ?? 0), 'url' => $base . '&tmw_filter=review_not_reviewed'],
+            ['label' => 'Needs Changes',              'count' => (int) ($review_queue_counts['review_needs_changes'] ?? 0), 'url' => $base . '&tmw_filter=review_needs_changes'],
+            ['label' => 'Signed Off',                 'count' => (int) ($review_queue_counts['review_signed_off'] ?? 0),   'url' => $base . '&tmw_filter=review_not_reviewed'],
+        ];
+        foreach ($kpi_items as $kpi) {
+            $active = $kpi['count'] > 0;
+            echo '<a href="' . esc_url($kpi['url']) . '" class="tmwseo-mf-kpi' . ($active ? ' tmwseo-mf-kpi-active' : '') . '">';
+            echo '<span class="tmwseo-mf-kpi-value">' . esc_html((string) $kpi['count']) . '</span>';
+            echo '<span class="tmwseo-mf-kpi-label">' . esc_html($kpi['label']) . '</span>';
+            echo '</a>';
+        }
+        echo '</div>';
+
+        // Filter tabs (compact, model-relevant only)
+        $filter_tabs = [
+            'all'                  => 'All Model',
+            'new'                  => 'New',
+            'review_not_reviewed'  => 'Not Reviewed',
+            'review_needs_changes' => 'Needs Changes',
+            'review_drafts_all'    => 'All Drafts',
+            'approved'             => 'Approved',
+        ];
+        echo '<ul class="subsubsub tmwseo-mf-filters">';
+        $first = true;
+        foreach ($filter_tabs as $key => $label) {
+            $url = add_query_arg([
+                'page' => 'tmwseo-suggestions',
+                'tmw_filter' => $key,
+                'tmw_destination_filter' => 'model_page',
+            ], admin_url('admin.php'));
+            $class = $active_filter === $key ? 'current' : '';
+            if (!$first) { echo ' | '; }
+            if (isset($review_queue_counts[$key])) {
+                $label = sprintf('%s (%d)', $label, (int) $review_queue_counts[$key]);
+            } elseif ($key === 'new') {
+                $label = sprintf('%s (%d)', $label, $model_counts['new']);
+            } elseif ($key === 'all') {
+                $label = sprintf('%s (%d)', $label, $model_counts['all']);
+            }
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a></li>';
+            $first = false;
+        }
+        echo '</ul>';
+
+        echo '<p class="description" style="margin:4px 0 14px;"><strong>Trust reminder:</strong> Draft-only · noindex · no autopublish · no auto link insertion · manual next step required on every action.</p>';
+
+        // Table or empty state
+        if (empty($filtered_rows)) {
+            echo '<div class="tmwseo-mf-empty">';
+            echo '<div class="tmwseo-mf-empty-icon">&#127918;</div>';
+            echo '<div class="tmwseo-mf-empty-title">No model-page suggestions in this queue</div>';
+            echo '<p class="tmwseo-mf-empty-sub">Run a Discovery Snapshot or keyword cycle to generate model-page suggestions, or check other filter tabs above.</p>';
+            echo '<a href="' . esc_url($base . '&tmw_filter=all') . '" class="button button-primary">View All Model Suggestions</a>';
+            echo ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-command-center')) . '" class="button">Back to Command Center</a>';
+            echo '</div>';
+        } else {
+            echo '<table class="widefat fixed striped tmwseo-suggestions-table">';
+            echo '<thead><tr>';
+            echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Suggestion Type', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Primary Action', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Title', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Description', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Est. Traffic', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Review State', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Actions', 'tmwseo') . '</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ($filtered_rows as $row) {
+                $id = (int) ($row['id'] ?? 0);
+                $priority_score = (float) ($row['priority_score'] ?? 0);
+                $priority_label = $this->priority_label($priority_score);
+                $priority_class = strtolower($priority_label);
+                $status = sanitize_key((string) ($row['status'] ?? 'new'));
+                $status_meta = $this->suggestion_status_meta($status);
+                $primary_action_meta = $this->primary_action_meta((string) ($row['type'] ?? ''));
+                $type_label = $this->format_label((string) ($row['type'] ?? ''));
+                $review_state_badges = $this->build_review_state_badges($row);
+                $review_queue_state  = $this->review_queue_state_for_row($row);
+                $review_aging        = $this->build_review_aging_profile_for_row($row, $review_queue_state);
+
+                echo '<tr>';
+                echo '<td><span class="tmwseo-priority tmwseo-priority-' . esc_attr($priority_class) . '">' . esc_html($priority_label . ' (' . number_format_i18n($priority_score, 1) . ')') . '</span></td>';
+                echo '<td><span class="tmwseo-status-badge tmwseo-status-' . esc_attr($status_meta['class']) . '">' . esc_html($status_meta['label']) . '</span>';
+                if (!empty($review_state_badges)) {
+                    foreach ($review_state_badges as $badge) {
+                        echo '<div style="margin-top:4px;"><span class="tmwseo-target-badge" style="background:#f5f3ff;border:1px solid #c4b5fd;color:#5b21b6;">' . esc_html($badge) . '</span></div>';
+                    }
+                }
+                echo '</td>';
+                echo '<td>' . esc_html($type_label) . '</td>';
+                echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span></td>';
+                echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong></td>';
+                echo '<td><p style="margin:0;font-size:12px;">' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 16, '…')) . '</p></td>';
+                echo '<td>' . esc_html(number_format_i18n((int) ($row['estimated_traffic'] ?? 0))) . '</td>';
+                echo '<td>';
+                if (!empty($review_aging)) {
+                    $bucket = (string) ($review_aging['bucket'] ?? self::REVIEW_AGING_BUCKET_FRESH);
+                    $bucket_label = (string) ($review_aging['bucket_label'] ?? __('Fresh', 'tmwseo'));
+                    echo '<span class="tmwseo-target-badge tmwseo-aging-badge tmwseo-aging-' . esc_attr($bucket) . '">' . esc_html($bucket_label) . '</span>';
+                    echo '<div class="tmwseo-cell-note">' . esc_html((int) ($review_aging['days_waiting'] ?? 0)) . 'd waiting</div>';
+                } else {
+                    echo '<span class="tmwseo-cell-note">—</span>';
+                }
+                echo '</td>';
+                echo '<td>';
+                if ((string) ($row['type'] ?? '') === 'internal_link') {
+                    $this->render_action_button($id, 'insert_link_draft', __('Insert Link Draft', 'tmwseo'), 'secondary');
+                } else {
+                    $this->render_action_button($id, 'create_draft', __('Create Noindex Draft', 'tmwseo'), 'secondary');
+                }
+                if ($status === 'draft_created' && $this->find_suggestion_draft_id($id) > 0) {
+                    $this->render_assisted_draft_enrichment_button($id);
+                }
+                $this->render_action_button($id, 'ignore', __('Ignore', 'tmwseo'), 'delete');
+                echo '</td>';
+                echo '</tr>';
+            }
+
+            echo '</tbody></table>';
+        }
+
+        // Focused model mode CSS
+        echo '<style>
+.tmwseo-model-focused-wrap { max-width: 1180px; }
+.tmwseo-mf-header { background: linear-gradient(135deg,#faf5ff 0%,#fff 100%); border-left: 4px solid #7c3aed; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+.tmwseo-mf-title { font-size: 20px; font-weight: 700; color: #4c1d95; margin: 0 0 6px; }
+.tmwseo-mf-subtitle { font-size: 13px; color: #4b5563; margin: 0 0 8px; }
+.tmwseo-mf-all-link { font-size: 12px; color: #7c3aed; text-decoration: none; }
+.tmwseo-mf-all-link:hover { text-decoration: underline; }
+.tmwseo-mf-kpi-strip { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.tmwseo-mf-kpi { display: flex; flex-direction: column; align-items: center; padding: 12px 16px; border: 1px solid #e9d5ff; border-radius: 8px; background: #fff; text-decoration: none; color: #111827; min-width: 100px; transition: box-shadow .15s; }
+.tmwseo-mf-kpi:hover { box-shadow: 0 2px 8px rgba(124,58,237,.15); color: #111827; }
+.tmwseo-mf-kpi-active { border-color: #7c3aed; background: #f5f3ff; }
+.tmwseo-mf-kpi-value { font-size: 24px; font-weight: 700; color: #5b21b6; }
+.tmwseo-mf-kpi-label { font-size: 11px; color: #6b7280; text-align: center; margin-top: 4px; }
+.tmwseo-mf-filters { margin: 0 0 8px; }
+.tmwseo-mf-empty { text-align: center; padding: 48px 24px; background: #faf5ff; border: 2px dashed #c4b5fd; border-radius: 12px; margin: 20px 0; }
+.tmwseo-mf-empty-icon { font-size: 48px; margin-bottom: 12px; }
+.tmwseo-mf-empty-title { font-size: 18px; font-weight: 700; color: #4c1d95; margin-bottom: 8px; }
+.tmwseo-mf-empty-sub { font-size: 13px; color: #6b7280; max-width: 480px; margin: 0 auto 16px; }
+</style>';
+
+        echo '</div>';
+    }
+
+    // ── End Focused Model Mode Renderer ───────────────────────────────────
+
     public function render_insert_link_draft_helper(): void {
         if (!is_admin() || !current_user_can('edit_posts')) {
             return;
@@ -771,10 +1007,19 @@ class SuggestionsAdminPage {
         if ($notice === 'draft_preview_generated' || $notice === 'draft_preview_refused') {
             $draft_id = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
             $refused_reason = sanitize_key((string) ($_GET['reason'] ?? ''));
+            $preview_strategy = sanitize_key((string) ($_GET['preview_strategy'] ?? ''));
 
             if ($notice === 'draft_preview_generated') {
                 echo '<div class="notice notice-success is-dismissible"><p>';
                 echo esc_html__('Draft content preview generated in assisted draft-only mode. Preview data was stored in dedicated metadata only; no post content changes, no publish automation, and no noindex changes were performed.', 'tmwseo');
+                if ( $preview_strategy !== '' ) {
+                    $strategy_label = $preview_strategy === 'template_dry_run'
+                        ? __( 'Template (dry-run mode — no API cost)', 'tmwseo' )
+                        : ( $preview_strategy === 'template'
+                            ? __( 'Template (no API key configured)', 'tmwseo' )
+                            : __( 'OpenAI', 'tmwseo' ) );
+                    echo ' <strong>' . esc_html__( 'Strategy:', 'tmwseo' ) . ' ' . esc_html( $strategy_label ) . '</strong>';
+                }
             } else {
                 echo '<div class="notice notice-warning is-dismissible"><p>';
                 echo esc_html__('Draft content preview generation was refused because the selected content is not an eligible draft. This action is restricted to explicit operator-created drafts only.', 'tmwseo');
@@ -922,6 +1167,7 @@ class SuggestionsAdminPage {
         $result = AssistedDraftEnrichmentService::generate_preview_for_explicit_draft($draft_id);
         $notice = !empty($result['ok']) ? 'draft_preview_generated' : 'draft_preview_refused';
         $reason = sanitize_key((string) ($result['reason'] ?? ''));
+        $strategy = sanitize_key((string) ($result['strategy'] ?? ''));
 
         wp_safe_redirect(add_query_arg([
             'page' => 'tmwseo-suggestions',
@@ -929,6 +1175,7 @@ class SuggestionsAdminPage {
             'draft_id' => $draft_id,
             'notice' => $notice,
             'reason' => $reason,
+            'preview_strategy' => $strategy,
         ], admin_url('admin.php')));
         exit;
     }
@@ -1597,6 +1844,22 @@ class SuggestionsAdminPage {
         $active_destination_filter = $this->sanitize_destination_filter((string) ($_GET['tmw_destination_filter'] ?? ($active_view_preset['destination_filter'] ?? 'all')));
         $active_sort = $this->sanitize_sort((string) ($_GET['tmw_sort'] ?? ($active_view_preset['sort'] ?? 'priority_desc')));
         $active_review_aging = $this->sanitize_review_aging_bucket((string) ($_GET['tmw_review_age'] ?? self::REVIEW_AGING_BUCKET_ALL));
+
+        // ── Focused Model Mode ──────────────────────────────────────────────
+        // Activated when the page is opened from a Command Center model CTA
+        // (tmw_destination_filter=model_page with a model-relevant filter).
+        // Renders a clean, model-only operator screen suppressing all generic
+        // cross-destination widgets, aging widgets, and triage clutter.
+        // Does NOT change trust behaviour — everything stays manual-only.
+        $model_focused_filters = ['all', 'new', 'review_not_reviewed', 'review_needs_changes', 'review_drafts_all', 'approved'];
+        if (
+            $active_destination_filter === 'model_page' &&
+            in_array($active_filter, $model_focused_filters, true)
+        ) {
+            $this->render_focused_model_page($rows, $active_filter, $active_sort, $active_review_aging);
+            return;
+        }
+        // ── End Focused Model Mode check ────────────────────────────────────
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
         $review_queue_counts = $this->build_review_queue_counts($rows, $active_destination_filter);
         $review_aging_bucket_counts = $this->build_review_aging_bucket_counts($rows, $active_destination_filter, $active_filter);
@@ -1723,31 +1986,20 @@ class SuggestionsAdminPage {
             return $this->compare_suggestions($left, $right, $active_sort);
         });
 
+        // ── KPI counts (derived from full $rows, no logic change) ────────────
+        $kpi_new          = count(array_filter($rows, fn($r) => ($r['status'] ?? 'new') === 'new'));
+        $kpi_draft        = count(array_filter($rows, fn($r) => ($r['status'] ?? '') === 'draft_created'));
+        $kpi_high         = count(array_filter($rows, fn($r) => (float)($r['priority_score'] ?? 0) >= 8 && !in_array($r['status'] ?? 'new', ['ignored','implemented'], true)));
+        $kpi_implemented  = count(array_filter($rows, fn($r) => ($r['status'] ?? '') === 'implemented'));
+
+        // ── Page shell ───────────────────────────────────────────────────────
         echo '<div class="wrap tmwseo-suggestions-page">';
-        echo '<h1>' . esc_html__('Suggestions Dashboard', 'tmwseo') . '</h1>';
-        echo '<div class="notice notice-warning"><p><strong>Human approval required before any publishing or live content changes.</strong></p></div>';
-        echo '<p>' . esc_html__('Review SEO suggestions and decide what to do next. Every action is manual-review-first: drafts and briefs are prepared for operators, and nothing is published or inserted into live content automatically.', 'tmwseo') . '</p>';
-        echo '<p class="description" style="margin:-4px 0 10px;">' . esc_html__('Review only queues are draft-only. Signed off for manual next step still means nothing has been published automatically; draft remains draft-only / noindex.', 'tmwseo') . '</p>';
+        AdminUI::page_header(
+            __('Suggestions Dashboard', 'tmwseo'),
+            __('Review SEO suggestions and decide what to do next. Every action is manual-review-first.', 'tmwseo')
+        );
 
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 18px;">';
-        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
-        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
-        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 18px;">';
-        wp_nonce_field('tmwseo_scan_content_improvements');
-        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
-        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:0 0 18px;">';
-        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
-        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
-        submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
-        echo '<p class="description" style="margin-top:6px;">' . esc_html__('Read-safe only: analyzes legacy smart-queue discovery candidates for operator review. This does not enqueue optimization jobs, publish posts, or mutate live content.', 'tmwseo') . '</p>';
-        echo '</form>';
-
+        // ── Success notices ──────────────────────────────────────────────────
         if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete', 'phase_c_discovery_snapshot_blocked'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'scan_complete') {
@@ -1772,72 +2024,141 @@ class SuggestionsAdminPage {
             echo '</p></div>';
         }
 
-        $tabs = [
-            'all' => 'All',
-            'review_drafts_all' => 'All Review Drafts',
-            'review_not_reviewed' => 'Not Reviewed',
-            'review_in_review' => 'In Review',
-            'review_signed_off' => 'Signed Off',
-            'review_needs_changes' => 'Needs Changes',
-            'review_handoff_ready' => 'Handoff Ready',
-            'review_handoff_exported' => 'Handoff Exported',
-            'high_priority' => 'High Priority',
-            'draft_created' => 'Draft Created',
-            'review_ready' => 'Review Ready',
-            'ignored' => 'Ignored',
-            'content_opportunity' => 'Content Opportunities',
-            'internal_linking' => 'Internal Linking',
-            'content_improvement' => 'Content Improvements',
-            'cluster_expansion' => 'Cluster Expansion',
-            'traffic_keywords' => 'Traffic Keywords',
-            'competitor_gap' => 'Competitor Gaps',
-            'ranking_probability' => 'Ranking Probability',
-            'serp_weakness' => 'SERP Weakness',
-            'authority_cluster' => 'Authority Clusters',
-            'content_brief' => 'Content Briefs',
-        ];
+        // ── KPI row ──────────────────────────────────────────────────────────
+        AdminUI::kpi_row([
+            [ 'value' => $kpi_new,         'label' => __('New', 'tmwseo'),          'color' => $kpi_new > 0 ? 'neutral' : 'neutral' ],
+            [ 'value' => $kpi_draft,        'label' => __('Draft Created', 'tmwseo'), 'color' => $kpi_draft > 0 ? 'ok' : 'neutral' ],
+            [ 'value' => $kpi_high,         'label' => __('High Priority', 'tmwseo'), 'color' => $kpi_high > 0 ? 'warn' : 'neutral' ],
+            [ 'value' => $kpi_implemented,  'label' => __('Implemented', 'tmwseo'),  'color' => 'ok' ],
+        ]);
 
+        // ── Primary filter bar ───────────────────────────────────────────────
+        echo '<div class="tmwui-filter-bar">';
+
+        // Status tabs
+        $tabs = [
+            'all'                    => 'All',
+            'review_drafts_all'      => 'All Review Drafts',
+            'review_not_reviewed'    => 'Not Reviewed',
+            'review_in_review'       => 'In Review',
+            'review_signed_off'      => 'Signed Off',
+            'review_needs_changes'   => 'Needs Changes',
+            'review_handoff_ready'   => 'Handoff Ready',
+            'review_handoff_exported'=> 'Handoff Exported',
+            'high_priority'          => 'High Priority',
+            'draft_created'          => 'Draft Created',
+            'review_ready'           => 'Review Ready',
+            'ignored'                => 'Ignored',
+            'content_opportunity'    => 'Content Opportunities',
+            'internal_linking'       => 'Internal Linking',
+            'content_improvement'    => 'Content Improvements',
+            'cluster_expansion'      => 'Cluster Expansion',
+            'traffic_keywords'       => 'Traffic Keywords',
+            'competitor_gap'         => 'Competitor Gaps',
+            'ranking_probability'    => 'Ranking Probability',
+            'serp_weakness'          => 'SERP Weakness',
+            'authority_cluster'      => 'Authority Clusters',
+            'content_brief'          => 'Content Briefs',
+        ];
         echo '<ul class="subsubsub">';
         $first = true;
         foreach ($tabs as $key => $label) {
             $url = add_query_arg([
-                'page' => 'tmwseo-suggestions',
-                'tmw_filter' => $key,
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_filter'             => $key,
                 'tmw_destination_filter' => $active_destination_filter,
-                'tmw_review_age' => $active_review_aging,
+                'tmw_review_age'         => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_filter === $key ? 'current' : '';
-            if (!$first) {
-                echo ' | ';
-            }
+            if (!$first) { echo ' | '; }
             if (isset($review_queue_counts[$key])) {
                 $label = sprintf('%s (%d)', $label, (int) $review_queue_counts[$key]);
             }
-
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a></li>';
             $first = false;
         }
         echo '</ul>';
 
-        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Review Draft Queues', 'tmwseo') . '</h2>';
-        echo '<p style="margin:0 0 8px;">' . esc_html__('Trust-safe reviewer handoff queues for explicit drafts only. Review only, manual-only, and never auto-publish.', 'tmwseo') . '</p>';
+        // Destination tabs
+        $destination_tabs = [
+            'all'           => __('All', 'tmwseo'),
+            'category_page' => __('Category Pages', 'tmwseo'),
+            'model_page'    => __('Model Pages', 'tmwseo'),
+            'video_page'    => __('Video Pages', 'tmwseo'),
+            'generic_post'  => __('Generic Posts', 'tmwseo'),
+        ];
+        echo '<ul class="subsubsub" style="margin-top:6px;">';
+        $first_destination_tab = true;
+        foreach ($destination_tabs as $key => $label) {
+            $url = add_query_arg([
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_filter'             => $active_filter,
+                'tmw_destination_filter' => $key,
+                'tmw_sort'               => $active_sort,
+                'tmw_review_age'         => $active_review_aging,
+            ], admin_url('admin.php'));
+            $class = $active_destination_filter === $key ? 'current' : '';
+            if (!$first_destination_tab) { echo ' | '; }
+            $count = (int) ($destination_counts[$key] ?? 0);
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
+            $first_destination_tab = false;
+        }
+        echo '</ul>';
+
+        // Sorting tabs
+        $sort_options = $this->sort_options();
+        echo '<ul class="subsubsub" style="margin-top:6px;">';
+        $first_sort_tab = true;
+        foreach ($sort_options as $sort_key => $sort_label) {
+            $url = add_query_arg([
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_filter'             => $active_filter,
+                'tmw_destination_filter' => $active_destination_filter,
+                'tmw_sort'               => $sort_key,
+                'tmw_view'               => $active_view,
+                'tmw_review_age'         => $active_review_aging,
+            ], admin_url('admin.php'));
+            $class = $active_sort === $sort_key ? 'current' : '';
+            if (!$first_sort_tab) { echo ' | '; }
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($sort_label) . '</a></li>';
+            $first_sort_tab = false;
+        }
+        echo '</ul>';
+
+        // Active state summary line
+        $active_sort_label = $sort_options[$active_sort] ?? $sort_options['priority_desc'];
+        $active_queue_label = $active_view !== '' && isset($quick_views[$active_view])
+            ? (string) ($quick_views[$active_view]['label'] ?? __('Custom Queue', 'tmwseo'))
+            : __('Custom Queue', 'tmwseo');
+        echo '<p class="description" style="margin:4px 0 0;">';
+        echo '<strong>' . esc_html__('Active queue:', 'tmwseo') . '</strong> ' . esc_html($active_queue_label) . ' · ';
+        echo '<strong>' . esc_html__('Active sort:', 'tmwseo') . '</strong> ' . esc_html($active_sort_label);
+        echo '</p>';
+
+        echo '</div>'; // .tmwui-filter-bar
+
+        // ── Advanced review filters (collapsed) ──────────────────────────────
+        echo '<details class="tmwui-advanced">';
+        echo '<summary>' . esc_html__('Advanced Review Filters', 'tmwseo') . '</summary>';
+        echo '<div class="tmwui-advanced-body">';
+
+        // Review Draft Queues
+        echo '<h3 style="margin:0 0 4px;">' . esc_html__('Review Draft Queues', 'tmwseo') . '</h3>';
+        echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Trust-safe reviewer handoff queues for explicit drafts only. Review only, manual-only, and never auto-publish.', 'tmwseo') . '</p>';
         echo '<ul class="subsubsub">';
         $review_views = $this->review_queue_views();
         $first_review_tab = true;
         foreach ($review_views as $review_meta) {
             $review_filter = (string) ($review_meta['filter'] ?? 'all');
             $url = add_query_arg([
-                'page' => 'tmwseo-suggestions',
-                'tmw_filter' => $review_filter,
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_filter'             => $review_filter,
                 'tmw_destination_filter' => $active_destination_filter,
-                'tmw_sort' => (string) ($review_meta['sort'] ?? 'priority_desc'),
-                'tmw_review_age' => $active_review_aging,
+                'tmw_sort'               => (string) ($review_meta['sort'] ?? 'priority_desc'),
+                'tmw_review_age'         => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_filter === $review_filter ? 'current' : '';
-            if (!$first_review_tab) {
-                echo ' | ';
-            }
-
+            if (!$first_review_tab) { echo ' | '; }
             $count = (int) ($review_queue_counts[$review_filter] ?? 0);
             $label = (string) ($review_meta['label'] ?? $review_filter);
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
@@ -1845,32 +2166,29 @@ class SuggestionsAdminPage {
         }
         echo '</ul>';
 
+        // Review Aging Buckets (only shown when review filter is active)
         if ($this->is_review_queue_filter($active_filter)) {
             $review_aging_tabs = [
-                self::REVIEW_AGING_BUCKET_ALL => __('All Ages', 'tmwseo'),
-                self::REVIEW_AGING_BUCKET_FRESH => __('Fresh (0-2d)', 'tmwseo'),
-                self::REVIEW_AGING_BUCKET_AGING => __('Aging (3-7d)', 'tmwseo'),
+                self::REVIEW_AGING_BUCKET_ALL     => __('All Ages', 'tmwseo'),
+                self::REVIEW_AGING_BUCKET_FRESH   => __('Fresh (0-2d)', 'tmwseo'),
+                self::REVIEW_AGING_BUCKET_AGING   => __('Aging (3-7d)', 'tmwseo'),
                 self::REVIEW_AGING_BUCKET_OVERDUE => __('Overdue (8+d)', 'tmwseo'),
             ];
-            echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Review Aging Buckets', 'tmwseo') . '</h2>';
-            echo '<p style="margin:0 0 8px;">' . esc_html__('Review-only aging visibility for draft queues. Buckets are triage cues only and never auto-apply or publish.', 'tmwseo') . '</p>';
+            echo '<h3 style="margin:12px 0 4px;">' . esc_html__('Review Aging Buckets', 'tmwseo') . '</h3>';
+            echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Review-only aging visibility for draft queues. Buckets are triage cues only and never auto-apply or publish.', 'tmwseo') . '</p>';
             echo '<ul class="subsubsub">';
             $first_aging_tab = true;
             foreach ($review_aging_tabs as $aging_key => $aging_label) {
                 $url = add_query_arg([
-                    'page' => 'tmwseo-suggestions',
-                    'tmw_filter' => $active_filter,
+                    'page'                   => 'tmwseo-suggestions',
+                    'tmw_filter'             => $active_filter,
                     'tmw_destination_filter' => $active_destination_filter,
-                    'tmw_sort' => $active_sort,
-                    'tmw_view' => $active_view,
-                    'tmw_review_age' => $aging_key,
+                    'tmw_sort'               => $active_sort,
+                    'tmw_view'               => $active_view,
+                    'tmw_review_age'         => $aging_key,
                 ], admin_url('admin.php'));
-
                 $class = $active_review_aging === $aging_key ? 'current' : '';
-                if (!$first_aging_tab) {
-                    echo ' | ';
-                }
-
+                if (!$first_aging_tab) { echo ' | '; }
                 $count = (int) ($review_aging_bucket_counts[$aging_key] ?? 0);
                 echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $aging_label, $count)) . '</a></li>';
                 $first_aging_tab = false;
@@ -1878,121 +2196,73 @@ class SuggestionsAdminPage {
             echo '</ul>';
         }
 
-        echo '<p style="margin:0 0 8px;">';
-        echo '<strong>' . esc_html__('Category-page-first reviewer pivots:', 'tmwseo') . '</strong> ';
+        // Category-page-first reviewer pivots
         $in_review_category_url = add_query_arg([
-            'page' => 'tmwseo-suggestions',
-            'tmw_filter' => 'review_in_review',
+            'page'                   => 'tmwseo-suggestions',
+            'tmw_filter'             => 'review_in_review',
             'tmw_destination_filter' => 'category_page',
-            'tmw_sort' => 'priority_desc',
+            'tmw_sort'               => 'priority_desc',
         ], admin_url('admin.php'));
         $signed_off_category_url = add_query_arg([
-            'page' => 'tmwseo-suggestions',
-            'tmw_filter' => 'review_signed_off',
+            'page'                   => 'tmwseo-suggestions',
+            'tmw_filter'             => 'review_signed_off',
             'tmw_destination_filter' => 'category_page',
-            'tmw_sort' => 'priority_desc',
+            'tmw_sort'               => 'priority_desc',
         ], admin_url('admin.php'));
+        echo '<p style="margin:12px 0 6px;">';
+        echo '<strong>' . esc_html__('Category-page-first reviewer pivots:', 'tmwseo') . '</strong> ';
         echo '<a href="' . esc_url($in_review_category_url) . '">' . esc_html__('In Review → Category Pages', 'tmwseo') . '</a>';
         echo ' · ';
         echo '<a href="' . esc_url($signed_off_category_url) . '">' . esc_html__('Signed Off → Category Pages', 'tmwseo') . '</a>';
         echo '</p>';
 
-        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Triage Quick Views', 'tmwseo') . '</h2>';
-        echo '<p style="margin:0 0 8px;">' . esc_html__('Open queue-focused views in one click. All output remains manual-only: drafts require manual editing, and links require manual insertion.', 'tmwseo') . '</p>';
+        // Triage Quick Views
+        echo '<h3 style="margin:12px 0 4px;">' . esc_html__('Triage Quick Views', 'tmwseo') . '</h3>';
+        echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Open queue-focused views in one click. All output remains manual-only: drafts require manual editing, and links require manual insertion.', 'tmwseo') . '</p>';
         echo '<ul class="subsubsub">';
         $first_view_tab = true;
         foreach ($quick_views as $view_key => $view_meta) {
             $url = add_query_arg([
-                'page' => 'tmwseo-suggestions',
-                'tmw_view' => $view_key,
-                'tmw_filter' => $view_meta['filter'],
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_view'               => $view_key,
+                'tmw_filter'             => $view_meta['filter'],
                 'tmw_destination_filter' => $view_meta['destination_filter'],
-                'tmw_sort' => $view_meta['sort'],
+                'tmw_sort'               => $view_meta['sort'],
             ], admin_url('admin.php'));
-
             $class = $active_view === $view_key ? 'current' : '';
-            if (!$first_view_tab) {
-                echo ' | ';
-            }
-
+            if (!$first_view_tab) { echo ' | '; }
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html((string) ($view_meta['label'] ?? '')) . '</a></li>';
             $first_view_tab = false;
         }
         echo '</ul>';
 
-        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Sorting', 'tmwseo') . '</h2>';
-        echo '<ul class="subsubsub">';
-        $sort_options = $this->sort_options();
-        $first_sort_tab = true;
-        foreach ($sort_options as $sort_key => $sort_label) {
-            $url = add_query_arg([
-                'page' => 'tmwseo-suggestions',
-                'tmw_filter' => $active_filter,
-                'tmw_destination_filter' => $active_destination_filter,
-                'tmw_sort' => $sort_key,
-                'tmw_view' => $active_view,
-                'tmw_review_age' => $active_review_aging,
-            ], admin_url('admin.php'));
+        echo '</div>'; // .tmwui-advanced-body
+        echo '</details>'; // .tmwui-advanced
 
-            $class = $active_sort === $sort_key ? 'current' : '';
-            if (!$first_sort_tab) {
-                echo ' | ';
-            }
+        // ── Scan actions ─────────────────────────────────────────────────────
+        echo '<div class="tmwui-cta-row">';
 
-            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($sort_label) . '</a></li>';
-            $first_sort_tab = false;
-        }
-        echo '</ul>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
+        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
 
-        $active_sort_label = $sort_options[$active_sort] ?? $sort_options['priority_desc'];
-        $active_queue_label = $active_view !== '' && isset($quick_views[$active_view])
-            ? (string) ($quick_views[$active_view]['label'] ?? __('Custom Queue', 'tmwseo'))
-            : __('Custom Queue', 'tmwseo');
-        echo '<p class="description" style="margin:6px 0 10px;">';
-        echo '<strong>' . esc_html__('Active queue:', 'tmwseo') . '</strong> ' . esc_html($active_queue_label) . ' · ';
-        echo '<strong>' . esc_html__('Active sort:', 'tmwseo') . '</strong> ' . esc_html($active_sort_label);
-        echo '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_content_improvements');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
+        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
 
-        $destination_tabs = [
-            'all' => __('All', 'tmwseo'),
-            'category_page' => __('Category Pages', 'tmwseo'),
-            'model_page' => __('Model Pages', 'tmwseo'),
-            'video_page' => __('Video Pages', 'tmwseo'),
-            'generic_post' => __('Generic Posts', 'tmwseo'),
-        ];
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
+        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
+        submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
 
-        echo '<h2 style="margin:14px 0 6px;">' . esc_html__('Destination Queue', 'tmwseo') . '</h2>';
-        echo '<p style="margin:0 0 8px;">' . esc_html__('Quickly focus the queue by draft destination type. Category pages are typically reviewed first, and all outcomes stay manual-only.', 'tmwseo') . '</p>';
-        echo '<ul class="subsubsub">';
-        $first_destination_tab = true;
-        foreach ($destination_tabs as $key => $label) {
-            $url = add_query_arg([
-                'page' => 'tmwseo-suggestions',
-                'tmw_filter' => $active_filter,
-                'tmw_destination_filter' => $key,
-                'tmw_sort' => $active_sort,
-                'tmw_review_age' => $active_review_aging,
-            ], admin_url('admin.php'));
+        echo '</div>'; // .tmwui-cta-row
 
-            $class = $active_destination_filter === $key ? 'current' : '';
-            if (!$first_destination_tab) {
-                echo ' | ';
-            }
-
-            $count = (int) ($destination_counts[$key] ?? 0);
-            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
-            $first_destination_tab = false;
-        }
-        echo '</ul>';
-
-        echo '<div class="notice notice-info" style="margin:10px 0 16px;"><p><strong>' . esc_html__('Operator quick guide:', 'tmwseo') . '</strong> ';
-        echo esc_html__('Statuses track workflow only (New → Draft Created → Implemented, or Ignored). Draft Target Type shows where a draft will be created (Category, Model, Video, or Generic fallback). Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');
-        echo '</p></div>';
-
-        echo '<div class="notice notice-info" style="margin:10px 0 16px;"><p><strong>' . esc_html__('Next step guidance:', 'tmwseo') . '</strong> ';
-        echo esc_html__('Draft created → open/edit the draft manually, then optionally run Enrich Draft Metadata for safe metadata-only enrichment. Brief generated → review the brief manually. Internal-link helper opened → review anchor/context and insert manually only if approved. Nothing is published or inserted live automatically.', 'tmwseo');
-        echo '</p></div>';
-
+        // ── Suggestions table ────────────────────────────────────────────────
         echo '<table class="widefat fixed striped tmwseo-suggestions-table"><thead><tr>';
         echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
@@ -2120,7 +2390,22 @@ class SuggestionsAdminPage {
         }
 
         echo '</tbody></table>';
+
+        // ── Workflow Guide (collapsed, below table) ──────────────────────────
+        echo '<details class="tmwui-advanced" style="margin-top:16px;">';
+        echo '<summary>' . esc_html__('Workflow Guide', 'tmwseo') . '</summary>';
+        echo '<div class="tmwui-advanced-body">';
+        echo '<p><strong>' . esc_html__('Operator quick guide:', 'tmwseo') . '</strong> ';
+        echo esc_html__('Statuses track workflow only (New → Draft Created → Implemented, or Ignored). Draft Target Type shows where a draft will be created (Category, Model, Video, or Generic fallback). Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');
+        echo '</p>';
+        echo '<p><strong>' . esc_html__('Next step guidance:', 'tmwseo') . '</strong> ';
+        echo esc_html__('Draft created → open/edit the draft manually, then optionally run Enrich Draft Metadata for safe metadata-only enrichment. Brief generated → review the brief manually. Internal-link helper opened → review anchor/context and insert manually only if approved. Nothing is published or inserted live automatically.', 'tmwseo');
+        echo '</p>';
+        echo '<p class="description">' . esc_html__('Review only queues are draft-only. Signed off for manual next step still means nothing has been published automatically; draft remains draft-only / noindex.', 'tmwseo') . '</p>';
         echo '</div>';
+        echo '</details>';
+
+        echo '</div>'; // .wrap
     }
 
     private function render_assisted_draft_enrichment_button(int $id): void {

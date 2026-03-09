@@ -18,6 +18,21 @@ class ContentSuggestionModule {
     private const TRAFFIC_KEYWORD_MAX_DIFFICULTY = 30.0;
     private const WEAK_COMPETITOR_DA_THRESHOLD = 40.0;
 
+    /**
+     * Physical-attribute / niche keywords that map to category pages on this platform.
+     * These drive browsing/discovery pages, not individual model profile pages.
+     *
+     * @var string[]
+     */
+    private const CATEGORY_PAGE_CLUSTER_SIGNALS = [
+        'category', 'niche', 'genre', 'type of',
+        'blonde', 'brunette', 'redhead', 'ebony', 'latina', 'asian',
+        'petite', 'curvy', 'athletic', 'big boob', 'big butt', 'bbw',
+        'milf', 'teen', 'mature', 'fetish', 'cosplay', 'outdoor',
+        'couples', 'dominant', 'interracial', 'glamour', 'fitness',
+        'dance', 'chatty', 'livejasmin', 'compare platform', 'chat',
+    ];
+
     private SuggestionEngine $suggestion_engine;
 
     public function __construct(?SuggestionEngine $suggestion_engine = null) {
@@ -82,7 +97,7 @@ class ContentSuggestionModule {
                 'estimated_traffic' => $estimated_traffic,
                 'difficulty' => $keyword_difficulty,
                 'suggested_action' => implode("\n", [
-                    'DESTINATION_TYPE: generic_post',
+                    'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name),
                     'Generate draft idea only for manual review. Do not auto-create content.',
                 ]),
                 'status' => 'new',
@@ -113,7 +128,7 @@ class ContentSuggestionModule {
                     'estimated_traffic' => $this->calculateEstimatedTraffic($search_volume),
                     'difficulty' => $keyword_difficulty,
                     'suggested_action' => implode("\n", [
-                        'DESTINATION_TYPE: generic_post',
+                        'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name),
                         'Create article targeting this keyword. Never create the article automatically.',
                     ]),
                     'status' => 'new',
@@ -431,7 +446,7 @@ class ContentSuggestionModule {
                 'estimated_traffic' => 0,
                 'difficulty' => 0,
                 'suggested_action' => implode("\n", [
-                    'DESTINATION_TYPE: generic_post',
+                    'DESTINATION_TYPE: ' . $this->resolve_cluster_destination($cluster_name),
                     'Generate content briefs for these topics.',
                 ]),
                 'status' => 'new',
@@ -509,6 +524,66 @@ class ContentSuggestionModule {
         $ctr = max(0.0, min(1.0, $ctr));
 
         return max(0, (int) round($search_volume * $ctr));
+    }
+
+    /**
+     * Determine the correct destination type for keyword-based content suggestions.
+     *
+     * Routing rules (deterministic, explainable):
+     * 1. If keyword or cluster clearly targets model/performer content → model_page
+     * 2. If cluster is a physical-attribute / niche / platform category → category_page
+     * 3. Fallback for genuinely generic informational intent → generic_post
+     *
+     * IMPORTANT: This never forces model_page for ambiguous content.
+     * Only use model_page when signals are explicit and clear.
+     */
+    private function resolve_suggestion_destination(string $keyword, string $cluster_name): string {
+        $haystack = strtolower(trim($keyword . ' ' . $cluster_name));
+
+        // Model-page signals: keyword/cluster explicitly targets a model profile or performer page.
+        $model_signals = ['model page', 'model profile', 'performer page', 'cam model'];
+        foreach ($model_signals as $signal) {
+            if (strpos($haystack, $signal) !== false) {
+                return 'model_page';
+            }
+        }
+
+        // Category-page signals: physical attribute / niche / platform browsing clusters.
+        // These generate category-hub pages, not model profiles.
+        foreach (self::CATEGORY_PAGE_CLUSTER_SIGNALS as $signal) {
+            if (strpos($haystack, $signal) !== false) {
+                return 'category_page';
+            }
+        }
+
+        // Genuinely generic informational / comparison content.
+        return 'generic_post';
+    }
+
+    /**
+     * Determine the correct destination type for cluster expansion suggestions.
+     *
+     * Cluster expansion suggestions target topic authority hubs.
+     * On this platform, topic clusters map to category pages (browsing hubs),
+     * unless the cluster name explicitly references model-profile work.
+     */
+    private function resolve_cluster_destination(string $cluster_name): string {
+        $haystack = strtolower(trim($cluster_name));
+
+        // Model-page cluster: explicitly about model profile growth.
+        if (strpos($haystack, 'model page') !== false || strpos($haystack, 'model profile') !== false) {
+            return 'model_page';
+        }
+
+        // Physical-attribute / niche clusters are category-page authority hubs.
+        foreach (self::CATEGORY_PAGE_CLUSTER_SIGNALS as $signal) {
+            if (strpos($haystack, $signal) !== false) {
+                return 'category_page';
+            }
+        }
+
+        // Named clusters that aren't clearly model or category: keep generic.
+        return 'generic_post';
     }
 
     /**

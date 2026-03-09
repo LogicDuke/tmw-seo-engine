@@ -9,69 +9,56 @@
 
 if (!defined('ABSPATH')) { exit; }
 
-define('TMWSEO_ENGINE_VERSION', '4.2.2');
-define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
-define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
+if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
+    return;
+}
+
+define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '4.2.2');
+defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
+defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 
 require_once TMWSEO_ENGINE_PATH . 'includes/class-plugin.php';
+
+if (!function_exists('tmwseo_engine_run_migrations')) {
+    /**
+     * Run additive migrations once per request.
+     */
+    function tmwseo_engine_run_migrations(): void {
+        static $did_run = false;
+
+        if ($did_run) {
+            return;
+        }
+
+        $did_run = true;
+
+        $cluster_migration_file = TMWSEO_ENGINE_PATH . 'includes/migrations/class-cluster-db-migration.php';
+        if (!class_exists('TMW_Cluster_DB_Migration', false) && file_exists($cluster_migration_file)) {
+            require_once $cluster_migration_file;
+        }
+
+        if (class_exists('TMW_Cluster_DB_Migration', false) && method_exists('TMW_Cluster_DB_Migration', 'maybe_migrate')) {
+            TMW_Cluster_DB_Migration::maybe_migrate();
+        }
+
+        $intelligence_migration_file = TMWSEO_ENGINE_PATH . 'includes/migrations/class-intelligence-db-migration.php';
+        if (!class_exists('TMW_Intelligence_DB_Migration', false) && file_exists($intelligence_migration_file)) {
+            require_once $intelligence_migration_file;
+        }
+
+        if (class_exists('TMW_Intelligence_DB_Migration', false) && method_exists('TMW_Intelligence_DB_Migration', 'maybe_migrate')) {
+            TMW_Intelligence_DB_Migration::maybe_migrate();
+        }
+    }
+}
 
 // Core activation/deactivation.
 register_activation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'activate']);
 register_deactivation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'deactivate']);
 
-/**
- * DB migrations (cluster + intelligence) must run on:
- * - activation (fresh install)
- * - plugins_loaded (updates while active)
- */
+// Canonical runtime bootstrap.
 add_action('plugins_loaded', function () {
-    // Cluster migration.
-    if (!class_exists('TMW_Cluster_DB_Migration')) {
-        $migration_file = plugin_dir_path(__FILE__) . 'includes/migrations/class-cluster-db-migration.php';
-        if (file_exists($migration_file)) {
-            require_once $migration_file;
-        }
-    }
-    if (class_exists('TMW_Cluster_DB_Migration')) {
-        $migration = new TMW_Cluster_DB_Migration();
-        if (method_exists($migration, 'maybe_migrate')) {
-            $migration->maybe_migrate();
-        }
-    }
-
-    // Intelligence migration.
-    if (!class_exists('TMW_Intelligence_DB_Migration')) {
-        $migration_file = plugin_dir_path(__FILE__) . 'includes/migrations/class-intelligence-db-migration.php';
-        if (file_exists($migration_file)) {
-            require_once $migration_file;
-        }
-    }
-    if (class_exists('TMW_Intelligence_DB_Migration') && method_exists('TMW_Intelligence_DB_Migration', 'maybe_migrate')) {
-        TMW_Intelligence_DB_Migration::maybe_migrate();
-    }
-});
-
-// On activation, also run migrations (best-effort).
-register_activation_hook(__FILE__, function () {
-    if (file_exists(plugin_dir_path(__FILE__) . 'includes/migrations/class-cluster-db-migration.php')) {
-        require_once plugin_dir_path(__FILE__) . 'includes/migrations/class-cluster-db-migration.php';
-        if (class_exists('TMW_Cluster_DB_Migration')) {
-            $migration = new TMW_Cluster_DB_Migration();
-            if (method_exists($migration, 'maybe_migrate')) {
-                $migration->maybe_migrate();
-            }
-        }
-    }
-
-    if (file_exists(plugin_dir_path(__FILE__) . 'includes/migrations/class-intelligence-db-migration.php')) {
-        require_once plugin_dir_path(__FILE__) . 'includes/migrations/class-intelligence-db-migration.php';
-        if (class_exists('TMW_Intelligence_DB_Migration')) {
-            TMW_Intelligence_DB_Migration::maybe_migrate();
-        }
-    }
-});
-
-// Bootstrap plugin.
-add_action('plugins_loaded', function () {
+    tmwseo_engine_run_migrations();
     \TMWSEO\Engine\Plugin::init();
 });
