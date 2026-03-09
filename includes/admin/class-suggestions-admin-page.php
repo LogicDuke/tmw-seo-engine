@@ -758,23 +758,189 @@ class SuggestionsAdminPage {
 
         // Focused model mode CSS
         echo '<style>
-.tmwseo-model-focused-wrap { max-width: 1180px; }
-.tmwseo-mf-header { background: linear-gradient(135deg,#faf5ff 0%,#fff 100%); border-left: 4px solid #7c3aed; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
-.tmwseo-mf-title { font-size: 20px; font-weight: 700; color: #4c1d95; margin: 0 0 6px; }
-.tmwseo-mf-subtitle { font-size: 13px; color: #4b5563; margin: 0 0 8px; }
-.tmwseo-mf-all-link { font-size: 12px; color: #7c3aed; text-decoration: none; }
+/* ── Focused Model Page — design aligned with Command Center ── */
+.tmwseo-model-focused-wrap {
+    max-width: 1240px;
+    font-family: "DM Sans","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+
+/* Page header card */
+.tmwseo-mf-header {
+    background: linear-gradient(135deg,#f5f3ff 0%,#fff 100%);
+    border: 1.5px solid #ddd6fe;
+    border-left: 4px solid #7c3aed;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(124,58,237,.07);
+}
+.tmwseo-mf-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #3b0764;
+    margin: 0 0 6px;
+    letter-spacing: -0.3px;
+}
+.tmwseo-mf-subtitle {
+    font-size: 13px;
+    color: #4b5563;
+    margin: 0 0 10px;
+    line-height: 1.55;
+}
+.tmwseo-mf-all-link {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7c3aed;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
 .tmwseo-mf-all-link:hover { text-decoration: underline; }
-.tmwseo-mf-kpi-strip { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-.tmwseo-mf-kpi { display: flex; flex-direction: column; align-items: center; padding: 12px 16px; border: 1px solid #e9d5ff; border-radius: 8px; background: #fff; text-decoration: none; color: #111827; min-width: 100px; transition: box-shadow .15s; }
-.tmwseo-mf-kpi:hover { box-shadow: 0 2px 8px rgba(124,58,237,.15); color: #111827; }
-.tmwseo-mf-kpi-active { border-color: #7c3aed; background: #f5f3ff; }
-.tmwseo-mf-kpi-value { font-size: 24px; font-weight: 700; color: #5b21b6; }
-.tmwseo-mf-kpi-label { font-size: 11px; color: #6b7280; text-align: center; margin-top: 4px; }
-.tmwseo-mf-filters { margin: 0 0 8px; }
-.tmwseo-mf-empty { text-align: center; padding: 48px 24px; background: #faf5ff; border: 2px dashed #c4b5fd; border-radius: 12px; margin: 20px 0; }
-.tmwseo-mf-empty-icon { font-size: 48px; margin-bottom: 12px; }
-.tmwseo-mf-empty-title { font-size: 18px; font-weight: 700; color: #4c1d95; margin-bottom: 8px; }
-.tmwseo-mf-empty-sub { font-size: 13px; color: #6b7280; max-width: 480px; margin: 0 auto 16px; }
+
+/* KPI strip */
+.tmwseo-mf-kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.tmwseo-mf-kpi {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 12px;
+    border: 1.5px solid #e2e8f0;
+    border-top: 3px solid #7c3aed;
+    border-radius: 10px;
+    background: #fff;
+    text-decoration: none;
+    color: #111827;
+    transition: box-shadow .15s, transform .15s;
+    box-shadow: 0 2px 6px rgba(0,0,0,.05);
+}
+.tmwseo-mf-kpi:hover {
+    box-shadow: 0 4px 14px rgba(124,58,237,.14);
+    transform: translateY(-1px);
+    color: #111827;
+}
+.tmwseo-mf-kpi-active {
+    border-top-color: #2563eb;
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+.tmwseo-mf-kpi-value {
+    font-size: 28px;
+    font-weight: 800;
+    color: #5b21b6;
+    line-height: 1;
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+}
+.tmwseo-mf-kpi-active .tmwseo-mf-kpi-value { color: #2563eb; }
+.tmwseo-mf-kpi-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-align: center;
+    line-height: 1.35;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Filter tabs — hide raw | pipe text nodes, show pill buttons */
+.tmwseo-mf-filters {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 16px !important;
+    padding: 0 !important;
+    list-style: none !important;
+    float: none !important;
+    font-size: 0; /* hides raw | text nodes between <li> elements */
+}
+.tmwseo-mf-filters li {
+    display: inline-flex !important;
+    margin: 0 !important;
+    float: none !important;
+    font-size: 13px;
+}
+.tmwseo-mf-filters li a {
+    display: inline-block;
+    padding: 5px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    text-decoration: none;
+    background: #f1f5f9;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 99px;
+    transition: all .15s;
+    white-space: nowrap;
+}
+.tmwseo-mf-filters li a:hover {
+    background: #eff6ff;
+    color: #2563eb;
+    border-color: #bfdbfe;
+    text-decoration: none;
+}
+.tmwseo-mf-filters li a.current {
+    background: #2563eb;
+    color: #fff !important;
+    border-color: #2563eb;
+}
+
+/* Trust reminder bar */
+.tmwseo-model-focused-wrap p.description {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 12px;
+    color: #166534;
+    margin: 0 0 16px !important;
+    line-height: 1.5;
+}
+
+/* Empty state */
+.tmwseo-mf-empty {
+    text-align: center;
+    padding: 52px 24px;
+    background: linear-gradient(135deg,#faf5ff,#f5f3ff);
+    border: 2px dashed #c4b5fd;
+    border-radius: 12px;
+    margin: 20px 0;
+}
+.tmwseo-mf-empty-icon { font-size: 48px; margin-bottom: 14px; display: block; }
+.tmwseo-mf-empty-title { font-size: 17px; font-weight: 700; color: #4c1d95; margin-bottom: 8px; }
+.tmwseo-mf-empty-sub { font-size: 13px; color: #6b7280; max-width: 460px; margin: 0 auto 18px; line-height: 1.5; }
+
+/* Actions column — stack buttons */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child .button,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child input[type="submit"],
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child input[type="button"] {
+    display: block;
+    width: 100%;
+    margin: 0 0 5px !important;
+    text-align: center;
+    box-sizing: border-box;
+    white-space: normal;
+}
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child form {
+    display: block !important;
+    margin: 0 0 5px !important;
+}
+
+/* Preset apply panel — contained, not overflowing */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child > div,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child > p {
+    font-size: 12px;
+    color: #475569;
+    margin: 6px 0 !important;
+    line-height: 1.45;
+    word-break: break-word;
+}
 </style>';
 
         echo '</div>';
