@@ -16,6 +16,9 @@ class Admin {
         add_action('admin_menu', [__CLASS__, 'reorder_admin_menus'], 9999);
         add_action('admin_init', [__CLASS__, 'register_settings']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
+        // Bulletproof CSS fallback: output styles in admin_head for any tmwseo page,
+        // regardless of hook suffix. This catches pages missed by enqueue_admin_assets.
+        add_action('admin_head', [__CLASS__, 'print_admin_css_if_tmw_page']);
         add_action('admin_notices', [__CLASS__, 'render_admin_notices']);
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
@@ -100,6 +103,27 @@ class Admin {
         exit;
     }
 
+    /**
+     * Output admin CSS directly in <head> for any TMW SEO Engine page.
+     * Uses echo <style> so it works regardless of wp_add_inline_style timing.
+     * Runs on admin_head (fires inside <head>) — reliable on every page.
+     */
+    public static function print_admin_css_if_tmw_page(): void {
+        static $printed = false;
+        if ( $printed ) { return; }
+        $screen = get_current_screen();
+        if ( ! $screen ) { return; }
+        $id = $screen->id ?? '';
+        if ( strpos( $id, 'tmwseo' ) === false &&
+             strpos( $id, 'tmw-seo' ) === false &&
+             strpos( $id, 'tmwcc' ) === false &&
+             strpos( $id, self::MENU_SLUG ) === false ) {
+            return;
+        }
+        $printed = true;
+        echo '<style id="tmwseo-admin-ui-css" type="text/css">' . AdminUI::css() . '</style>';
+    }
+
     public static function enqueue_admin_assets(string $hook): void {
         $allowed_hooks = [
             'toplevel_page_' . self::MENU_SLUG,
@@ -115,6 +139,15 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
             self::MENU_SLUG . '_page_tmw-seo-debug',
+            // Hidden pages (null parent) use admin_page_{slug} hook format
+            'admin_page_tmwseo-generated',
+            'admin_page_tmwseo-logs',
+            'admin_page_tmw-engine-monitor',
+            'admin_page_tmwseo-migration',
+            'admin_page_tmwseo-import',
+            'admin_page_tmwseo-intelligence',
+            'admin_page_tmwseo-pagespeed',
+            'admin_page_tmw-seo-clusters',
         ];
 
         if (!in_array($hook, $allowed_hooks, true)) {

@@ -664,7 +664,7 @@ class SuggestionsAdminPage {
                 'tmw_destination_filter' => 'model_page',
             ], admin_url('admin.php'));
             $class = $active_filter === $key ? 'current' : '';
-            if (!$first) { echo ' | '; }
+            
             if (isset($review_queue_counts[$key])) {
                 $label = sprintf('%s (%d)', $label, (int) $review_queue_counts[$key]);
             } elseif ($key === 'new') {
@@ -1947,7 +1947,7 @@ class SuggestionsAdminPage {
             echo '<div class="notice notice-error"><p>Invalid domain format.</p></div>';
         }
 
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="tmwseo-inline-form">';
         wp_nonce_field('tmwseo_add_competitor_domain');
         echo '<input type="hidden" name="action" value="tmwseo_add_competitor_domain" />';
         echo '<input type="text" name="domain" placeholder="example.com" style="min-width:280px;" /> ';
@@ -2236,7 +2236,7 @@ class SuggestionsAdminPage {
                 'tmw_review_age'         => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_filter === $key ? 'current' : '';
-            if (!$first) { echo ' | '; }
+            
             if (isset($review_queue_counts[$key])) {
                 $label = sprintf('%s (%d)', $label, (int) $review_queue_counts[$key]);
             }
@@ -2264,7 +2264,7 @@ class SuggestionsAdminPage {
                 'tmw_review_age'         => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_destination_filter === $key ? 'current' : '';
-            if (!$first_destination_tab) { echo ' | '; }
+            
             $count = (int) ($destination_counts[$key] ?? 0);
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
             $first_destination_tab = false;
@@ -2285,7 +2285,7 @@ class SuggestionsAdminPage {
                 'tmw_review_age'         => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_sort === $sort_key ? 'current' : '';
-            if (!$first_sort_tab) { echo ' | '; }
+            
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($sort_label) . '</a></li>';
             $first_sort_tab = false;
         }
@@ -2324,7 +2324,7 @@ class SuggestionsAdminPage {
                 'tmw_review_age'         => $active_review_aging,
             ], admin_url('admin.php'));
             $class = $active_filter === $review_filter ? 'current' : '';
-            if (!$first_review_tab) { echo ' | '; }
+            
             $count = (int) ($review_queue_counts[$review_filter] ?? 0);
             $label = (string) ($review_meta['label'] ?? $review_filter);
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
@@ -2354,7 +2354,7 @@ class SuggestionsAdminPage {
                     'tmw_review_age'         => $aging_key,
                 ], admin_url('admin.php'));
                 $class = $active_review_aging === $aging_key ? 'current' : '';
-                if (!$first_aging_tab) { echo ' | '; }
+                
                 $count = (int) ($review_aging_bucket_counts[$aging_key] ?? 0);
                 echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $aging_label, $count)) . '</a></li>';
                 $first_aging_tab = false;
@@ -2396,7 +2396,7 @@ class SuggestionsAdminPage {
                 'tmw_sort'               => $view_meta['sort'],
             ], admin_url('admin.php'));
             $class = $active_view === $view_key ? 'current' : '';
-            if (!$first_view_tab) { echo ' | '; }
+            
             echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html((string) ($view_meta['label'] ?? '')) . '</a></li>';
             $first_view_tab = false;
         }

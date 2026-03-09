@@ -18,16 +18,16 @@ class AdminUI {
 	// ── Boot ────────────────────────────────────────────────────────────
 
 	/**
-	 * Register and enqueue the shared admin stylesheet (inline, no file request).
-	 * Safe to call multiple times — guarded by wp_style_is check.
+	 * Attach the shared admin stylesheet.
+	 * Piggy-backs on the always-present 'wp-admin' handle so CSS is guaranteed
+	 * to output on every plugin admin page with no hook-order edge-cases.
+	 * Safe to call multiple times — guarded by a static flag.
 	 */
 	public static function enqueue(): void {
-		if ( wp_style_is( 'tmwseo-admin-ui', 'enqueued' ) ) {
-			return;
-		}
-		wp_register_style( 'tmwseo-admin-ui', false );
-		wp_enqueue_style( 'tmwseo-admin-ui' );
-		wp_add_inline_style( 'tmwseo-admin-ui', self::css() );
+		static $done = false;
+		if ( $done ) { return; }
+		$done = true;
+		wp_add_inline_style( 'wp-admin', self::css() );
 	}
 
 	// ── Page shell helpers ───────────────────────────────────────────────
@@ -183,7 +183,7 @@ class AdminUI {
 	 * Returns the shared admin CSS string.
 	 * All rules are namespaced under .tmwui- to avoid collisions.
 	 */
-	private static function css(): string {
+	public static function css(): string {
 		return '
 /* ═══════════════════════════════════════════════════════════
    TMW SEO Engine — Shared Admin Design System
@@ -363,10 +363,21 @@ a.tmwui-kpi:hover {
     padding: 12px 16px;
     margin-bottom: 12px;
 }
-/* Suppress float clearing on subsubsub lists inside filter bar */
+/* subsubsub inside filter bar — keep flex, add row gap */
 .tmwui-filter-bar .subsubsub {
-    margin: 0;
-    float: none;
+    margin: 0 0 8px !important;
+    float: none !important;
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.tmwui-filter-bar > p.description {
+    font-size: 11px !important;
+    color: #64748b;
+    margin: 4px 0 0 !important;
+    padding: 0;
+    border: none;
+    background: none;
     display: block;
 }
 
@@ -750,10 +761,16 @@ a.tmwui-kpi:hover {
 }
 
 /* ── Queue / Logs: inline filter links in <p> ────────────── */
-.wrap:not(.td-wrap) > p {
+/* Only target paragraphs that contain links (filter nav bars),
+   NOT description/subtitle paragraphs */
+.wrap:not(.td-wrap) > p:not(.description):not(.submit) {
     font-size: 13px;
     color: #475569;
-    margin: 0 0 14px !important;
+    margin: 0 0 10px !important;
+}
+
+/* Only pill-style the <p> if it's purely composed of <a> links (filter nav) */
+.wrap:not(.td-wrap) > p.tmwseo-filter-links {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -762,9 +779,11 @@ a.tmwui-kpi:hover {
     border: 1.5px solid #e2e8f0;
     border-radius: 8px;
     padding: 10px 14px;
+    margin: 0 0 12px !important;
 }
 
-.wrap:not(.td-wrap) > p > a {
+.wrap:not(.td-wrap) > p.tmwseo-filter-links > a,
+.wrap:not(.td-wrap) > p > a.tmwseo-filter-pill {
     display: inline-flex;
     align-items: center;
     padding: 3px 12px;
@@ -779,15 +798,16 @@ a.tmwui-kpi:hover {
     white-space: nowrap;
 }
 
-.wrap:not(.td-wrap) > p > a:hover {
+.wrap:not(.td-wrap) > p.tmwseo-filter-links > a:hover,
+.wrap:not(.td-wrap) > p > a.tmwseo-filter-pill:hover {
     background: #eff6ff;
     color: #2563eb;
     border-color: #bfdbfe;
     text-decoration: none;
 }
 
-.wrap:not(.td-wrap) > p > a[style*="font-weight:bold"],
-.wrap:not(.td-wrap) > p > a[style*="font-weight: bold"] {
+.wrap:not(.td-wrap) > p.tmwseo-filter-links > a[style*="font-weight:bold"],
+.wrap:not(.td-wrap) > p.tmwseo-filter-links > a[style*="font-weight: bold"] {
     background: #2563eb;
     color: #fff !important;
     border-color: #2563eb;
@@ -816,8 +836,9 @@ a.tmwui-kpi:hover {
     border-bottom: none;
 }
 
-/* ── Competitor Domains / briefs: inline form strip ──────── */
-.wrap:not(.td-wrap) > form {
+/* ── Competitor Domains / add-domain inline form strip ───── */
+/* Only style compact single-input forms, not full settings forms */
+.wrap:not(.td-wrap) > form.tmwseo-inline-form {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -830,9 +851,9 @@ a.tmwui-kpi:hover {
     box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
-.wrap:not(.td-wrap) > form input[type="text"],
-.wrap:not(.td-wrap) > form input[type="password"],
-.wrap:not(.td-wrap) > form input[type="number"] {
+.wrap:not(.td-wrap) > form.tmwseo-inline-form input[type="text"],
+.wrap:not(.td-wrap) > form.tmwseo-inline-form input[type="password"],
+.wrap:not(.td-wrap) > form.tmwseo-inline-form input[type="number"] {
     border: 1.5px solid #cbd5e1;
     border-radius: 7px;
     padding: 7px 10px;
@@ -845,7 +866,7 @@ a.tmwui-kpi:hover {
     transition: border-color .15s, box-shadow .15s;
 }
 
-.wrap:not(.td-wrap) > form input[type="text"]:focus {
+.wrap:not(.td-wrap) > form.tmwseo-inline-form input[type="text"]:focus {
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
     outline: none;
@@ -906,9 +927,9 @@ a.tmwui-kpi:hover {
 
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 960px) {
-    .wrap table.widefat { min-width: 600px; overflow-x: auto; }
     .tmwui-table-wrap { overflow-x: auto; }
     .wrap .form-table th { width: 160px; }
+    .tmwseo-suggestions-page .wrap { overflow-x: hidden; }
 }
 
 @media (max-width: 782px) {
@@ -916,7 +937,204 @@ a.tmwui-kpi:hover {
     .wrap .form-table th,
     .wrap .form-table td { display: block; width: 100% !important; }
     .wrap .form-table th { border-right: none !important; border-bottom: none !important; padding-bottom: 4px !important; }
-    .wrap:not(.td-wrap) > p { flex-direction: column; align-items: flex-start; }
+    .tmwui-kpi-row { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SUGGESTIONS DASHBOARD — layout fixes for the main list page
+   ════════════════════════════════════════════════════════════════ */
+
+/* Page wrapper */
+.tmwseo-suggestions-page {
+    max-width: 1340px;
+}
+
+/* Header block */
+.tmwseo-suggestions-page .tmwui-header {
+    background: #fff;
+    border: 1.5px solid #e2e8f0;
+    border-left: 4px solid #2563eb;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 22px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+/* Trust badge inside header */
+.tmwseo-suggestions-page .tmwui-trust-badge {
+    margin-top: 8px;
+    display: inline-block;
+}
+
+/* Filter bar — card with stacked pill rows */
+.tmwseo-suggestions-page .tmwui-filter-bar {
+    background: #fff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+}
+
+/* Each subsubsub row within filter bar */
+.tmwseo-suggestions-page .tmwui-filter-bar .subsubsub {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    float: none !important;
+    gap: 4px !important;
+    margin: 0 0 8px !important;
+    padding: 0 !important;
+    list-style: none !important;
+    font-size: 0;
+}
+
+.tmwseo-suggestions-page .tmwui-filter-bar .subsubsub:last-of-type {
+    margin-bottom: 0 !important;
+}
+
+.tmwseo-suggestions-page .tmwui-filter-bar .subsubsub li {
+    display: inline-flex !important;
+    float: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 13px;
+}
+
+/* Active state summary line */
+.tmwseo-suggestions-page .tmwui-filter-bar > p.description {
+    font-size: 11px !important;
+    color: #64748b !important;
+    margin: 8px 0 0 !important;
+    padding: 6px 10px;
+    background: #f8fafc;
+    border-radius: 6px;
+    border: 1px solid #f1f5f9;
+    display: block !important;
+}
+
+/* Advanced review filters (details/summary) */
+.tmwseo-suggestions-page .tmwui-advanced {
+    margin-bottom: 14px;
+}
+
+/* Scan action buttons row */
+.tmwseo-suggestions-page .tmwui-advanced-body .button {
+    margin: 0 6px 6px 0 !important;
+}
+
+/* h3 inside advanced body */
+.tmwseo-suggestions-page .tmwui-advanced-body h3 {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    color: #374151 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin: 10px 0 4px !important;
+    padding: 0 !important;
+    background: none !important;
+    border-left: none !important;
+}
+
+/* subsubsub inside advanced body */
+.tmwseo-suggestions-page .tmwui-advanced-body .subsubsub {
+    margin: 0 0 8px !important;
+}
+
+/* Category-page pivot links */
+.tmwseo-suggestions-page .tmwui-advanced-body > p {
+    font-size: 12px;
+    margin: 6px 0 !important;
+    color: #475569;
+    display: block !important;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+}
+
+/* Main table: scrollable */
+.tmwseo-suggestions-page .widefat {
+    min-width: 900px;
+}
+
+.tmwseo-suggestions-page {
+    overflow-x: auto;
+}
+
+/* KPI row on Suggestions Dashboard */
+.tmwseo-suggestions-page .tmwui-kpi-row {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    margin-bottom: 20px;
+}
+
+/* Workflow guide section */
+.tmwseo-suggestions-page details.tmwui-advanced:last-of-type {
+    margin-bottom: 0;
+}
+
+/* ── Content Briefs page ──────────────────────────────────── */
+.wrap > h1 + p {
+    font-size: 13px;
+    color: #475569;
+    margin: -10px 0 18px !important;
+}
+
+/* ── Debug dashboard ─────────────────────────────────────── */
+.wrap .hndle { background: #f8fafc; }
+
+/* ── Intelligence page form ──────────────────────────────── */
+.wrap > hr {
+    border: none;
+    border-top: 1.5px solid #e2e8f0;
+    margin: 24px 0;
+}
+
+/* ── Opportunity / Debug / Intelligence tables ─────────────── */
+.wrap table.widefat tbody td form {
+    display: inline-block;
+    margin: 0 4px 0 0;
+    vertical-align: middle;
+}
+
+/* ── All input[type=number] / small-text ──────────────────── */
+.wrap input.small-text {
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+    padding: 5px 8px !important;
+    font-size: 13px !important;
+}
+
+/* ── checkbox labels ─────────────────────────────────────── */
+.wrap label > input[type="checkbox"] {
+    margin-right: 5px;
+}
+
+/* ── Large textarea styling ──────────────────────────────── */
+.wrap textarea.large-text {
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 7px !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+    font-family: inherit;
+    resize: vertical;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.wrap textarea.large-text:focus {
+    border-color: #2563eb !important;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
+    outline: none !important;
+}
+
+/* ── Debug panels ─────────────────────────────────────────── */
+.tmwseo-debug-panel,
+.wrap .postbox {
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
+    margin-bottom: 20px;
+    overflow: hidden;
 }
 ';
 	}
