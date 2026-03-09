@@ -184,7 +184,7 @@ class AdminUI {
 	 * All rules are namespaced under .tmwui- to avoid collisions.
 	 */
 	public static function css(): string {
-		return '
+		return <<<'CSS'
 /* ═══════════════════════════════════════════════════════════
    TMW SEO Engine — Shared Admin Design System
    Prefix: tmwui-   (Command Center keeps its own tmwcc-)
@@ -1136,6 +1136,6 @@ a.tmwui-kpi:hover {
     margin-bottom: 20px;
     overflow: hidden;
 }
-';
+CSS;
 	}
 }
