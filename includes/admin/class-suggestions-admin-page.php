@@ -760,7 +760,7 @@ class SuggestionsAdminPage {
         echo '<style>
 /* ── Focused Model Page — design aligned with Command Center ── */
 .tmwseo-model-focused-wrap {
-    max-width: 1240px;
+    max-width: 100%;
     font-family: "DM Sans","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
 
@@ -916,29 +916,67 @@ class SuggestionsAdminPage {
 .tmwseo-mf-empty-title { font-size: 17px; font-weight: 700; color: #4c1d95; margin-bottom: 8px; }
 .tmwseo-mf-empty-sub { font-size: 13px; color: #6b7280; max-width: 460px; margin: 0 auto 18px; line-height: 1.5; }
 
-/* Actions column — stack buttons */
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child .button,
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child input[type="submit"],
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child input[type="button"] {
+/* ── Table: full-width, no scroll, fixed layout ───────────── */
+/* Override the global display:block / overflow-x:auto rule */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table {
+    display: table !important;
+    table-layout: fixed !important;
+    width: 100% !important;
+    overflow-x: visible !important;
+}
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table thead,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table tbody {
+    display: table-header-group !important;
+    width: auto !important;
+}
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table tbody {
+    display: table-row-group !important;
+}
+
+/* Column widths — tuned to fill the available ~1300px admin area */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(1),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(1) { width: 80px; }   /* Priority     */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(2),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(2) { width: 130px; }  /* Status       */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(3),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(3) { width: 110px; }  /* Type         */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(4),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(4) { width: 130px; }  /* Primary Action */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(5),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(5) { width: 140px; }  /* Title        */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(6),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(6) { width: auto; word-break: break-word; overflow-wrap: break-word; } /* Description — fills remaining space */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(7),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(7) { width: 60px; text-align: right; }  /* Est. Traffic */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(8),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(8) { width: 130px; }  /* Review State */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(9),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) { width: 210px; }  /* Actions      */
+
+/* Actions column — stack buttons, full width */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) .button,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) input[type="submit"],
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) input[type="button"] {
     display: block;
     width: 100%;
     margin: 0 0 5px !important;
     text-align: center;
     box-sizing: border-box;
     white-space: normal;
+    font-size: 12px !important;
 }
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child form {
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) form {
     display: block !important;
     margin: 0 0 5px !important;
 }
 
-/* Preset apply panel — contained, not overflowing */
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child > div,
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child > p {
-    font-size: 12px;
+/* Preset panel text — contained */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) > div,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) > p {
+    font-size: 11px;
     color: #475569;
     margin: 6px 0 !important;
-    line-height: 1.45;
+    line-height: 1.4;
     word-break: break-word;
 }
 </style>';
