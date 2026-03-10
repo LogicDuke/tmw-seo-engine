@@ -29,6 +29,7 @@ class DebugPanels {
         $materialized_rows = (int) array_sum(array_map('intval', $materialized_metrics));
         $total_keywords = self::table_count('tmw_keyword_candidates');
         $total_clusters = self::table_count('tmwseo_cluster_summary');
+        $validator_stats = \TMWSEO\Engine\Keywords\KeywordValidator::get_stats();
 
         $status = [
             'seed registry total seeds' => (string) ((int) ($seed_diagnostics['total_seeds'] ?? 0)),
@@ -58,6 +59,9 @@ class DebugPanels {
             'reviewer checklist/signoff states saved' => (string) $review_signoff_count,
             'intelligence total keywords' => (string) $total_keywords,
             'intelligence total clusters' => (string) $total_clusters,
+            'validator keywords accepted' => (string) ((int) ($validator_stats['keywords_accepted'] ?? 0)),
+            'validator keywords rejected' => (string) ((int) ($validator_stats['keywords_rejected'] ?? 0)),
+            'validator missing niche context' => (string) ((int) ($validator_stats['missing_niche_context'] ?? 0)),
             'intelligence materialized rows' => (string) $materialized_rows,
             'intelligence last materialization run' => (string) ($materialized_last_run['ran_at'] ?? 'never'),
         ];
