@@ -167,57 +167,12 @@ class TrafficPageGenerator {
     }
 
     private function get_keyword_opportunities(int $limit): array {
-        global $wpdb;
+        $rows = KeywordDatabase::get_generation_candidates(max(1, $limit));
 
-        $primary = KeywordDatabase::table_name();
-        $exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $primary));
-
-        if ($exists === $primary) {
-            return KeywordDatabase::get_generation_candidates(max(1, $limit));
-        }
-
-        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
-        $rank_table = $wpdb->prefix . 'tmw_seo_ranking_probability';
-
-        $rows = (array) $wpdb->get_results($wpdb->prepare(
-            "SELECT kc.keyword, kc.volume AS search_volume, kc.difficulty,
-                    COALESCE(rp.ranking_probability, 0) AS ranking_probability
-             FROM {$cand_table} kc
-             LEFT JOIN (
-                 SELECT rp1.keyword, rp1.ranking_probability
-                 FROM {$rank_table} rp1
-                 INNER JOIN (
-                     SELECT keyword, MAX(id) AS max_id
-                     FROM {$rank_table}
-                     GROUP BY keyword
-                 ) latest ON latest.max_id = rp1.id
-             ) rp ON rp.keyword = kc.keyword
-             WHERE kc.volume >= %d
-               AND kc.difficulty <= %d
-             ORDER BY kc.volume DESC
-             LIMIT %d",
-            50,
-            40,
-            max(1, $limit)
-        ), ARRAY_A);
-
-        $filtered = [];
-        foreach ($rows as $row) {
-            $probability = (float) ($row['ranking_probability'] ?? 0);
-            $normalized = $probability > 1 ? $probability / 100 : $probability;
-            if ($normalized < 0.6) {
-                continue;
-            }
-
+        return array_values(array_filter($rows, function ($row) {
             $slug = sanitize_title((string) ($row['keyword'] ?? ''));
-            if ($slug === '' || $this->slug_exists($slug)) {
-                continue;
-            }
-
-            $filtered[] = $row;
-        }
-
-        return $filtered;
+            return $slug !== '' && !$this->slug_exists($slug);
+        }));
     }
 
     private function slug_exists(string $slug): bool {
@@ -233,31 +188,23 @@ class TrafficPageGenerator {
         $h1 = sprintf('Best %s', ucwords($keyword));
         $intro = $this->generate_intro($keyword);
 
-        $top_models = $this->render_model_grid('Top Models', [
+        $models = $this->render_model_grid('Model Grid', [
             'posts_per_page' => 8,
             'orderby' => 'comment_count',
             'order' => 'DESC',
         ]);
 
-        $new_models = $this->render_model_grid('Newest Models', [
-            'posts_per_page' => 8,
-            'orderby' => 'date',
-            'order' => 'DESC',
-        ]);
-
-        $categories = $this->render_tax_links('Popular Categories', 'category', 6);
+        $categories = $this->render_tax_links('Related Categories', 'category', 6);
         $related = $this->render_related_searches($keyword, 8);
         $internal_links = $this->render_internal_links();
 
         return implode("\n\n", [
             '<h1>' . esc_html($h1) . '</h1>',
             '<p>' . esc_html($intro) . '</p>',
-            $top_models,
-            $new_models,
+            $models,
             $categories,
             $related,
             $internal_links,
-            '<p><a href="' . esc_url(home_url('/models/')) . '">Explore all models</a> · <a href="' . esc_url(home_url('/category/')) . '">Browse categories</a> · <a href="' . esc_url(home_url('/tag/')) . '">View tags</a></p>',
         ]);
     }
 
@@ -333,11 +280,11 @@ class TrafficPageGenerator {
 
     private function render_related_searches(string $keyword, int $limit): string {
         global $wpdb;
-        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $keyword_table = KeywordDatabase::table_name();
         $like = '%' . $wpdb->esc_like(substr($keyword, 0, 12)) . '%';
 
         $rows = (array) $wpdb->get_results($wpdb->prepare(
-            "SELECT keyword FROM {$cand_table} WHERE keyword LIKE %s AND keyword != %s ORDER BY volume DESC LIMIT %d",
+            "SELECT keyword FROM {$keyword_table} WHERE keyword LIKE %s AND keyword != %s ORDER BY search_volume DESC LIMIT %d",
             $like,
             $keyword,
             max(1, $limit)
@@ -381,7 +328,7 @@ class TrafficPageGenerator {
             'number' => 2,
         ]);
 
-        $html = '<h2>Related Traffic Pages</h2><ul>' . $this->list_posts($related_pages, home_url('/models/')) . '</ul>';
+        $html = '<h2>Related Traffic Pages</h2><ul>' . $this->list_posts($related_pages, get_post_type_archive_link(self::CPT) ?: home_url('/')) . '</ul>';
         $html .= '<h2>Featured Model Profiles</h2><ul>' . $this->list_posts($model_pages, home_url('/models/')) . '</ul>';
         $html .= '<h2>Category Links</h2><ul>' . $this->list_terms($categories, home_url('/category/')) . '</ul>';
 
