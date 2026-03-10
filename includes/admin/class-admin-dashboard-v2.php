@@ -1167,6 +1167,7 @@ class AdminDashboardV2 {
             self::settings_section( 'Schema & Features', [
                 self::checkbox_field( 'schema_enabled', 'Enable JSON-LD Schema', $opts, 'Outputs Person, VideoObject, and FAQ structured data in <head>.' ),
                 self::checkbox_field( 'orphan_scan_enabled', 'Enable Orphan Page Scanning', $opts, 'Weekly cron scan for pages with zero inbound internal links.' ),
+                self::checkbox_field( 'enable_model_auto_keyword_discovery', 'Enable automatic model keyword discovery', $opts, 'Generates and registers model keyword seeds when a model post is first published.' ),
             ] );
             self::settings_section( 'Debug', [
                 self::checkbox_field( 'debug_mode', 'Enable Debug Mode', $opts, 'Shows the Debug Dashboard menu item and enables verbose logging.' ),
