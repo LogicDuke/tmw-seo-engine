@@ -8,6 +8,8 @@ use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Integrations\GSCApi;
 use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Admin\AdminUI;
+use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
+use TMWSEO\Engine\Keywords\SeedRegistry;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -1232,6 +1234,7 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_keyword_cycle');
 
+        DiscoveryOrchestrator::run(['source' => 'manual_keyword_cycle']);
         Jobs::enqueue('keyword_cycle', 'system', 0, [
             'trigger' => 'manual',
         ]);
@@ -2002,6 +2005,25 @@ class Admin {
             . esc_html__('View Suggestions', 'tmwseo') . '</a>';
         echo '</div>';
 
+        $seed_diag = SeedRegistry::diagnostics();
+        $seed_sources = (array) ($seed_diag['seed_sources'] ?? []);
+        $seed_rows = [];
+        foreach ($seed_sources as $seed_source => $seed_count) {
+            $seed_rows[] = esc_html((string) $seed_source) . ' seeds: ' . (int) $seed_count;
+        }
+
+        echo '<div style="margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">';
+        echo '<p style="margin:0 0 8px;font-weight:600;">' . esc_html__('Seed Health Monitoring', 'tmwseo') . '</p>';
+        echo '<ul style="margin:0 0 0 18px;list-style:disc;">';
+        echo '<li>' . esc_html__('Total seeds:', 'tmwseo') . ' ' . (int) ($seed_diag['total_seeds'] ?? 0) . '</li>';
+        echo '<li>' . esc_html__('Seeds used this cycle:', 'tmwseo') . ' ' . (int) ($seed_diag['seeds_used_this_cycle'] ?? 0) . '</li>';
+        echo '<li>' . esc_html__('Duplicate prevention count:', 'tmwseo') . ' ' . (int) ($seed_diag['duplicate_prevention_count'] ?? 0) . '</li>';
+        foreach ($seed_rows as $seed_row) {
+            echo '<li>' . $seed_row . '</li>';
+        }
+        echo '</ul>';
+        echo '</div>';
+
         AdminUI::section_end();
     }
 
@@ -2308,6 +2330,8 @@ class Admin {
                 $rejected++;
                 continue;
             }
+
+            SeedRegistry::register_seed($kw, 'csv_import', 'import', 0);
 
             $vol = null;
             if ($vol_col !== null && isset($row[$vol_col])) {

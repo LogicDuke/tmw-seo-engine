@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\KeywordIntelligence\KeywordIntelligence;
+use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -13,6 +14,8 @@ if (!defined('ABSPATH')) { exit; }
  */
 class UnifiedKeywordWorkflowService {
     public static function run_cycle(array $job = []): void {
+        $trigger = (string) (($job['payload']['trigger'] ?? $job['trigger'] ?? 'workflow_cycle'));
+        DiscoveryOrchestrator::run(['source' => $trigger]);
         KeywordEngine::run_cycle_job($job);
     }
 
