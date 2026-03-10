@@ -85,9 +85,9 @@ class CompetitorMonitor {
 
             $domain_keywords[ $domain ] = [];
             foreach ( (array) ( $res['items'] ?? [] ) as $item ) {
-                $kw  = strtolower( trim( (string) ( $item['keyword'] ?? '' ) ) );
-                $pos = (int) ( $item['rank_absolute'] ?? $item['position'] ?? 100 );
-                $vol = (int) ( $item['keyword_info']['search_volume'] ?? $item['search_volume'] ?? 0 );
+                $kw  = self::extract_ranked_keyword( $item );
+                $pos = self::extract_ranked_position( $item );
+                $vol = self::extract_ranked_search_volume( $item );
                 $kd  = (float) ( $item['keyword_properties']['keyword_difficulty'] ?? $item['keyword_difficulty'] ?? 0 );
                 $estimated_clicks = (float) ( $item['keyword_info']['last_month_clicks'] ?? $item['estimated_clicks'] ?? 0 );
                 $estimated_traffic = self::estimate_traffic( $vol, $pos );
@@ -105,7 +105,7 @@ class CompetitorMonitor {
                 $top_traffic_keywords[] = [
                     'keyword'           => $kw,
                     'competitor'        => $domain,
-                    'position'          => $pos,
+                    'competitor_position' => $pos,
                     'search_volume'     => $vol,
                     'estimated_clicks'  => $estimated_clicks,
                     'estimated_traffic' => $estimated_traffic,
@@ -253,6 +253,30 @@ class CompetitorMonitor {
         }
 
         return round( $search_volume * $ctr, 2 );
+    }
+
+    private static function extract_ranked_keyword( array $item ): string {
+        $keyword = (string) ( $item['keyword_data']['keyword'] ?? $item['keyword'] ?? '' );
+        return strtolower( trim( $keyword ) );
+    }
+
+    private static function extract_ranked_position( array $item ): int {
+        return (int) (
+            $item['ranked_serp_element']['serp_item']['rank_absolute']
+            ?? $item['ranked_serp_element']['serp_item']['rank_group']
+            ?? $item['rank_absolute']
+            ?? $item['position']
+            ?? 100
+        );
+    }
+
+    private static function extract_ranked_search_volume( array $item ): int {
+        return (int) (
+            $item['keyword_data']['keyword_info']['search_volume']
+            ?? $item['keyword_info']['search_volume']
+            ?? $item['search_volume']
+            ?? 0
+        );
     }
 
     private static function ensure_opportunity_columns( string $table ): void {
