@@ -90,6 +90,7 @@ class OpportunityEngine {
             'missing_count' => count($missing),
             'qualified_count' => count($scored),
             'stored' => $stored,
+            'traffic_page_candidates' => count($this->traffic_page_candidates(20)),
         ]);
 
         return [
@@ -97,7 +98,41 @@ class OpportunityEngine {
             'stored' => $stored,
             'qualified_count' => count($scored),
             'missing_count' => count($missing),
+            'traffic_page_candidates' => count($this->traffic_page_candidates(20)),
         ];
+    }
+
+
+    /**
+     * Provides keyword candidates suitable for programmatic traffic page generation.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function traffic_page_candidates(int $limit = 20): array {
+        global $wpdb;
+
+        $limit = max(1, min(100, $limit));
+        $table = $wpdb->prefix . 'tmwseo_keywords';
+        $exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+
+        if ($exists === $table) {
+            return (array) $wpdb->get_results($wpdb->prepare(
+                "SELECT keyword, search_volume, difficulty, ranking_probability
+                 FROM {$table}
+                 WHERE search_volume >= %d
+                   AND difficulty <= %d
+                   AND ranking_probability >= %f
+                   AND (mapped_url IS NULL OR mapped_url = '')
+                 ORDER BY ranking_probability DESC, search_volume DESC
+                 LIMIT %d",
+                50,
+                40,
+                0.6,
+                $limit
+            ), ARRAY_A);
+        }
+
+        return [];
     }
 
     private function estimate_model_relevance(string $keyword): float {

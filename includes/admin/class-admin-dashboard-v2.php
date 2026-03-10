@@ -214,6 +214,11 @@ class AdminDashboardV2 {
                         <input type="hidden" name="action" value="tmwseo_run_keyword_cycle">
                         <button class="td-btn td-btn-secondary td-btn-full">🔄 Refresh Keyword Cycle</button>
                     </form>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:8px">
+                        <?php wp_nonce_field( 'tmwseo_generate_traffic_pages' ); ?>
+                        <input type="hidden" name="action" value="tmwseo_generate_traffic_pages">
+                        <button class="td-btn td-btn-secondary td-btn-full">🚀 Generate Traffic Pages</button>
+                    </form>
                     <button class="td-btn td-btn-ghost td-btn-full mt-2" id="td-scan-orphans">🔍 Scan Orphan Pages</button>
                     <button class="td-btn td-btn-ghost td-btn-full mt-2" id="td-scan-competitors">📡 Run Competitor Scan</button>
                 </div>
