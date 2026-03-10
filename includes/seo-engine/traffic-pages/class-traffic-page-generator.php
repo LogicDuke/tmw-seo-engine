@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\TrafficPages;
 
 use TMWSEO\Engine\AI\AIRouter;
+use TMWSEO\Engine\KeywordIntelligence\KeywordDatabase;
 use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
@@ -168,26 +169,11 @@ class TrafficPageGenerator {
     private function get_keyword_opportunities(int $limit): array {
         global $wpdb;
 
-        $primary = $wpdb->prefix . 'tmwseo_keywords';
+        $primary = KeywordDatabase::table_name();
         $exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $primary));
 
         if ($exists === $primary) {
-            $query = $wpdb->prepare(
-                "SELECT keyword, search_volume, difficulty, ranking_probability, mapped_url
-                 FROM {$primary}
-                 WHERE search_volume >= %d
-                   AND difficulty <= %d
-                   AND ranking_probability >= %f
-                   AND (mapped_url IS NULL OR mapped_url = '')
-                 ORDER BY ranking_probability DESC, search_volume DESC
-                 LIMIT %d",
-                50,
-                40,
-                0.6,
-                max(1, $limit)
-            );
-
-            return (array) $wpdb->get_results($query, ARRAY_A);
+            return KeywordDatabase::get_generation_candidates(max(1, $limit));
         }
 
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
@@ -450,7 +436,7 @@ class TrafficPageGenerator {
     private function map_keyword_to_url(string $keyword, string $url): void {
         global $wpdb;
 
-        $primary = $wpdb->prefix . 'tmwseo_keywords';
+        $primary = KeywordDatabase::table_name();
         $exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $primary));
 
         if ($exists === $primary) {
