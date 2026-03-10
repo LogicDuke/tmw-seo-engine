@@ -11,6 +11,8 @@ class TrafficPageGenerator {
     public const CPT = 'tmwseo_traffic_page';
     public const CRON_HOOK = 'tmwseo_generate_traffic_pages';
     private const MAX_PER_RUN = 20;
+    private const MIN_LINKS = 6;
+    private const MAX_LINKS = 12;
 
     public static function init(): void {
         add_action('init', [__CLASS__, 'register_cpt']);
@@ -136,12 +138,15 @@ class TrafficPageGenerator {
                 continue;
             }
 
+            $page_type = sanitize_key((string) ($row['page_type'] ?? 'category'));
+            $entity_combo = (string) ($row['entity_combo'] ?? '');
+
             $post_id = wp_insert_post([
-                'post_status' => 'publish',
+                'post_status' => 'draft',
                 'post_type' => self::CPT,
                 'post_name' => $slug,
                 'post_title' => sprintf('Best %s', ucwords($keyword)),
-                'post_content' => $this->build_page_content($keyword),
+                'post_content' => $this->build_page_content($keyword, $page_type, $entity_combo),
             ], true);
 
             if (is_wp_error($post_id)) {
@@ -152,7 +157,8 @@ class TrafficPageGenerator {
             update_post_meta($post_id, '_tmwseo_target_keyword', $keyword);
             update_post_meta($post_id, '_tmwseo_traffic_page_slug', $slug);
             update_post_meta($post_id, '_tmwseo_traffic_page_schema', wp_json_encode($this->build_item_list_schema($post_id), JSON_UNESCAPED_SLASHES));
-            update_post_meta($post_id, '_tmwseo_traffic_page_type', sanitize_key((string) ($row['page_type'] ?? 'category')));
+            update_post_meta($post_id, '_tmwseo_traffic_page_type', $page_type);
+            update_post_meta($post_id, '_tmwseo_entity_combo', $entity_combo);
             $this->map_keyword_to_url($keyword, get_permalink($post_id));
 
             $created++;
@@ -230,9 +236,10 @@ class TrafficPageGenerator {
         return $existing instanceof \WP_Post;
     }
 
-    private function build_page_content(string $keyword): string {
+    private function build_page_content(string $keyword, string $page_type, string $entity_combo): string {
         $h1 = sprintf('Best %s', ucwords($keyword));
         $intro = $this->generate_intro($keyword);
+        $entities = $this->parse_entity_combo($entity_combo);
 
         $models = $this->render_model_grid('Model Grid', [
             'posts_per_page' => 8,
@@ -242,7 +249,7 @@ class TrafficPageGenerator {
 
         $categories = $this->render_tax_links('Related Categories', 'category', 6);
         $related = $this->render_related_searches($keyword, 8);
-        $internal_links = $this->render_internal_links();
+        $internal_links = $this->render_internal_links($keyword, $page_type, $entities);
 
         return implode("\n\n", [
             '<h1>' . esc_html($h1) . '</h1>',
@@ -352,33 +359,152 @@ class TrafficPageGenerator {
         return '<h2>Related Searches</h2><ul>' . $items . '</ul>';
     }
 
-    private function render_internal_links(): string {
-        $related_pages = get_posts([
-            'post_type' => self::CPT,
-            'post_status' => 'publish',
-            'posts_per_page' => 5,
-            'orderby' => 'date',
-            'order' => 'DESC',
-        ]);
+    /**
+     * @param array{model:array<int,string>,category:array<int,string>} $entities
+     */
+    private function render_internal_links(string $keyword, string $page_type, array $entities): string {
+        $link_limit = $this->link_limit();
 
-        $model_pages = get_posts([
-            'post_type' => 'model',
-            'post_status' => 'publish',
-            'posts_per_page' => 5,
-            'orderby' => 'rand',
-        ]);
+        if ($page_type === 'model') {
+            $category_links = $this->select_related_pages($keyword, $entities, 'category', $link_limit);
+            $model_links = $this->select_related_pages($keyword, $entities, 'model', $link_limit);
 
-        $categories = get_terms([
-            'taxonomy' => 'category',
-            'hide_empty' => true,
-            'number' => 2,
-        ]);
+            return '<h2>Related Categories</h2><ul>' . $this->list_entity_links($category_links, home_url('/category/')) . '</ul>'
+                . '<h2>Related Models</h2><ul>' . $this->list_entity_links($model_links, home_url('/models/')) . '</ul>';
+        }
 
-        $html = '<h2>Related Traffic Pages</h2><ul>' . $this->list_posts($related_pages, get_post_type_archive_link(self::CPT) ?: home_url('/')) . '</ul>';
-        $html .= '<h2>Featured Model Profiles</h2><ul>' . $this->list_posts($model_pages, home_url('/models/')) . '</ul>';
-        $html .= '<h2>Category Links</h2><ul>' . $this->list_terms($categories, home_url('/category/')) . '</ul>';
+        if ($page_type === 'category') {
+            $model_links = $this->select_related_pages($keyword, $entities, 'model', $link_limit);
 
-        return $html;
+            return '<h2>Top Models in Category</h2><ul>' . $this->list_entity_links($model_links, home_url('/models/')) . '</ul>';
+        }
+
+        if ($page_type === 'model_category') {
+            $model_page_links = $this->select_related_pages($keyword, $entities, 'model', 1);
+            $category_page_links = $this->select_related_pages($keyword, $entities, 'category', 1);
+
+            return '<h2>Link to model page</h2><ul>' . $this->list_entity_links($model_page_links, home_url('/models/')) . '</ul>'
+                . '<h2>Link to category page</h2><ul>' . $this->list_entity_links($category_page_links, home_url('/category/')) . '</ul>';
+        }
+
+        return '';
+    }
+
+    private function link_limit(): int {
+        $limit = (int) apply_filters('tmwseo_internal_link_limit', 8);
+        return max(self::MIN_LINKS, min(self::MAX_LINKS, $limit));
+    }
+
+    /**
+     * @param array{model:array<int,string>,category:array<int,string>} $source_entities
+     * @return array<int,array{keyword:string,url:string,score:int}>
+     */
+    private function select_related_pages(string $keyword, array $source_entities, string $target_type, int $limit): array {
+        $rows = $this->get_mapped_entity_pages();
+        $scored = [];
+
+        foreach ($rows as $row) {
+            $row_keyword = (string) ($row['keyword'] ?? '');
+            $url = (string) ($row['mapped_url'] ?? '');
+            if ($row_keyword === '' || $url === '' || $row_keyword === $keyword) {
+                continue;
+            }
+
+            $entities = $this->parse_entity_combo((string) ($row['entity_combo'] ?? ''));
+            if (empty($entities[$target_type])) {
+                continue;
+            }
+
+            $score = 0;
+            $score += count(array_intersect($source_entities['model'], $entities['model'])) * 3;
+            $score += count(array_intersect($source_entities['category'], $entities['category'])) * 2;
+            if ($score <= 0 && (!empty($source_entities['model']) || !empty($source_entities['category']))) {
+                continue;
+            }
+
+            $scored[] = [
+                'keyword' => $row_keyword,
+                'url' => esc_url_raw($url),
+                'score' => $score,
+            ];
+        }
+
+        usort($scored, static function (array $a, array $b): int {
+            if ((int) $a['score'] === (int) $b['score']) {
+                return strcmp((string) $a['keyword'], (string) $b['keyword']);
+            }
+
+            return ((int) $b['score']) <=> ((int) $a['score']);
+        });
+
+        return array_slice($scored, 0, max(1, $limit));
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function get_mapped_entity_pages(): array {
+        global $wpdb;
+
+        $table = KeywordDatabase::table_name();
+        $entity_table = KeywordDatabase::entity_table_name();
+        $entity_keyword_table = KeywordDatabase::entity_keyword_table_name();
+
+        return (array) $wpdb->get_results(
+            "SELECT k.keyword, k.mapped_url,
+                    GROUP_CONCAT(DISTINCT CONCAT(e.entity_type, ':', e.entity_name) ORDER BY e.entity_type, e.entity_name SEPARATOR '|') AS entity_combo
+             FROM {$table} k
+             LEFT JOIN {$entity_keyword_table} ek ON ek.keyword_id = k.id
+             LEFT JOIN {$entity_table} e ON e.entity_id = ek.entity_id
+             WHERE k.mapped_url IS NOT NULL AND k.mapped_url != ''
+             GROUP BY k.id
+             ORDER BY k.ranking_probability DESC, k.search_volume DESC
+             LIMIT 300",
+            ARRAY_A
+        );
+    }
+
+    /**
+     * @return array{model:array<int,string>,category:array<int,string>}
+     */
+    private function parse_entity_combo(string $entity_combo): array {
+        $entities = ['model' => [], 'category' => []];
+        foreach (explode('|', $entity_combo) as $entry) {
+            $entry = trim((string) $entry);
+            if ($entry === '' || strpos($entry, ':') === false) {
+                continue;
+            }
+
+            [$type, $name] = array_map('trim', explode(':', $entry, 2));
+            $type = sanitize_key($type);
+            $name = strtolower($name);
+            if (!isset($entities[$type]) || $name === '') {
+                continue;
+            }
+
+            $entities[$type][] = $name;
+        }
+
+        $entities['model'] = array_values(array_unique($entities['model']));
+        $entities['category'] = array_values(array_unique($entities['category']));
+
+        return $entities;
+    }
+
+    /**
+     * @param array<int,array{keyword:string,url:string,score:int}> $links
+     */
+    private function list_entity_links(array $links, string $fallback): string {
+        $items = '';
+        foreach ($links as $link) {
+            $items .= '<li><a href="' . esc_url((string) ($link['url'] ?? '')) . '">' . esc_html(ucwords((string) ($link['keyword'] ?? ''))) . '</a></li>';
+        }
+
+        if ($items === '') {
+            $items = '<li><a href="' . esc_url($fallback) . '">' . esc_html($fallback) . '</a></li>';
+        }
+
+        return $items;
     }
 
     private function list_posts(array $posts, string $fallback): string {
