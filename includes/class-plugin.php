@@ -117,6 +117,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-oppor
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/traffic-pages/class-traffic-page-generator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-suggestion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-suggestion-module.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-improvement-analyzer.php';
@@ -250,6 +251,7 @@ class Plugin {
         wp_clear_scheduled_hook('tmwseo_competitor_monitor_weekly');
         wp_clear_scheduled_hook('tmwseo_keyword_scheduler_monthly');
         wp_clear_scheduled_hook('tmw_keyword_refresh_monthly');
+        wp_clear_scheduled_hook('tmwseo_generate_traffic_pages');
 
         update_option($applied_key, (string) TMWSEO_ENGINE_VERSION);
         Logs::info('core', 'Manual Control Mode applied (cron/auto hooks disabled)', [
@@ -319,6 +321,8 @@ class Plugin {
         \TMWSEO\Engine\Export\CSVExporter::init();
         // Competitor monitor
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::init();
+        // Traffic pages generator (CPT, cron, manual action)
+        \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::init();
         // Admin Dashboard v2
         \TMWSEO\Engine\Admin\AdminDashboardV2::init();
         // ──────────────────────────────────────────────────────────────────
@@ -421,6 +425,7 @@ class Plugin {
         // ── Keyword data maintenance crons (safe in manual mode) ───────────
         // These only update keyword CSV data files, never write post content.
         \TMWSEO\Engine\Keywords\KeywordScheduler::schedule();
+        \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::activate();
 
         // ── v4.2 crons — only schedule if NOT in manual mode ───────────────
         // These are read-only scans, but we respect the manual-only trust policy.
@@ -443,6 +448,7 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordScheduler::unschedule();
         \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
+        \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::deactivate();
         flush_rewrite_rules();
         Logs::info('core', 'Deactivated ' . TMWSEO_ENGINE_VERSION);
     }

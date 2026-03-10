@@ -1480,6 +1480,14 @@ class Admin {
             $message = __('Prepared for human review. Nothing has been applied automatically. Draft remains draft-only/noindex and requires manual review + manual apply.', 'tmwseo');
         } elseif ($notice === 'review_bundle_refused') {
             $message = __('Prepare for Human Review was refused. This action is allowed only for explicit operator-created draft posts.', 'tmwseo');
+        } elseif ($notice === 'traffic_pages_generated') {
+            $created = isset($_GET['tmwseo_created']) ? (int) $_GET['tmwseo_created'] : 0;
+            $skipped = isset($_GET['tmwseo_skipped']) ? (int) $_GET['tmwseo_skipped'] : 0;
+            $message = sprintf(
+                __('Traffic page generation complete. Created: %1$d, Skipped: %2$d.', 'tmwseo'),
+                $created,
+                $skipped
+            );
         }
 
         if ($message === '') {
