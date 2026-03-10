@@ -118,6 +118,7 @@ class Cron {
         Logs::info('cron', 'Weekly tick');
         Jobs::enqueue('healthcheck', 'system', null, ['note' => 'weekly tick']);
         Jobs::enqueue('pagespeed_cycle', 'system', null, ['trigger' => 'weekly']);
+        Jobs::enqueue('rank_tracking_cycle', 'system', null, ['trigger' => 'weekly']);
     }
 
     public static function legacy_weekly(): void {

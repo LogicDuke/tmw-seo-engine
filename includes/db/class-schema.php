@@ -468,8 +468,10 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
             position INT UNSIGNED NOT NULL,
+            url VARCHAR(255) NOT NULL DEFAULT '',
             checked_at DATETIME NOT NULL,
-            PRIMARY KEY (id)
+            PRIMARY KEY (id),
+            KEY keyword_checked (keyword(191), checked_at)
         ) $charset_collate;";
 
         dbDelta($sql_jobs);
