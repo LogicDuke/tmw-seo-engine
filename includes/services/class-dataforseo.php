@@ -39,10 +39,7 @@ class DataForSEO {
             'sslverify' => true,
         ];
 
-        $args['headers']['Authorization'] = 'Basic ' . base64_encode($login . ':' . $pass);
-        $args['headers'] = array_merge($args['headers'], [
-            'Authorization' => 'Basic ' . base64_encode(trim($login) . ':' . trim($pass)),
-        ]);
+        $args['headers']['Authorization'] = 'Basic ' . base64_encode(trim($login) . ':' . trim($pass));
 
         $started_at = microtime(true);
         $resp = wp_remote_post($url, $args);
@@ -235,28 +232,10 @@ class DataForSEO {
     }
 
     /**
-     * Pull organic keywords a domain ranks for via DataForSEO Labs endpoint.
+     * Backward-compatible alias of ranked_keywords().
      */
     public static function domain_organic_keywords(string $domain, int $limit = 500): array {
-        $domain = preg_replace('#^https?://#i', '', trim($domain));
-        $domain = preg_replace('#^www\.#i', '', $domain);
-        $domain = preg_replace('#/.*$#', '', $domain);
-
-        $payload = [[
-            'target' => $domain,
-            'location_code' => self::loc_code(),
-            'language_code' => self::lang_code(),
-            'limit' => min(1000, max(10, $limit)),
-            'ignore_synonyms' => true,
-        ]];
-
-        $res = self::post('/v3/dataforseo_labs/google/domain_organic_keywords/live', $payload);
-        if (!$res['ok']) return $res;
-
-        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
-        if (!is_array($items)) $items = [];
-
-        return ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+        return self::ranked_keywords($domain, $limit);
     }
 
 
@@ -344,7 +323,6 @@ class DataForSEO {
                 'title'          => $item['title'] ?? '',
                 'snippet'        => $item['description'] ?? '',
                 'domain_rating'  => (float) ($item['domain_info']['domain_rank'] ?? $item['domain_rank'] ?? 50),
-                'word_count'     => (int) ($item['estimated_paid_traffic_cost'] ?? 0), // fallback — DFS doesn't return word count here
                 'age_days'       => isset($item['timestamp']) ? (int) ((time() - strtotime((string)$item['timestamp'])) / 86400) : 0,
                 'heading_count'  => 0, // not available at this endpoint
                 'faq_count'      => 0,
@@ -427,48 +405,13 @@ class DataForSEO {
     // ── NEW: Historical search volume ─────────────────────────────────────
 
     /**
-     * Returns monthly search volume history for keywords (last 12 months).
+     * Backward-compatible alias of search_volume().
      *
      * @param string[] $keywords
-     * @return array{ok:bool, map:array}  map[keyword] = [{month:'2024-01', volume:int}]
+     * @return array{ok:bool, map:array}
      */
     public static function historical_search_volume(array $keywords): array {
-        $keywords = array_values(array_unique(array_filter(array_map('strval', $keywords))));
-        $keywords = array_slice($keywords, 0, 100);
-        if (empty($keywords)) return ['ok' => false, 'error' => 'empty_keywords'];
-
-        $payload = [[
-            'keywords'      => array_map(fn($k) => mb_strtolower($k, 'UTF-8'), $keywords),
-            'location_code' => self::loc_code(),
-            'language_code' => self::lang_code(),
-        ]];
-
-        $res = self::post('/v3/keywords_data/google_ads/search_volume/live', $payload);
-        if (!$res['ok']) return $res;
-
-        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
-        $map   = [];
-        if (is_array($items)) {
-            foreach ($items as $it) {
-                $kw = $it['keyword'] ?? null;
-                if (!is_string($kw) || $kw === '') continue;
-                $monthly = [];
-                foreach ((array) ($it['monthly_searches'] ?? []) as $m) {
-                    $monthly[] = [
-                        'month'  => sprintf('%04d-%02d', $m['year'] ?? 0, $m['month'] ?? 0),
-                        'volume' => (int) ($m['search_volume'] ?? 0),
-                    ];
-                }
-                $map[$kw] = [
-                    'search_volume' => (int) ($it['search_volume'] ?? 0),
-                    'trend'         => $monthly,
-                    'competition'   => (float) ($it['competition'] ?? 0),
-                    'cpc'           => (float) ($it['cpc'] ?? 0),
-                ];
-            }
-        }
-
-        return ['ok' => true, 'map' => $map, 'raw' => $res['data']];
+        return self::search_volume($keywords);
     }
 }
 
