@@ -325,36 +325,54 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 ];
             }
 
-            $kd_res = DataForSEO::bulk_keyword_difficulty($to_score);
-            if ($kd_res['ok']) {
-                $map = $kd_res['map'] ?? [];
-                $updated = 0;
-                foreach ($to_score as $kw) {
-                    $kwn = mb_strtolower($kw, 'UTF-8');
-                    $kd = $map[$kwn] ?? null;
-                    if ($kd === null) continue;
+            $updated = 0;
+            $all_map = [];
+            $chunks = array_chunk($to_score, 100);
 
-                    $vol = isset($kw_map[$kw]['volume']) ? (int)$kw_map[$kw]['volume'] : 0;
-                    $intent = isset($kw_map[$kw]['intent']) ? (string)$kw_map[$kw]['intent'] : 'mixed';
-
-                    // Auto reject too hard keywords early
-                    $status = ($kd > $max_kd) ? 'rejected' : 'approved';
-                    $opp = KDFilter::opportunity_score((float)$kd, $vol, $intent);
-
-                    $wpdb->update($cand_table, [
-                        'difficulty' => (float)$kd,
-                        'opportunity' => $opp,
-                        'status' => $status,
-                        'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : null,
-                        'updated_at' => current_time('mysql'),
-                    ], ['keyword' => $kw]);
-
-                    $updated++;
+            foreach ($chunks as $chunk) {
+                $kd_res = DataForSEO::bulk_keyword_difficulty($chunk);
+                if (!$kd_res['ok']) {
+                    Logs::warn('keywords', 'KD refresh failed', [
+                        'error' => $kd_res['error'] ?? '',
+                        'chunk_size' => count($chunk),
+                    ]);
+                    continue;
                 }
-                Logs::info('keywords', 'KD refreshed', ['updated' => $updated, 'scored' => count($to_score)]);
-            } else {
-                Logs::warn('keywords', 'KD refresh failed', ['error' => $kd_res['error'] ?? '']);
+
+                $chunk_map = $kd_res['map'] ?? [];
+                if (is_array($chunk_map)) {
+                    $all_map = array_merge($all_map, $chunk_map);
+                }
             }
+
+            foreach ($to_score as $kw) {
+                $kwn = mb_strtolower($kw, 'UTF-8');
+                $kd = $all_map[$kwn] ?? null;
+                if ($kd === null) continue;
+
+                $vol = isset($kw_map[$kw]['volume']) ? (int)$kw_map[$kw]['volume'] : 0;
+                $intent = isset($kw_map[$kw]['intent']) ? (string)$kw_map[$kw]['intent'] : 'mixed';
+
+                // Auto reject too hard keywords early
+                $status = ($kd > $max_kd) ? 'rejected' : 'approved';
+                $opp = KDFilter::opportunity_score((float)$kd, $vol, $intent);
+
+                $wpdb->update($cand_table, [
+                    'difficulty' => (float)$kd,
+                    'opportunity' => $opp,
+                    'status' => $status,
+                    'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : null,
+                    'updated_at' => current_time('mysql'),
+                ], ['keyword' => $kw]);
+
+                $updated++;
+            }
+
+            Logs::info('keywords', 'KD refreshed', [
+                'updated' => $updated,
+                'scored' => count($to_score),
+                'chunks' => count($chunks),
+            ]);
         }
 
         // 4) Build clusters (simple clustering by cluster_key)

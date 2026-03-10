@@ -17,6 +17,7 @@ class Schema {
         $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
         $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
+        $keyword_cache = $wpdb->prefix . 'tmwseo_keywords';
 
         return [
             $content_briefs => "CREATE TABLE $content_briefs (
@@ -181,6 +182,7 @@ class Schema {
         $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
         $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
+        $keyword_cache = $wpdb->prefix . 'tmwseo_keywords';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -371,6 +373,22 @@ class Schema {
 
 
 
+        $sql_keyword_cache = "CREATE TABLE $keyword_cache (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NULL,
+            difficulty DECIMAL(6,2) NULL,
+            serp_score DECIMAL(6,2) NULL,
+            last_checked DATETIME NOT NULL,
+            source VARCHAR(100) NOT NULL DEFAULT 'dataforseo',
+            ranking_probability DECIMAL(6,4) NULL,
+            mapped_url TEXT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword (keyword),
+            KEY last_checked (last_checked),
+            KEY source (source)
+        ) $charset_collate;";
+
         $sql_opportunities = "CREATE TABLE $opportunities (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -469,6 +487,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_seo_competitors);
         dbDelta($sql_ranking_probability);
         dbDelta($sql_suggestions);
+        dbDelta($sql_keyword_cache);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
