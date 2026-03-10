@@ -32,6 +32,8 @@ class SerpWeaknessEngine {
         'forums',
         'board',
         'boards',
+        'directory',
+        'directories',
     ];
 
     /**
@@ -75,27 +77,32 @@ class SerpWeaknessEngine {
             return $result;
         }
 
-        $weak_serp = 0;
+        $weak_serp = 0.0;
+        $competitor_count = count($top);
 
         foreach ($top as $row) {
             $url = (string) ($row['url'] ?? '');
             $host = $this->extract_host($url);
             $domain_rank = (float) ($row['domain_rank'] ?? $row['domain_rating'] ?? 100);
-            $word_count = (int) ($row['word_count'] ?? 0);
+            $content_length = (int) ($row['content_length'] ?? $row['word_count'] ?? 0);
 
             if ($this->has_weak_signal($row, $host)) {
-                $weak_serp += 2;
+                $weak_serp += 2.5;
                 $signals['weak_domains_found']++;
             }
 
             if ($domain_rank < 40) {
-                $weak_serp += 1;
+                $weak_serp += 1.5;
                 $signals['low_authority_domains']++;
             }
 
-            if ($word_count > 0 && $word_count < 800) {
-                $weak_serp += 1;
+            if ($content_length > 0 && $content_length < 800) {
+                $weak_serp += 1.5;
                 $signals['thin_pages_detected']++;
+            }
+
+            if (!$this->keyword_in_title($keyword, (string) ($row['title'] ?? ''))) {
+                $weak_serp += 1.0;
             }
 
             if ($this->contains_weak_text_signal($row, $host)) {
@@ -103,7 +110,7 @@ class SerpWeaknessEngine {
             }
         }
 
-        $weakness_score = round($weak_serp / max(1, count($top)), 4);
+        $weakness_score = round($weak_serp / max(1, $competitor_count), 4);
         $reason   = $this->explain($signals);
 
         $result = [
@@ -111,7 +118,9 @@ class SerpWeaknessEngine {
             'serp_weakness_score'  => $weakness_score,
             'reason'               => $reason,
             'signals'              => $signals,
-            'serp_results_count'   => count($top),
+            'serp_results_count'   => $competitor_count,
+            'competitor_count'     => $competitor_count,
+            'cluster_id'           => $this->resolve_cluster_id($keyword, $serp_results),
             'data_source'          => DataForSEO::is_configured() ? 'dataforseo_live' : 'provided',
         ];
 
@@ -127,6 +136,30 @@ class SerpWeaknessEngine {
         ]);
 
         return $result;
+    }
+
+
+    /**
+     * @param array<int,array<string,mixed>> $serp_results
+     */
+    private function resolve_cluster_id(string $keyword, array $serp_results): int {
+        if (!empty($serp_results[0]['cluster_id'])) {
+            return (int) $serp_results[0]['cluster_id'];
+        }
+
+        global $wpdb;
+        $map_table = $wpdb->prefix . 'tmw_keyword_cluster_map';
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $map_table));
+        if ($table_exists !== $map_table) {
+            return 0;
+        }
+
+        $cluster_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT cluster_id FROM {$map_table} WHERE keyword = %s LIMIT 1",
+            sanitize_text_field($keyword)
+        ));
+
+        return max(0, $cluster_id);
     }
 
     private function extract_host(string $url): string {
@@ -174,6 +207,18 @@ class SerpWeaknessEngine {
         return false;
     }
 
+
+    private function keyword_in_title(string $keyword, string $title): bool {
+        $keyword = mb_strtolower(trim($keyword), 'UTF-8');
+        $title = mb_strtolower(trim($title), 'UTF-8');
+
+        if ($keyword === '' || $title === '') {
+            return false;
+        }
+
+        return strpos($title, $keyword) !== false;
+    }
+
     public function explain(array $signals): string {
         return sprintf(
             'Weak domains: %d; low-authority domains: %d; thin pages: %d; UGC domains: %d.',
@@ -190,12 +235,15 @@ class SerpWeaknessEngine {
             IntelligenceStorage::table_serp_analysis(),
             [
                 'keyword'              => sanitize_text_field((string) $result['keyword']),
+                'cluster_id'           => (int) ($result['cluster_id'] ?? 0),
                 'serp_weakness_score'  => (float) $result['serp_weakness_score'],
+                'competitor_count'     => (int) ($result['competitor_count'] ?? 0),
                 'reason'               => sanitize_textarea_field((string) $result['reason']),
                 'signals_json'         => wp_json_encode((array) $result['signals']),
+                'analyzed_at'          => current_time('mysql'),
                 'created_at'           => current_time('mysql'),
             ],
-            ['%s', '%f', '%s', '%s', '%s']
+            ['%s', '%d', '%f', '%d', '%s', '%s', '%s', '%s']
         );
 
         $keyword_table = $wpdb->prefix . 'tmw_keyword_candidates';

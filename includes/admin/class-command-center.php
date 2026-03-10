@@ -218,6 +218,7 @@ class CommandCenter {
         $map_table      = $wpdb->prefix . 'tmw_keyword_cluster_map';
         $rank_table     = $wpdb->prefix . 'tmw_seo_ranking_probability';
         $cand_table     = $wpdb->prefix . 'tmw_keyword_candidates';
+        $serp_table     = $wpdb->prefix . 'tmw_seo_serp_analysis';
 
         $sql = "
             SELECT
@@ -228,10 +229,10 @@ class CommandCenter {
                 c.total_volume AS search_volume,
                 COALESCE( stats.cluster_keyword_count, 0 ) AS cluster_keyword_count,
                 COALESCE( stats.ranking_probability, 0 ) AS ranking_probability,
-                COALESCE( stats.serp_weakness, 0 ) AS serp_weakness,
+                COALESCE( stats.serp_weakness_score, 0 ) AS serp_weakness_score,
                 (
                     ( COALESCE( c.total_volume, 0 ) * COALESCE( stats.ranking_probability, 0 ) )
-                    + COALESCE( stats.serp_weakness, 0 )
+                    + ( COALESCE( stats.serp_weakness_score, 0 ) * 100 )
                     + COALESCE( stats.cluster_keyword_count, 0 )
                 ) AS opportunity_score
             FROM {$clusters_table} c
@@ -240,10 +241,11 @@ class CommandCenter {
                     m.cluster_id,
                     COUNT(*) AS cluster_keyword_count,
                     AVG( COALESCE( rp.ranking_probability, 0 ) ) AS ranking_probability,
-                    AVG( COALESCE( kc.serp_weakness, 0 ) ) AS serp_weakness
+                    AVG( COALESCE( sa.serp_weakness_score, kc.serp_weakness, 0 ) ) AS serp_weakness_score
                 FROM {$map_table} m
                 LEFT JOIN {$rank_table} rp ON rp.keyword = m.keyword
                 LEFT JOIN {$cand_table} kc ON kc.keyword = m.keyword
+                LEFT JOIN {$serp_table} sa ON sa.cluster_id = m.cluster_id
                 GROUP BY m.cluster_id
             ) stats ON stats.cluster_id = c.id
             ORDER BY opportunity_score DESC
@@ -290,7 +292,7 @@ class CommandCenter {
 
         echo '<div class="tmwcc-table-wrap">';
         echo '<table class="widefat striped tmwcc-opportunity-table">';
-        echo '<thead><tr><th>Cluster</th><th>Keywords</th><th>Total Search Volume</th><th>Ranking Probability</th><th>Opportunity Score</th><th>Status</th><th>Action</th></tr></thead><tbody>';
+        echo '<thead><tr><th>Cluster</th><th>Keywords</th><th>Total Search Volume</th><th>Ranking Probability</th><th>SERP Weakness Score</th><th>Opportunity Score</th><th>Status</th><th>Action</th></tr></thead><tbody>';
 
         foreach ( $clusters as $cluster ) {
             $cluster_id = (int) ( $cluster['id'] ?? 0 );
@@ -302,6 +304,7 @@ class CommandCenter {
             echo '<td>' . esc_html( (string) (int) ( $cluster['cluster_keyword_count'] ?? 0 ) ) . '</td>';
             echo '<td>' . esc_html( number_format_i18n( (int) ( $cluster['search_volume'] ?? 0 ) ) ) . '</td>';
             echo '<td>' . esc_html( number_format_i18n( (float) ( $cluster['ranking_probability'] ?? 0 ), 2 ) ) . '</td>';
+            echo '<td>' . esc_html( number_format_i18n( (float) ( $cluster['serp_weakness_score'] ?? 0 ), 2 ) ) . '</td>';
             echo '<td><strong>' . esc_html( number_format_i18n( (float) ( $cluster['opportunity_score'] ?? 0 ), 2 ) ) . '</strong></td>';
             echo '<td><span class="tmwcc-status-badge ' . esc_attr( $built ? 'tmwcc-status-built' : 'tmwcc-status-not-built' ) . '">' . esc_html( $built ? 'Built' : 'Not Built' ) . '</span></td>';
             echo '<td>';
