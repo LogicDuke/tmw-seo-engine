@@ -49,6 +49,7 @@ class Settings {
             'keyword_pages_per_day' => 3,
             'keyword_min_volume' => 30,
             'keyword_max_kd' => 60,
+            'keyword_negative_filters' => "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers",
 
             // Competitors (one per line)
             'competitor_domains' => "chaturbate.com\nstripchat.com\nlivejasmin.com\nmyfreecams.com\ncamsoda.com\nbonga-cams.com\ncam4.com",

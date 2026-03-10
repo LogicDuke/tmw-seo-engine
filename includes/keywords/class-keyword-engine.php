@@ -236,7 +236,10 @@ class KeywordEngine {
                                 if ($inserted >= $new_limit) break;
                                 $kw = is_array($it) ? (string)($it['keyword'] ?? '') : '';
                                 if ($kw === '') continue;
-            
+                                if (function_exists('tmw_seo_is_blocked_keyword') && tmw_seo_is_blocked_keyword($kw)) {
+                                    continue;
+                                }
+
                                 $reason = null;
                                 if (!KeywordValidator::is_relevant($kw, $reason)) {
                                     continue;

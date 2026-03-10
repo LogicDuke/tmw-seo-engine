@@ -1151,6 +1151,7 @@ class AdminDashboardV2 {
                 self::text_field( 'intel_max_keywords', 'Max KWs per Run',     $opts, 'number', 'Default: 400' ),
                 self::text_field( 'serper_api_key',     'Serper API Key',      $opts, 'password', 'Optional. Enables People Also Ask + related searches.' ),
             ] );
+            echo '<div class="td-field-row"><label class="td-label">Negative Keyword Filters</label><div class="td-input-wrap"><textarea name="tmwseo_engine_settings[keyword_negative_filters]" rows="8" class="td-textarea">' . esc_textarea( (string) ( $opts['keyword_negative_filters'] ?? "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers" ) ) . '</textarea><p class="td-field-hint">One blocked phrase per line. Candidate keywords containing any phrase are silently discarded before insertion.</p></div></div>';
             self::settings_section( 'Competitor Domains', [] );
             echo '<div class="td-field-row"><label class="td-label">Competitor Domains</label><div class="td-input-wrap"><textarea name="tmwseo_engine_settings[competitor_domains]" rows="7" class="td-textarea">' . esc_textarea( (string) ( $opts['competitor_domains'] ?? '' ) ) . '</textarea><p class="td-field-hint">One per line. Domain only — no https://</p></div></div>';
 

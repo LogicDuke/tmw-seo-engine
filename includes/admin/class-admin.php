@@ -840,6 +840,7 @@ class Admin {
             'keyword_new_limit'      => max(0, (int)($input['keyword_new_limit'] ?? $existing['keyword_new_limit'] ?? 300)),
             'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? $existing['keyword_kd_batch_limit'] ?? 300)),
             'keyword_pages_per_day'  => max(0, (int)($input['keyword_pages_per_day'] ?? $existing['keyword_pages_per_day'] ?? 3)),
+            'keyword_negative_filters' => sanitize_textarea_field((string)($input['keyword_negative_filters'] ?? $existing['keyword_negative_filters'] ?? "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers")),
             'competitor_domains'     => sanitize_textarea_field((string)($input['competitor_domains'] ?? $existing['competitor_domains'] ?? '')),
 
             // Misc
@@ -2794,6 +2795,14 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Max KD', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_max_kd]" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('New keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_new_limit]" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('KD batch size', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_kd_batch_limit]" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Keyword Filters', 'tmwseo') . '</th><td><textarea name="tmwseo_engine_settings[keyword_negative_filters]" rows="8" class="large-text code">' . esc_textarea((string)($opts['keyword_negative_filters'] ?? "video chat
+random chat
+omegle
+chatroulette
+chat room
+chatroom
+stranger chat
+talk to strangers")) . '</textarea><p class="description">' . esc_html__('One blocked phrase per line. Matching keywords are silently discarded before candidate insertion.', 'tmwseo') . '</p></td></tr>';
         echo '</table>';
 
         // ── Intelligence ──────────────────────────────────────────────────
