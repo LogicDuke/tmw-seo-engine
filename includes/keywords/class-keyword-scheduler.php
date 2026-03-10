@@ -91,13 +91,7 @@ class KeywordScheduler {
      * in batches of 100, picking up where it left off.
      */
     public static function refresh_keyword_metrics(): void {
-        $location_code = (int) get_option( 'tmwseo_dataforseo_location_code', 2840 );
-        $language_code = (string) get_option( 'tmwseo_dataforseo_language_code', 'en' );
-
-        // Check DataForSEO is configured
-        $login    = (string) get_option( 'tmwseo_dataforseo_login', '' );
-        $password = (string) get_option( 'tmwseo_dataforseo_password', '' );
-        if ( $login === '' || $password === '' ) {
+        if ( ! DataForSEO::is_configured() ) {
             return;
         }
 
@@ -125,8 +119,7 @@ class KeywordScheduler {
         }
 
         // Fetch metrics from DataForSEO
-        $dfs    = new DataForSEO( $login, $password );
-        $vols   = self::safe_search_volume( $dfs, $keywords, $location_code, $language_code );
+        $vols   = self::safe_search_volume( $keywords );
 
         // Write metrics back to CSV files
         foreach ( $batch as $ref ) {
@@ -383,12 +376,15 @@ class KeywordScheduler {
     /**
      * Wraps DataForSEO search_volume call safely.
      */
-    private static function safe_search_volume( DataForSEO $dfs, array $keywords, int $location, string $language ): array {
-        try {
-            $result = $dfs->search_volume( $keywords, $location, $language );
-            return is_wp_error( $result ) ? [] : (array) $result;
-        } catch ( \Throwable $e ) {
+    private static function safe_search_volume( array $keywords ): array {
+        $result = DataForSEO::search_volume( $keywords );
+        if ( ! ( $result['ok'] ?? false ) ) {
+            \TMWSEO\Engine\Logs::warn( 'keywords', '[TMW-DFS] search_volume refresh failed', [
+                'error' => $result['error'] ?? 'unknown',
+            ] );
             return [];
         }
+
+        return (array) ( $result['map'] ?? [] );
     }
 }

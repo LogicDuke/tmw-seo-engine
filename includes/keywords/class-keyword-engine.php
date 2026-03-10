@@ -130,14 +130,15 @@ class KeywordEngine {
                                     $seed,
                                     (int) Settings::get('keyword_suggestions_limit', 200)
                                 );
-                                $ideas_res = DataForSEO::keyword_ideas(
-                                    [$seed],
+                                $related_res = DataForSEO::related_keywords(
+                                    $seed,
+                                    1,
                                     (int) Settings::get('keyword_suggestions_limit', 200)
                                 );
 
-                                if (!empty($suggestions_res['ok']) || !empty($ideas_res['ok'])) {
+                                if (!empty($suggestions_res['ok']) || !empty($related_res['ok'])) {
                                     $merged_items = [];
-                                    foreach ([$suggestions_res['items'] ?? [], $ideas_res['items'] ?? []] as $source_items) {
+                                    foreach ([$suggestions_res['items'] ?? [], $related_res['items'] ?? []] as $source_items) {
                                         foreach ((array) $source_items as $item) {
                                             if (!is_array($item)) {
                                                 continue;
@@ -158,7 +159,7 @@ class KeywordEngine {
                                 } else {
                                     $res = [
                                         'ok' => false,
-                                        'error' => $suggestions_res['error'] ?? $ideas_res['error'] ?? 'keyword_discovery_failed',
+                                        'error' => $suggestions_res['error'] ?? $related_res['error'] ?? 'keyword_discovery_failed',
                                     ];
                                 }
                             }
@@ -166,7 +167,7 @@ class KeywordEngine {
                             if (!$res['ok']) {
                                 $failures++;
                                 Logs::warn('keywords', 'DataForSEO failed', ['seed' => $seed]);
-                                Logs::warn('keywords', 'DataForSEO keyword_suggestions/keyword_ideas failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
+                                Logs::warn('keywords', 'DataForSEO keyword_suggestions/related_keywords failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
 
                                 if ($failures >= $max_failures) {
                                     Logs::error('keywords', 'Circuit breaker triggered');
