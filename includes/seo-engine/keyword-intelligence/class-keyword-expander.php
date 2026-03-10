@@ -7,12 +7,6 @@ if (!defined('ABSPATH')) { exit; }
 
 class KeywordExpander {
 
-    private DataForSEO $dfs;
-
-    public function __construct(?DataForSEO $dfs = null) {
-        $this->dfs = $dfs ?: new DataForSEO();
-    }
-
     /**
      * @param string[] $seed_keywords
      * @return array<int,array<string,mixed>>
@@ -62,7 +56,7 @@ class KeywordExpander {
 
     /** @return array<int,array<string,mixed>> */
     private function keyword_suggestions(string $seed_keyword): array {
-        $response = $this->dfs->keyword_suggestions($seed_keyword, 100);
+        $response = DataForSEO::keyword_suggestions($seed_keyword, 100);
         if (empty($response['ok'])) {
             return [];
         }
@@ -72,7 +66,7 @@ class KeywordExpander {
 
     /** @return array<int,array<string,mixed>> */
     private function related_keywords(string $seed_keyword): array {
-        $response = $this->dfs->related_keywords($seed_keyword, 1, 100);
+        $response = DataForSEO::related_keywords($seed_keyword, 1, 100);
         if (empty($response['ok'])) {
             return [];
         }
