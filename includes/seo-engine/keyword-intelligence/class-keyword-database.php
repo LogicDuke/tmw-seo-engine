@@ -24,6 +24,7 @@ class KeywordDatabase {
             keyword VARCHAR(255) NOT NULL,
             search_volume INT(11) NOT NULL DEFAULT 0,
             difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+            expanded_level TINYINT(3) UNSIGNED NOT NULL DEFAULT 0,
             serp_weakness DECIMAL(6,2) NOT NULL DEFAULT 0,
             ranking_probability DECIMAL(6,4) NOT NULL DEFAULT 0,
             opportunity_score DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -38,6 +39,7 @@ class KeywordDatabase {
             PRIMARY KEY (id),
             UNIQUE KEY keyword (keyword),
             KEY quality_filter (search_volume, difficulty, ranking_probability),
+            KEY expansion_level (expanded_level),
             KEY freshness (last_checked),
             KEY score (opportunity_score),
             KEY intent_entity (intent_type, entity_type, entity_id)
@@ -87,7 +89,7 @@ class KeywordDatabase {
     }
 
     /**
-     * @param array{keyword:string,search_volume?:int,difficulty?:float,serp_weakness?:float,opportunity_score?:float,source?:string,intent_type?:string,entity_type?:string,entity_id?:int} $metrics
+     * @param array{keyword:string,search_volume?:int,difficulty?:float,expanded_level?:int,serp_weakness?:float,opportunity_score?:float,source?:string,intent_type?:string,entity_type?:string,entity_id?:int} $metrics
      */
     public static function upsert_metrics(array $metrics): void {
         global $wpdb;
@@ -101,11 +103,12 @@ class KeywordDatabase {
         $now = current_time('mysql');
 
         $wpdb->query($wpdb->prepare(
-            "INSERT INTO {$table} (keyword, search_volume, difficulty, serp_weakness, opportunity_score, source, intent_type, entity_type, entity_id, last_checked, created_at, updated_at)
-             VALUES (%s, %d, %f, %f, %f, %s, %s, %s, %d, %s, %s, %s)
+            "INSERT INTO {$table} (keyword, search_volume, difficulty, expanded_level, serp_weakness, opportunity_score, source, intent_type, entity_type, entity_id, last_checked, created_at, updated_at)
+             VALUES (%s, %d, %f, %d, %f, %f, %s, %s, %s, %d, %s, %s, %s)
              ON DUPLICATE KEY UPDATE
                 search_volume = VALUES(search_volume),
                 difficulty = VALUES(difficulty),
+                expanded_level = GREATEST(expanded_level, VALUES(expanded_level)),
                 serp_weakness = VALUES(serp_weakness),
                 opportunity_score = VALUES(opportunity_score),
                 source = VALUES(source),
@@ -117,6 +120,7 @@ class KeywordDatabase {
             $keyword,
             (int) ($metrics['search_volume'] ?? 0),
             (float) ($metrics['difficulty'] ?? 0),
+            max(0, (int) ($metrics['expanded_level'] ?? 0)),
             (float) ($metrics['serp_weakness'] ?? 0),
             (float) ($metrics['opportunity_score'] ?? 0),
             (string) ($metrics['source'] ?? 'dataforseo'),
@@ -127,6 +131,41 @@ class KeywordDatabase {
             $now,
             $now
         ));
+    }
+
+    /**
+     * @param string[] $keywords
+     * @return array<string,int>
+     */
+    public static function get_expanded_levels(array $keywords): array {
+        global $wpdb;
+
+        $keywords = array_values(array_unique(array_filter(array_map('strval', $keywords))));
+        if (empty($keywords)) {
+            return [];
+        }
+
+        $table = self::table_name();
+        $placeholders = implode(', ', array_fill(0, count($keywords), '%s'));
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT keyword, expanded_level FROM {$table} WHERE keyword IN ({$placeholders})",
+                ...$keywords
+            ),
+            ARRAY_A
+        );
+
+        $map = [];
+        foreach ((array) $rows as $row) {
+            $keyword = (string) ($row['keyword'] ?? '');
+            if ($keyword === '') {
+                continue;
+            }
+
+            $map[$keyword] = (int) ($row['expanded_level'] ?? 0);
+        }
+
+        return $map;
     }
 
     /**
