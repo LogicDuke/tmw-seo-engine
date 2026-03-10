@@ -12,7 +12,7 @@ class KeywordClassifier {
     private static ?array $category_index = null;
 
     /**
-     * @return array{intent_type:string,entity_type:string,entity_id:int}
+     * @return array{intent_type:string,entity_type:string,entity_id:int,keyword_intent:string}
      */
     public static function classify(string $keyword): array {
         $keyword = strtolower(trim($keyword));
@@ -21,6 +21,7 @@ class KeywordClassifier {
                 'intent_type' => 'generic',
                 'entity_type' => 'generic',
                 'entity_id' => 0,
+                'keyword_intent' => 'generic',
             ];
         }
 
@@ -42,22 +43,27 @@ class KeywordClassifier {
             $entity_id = $category_id;
         }
 
-        $intent_type = 'generic';
+        $keyword_intent = function_exists('tmw_seo_classify_keyword_intent')
+            ? (string) tmw_seo_classify_keyword_intent($keyword)
+            : 'generic';
+
+        $intent_type = $keyword_intent;
 
         if ($model_id > 0) {
-            $intent_type = 'model_search';
+            $intent_type = 'model';
         } elseif ($tag_id > 0) {
-            $intent_type = 'fetish_discovery';
+            $intent_type = 'category';
         } elseif ($category_id > 0) {
-            $intent_type = 'category_discovery';
+            $intent_type = 'category';
         } elseif (preg_match('/^(best|top|ranking)\b/u', $keyword)) {
-            $intent_type = 'comparison';
+            $intent_type = 'category';
         }
 
         return [
             'intent_type' => $intent_type,
             'entity_type' => $entity_type,
             'entity_id' => $entity_id,
+            'keyword_intent' => $keyword_intent,
         ];
     }
 
