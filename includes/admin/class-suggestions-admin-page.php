@@ -298,7 +298,7 @@ class SuggestionsAdminPage {
         $counts = $this->build_review_queue_counts($rows, 'all');
         $category_page_counts = $this->build_review_queue_counts($rows, 'category_page');
 
-        $common_trust_copy = __('Review only · manual next step · generated drafts remain noindex · nothing is published automatically.', 'tmwseo');
+        $common_trust_copy = __('Review only · manual next step · generated drafts remain noindex (bound existing posts are not affected) · nothing is published automatically.', 'tmwseo');
 
         $widgets = [
             $this->build_metric(
@@ -405,7 +405,7 @@ class SuggestionsAdminPage {
         $rows = $this->engine->getSuggestions(['limit' => 1000]);
         $counts = $this->build_review_aging_state_counts($rows, 'all');
         $category_page_counts = $this->build_review_aging_state_counts($rows, 'category_page');
-        $common_trust_copy = __('Review-only aging · manual next step pending · generated drafts remain noindex · nothing is published automatically.', 'tmwseo');
+        $common_trust_copy = __('Review-only aging · manual next step pending · generated drafts remain noindex (bound existing posts are not affected) · nothing is published automatically.', 'tmwseo');
 
         $widgets = [
             $this->build_metric(
@@ -565,7 +565,8 @@ class SuggestionsAdminPage {
     // ── Focused Model Mode Renderer ───────────────────────────────────────
     // A clean, model-only operator screen. Suppresses generic workload widgets,
     // aging widgets, category-page pivots, and cross-destination triage clutter.
-    // Trust policy is unchanged: everything is manual-only, draft-only.
+    // Trust policy is unchanged: everything is manual-only.
+    // Model-page suggestions bind to existing model posts (no new post is created).
 
     /**
      * @param array<int,array<string,mixed>> $all_rows
@@ -692,7 +693,7 @@ class SuggestionsAdminPage {
         }
         echo '</ul>';
 
-        echo '<p class="description" style="margin:4px 0 14px;"><strong>Trust reminder:</strong> Draft-only · noindex · no autopublish · no auto link insertion · manual next step required on every action.</p>';
+        echo '<p class="description" style="margin:4px 0 14px;"><strong>Trust reminder:</strong> Bound-existing targets · clicking the action opens the existing post editor directly · no new post is created · apply all changes manually · nothing is published or mutated automatically.</p>';
 
         // Table or empty state
         if (empty($filtered_rows)) {
@@ -1303,11 +1304,13 @@ class SuggestionsAdminPage {
             if ($destination_label !== '') {
                 echo esc_html('(' . $destination_label . ') ');
             }
-            echo esc_html__('No new post was created. Open the existing post and apply the suggested changes manually. Nothing is live-mutated automatically.', 'tmwseo');
+            // The post editor was opened directly when binding was performed (Goal A).
+            // This notice appears on the Suggestions page if the operator navigates back.
+            echo esc_html__('No new post was created. The existing post editor was opened directly when you clicked the action. Apply the suggested changes manually in that post. Nothing is live-mutated automatically.', 'tmwseo');
             if ($draft_id > 0) {
                 $edit_link = get_edit_post_link($draft_id, '');
                 if (is_string($edit_link) && $edit_link !== '') {
-                    echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Open Post', 'tmwseo') . '</strong></a>';
+                    echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Open Linked Post', 'tmwseo') . '</strong></a>';
                 }
             }
             echo '</p></div>';
@@ -2267,9 +2270,14 @@ class SuggestionsAdminPage {
         $priority_score = (float) ($row['priority_score'] ?? 0);
         $priority_label = $this->priority_label($priority_score);
         $suggested_action = trim((string) ($row['suggested_action'] ?? ''));
+        // Resolve destination_type so the fallback step text is accurate.
+        // This context is always bound_existing so destination will be model_page,
+        // category_page, or video_page — never generic_post.
+        $row_dest_info  = $this->resolve_draft_destination($row);
+        $row_dest_type  = (string) ($row_dest_info['destination_type'] ?? '');
         $manual_step    = $suggested_action !== ''
             ? wp_trim_words($suggested_action, 30, '…')
-            : $this->manual_next_step_text((string) ($row['type'] ?? ''));
+            : $this->manual_next_step_text((string) ($row['type'] ?? ''), $row_dest_type);
 
         // Suggestions page back-link.
         $suggestions_url = add_query_arg([
@@ -2965,7 +2973,7 @@ class SuggestionsAdminPage {
             $source_engine_label = $this->format_label((string) ($row['source_engine'] ?? ''));
             $description_summary = $this->build_row_summary((string) ($row['title'] ?? ''), (string) ($row['description'] ?? ''));
             $opportunity_cue = $this->opportunity_cue((int) ($row['estimated_traffic'] ?? 0));
-            $manual_next_step = $this->manual_next_step_text((string) ($row['type'] ?? ''));
+            $manual_next_step = $this->manual_next_step_text((string) ($row['type'] ?? ''), (string) $destination['destination_type']);
             $review_state_badges = $this->build_review_state_badges($row);
             $review_queue_state = $this->review_queue_state_for_row($row);
             $review_aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
@@ -3076,7 +3084,7 @@ class SuggestionsAdminPage {
         echo esc_html__('Statuses track workflow only (New → Draft Created or Linked to Existing Post → Implemented, or Ignored). Action Target shows the destination: an existing post for Category/Model/Video destinations, or a new noindex draft for Generic fallback. Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');
         echo '</p>';
         echo '<p><strong>' . esc_html__('Next step guidance:', 'tmwseo') . '</strong> ';
-        echo esc_html__('Draft created → open/edit the draft manually, then optionally run Enrich Draft Metadata for safe metadata-only enrichment. Linked to existing post → open that post and apply the suggested changes manually; no draft was created. Brief generated → review the brief manually. Internal-link helper opened → review anchor/context and insert manually only if approved. Nothing is published or inserted live automatically.', 'tmwseo');
+        echo esc_html__('Draft created → open/edit the draft manually, then optionally run Enrich Draft Metadata for safe metadata-only enrichment. Linked to existing post → the post editor opened directly when binding was performed; apply the suggested changes manually in that post; no draft was created. Brief generated → review the brief manually. Internal-link helper opened → review anchor/context and insert manually only if approved. Nothing is published or inserted live automatically.', 'tmwseo');
         echo '</p>';
         echo '<p class="description">' . esc_html__('Review queues apply to generated drafts only (linked existing posts do not enter the review queue). Signed off for manual next step still means nothing has been published automatically; generated drafts remain noindex.', 'tmwseo') . '</p>';
         echo '</div>';
@@ -3285,12 +3293,23 @@ class SuggestionsAdminPage {
             echo '<li><strong>' . esc_html__('Why this suggestion exists:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($description, 22, '…')) . '</li>';
             echo '<li><strong>' . esc_html__('Manual next step:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Generate/review the brief manually, then decide execution manually. Nothing goes live automatically.', 'tmwseo') . '</li>';
         } else {
+            // Determine whether this suggestion targets an existing post (bound_existing path)
+            // or will create a new noindex draft (generic_post path). The manual-only
+            // reminder must reflect the actual outcome, not a generic draft assumption.
+            $row_destination      = $this->resolve_draft_destination($row);
+            $row_destination_type = (string) ($row_destination['destination_type'] ?? '');
+            $is_bound_target      = in_array($row_destination_type, ['model_page', 'category_page', 'video_page'], true);
+
             echo '<li><strong>' . esc_html__('Destination type:', 'tmwseo') . '</strong> ' . esc_html($destination_label) . '</li>';
             echo '<li><strong>' . esc_html__('Source engine:', 'tmwseo') . '</strong> ' . esc_html($source_engine_label) . '</li>';
             echo '<li><strong>' . esc_html__('Priority cue:', 'tmwseo') . '</strong> ' . esc_html($priority_confidence) . '</li>';
             echo '<li><strong>' . esc_html__('Problem / why it matters:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($description, 22, '…')) . '</li>';
             echo '<li><strong>' . esc_html__('Suggested next step:', 'tmwseo') . '</strong> ' . esc_html($next_step) . '</li>';
-            echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Draft editing is manual and nothing is published automatically.', 'tmwseo') . '</li>';
+            if ($is_bound_target) {
+                echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Clicking the action opens the existing post editor directly — no new post is created. Apply suggested changes manually in that editor. Nothing is mutated automatically.', 'tmwseo') . '</li>';
+            } else {
+                echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. A noindex draft will be created for manual editing. Publish only with explicit operator approval. Nothing goes live automatically.', 'tmwseo') . '</li>';
+            }
         }
 
         echo '</ul>';
@@ -4232,9 +4251,17 @@ class SuggestionsAdminPage {
         ];
     }
 
-    private function manual_next_step_text(string $type): string {
+    private function manual_next_step_text(string $type, string $destination_type = ''): string {
         if ($type === 'content_brief') {
             return __('Generate and review the brief manually, then decide on execution. No automatic publish occurs.', 'tmwseo');
+        }
+
+        // For existing-target destinations no draft is created — the suggestion is
+        // bound to the already-published post. The correct step is to open that post
+        // and apply changes manually, not to "create a noindex draft".
+        $existing_target_types = ['model_page', 'video_page', 'category_page'];
+        if (in_array($destination_type, $existing_target_types, true)) {
+            return __('Open the linked existing post and apply the suggested changes manually. No new post is created. Nothing is mutated automatically.', 'tmwseo');
         }
 
         return __('Create a noindex draft, review/edit manually, and publish only with operator approval.', 'tmwseo');
