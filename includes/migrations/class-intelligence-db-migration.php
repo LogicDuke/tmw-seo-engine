@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) {
 
 if (!class_exists('TMW_Intelligence_DB_Migration', false)) {
 class TMW_Intelligence_DB_Migration {
-    const SCHEMA_VERSION = 2;
+    const SCHEMA_VERSION = 3;
     const OPTION_KEY     = 'tmw_intelligence_schema_version';
 
     public static function maybe_migrate() {
@@ -111,6 +111,24 @@ class TMW_Intelligence_DB_Migration {
                 UNIQUE KEY keyword_entity (keyword, entity_type, entity_id),
                 KEY entity_lookup (entity_type, entity_id),
                 KEY keyword (keyword)
+            ) {$charset_collate};",
+
+
+            "CREATE TABLE {$prefix}tmw_seo_entities (
+                entity_id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                entity_type VARCHAR(50) NOT NULL,
+                entity_name VARCHAR(191) NOT NULL,
+                PRIMARY KEY  (entity_id),
+                UNIQUE KEY entity_unique (entity_type, entity_name),
+                KEY entity_lookup (entity_type)
+            ) {$charset_collate};",
+
+            "CREATE TABLE {$prefix}tmw_seo_entity_keyword (
+                keyword_id BIGINT(20) UNSIGNED NOT NULL,
+                entity_id BIGINT(20) UNSIGNED NOT NULL,
+                PRIMARY KEY  (keyword_id, entity_id),
+                KEY entity_lookup (entity_id),
+                KEY keyword_lookup (keyword_id)
             ) {$charset_collate};",
 
             "CREATE TABLE {$prefix}tmwseo_keyword_trends (

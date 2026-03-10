@@ -152,6 +152,7 @@ class TrafficPageGenerator {
             update_post_meta($post_id, '_tmwseo_target_keyword', $keyword);
             update_post_meta($post_id, '_tmwseo_traffic_page_slug', $slug);
             update_post_meta($post_id, '_tmwseo_traffic_page_schema', wp_json_encode($this->build_item_list_schema($post_id), JSON_UNESCAPED_SLASHES));
+            update_post_meta($post_id, '_tmwseo_traffic_page_type', sanitize_key((string) ($row['page_type'] ?? 'category')));
             $this->map_keyword_to_url($keyword, get_permalink($post_id));
 
             $created++;
@@ -167,12 +168,57 @@ class TrafficPageGenerator {
     }
 
     private function get_keyword_opportunities(int $limit): array {
-        $rows = KeywordDatabase::get_generation_candidates(max(1, $limit));
+        $rows = KeywordDatabase::get_generation_candidates_by_entity_combinations(max(1, $limit));
 
-        return array_values(array_filter($rows, function ($row) {
+        $selected = [];
+        $type_limits = [
+            'model' => max(1, (int) floor($limit / 3)),
+            'category' => max(1, (int) floor($limit / 3)),
+            'model_category' => max(1, (int) floor($limit / 3)),
+        ];
+        $type_counts = ['model' => 0, 'category' => 0, 'model_category' => 0];
+
+        foreach ($rows as $row) {
             $slug = sanitize_title((string) ($row['keyword'] ?? ''));
-            return $slug !== '' && !$this->slug_exists($slug);
-        }));
+            if ($slug === '' || $this->slug_exists($slug)) {
+                continue;
+            }
+
+            $page_type = $this->resolve_page_type($row);
+            if (($type_counts[$page_type] ?? 0) >= ($type_limits[$page_type] ?? 0)) {
+                continue;
+            }
+
+            $row['page_type'] = $page_type;
+            $selected[] = $row;
+            $type_counts[$page_type]++;
+
+            if (count($selected) >= $limit) {
+                break;
+            }
+        }
+
+        return $selected;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function resolve_page_type(array $row): string {
+        $has_model = (int) ($row['model_count'] ?? 0) > 0;
+        $has_category = (int) ($row['category_count'] ?? 0) > 0;
+
+        if ($has_model && $has_category) {
+            return 'model_category';
+        }
+
+        if ($has_model) {
+            return 'model';
+        }
+
+        if ($has_category) {
+            return 'category';
+        }
+
+        return 'category';
     }
 
     private function slug_exists(string $slug): bool {

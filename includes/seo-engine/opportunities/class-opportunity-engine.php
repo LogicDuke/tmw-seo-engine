@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Opportunities;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\KeywordIntelligence\KeywordDatabase;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -109,30 +110,7 @@ class OpportunityEngine {
      * @return array<int,array<string,mixed>>
      */
     public function traffic_page_candidates(int $limit = 20): array {
-        global $wpdb;
-
-        $limit = max(1, min(100, $limit));
-        $table = $wpdb->prefix . 'tmwseo_keywords';
-        $exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-
-        if ($exists === $table) {
-            return (array) $wpdb->get_results($wpdb->prepare(
-                "SELECT keyword, search_volume, difficulty, ranking_probability
-                 FROM {$table}
-                 WHERE search_volume >= %d
-                   AND difficulty <= %d
-                   AND ranking_probability >= %f
-                   AND (mapped_url IS NULL OR mapped_url = '')
-                 ORDER BY ranking_probability DESC, search_volume DESC
-                 LIMIT %d",
-                50,
-                40,
-                0.6,
-                $limit
-            ), ARRAY_A);
-        }
-
-        return [];
+        return KeywordDatabase::get_generation_candidates_by_entity_combinations(max(1, min(100, $limit)));
     }
 
     private function estimate_model_relevance(string $keyword): float {
