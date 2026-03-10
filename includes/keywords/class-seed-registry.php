@@ -19,7 +19,14 @@ class SeedRegistry {
         return mb_strtolower((string) $seed, 'UTF-8');
     }
 
-    public static function register_seed(string $seed, string $source, string $entity_type = 'system', int $entity_id = 0): bool {
+    public static function register_seed(
+        string $seed,
+        string $source,
+        string $entity_type = 'system',
+        int $entity_id = 0,
+        string $seed_type = 'general',
+        int $priority = 1
+    ): bool {
         global $wpdb;
 
         $normalized = self::normalize_seed($seed);
@@ -45,12 +52,14 @@ class SeedRegistry {
         $inserted = $wpdb->insert($table, [
             'seed' => $normalized,
             'source' => sanitize_key($source),
+            'seed_type' => self::sanitize_seed_type($seed_type),
+            'priority' => self::sanitize_priority($priority),
             'entity_type' => sanitize_key($entity_type),
             'entity_id' => max(0, (int) $entity_id),
             'created_at' => current_time('mysql'),
             'last_used' => null,
             'hash' => $hash,
-        ], ['%s', '%s', '%s', '%d', '%s', '%s', '%s']);
+        ], ['%s', '%s', '%s', '%d', '%s', '%d', '%s', '%s', '%s']);
 
         if ($inserted === false) {
             Logs::warn('keywords', '[TMW-KW] Seed registry insert failed', [
@@ -81,12 +90,19 @@ class SeedRegistry {
         return $exists > 0;
     }
 
-    public static function register_many(array $items, string $source, string $entity_type = 'system', int $entity_id = 0): array {
+    public static function register_many(
+        array $items,
+        string $source,
+        string $entity_type = 'system',
+        int $entity_id = 0,
+        string $seed_type = 'general',
+        int $priority = 1
+    ): array {
         $registered = 0;
         $deduped = 0;
 
         foreach ($items as $item) {
-            $ok = self::register_seed((string) $item, $source, $entity_type, $entity_id);
+            $ok = self::register_seed((string) $item, $source, $entity_type, $entity_id, $seed_type, $priority);
             if ($ok) {
                 $registered++;
             } else {
@@ -107,7 +123,7 @@ class SeedRegistry {
         $cap = min(300, max(1, $limit));
 
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, seed, source, entity_type, entity_id, created_at, last_used FROM {$table} ORDER BY COALESCE(last_used, '1970-01-01 00:00:00') ASC, id ASC LIMIT %d",
+            "SELECT id, seed, source, seed_type, priority, entity_type, entity_id, created_at, last_used FROM {$table} ORDER BY priority ASC, COALESCE(last_used, '1970-01-01 00:00:00') ASC, id ASC LIMIT %d",
             $cap
         ), ARRAY_A);
 
@@ -174,5 +190,14 @@ class SeedRegistry {
 
         $report[$key] = (int) ($report[$key] ?? 0) + $by;
         update_option(self::REPORT_OPTION, $report, false);
+    }
+
+    private static function sanitize_seed_type(string $seed_type): string {
+        $normalized = sanitize_key($seed_type);
+        return $normalized !== '' ? $normalized : 'general';
+    }
+
+    private static function sanitize_priority(int $priority): int {
+        return max(1, $priority);
     }
 }
