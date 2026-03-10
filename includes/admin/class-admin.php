@@ -38,6 +38,7 @@ class Admin {
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
+        add_action('admin_post_tmwseo_generate_model_seeds', [__CLASS__, 'handle_generate_model_seeds']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -1236,6 +1237,173 @@ class Admin {
         exit;
     }
 
+    public static function handle_generate_model_seeds(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'tmwseo'));
+        }
+
+        check_admin_referer('tmwseo_generate_model_seeds');
+
+        global $wpdb;
+
+        $offset = isset($_REQUEST['offset']) ? max(0, (int) $_REQUEST['offset']) : 0;
+        $processed_total = isset($_REQUEST['processed']) ? max(0, (int) $_REQUEST['processed']) : 0;
+        $created_total = isset($_REQUEST['created']) ? max(0, (int) $_REQUEST['created']) : 0;
+        $batch_size = 75;
+
+        $total_models = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(ID) FROM {$wpdb->posts} WHERE post_type = %s AND post_status NOT IN ('trash', 'auto-draft')",
+            'model'
+        ));
+
+        $model_ids = get_posts([
+            'post_type' => 'model',
+            'post_status' => ['publish', 'draft', 'pending', 'private', 'future'],
+            'posts_per_page' => $batch_size,
+            'offset' => $offset,
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'fields' => 'ids',
+            'no_found_rows' => true,
+            'cache_results' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+            'suppress_filters' => true,
+        ]);
+
+        if (!is_array($model_ids)) {
+            $model_ids = [];
+        }
+
+        $keywords_table = $wpdb->prefix . 'tmw_seo_keywords';
+        $updated_at = current_time('mysql');
+
+        $keywords_table_exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keywords_table));
+        if ($keywords_table_exists !== $keywords_table) {
+            wp_safe_redirect(add_query_arg([
+                'page' => 'tmwseo-tools',
+                'tmwseo_notice' => 'model_seeds_generated',
+                'tmwseo_models_processed' => $processed_total,
+                'tmwseo_seeds_created' => $created_total,
+            ], admin_url('admin.php')));
+            exit;
+        }
+
+        foreach ($model_ids as $model_id) {
+            $model_id = (int) $model_id;
+            if ($model_id <= 0) {
+                continue;
+            }
+
+            $model_name = trim((string) get_the_title($model_id));
+            if ($model_name === '') {
+                $processed_total++;
+                continue;
+            }
+
+            $seed_keywords = self::build_model_seed_keywords($model_name);
+            if (empty($seed_keywords)) {
+                $processed_total++;
+                continue;
+            }
+
+            $placeholders = implode(', ', array_fill(0, count($seed_keywords), '%s'));
+            $existing_rows = $wpdb->get_col($wpdb->prepare(
+                "SELECT keyword FROM {$keywords_table} WHERE entity_type = %s AND entity_id = %d AND keyword IN ({$placeholders})",
+                ...array_merge(['model', $model_id], $seed_keywords)
+            ));
+
+            $existing_map = [];
+            if (is_array($existing_rows)) {
+                foreach ($existing_rows as $existing_keyword) {
+                    $existing_map[(string) $existing_keyword] = true;
+                }
+            }
+
+            foreach ($seed_keywords as $seed_keyword) {
+                if (isset($existing_map[$seed_keyword])) {
+                    continue;
+                }
+
+                $inserted = $wpdb->insert(
+                    $keywords_table,
+                    [
+                        'entity_type' => 'model',
+                        'entity_id' => $model_id,
+                        'keyword' => $seed_keyword,
+                        'volume' => null,
+                        'cpc' => null,
+                        'difficulty' => null,
+                        'intent' => null,
+                        'source' => 'model_seed_tool',
+                        'raw' => null,
+                        'updated_at' => $updated_at,
+                    ]
+                );
+
+                if ($inserted !== false) {
+                    $created_total++;
+                }
+            }
+
+            $processed_total++;
+        }
+
+        $next_offset = $offset + count($model_ids);
+
+        if (!empty($model_ids) && $next_offset < $total_models) {
+            wp_safe_redirect(add_query_arg([
+                'action' => 'tmwseo_generate_model_seeds',
+                '_wpnonce' => wp_create_nonce('tmwseo_generate_model_seeds'),
+                'offset' => $next_offset,
+                'processed' => $processed_total,
+                'created' => $created_total,
+            ], admin_url('admin-post.php')));
+            exit;
+        }
+
+        Logs::info('keywords', '[TMW-SEEDS] Model seed generation completed', [
+            'models_processed' => $processed_total,
+            'seeds_created' => $created_total,
+            'total_models' => $total_models,
+            'batch_size' => $batch_size,
+        ]);
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-tools',
+            'tmwseo_notice' => 'model_seeds_generated',
+            'tmwseo_models_processed' => $processed_total,
+            'tmwseo_seeds_created' => $created_total,
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * @return string[]
+     */
+    private static function build_model_seed_keywords(string $model_name): array {
+        $patterns = [
+            '%s webcam model',
+            '%s live cam girl',
+            '%s webcam show',
+            '%s cam model',
+            '%s private cam show',
+            '%s live webcam show',
+            '%s cam girl live',
+        ];
+
+        $keywords = [];
+        foreach ($patterns as $pattern) {
+            $keyword = \TMWSEO\Engine\Keywords\SeedRegistry::normalize_seed(sprintf($pattern, $model_name));
+            if ($keyword === '') {
+                continue;
+            }
+            $keywords[$keyword] = true;
+        }
+
+        return array_keys($keywords);
+    }
+
     public static function save_settings(): void {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         // New (alpha.6): model routing + brand voice, while keeping legacy "openai_model" for compatibility.
@@ -1566,6 +1734,14 @@ class Admin {
                 $clusters_deleted,
                 $suggestions_deleted
             );
+        } elseif ($notice === 'model_seeds_generated') {
+            $models_processed = isset($_GET['tmwseo_models_processed']) ? max(0, (int) $_GET['tmwseo_models_processed']) : 0;
+            $seeds_created = isset($_GET['tmwseo_seeds_created']) ? max(0, (int) $_GET['tmwseo_seeds_created']) : 0;
+            $message = sprintf(
+                __('Model seed generation complete. Models processed: %1$d, Seeds created: %2$d.', 'tmwseo'),
+                $models_processed,
+                $seeds_created
+            );
         }
 
         if ($message === '') {
@@ -1698,6 +1874,17 @@ class Admin {
         wp_nonce_field('tmwseo_bulk_autofix');
         echo '<input type="hidden" name="action" value="tmwseo_bulk_autofix">';
         submit_button(__('Auto Fix Missing SEO', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+        echo '</div>';
+
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Generate Model Seeds', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Generates predefined seed keywords for every model post and inserts new rows into the keyword table.', 'tmwseo') . '</p>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Runs in batches to prevent timeouts and skips duplicates automatically.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_generate_model_seeds');
+        echo '<input type="hidden" name="action" value="tmwseo_generate_model_seeds">';
+        submit_button(__('Generate Model Seeds', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
         echo '</div>';
 
@@ -2509,7 +2696,7 @@ private static function header(string $title): void {
     private static function count_posts_with_query(array $args): int {
         $query = new \WP_Query(array_merge([
             'post_type' => 'post',
-            'post_status' => 'any',
+            'post_status' => ['publish', 'draft', 'pending', 'private', 'future'],
             'fields' => 'ids',
             'posts_per_page' => 1,
             'no_found_rows' => false,
