@@ -33,6 +33,7 @@ use TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor;
 use TMWSEO\Engine\Export\CSVExporter;
 use TMWSEO\Engine\Db\Jobs;
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Services\RankTracker;
 
 class AdminDashboardV2 {
 
@@ -657,7 +658,7 @@ class AdminDashboardV2 {
         $tab = sanitize_key( $_GET['tab'] ?? 'health' );
 
         self::wrap_open( 'Reports' );
-        self::tabs( [ 'health' => 'SEO Health', 'models' => '🎯 Model SEO', 'orphans' => 'Orphan Pages', 'pagespeed' => 'PageSpeed', 'ai' => 'AI Token Usage' ], $tab, self::PAGE_REPORTS );
+        self::tabs( [ 'health' => 'SEO Health', 'models' => '🎯 Model SEO', 'rankings' => 'Keyword Rankings', 'orphans' => 'Orphan Pages', 'pagespeed' => 'PageSpeed', 'ai' => 'AI Token Usage' ], $tab, self::PAGE_REPORTS );
 
         if ( $tab === 'health' ) :
             $tracked = [ 'post', 'model', 'tmw_category_page' ];
@@ -775,6 +776,35 @@ class AdminDashboardV2 {
                     );
                 }
             }
+
+
+        elseif ( $tab === 'rankings' ) :
+            $history = RankTracker::get_history( 6, 84 );
+            ?>
+            <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;">
+                <span style="font-size:12px;color:#6b7280;">Weekly cron job checks tracked focus keywords via SERP API and stores keyword, position, date, and URL.</span>
+            </div>
+            <?php if ( empty( $history ) ) : ?>
+                <?php self::empty_state( '📈', 'No ranking history yet', 'Weekly rank tracking will populate this chart after the next cron run.' ); ?>
+            <?php else : ?>
+                <?php self::render_rank_history_chart( $history ); ?>
+                <?php
+                $rows = [];
+                foreach ( $history as $keyword => $points ) {
+                    if ( empty( $points ) ) {
+                        continue;
+                    }
+                    $last = $points[ count( $points ) - 1 ];
+                    $rows[] = [
+                        '<strong>' . esc_html( $keyword ) . '</strong>',
+                        esc_html( (string) $last['position'] ),
+                        esc_html( (string) $last['date'] ),
+                        $last['url'] !== '' ? '<a href="' . esc_url( $last['url'] ) . '" target="_blank">' . esc_html( $last['url'] ) . '</a>' : '—',
+                    ];
+                }
+                self::table( [ 'Keyword', 'Latest Position', 'Date', 'URL' ], $rows, 'Latest ranking snapshot' );
+                ?>
+            <?php endif; ?>
 
         elseif ( $tab === 'orphans' ) :
             $orphan_data = (array) get_option( OrphanPageDetector::OPTION_RESULTS, [] );
@@ -1436,6 +1466,99 @@ class AdminDashboardV2 {
     // ══════════════════════════════════════════════════════════════════════
     // CSS + JS
     // ══════════════════════════════════════════════════════════════════════
+
+
+    /**
+     * @param array<string,array<int,array{date:string,position:int,url:string}>> $history
+     */
+    private static function render_rank_history_chart( array $history ): void {
+        $all_dates = [];
+        foreach ( $history as $points ) {
+            foreach ( $points as $point ) {
+                $d = (string) ( $point['date'] ?? '' );
+                if ( $d !== '' ) {
+                    $all_dates[$d] = true;
+                }
+            }
+        }
+
+        $labels = array_keys( $all_dates );
+        sort( $labels );
+        if ( empty( $labels ) ) {
+            self::empty_state( '📉', 'No chart points yet', 'Ranking data exists but chart points are not available yet.' );
+            return;
+        }
+
+        $palette = [ '#2563eb', '#16a34a', '#dc2626', '#9333ea', '#f59e0b', '#0891b2' ];
+        $datasets = [];
+        $max_position = 1;
+
+        foreach ( $history as $keyword => $points ) {
+            $map = [];
+            foreach ( $points as $point ) {
+                $map[(string) $point['date']] = (int) $point['position'];
+                $max_position = max( $max_position, (int) $point['position'] );
+            }
+
+            $series = [];
+            foreach ( $labels as $label ) {
+                $series[] = $map[$label] ?? 0;
+            }
+
+            $datasets[] = [
+                'keyword' => (string) $keyword,
+                'series' => $series,
+            ];
+        }
+
+        $max_position = max( 10, $max_position );
+        $w = 860;
+        $h = 320;
+        $pad_l = 50;
+        $pad_r = 16;
+        $pad_t = 20;
+        $pad_b = 36;
+        $plot_w = $w - $pad_l - $pad_r;
+        $plot_h = $h - $pad_t - $pad_b;
+
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:14px;overflow:auto;">';
+        echo '<h3 style="margin:0 0 10px 0;font-size:14px;">Keyword ranking history</h3>';
+        echo '<svg width="' . esc_attr( (string) $w ) . '" height="' . esc_attr( (string) $h ) . '" role="img" aria-label="Keyword ranking history chart">';
+
+        echo '<line x1="' . $pad_l . '" y1="' . $pad_t . '" x2="' . $pad_l . '" y2="' . ( $pad_t + $plot_h ) . '" stroke="#d1d5db" />';
+        echo '<line x1="' . $pad_l . '" y1="' . ( $pad_t + $plot_h ) . '" x2="' . ( $pad_l + $plot_w ) . '" y2="' . ( $pad_t + $plot_h ) . '" stroke="#d1d5db" />';
+
+        for ( $tick = 1; $tick <= $max_position; $tick += max( 1, (int) ceil( $max_position / 6 ) ) ) {
+            $y = $pad_t + ( ( $tick - 1 ) / max( 1, $max_position - 1 ) ) * $plot_h;
+            echo '<line x1="' . $pad_l . '" y1="' . round( $y, 2 ) . '" x2="' . ( $pad_l + $plot_w ) . '" y2="' . round( $y, 2 ) . '" stroke="#f3f4f6" />';
+            echo '<text x="' . ( $pad_l - 8 ) . '" y="' . round( $y + 4, 2 ) . '" text-anchor="end" font-size="10" fill="#6b7280">' . esc_html( (string) $tick ) . '</text>';
+        }
+
+        foreach ( $datasets as $i => $dataset ) {
+            $points = [];
+            $count = count( $dataset['series'] );
+            foreach ( $dataset['series'] as $j => $pos ) {
+                if ( $pos <= 0 ) {
+                    continue;
+                }
+                $x = $pad_l + ( $count <= 1 ? 0 : ( $j / ( $count - 1 ) ) * $plot_w );
+                $y = $pad_t + ( ( $pos - 1 ) / max( 1, $max_position - 1 ) ) * $plot_h;
+                $points[] = round( $x, 2 ) . ',' . round( $y, 2 );
+            }
+
+            if ( count( $points ) >= 2 ) {
+                echo '<polyline fill="none" stroke="' . esc_attr( $palette[ $i % count( $palette ) ] ) . '" stroke-width="2" points="' . esc_attr( implode( ' ', $points ) ) . '" />';
+            }
+        }
+
+        echo '</svg>';
+        echo '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;">';
+        foreach ( $datasets as $i => $dataset ) {
+            echo '<span style="font-size:11px;color:#374151;"><span style="display:inline-block;width:10px;height:10px;border-radius:999px;background:' . esc_attr( $palette[ $i % count( $palette ) ] ) . ';margin-right:5px;"></span>' . esc_html( $dataset['keyword'] ) . '</span>';
+        }
+        echo '</div>';
+        echo '</div>';
+    }
 
     private static function css(): string { return '
 /* ── Design tokens ─────────────────────────────────────────────────── */

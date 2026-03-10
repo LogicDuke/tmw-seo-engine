@@ -67,6 +67,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-title-fixer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-openai.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-rank-tracker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
