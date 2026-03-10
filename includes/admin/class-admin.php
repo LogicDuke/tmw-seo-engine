@@ -3,6 +3,10 @@ namespace TMWSEO\Engine;
 
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TrustPolicy;
+use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\Services\OpenAI;
+use TMWSEO\Engine\Integrations\GSCApi;
+use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Admin\AdminUI;
 
 if (!defined('ABSPATH')) { exit; }
@@ -1514,6 +1518,9 @@ class Admin {
             __('Operator-triggered utilities. Every action requires explicit approval — nothing runs automatically.', 'tmwseo')
         );
 
+        // ── Helper & Data Readiness ──────────────────────────────────────────
+        self::render_readiness_section();
+
         // ── Content Scans ────────────────────────────────────────────────────
         AdminUI::section_start( __('Content Scans', 'tmwseo') );
         echo '<div class="tmwui-card-grid">';
@@ -1659,6 +1666,332 @@ class Admin {
         ');
 
         self::footer();
+    }
+
+    // ── Helper & Data Readiness ───────────────────────────────────────────
+    //
+    // Surfaces helper connection state, keyword corpus quality, and metric
+    // coverage so the operator can immediately see what is missing, why it
+    // limits suggestion quality, and the exact admin page to fix it.
+    //
+    // Thresholds (explicit documented defaults):
+    //   raw_min     = 100   fewer raw keywords = corpus too small
+    //   cand_min    = 50    fewer candidates = corpus too small or over-filtered
+    //   cluster_min = 5     fewer clusters = not enough topical structure
+    //   vol_min_pct = 50%   <50% candidates with volume = priority is volume-blind
+    //   kd_min_pct  = 50%   <50% candidates with KD = difficulty scoring unreliable
+    //   comp_ok     = 1+    at least one competitor domain required for gap analysis
+    //   comp_good   = 3+    three or more domains recommended for gap breadth
+    //
+    private static function render_readiness_section(): void {
+        global $wpdb;
+
+        // 1. Collect all signals ───────────────────────────────────────────────
+
+        $dfs_ok         = DataForSEO::is_configured();
+        $gsc_configured = GSCApi::is_configured();
+        $gsc_connected  = GSCApi::is_connected();
+        $openai_ok      = OpenAI::is_configured();
+        $anthropic_ok   = trim((string) Settings::get('tmwseo_anthropic_api_key', '')) !== '';
+        $ai_ok          = $openai_ok || $anthropic_ok;
+
+        $competitor_domains = IntelligenceStorage::get_competitor_domains();
+        $competitor_count   = count($competitor_domains);
+
+        $raw_table     = $wpdb->prefix . 'tmw_keyword_raw';
+        $cand_table    = $wpdb->prefix . 'tmw_keyword_candidates';
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+
+        $raw_count     = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$raw_table}");
+        $cand_count    = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table}");
+        $cluster_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table}");
+
+        $cand_with_vol = 0;
+        $cand_with_kd  = 0;
+        if ($cand_count > 0) {
+            $cand_with_vol = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table} WHERE volume IS NOT NULL AND volume > 0");
+            $cand_with_kd  = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table} WHERE difficulty IS NOT NULL");
+        }
+        $vol_pct = $cand_count > 0 ? (int) round($cand_with_vol / $cand_count * 100) : 0;
+        $kd_pct  = $cand_count > 0 ? (int) round($cand_with_kd  / $cand_count * 100) : 0;
+
+        // 2. Apply thresholds ─────────────────────────────────────────────────
+
+        $raw_ok     = $raw_count     >= 100;
+        $cand_ok    = $cand_count    >= 50;
+        $cluster_ok = $cluster_count >= 5;
+        $vol_ok     = $cand_count    === 0 || $vol_pct >= 50;
+        $kd_ok      = $cand_count    === 0 || $kd_pct  >= 50;
+
+        // 3. Derive quality-limit messages from actual state ──────────────────
+        // These are truthful and derived — not generic fear text.
+
+        $limits = [];
+        if (!$dfs_ok) {
+            $limits[] = __('DataForSEO is not configured — suggestions have no keyword difficulty (KD), search volume, SERP weakness, or competitor backlink data. Priority scoring is unreliable without this.', 'tmwseo');
+        }
+        if (!$gsc_connected) {
+            $limits[] = __('Google Search Console is not connected — suggestions are blind to real clicks, impressions, and CTR from your live site. Ranking probability uses placeholder data instead.', 'tmwseo');
+        }
+        if (!$ai_ok) {
+            $limits[] = __('No AI provider is configured — content briefs, intent classification, SEO copy generation, and draft enrichment are all unavailable.', 'tmwseo');
+        }
+        if ($competitor_count === 0) {
+            $limits[] = __('No competitor domains are configured — competitor gap analysis is disabled and suggestions cannot include keyword gap or domain intersection signals.', 'tmwseo');
+        }
+        if ($raw_count < 100) {
+            $limits[] = sprintf(
+                __('Keyword corpus is too small (%d raw keywords; recommended minimum: 100) — suggestions cover only a fraction of available opportunities.', 'tmwseo'),
+                $raw_count
+            );
+        }
+        if ($cand_count >= 50 && !$vol_ok) {
+            $limits[] = sprintf(
+                __('Only %d%% of keyword candidates have search volume data — run the keyword cycle to fetch missing metrics so suggestion priority reflects real traffic opportunity.', 'tmwseo'),
+                $vol_pct
+            );
+        }
+        if ($cand_count >= 50 && !$kd_ok) {
+            $limits[] = sprintf(
+                __('Only %d%% of keyword candidates have difficulty (KD) data — run the keyword cycle to fetch missing KD so content improvement difficulty is scored reliably.', 'tmwseo'),
+                $kd_pct
+            );
+        }
+
+        // 4. Row renderer (closure — status, label, why, action_html) ─────────
+        // $action_html must be pre-sanitized safe HTML.
+
+        $render_row = static function(
+            string $status,
+            string $label,
+            string $why,
+            string $action_html
+        ): void {
+            $badge_map = [
+                'ok'      => ['style' => 'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;', 'text' => '✓ Connected'],
+                'warn'    => ['style' => 'background:#fefce8;color:#78350f;border:1px solid #fde68a;', 'text' => '⚠ Warning'],
+                'partial' => ['style' => 'background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;', 'text' => '◑ Partial'],
+                'missing' => ['style' => 'background:#fef2f2;color:#991b1b;border:1px solid #fecaca;', 'text' => '✗ Missing'],
+            ];
+            $badge = $badge_map[$status] ?? $badge_map['missing'];
+            echo '<tr>';
+            echo '<td style="vertical-align:top;padding-top:10px;">';
+            echo '<span style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;' . esc_attr($badge['style']) . '">';
+            echo esc_html($badge['text']);
+            echo '</span></td>';
+            echo '<td style="vertical-align:top;"><strong>' . esc_html($label) . '</strong></td>';
+            echo '<td style="vertical-align:top;font-size:12px;color:#4b5563;">' . esc_html($why) . '</td>';
+            echo '<td style="vertical-align:top;font-size:12px;">' . $action_html . '</td>';
+            echo '</tr>';
+        };
+
+        // 5. Render section ────────────────────────────────────────────────────
+
+        AdminUI::section_start(
+            __('Helper & Data Readiness', 'tmwseo'),
+            __('Every helper below improves suggestion quality. Missing helpers do not block the plugin — they reduce how much intelligence suggestions can carry.', 'tmwseo')
+        );
+
+        echo '<div class="tmwui-table-wrap">';
+        echo '<table class="widefat striped" style="table-layout:fixed;">';
+        echo '<colgroup><col style="width:120px;"><col style="width:175px;"><col><col style="width:270px;"></colgroup>';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Helper / Data', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Why it matters for suggestion quality', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Next action', 'tmwseo') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        // DataForSEO
+        $dfs_action = $dfs_ok
+            ? esc_html__('Configured.', 'tmwseo')
+                . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">'
+                . esc_html__('View Connections', 'tmwseo') . '</a>'
+            : '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=dataforseo')) . '">'
+                . esc_html__('Add credentials in Settings → DataForSEO', 'tmwseo') . '</a>';
+        $render_row(
+            $dfs_ok ? 'ok' : 'missing',
+            'DataForSEO',
+            __('KD, search volume, SERP live data, competitor backlink authority, and domain gap analysis. Without this, suggestion priority cannot reflect real traffic or competitive difficulty.', 'tmwseo'),
+            $dfs_action
+        );
+
+        // Google Search Console
+        if ($gsc_connected) {
+            $gsc_status = 'ok';
+            $gsc_action = esc_html__('Connected and active.', 'tmwseo')
+                . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">'
+                . esc_html__('View Connections', 'tmwseo') . '</a>';
+        } elseif ($gsc_configured) {
+            $gsc_status = 'partial';
+            $gsc_action = '<a href="' . esc_url(GSCApi::get_auth_url()) . '">'
+                . esc_html__('Credentials saved — click to authorise with Google →', 'tmwseo') . '</a>';
+        } else {
+            $gsc_status = 'missing';
+            $gsc_action = '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=gsc')) . '">'
+                . esc_html__('Add OAuth2 credentials in Settings → Google SC', 'tmwseo') . '</a>';
+        }
+        $render_row(
+            $gsc_status,
+            'Google Search Console',
+            __('Real clicks, impressions, CTR, and position for your site. Without it, ranking probability uses placeholder data and suggestions cannot factor in what is already driving traffic.', 'tmwseo'),
+            $gsc_action
+        );
+
+        // AI Provider
+        if ($openai_ok) {
+            $ai_status = 'ok';
+            $ai_label  = 'OpenAI' . ($anthropic_ok ? ' + Anthropic fallback' : '');
+            $ai_action = esc_html__('Configured.', 'tmwseo')
+                . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=ai')) . '">'
+                . esc_html__('Edit in Settings → AI', 'tmwseo') . '</a>';
+        } elseif ($anthropic_ok) {
+            $ai_status = 'partial';
+            $ai_label  = 'Anthropic (OpenAI missing)';
+            $ai_action = '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=ai')) . '">'
+                . esc_html__('Add OpenAI key in Settings → AI for full coverage', 'tmwseo') . '</a>';
+        } else {
+            $ai_status = 'missing';
+            $ai_label  = 'AI Provider';
+            $ai_action = '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=ai')) . '">'
+                . esc_html__('Add API key in Settings → AI', 'tmwseo') . '</a>';
+        }
+        $render_row(
+            $ai_status,
+            $ai_label,
+            __('Content briefs, intent classification, SEO copy generation, draft enrichment, and ranking probability explanations. Without AI, brief generation and suggestion reasoning are unavailable.', 'tmwseo'),
+            $ai_action
+        );
+
+        // Competitor Domains
+        if ($competitor_count >= 3) {
+            $comp_status = 'ok';
+            $comp_why_sfx = sprintf(__('%d domain(s) tracked.', 'tmwseo'), $competitor_count);
+        } elseif ($competitor_count >= 1) {
+            $comp_status = 'warn';
+            $comp_why_sfx = sprintf(__('%d domain(s) tracked — add more for broader gap coverage (3+ recommended).', 'tmwseo'), $competitor_count);
+        } else {
+            $comp_status = 'missing';
+            $comp_why_sfx = __('No domains configured — gap analysis disabled.', 'tmwseo');
+        }
+        $render_row(
+            $comp_status,
+            'Competitor Domains',
+            __('Keyword gap detection, domain intersection, and competitor content monitoring. Required for gap-based suggestions. ', 'tmwseo') . $comp_why_sfx,
+            '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-competitor-domains')) . '">'
+                . esc_html__('Manage Competitor Domains', 'tmwseo') . '</a>'
+        );
+
+        // Keyword Corpus
+        $corpus_summary = sprintf(
+            __('%1$d raw · %2$d candidates · %3$d clusters', 'tmwseo'),
+            $raw_count, $cand_count, $cluster_count
+        );
+        if ($raw_ok && $cand_ok && $cluster_ok) {
+            $corpus_status = 'ok';
+            $corpus_why    = $corpus_summary . '. ' . __('Corpus meets minimum thresholds (100 raw / 50 candidates / 5 clusters).', 'tmwseo');
+        } elseif ($raw_count > 0) {
+            $corpus_status = 'warn';
+            $corpus_why    = $corpus_summary . '. ' . __('Below recommended minimums: 100 raw / 50 candidates / 5 clusters. Run the keyword cycle.', 'tmwseo');
+        } else {
+            $corpus_status = 'missing';
+            $corpus_why    = __('No keywords discovered yet. Without a keyword corpus, content improvement suggestions have no volume, KD, or cluster data.', 'tmwseo');
+        }
+        $render_row(
+            $corpus_status,
+            'Keyword Corpus',
+            $corpus_why,
+            '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                . esc_html__('View Keywords → Run Keyword Cycle', 'tmwseo') . '</a>'
+        );
+
+        // Search Volume Coverage
+        if ($cand_count === 0) {
+            $render_row(
+                'missing',
+                'Search Volume Coverage',
+                __('No candidates yet — volume data unavailable. Grow the keyword corpus first.', 'tmwseo'),
+                '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('View Keywords', 'tmwseo') . '</a>'
+            );
+        } else {
+            $vol_status = $vol_ok ? 'ok' : 'warn';
+            $vol_why    = sprintf(
+                __('%1$d%% of %2$d candidates have volume data. Threshold: ≥50%% recommended. Missing volume = suggestion priority cannot reflect real traffic opportunity.', 'tmwseo'),
+                $vol_pct, $cand_count
+            );
+            $vol_action = $dfs_ok
+                ? '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('Run Keyword Cycle on Keywords page', 'tmwseo') . '</a>'
+                : '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=dataforseo')) . '">'
+                    . esc_html__('Connect DataForSEO first', 'tmwseo') . '</a>';
+            $render_row($vol_status, 'Search Volume Coverage', $vol_why, $vol_action);
+        }
+
+        // KD Coverage
+        if ($cand_count === 0) {
+            $render_row(
+                'missing',
+                'KD Coverage',
+                __('No candidates yet — KD data unavailable. Grow the keyword corpus first.', 'tmwseo'),
+                '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('View Keywords', 'tmwseo') . '</a>'
+            );
+        } else {
+            $kd_status = $kd_ok ? 'ok' : 'warn';
+            $kd_why    = sprintf(
+                __('%1$d%% of %2$d candidates have KD data. Threshold: ≥50%% recommended. Missing KD = content improvement difficulty scoring is unreliable, suggestions may be mis-prioritised.', 'tmwseo'),
+                $kd_pct, $cand_count
+            );
+            $kd_action = $dfs_ok
+                ? '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('Run Keyword Cycle on Keywords page', 'tmwseo') . '</a>'
+                : '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=dataforseo')) . '">'
+                    . esc_html__('Connect DataForSEO first', 'tmwseo') . '</a>';
+            $render_row($kd_status, 'KD Coverage', $kd_why, $kd_action);
+        }
+
+        echo '</tbody></table>';
+        echo '</div>'; // .tmwui-table-wrap
+
+        // 6. Quality limits box ────────────────────────────────────────────────
+
+        if (!empty($limits)) {
+            echo '<div style="margin-top:12px;padding:14px 16px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;">';
+            echo '<p style="font-size:13px;font-weight:700;color:#78350f;margin:0 0 8px;">'
+                . esc_html__('Current suggestion quality limits:', 'tmwseo') . '</p>';
+            echo '<ul style="list-style:disc;margin:0 0 0 18px;padding:0;">';
+            foreach ($limits as $limit) {
+                echo '<li style="font-size:12px;color:#92400e;margin-bottom:4px;line-height:1.5;">' . esc_html($limit) . '</li>';
+            }
+            echo '</ul>';
+            echo '<p style="font-size:11px;color:#a16207;margin:10px 0 0;">'
+                . esc_html__('These limits are derived from actual plugin state — not generic warnings. Fix the helpers above to improve suggestion quality.', 'tmwseo')
+                . '</p>';
+            echo '</div>';
+        } else {
+            AdminUI::alert(
+                __('All helpers connected and keyword data meets minimum thresholds. Suggestion quality is at full capacity.', 'tmwseo'),
+                'info'
+            );
+        }
+
+        // 7. Quick action shortcuts ────────────────────────────────────────────
+
+        echo '<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">';
+        echo '<strong style="font-size:12px;color:#6b7280;margin-right:4px;">'
+            . esc_html__('Quick links:', 'tmwseo') . '</strong>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">'
+            . esc_html__('All Connections', 'tmwseo') . '</a>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-competitor-domains')) . '">'
+            . esc_html__('Competitor Domains', 'tmwseo') . '</a>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+            . esc_html__('Keywords &amp; Keyword Cycle', 'tmwseo') . '</a>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '">'
+            . esc_html__('View Suggestions', 'tmwseo') . '</a>';
+        echo '</div>';
+
+        AdminUI::section_end();
     }
 
     public static function render_keywords(): void {
