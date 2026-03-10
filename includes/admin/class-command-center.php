@@ -157,6 +157,11 @@ class CommandCenter {
         $ai_budget = (float) ( $ai_stats['budget_usd'] ?? 0 );
         $ai_pct    = $ai_budget > 0 ? min( 100, round( ( $ai_spend / $ai_budget ) * 100 ) ) : 0;
 
+        $dfseo_stats     = DataForSEO::get_monthly_budget_stats();
+        $dfseo_budget    = (float) ( $dfseo_stats['budget_usd'] ?? 0 );
+        $dfseo_spent     = (float) ( $dfseo_stats['spent_usd'] ?? 0 );
+        $dfseo_remaining = $dfseo_stats['remaining_usd'] ?? null;
+
         $has_anthropic  = trim( (string) Settings::get( 'tmwseo_anthropic_api_key', '' ) ) !== '';
         $schema_enabled = (bool) Settings::get( 'schema_enabled', false );
         $safe_mode      = Settings::is_safe_mode();
@@ -174,6 +179,7 @@ class CommandCenter {
             'review_states', 'aging',
             'orphan_count', 'last_orphan', 'threat_count', 'last_comp',
             'ai_spend', 'ai_budget', 'ai_pct',
+            'dfseo_budget', 'dfseo_spent', 'dfseo_remaining',
             'has_anthropic', 'schema_enabled', 'safe_mode', 'ai_primary', 'last_discovery',
             'model_stats'
         );
@@ -193,6 +199,9 @@ class CommandCenter {
         }
         if ( ! DataForSEO::is_configured() ) {
             $alerts[] = [ 'level' => 'warn', 'msg' => 'DataForSEO not configured — keyword difficulty and SERP data unavailable.', 'link' => admin_url( 'admin.php?page=tmwseo-settings&stab=dataforseo' ), 'action' => 'Configure →' ];
+        }
+        if ( (float) ( $d['dfseo_budget'] ?? 0 ) > 0 && (float) ( $d['dfseo_spent'] ?? 0 ) >= (float) ( $d['dfseo_budget'] ?? 0 ) ) {
+            $alerts[] = [ 'level' => 'danger', 'msg' => 'DataForSEO monthly budget exhausted ($' . number_format( (float) $d['dfseo_spent'], 2 ) . ' of $' . number_format( (float) $d['dfseo_budget'], 2 ) . '). Discovery is paused until next month or budget increase.', 'link' => admin_url( 'admin.php?page=tmwseo-settings&stab=dataforseo' ), 'action' => 'Adjust budget →' ];
         }
         if ( ! OpenAI::is_configured() && ! $d['has_anthropic'] ) {
             $alerts[] = [ 'level' => 'info', 'msg' => 'No AI provider configured — content briefs will use rule-based fallback only.', 'link' => admin_url( 'admin.php?page=tmwseo-settings&stab=ai' ), 'action' => 'Add AI key →' ];
@@ -648,6 +657,9 @@ class CommandCenter {
             ],
             [ 'label' => 'Primary AI provider',  'value' => ucfirst( $d['ai_primary'] ) ?: 'Not set',  'cls' => 'neutral' ],
             [ 'label' => 'AI monthly spend',     'value' => '$' . number_format( $d['ai_spend'], 2 ) . ' / $' . $d['ai_budget'], 'cls' => $d['ai_pct'] >= 90 ? 'warn' : 'ok' ],
+            [ 'label' => 'DataForSEO monthly budget', 'value' => '$' . number_format( (float) ( $d['dfseo_budget'] ?? 0 ), 2 ), 'cls' => 'neutral' ],
+            [ 'label' => 'DataForSEO spent',      'value' => '$' . number_format( (float) ( $d['dfseo_spent'] ?? 0 ), 2 ), 'cls' => ( (float) ( $d['dfseo_remaining'] ?? 0 ) <= 0 && (float) ( $d['dfseo_budget'] ?? 0 ) > 0 ) ? 'warn' : 'ok' ],
+            [ 'label' => 'DataForSEO remaining',  'value' => $d['dfseo_remaining'] !== null ? '$' . number_format( (float) $d['dfseo_remaining'], 2 ) : '∞', 'cls' => 'neutral' ],
             [ 'label' => 'Last discovery run',   'value' => $d['last_discovery'] ? substr( $d['last_discovery'], 0, 16 ) : 'Never', 'cls' => 'neutral' ],
             [ 'label' => 'Last orphan scan',     'value' => $d['last_orphan']    ? substr( $d['last_orphan'],    0, 16 ) : 'Never', 'cls' => 'neutral' ],
         ];

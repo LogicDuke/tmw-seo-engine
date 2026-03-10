@@ -816,6 +816,7 @@ class Admin {
             'tmwseo_openai_budget_usd' => max(0.0, (float)($input['tmwseo_openai_budget_usd'] ?? $existing['tmwseo_openai_budget_usd'] ?? 20.0)),
 
             // DataForSEO
+            'tmwseo_dataforseo_budget_usd' => max(0.0, (float)($input['tmwseo_dataforseo_budget_usd'] ?? $existing['tmwseo_dataforseo_budget_usd'] ?? 20.0)),
             'dataforseo_login'         => sanitize_text_field((string)($input['dataforseo_login'] ?? $existing['dataforseo_login'] ?? '')),
             'dataforseo_password'      => sanitize_text_field((string)($input['dataforseo_password'] ?? $existing['dataforseo_password'] ?? '')),
             'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? $existing['dataforseo_location_code'] ?? '2840')),
@@ -2921,6 +2922,7 @@ private static function header(string $title): void {
         $d_pass                 = esc_attr((string)($opts['dataforseo_password'] ?? ''));
         $d_loc                  = esc_attr((string)($opts['dataforseo_location_code'] ?? '2840'));
         $d_lang                 = esc_attr((string)($opts['dataforseo_language_code'] ?? 'en'));
+        $d_budget               = esc_attr((string)($opts['tmwseo_dataforseo_budget_usd'] ?? 20.0));
         $gsc_client_id          = esc_attr((string)($opts['gsc_client_id'] ?? ''));
         $gsc_client_secret      = esc_attr((string)($opts['gsc_client_secret'] ?? ''));
         $gsc_site_url           = esc_attr((string)($opts['gsc_site_url'] ?? ''));
@@ -3045,6 +3047,7 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Password', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[dataforseo_password]" value="' . $d_pass . '" class="regular-text" autocomplete="off"></td></tr>';
         echo '<tr><th>' . esc_html__('Location code', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_location_code]" value="' . $d_loc . '" class="regular-text"><p class="description">Default: <code>2840</code> (US)</p></td></tr>';
         echo '<tr><th>' . esc_html__('Language code', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_language_code]" value="' . $d_lang . '" class="regular-text"><p class="description">Default: <code>en</code></p></td></tr>';
+        echo '<tr><th>' . esc_html__('API Budget (USD / month)', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[tmwseo_dataforseo_budget_usd]" value="' . $d_budget . '" class="small-text" min="0" step="1"><p class="description">Default: <code>$20/month</code>. Set <code>0</code> for unlimited usage.</p></td></tr>';
         echo '</table>';
 
         // ── Schema ────────────────────────────────────────────────────────
