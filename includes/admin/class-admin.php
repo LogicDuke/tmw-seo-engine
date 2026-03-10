@@ -142,6 +142,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-connections',
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
+            self::MENU_SLUG . '_page_tmwseo-internal-links',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -918,6 +919,7 @@ class Admin {
         // ── Intelligence ───────────────────────────────────────────────────
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
+        add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
@@ -975,6 +977,7 @@ class Admin {
             'tmwseo-content-briefs',
             'tmwseo-keywords',
             'tmwseo-opportunities',
+            'tmwseo-internal-links',
             'tmwseo-competitor-domains',
             'tmwseo-ranking-probability',
             'tmwseo-models',
