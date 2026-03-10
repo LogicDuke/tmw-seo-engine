@@ -1,6 +1,6 @@
 <?php
 /**
- * RankingProbabilityOrchestrator — assembles all 7 real signals for a post
+ * RankingProbabilityOrchestrator — assembles all core ranking signals for a post
  * and feeds them into the RankingProbabilityEngine.
  *
  * Signals:
@@ -11,6 +11,7 @@
  *   5. internal_linking_strength— count of inbound internal links
  *   6. competitor_weakness      — from SerpWeaknessEngine (cached)
  *   7. keyword_difficulty       — from DataForSEO KD
+ *   8. page_type_fit            — keyword entity mapped to correct page type
  *
  * Bonus signals (if GSC connected):
  *   - GSC CTR and position → modulates final score
@@ -25,6 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Integrations\GSCApi;
+use TMWSEO\Engine\KeywordIntelligence\KeywordClassifier;
 use TMWSEO\Engine\Keywords\KDFilter;
 use TMWSEO\Engine\Logs;
 
@@ -76,6 +78,9 @@ class RankingProbabilityOrchestrator {
         // ── 7. Keyword difficulty ──────────────────────────────────────────
         $keyword_difficulty = self::score_keyword_difficulty( $focus_keyword, $detail );
 
+        // ── 8. Page type fit (entity → destination page type) ─────────────
+        $page_type_fit = self::score_page_type_fit( $post_id, $post_type, $focus_keyword, $detail );
+
         $inputs = [
             'intent_match'              => $intent_match,
             'topical_authority'         => $topical_authority,
@@ -84,6 +89,7 @@ class RankingProbabilityOrchestrator {
             'internal_linking_strength' => $internal_linking,
             'competitor_weakness'       => $competitor_weakness,
             'keyword_difficulty'        => $keyword_difficulty,
+            'page_type_fit'             => $page_type_fit,
         ];
 
         // ── GSC bonus modifier ─────────────────────────────────────────────
@@ -116,6 +122,8 @@ class RankingProbabilityOrchestrator {
         update_post_meta( $post_id, '_tmwseo_ranking_probability', $final_prob );
         update_post_meta( $post_id, '_tmwseo_ranking_tier', $engine->tier( $final_prob ) );
         update_post_meta( $post_id, '_tmwseo_ranking_probability_at', current_time( 'mysql' ) );
+        update_post_meta( $post_id, '_tmwseo_ranking_probability_inputs_json', wp_json_encode( $inputs ) );
+        update_post_meta( $post_id, '_tmwseo_ranking_probability_signals_json', wp_json_encode( $detail ) );
 
         set_transient( $cache_key, $output, 6 * HOUR_IN_SECONDS );
 
@@ -124,6 +132,13 @@ class RankingProbabilityOrchestrator {
             'keyword'     => $focus_keyword,
             'probability' => $final_prob,
             'tier'        => $engine->tier( $final_prob ),
+        ] );
+
+        Logs::info( 'intelligence', '[TMW-RANK-PAGE-TYPE] Page type fit evaluated', [
+            'post_id'       => $post_id,
+            'keyword'       => $focus_keyword,
+            'page_type_fit' => $page_type_fit,
+            'detail'        => $detail['page_type_fit'] ?? [],
         ] );
 
         return $output;
@@ -302,6 +317,64 @@ class RankingProbabilityOrchestrator {
         return $kd;
     }
 
+    private static function score_page_type_fit( int $post_id, string $post_type, string $keyword, array &$detail ): float {
+        $classification = KeywordClassifier::classify( $keyword );
+        $entity_type    = (string) ( $classification['entity_type'] ?? 'generic' );
+        $entity_id      = (int) ( $classification['entity_id'] ?? 0 );
+
+        $expected_page_type = 'traffic_page';
+        $page_exists        = false;
+        $correct_type       = false;
+
+        if ( $entity_type === 'model' ) {
+            $expected_page_type = 'model_post';
+            $entity_post = $entity_id > 0 ? get_post( $entity_id ) : null;
+            $page_exists  = $entity_post instanceof \WP_Post;
+            $correct_type = $page_exists && (string) $entity_post->post_type === 'model';
+        } elseif ( $entity_type === 'tag' ) {
+            $expected_page_type = 'tag_archive';
+            $term = $entity_id > 0 ? get_term( $entity_id ) : null;
+            $page_exists  = $term instanceof \WP_Term;
+            $correct_type = $page_exists && in_array( (string) $term->taxonomy, [ 'post_tag', 'models' ], true );
+        } elseif ( $entity_type === 'category' ) {
+            $expected_page_type = 'category_archive';
+            $term = $entity_id > 0 ? get_term( $entity_id ) : null;
+            $page_exists  = $term instanceof \WP_Term;
+            $correct_type = $page_exists && (string) $term->taxonomy === 'category';
+        } else {
+            $expected_page_type = 'traffic_page';
+            $traffic_types = (array) apply_filters( 'tmwseo_rpo_traffic_page_types', [ 'post', 'page', 'tmw_category_page', 'video' ] );
+            $page_exists   = $post_id > 0;
+            $correct_type  = in_array( $post_type, $traffic_types, true );
+        }
+
+        if ( $correct_type ) {
+            $normalized_fit = 1.0;
+            $score = 100.0;
+            $status = 'correct_type_exists';
+        } elseif ( $page_exists ) {
+            $normalized_fit = 0.5;
+            $score = 50.0;
+            $status = 'wrong_type_exists';
+        } else {
+            $normalized_fit = 0.0;
+            $score = 0.0;
+            $status = 'page_missing';
+        }
+
+        $detail['page_type_fit'] = [
+            'score'              => $score,
+            'fit'                => $normalized_fit,
+            'status'             => $status,
+            'entity_type'        => $entity_type,
+            'entity_id'          => $entity_id,
+            'expected_page_type' => $expected_page_type,
+            'current_post_type'  => $post_type,
+        ];
+
+        return $score;
+    }
+
     private static function get_gsc_modifier( int $post_id, array &$detail ): float {
         if ( ! GSCApi::is_connected() ) {
             $detail['gsc'] = [ 'modifier' => 0, 'source' => 'not_connected' ];
@@ -433,4 +506,3 @@ class RankingProbabilityOrchestrator {
         ] );
     }
 }
-
