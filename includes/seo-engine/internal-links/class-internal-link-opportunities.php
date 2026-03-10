@@ -14,8 +14,12 @@ class InternalLinkOpportunities {
     const TABLE_SUFFIX = 'tmwseo_internal_links';
     const OPTION_AUTO_LINK = 'tmwseo_internal_links_auto_apply';
 
-    /** @var array<int,string> */
-    private static $supported_post_types = ['post', 'page', 'model', 'video', 'blog', 'traffic_pages', 'tmw_category_page', 'tmw_video'];
+    /**
+     * Scan scope: posts, models, videos, and traffic pages.
+     *
+     * @var array<int,string>
+     */
+    private static $supported_post_types = ['post', 'model', 'video', 'tmw_video', 'tmwseo_traffic_page'];
 
     public static function init(): void {
         add_action('admin_post_tmwseo_internal_links_scan', [__CLASS__, 'handle_scan']);
@@ -338,7 +342,14 @@ class InternalLinkOpportunities {
     }
 
     private static function content_haystack(\WP_Post $post): string {
-        return trim(wp_strip_all_tags($post->post_title . ' ' . $post->post_excerpt . ' ' . $post->post_content));
+        $keywords = self::extract_target_keywords($post);
+
+        return trim(wp_strip_all_tags(implode(' ', [
+            (string) $post->post_title,
+            (string) $post->post_excerpt,
+            (string) $post->post_content,
+            implode(' ', $keywords),
+        ])));
     }
 
     /**
