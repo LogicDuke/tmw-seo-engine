@@ -101,7 +101,7 @@ class ContentSuggestionModule {
                 'estimated_traffic' => $estimated_traffic,
                 'difficulty' => $keyword_difficulty,
                 'suggested_action' => implode("\n", [
-                    'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name),
+                    'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name, (string) ($row['intent_type'] ?? 'generic')),
                     'Generate draft idea only for manual review. Do not auto-create content.',
                 ]),
                 'status' => 'new',
@@ -134,7 +134,7 @@ class ContentSuggestionModule {
                     'estimated_traffic' => $this->calculateEstimatedTraffic($search_volume),
                     'difficulty' => $keyword_difficulty,
                     'suggested_action' => implode("\n", [
-                        'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name),
+                        'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name, (string) ($row['intent_type'] ?? 'generic')),
                         'Create article targeting this keyword. Never create the article automatically.',
                     ]),
                     'status' => 'new',
@@ -554,7 +554,12 @@ class ContentSuggestionModule {
      * IMPORTANT: This never forces model_page for ambiguous content.
      * Only use model_page when signals are explicit and clear.
      */
-    private function resolve_suggestion_destination(string $keyword, string $cluster_name): string {
+    private function resolve_suggestion_destination(string $keyword, string $cluster_name, string $intent_type = 'generic'): string {
+        $intent_route = $this->route_destination_by_intent($intent_type);
+        if ($intent_route !== '') {
+            return $intent_route;
+        }
+
         $haystack = strtolower(trim($keyword . ' ' . $cluster_name));
 
         // Model-page signals: keyword/cluster explicitly targets a model profile or performer page.
@@ -575,6 +580,17 @@ class ContentSuggestionModule {
 
         // Genuinely generic informational / comparison content.
         return 'generic_post';
+    }
+
+
+    private function route_destination_by_intent(string $intent_type): string {
+        return match (strtolower(trim($intent_type))) {
+            'model_search' => 'model_page',
+            'fetish_discovery' => 'tag_landing_page',
+            'category_discovery' => 'category_page',
+            'comparison' => 'traffic_page',
+            default => '',
+        };
     }
 
     /**

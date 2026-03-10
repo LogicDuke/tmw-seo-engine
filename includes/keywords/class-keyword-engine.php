@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\KeywordIntelligence\KeywordDatabase;
+use TMWSEO\Engine\KeywordIntelligence\KeywordClassifier;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\DataForSEO;
 
@@ -260,6 +261,7 @@ class KeywordEngine {
                                 // Candidate upsert
                                 $canonical = KeywordValidator::normalize($kw);
                                 $intent = KeywordValidator::infer_intent($kw);
+                                $classification = KeywordClassifier::classify($kw);
             
                                 // skip very low volume early (still store raw)
                                 if ($vol !== null && $vol < $min_volume) continue;
@@ -268,9 +270,11 @@ class KeywordEngine {
                                 if ($existing) {
                                     // update sources
                                     $wpdb->query($wpdb->prepare(
-                                        "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), updated_at=%s WHERE id=%d",
-                                        "
-" . 'dataforseo_suggest:' . $seed,
+                                        "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), intent_type=%s, entity_type=%s, entity_id=%d, updated_at=%s WHERE id=%d",
+                                        "\n" . 'dataforseo_suggest:' . $seed,
+                                        (string) ($classification['intent_type'] ?? 'generic'),
+                                        (string) ($classification['entity_type'] ?? 'generic'),
+                                        (int) ($classification['entity_id'] ?? 0),
                                         current_time('mysql'),
                                         (int)$existing
                                     ));
@@ -280,6 +284,9 @@ class KeywordEngine {
                                         'canonical' => $canonical,
                                         'status' => 'new',
                                         'intent' => $intent,
+                                        'intent_type' => (string) ($classification['intent_type'] ?? 'generic'),
+                                        'entity_type' => (string) ($classification['entity_type'] ?? 'generic'),
+                                        'entity_id' => (int) ($classification['entity_id'] ?? 0),
                                         'volume' => $vol,
                                         'cpc' => $cpc,
                                         'difficulty' => null,
@@ -288,7 +295,7 @@ class KeywordEngine {
                                         'notes' => null,
                                         'updated_at' => current_time('mysql'),
                                     ], [
-                                        '%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s'
+                                        '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%f', '%f', '%f', '%s', '%s', '%s'
                                     ]);
             
                                     $inserted++;
@@ -438,6 +445,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                             'updated_at' => current_time('mysql'),
                         ], ['keyword' => $kw]);
 
+                        $classification = KeywordClassifier::classify($kw);
+
                         KeywordDatabase::upsert_metrics([
                             'keyword' => $kw,
                             'search_volume' => $vol,
@@ -445,6 +454,9 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                             'serp_weakness' => 0,
                             'opportunity_score' => (float) $opp,
                             'source' => 'dataforseo',
+                            'intent_type' => (string) ($classification['intent_type'] ?? 'generic'),
+                            'entity_type' => (string) ($classification['entity_type'] ?? 'generic'),
+                            'entity_id' => (int) ($classification['entity_id'] ?? 0),
                         ]);
 
                         $updated++;
@@ -476,8 +488,28 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ];
         update_option('tmw_keyword_last_discovery_report', $summary_report, false);
         Logs::info('keywords', '[TMW-KW] Discovery report', $summary_report);
+        self::log_classification_counts();
+
     }
 
+
+
+    private static function log_classification_counts(): void {
+        global $wpdb;
+
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+
+        $intent_counts = (array) $wpdb->get_results("SELECT intent_type, COUNT(*) as total FROM {$cand_table} GROUP BY intent_type", ARRAY_A);
+        $entity_counts = (array) $wpdb->get_results("SELECT entity_type, COUNT(*) as total FROM {$cand_table} GROUP BY entity_type", ARRAY_A);
+
+        Logs::info('keywords', '[TMW-KW] Intent classification counts', [
+            'counts' => $intent_counts,
+        ]);
+
+        Logs::info('keywords', '[TMW-KW] Entity classification counts', [
+            'counts' => $entity_counts,
+        ]);
+    }
 
     /**
      * @return array{ok:bool,items?:array<int,array<string,mixed>>,error?:string}
@@ -749,7 +781,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
 
         $rows = $wpdb->get_results(
-            "SELECT keyword, volume, difficulty, opportunity, intent
+            "SELECT keyword, volume, difficulty, opportunity, intent, intent_type, entity_type, entity_id
              FROM {$cand_table}
              WHERE status='approved' AND opportunity IS NOT NULL
              ORDER BY opportunity DESC
@@ -765,6 +797,14 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             $kw = (string)($r['keyword'] ?? '');
             if ($kw === '') continue;
             $key = KeywordValidator::cluster_key($kw);
+            $entity_type = (string) ($r['entity_type'] ?? 'generic');
+            $entity_id = (int) ($r['entity_id'] ?? 0);
+            $intent_type = (string) ($r['intent_type'] ?? 'generic');
+            if ($entity_type !== 'generic' && $entity_id > 0) {
+                $key = sprintf('entity:%s:%d:%s', $entity_type, $entity_id, $intent_type);
+            } else {
+                $key = sprintf('%s:intent:%s', $key, $intent_type);
+            }
 
             if (!isset($clusters[$key])) {
                 $clusters[$key] = [

@@ -24,10 +24,11 @@ class ClusterBuilder {
 
     /**
      * @param string[] $keywords
+     * @param array<string,array{intent_type?:string,entity_type?:string,entity_id?:int}> $classification_map
      * @return array<int,array{cluster:string,primary:string,keywords:string[]}>
      */
-    public function build(array $keywords): array {
-        $entries = $this->prepare_keywords($keywords);
+    public function build(array $keywords, array $classification_map = []): array {
+        $entries = $this->prepare_keywords($keywords, $classification_map);
 
         $cluster_map = [];
         $cluster_order = [];
@@ -39,6 +40,16 @@ class ClusterBuilder {
             foreach ($cluster_order as $cluster_key) {
                 $cluster_tokens = $cluster_map[$cluster_key]['tokens'];
                 $score = $this->overlap_score($entry['tokens'], $cluster_tokens);
+                if (($entry['entity_type'] ?? 'generic') !== 'generic'
+                    && ($entry['entity_type'] ?? '') === ($cluster_map[$cluster_key]['entity_type'] ?? '')
+                    && (int) ($entry['entity_id'] ?? 0) > 0
+                    && (int) ($entry['entity_id'] ?? 0) === (int) ($cluster_map[$cluster_key]['entity_id'] ?? 0)) {
+                    $score += 1.0;
+                }
+
+                if (($entry['intent_type'] ?? 'generic') === ($cluster_map[$cluster_key]['intent_type'] ?? '')) {
+                    $score += 0.35;
+                }
                 if ($score > $best_score) {
                     $best_score = $score;
                     $best_key = $cluster_key;
@@ -62,6 +73,9 @@ class ClusterBuilder {
             $cluster_map[$cluster_key] = [
                 'tokens' => $entry['tokens'],
                 'items' => [$entry],
+                'entity_type' => (string) ($entry['entity_type'] ?? 'generic'),
+                'entity_id' => (int) ($entry['entity_id'] ?? 0),
+                'intent_type' => (string) ($entry['intent_type'] ?? 'generic'),
             ];
             $cluster_order[] = $cluster_key;
         }
@@ -106,9 +120,10 @@ class ClusterBuilder {
 
     /**
      * @param string[] $keywords
-     * @return array<int,array{keyword:string,normalized:string,tokens:string[]}>
+     * @param array<string,array{intent_type?:string,entity_type?:string,entity_id?:int}> $classification_map
+     * @return array<int,array{keyword:string,normalized:string,tokens:string[],intent_type:string,entity_type:string,entity_id:int}>
      */
-    private function prepare_keywords(array $keywords): array {
+    private function prepare_keywords(array $keywords, array $classification_map = []): array {
         $unique = [];
         foreach ($keywords as $keyword) {
             $keyword = trim((string) $keyword);
@@ -127,10 +142,15 @@ class ClusterBuilder {
             $tokens = array_values(array_unique($tokens));
             sort($tokens, SORT_NATURAL | SORT_FLAG_CASE);
 
+            $classification = $classification_map[strtolower($keyword)] ?? [];
+
             $entries[] = [
                 'keyword' => $keyword,
                 'normalized' => implode(' ', $tokens),
                 'tokens' => $tokens,
+                'intent_type' => (string) ($classification['intent_type'] ?? 'generic'),
+                'entity_type' => (string) ($classification['entity_type'] ?? 'generic'),
+                'entity_id' => (int) ($classification['entity_id'] ?? 0),
             ];
         }
 

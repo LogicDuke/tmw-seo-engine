@@ -28,6 +28,9 @@ class KeywordDatabase {
             ranking_probability DECIMAL(6,4) NOT NULL DEFAULT 0,
             opportunity_score DECIMAL(10,2) NOT NULL DEFAULT 0,
             source VARCHAR(50) NOT NULL DEFAULT 'dataforseo',
+            intent_type VARCHAR(50) NOT NULL DEFAULT 'generic',
+            entity_type VARCHAR(50) NOT NULL DEFAULT 'generic',
+            entity_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             mapped_url VARCHAR(255) NULL,
             last_checked DATETIME NOT NULL,
             created_at DATETIME NOT NULL,
@@ -36,7 +39,8 @@ class KeywordDatabase {
             UNIQUE KEY keyword (keyword),
             KEY quality_filter (search_volume, difficulty, ranking_probability),
             KEY freshness (last_checked),
-            KEY score (opportunity_score)
+            KEY score (opportunity_score),
+            KEY intent_entity (intent_type, entity_type, entity_id)
         ) {$charset_collate};";
 
         dbDelta($sql);
@@ -83,7 +87,7 @@ class KeywordDatabase {
     }
 
     /**
-     * @param array{keyword:string,search_volume?:int,difficulty?:float,serp_weakness?:float,opportunity_score?:float,source?:string} $metrics
+     * @param array{keyword:string,search_volume?:int,difficulty?:float,serp_weakness?:float,opportunity_score?:float,source?:string,intent_type?:string,entity_type?:string,entity_id?:int} $metrics
      */
     public static function upsert_metrics(array $metrics): void {
         global $wpdb;
@@ -97,14 +101,17 @@ class KeywordDatabase {
         $now = current_time('mysql');
 
         $wpdb->query($wpdb->prepare(
-            "INSERT INTO {$table} (keyword, search_volume, difficulty, serp_weakness, opportunity_score, source, last_checked, created_at, updated_at)
-             VALUES (%s, %d, %f, %f, %f, %s, %s, %s, %s)
+            "INSERT INTO {$table} (keyword, search_volume, difficulty, serp_weakness, opportunity_score, source, intent_type, entity_type, entity_id, last_checked, created_at, updated_at)
+             VALUES (%s, %d, %f, %f, %f, %s, %s, %s, %d, %s, %s, %s)
              ON DUPLICATE KEY UPDATE
                 search_volume = VALUES(search_volume),
                 difficulty = VALUES(difficulty),
                 serp_weakness = VALUES(serp_weakness),
                 opportunity_score = VALUES(opportunity_score),
                 source = VALUES(source),
+                intent_type = VALUES(intent_type),
+                entity_type = VALUES(entity_type),
+                entity_id = VALUES(entity_id),
                 last_checked = VALUES(last_checked),
                 updated_at = VALUES(updated_at)",
             $keyword,
@@ -113,6 +120,9 @@ class KeywordDatabase {
             (float) ($metrics['serp_weakness'] ?? 0),
             (float) ($metrics['opportunity_score'] ?? 0),
             (string) ($metrics['source'] ?? 'dataforseo'),
+            (string) ($metrics['intent_type'] ?? 'generic'),
+            (string) ($metrics['entity_type'] ?? 'generic'),
+            (int) ($metrics['entity_id'] ?? 0),
             $now,
             $now,
             $now
@@ -129,7 +139,7 @@ class KeywordDatabase {
         $table = self::table_name();
 
         return (array) $wpdb->get_results($wpdb->prepare(
-            "SELECT keyword, search_volume, difficulty, ranking_probability, mapped_url
+            "SELECT keyword, search_volume, difficulty, ranking_probability, mapped_url, intent_type, entity_type, entity_id
              FROM {$table}
              WHERE search_volume >= %d
                AND difficulty <= %d
