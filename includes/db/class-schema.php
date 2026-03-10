@@ -194,6 +194,7 @@ class Schema {
         $keyword_trends = $wpdb->prefix . 'tmwseo_keyword_trends';
         $keyword_metrics_cache = $wpdb->prefix . 'tmwseo_keywords';
         $cluster_keyword_map = $wpdb->prefix . 'tmw_keyword_cluster_map';
+        $traffic_opportunities = $wpdb->prefix . 'tmwseo_traffic_opportunities';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -599,6 +600,24 @@ class Schema {
             KEY source (source)
         ) $charset_collate;";
 
+        $sql_traffic_opportunities = "CREATE TABLE $traffic_opportunities (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            query VARCHAR(255) NOT NULL,
+            impressions INT(11) NOT NULL DEFAULT 0,
+            clicks INT(11) NOT NULL DEFAULT 0,
+            position DECIMAL(8,2) NOT NULL DEFAULT 0,
+            page TEXT NULL,
+            cluster_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            opportunity_score DECIMAL(10,2) NOT NULL DEFAULT 0,
+            discovered_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY query (query),
+            KEY cluster_id (cluster_id),
+            KEY score (opportunity_score),
+            KEY imp_pos (impressions, position)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -638,6 +657,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_entity_keyword_map);
         dbDelta($sql_keyword_trends);
         dbDelta($sql_keyword_metrics_cache);
+        dbDelta($sql_traffic_opportunities);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────

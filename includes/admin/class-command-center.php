@@ -22,6 +22,7 @@ use TMWSEO\Engine\InternalLinks\OrphanPageDetector;
 use TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor;
 use TMWSEO\Engine\Suggestions\SuggestionEngine;
 use TMWSEO\Engine\Intelligence\IntelligenceStorage;
+use TMWSEO\Engine\Opportunities\TrafficFeedbackDiscovery;
 
 class CommandCenter {
 
@@ -51,6 +52,7 @@ class CommandCenter {
         self::render_alerts( $data );
         self::render_command_center_summary( $data );
         self::render_cluster_opportunities( $data );
+        self::render_traffic_opportunities( $data );
         self::render_kpi_row( $data );
         self::render_model_first_row( $data );
         self::render_workflow_row( $data );
@@ -180,6 +182,9 @@ class CommandCenter {
         $command_center_summary = self::get_command_center_summary();
         $cluster_opportunities  = self::get_cluster_opportunities();
 
+        TrafficFeedbackDiscovery::maybe_sync();
+        $traffic_opportunities = TrafficFeedbackDiscovery::get_opportunities( 20 );
+
         $data = compact(
             'all_rows', 'status_counts', 'type_counts', 'category_page_new', 'model_page_new', 'high_priority',
             'review_states', 'aging',
@@ -187,7 +192,7 @@ class CommandCenter {
             'ai_spend', 'ai_budget', 'ai_pct',
             'dfseo_budget', 'dfseo_spent', 'dfseo_remaining',
             'has_anthropic', 'schema_enabled', 'safe_mode', 'ai_primary', 'last_discovery',
-            'model_stats', 'command_center_summary', 'cluster_opportunities'
+            'model_stats', 'command_center_summary', 'cluster_opportunities', 'traffic_opportunities'
         );
 
         set_transient( $cache_key, $data, 2 * MINUTE_IN_SECONDS );
@@ -321,6 +326,39 @@ class CommandCenter {
             }
 
             echo '</td>';
+            echo '</tr>';
+        }
+
+        echo '</tbody></table></div>';
+        echo '</section>';
+    }
+
+
+    private static function render_traffic_opportunities( array $d ): void {
+        $rows = (array) ( $d['traffic_opportunities'] ?? [] );
+
+        echo '<section class="tmwcc-section">';
+        echo '<h2 class="tmwcc-section-title">📈 Traffic Opportunities</h2>';
+        echo '<p class="tmwcc-section-sub">Queries from Google Search Console (last 28 days) with impressions &gt; 50 and avg position &gt; 10.</p>';
+
+        if ( empty( $rows ) ) {
+            echo '<p class="tmwcc-empty">No traffic opportunities found yet.</p>';
+            echo '</section>';
+            return;
+        }
+
+        echo '<div class="tmwcc-table-wrap">';
+        echo '<table class="widefat striped tmwcc-opportunity-table">';
+        echo '<thead><tr><th>Query</th><th>Impressions</th><th>Avg Position</th><th>Suggested Page</th><th>Opportunity Score</th></tr></thead><tbody>';
+
+        foreach ( $rows as $row ) {
+            $page = trim( (string) ( $row['suggested_page'] ?? '' ) );
+            echo '<tr>';
+            echo '<td><strong>' . esc_html( (string) ( $row['query'] ?? '' ) ) . '</strong></td>';
+            echo '<td>' . esc_html( number_format_i18n( (int) ( $row['impressions'] ?? 0 ) ) ) . '</td>';
+            echo '<td>' . esc_html( number_format_i18n( (float) ( $row['avg_position'] ?? 0 ), 2 ) ) . '</td>';
+            echo '<td>' . ( $page !== '' ? '<a href="' . esc_url( $page ) . '" target="_blank" rel="noopener">' . esc_html( $page ) . '</a>' : '&mdash;' ) . '</td>';
+            echo '<td><strong>' . esc_html( number_format_i18n( (float) ( $row['opportunity_score'] ?? 0 ), 2 ) ) . '</strong></td>';
             echo '</tr>';
         }
 
