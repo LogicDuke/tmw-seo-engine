@@ -126,20 +126,47 @@ class KeywordEngine {
                             if ($cached !== false) {
                                 $res = $cached;
                             } else {
-                                $res = DataForSEO::keyword_suggestions(
+                                $suggestions_res = DataForSEO::keyword_suggestions(
                                     $seed,
                                     (int) Settings::get('keyword_suggestions_limit', 200)
                                 );
+                                $ideas_res = DataForSEO::keyword_ideas(
+                                    [$seed],
+                                    (int) Settings::get('keyword_suggestions_limit', 200)
+                                );
 
-                                if ($res['ok']) {
+                                if (!empty($suggestions_res['ok']) || !empty($ideas_res['ok'])) {
+                                    $merged_items = [];
+                                    foreach ([$suggestions_res['items'] ?? [], $ideas_res['items'] ?? []] as $source_items) {
+                                        foreach ((array) $source_items as $item) {
+                                            if (!is_array($item)) {
+                                                continue;
+                                            }
+                                            $kw = (string) ($item['keyword'] ?? '');
+                                            if ($kw === '') {
+                                                continue;
+                                            }
+                                            $merged_items[$kw] = $item;
+                                        }
+                                    }
+
+                                    $res = [
+                                        'ok' => true,
+                                        'items' => array_values($merged_items),
+                                    ];
                                     set_transient($cache_key, $res, HOUR_IN_SECONDS);
+                                } else {
+                                    $res = [
+                                        'ok' => false,
+                                        'error' => $suggestions_res['error'] ?? $ideas_res['error'] ?? 'keyword_discovery_failed',
+                                    ];
                                 }
                             }
 
                             if (!$res['ok']) {
                                 $failures++;
                                 Logs::warn('keywords', 'DataForSEO failed', ['seed' => $seed]);
-                                Logs::warn('keywords', 'DataForSEO keyword_suggestions failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
+                                Logs::warn('keywords', 'DataForSEO keyword_suggestions/keyword_ideas failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
 
                                 if ($failures >= $max_failures) {
                                     Logs::error('keywords', 'Circuit breaker triggered');
