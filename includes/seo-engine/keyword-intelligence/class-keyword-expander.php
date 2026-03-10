@@ -10,6 +10,14 @@ if (!defined('ABSPATH')) { exit; }
 class KeywordExpander {
     private const CACHE_TTL = 30 * DAY_IN_SECONDS;
     private const SECONDARY_EXPANSION_LIMIT = 50;
+    private const DATAFORSEO_SEED_ANCHORS = [
+        'webcam',
+        'webcam model',
+        'cam model',
+        'live cam show',
+        'webcam show',
+    ];
+    private const DATAFORSEO_DEFAULT_ANCHOR = 'webcam model';
 
     /**
      * @param string[] $seed_keywords
@@ -179,18 +187,23 @@ class KeywordExpander {
 
     /** @return array<int,array<string,mixed>> */
     private function keyword_suggestions(string $seed_keyword): array {
-        $cache_key = 'tmwseo_kw_suggest_' . md5($seed_keyword);
+        $request_seed = $this->normalize_seed_for_expansion($seed_keyword);
+        $cache_key = 'tmwseo_kw_suggest_' . md5($request_seed);
         $cached = get_transient($cache_key);
         if (is_array($cached)) {
             Logs::debug('keywords', '[TMW-KW-CACHE] Keyword suggestions cache hit', [
                 'seed' => $seed_keyword,
+                'request_seed' => $request_seed,
                 'count' => count($cached),
             ]);
             return $cached;
         }
 
-        Logs::debug('keywords', '[TMW-DFS] Requesting keyword suggestions', ['seed' => $seed_keyword]);
-        $response = DataForSEO::keyword_suggestions($seed_keyword, 100);
+        Logs::debug('keywords', '[TMW-DFS] Requesting keyword suggestions', [
+            'seed' => $seed_keyword,
+            'request_seed' => $request_seed,
+        ]);
+        $response = DataForSEO::keyword_suggestions($request_seed, 100);
         if (empty($response['ok'])) {
             return [];
         }
@@ -207,8 +220,12 @@ class KeywordExpander {
 
     /** @return array<int,array<string,mixed>> */
     private function related_keywords(string $seed_keyword): array {
-        Logs::debug('keywords', '[TMW-DFS] Requesting related keywords', ['seed' => $seed_keyword]);
-        $response = DataForSEO::related_keywords($seed_keyword, 1, 100);
+        $request_seed = $this->normalize_seed_for_expansion($seed_keyword);
+        Logs::debug('keywords', '[TMW-DFS] Requesting related keywords', [
+            'seed' => $seed_keyword,
+            'request_seed' => $request_seed,
+        ]);
+        $response = DataForSEO::related_keywords($request_seed, 1, 100);
         if (empty($response['ok'])) {
             return [];
         }
@@ -251,5 +268,20 @@ class KeywordExpander {
         $keyword = strtolower(trim(wp_strip_all_tags($keyword)));
         $keyword = preg_replace('/\s+/u', ' ', $keyword);
         return (string) $keyword;
+    }
+
+    private function normalize_seed_for_expansion(string $seed_keyword): string {
+        $normalized_seed = $this->normalize($seed_keyword);
+        if ($normalized_seed === '') {
+            return '';
+        }
+
+        foreach (self::DATAFORSEO_SEED_ANCHORS as $anchor) {
+            if (strpos($normalized_seed, $anchor) !== false) {
+                return $normalized_seed;
+            }
+        }
+
+        return $normalized_seed . ' ' . self::DATAFORSEO_DEFAULT_ANCHOR;
     }
 }
