@@ -24,11 +24,13 @@ class QueryExpansionGraph {
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
             related_keyword VARCHAR(255) NOT NULL,
-            relationship_type VARCHAR(40) NOT NULL,
+            source VARCHAR(40) NOT NULL,
+            relationship_type VARCHAR(40) NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY keyword (keyword),
             KEY related_keyword (related_keyword),
+            KEY source (source),
             KEY relationship_type (relationship_type),
             KEY keyword_related (keyword, related_keyword),
             KEY created_at (created_at)
@@ -37,23 +39,24 @@ class QueryExpansionGraph {
         dbDelta($sql);
     }
 
-    public static function store_relationship(string $keyword, string $related_keyword, string $relationship_type): bool {
+    public static function store_relationship(string $keyword, string $related_keyword, string $source): bool {
         global $wpdb;
 
         $keyword = KeywordValidator::normalize($keyword);
         $related_keyword = KeywordValidator::normalize($related_keyword);
-        $relationship_type = sanitize_key($relationship_type);
+        $source = sanitize_key($source);
 
-        if ($keyword === '' || $related_keyword === '' || $relationship_type === '') {
+        if ($keyword === '' || $related_keyword === '' || $source === '') {
             return false;
         }
 
         $inserted = $wpdb->insert(self::table_name(), [
             'keyword' => $keyword,
             'related_keyword' => $related_keyword,
-            'relationship_type' => $relationship_type,
+            'source' => $source,
+            'relationship_type' => $source,
             'created_at' => current_time('mysql'),
-        ], ['%s', '%s', '%s', '%s']);
+        ], ['%s', '%s', '%s', '%s', '%s']);
 
         return $inserted !== false;
     }
@@ -74,7 +77,7 @@ class QueryExpansionGraph {
         $count = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM " . self::table_name() . "
              WHERE keyword = %s
-               AND relationship_type = 'expanded'
+               AND COALESCE(source, relationship_type) = 'expanded'
                AND created_at >= %s",
             $keyword,
             $cutoff
@@ -90,7 +93,7 @@ class QueryExpansionGraph {
         $rows = (array) $wpdb->get_results(
             "SELECT keyword, related_keyword, COUNT(*) AS rel_count
              FROM " . self::table_name() . "
-             WHERE relationship_type IN ('suggestion', 'related')
+             WHERE COALESCE(source, relationship_type) IN ('suggestion', 'related', 'dataforseo_suggest', 'related_keywords')
              GROUP BY keyword, related_keyword
              HAVING COUNT(*) >= 2",
             ARRAY_A

@@ -176,71 +176,66 @@ class KeywordLibrary {
         $tags = $context['tags'] ?? [];
         $platforms = $context['platforms'] ?? [];
 
-        $score = 1;
+        $volume = max(0, (int)($context['volume'] ?? 0));
+        $serp_weakness = max(0.0, min(1.0, (float)($context['serp_weakness'] ?? 0.5)));
+        $competition = max(0.0, min(1.0, (float)($context['competition'] ?? 0.5)));
+        $competitor_presence = max(0.0, min(1.0, (float)($context['competitor_presence'] ?? 0.5)));
+
+        $intent = strtolower((string)($context['intent'] ?? ''));
+        $target_intent = strtolower((string)($context['target_intent'] ?? 'transactional'));
+        $intent_match = $intent !== '' && $target_intent !== '' && $intent === $target_intent ? 1.0 : 0.5;
+
+        $volume_score = min(1.0, $volume / 1000);
+        $competition_score = 1 - min(1.0, (($competition * 0.7) + ($competitor_presence * 0.3)));
+
+        $weighted_score =
+            ($volume_score * 40) +
+            ($serp_weakness * 25) +
+            ($intent_match * 20) +
+            ($competition_score * 15);
+
+        $relevance_boost = 0;
 
         if ($name !== '') {
-            // Boost if the keyword contains the model name (full or partial tokens).
             if (strpos($kw_l, $name) !== false) {
-                $score += 120;
-            } else {
-                $parts = preg_split('/\s+/u', $name);
-                $parts = is_array($parts) ? array_filter($parts, 'strlen') : [];
-                $hits = 0;
-                foreach ($parts as $p) {
-                    if (strlen($p) < 3) continue;
-                    if (preg_match('/\b' . preg_quote($p, '/') . '\b/i', $kw_l)) $hits++;
-                }
-                $score += min(60, $hits * 20);
-
-                // On model pages, generic terms without the model name are not useful.
-                if ($page_type === 'model') {
-                    $score -= 200;
-                }
+                $relevance_boost += 20;
+            } elseif ($page_type === 'model') {
+                $relevance_boost -= 20;
             }
         }
 
-        // Intent words.
         if (preg_match('/\b(live|webcam|cam|chat|stream|shows?)\b/i', $kw_l)) {
-            $score += 20;
+            $relevance_boost += 5;
         }
 
-        // Platform relevance.
         if (!empty($platforms) && is_array($platforms)) {
             foreach ($platforms as $p) {
                 $p = strtolower((string)$p);
-                if ($p === '') continue;
-                if (preg_match('/\b' . preg_quote($p, '/') . '\b/i', $kw_l)) {
-                    $score += 10;
+                if ($p !== '' && preg_match('/\b' . preg_quote($p, '/') . '\b/i', $kw_l)) {
+                    $relevance_boost += 2;
                 }
             }
         }
 
-        // Tag relevance.
         if (!empty($tags) && is_array($tags)) {
             $tag_hits = 0;
             foreach ($tags as $t) {
                 $t = strtolower((string)$t);
-                if ($t === '' || strlen($t) < 3) continue;
-                if (preg_match('/\b' . preg_quote($t, '/') . '\b/i', $kw_l)) {
+                if ($t !== '' && strlen($t) >= 3 && preg_match('/\b' . preg_quote($t, '/') . '\b/i', $kw_l)) {
                     $tag_hits++;
                 }
             }
-            $score += min(30, $tag_hits * 6);
+            $relevance_boost += min(6, $tag_hits * 2);
         }
 
-        // Penalize obvious off-topic queries on model pages.
-        if ($page_type === 'model') {
-            if (preg_match('/\b(best\s+cam\s+sites|webcam\s+sites|free\s+cams|202\d|sites\b)\b/i', $kw_l)) {
-                $score -= 40;
-            }
+        if ($page_type === 'model' && preg_match('/\b(best\s+cam\s+sites|webcam\s+sites|free\s+cams|202\d|sites\b)\b/i', $kw_l)) {
+            $relevance_boost -= 8;
         }
 
-        // Prefer reasonable lengths.
         $wc = count(array_filter(preg_split('/\s+/u', trim($kw)), 'strlen'));
-        if ($wc >= 4) $score += 5;
-        if ($wc >= 6) $score += 3;
+        if ($wc >= 4) $relevance_boost += 2;
+        if ($wc >= 6) $relevance_boost += 1;
 
-        if ($score < 1) $score = 0;
-        return (int)$score;
+        return (int) round(max(0, $weighted_score + $relevance_boost));
     }
 }

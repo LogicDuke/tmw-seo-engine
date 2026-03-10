@@ -19,13 +19,13 @@ class KeywordIntelligenceRunner {
      */
     public static function run(array $seeds, array $options = []): array {
         $seeds = array_values(array_unique(array_filter(array_map('trim', $seeds), static fn($s) => $s !== '')));
-        $seeds = array_slice($seeds, 0, (int)($options['max_seeds'] ?? 3));
+        $seeds = array_slice($seeds, 0, (int)($options['max_seeds'] ?? 10));
 
         if (empty($seeds)) {
             return ['ok' => false, 'error' => 'no_seeds'];
         }
 
-        $max_total = (int)($options['max_total_keywords'] ?? 400);
+        $max_total = (int)($options['max_total_keywords'] ?? 1000);
         $max_total = max(50, min(2000, $max_total));
 
         $sources = $options['sources'] ?? [];
