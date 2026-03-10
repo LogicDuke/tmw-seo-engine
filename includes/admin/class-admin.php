@@ -844,8 +844,8 @@ class Admin {
             // Misc
             'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? $existing['google_pagespeed_api_key'] ?? '')),
             'serper_api_key'           => sanitize_text_field((string)($input['serper_api_key'] ?? $existing['serper_api_key'] ?? '')),
-            'intel_max_seeds'          => max(1, (int)($input['intel_max_seeds'] ?? $existing['intel_max_seeds'] ?? 3)),
-            'intel_max_keywords'       => max(50, (int)($input['intel_max_keywords'] ?? $existing['intel_max_keywords'] ?? 400)),
+            'intel_max_seeds'          => max(1, (int)($input['intel_max_seeds'] ?? $existing['intel_max_seeds'] ?? 10)),
+            'intel_max_keywords'       => max(50, (int)($input['intel_max_keywords'] ?? $existing['intel_max_keywords'] ?? 1000)),
             'debug_mode'               => !empty($input['debug_mode']) ? 1 : 0,
 
             // Affiliates (preserved from existing)
@@ -2644,8 +2644,8 @@ private static function header(string $title): void {
         $auto_clear_noindex     = !empty($opts['auto_clear_noindex']);
         $debug_mode             = (bool)($opts['debug_mode'] ?? 0);
         $serper_api_key         = esc_attr((string)($opts['serper_api_key'] ?? ''));
-        $intel_max_seeds        = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
-        $intel_max_keywords     = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
+        $intel_max_seeds        = esc_attr((string)($opts['intel_max_seeds'] ?? 10));
+        $intel_max_keywords     = esc_attr((string)($opts['intel_max_keywords'] ?? 1000));
 
         echo '<p>' . esc_html__('Settings are grouped by subsystem. Save once at the bottom. The Connections page provides live status cards for each integration.', 'tmwseo') . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">' . esc_html__('Go to Connections →', 'tmwseo') . '</a></p>';
 
@@ -2783,7 +2783,7 @@ private static function header(string $title): void {
         echo '<h2>' . esc_html__('Intelligence', 'tmwseo') . '</h2>';
         echo '<table class="form-table">';
         echo '<tr><th>' . esc_html__('Serper API key', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[serper_api_key]" value="' . $serper_api_key . '" class="regular-text" autocomplete="off"><p class="description">' . esc_html__('Optional. Enables People Also Ask keyword expansion.', 'tmwseo') . '</p></td></tr>';
-        echo '<tr><th>' . esc_html__('Max seeds per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_seeds]" value="' . $intel_max_seeds . '" class="small-text" min="1" max="10"></td></tr>';
+        echo '<tr><th>' . esc_html__('Max seeds per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_seeds]" value="' . $intel_max_seeds . '" class="small-text" min="1" max="20"></td></tr>';
         echo '<tr><th>' . esc_html__('Max keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_keywords]" value="' . $intel_max_keywords . '" class="small-text" min="50" max="2000"></td></tr>';
         echo '</table>';
 

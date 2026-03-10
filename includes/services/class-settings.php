@@ -19,8 +19,8 @@ class Settings {
             'serper_api_key' => '',
 
             // Intelligence (Phase 1)
-            'intel_max_seeds' => 3,
-            'intel_max_keywords' => 400,
+            'intel_max_seeds' => 10,
+            'intel_max_keywords' => 1000,
 
             // OpenAI
             'openai_api_key' => '',

@@ -51,11 +51,11 @@ class IntelligenceAdmin {
             'serper' => !empty($_POST['sources']['serper']),
         ];
 
-        $max_total = (int)($_POST['max_total_keywords'] ?? Settings::get('intel_max_keywords', 400));
+        $max_total = (int)($_POST['max_total_keywords'] ?? Settings::get('intel_max_keywords', 1000));
         $recommended_limit = (int)($_POST['recommended_limit'] ?? 120);
 
         $options = [
-            'max_seeds' => (int) Settings::get('intel_max_seeds', 3),
+            'max_seeds' => (int) Settings::get('intel_max_seeds', 10),
             'max_total_keywords' => $max_total,
             'recommended_limit' => $recommended_limit,
             'dataforseo_limit' => 200,
@@ -203,7 +203,7 @@ class IntelligenceAdmin {
         echo '</td></tr>';
 
         echo '<tr><th scope="row">Max total keywords</th><td>';
-        echo '<input type="number" name="max_total_keywords" value="' . esc_attr((string) Settings::get('intel_max_keywords', 400)) . '" class="small-text" min="50" max="2000" />';
+        echo '<input type="number" name="max_total_keywords" value="' . esc_attr((string) Settings::get('intel_max_keywords', 1000)) . '" class="small-text" min="50" max="2000" />';
         echo '<p class="description">Hard cap before KD/volume enrichment (controls cost).</p>';
         echo '</td></tr>';
 

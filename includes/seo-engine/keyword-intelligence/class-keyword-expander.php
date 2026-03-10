@@ -2,10 +2,13 @@
 namespace TMWSEO\Engine\KeywordIntelligence;
 
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Keywords\QueryExpansionGraph;
 
 if (!defined('ABSPATH')) { exit; }
 
 class KeywordExpander {
+    private const CACHE_TTL = 30 * DAY_IN_SECONDS;
 
     /**
      * @param string[] $seed_keywords
@@ -56,22 +59,46 @@ class KeywordExpander {
 
     /** @return array<int,array<string,mixed>> */
     private function keyword_suggestions(string $seed_keyword): array {
+        $cache_key = 'tmwseo_kw_suggest_' . md5($seed_keyword);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            Logs::debug('keywords', '[TMW-KW-CACHE] Keyword suggestions cache hit', [
+                'seed' => $seed_keyword,
+                'count' => count($cached),
+            ]);
+            return $cached;
+        }
+
+        Logs::debug('keywords', '[TMW-DFS] Requesting keyword suggestions', ['seed' => $seed_keyword]);
         $response = DataForSEO::keyword_suggestions($seed_keyword, 100);
         if (empty($response['ok'])) {
             return [];
         }
 
-        return $this->extract_items((array) ($response['items'] ?? []));
+        $items = $this->extract_items((array) ($response['items'] ?? []));
+        set_transient($cache_key, $items, self::CACHE_TTL);
+
+        foreach ($items as $item) {
+            QueryExpansionGraph::store_relationship($seed_keyword, (string) ($item['keyword'] ?? ''), 'dataforseo_suggest');
+        }
+
+        return $items;
     }
 
     /** @return array<int,array<string,mixed>> */
     private function related_keywords(string $seed_keyword): array {
+        Logs::debug('keywords', '[TMW-DFS] Requesting related keywords', ['seed' => $seed_keyword]);
         $response = DataForSEO::related_keywords($seed_keyword, 1, 100);
         if (empty($response['ok'])) {
             return [];
         }
 
-        return $this->extract_items((array) ($response['items'] ?? []));
+        $items = $this->extract_items((array) ($response['items'] ?? []));
+        foreach ($items as $item) {
+            QueryExpansionGraph::store_relationship($seed_keyword, (string) ($item['keyword'] ?? ''), 'related_keywords');
+        }
+
+        return $items;
     }
 
     /**
