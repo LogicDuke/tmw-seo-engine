@@ -24,7 +24,7 @@ class KeywordDatabase {
             keyword VARCHAR(255) NOT NULL,
             search_volume INT(11) NOT NULL DEFAULT 0,
             difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
-            serp_score DECIMAL(6,2) NOT NULL DEFAULT 0,
+            serp_weakness DECIMAL(6,2) NOT NULL DEFAULT 0,
             ranking_probability DECIMAL(6,4) NOT NULL DEFAULT 0,
             opportunity_score DECIMAL(10,2) NOT NULL DEFAULT 0,
             source VARCHAR(50) NOT NULL DEFAULT 'dataforseo',
@@ -40,6 +40,83 @@ class KeywordDatabase {
         ) {$charset_collate};";
 
         dbDelta($sql);
+    }
+
+    /**
+     * @param string[] $keywords
+     * @return array<string,array<string,mixed>>
+     */
+    public static function get_recent_metrics_map(array $keywords, int $fresh_days = 30): array {
+        global $wpdb;
+
+        $keywords = array_values(array_unique(array_filter(array_map('strval', $keywords))));
+        if (empty($keywords)) {
+            return [];
+        }
+
+        $table = self::table_name();
+        $fresh_cutoff = gmdate('Y-m-d H:i:s', time() - (DAY_IN_SECONDS * max(1, $fresh_days)));
+        $placeholders = implode(', ', array_fill(0, count($keywords), '%s'));
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT keyword, search_volume, difficulty, serp_weakness, opportunity_score, last_checked, source
+                 FROM {$table}
+                 WHERE keyword IN ({$placeholders})
+                   AND last_checked >= %s",
+                ...array_merge($keywords, [$fresh_cutoff])
+            ),
+            ARRAY_A
+        );
+
+        $map = [];
+        foreach ((array) $rows as $row) {
+            $kw = (string) ($row['keyword'] ?? '');
+            if ($kw === '') {
+                continue;
+            }
+
+            $map[$kw] = $row;
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array{keyword:string,search_volume?:int,difficulty?:float,serp_weakness?:float,opportunity_score?:float,source?:string} $metrics
+     */
+    public static function upsert_metrics(array $metrics): void {
+        global $wpdb;
+
+        $keyword = trim((string) ($metrics['keyword'] ?? ''));
+        if ($keyword === '') {
+            return;
+        }
+
+        $table = self::table_name();
+        $now = current_time('mysql');
+
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$table} (keyword, search_volume, difficulty, serp_weakness, opportunity_score, source, last_checked, created_at, updated_at)
+             VALUES (%s, %d, %f, %f, %f, %s, %s, %s, %s)
+             ON DUPLICATE KEY UPDATE
+                search_volume = VALUES(search_volume),
+                difficulty = VALUES(difficulty),
+                serp_weakness = VALUES(serp_weakness),
+                opportunity_score = VALUES(opportunity_score),
+                source = VALUES(source),
+                last_checked = VALUES(last_checked),
+                updated_at = VALUES(updated_at)",
+            $keyword,
+            (int) ($metrics['search_volume'] ?? 0),
+            (float) ($metrics['difficulty'] ?? 0),
+            (float) ($metrics['serp_weakness'] ?? 0),
+            (float) ($metrics['opportunity_score'] ?? 0),
+            (string) ($metrics['source'] ?? 'dataforseo'),
+            $now,
+            $now,
+            $now
+        ));
     }
 
     /**

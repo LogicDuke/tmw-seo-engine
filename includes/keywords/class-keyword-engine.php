@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\KeywordIntelligence\KeywordDatabase;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\DataForSEO;
 
@@ -345,24 +346,24 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 ];
             }
 
-            $kd_res = DataForSEO::bulk_keyword_difficulty($to_score);
-            if ($kd_res['ok']) {
-                $map = $kd_res['map'] ?? [];
-                $updated = 0;
-                foreach ($to_score as $kw) {
-                    $kwn = mb_strtolower($kw, 'UTF-8');
-                    $kd = $map[$kwn] ?? null;
-                    if ($kd === null) continue;
+            $recent_metrics = KeywordDatabase::get_recent_metrics_map($to_score, 30);
+            $to_refresh = [];
+            $updated = 0;
 
-                    $vol = isset($kw_map[$kw]['volume']) ? (int)$kw_map[$kw]['volume'] : 0;
-                    $intent = isset($kw_map[$kw]['intent']) ? (string)$kw_map[$kw]['intent'] : 'mixed';
+            foreach ($to_score as $kw) {
+                $cached = $recent_metrics[$kw] ?? null;
+                if (is_array($cached)) {
+                    $kd = (float) ($cached['difficulty'] ?? 0);
+                    $vol = isset($kw_map[$kw]['volume']) && (int) $kw_map[$kw]['volume'] > 0
+                        ? (int) $kw_map[$kw]['volume']
+                        : (int) ($cached['search_volume'] ?? 0);
+                    $intent = isset($kw_map[$kw]['intent']) ? (string) $kw_map[$kw]['intent'] : 'mixed';
 
-                    // Auto reject too hard keywords early
                     $status = ($kd > $max_kd) ? 'rejected' : 'approved';
-                    $opp = KDFilter::opportunity_score((float)$kd, $vol, $intent);
+                    $opp = KDFilter::opportunity_score($kd, $vol, $intent);
 
                     $wpdb->update($cand_table, [
-                        'difficulty' => (float)$kd,
+                        'difficulty' => $kd,
                         'opportunity' => $opp,
                         'status' => $status,
                         'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : null,
@@ -370,10 +371,58 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     ], ['keyword' => $kw]);
 
                     $updated++;
+                    continue;
                 }
-                Logs::info('keywords', 'KD refreshed', ['updated' => $updated, 'scored' => count($to_score)]);
+
+                $to_refresh[] = $kw;
+            }
+
+            Logs::info('keywords', '[TMW-KW] Reused keyword metrics cache', [
+                'cached_keywords' => $updated,
+                'refresh_keywords' => count($to_refresh),
+            ]);
+
+            if (!empty($to_refresh)) {
+                $kd_res = DataForSEO::bulk_keyword_difficulty($to_refresh);
+                if ($kd_res['ok']) {
+                    $map = $kd_res['map'] ?? [];
+                    foreach ($to_refresh as $kw) {
+                        $kwn = mb_strtolower($kw, 'UTF-8');
+                        $kd = $map[$kwn] ?? null;
+                        if ($kd === null) continue;
+
+                        $vol = isset($kw_map[$kw]['volume']) ? (int)$kw_map[$kw]['volume'] : 0;
+                        $intent = isset($kw_map[$kw]['intent']) ? (string)$kw_map[$kw]['intent'] : 'mixed';
+
+                        // Auto reject too hard keywords early
+                        $status = ($kd > $max_kd) ? 'rejected' : 'approved';
+                        $opp = KDFilter::opportunity_score((float)$kd, $vol, $intent);
+
+                        $wpdb->update($cand_table, [
+                            'difficulty' => (float)$kd,
+                            'opportunity' => $opp,
+                            'status' => $status,
+                            'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : null,
+                            'updated_at' => current_time('mysql'),
+                        ], ['keyword' => $kw]);
+
+                        KeywordDatabase::upsert_metrics([
+                            'keyword' => $kw,
+                            'search_volume' => $vol,
+                            'difficulty' => (float) $kd,
+                            'serp_weakness' => 0,
+                            'opportunity_score' => (float) $opp,
+                            'source' => 'dataforseo',
+                        ]);
+
+                        $updated++;
+                    }
+                    Logs::info('keywords', '[TMW-KW] KD refreshed', ['updated' => $updated, 'scored' => count($to_score)]);
+                } else {
+                    Logs::warn('keywords', '[TMW-KW] KD refresh failed', ['error' => $kd_res['error'] ?? '']);
+                }
             } else {
-                Logs::warn('keywords', 'KD refresh failed', ['error' => $kd_res['error'] ?? '']);
+                Logs::info('keywords', '[TMW-KW] KD refresh skipped — all keywords recently checked');
             }
         }
 
