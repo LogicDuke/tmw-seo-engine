@@ -172,6 +172,7 @@ class Schema {
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
         $keyword_clusters = $wpdb->prefix . 'tmw_keyword_clusters';
+        $keyword_graph = $wpdb->prefix . 'tmwseo_keyword_graph';
         $generated_pages = $wpdb->prefix . 'tmw_generated_pages';
         $opportunities = $wpdb->prefix . 'tmw_seo_opportunities';
         $suggestions = $wpdb->prefix . 'tmw_seo_suggestions';
@@ -329,6 +330,9 @@ class Schema {
             difficulty DECIMAL(6,2) NULL,
             opportunity DECIMAL(10,4) NULL,
             serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
+            node_degree INT(11) NOT NULL DEFAULT 0,
+            graph_cluster_id VARCHAR(64) NULL,
+            graph_cluster_size INT(11) NOT NULL DEFAULT 0,
             sources LONGTEXT NULL,
             notes TEXT NULL,
             updated_at DATETIME NOT NULL,
@@ -337,7 +341,9 @@ class Schema {
             KEY canonical (canonical),
             KEY status (status),
             KEY opportunity (opportunity),
-            KEY serp_weakness (serp_weakness)
+            KEY serp_weakness (serp_weakness),
+            KEY graph_cluster (graph_cluster_id, graph_cluster_size),
+            KEY node_degree (node_degree)
         ) $charset_collate;";
 
         $sql_keyword_clusters = "CREATE TABLE $keyword_clusters (
@@ -356,6 +362,20 @@ class Schema {
             KEY status (status),
             KEY opportunity (opportunity),
             KEY page_id (page_id)
+        ) $charset_collate;";
+
+        $sql_keyword_graph = "CREATE TABLE $keyword_graph (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            related_keyword VARCHAR(255) NOT NULL,
+            relationship_type VARCHAR(40) NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword (keyword),
+            KEY related_keyword (related_keyword),
+            KEY relationship_type (relationship_type),
+            KEY keyword_related (keyword, related_keyword),
+            KEY created_at (created_at)
         ) $charset_collate;";
 
         $sql_generated_pages = "CREATE TABLE $generated_pages (
@@ -485,6 +505,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_keyword_clusters);
+        dbDelta($sql_keyword_graph);
         dbDelta($sql_generated_pages);
         dbDelta($sql_opportunities);
         dbDelta($sql_model_similarity);

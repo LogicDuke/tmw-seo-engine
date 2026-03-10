@@ -70,6 +70,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-rank-tracker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
@@ -144,6 +145,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-advisor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-cluster-importer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/compat/class-tmw-main-class.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-schema.php';

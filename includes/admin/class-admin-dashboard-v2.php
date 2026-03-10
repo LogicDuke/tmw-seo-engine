@@ -286,6 +286,7 @@ class AdminDashboardV2 {
             'pipeline'     => 'Pipeline',
             'clusters'     => 'Clusters',
             'opportunities'=> 'Opportunities',
+            'graph'        => 'Keyword Graph',
         ], $tab, self::PAGE_KEYWORDS );
 
         if ( $tab === 'pipeline' ) :
@@ -363,6 +364,35 @@ class AdminDashboardV2 {
                     $c['page_id'] ? '<a href="' . esc_url( get_edit_post_link( (int) $c['page_id'] ) ) . '">Edit</a>' : '—',
                 ], $clusters ),
                 'Top 40 clusters by opportunity score'
+            );
+
+
+        elseif ( $tab === 'graph' ) :
+            $graph_clusters = $wpdb->get_results(
+                "SELECT graph_cluster_id, COUNT(*) AS cluster_size, SUM(node_degree) AS degree_total, MAX(keyword) AS top_seed
+                 FROM {$wpdb->prefix}tmw_keyword_candidates
+                 WHERE graph_cluster_id IS NOT NULL
+                 GROUP BY graph_cluster_id
+                 ORDER BY cluster_size DESC, degree_total DESC
+                 LIMIT 25",
+                ARRAY_A
+            );
+            ?>
+            <div class="td-grid td-grid-3 mb-6">
+                <?php self::kpi_card( number_format( count( $graph_clusters ) ), 'Top Clusters', 'neutral', 'Graph-based topic clusters' ); ?>
+                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates WHERE graph_cluster_size > 0" ) ), 'Clustered Keywords', 'success', 'Keywords with graph cluster assignment' ); ?>
+                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT MAX(node_degree) FROM {$wpdb->prefix}tmw_keyword_candidates" ) ), 'Max Node Degree', 'neutral', 'Highest relationship count' ); ?>
+            </div>
+            <?php
+            self::table(
+                [ 'Cluster', 'Cluster Size', 'Top Seed Keyword', 'Total Node Degree' ],
+                array_map( fn( $g ) => [
+                    esc_html( (string) ( $g['graph_cluster_id'] ?? '' ) ),
+                    '<strong>' . esc_html( number_format( (int) ( $g['cluster_size'] ?? 0 ) ) ) . '</strong>',
+                    esc_html( (string) ( $g['top_seed'] ?? '—' ) ),
+                    esc_html( number_format( (int) ( $g['degree_total'] ?? 0 ) ) ),
+                ], $graph_clusters ),
+                'Top graph clusters by size and relationship density'
             );
 
         elseif ( $tab === 'opportunities' ) :

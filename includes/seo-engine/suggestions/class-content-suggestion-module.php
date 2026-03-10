@@ -74,6 +74,8 @@ class ContentSuggestionModule {
 
             $cluster_name = (string) ($cluster_map[$keyword] ?? 'Unclustered');
             $cluster_importance = $this->resolveClusterImportance($cluster_name, $keyword_clusters);
+            $node_degree = max(0, (int) ($row['node_degree'] ?? 0));
+            $cluster_size = max(0, (int) ($row['graph_cluster_size'] ?? 0));
             $estimated_traffic = $this->calculateEstimatedTraffic($search_volume);
 
             $suggestions[] = [
@@ -92,7 +94,9 @@ class ContentSuggestionModule {
                     $search_volume,
                     $opportunity_score,
                     $cluster_importance,
-                    $keyword_difficulty
+                    $keyword_difficulty,
+                    $node_degree,
+                    $cluster_size
                 ),
                 'estimated_traffic' => $estimated_traffic,
                 'difficulty' => $keyword_difficulty,
@@ -123,7 +127,9 @@ class ContentSuggestionModule {
                         $search_volume,
                         $keyword_difficulty,
                         $competitor_da_avg,
-                        $cluster_importance
+                        $cluster_importance,
+                        $node_degree,
+                        $cluster_size
                     ),
                     'estimated_traffic' => $this->calculateEstimatedTraffic($search_volume),
                     'difficulty' => $keyword_difficulty,
@@ -354,7 +360,9 @@ class ContentSuggestionModule {
         int $search_volume,
         float $keyword_difficulty,
         ?float $competitor_da_avg,
-        float $cluster_importance
+        float $cluster_importance,
+        int $node_degree = 0,
+        int $cluster_size = 0
     ): float {
         $opportunity_score = is_null($competitor_da_avg)
             ? 0.0
@@ -364,7 +372,9 @@ class ContentSuggestionModule {
             $search_volume,
             $opportunity_score,
             $cluster_importance,
-            $keyword_difficulty
+            $keyword_difficulty,
+            $node_degree,
+            $cluster_size
         );
     }
 
@@ -504,16 +514,23 @@ class ContentSuggestionModule {
         int $search_volume,
         float $opportunity_score,
         float $cluster_importance,
-        float $keyword_difficulty
+        float $keyword_difficulty,
+        int $node_degree = 0,
+        int $cluster_size = 0
     ): float {
         $normalized_search_volume = max(0.0, min(10.0, $search_volume / 1000.0));
         $normalized_opportunity = max(0.0, min(10.0, $opportunity_score));
         $normalized_cluster_importance = max(0.0, min(10.0, $cluster_importance / 10.0));
         $normalized_keyword_difficulty = max(0.0, min(10.0, $keyword_difficulty / 10.0));
 
-        $priority_score = ($normalized_search_volume * 0.4)
-            + ($normalized_opportunity * 0.3)
-            + ($normalized_cluster_importance * 0.2)
+        $node_degree_boost = max(0.0, min(2.0, $node_degree / 5.0));
+        $cluster_size_boost = max(0.0, min(2.0, $cluster_size / 10.0));
+
+        $priority_score = ($normalized_search_volume * 0.35)
+            + ($normalized_opportunity * 0.25)
+            + ($normalized_cluster_importance * 0.15)
+            + $node_degree_boost
+            + $cluster_size_boost
             - ($normalized_keyword_difficulty * 0.1);
 
         return max(1.0, min(10.0, round($priority_score, 1)));
