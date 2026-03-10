@@ -4,17 +4,9 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-/**
- * Intelligence Core — Phase 1 schema.
- *
- * Design guarantees:
- * - Fully additive.
- * - No destructive changes.
- * - WordPress-safe (no foreign keys).
- */
 if (!class_exists('TMW_Intelligence_DB_Migration', false)) {
 class TMW_Intelligence_DB_Migration {
-    const SCHEMA_VERSION = 1;
+    const SCHEMA_VERSION = 2;
     const OPTION_KEY     = 'tmw_intelligence_schema_version';
 
     public static function maybe_migrate() {
@@ -30,7 +22,6 @@ class TMW_Intelligence_DB_Migration {
             return;
         }
 
-        // Backward-compatible fallback.
         if (class_exists('TMWSEO\Engine\Schema') && method_exists('TMWSEO\Engine\Schema', 'reconcile_required_intelligence_tables')) {
             \TMWSEO\Engine\Schema::reconcile_required_intelligence_tables();
         }
@@ -49,7 +40,6 @@ class TMW_Intelligence_DB_Migration {
 
     private static function get_schema_sql($charset_collate) {
         global $wpdb;
-
         $prefix = $wpdb->prefix;
 
         return [
@@ -82,6 +72,60 @@ class TMW_Intelligence_DB_Migration {
                 KEY run_id (run_id),
                 KEY kd_bucket (kd_bucket),
                 KEY opportunity (opportunity)
+            ) {$charset_collate};",
+
+            "CREATE TABLE {$prefix}tmwseo_top_opportunities (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                keyword VARCHAR(255) NOT NULL,
+                search_volume INT(11) NOT NULL DEFAULT 0,
+                difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+                serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
+                cluster_id VARCHAR(64) NOT NULL DEFAULT '',
+                opportunity_score DECIMAL(10,4) NOT NULL DEFAULT 0,
+                materialized_at DATETIME NOT NULL,
+                PRIMARY KEY  (id),
+                KEY score_volume (opportunity_score, search_volume),
+                KEY cluster_id (cluster_id),
+                KEY keyword (keyword)
+            ) {$charset_collate};",
+
+            "CREATE TABLE {$prefix}tmwseo_cluster_summary (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                cluster_id VARCHAR(64) NOT NULL,
+                cluster_size INT(11) NOT NULL DEFAULT 0,
+                avg_volume DECIMAL(10,2) NOT NULL DEFAULT 0,
+                avg_difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+                materialized_at DATETIME NOT NULL,
+                PRIMARY KEY  (id),
+                UNIQUE KEY cluster_id (cluster_id),
+                KEY cluster_size (cluster_size)
+            ) {$charset_collate};",
+
+            "CREATE TABLE {$prefix}tmwseo_entity_keyword_map (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                keyword VARCHAR(255) NOT NULL,
+                entity_type VARCHAR(32) NOT NULL,
+                entity_id BIGINT(20) UNSIGNED NOT NULL,
+                materialized_at DATETIME NOT NULL,
+                PRIMARY KEY  (id),
+                UNIQUE KEY keyword_entity (keyword, entity_type, entity_id),
+                KEY entity_lookup (entity_type, entity_id),
+                KEY keyword (keyword)
+            ) {$charset_collate};",
+
+            "CREATE TABLE {$prefix}tmwseo_keyword_trends (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                keyword VARCHAR(255) NOT NULL,
+                current_position INT(11) NOT NULL DEFAULT 0,
+                previous_position INT(11) NOT NULL DEFAULT 0,
+                rank_change INT(11) NOT NULL DEFAULT 0,
+                trend_score DECIMAL(10,2) NOT NULL DEFAULT 0,
+                snapshot_week VARCHAR(12) NOT NULL,
+                materialized_at DATETIME NOT NULL,
+                PRIMARY KEY  (id),
+                UNIQUE KEY keyword_week (keyword, snapshot_week),
+                KEY trend_score (trend_score),
+                KEY rank_change (rank_change)
             ) {$charset_collate};",
         ];
     }

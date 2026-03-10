@@ -140,6 +140,10 @@ class IntelligenceAdmin {
             );
         }
 
+        if (class_exists('TMWSEO\\Engine\\Intelligence\\IntelligenceMaterializer')) {
+            IntelligenceMaterializer::materialize_all();
+        }
+
         wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&run_id=' . $run_id . '&done=1'));
         exit;
     }

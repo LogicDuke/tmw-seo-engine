@@ -23,6 +23,12 @@ class DebugPanels {
         $review_handoff_count = self::meta_count('_tmwseo_review_handoff_exported_at');
         $review_signoff_count = self::meta_count('_tmwseo_review_state');
         $seed_diagnostics = SeedRegistry::diagnostics();
+        $materialized_last_run = get_option('tmwseo_intel_materialized_last_run', []);
+        $materialized_last_run = is_array($materialized_last_run) ? $materialized_last_run : [];
+        $materialized_metrics = isset($materialized_last_run['metrics']) && is_array($materialized_last_run['metrics']) ? $materialized_last_run['metrics'] : [];
+        $materialized_rows = (int) array_sum(array_map('intval', $materialized_metrics));
+        $total_keywords = self::table_count('tmw_keyword_candidates');
+        $total_clusters = self::table_count('tmwseo_cluster_summary');
 
         $status = [
             'seed registry total seeds' => (string) ((int) ($seed_diagnostics['total_seeds'] ?? 0)),
@@ -50,6 +56,10 @@ class DebugPanels {
             'prepared human-review bundles' => (string) $review_bundle_count,
             'exported review handoffs' => (string) $review_handoff_count,
             'reviewer checklist/signoff states saved' => (string) $review_signoff_count,
+            'intelligence total keywords' => (string) $total_keywords,
+            'intelligence total clusters' => (string) $total_clusters,
+            'intelligence materialized rows' => (string) $materialized_rows,
+            'intelligence last materialization run' => (string) ($materialized_last_run['ran_at'] ?? 'never'),
         ];
 
         echo '<h2>Engine Status</h2><table class="widefat striped"><tbody>';
