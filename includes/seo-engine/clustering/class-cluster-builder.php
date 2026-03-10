@@ -48,7 +48,19 @@ class ClusterBuilder {
                 }
 
                 if (($entry['intent_type'] ?? 'generic') === ($cluster_map[$cluster_key]['intent_type'] ?? '')) {
-                    $score += 0.35;
+                    $score += 0.55;
+                }
+
+                $entry_intent = (string) ($entry['intent_type'] ?? 'generic');
+                $cluster_intent = (string) ($cluster_map[$cluster_key]['intent_type'] ?? 'generic');
+                if ($entry_intent !== $cluster_intent) {
+                    if (($entry_intent === 'interaction' && $cluster_intent === 'generic')
+                        || ($entry_intent === 'generic' && $cluster_intent === 'interaction')) {
+                        $score -= 0.15;
+                    } elseif (($entry_intent === 'model' && $cluster_intent === 'category')
+                        || ($entry_intent === 'category' && $cluster_intent === 'model')) {
+                        $score -= 0.2;
+                    }
                 }
                 if ($score > $best_score) {
                     $best_score = $score;

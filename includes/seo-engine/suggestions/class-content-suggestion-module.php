@@ -585,10 +585,11 @@ class ContentSuggestionModule {
 
     private function route_destination_by_intent(string $intent_type): string {
         return match (strtolower(trim($intent_type))) {
-            'model_search' => 'model_page',
+            'model_search', 'model' => 'model_page',
             'fetish_discovery' => 'tag_landing_page',
-            'category_discovery' => 'category_page',
+            'category_discovery', 'category' => 'category_page',
             'comparison' => 'traffic_page',
+            'interaction' => 'traffic_page',
             default => '',
         };
     }
