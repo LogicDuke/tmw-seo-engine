@@ -11,16 +11,59 @@ class DataForSEO {
 
     private const API_BASE = 'https://api.dataforseo.com';
 
+    private const FALLBACK_COST_PER_REQUEST = [
+        '/v3/dataforseo_labs/google/keyword_suggestions/live' => 0.01,
+        '/v3/dataforseo_labs/google/related_keywords/live'    => 0.01,
+        '/v3/dataforseo_labs/google/bulk_keyword_difficulty/live' => 0.02,
+        '/v3/dataforseo_labs/google/ranked_keywords/live'     => 0.02,
+    ];
+
     public static function is_configured(): bool {
         $login = trim((string)Settings::get('dataforseo_login', ''));
         $pass  = trim((string)Settings::get('dataforseo_password', ''));
         return $login !== '' && $pass !== '';
     }
 
+    public static function get_monthly_budget_stats(): array {
+        $month = gmdate('Y_m');
+        $spend_key = 'tmwseo_dataforseo_spend_' . $month;
+        $calls_key = 'tmwseo_dataforseo_calls_' . $month;
+
+        $budget = (float) Settings::get('tmwseo_dataforseo_budget_usd', 20.0);
+        $spent = (float) get_option($spend_key, 0.0);
+        $calls = (int) get_option($calls_key, 0);
+
+        return [
+            'month' => gmdate('F Y'),
+            'budget_usd' => $budget,
+            'spent_usd' => round($spent, 6),
+            'calls' => $calls,
+            'remaining_usd' => $budget > 0 ? max(0.0, round($budget - $spent, 6)) : null,
+            'over_budget' => $budget > 0 && $spent >= $budget,
+        ];
+    }
+
+    public static function is_over_budget(): bool {
+        $stats = self::get_monthly_budget_stats();
+        return (bool) ($stats['over_budget'] ?? false);
+    }
+
+
     private static function post(string $path, array $post_array): array {
         // NOTE: Safe Mode does NOT block DataForSEO calls.
         // Safe Mode is intended to prevent auto-actions (publishing/indexing), not analysis.
         if (!self::is_configured()) return ['ok' => false, 'error' => 'dataforseo_credentials_missing'];
+
+        if (self::is_over_budget()) {
+            $stats = self::get_monthly_budget_stats();
+            Logs::warn('dataforseo', 'Monthly API budget exceeded — request blocked', [
+                'path' => $path,
+                'budget_usd' => $stats['budget_usd'] ?? 0,
+                'spent_usd' => $stats['spent_usd'] ?? 0,
+                'calls' => $stats['calls'] ?? 0,
+            ]);
+            return ['ok' => false, 'error' => 'dataforseo_budget_exceeded'];
+        }
 
         $url = rtrim(self::API_BASE, '/') . '/' . ltrim($path, '/');
 
@@ -142,7 +185,48 @@ class DataForSEO {
             'response' => $json,
         ]);
 
+        self::record_request_cost($path, $json);
+
         return ['ok' => true, 'data' => $json];
+    }
+
+    private static function record_request_cost(string $path, array $json): void {
+        $month = gmdate('Y_m');
+        $spend_key = 'tmwseo_dataforseo_spend_' . $month;
+        $calls_key = 'tmwseo_dataforseo_calls_' . $month;
+
+        $cost = self::extract_response_cost($json);
+        if ($cost <= 0) {
+            $cost = self::FALLBACK_COST_PER_REQUEST[$path] ?? 0.01;
+        }
+
+        $spent = (float) get_option($spend_key, 0.0);
+        $calls = (int) get_option($calls_key, 0);
+
+        update_option($spend_key, round($spent + $cost, 6), false);
+        update_option($calls_key, $calls + 1, false);
+    }
+
+    private static function extract_response_cost(array $json): float {
+        $response_cost = isset($json['cost']) ? (float) $json['cost'] : 0.0;
+        if ($response_cost > 0) {
+            return $response_cost;
+        }
+
+        $tasks = $json['tasks'] ?? [];
+        if (is_array($tasks)) {
+            foreach ($tasks as $task) {
+                if (!is_array($task)) {
+                    continue;
+                }
+                $task_cost = isset($task['cost']) ? (float) $task['cost'] : 0.0;
+                if ($task_cost > 0) {
+                    return $task_cost;
+                }
+            }
+        }
+
+        return 0.0;
     }
 
     private static function loc_code(): int {

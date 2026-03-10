@@ -40,6 +40,7 @@ class Settings {
             'dataforseo_password' => '',
             'dataforseo_location_code' => '2840', // US by default (legacy expectation)
             'dataforseo_language_code' => 'en',
+            'tmwseo_dataforseo_budget_usd' => 20.0,
 
             // Keyword engine (adaptive defaults)
             'keyword_seeds_per_run' => 5,

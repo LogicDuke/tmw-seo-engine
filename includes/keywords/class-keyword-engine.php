@@ -30,6 +30,17 @@ class KeywordEngine {
             return;
         }
 
+        if (DataForSEO::is_over_budget()) {
+            $budget = DataForSEO::get_monthly_budget_stats();
+            Logs::warn('keywords', 'Discovery stopped: DataForSEO monthly API budget exceeded', [
+                'budget_usd' => $budget['budget_usd'] ?? 0,
+                'spent_usd' => $budget['spent_usd'] ?? 0,
+                'remaining_usd' => $budget['remaining_usd'] ?? 0,
+                'calls' => $budget['calls'] ?? 0,
+            ]);
+            return;
+        }
+
         $job_started = microtime(true);
 
         $lock_key = 'tmw_dfseo_keyword_lock';
@@ -175,6 +186,11 @@ class KeywordEngine {
                                 $failures++;
                                 Logs::warn('keywords', 'DataForSEO failed', ['seed' => $seed]);
                                 Logs::warn('keywords', 'DataForSEO keyword_suggestions/related_keywords failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
+
+                                if (($res['error'] ?? '') === 'dataforseo_budget_exceeded') {
+                                    Logs::warn('keywords', 'Discovery halted because DataForSEO API budget is exhausted', ['seed' => $seed]);
+                                    break;
+                                }
 
                                 if ($failures >= $max_failures) {
                                     Logs::error('keywords', 'Circuit breaker triggered');

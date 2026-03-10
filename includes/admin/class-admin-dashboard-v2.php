@@ -1123,6 +1123,7 @@ class AdminDashboardV2 {
                 self::text_field( 'dataforseo_password', 'Password',        $opts, 'password', '' ),
                 self::text_field( 'dataforseo_location_code', 'Location Code', $opts, 'text', 'Default: 2840 (US). See DataForSEO docs for other codes.' ),
                 self::text_field( 'dataforseo_language_code', 'Language Code', $opts, 'text', 'Default: en' ),
+                self::text_field( 'tmwseo_dataforseo_budget_usd', 'API Budget (USD / month)', $opts, 'number', 'Default: 20. Set to 0 for unlimited usage.' ),
             ] );
 
         elseif ( $stab === 'gsc' ) :
@@ -1246,6 +1247,10 @@ class AdminDashboardV2 {
             $lock_time  = get_transient( 'tmw_dfseo_keyword_lock' );
             $lock_active= $lock_time && ( time() - (int) $lock_time ) < 600;
             $failures   = (int) ( $metrics['failures'] ?? 0 );
+            $dfseo_budget = DataForSEO::get_monthly_budget_stats();
+            $dfseo_spent = (float) ( $dfseo_budget['spent_usd'] ?? 0 );
+            $dfseo_cap = (float) ( $dfseo_budget['budget_usd'] ?? 0 );
+            $dfseo_remaining = $dfseo_budget['remaining_usd'] ?? null;
             $health     = 'Healthy';
             $hcol       = 'success';
             if ( ! empty( $breaker['last_triggered'] ) )  { $health = 'Circuit Breaker Active'; $hcol = 'danger'; }
@@ -1256,6 +1261,11 @@ class AdminDashboardV2 {
                 <?php self::kpi_card( $health, 'Engine Status', $hcol, '' ); ?>
                 <?php self::kpi_card( $lock_active ? 'Yes' : 'No', 'Lock Active', $lock_active ? 'warning' : 'success', '' ); ?>
                 <?php self::kpi_card( (string) $failures, 'Failure Count', $failures > 2 ? 'danger' : 'success', '' ); ?>
+            </div>
+            <div class="td-grid td-grid-3 mb-6">
+                <?php self::kpi_card( '$' . number_format( $dfseo_cap, 2 ), 'Monthly API Budget', 'neutral', 'DataForSEO' ); ?>
+                <?php self::kpi_card( '$' . number_format( $dfseo_spent, 2 ), 'Spent', ! empty( $dfseo_budget['over_budget'] ) ? 'danger' : 'success', 'DataForSEO' ); ?>
+                <?php self::kpi_card( $dfseo_remaining !== null ? '$' . number_format( (float) $dfseo_remaining, 2 ) : '∞', 'Remaining', 'neutral', 'Current month' ); ?>
             </div>
             <div class="td-card mb-6">
                 <div class="td-card-header"><span class="td-card-icon">📊</span><h3 class="td-card-title">Engine Metrics</h3></div>
