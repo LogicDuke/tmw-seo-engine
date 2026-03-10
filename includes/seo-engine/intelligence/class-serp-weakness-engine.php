@@ -16,6 +16,17 @@ if (!defined('ABSPATH')) { exit; }
 
 class SerpWeaknessEngine {
 
+    /** @var string[] */
+    private const WEAK_DOMAINS = [
+        'reddit.com',
+        'quora.com',
+        'pinterest.com',
+        'tumblr.com',
+        'medium.com',
+        'wordpress.com',
+        'youtube.com',
+    ];
+
     /**
      * Evaluates SERP weakness for a keyword.
      * Fetches real SERP data if DataForSEO is configured.
@@ -35,9 +46,10 @@ class SerpWeaknessEngine {
         }
 
         $signals = [
-            'outdated' => 0, 'thin_content' => 0, 'low_authority' => 0,
-            'ugc_pages' => 0, 'title_weakness' => 0, 'intent_mismatch' => 0,
-            'low_depth' => 0, 'generic' => 0, 'weak_structured_content' => 0,
+            'weak_domains_found' => 0,
+            'low_authority_domains' => 0,
+            'thin_pages_detected' => 0,
+            'ugc_pages_detected' => 0,
         ];
 
         $top = array_slice($serp_results, 0, 10);
@@ -46,38 +58,51 @@ class SerpWeaknessEngine {
             // No SERP data available — return neutral score
             $result = [
                 'keyword' => $keyword,
-                'serp_weakness_score' => 5.0,
+                'serp_weakness_score' => 0.0,
                 'reason' => 'No SERP data available.',
                 'signals' => $signals,
                 'data_source' => 'none',
+                'serp_results_count' => 0,
             ];
             $this->persist($result);
             return $result;
         }
 
-        foreach ($top as $row) {
-            $title         = strtolower((string) ($row['title'] ?? ''));
-            $snippet       = strtolower((string) ($row['snippet'] ?? ''));
-            $domain_rating = (float) ($row['domain_rating'] ?? 50);
-            $age_days      = (int) ($row['age_days'] ?? 0);
+        $weak_serp = 0;
 
-            if ($age_days > 720)                                                              { $signals['outdated']++; }
-            if ((int) ($row['word_count'] ?? 0) > 0 && (int) ($row['word_count'] ?? 0) < 900){ $signals['thin_content']++; }
-            if ($domain_rating < 30)                                                          { $signals['low_authority']++; }
-            if (preg_match('#(forum|quora|reddit|stackoverflow)#i', (string)($row['url']??''))) { $signals['ugc_pages']++; }
-            if (strpos($title, strtolower($keyword)) === false)                               { $signals['title_weakness']++; }
-            if (strpos($snippet, 'definition') !== false && strpos(strtolower($keyword), 'buy') !== false) { $signals['intent_mismatch']++; }
-            if ((int) ($row['heading_count'] ?? 0) > 0 && (int) ($row['heading_count'] ?? 0) < 5) { $signals['low_depth']++; }
-            if (!preg_match('/\b(ultimate|guide|comparison|best|top|review)\b/i', $title))    { $signals['generic']++; }
-            if ((int) ($row['faq_count'] ?? 0) === 0)                                        { $signals['weak_structured_content']++; }
+        foreach ($top as $row) {
+            $url = (string) ($row['url'] ?? '');
+            $host = $this->extract_host($url);
+            $domain_rank = (float) ($row['domain_rank'] ?? $row['domain_rating'] ?? 100);
+            $word_count = (int) ($row['word_count'] ?? 0);
+
+            if ($this->is_weak_domain($host)) {
+                $weak_serp += 2;
+                $signals['weak_domains_found']++;
+            }
+
+            if ($domain_rank < 40) {
+                $weak_serp += 1;
+                $signals['low_authority_domains']++;
+            }
+
+            if ($word_count > 0 && $word_count < 800) {
+                $weak_serp += 1;
+                $signals['thin_pages_detected']++;
+            }
+
+            if (preg_match('/(forum|board|community)/i', $host)) {
+                $weak_serp += 1;
+                $signals['ugc_pages_detected']++;
+            }
         }
 
-        $score_10 = $this->calculate_score($signals, max(1, count($top)));
+        $weakness_score = round($weak_serp / max(1, count($top)), 4);
         $reason   = $this->explain($signals);
 
         $result = [
             'keyword'              => $keyword,
-            'serp_weakness_score'  => $score_10,
+            'serp_weakness_score'  => $weakness_score,
             'reason'               => $reason,
             'signals'              => $signals,
             'serp_results_count'   => count($top),
@@ -87,33 +112,43 @@ class SerpWeaknessEngine {
         $this->persist($result);
 
         Logs::info('intelligence', '[TMW-SERP] SERP weakness evaluated', [
-            'keyword'     => $keyword,
-            'score'       => $score_10,
-            'source'      => $result['data_source'],
-            'duration_ms' => round((microtime(true) - $started) * 1000, 2),
+            'keyword'             => $keyword,
+            'weak_domains_found'  => $signals['weak_domains_found'],
+            'thin_pages_detected' => $signals['thin_pages_detected'],
+            'score'               => $weakness_score,
+            'source'              => $result['data_source'],
+            'duration_ms'         => round((microtime(true) - $started) * 1000, 2),
         ]);
 
         return $result;
     }
 
-    private function calculate_score(array $signals, int $sample_size): float {
-        $weights = [
-            'outdated' => 0.14, 'thin_content' => 0.14, 'low_authority' => 0.12,
-            'ugc_pages' => 0.12, 'title_weakness' => 0.10, 'intent_mismatch' => 0.13,
-            'low_depth' => 0.10, 'generic' => 0.08, 'weak_structured_content' => 0.07,
-        ];
-        $weighted = 0.0;
-        foreach ($weights as $key => $weight) {
-            $ratio     = ((int) ($signals[$key] ?? 0)) / $sample_size;
-            $weighted += $ratio * $weight;
+    private function extract_host(string $url): string {
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        if ($host === '') {
+            $host = $url;
         }
-        return round(max(1.0, min(10.0, 1 + ($weighted * 9))), 2);
+        return strtolower(preg_replace('/^www\./i', '', $host));
+    }
+
+    private function is_weak_domain(string $host): bool {
+        foreach (self::WEAK_DOMAINS as $domain) {
+            if ($host === $domain || substr($host, -strlen('.' . $domain)) === '.' . $domain) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function explain(array $signals): string {
-        arsort($signals);
-        $top = array_slice(array_keys($signals), 0, 3);
-        return 'Top weakness signals: ' . implode(', ', array_map('strval', $top)) . '.';
+        return sprintf(
+            'Weak domains: %d; low-authority domains: %d; thin pages: %d; UGC domains: %d.',
+            (int) ($signals['weak_domains_found'] ?? 0),
+            (int) ($signals['low_authority_domains'] ?? 0),
+            (int) ($signals['thin_pages_detected'] ?? 0),
+            (int) ($signals['ugc_pages_detected'] ?? 0)
+        );
     }
 
     private function persist(array $result): void {
@@ -129,5 +164,16 @@ class SerpWeaknessEngine {
             ],
             ['%s', '%f', '%s', '%s', '%s']
         );
+
+        $keyword_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keyword_table));
+        if ($table_exists === $keyword_table) {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$keyword_table} SET serp_weakness = %f, updated_at = %s WHERE keyword = %s",
+                (float) $result['serp_weakness_score'],
+                current_time('mysql'),
+                sanitize_text_field((string) $result['keyword'])
+            ));
+        }
     }
 }

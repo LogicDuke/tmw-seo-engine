@@ -327,6 +327,7 @@ class Schema {
             cpc DECIMAL(10,2) NULL,
             difficulty DECIMAL(6,2) NULL,
             opportunity DECIMAL(10,4) NULL,
+            serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
             sources LONGTEXT NULL,
             notes TEXT NULL,
             updated_at DATETIME NOT NULL,
@@ -334,7 +335,8 @@ class Schema {
             UNIQUE KEY keyword (keyword),
             KEY canonical (canonical),
             KEY status (status),
-            KEY opportunity (opportunity)
+            KEY opportunity (opportunity),
+            KEY serp_weakness (serp_weakness)
         ) $charset_collate;";
 
         $sql_keyword_clusters = "CREATE TABLE $keyword_clusters (
