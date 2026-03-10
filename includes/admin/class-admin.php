@@ -2263,6 +2263,7 @@ class Admin {
         self::header(__('TMW SEO Engine — Import Keywords', 'tmwseo'));
 
         echo '<p>Import keywords from <strong>Google Keyword Planner</strong> or <strong>SEMrush</strong> (CSV). Imported keywords go through the adult relevancy filter and then can be KD-scored via DataForSEO.</p>';
+        echo '<p><em>Seed CSV format supports <code>keyword,type,priority</code>. Missing columns default to <code>general</code> and <code>1</code>.</em></p>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data" style="max-width:720px;">';
         wp_nonce_field('tmwseo_import_keywords');
@@ -2313,6 +2314,8 @@ class Admin {
 
         $kw_col = 0;
         $vol_col = null;
+        $type_col = null;
+        $priority_col = null;
 
         foreach ($header as $i => $col) {
             $c = strtolower(trim((string)$col));
@@ -2321,6 +2324,8 @@ class Admin {
             if (strpos($c, 'volume') !== false) $vol_col = (int)$i;
             if ($c === 'avg. monthly searches') $vol_col = (int)$i;
             if ($c === 'search volume') $vol_col = (int)$i;
+            if ($c === 'type') $type_col = (int)$i;
+            if ($c === 'priority') $priority_col = (int)$i;
         }
 
         global $wpdb;
@@ -2343,7 +2348,23 @@ class Admin {
                 continue;
             }
 
-            SeedRegistry::register_seed($kw, 'csv_import', 'import', 0);
+            $seed_type = 'general';
+            if ($type_col !== null && isset($row[$type_col])) {
+                $seed_type_candidate = sanitize_key((string) $row[$type_col]);
+                if ($seed_type_candidate !== '') {
+                    $seed_type = $seed_type_candidate;
+                }
+            }
+
+            $priority = 1;
+            if ($priority_col !== null && isset($row[$priority_col])) {
+                $priority_candidate = absint((string) $row[$priority_col]);
+                if ($priority_candidate > 0) {
+                    $priority = $priority_candidate;
+                }
+            }
+
+            SeedRegistry::register_seed($kw, 'csv_import', 'import', 0, $seed_type, $priority);
 
             $vol = null;
             if ($vol_col !== null && isset($row[$vol_col])) {

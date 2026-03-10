@@ -215,6 +215,8 @@ class Schema {
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             seed VARCHAR(255) NOT NULL,
             source VARCHAR(50) NOT NULL,
+            seed_type VARCHAR(50) NOT NULL DEFAULT 'general',
+            priority SMALLINT(5) UNSIGNED NOT NULL DEFAULT 1,
             entity_type VARCHAR(50) NOT NULL,
             entity_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
@@ -223,6 +225,7 @@ class Schema {
             PRIMARY KEY (id),
             UNIQUE KEY seed_hash (hash),
             KEY source_entity (source, entity_type, entity_id),
+            KEY priority_last_used (priority, last_used),
             KEY last_used (last_used)
         ) $charset_collate;";
 
