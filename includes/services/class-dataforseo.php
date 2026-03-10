@@ -39,7 +39,8 @@ class DataForSEO {
             'sslverify' => true,
         ];
 
-        $args['headers']['Authorization'] = 'Basic ' . base64_encode(trim($login) . ':' . trim($pass));
+        $auth_header = 'Basic ' . base64_encode(trim($login) . ':' . trim($pass));
+        $args['headers']['Authorization'] = $auth_header;
 
         DebugLogger::log_api_request([
             'service' => 'dataforseo',
@@ -59,7 +60,7 @@ class DataForSEO {
             $args['sslverify'] = true;
             $args['timeout'] = 30;
             $args['redirection'] = 0;
-            $args['headers']['Authorization'] = 'Basic ' . base64_encode($login . ':' . $pass);
+            $args['headers']['Authorization'] = $auth_header;
 
             $started_at = microtime(true);
         $resp = wp_remote_post($url, $args);
@@ -272,7 +273,7 @@ class DataForSEO {
             'include_adult_keywords' => true,
         ]];
 
-        $res = self::post('/v3/keywords_data/google/search_volume/live', $payload);
+        $res = self::post('/v3/keywords_data/google_ads/search_volume/live', $payload);
         if (!$res['ok']) return $res;
 
         $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
