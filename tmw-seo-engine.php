@@ -53,6 +53,46 @@ if (!function_exists('tmwseo_engine_run_migrations')) {
     }
 }
 
+
+if (!function_exists('tmw_seo_is_blocked_keyword')) {
+    /**
+     * Returns true when keyword matches a configured negative filter phrase.
+     */
+    function tmw_seo_is_blocked_keyword($keyword): bool {
+        $keyword = strtolower(trim((string) wp_strip_all_tags((string) $keyword)));
+        if ($keyword === '') {
+            return false;
+        }
+
+        $defaults = "video chat
+random chat
+omegle
+chatroulette
+chat room
+chatroom
+stranger chat
+talk to strangers";
+        $raw_filters = (string) \TMWSEO\Engine\Services\Settings::get('keyword_negative_filters', $defaults);
+        $filters = preg_split('/\\r\\n|\\r|\\n/', $raw_filters);
+        if (!is_array($filters)) {
+            $filters = [];
+        }
+
+        foreach ($filters as $filter) {
+            $phrase = strtolower(trim((string) $filter));
+            if ($phrase === '') {
+                continue;
+            }
+
+            if (strpos($keyword, $phrase) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
 // Core activation/deactivation.
 register_activation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'activate']);
 register_deactivation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'deactivate']);
