@@ -74,6 +74,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-content-keyword-miner.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-discovery-orchestrator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
@@ -265,6 +266,7 @@ class Plugin {
         wp_clear_scheduled_hook('tmw_keyword_refresh_monthly');
         wp_clear_scheduled_hook('tmwseo_generate_traffic_pages');
         wp_clear_scheduled_hook('tmwseo_gsc_seed_import_weekly');
+        wp_clear_scheduled_hook('tmwseo_engine_content_keyword_miner');
 
         update_option($applied_key, (string) TMWSEO_ENGINE_VERSION);
         Logs::info('core', 'Manual Control Mode applied (cron/auto hooks disabled)', [
@@ -294,6 +296,7 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordUsage::maybe_upgrade();
         // Keyword data crons (update CSV files only, no content writing)
         \TMWSEO\Engine\Keywords\KeywordScheduler::init();
+        \TMWSEO\Engine\Keywords\ContentKeywordMiner::init();
         \TMWSEO\Engine\Integrations\GSCSeedImporter::init();
         // Automated image ALT/title/caption on featured image assignment
         \TMWSEO\Engine\Media\ImageMetaHooks::init();
@@ -441,6 +444,7 @@ class Plugin {
         // ── Keyword data maintenance crons (safe in manual mode) ───────────
         // These only update keyword CSV data files, never write post content.
         \TMWSEO\Engine\Keywords\KeywordScheduler::schedule();
+        \TMWSEO\Engine\Keywords\ContentKeywordMiner::schedule();
         \TMWSEO\Engine\Integrations\GSCSeedImporter::schedule();
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::activate();
 
@@ -463,6 +467,7 @@ class Plugin {
         Cron::unschedule_events();
         SmartQueue::unschedule_daily_scan();
         \TMWSEO\Engine\Keywords\KeywordScheduler::unschedule();
+        \TMWSEO\Engine\Keywords\ContentKeywordMiner::unschedule();
         \TMWSEO\Engine\Integrations\GSCSeedImporter::unschedule();
         \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
