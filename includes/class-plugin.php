@@ -92,6 +92,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/clas
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-database.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-normalizer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php';
@@ -410,6 +411,7 @@ class Plugin {
         Schema::create_or_update_tables();
         Schema::ensure_intelligence_schema();
         Schema::normalize_cluster_schema_version_option();
+        \TMWSEO\Engine\KeywordIntelligence\KeywordDatabase::create_table();
 
         // ── Keyword usage tables (anti-cannibalization) ────────────────────
         \TMWSEO\Engine\Keywords\KeywordUsage::install();
