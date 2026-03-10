@@ -46,6 +46,7 @@ if (defined('WP_CLI') && WP_CLI) {
 require_once TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php';
 // Real Google Search Console API (replaces fake rand() data)
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-seed-importer.php';
 // Google Indexing API (pings Google on publish)
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-indexing-api.php';
 // Ranking Probability Orchestrator (assembles all 7 real signals)
@@ -263,6 +264,7 @@ class Plugin {
         wp_clear_scheduled_hook('tmwseo_keyword_scheduler_monthly');
         wp_clear_scheduled_hook('tmw_keyword_refresh_monthly');
         wp_clear_scheduled_hook('tmwseo_generate_traffic_pages');
+        wp_clear_scheduled_hook('tmwseo_gsc_seed_import_weekly');
 
         update_option($applied_key, (string) TMWSEO_ENGINE_VERSION);
         Logs::info('core', 'Manual Control Mode applied (cron/auto hooks disabled)', [
@@ -292,6 +294,7 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordUsage::maybe_upgrade();
         // Keyword data crons (update CSV files only, no content writing)
         \TMWSEO\Engine\Keywords\KeywordScheduler::init();
+        \TMWSEO\Engine\Integrations\GSCSeedImporter::init();
         // Automated image ALT/title/caption on featured image assignment
         \TMWSEO\Engine\Media\ImageMetaHooks::init();
         // Cron custom schedules for keyword scheduler
@@ -438,6 +441,7 @@ class Plugin {
         // ── Keyword data maintenance crons (safe in manual mode) ───────────
         // These only update keyword CSV data files, never write post content.
         \TMWSEO\Engine\Keywords\KeywordScheduler::schedule();
+        \TMWSEO\Engine\Integrations\GSCSeedImporter::schedule();
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::activate();
 
         // ── v4.2 crons — only schedule if NOT in manual mode ───────────────
@@ -459,6 +463,7 @@ class Plugin {
         Cron::unschedule_events();
         SmartQueue::unschedule_daily_scan();
         \TMWSEO\Engine\Keywords\KeywordScheduler::unschedule();
+        \TMWSEO\Engine\Integrations\GSCSeedImporter::unschedule();
         \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::deactivate();
