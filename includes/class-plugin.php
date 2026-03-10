@@ -102,6 +102,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/clas
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-database.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-entity-combination-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-tag-modifier-expander.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-normalizer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php';
@@ -268,6 +269,7 @@ class Plugin {
         wp_clear_scheduled_hook('tmwseo_generate_traffic_pages');
         wp_clear_scheduled_hook('tmwseo_gsc_seed_import_weekly');
         wp_clear_scheduled_hook('tmwseo_engine_content_keyword_miner');
+        wp_clear_scheduled_hook('tmwseo_tag_modifier_expander_weekly');
 
         update_option($applied_key, (string) TMWSEO_ENGINE_VERSION);
         Logs::info('core', 'Manual Control Mode applied (cron/auto hooks disabled)', [
@@ -299,6 +301,7 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordScheduler::init();
         \TMWSEO\Engine\Keywords\ContentKeywordMiner::init();
         \TMWSEO\Engine\Integrations\GSCSeedImporter::init();
+        \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::init();
         // Automated image ALT/title/caption on featured image assignment
         \TMWSEO\Engine\Media\ImageMetaHooks::init();
         // Cron custom schedules for keyword scheduler
@@ -449,6 +452,7 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordScheduler::schedule();
         \TMWSEO\Engine\Keywords\ContentKeywordMiner::schedule();
         \TMWSEO\Engine\Integrations\GSCSeedImporter::schedule();
+        \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::schedule();
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::activate();
 
         // ── v4.2 crons — only schedule if NOT in manual mode ───────────────
@@ -472,6 +476,7 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordScheduler::unschedule();
         \TMWSEO\Engine\Keywords\ContentKeywordMiner::unschedule();
         \TMWSEO\Engine\Integrations\GSCSeedImporter::unschedule();
+        \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::unschedule();
         \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::deactivate();
