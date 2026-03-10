@@ -73,6 +73,8 @@ class KeywordEngine {
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
         $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
 
+        QueryExpansionGraph::create_table();
+
         // 1) Collect seeds (adaptive, mix of base + your top categories).
         //    Mode 'import_only' skips discovery and only runs KD + clustering + pages.
         $inserted = 0;
@@ -133,56 +135,42 @@ class KeywordEngine {
                         Logs::info('keywords', 'Seeds', ['count' => count($seeds), 'seeds' => array_slice($seeds, 0, 10)]);
                         $failures = 0;
                         $max_failures = 3;
+                        $max_secondary_expansions = 200;
+                        $secondary_expansions = 0;
+                        $expanded_seeds = [];
+                        $queue = [];
 
-                        // 2) Keyword suggestions from DataForSEO
                         foreach ($seeds as $seed) {
-                            if ($inserted >= $new_limit) break;
-
-                            $cache_key = 'tmw_seed_suggestions_' . md5($seed);
-                            $cached = get_transient($cache_key);
-
-                            if ($cached !== false) {
-                                $res = $cached;
-                            } else {
-                                $suggestions_res = DataForSEO::keyword_suggestions(
-                                    $seed,
-                                    (int) Settings::get('keyword_suggestions_limit', 200)
-                                );
-                                $related_res = DataForSEO::related_keywords(
-                                    $seed,
-                                    1,
-                                    (int) Settings::get('keyword_suggestions_limit', 200)
-                                );
-
-                                if (!empty($suggestions_res['ok']) || !empty($related_res['ok'])) {
-                                    $merged_items = [];
-                                    foreach ([$suggestions_res['items'] ?? [], $related_res['items'] ?? []] as $source_items) {
-                                        foreach ((array) $source_items as $item) {
-                                            if (!is_array($item)) {
-                                                continue;
-                                            }
-                                            $kw = (string) ($item['keyword'] ?? '');
-                                            if ($kw === '') {
-                                                continue;
-                                            }
-                                            $merged_items[$kw] = $item;
-                                        }
-                                    }
-
-                                    $res = [
-                                        'ok' => true,
-                                        'items' => array_values($merged_items),
-                                    ];
-                                    set_transient($cache_key, $res, HOUR_IN_SECONDS);
-                                } else {
-                                    $res = [
-                                        'ok' => false,
-                                        'error' => $suggestions_res['error'] ?? $related_res['error'] ?? 'keyword_discovery_failed',
-                                    ];
-                                }
+                            $normalized_seed = KeywordValidator::normalize((string) $seed);
+                            if ($normalized_seed === '' || isset($expanded_seeds[$normalized_seed])) {
+                                continue;
                             }
 
-                            if (!$res['ok']) {
+                            $queue[] = [
+                                'keyword' => $normalized_seed,
+                                'depth' => 0,
+                            ];
+                            $expanded_seeds[$normalized_seed] = true;
+                        }
+
+                        for ($i = 0; $i < count($queue); $i++) {
+                            if ($inserted >= $new_limit) {
+                                break;
+                            }
+
+                            $node = $queue[$i];
+                            $seed = (string) ($node['keyword'] ?? '');
+                            $depth = (int) ($node['depth'] ?? 0);
+                            if ($seed === '') {
+                                continue;
+                            }
+
+                            if ($depth > 0 && QueryExpansionGraph::was_expanded_recently($seed, 30)) {
+                                continue;
+                            }
+
+                            $res = self::fetch_seed_relationships($seed);
+                            if (empty($res['ok'])) {
                                 $failures++;
                                 Logs::warn('keywords', 'DataForSEO failed', ['seed' => $seed]);
                                 Logs::warn('keywords', 'DataForSEO keyword_suggestions/related_keywords failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
@@ -202,100 +190,144 @@ class KeywordEngine {
                                 continue;
                             }
 
+                            QueryExpansionGraph::mark_expanded($seed);
                             $failures = 0;
 
-                        $items = $res['items'] ?? [];
-                        $discovered_total += count($items);
-                        $existing_map = [];
-                        $lookup_keywords = [];
-                        foreach ($items as $it) {
-                            $kw = is_array($it) ? (string)($it['keyword'] ?? '') : '';
-                            if ($kw !== '') {
-                                $lookup_keywords[$kw] = true;
-                            }
-                        }
+                            $items = (array) ($res['items'] ?? []);
+                            $discovered_total += count($items);
+                            $existing_map = [];
+                            $lookup_keywords = [];
+                            $relationships_created = 0;
 
-                        $lookup_keywords = array_keys($lookup_keywords);
-                        if (!empty($lookup_keywords)) {
-                            $placeholders = implode(', ', array_fill(0, count($lookup_keywords), '%s'));
-                            $existing_rows = $wpdb->get_results(
-                                $wpdb->prepare(
-                                    "SELECT id, keyword FROM {$cand_table} WHERE keyword IN ({$placeholders})",
-                                    ...$lookup_keywords
-                                ),
-                                ARRAY_A
-                            );
+                            foreach ($items as $it) {
+                                if (!is_array($it)) {
+                                    continue;
+                                }
+                                $kw = (string)($it['keyword'] ?? '');
+                                if ($kw !== '') {
+                                    $lookup_keywords[$kw] = true;
+                                }
 
-                            foreach ($existing_rows as $row) {
-                                $existing_map[(string)$row['keyword']] = (int)$row['id'];
+                                $relationship_type = (string) ($it['_tmw_relationship_type'] ?? 'suggestion');
+                                if (QueryExpansionGraph::store_relationship($seed, $kw, $relationship_type)) {
+                                    $relationships_created++;
+                                }
                             }
-                        }
 
-                        foreach ($items as $it) {
-                            if ($inserted >= $new_limit) break;
-                            $kw = is_array($it) ? (string)($it['keyword'] ?? '') : '';
-                            if ($kw === '') continue;
-            
-                            $reason = null;
-                            if (!KeywordValidator::is_relevant($kw, $reason)) {
-                                continue;
+                            $lookup_keywords = array_keys($lookup_keywords);
+                            if (!empty($lookup_keywords)) {
+                                $placeholders = implode(', ', array_fill(0, count($lookup_keywords), '%s'));
+                                $existing_rows = $wpdb->get_results(
+                                    $wpdb->prepare(
+                                        "SELECT id, keyword FROM {$cand_table} WHERE keyword IN ({$placeholders})",
+                                        ...$lookup_keywords
+                                    ),
+                                    ARRAY_A
+                                );
+
+                                foreach ($existing_rows as $row) {
+                                    $existing_map[(string)$row['keyword']] = (int)$row['id'];
+                                }
                             }
-                            $accepted_total++;
+
+                            $eligible_secondary = [];
+                            foreach ($items as $it) {
+                                if ($inserted >= $new_limit) break;
+                                $kw = is_array($it) ? (string)($it['keyword'] ?? '') : '';
+                                if ($kw === '') continue;
             
-                            $metrics = $it['keyword_info'] ?? [];
-                            $vol = isset($metrics['search_volume']) ? (int)$metrics['search_volume'] : null;
-                            $cpc = isset($metrics['cpc']) ? (float)$metrics['cpc'] : null;
-                            $comp = isset($metrics['competition']) ? (float)$metrics['competition'] : null;
+                                $reason = null;
+                                if (!KeywordValidator::is_relevant($kw, $reason)) {
+                                    continue;
+                                }
+                                $accepted_total++;
             
-                            // Raw insert (ignore duplicates)
-                            $wpdb->query($wpdb->prepare(
-                                "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
-                                 VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
-                                $kw, 'dataforseo_suggest', $seed,
-                                (int)($vol ?? 0), (float)($cpc ?? 0), (float)($comp ?? 0),
-                                wp_json_encode($it), current_time('mysql')
-                            ));
+                                $metrics = $it['keyword_info'] ?? [];
+                                $vol = isset($metrics['search_volume']) ? (int)$metrics['search_volume'] : null;
+                                $cpc = isset($metrics['cpc']) ? (float)$metrics['cpc'] : null;
+                                $comp = isset($metrics['competition']) ? (float)$metrics['competition'] : null;
+                                $difficulty = isset($metrics['keyword_difficulty']) ? (float) $metrics['keyword_difficulty'] : (float) ($it['keyword_difficulty'] ?? 0);
             
-                            // Candidate upsert
-                            $canonical = KeywordValidator::normalize($kw);
-                            $intent = KeywordValidator::infer_intent($kw);
-            
-                            // skip very low volume early (still store raw)
-                            if ($vol !== null && $vol < $min_volume) continue;
-            
-                            $existing = $existing_map[$kw] ?? null;
-                            if ($existing) {
-                                // update sources
+                                // Raw insert (ignore duplicates)
                                 $wpdb->query($wpdb->prepare(
-                                    "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), updated_at=%s WHERE id=%d",
-                                    "\n" . 'dataforseo_suggest:' . $seed,
-                                    current_time('mysql'),
-                                    (int)$existing
+                                    "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
+                                     VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
+                                    $kw, 'dataforseo_suggest', $seed,
+                                    (int)($vol ?? 0), (float)($cpc ?? 0), (float)($comp ?? 0),
+                                    wp_json_encode($it), current_time('mysql')
                                 ));
-                                continue;
-                            }
             
-                            $wpdb->insert($cand_table, [
-                                'keyword' => $kw,
-                                'canonical' => $canonical,
-                                'status' => 'new',
-                                'intent' => $intent,
-                                'volume' => $vol,
-                                'cpc' => $cpc,
-                                'difficulty' => null,
-                                'opportunity' => null,
-                                'sources' => 'dataforseo_suggest:' . $seed,
-                                'notes' => null,
-                                'updated_at' => current_time('mysql'),
-                            ], [
-                                '%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s'
-                            ]);
+                                // Candidate upsert
+                                $canonical = KeywordValidator::normalize($kw);
+                                $intent = KeywordValidator::infer_intent($kw);
             
-                            $inserted++;
-                        }
+                                // skip very low volume early (still store raw)
+                                if ($vol !== null && $vol < $min_volume) continue;
+            
+                                $existing = $existing_map[$kw] ?? null;
+                                if ($existing) {
+                                    // update sources
+                                    $wpdb->query($wpdb->prepare(
+                                        "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), updated_at=%s WHERE id=%d",
+                                        "
+" . 'dataforseo_suggest:' . $seed,
+                                        current_time('mysql'),
+                                        (int)$existing
+                                    ));
+                                } else {
+                                    $wpdb->insert($cand_table, [
+                                        'keyword' => $kw,
+                                        'canonical' => $canonical,
+                                        'status' => 'new',
+                                        'intent' => $intent,
+                                        'volume' => $vol,
+                                        'cpc' => $cpc,
+                                        'difficulty' => null,
+                                        'opportunity' => null,
+                                        'sources' => 'dataforseo_suggest:' . $seed,
+                                        'notes' => null,
+                                        'updated_at' => current_time('mysql'),
+                                    ], [
+                                        '%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s'
+                                    ]);
+            
+                                    $inserted++;
+                                }
 
-                        usleep(250000);
-                    }
+                                if ($depth < 2 && $secondary_expansions < $max_secondary_expansions && $vol !== null && $vol >= 20 && $difficulty <= 50) {
+                                    $candidate_seed = KeywordValidator::normalize($kw);
+                                    if ($candidate_seed !== '' && !isset($expanded_seeds[$candidate_seed])) {
+                                        $eligible_secondary[] = $candidate_seed;
+                                    }
+                                }
+                            }
+
+                            foreach ($eligible_secondary as $candidate_seed) {
+                                if ($secondary_expansions >= $max_secondary_expansions) {
+                                    break;
+                                }
+                                if (isset($expanded_seeds[$candidate_seed])) {
+                                    continue;
+                                }
+
+                                $expanded_seeds[$candidate_seed] = true;
+                                $queue[] = [
+                                    'keyword' => $candidate_seed,
+                                    'depth' => $depth + 1,
+                                ];
+                                $secondary_expansions++;
+                            }
+
+                            Logs::info('keywords', '[TMW-GRAPH] Query expansion node processed', [
+                                'seed' => $seed,
+                                'depth' => $depth,
+                                'nodes_created' => count($lookup_keywords),
+                                'relationships_created' => $relationships_created,
+                                'secondary_expansions' => $secondary_expansions,
+                            ]);
+
+                            usleep(250000);
+                        }
             } else {
                 Logs::info('keywords', 'Discovery skipped (import_only mode)');
             }
@@ -428,6 +460,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
 
         // 4) Build clusters (simple clustering by cluster_key)
         self::rebuild_clusters();
+        $graph_stats = QueryExpansionGraph::generate_topic_clusters();
+        Logs::info('keywords', '[TMW-GRAPH] Graph metrics persisted', $graph_stats);
 
         // 5) Suggestion-first workflow: queue suggested pages only (no auto-creation).
         self::store_suggested_pages_from_clusters($pages_per_day);
@@ -442,6 +476,59 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ];
         update_option('tmw_keyword_last_discovery_report', $summary_report, false);
         Logs::info('keywords', '[TMW-KW] Discovery report', $summary_report);
+    }
+
+
+    /**
+     * @return array{ok:bool,items?:array<int,array<string,mixed>>,error?:string}
+     */
+    private static function fetch_seed_relationships(string $seed): array {
+        $cache_key = 'tmw_seed_suggestions_' . md5($seed);
+        $cached = get_transient($cache_key);
+
+        if ($cached !== false && is_array($cached)) {
+            return $cached;
+        }
+
+        $limit = (int) Settings::get('keyword_suggestions_limit', 200);
+        $suggestions_res = DataForSEO::keyword_suggestions($seed, $limit);
+        $related_res = DataForSEO::related_keywords($seed, 1, $limit);
+
+        if (empty($suggestions_res['ok']) && empty($related_res['ok'])) {
+            return [
+                'ok' => false,
+                'error' => (string) ($suggestions_res['error'] ?? $related_res['error'] ?? 'keyword_discovery_failed'),
+            ];
+        }
+
+        $merged_items = [];
+        foreach ([
+            ['type' => 'suggestion', 'items' => (array) ($suggestions_res['items'] ?? [])],
+            ['type' => 'related', 'items' => (array) ($related_res['items'] ?? [])],
+        ] as $source) {
+            foreach ($source['items'] as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+
+                $kw = (string) ($item['keyword'] ?? '');
+                if ($kw === '') {
+                    continue;
+                }
+
+                $item['_tmw_relationship_type'] = (string) $source['type'];
+                $merged_items[KeywordValidator::normalize($kw)] = $item;
+            }
+        }
+
+        $res = [
+            'ok' => true,
+            'items' => array_values($merged_items),
+        ];
+
+        set_transient($cache_key, $res, HOUR_IN_SECONDS);
+
+        return $res;
     }
 
     private static function collect_seeds(int $limit): array {
