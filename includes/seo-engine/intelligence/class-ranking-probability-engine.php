@@ -20,15 +20,17 @@ class RankingProbabilityEngine {
         $internal_linking_strength = $this->clamp((float) ($inputs['internal_linking_strength'] ?? 0));
         $competitor_weakness = $this->clamp((float) ($inputs['competitor_weakness'] ?? 0));
         $keyword_difficulty = $this->clamp((float) ($inputs['keyword_difficulty'] ?? 0));
+        $page_type_fit = $this->clamp((float) ($inputs['page_type_fit'] ?? 0));
 
         $raw =
-            ($intent_match * 0.20) +
-            ($topical_authority * 0.20) +
-            ($cluster_coverage * 0.15) +
-            ($content_depth * 0.15) +
+            ($intent_match * 0.25) +
+            ($competitor_weakness * 0.20) +
+            ($topical_authority * 0.15) +
+            ($content_depth * 0.10) +
             ($internal_linking_strength * 0.10) +
-            ($competitor_weakness * 0.10) -
-            ($keyword_difficulty * 0.10);
+            ($page_type_fit * 0.05) +
+            ($cluster_coverage * 0.10) -
+            ($keyword_difficulty * 0.15);
 
         $score = round($this->clamp($raw), 2);
         $tier = $this->tier($score);

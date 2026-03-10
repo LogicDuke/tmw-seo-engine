@@ -489,7 +489,7 @@ class AdminDashboardV2 {
 
         elseif ( $tab === 'ranking' ) :
             ?>
-            <p class="td-help">Ranking probability is calculated per post using 7 real signals: keyword intent, topical authority, cluster coverage, content depth, internal link strength, competitor SERP weakness, and keyword difficulty.</p>
+            <p class="td-help">Ranking probability is calculated per post using 8 real signals: keyword intent, SERP weakness, keyword difficulty, cluster authority, content depth, internal linking, cluster coverage, and page type fit.</p>
             <div style="margin-bottom:16px;">
                 <?php echo CSVExporter::button( 'ranking_probability', '📥 Export Ranking Probability CSV' ); ?>
             </div>

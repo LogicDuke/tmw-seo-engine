@@ -1132,6 +1132,7 @@ class Admin {
             echo '<th>' . esc_html__('Page', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Probability Score', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Signal Bar', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Page Type Fit', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Computed', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Actions', 'tmwseo') . '</th>';
             echo '</tr></thead><tbody>';
@@ -1143,11 +1144,18 @@ class Admin {
                 $title = get_the_title($pid) ?: "Post #{$pid}";
                 $edit  = get_edit_post_link($pid);
                 $color = $prob >= 70 ? '#16a34a' : ($prob >= 40 ? '#ca8a04' : '#dc2626');
+                $signals_json = (string) get_post_meta($pid, '_tmwseo_ranking_probability_signals_json', true);
+                $signals = json_decode($signals_json, true);
+                $page_type_fit = is_array($signals) ? (float) ($signals['page_type_fit']['fit'] ?? 0) : 0.0;
+                $page_type_fit_label = is_array($signals)
+                    ? (string) ($signals['page_type_fit']['status'] ?? 'unknown')
+                    : 'not_available';
 
                 echo '<tr>';
                 echo '<td><a href="' . esc_url($edit ?: '#') . '">' . esc_html($title) . '</a></td>';
                 echo '<td><strong style="color:' . esc_attr($color) . ';font-size:16px;">' . esc_html($prob) . '%</strong></td>';
                 echo '<td><div style="background:#e5e7eb;border-radius:4px;height:8px;width:120px;overflow:hidden;"><div style="background:' . esc_attr($color) . ';height:100%;width:' . esc_attr($prob) . '%;"></div></div></td>';
+                echo '<td><strong>' . esc_html((string) (int) round($page_type_fit * 100)) . '%</strong><br><span style="color:#9ca3af;font-size:11px;">' . esc_html(str_replace('_', ' ', $page_type_fit_label)) . '</span></td>';
                 echo '<td style="color:#9ca3af;font-size:12px;">' . esc_html($date) . '</td>';
                 echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">' . esc_html__('Edit', 'tmwseo') . '</a></td>';
                 echo '</tr>';

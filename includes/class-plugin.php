@@ -49,7 +49,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-seed-importer.php';
 // Google Indexing API (pings Google on publish)
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-indexing-api.php';
-// Ranking Probability Orchestrator (assembles all 7 real signals)
+// Ranking Probability Orchestrator (assembles full ranking signal set)
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-orchestrator.php';
 // JSON-LD Schema Generator (Person, VideoObject, FAQPage)
 require_once TMWSEO_ENGINE_PATH . 'includes/schema/class-schema-generator.php';
