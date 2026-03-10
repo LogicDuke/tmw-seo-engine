@@ -21,10 +21,17 @@ class SerpWeaknessEngine {
         'reddit.com',
         'quora.com',
         'pinterest.com',
-        'tumblr.com',
+        'youtube.com',
         'medium.com',
         'wordpress.com',
-        'youtube.com',
+    ];
+
+    /** @var string[] */
+    private const WEAK_TEXT_SIGNALS = [
+        'forum',
+        'forums',
+        'board',
+        'boards',
     ];
 
     /**
@@ -76,7 +83,7 @@ class SerpWeaknessEngine {
             $domain_rank = (float) ($row['domain_rank'] ?? $row['domain_rating'] ?? 100);
             $word_count = (int) ($row['word_count'] ?? 0);
 
-            if ($this->is_weak_domain($host)) {
+            if ($this->has_weak_signal($row, $host)) {
                 $weak_serp += 2;
                 $signals['weak_domains_found']++;
             }
@@ -91,8 +98,7 @@ class SerpWeaknessEngine {
                 $signals['thin_pages_detected']++;
             }
 
-            if (preg_match('/(forum|board|community)/i', $host)) {
-                $weak_serp += 1;
+            if ($this->contains_weak_text_signal($row, $host)) {
                 $signals['ugc_pages_detected']++;
             }
         }
@@ -134,6 +140,33 @@ class SerpWeaknessEngine {
     private function is_weak_domain(string $host): bool {
         foreach (self::WEAK_DOMAINS as $domain) {
             if ($host === $domain || substr($host, -strlen('.' . $domain)) === '.' . $domain) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     */
+    private function has_weak_signal(array $row, string $host): bool {
+        return $this->is_weak_domain($host) || $this->contains_weak_text_signal($row, $host);
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     */
+    private function contains_weak_text_signal(array $row, string $host): bool {
+        $haystack = strtolower(trim(implode(' ', [
+            $host,
+            (string) ($row['url'] ?? ''),
+            (string) ($row['title'] ?? ''),
+            (string) ($row['snippet'] ?? ''),
+        ])));
+
+        foreach (self::WEAK_TEXT_SIGNALS as $signal) {
+            if (strpos($haystack, $signal) !== false) {
                 return true;
             }
         }
