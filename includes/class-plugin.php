@@ -96,6 +96,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/clas
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intent.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-classifier.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-model-discovery-trigger.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
@@ -358,6 +359,8 @@ class Plugin {
 
         // Keyword engine currently has no automatic hooks, safe to init.
         \TMWSEO\Engine\Keywords\KeywordEngine::init();
+        // Auto-discover keyword seeds when a new model is published.
+        \TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger::init();
 
         // Platform profiles + affiliate redirects.
         \TMWSEO\Engine\Platform\PlatformProfiles::init();

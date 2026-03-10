@@ -832,6 +832,7 @@ class Admin {
             'schema_enabled'    => !empty($input['schema_enabled']) ? 1 : 0,
             'schema_post_types' => sanitize_text_field((string)($input['schema_post_types'] ?? $existing['schema_post_types'] ?? 'model,video,tmw_video')),
             'orphan_scan_enabled' => !empty($input['orphan_scan_enabled']) ? 1 : 0,
+            'enable_model_auto_keyword_discovery' => !empty($input['enable_model_auto_keyword_discovery']) ? 1 : 0,
 
             // Keyword engine
             'keyword_min_volume'     => max(0, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30)),
@@ -2639,6 +2640,7 @@ private static function header(string $title): void {
         $schema_enabled         = (bool)($opts['schema_enabled'] ?? 1);
         $schema_post_types      = esc_attr((string)($opts['schema_post_types'] ?? 'model,video,tmw_video'));
         $orphan_scan_enabled    = (bool)($opts['orphan_scan_enabled'] ?? 1);
+        $model_auto_discovery   = (bool)($opts['enable_model_auto_keyword_discovery'] ?? 1);
         $safe_mode              = !empty($opts['safe_mode']);
         $dry_run_mode           = !empty($opts['tmwseo_dry_run_mode']);
         $auto_clear_noindex     = !empty($opts['auto_clear_noindex']);
@@ -2767,6 +2769,13 @@ private static function header(string $title): void {
         echo '<h2>' . esc_html__('Orphan Page Detection', 'tmwseo') . '</h2>';
         echo '<table class="form-table"><tr><th>' . esc_html__('Enable detection', 'tmwseo') . '</th><td>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[orphan_scan_enabled]" value="1" ' . checked($orphan_scan_enabled, true, false) . '> ' . esc_html__('Enable orphan page detection (AJAX scan from Tools page)', 'tmwseo') . '</label>';
+        echo '</td></tr></table>';
+
+        // ── Model Keyword Discovery ─────────────────────────────────────
+        echo '<h2>' . esc_html__('Model Keyword Discovery', 'tmwseo') . '</h2>';
+        echo '<table class="form-table"><tr><th>' . esc_html__('Automatic discovery', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[enable_model_auto_keyword_discovery]" value="1" ' . checked($model_auto_discovery, true, false) . '> ' . esc_html__('Enable automatic model keyword discovery', 'tmwseo') . '</label>';
+        echo '<p class="description">' . esc_html__('When enabled, newly published model posts automatically generate keyword seeds and trigger discovery.', 'tmwseo') . '</p>';
         echo '</td></tr></table>';
 
         // ── Keyword Engine ────────────────────────────────────────────────

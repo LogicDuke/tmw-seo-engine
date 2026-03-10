@@ -88,6 +88,9 @@ class Settings {
 
             // Orphan page detection
             'orphan_scan_enabled' => 1,
+
+            // Model keyword discovery automation
+            'enable_model_auto_keyword_discovery' => 1,
         ];
     }
 
