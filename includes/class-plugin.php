@@ -97,6 +97,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/clas
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-database.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-entity-combination-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-normalizer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php';

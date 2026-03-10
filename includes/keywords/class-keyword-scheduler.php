@@ -23,6 +23,7 @@ namespace TMWSEO\Engine\Keywords;
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\KeywordIntelligence\EntityCombinationEngine;
 
 class KeywordScheduler {
 
@@ -86,9 +87,14 @@ class KeywordScheduler {
             }
         }
 
+        $entity_report = EntityCombinationEngine::expand_weekly_seeds();
+
         \TMWSEO\Engine\Logs::debug( 'keywords', '[TMW-KW-DISCOVERY] Seed discovery run complete', [
             'categories' => count( $categories ),
             'discovered' => $discovered,
+            'entity_combinations_generated' => (int) ( $entity_report['combinations_generated'] ?? 0 ),
+            'entity_new_seeds_created' => (int) ( $entity_report['new_seeds_created'] ?? 0 ),
+            'entity_duplicates_skipped' => (int) ( $entity_report['duplicates_skipped'] ?? 0 ),
         ] );
 
         update_option( 'tmwseo_last_keyword_discovery', [

@@ -66,6 +66,21 @@ class SeedRegistry {
         return true;
     }
 
+    public static function seed_exists(string $seed): bool {
+        global $wpdb;
+
+        $normalized = self::normalize_seed($seed);
+        if ($normalized === '') {
+            return false;
+        }
+
+        $table = self::table_name();
+        $hash = md5($normalized);
+
+        $exists = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE hash=%s LIMIT 1", $hash));
+        return $exists > 0;
+    }
+
     public static function register_many(array $items, string $source, string $entity_type = 'system', int $entity_id = 0): array {
         $registered = 0;
         $deduped = 0;
