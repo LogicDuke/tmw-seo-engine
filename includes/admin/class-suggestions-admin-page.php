@@ -71,7 +71,10 @@ class SuggestionsAdminPage {
         add_action('admin_post_tmwseo_export_suggestion_review_handoff', [$ui, 'handle_export_suggestion_review_handoff']);
         add_action('admin_post_tmwseo_add_competitor_domain', [$ui, 'handle_add_competitor_domain']);
         add_action('admin_post_tmwseo_generate_brief_from_suggestion', [$ui, 'handle_generate_brief_from_suggestion']);
+        add_action('admin_post_tmwseo_archive_stale_suggestions', [$ui, 'handle_archive_stale_suggestions']);
+        add_action('admin_post_tmwseo_unarchive_all_suggestions', [$ui, 'handle_unarchive_all_suggestions']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
+        add_action('admin_notices', [$ui, 'render_bound_suggestion_context_notice']);
     }
 
     public function register_menu(): void {
@@ -1714,7 +1717,21 @@ class SuggestionsAdminPage {
                 $new_status = $is_bound ? 'target_bound' : 'draft_created';
                 $this->engine->updateSuggestionStatus($id, $new_status);
 
-                $notice = $is_bound ? 'target_bound' : 'draft_created';
+                if ($is_bound) {
+                    // Goal A: For bound_existing targets, redirect directly to the
+                    // existing post edit screen so the operator lands in the editor
+                    // immediately. The in-editor notice (render_bound_suggestion_context_notice)
+                    // will surface the suggestion context on that screen.
+                    $edit_url = add_query_arg([
+                        'post'                    => $draft_id,
+                        'action'                  => 'edit',
+                        'tmwseo_bound_suggestion' => 1,
+                        'tmwseo_suggestion_id'    => $id,
+                        'tmwseo_notice'           => 'bound_existing_opened',
+                    ], admin_url('post.php'));
+                    wp_safe_redirect($edit_url);
+                    exit;
+                }
 
                 $destination_type = sanitize_key((string) get_post_meta($draft_id, '_tmwseo_suggestion_destination_type', true));
                 if ($destination_type === '') {
@@ -1722,7 +1739,7 @@ class SuggestionsAdminPage {
                 }
                 wp_safe_redirect(add_query_arg([
                     'page'              => 'tmwseo-suggestions',
-                    'notice'            => $notice,
+                    'notice'            => 'draft_created',
                     'id'                => $id,
                     'draft_id'          => $draft_id,
                     'draft_target_type' => $destination_type,
@@ -2213,6 +2230,166 @@ class SuggestionsAdminPage {
         exit;
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Goal B: In-editor suggestion context (bound_existing path)
+    // Fires on post.php when the operator lands there via the direct-open
+    // redirect. Surfaces key suggestion data so the operator knows exactly
+    // what changes to apply. Manual-only, no auto-apply, no content mutation.
+    // ────────────────────────────────────────────────────────────────────────
+
+    public function render_bound_suggestion_context_notice(): void {
+        if (!is_admin() || !current_user_can('edit_posts')) {
+            return;
+        }
+
+        $tmwseo_notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
+        if ($tmwseo_notice !== 'bound_existing_opened') {
+            return;
+        }
+
+        $bound_flag    = isset($_GET['tmwseo_bound_suggestion']) ? (int) $_GET['tmwseo_bound_suggestion'] : 0;
+        $suggestion_id = isset($_GET['tmwseo_suggestion_id'])    ? (int) $_GET['tmwseo_suggestion_id']    : 0;
+
+        if ($bound_flag !== 1 || $suggestion_id <= 0) {
+            return;
+        }
+
+        // Retrieve suggestion row.
+        $row = $this->engine->getSuggestion($suggestion_id);
+        if (!is_array($row) || empty($row)) {
+            return;
+        }
+
+        $title          = sanitize_text_field((string) ($row['title']         ?? ''));
+        $description    = sanitize_textarea_field((string) ($row['description']    ?? ''));
+        $type           = $this->format_label((string) ($row['type']          ?? ''));
+        $source_engine  = $this->format_label((string) ($row['source_engine'] ?? ''));
+        $priority_score = (float) ($row['priority_score'] ?? 0);
+        $priority_label = $this->priority_label($priority_score);
+        $suggested_action = trim((string) ($row['suggested_action'] ?? ''));
+        $manual_step    = $suggested_action !== ''
+            ? wp_trim_words($suggested_action, 30, '…')
+            : $this->manual_next_step_text((string) ($row['type'] ?? ''));
+
+        // Suggestions page back-link.
+        $suggestions_url = add_query_arg([
+            'page'       => 'tmwseo-suggestions',
+            'tmw_filter' => 'draft_created',
+        ], admin_url('admin.php'));
+
+        ?>
+        <div class="notice notice-info tmwseo-bound-context-notice" style="border-left-color:#7c3aed;padding:14px 16px;">
+            <p style="margin:0 0 8px;"><strong style="color:#3b0764;">&#128204; TMW SEO — Suggestion Context</strong>
+            <span style="font-size:12px;color:#6b7280;margin-left:8px;">(Suggestion #<?php echo esc_html((string) $suggestion_id); ?> · Manual-only: apply changes yourself, nothing is auto-applied)</span></p>
+
+            <table style="border-collapse:collapse;width:100%;max-width:900px;font-size:13px;">
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;width:160px;"><?php esc_html_e('Title', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html($title); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;"><?php esc_html_e('Suggestion Type', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html($type); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;"><?php esc_html_e('Source Engine', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html($source_engine); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;"><?php esc_html_e('Priority', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html(sprintf('%s (%.1f)', $priority_label, $priority_score)); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;vertical-align:top;"><?php esc_html_e('Description', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#374151;line-height:1.5;"><?php echo esc_html(wp_trim_words($description, 40, '…')); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;vertical-align:top;"><?php esc_html_e('Manual Next Step', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#1d4ed8;line-height:1.5;"><strong><?php echo esc_html($manual_step); ?></strong></td>
+                </tr>
+            </table>
+
+            <p style="margin:10px 0 0;font-size:12px;color:#6b7280;">
+                <a href="<?php echo esc_url($suggestions_url); ?>" style="color:#7c3aed;">&larr; <?php esc_html_e('Back to Suggestions Dashboard', 'tmwseo'); ?></a>
+                &nbsp;·&nbsp;
+                <?php esc_html_e('This notice is informational only. Apply suggested changes manually, then save. No content was mutated automatically.', 'tmwseo'); ?>
+            </p>
+        </div>
+        <?php
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Goal C: Legacy cleanup handlers
+    // Stores archived suggestion IDs in a WP option (no DB schema change).
+    // Explicit admin click required. Fully reversible via Unarchive All.
+    // ────────────────────────────────────────────────────────────────────────
+
+    private const ARCHIVED_IDS_OPTION = 'tmwseo_archived_suggestion_ids';
+
+    /** @return int[] */
+    private function get_archived_suggestion_ids(): array {
+        $raw = get_option(self::ARCHIVED_IDS_OPTION, []);
+        return is_array($raw) ? array_map('intval', $raw) : [];
+    }
+
+    public function handle_archive_stale_suggestions(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_archive_stale_suggestions');
+
+        // Fetch all suggestions and identify stale candidates:
+        // - status = ignored  (operator already dismissed these)
+        // - status = target_bound  AND  created_at older than 60 days (no longer actionable)
+        // - status = new  AND  created_at older than 90 days (very stale)
+        $rows = $this->engine->getSuggestions(['limit' => 2000]);
+        $now  = time();
+        $to_archive = [];
+
+        foreach ($rows as $row) {
+            $id         = (int) ($row['id'] ?? 0);
+            $status     = sanitize_key((string) ($row['status'] ?? 'new'));
+            $created_ts = strtotime((string) ($row['created_at'] ?? '')) ?: 0;
+            $age_days   = $created_ts > 0 ? (int) floor(($now - $created_ts) / DAY_IN_SECONDS) : 0;
+
+            if ($status === 'ignored') {
+                $to_archive[] = $id;
+            } elseif ($status === 'target_bound' && $age_days >= 60) {
+                $to_archive[] = $id;
+            } elseif ($status === 'new' && $age_days >= 90) {
+                $to_archive[] = $id;
+            }
+        }
+
+        $existing_archived = $this->get_archived_suggestion_ids();
+        $merged            = array_values(array_unique(array_merge($existing_archived, $to_archive)));
+        update_option(self::ARCHIVED_IDS_OPTION, $merged, false);
+
+        $count = count($to_archive);
+        wp_safe_redirect(add_query_arg([
+            'page'             => 'tmwseo-suggestions',
+            'notice'           => 'archive_complete',
+            'archived_count'   => $count,
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_unarchive_all_suggestions(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_unarchive_all_suggestions');
+        delete_option(self::ARCHIVED_IDS_OPTION);
+
+        wp_safe_redirect(add_query_arg([
+            'page'   => 'tmwseo-suggestions',
+            'notice' => 'unarchive_complete',
+        ], admin_url('admin.php')));
+        exit;
+    }
+
     public function render_competitor_domains_page(): void {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
@@ -2313,9 +2490,24 @@ class SuggestionsAdminPage {
         $review_queue_counts = $this->build_review_queue_counts($rows, $active_destination_filter);
         $review_aging_bucket_counts = $this->build_review_aging_bucket_counts($rows, $active_destination_filter, $active_filter);
 
-        $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter, $active_review_aging): bool {
-            $type = (string) ($row['type'] ?? '');
+        // Goal C: Collect archived IDs so we can hide them from normal queues.
+        $archived_ids = $this->get_archived_suggestion_ids();
+
+        $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter, $active_review_aging, $archived_ids): bool {
+            $id     = (int) ($row['id'] ?? 0);
+            $type   = (string) ($row['type'] ?? '');
             $status = (string) ($row['status'] ?? 'new');
+
+            // Archived filter: show only archived rows.
+            if ($active_filter === 'archived') {
+                return in_array($id, $archived_ids, true);
+            }
+
+            // For all other filters, hide archived rows so they don't clutter the queue.
+            if (!empty($archived_ids) && in_array($id, $archived_ids, true)) {
+                return false;
+            }
+
             $priority = (float) ($row['priority_score'] ?? 0);
             $review_queue_state = $this->review_queue_state_for_row($row);
             $review_matches_filter = false;
@@ -2449,7 +2641,7 @@ class SuggestionsAdminPage {
         );
 
         // ── Success notices ──────────────────────────────────────────────────
-        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete', 'phase_c_discovery_snapshot_blocked'], true)) {
+        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete', 'phase_c_discovery_snapshot_blocked', 'archive_complete', 'unarchive_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
@@ -2467,6 +2659,11 @@ class SuggestionsAdminPage {
                 echo esc_html(sprintf(__('Phase C discovery snapshot complete: %d posts scanned and %d legacy candidates identified for manual review. No jobs were enqueued and no content was mutated.', 'tmwseo'), $scanned, $eligible));
             } elseif ($notice === 'phase_c_discovery_snapshot_blocked') {
                 echo esc_html__('Phase C discovery snapshot is currently fenced for this migration phase. No jobs were enqueued and no content was mutated.', 'tmwseo');
+            } elseif ($notice === 'archive_complete') {
+                $archived_count = isset($_GET['archived_count']) ? (int) $_GET['archived_count'] : 0;
+                echo esc_html(sprintf(__('%d stale/ignored suggestion(s) archived and hidden from the active queue. Nothing was deleted. Use "Unarchive All" to restore them.', 'tmwseo'), $archived_count));
+            } elseif ($notice === 'unarchive_complete') {
+                echo esc_html__('All archived suggestions restored to the active queue.', 'tmwseo');
             } else {
                 echo esc_html__('Suggestion ignored.', 'tmwseo');
             }
@@ -2508,6 +2705,7 @@ class SuggestionsAdminPage {
             'serp_weakness'          => 'SERP Weakness',
             'authority_cluster'      => 'Authority Clusters',
             'content_brief'          => 'Content Briefs',
+            'archived'               => 'Archived (Legacy)',
         ];
         echo '<ul class="subsubsub">';
         $first = true;
@@ -2708,6 +2906,26 @@ class SuggestionsAdminPage {
         echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
         submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
+
+        // Goal C: Legacy cleanup controls
+        $archived_count = count($this->get_archived_suggestion_ids());
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="border-left:3px solid #f59e0b;padding-left:10px;">';
+        wp_nonce_field('tmwseo_archive_stale_suggestions');
+        echo '<input type="hidden" name="action" value="tmwseo_archive_stale_suggestions">';
+        echo '<p style="margin:0 0 4px;font-size:12px;color:#92400e;"><strong>' . esc_html__('Legacy Cleanup', 'tmwseo') . '</strong> — ' . esc_html__('Hides ignored + stale legacy suggestions from the queue. Nothing is deleted. Reversible.', 'tmwseo') . '</p>';
+        submit_button(__('Archive Stale / Ignored Suggestions', 'tmwseo'), 'secondary small', 'submit', false);
+        echo '</form>';
+
+        if ($archived_count > 0) {
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            wp_nonce_field('tmwseo_unarchive_all_suggestions');
+            echo '<input type="hidden" name="action" value="tmwseo_unarchive_all_suggestions">';
+            echo '<p style="margin:0 0 4px;font-size:12px;color:#6b7280;">';
+            echo esc_html(sprintf(__('%d archived — restore with Unarchive All, or view under the "Archived (Legacy)" tab.', 'tmwseo'), $archived_count));
+            echo '</p>';
+            submit_button(__('Unarchive All', 'tmwseo'), 'secondary small', 'submit', false);
+            echo '</form>';
+        }
 
         echo '</div>'; // .tmwui-cta-row
 
