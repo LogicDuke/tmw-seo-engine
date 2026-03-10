@@ -31,6 +31,7 @@ class CommandCenter {
         add_action( 'wp_ajax_tmwseo_orphan_scan',                [ __CLASS__, 'ajax_orphan_scan' ] );
         add_action( 'wp_ajax_tmwseo_competitor_scan',            [ __CLASS__, 'ajax_competitor_scan' ] );
         add_action( 'wp_ajax_tmwseo_run_ranking_probability_all',[ __CLASS__, 'ajax_run_ranking_probability_all' ] );
+        add_action( 'admin_post_tmwseo_create_cluster_draft',    [ __CLASS__, 'handle_create_cluster_draft' ] );
     }
 
     // ── Main Render ──────────────────────────────────────────────────────
@@ -48,6 +49,8 @@ class CommandCenter {
         echo '<p class="tmwcc-subtitle">SEO mission control &mdash; read-only snapshot. <strong>Manual-only mode is always enforced:</strong> nothing publishes automatically, no links are inserted automatically, and every action requires your explicit approval.</p>';
 
         self::render_alerts( $data );
+        self::render_command_center_summary( $data );
+        self::render_cluster_opportunities( $data );
         self::render_kpi_row( $data );
         self::render_model_first_row( $data );
         self::render_workflow_row( $data );
@@ -174,6 +177,9 @@ class CommandCenter {
             ? \TMWSEO\Engine\Model\ModelIntelligence::aggregate_stats()
             : [];
 
+        $command_center_summary = self::get_command_center_summary();
+        $cluster_opportunities  = self::get_cluster_opportunities();
+
         $data = compact(
             'all_rows', 'status_counts', 'type_counts', 'category_page_new', 'model_page_new', 'high_priority',
             'review_states', 'aging',
@@ -181,12 +187,142 @@ class CommandCenter {
             'ai_spend', 'ai_budget', 'ai_pct',
             'dfseo_budget', 'dfseo_spent', 'dfseo_remaining',
             'has_anthropic', 'schema_enabled', 'safe_mode', 'ai_primary', 'last_discovery',
-            'model_stats'
+            'model_stats', 'command_center_summary', 'cluster_opportunities'
         );
 
         set_transient( $cache_key, $data, 2 * MINUTE_IN_SECONDS );
 
         return $data;
+    }
+
+    private static function get_command_center_summary(): array {
+        global $wpdb;
+
+        $seeds_table     = $wpdb->prefix . 'tmwseo_seeds';
+        $keywords_table  = $wpdb->prefix . 'tmw_keyword_candidates';
+        $clusters_table  = $wpdb->prefix . 'tmw_keyword_clusters';
+        $generated_table = $wpdb->prefix . 'tmw_generated_pages';
+
+        return [
+            'total_seeds'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$seeds_table}" ),
+            'total_keywords' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$keywords_table}" ),
+            'total_clusters' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$clusters_table}" ),
+            'pages_created'  => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$generated_table}" ),
+        ];
+    }
+
+    private static function get_cluster_opportunities(): array {
+        global $wpdb;
+
+        $clusters_table = $wpdb->prefix . 'tmw_keyword_clusters';
+        $map_table      = $wpdb->prefix . 'tmw_keyword_cluster_map';
+        $rank_table     = $wpdb->prefix . 'tmw_seo_ranking_probability';
+        $cand_table     = $wpdb->prefix . 'tmw_keyword_candidates';
+
+        $sql = "
+            SELECT
+                c.id,
+                c.cluster_key,
+                c.representative,
+                c.page_id,
+                c.total_volume AS search_volume,
+                COALESCE( stats.cluster_keyword_count, 0 ) AS cluster_keyword_count,
+                COALESCE( stats.ranking_probability, 0 ) AS ranking_probability,
+                COALESCE( stats.serp_weakness, 0 ) AS serp_weakness,
+                (
+                    ( COALESCE( c.total_volume, 0 ) * COALESCE( stats.ranking_probability, 0 ) )
+                    + COALESCE( stats.serp_weakness, 0 )
+                    + COALESCE( stats.cluster_keyword_count, 0 )
+                ) AS opportunity_score
+            FROM {$clusters_table} c
+            LEFT JOIN (
+                SELECT
+                    m.cluster_id,
+                    COUNT(*) AS cluster_keyword_count,
+                    AVG( COALESCE( rp.ranking_probability, 0 ) ) AS ranking_probability,
+                    AVG( COALESCE( kc.serp_weakness, 0 ) ) AS serp_weakness
+                FROM {$map_table} m
+                LEFT JOIN {$rank_table} rp ON rp.keyword = m.keyword
+                LEFT JOIN {$cand_table} kc ON kc.keyword = m.keyword
+                GROUP BY m.cluster_id
+            ) stats ON stats.cluster_id = c.id
+            ORDER BY opportunity_score DESC
+            LIMIT 20
+        ";
+
+        $rows = $wpdb->get_results( $sql, ARRAY_A );
+        return is_array( $rows ) ? $rows : [];
+    }
+
+    private static function render_command_center_summary( array $d ): void {
+        $summary = (array) ( $d['command_center_summary'] ?? [] );
+
+        echo '<section class="tmwcc-section">';
+        echo '<h2 class="tmwcc-section-title">📍 Command Center</h2>';
+        echo '<div class="tmwcc-summary-grid">';
+        self::render_summary_card( 'Total Seeds', (int) ( $summary['total_seeds'] ?? 0 ) );
+        self::render_summary_card( 'Total Keywords', (int) ( $summary['total_keywords'] ?? 0 ) );
+        self::render_summary_card( 'Total Clusters', (int) ( $summary['total_clusters'] ?? 0 ) );
+        self::render_summary_card( 'Pages Created', (int) ( $summary['pages_created'] ?? 0 ) );
+        echo '</div>';
+        echo '</section>';
+    }
+
+    private static function render_summary_card( string $label, int $value ): void {
+        echo '<div class="tmwcc-summary-card">';
+        echo '<span class="tmwcc-summary-value">' . esc_html( (string) $value ) . '</span>';
+        echo '<span class="tmwcc-summary-label">' . esc_html( $label ) . '</span>';
+        echo '</div>';
+    }
+
+    private static function render_cluster_opportunities( array $d ): void {
+        $clusters = (array) ( $d['cluster_opportunities'] ?? [] );
+
+        echo '<section class="tmwcc-section">';
+        echo '<h2 class="tmwcc-section-title">🚀 Top SEO Opportunities</h2>';
+        echo '<p class="tmwcc-section-sub">Top 20 clusters ranked by opportunity score.</p>';
+
+        if ( empty( $clusters ) ) {
+            echo '<p class="tmwcc-empty">No clusters found yet.</p>';
+            echo '</section>';
+            return;
+        }
+
+        echo '<div class="tmwcc-table-wrap">';
+        echo '<table class="widefat striped tmwcc-opportunity-table">';
+        echo '<thead><tr><th>Cluster</th><th>Keywords</th><th>Total Search Volume</th><th>Ranking Probability</th><th>Opportunity Score</th><th>Status</th><th>Action</th></tr></thead><tbody>';
+
+        foreach ( $clusters as $cluster ) {
+            $cluster_id = (int) ( $cluster['id'] ?? 0 );
+            $page_id    = (int) ( $cluster['page_id'] ?? 0 );
+            $built      = $page_id > 0;
+
+            echo '<tr>';
+            echo '<td><strong>' . esc_html( (string) ( $cluster['representative'] ?: $cluster['cluster_key'] ) ) . '</strong></td>';
+            echo '<td>' . esc_html( (string) (int) ( $cluster['cluster_keyword_count'] ?? 0 ) ) . '</td>';
+            echo '<td>' . esc_html( number_format_i18n( (int) ( $cluster['search_volume'] ?? 0 ) ) ) . '</td>';
+            echo '<td>' . esc_html( number_format_i18n( (float) ( $cluster['ranking_probability'] ?? 0 ), 2 ) ) . '</td>';
+            echo '<td><strong>' . esc_html( number_format_i18n( (float) ( $cluster['opportunity_score'] ?? 0 ), 2 ) ) . '</strong></td>';
+            echo '<td><span class="tmwcc-status-badge ' . esc_attr( $built ? 'tmwcc-status-built' : 'tmwcc-status-not-built' ) . '">' . esc_html( $built ? 'Built' : 'Not Built' ) . '</span></td>';
+            echo '<td>';
+
+            if ( $built ) {
+                echo '<a class="button button-small" href="' . esc_url( get_edit_post_link( $page_id ) ) . '">Edit Draft</a>';
+            } else {
+                echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+                wp_nonce_field( 'tmwseo_create_cluster_draft_' . $cluster_id );
+                echo '<input type="hidden" name="action" value="tmwseo_create_cluster_draft">';
+                echo '<input type="hidden" name="cluster_id" value="' . esc_attr( (string) $cluster_id ) . '">';
+                echo '<button class="button button-primary button-small" type="submit">Create Draft Page</button>';
+                echo '</form>';
+            }
+
+            echo '</td>';
+            echo '</tr>';
+        }
+
+        echo '</tbody></table></div>';
+        echo '</section>';
     }
 
     // ── Section: Alerts ───────────────────────────────────────────────────
@@ -717,6 +853,86 @@ class CommandCenter {
         ] );
     }
 
+    public static function handle_create_cluster_draft(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Unauthorized' );
+        }
+
+        $cluster_id = isset( $_POST['cluster_id'] ) ? (int) $_POST['cluster_id'] : 0;
+        check_admin_referer( 'tmwseo_create_cluster_draft_' . $cluster_id );
+
+        if ( $cluster_id <= 0 ) {
+            wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-engine&tmwcc_cluster_created=0' ) );
+            exit;
+        }
+
+        global $wpdb;
+
+        $clusters_table  = $wpdb->prefix . 'tmw_keyword_clusters';
+        $generated_table = $wpdb->prefix . 'tmw_generated_pages';
+
+        $cluster = $wpdb->get_row(
+            $wpdb->prepare( "SELECT * FROM {$clusters_table} WHERE id = %d LIMIT 1", $cluster_id ),
+            ARRAY_A
+        );
+
+        if ( ! is_array( $cluster ) ) {
+            wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-engine&tmwcc_cluster_created=0' ) );
+            exit;
+        }
+
+        $existing_page_id = (int) ( $cluster['page_id'] ?? 0 );
+        if ( $existing_page_id > 0 ) {
+            wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-engine&tmwcc_cluster_created=1&page_id=' . $existing_page_id ) );
+            exit;
+        }
+
+        $title = (string) ( $cluster['representative'] ?: $cluster['cluster_key'] ?: 'SEO Cluster Draft' );
+        $page_id = wp_insert_post( [
+            'post_type'    => 'post',
+            'post_status'  => 'draft',
+            'post_title'   => sanitize_text_field( $title ),
+            'post_content' => '',
+        ] );
+
+        if ( is_wp_error( $page_id ) || (int) $page_id <= 0 ) {
+            wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-engine&tmwcc_cluster_created=0' ) );
+            exit;
+        }
+
+        update_post_meta( (int) $page_id, '_tmwseo_cluster_id', $cluster_id );
+        update_post_meta( (int) $page_id, '_tmwseo_generated', '1' );
+
+        $wpdb->update(
+            $clusters_table,
+            [
+                'page_id' => (int) $page_id,
+                'status'  => 'built',
+            ],
+            [ 'id' => $cluster_id ],
+            [ '%d', '%s' ],
+            [ '%d' ]
+        );
+
+        $wpdb->insert(
+            $generated_table,
+            [
+                'page_id'            => (int) $page_id,
+                'cluster_id'         => $cluster_id,
+                'keyword'            => (string) ( $cluster['representative'] ?? '' ),
+                'kind'               => 'cluster',
+                'indexing'           => 'noindex',
+                'last_generated_at'  => current_time( 'mysql' ),
+            ],
+            [ '%d', '%d', '%s', '%s', '%s', '%s' ]
+        );
+
+        delete_transient( 'tmwseo_cc_data_v1' );
+
+        wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-engine&tmwcc_cluster_created=1&page_id=' . (int) $page_id ) );
+        exit;
+    }
+
     // ── Destination Type Parser ───────────────────────────────────────────
     // destination_type is NOT a DB column. It is embedded as "DESTINATION_TYPE: <value>"
     // inside the suggested_action text by each suggestion generator.
@@ -890,6 +1106,36 @@ class CommandCenter {
     color: #6b7280;
     margin: 0 0 14px;
 }
+
+/* ── Command Center Summary + Opportunities ─────────── */
+.tmwcc-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+@media (max-width: 900px) { .tmwcc-summary-grid { grid-template-columns: repeat(2, 1fr); } }
+.tmwcc-summary-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+}
+.tmwcc-summary-value { font-size: 24px; font-weight: 700; color: #1f2937; }
+.tmwcc-summary-label { font-size: 12px; color: #6b7280; }
+.tmwcc-table-wrap { overflow-x: auto; }
+.tmwcc-opportunity-table th { white-space: nowrap; }
+.tmwcc-status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.tmwcc-status-built { background: #dcfce7; color: #166534; }
+.tmwcc-status-not-built { background: #fef3c7; color: #92400e; }
+.tmwcc-empty { color: #6b7280; }
 
 /* ── KPI Row ─────────────────────────────────────────── */
 .tmwcc-kpi-row {
