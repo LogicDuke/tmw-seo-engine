@@ -87,6 +87,18 @@ class OpportunityUI {
         }
 
         $cluster_id = $this->resolve_cluster_id($keyword);
+        if ($cluster_id > 0) {
+            $existing_page_id = $this->get_existing_cluster_page_id($cluster_id);
+            if ($existing_page_id > 0) {
+                $this->db->update_status($opportunity_id, 'generated');
+                Logs::info('opportunities', '[TMW-OPP] Cluster already has a mapped page; skipped duplicate draft creation', [
+                    'opportunity_id' => $opportunity_id,
+                    'cluster_id' => $cluster_id,
+                    'existing_page_id' => $existing_page_id,
+                ]);
+                return;
+            }
+        }
 
         $post_id = wp_insert_post([
             'post_type' => 'page',
@@ -121,6 +133,7 @@ class OpportunityUI {
             'keyword' => $keyword,
         ]);
 
+        $this->sync_cluster_page_mapping($cluster_id, (int) $post_id);
         $this->db->update_status($opportunity_id, 'generated');
 
         Logs::info('opportunities', '[TMW-OPP] Draft page generated from opportunity', [
@@ -133,10 +146,23 @@ class OpportunityUI {
 
     private function resolve_cluster_id(string $keyword): int {
         global $wpdb;
-        $table = $wpdb->prefix . 'tmw_keyword_clusters';
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+        $cluster_keyword_map_table = $wpdb->prefix . 'tmw_keyword_cluster_map';
+
+        $normalized_keyword = \TMWSEO\Engine\Keywords\KeywordValidator::normalize($keyword);
+        if ($normalized_keyword !== '') {
+            $mapped_cluster_id = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT cluster_id FROM {$cluster_keyword_map_table} WHERE keyword = %s LIMIT 1",
+                $normalized_keyword
+            ));
+
+            if ($mapped_cluster_id > 0) {
+                return $mapped_cluster_id;
+            }
+        }
 
         $cluster_id = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$table} WHERE representative = %s ORDER BY id DESC LIMIT 1",
+            "SELECT id FROM {$cluster_table} WHERE representative = %s ORDER BY id DESC LIMIT 1",
             $keyword
         ));
 
@@ -145,9 +171,58 @@ class OpportunityUI {
         }
 
         return (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$table} WHERE representative LIKE %s ORDER BY opportunity DESC LIMIT 1",
+            "SELECT id FROM {$cluster_table} WHERE representative LIKE %s ORDER BY opportunity DESC LIMIT 1",
             '%' . $wpdb->esc_like($keyword) . '%'
         ));
+    }
+
+    private function get_existing_cluster_page_id(int $cluster_id): int {
+        if ($cluster_id <= 0) {
+            return 0;
+        }
+
+        global $wpdb;
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+
+        $page_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT page_id FROM {$cluster_table} WHERE id = %d LIMIT 1",
+            $cluster_id
+        ));
+
+        return $page_id > 0 ? $page_id : 0;
+    }
+
+    private function sync_cluster_page_mapping(int $cluster_id, int $page_id): void {
+        if ($cluster_id <= 0 || $page_id <= 0) {
+            return;
+        }
+
+        global $wpdb;
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+        $cluster_keyword_map_table = $wpdb->prefix . 'tmw_keyword_cluster_map';
+
+        $wpdb->update(
+            $cluster_table,
+            [
+                'page_id' => $page_id,
+                'status' => 'built',
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $cluster_id],
+            ['%d', '%s', '%s'],
+            ['%d']
+        );
+
+        $wpdb->update(
+            $cluster_keyword_map_table,
+            [
+                'page_id' => $page_id,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['cluster_id' => $cluster_id],
+            ['%d', '%s'],
+            ['%d']
+        );
     }
 
     private function build_seed_content(string $keyword): string {

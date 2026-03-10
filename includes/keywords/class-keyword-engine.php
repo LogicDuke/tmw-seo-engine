@@ -84,6 +84,12 @@ class KeywordEngine {
         $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
         $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+        $cluster_keyword_map_table = $wpdb->prefix . 'tmw_keyword_cluster_map';
+
+        $cluster_map_table_exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $cluster_keyword_map_table)) === $cluster_keyword_map_table;
+        if ($cluster_map_table_exists) {
+            $wpdb->query("DELETE FROM {$cluster_keyword_map_table}");
+        }
 
         QueryExpansionGraph::create_table();
 
@@ -893,22 +899,47 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         foreach ($clusters as $key => $c) {
             $avg_kd = ($c['kd_n'] > 0) ? round($c['sum_kd'] / $c['kd_n'], 2) : null;
             $opportunity = (float)$c['best_opp'];
+            $normalized_keywords = array_values(array_unique(array_filter(array_map(static function ($keyword) {
+                return KeywordValidator::normalize((string) $keyword);
+            }, (array) ($c['keywords'] ?? [])))));
 
             $exists = $cluster_map[$key] ?? null;
             if ($exists) {
+                $existing_cluster = (array) $wpdb->get_row($wpdb->prepare(
+                    "SELECT id, page_id FROM {$cluster_table} WHERE id = %d LIMIT 1",
+                    (int) $exists
+                ), ARRAY_A);
+                $existing_page_id = (int) ($existing_cluster['page_id'] ?? 0);
+
                 $wpdb->update($cluster_table, [
                     'representative' => $c['best_kw'],
-                    'keywords' => wp_json_encode(array_values(array_unique($c['keywords']))),
+                    'keywords' => wp_json_encode($normalized_keywords),
                     'total_volume' => (int)$c['total_volume'],
                     'avg_difficulty' => $avg_kd,
                     'opportunity' => $opportunity,
+                    'status' => $existing_page_id > 0 ? 'built' : 'new',
                     'updated_at' => current_time('mysql'),
                 ], ['id' => (int)$exists]);
+
+                if ($cluster_map_table_exists) {
+                    foreach ($normalized_keywords as $keyword) {
+                        $wpdb->insert(
+                            $cluster_keyword_map_table,
+                            [
+                                'keyword' => $keyword,
+                                'cluster_id' => (int) $exists,
+                                'page_id' => $existing_page_id > 0 ? $existing_page_id : null,
+                                'updated_at' => current_time('mysql'),
+                            ],
+                            ['%s', '%d', '%d', '%s']
+                        );
+                    }
+                }
             } else {
                 $wpdb->insert($cluster_table, [
                     'cluster_key' => $key,
                     'representative' => $c['best_kw'],
-                    'keywords' => wp_json_encode(array_values(array_unique($c['keywords']))),
+                    'keywords' => wp_json_encode($normalized_keywords),
                     'total_volume' => (int)$c['total_volume'],
                     'avg_difficulty' => $avg_kd,
                     'opportunity' => $opportunity,
@@ -918,6 +949,22 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 ], [
                     '%s', '%s', '%s', '%d', '%f', '%f', '%d', '%s', '%s'
                 ]);
+
+                $new_cluster_id = (int) $wpdb->insert_id;
+                if ($cluster_map_table_exists && $new_cluster_id > 0) {
+                    foreach ($normalized_keywords as $keyword) {
+                        $wpdb->insert(
+                            $cluster_keyword_map_table,
+                            [
+                                'keyword' => $keyword,
+                                'cluster_id' => $new_cluster_id,
+                                'page_id' => null,
+                                'updated_at' => current_time('mysql'),
+                            ],
+                            ['%s', '%d', '%d', '%s']
+                        );
+                    }
+                }
             }
         }
 
@@ -956,7 +1003,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
 
         $clusters = $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$cluster_table}
-             WHERE status='new'
+             WHERE page_id IS NULL
              ORDER BY opportunity DESC, total_volume DESC
              LIMIT %d",
             $limit

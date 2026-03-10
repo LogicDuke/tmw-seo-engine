@@ -189,6 +189,7 @@ class Schema {
         $entity_keyword_map = $wpdb->prefix . 'tmwseo_entity_keyword_map';
         $keyword_trends = $wpdb->prefix . 'tmwseo_keyword_trends';
         $keyword_metrics_cache = $wpdb->prefix . 'tmwseo_keywords';
+        $cluster_keyword_map = $wpdb->prefix . 'tmw_keyword_cluster_map';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -389,6 +390,18 @@ class Schema {
             UNIQUE KEY cluster_key (cluster_key),
             KEY status (status),
             KEY opportunity (opportunity),
+            KEY page_id (page_id)
+        ) $charset_collate;";
+
+        $sql_cluster_keyword_map = "CREATE TABLE $cluster_keyword_map (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            cluster_id BIGINT(20) UNSIGNED NOT NULL,
+            page_id BIGINT(20) UNSIGNED NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword (keyword),
+            KEY cluster_id (cluster_id),
             KEY page_id (page_id)
         ) $charset_collate;";
 
@@ -604,6 +617,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_keyword_clusters);
+        dbDelta($sql_cluster_keyword_map);
         dbDelta($sql_keyword_graph);
         dbDelta($sql_generated_pages);
         dbDelta($sql_opportunities);
