@@ -37,6 +37,7 @@ class Admin {
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
+        add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -1186,6 +1187,55 @@ class Admin {
         exit;
     }
 
+    public static function handle_reset_discovery_data(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'tmwseo'));
+        }
+
+        check_admin_referer('tmwseo_reset_discovery_data');
+
+        global $wpdb;
+
+        $tables = [
+            'keywords' => $wpdb->prefix . 'tmw_seo_keywords',
+            'clusters' => $wpdb->prefix . 'tmw_seo_clusters',
+            'suggestions' => $wpdb->prefix . 'tmw_seo_suggestions',
+        ];
+
+        $deleted = [
+            'keywords' => 0,
+            'clusters' => 0,
+            'suggestions' => 0,
+        ];
+
+        foreach ($tables as $key => $table) {
+            $exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+            if ($exists !== $table) {
+                continue;
+            }
+
+            $wpdb->query("DELETE FROM {$table}"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $affected = $wpdb->rows_affected;
+            $deleted[$key] = $affected > 0 ? (int) $affected : 0;
+        }
+
+        Logs::info('tools', '[TMW-RESET] Discovery data reset from Tools page', [
+            'keywords_deleted' => $deleted['keywords'],
+            'clusters_deleted' => $deleted['clusters'],
+            'suggestions_deleted' => $deleted['suggestions'],
+            'scope' => 'discovery_tables_only',
+        ]);
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-tools',
+            'tmwseo_notice' => 'discovery_data_reset',
+            'tmwseo_keywords_deleted' => $deleted['keywords'],
+            'tmwseo_clusters_deleted' => $deleted['clusters'],
+            'tmwseo_suggestions_deleted' => $deleted['suggestions'],
+        ], admin_url('admin.php')));
+        exit;
+    }
+
     public static function save_settings(): void {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         // New (alpha.6): model routing + brand voice, while keeping legacy "openai_model" for compatibility.
@@ -1506,6 +1556,16 @@ class Admin {
                 $created,
                 $skipped
             );
+        } elseif ($notice === 'discovery_data_reset') {
+            $keywords_deleted = isset($_GET['tmwseo_keywords_deleted']) ? max(0, (int) $_GET['tmwseo_keywords_deleted']) : 0;
+            $clusters_deleted = isset($_GET['tmwseo_clusters_deleted']) ? max(0, (int) $_GET['tmwseo_clusters_deleted']) : 0;
+            $suggestions_deleted = isset($_GET['tmwseo_suggestions_deleted']) ? max(0, (int) $_GET['tmwseo_suggestions_deleted']) : 0;
+            $message = sprintf(
+                __('Discovery data reset complete. Deleted rows — keywords: %1$d, clusters: %2$d, suggestions: %3$d.', 'tmwseo'),
+                $keywords_deleted,
+                $clusters_deleted,
+                $suggestions_deleted
+            );
         }
 
         if ($message === '') {
@@ -1648,6 +1708,18 @@ class Admin {
         wp_nonce_field('tmwseo_run_worker');
         echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
         submit_button(__('Run Worker Now', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+        echo '</div>';
+
+        $reset_discovery_confirm = esc_js(__('Are you sure you want to reset discovery data? This permanently deletes imported keywords, clusters, and suggestions only.', 'tmwseo'));
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Reset Discovery Data', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Clears all imported keywords and clusters so a new seed set can be tested.', 'tmwseo') . '</p>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Deletes rows only from tmw_seo_keywords, tmw_seo_clusters, and tmw_seo_suggestions. Does not delete posts, models, settings, or API keys.', 'tmwseo') . '</p>';
+        echo "<form method=\"post\" action=\"" . esc_url(admin_url('admin-post.php')) . "\" onsubmit=\"return window.confirm('" . $reset_discovery_confirm . "');\">";
+        wp_nonce_field('tmwseo_reset_discovery_data');
+        echo '<input type="hidden" name="action" value="tmwseo_reset_discovery_data">';
+        submit_button(__('Reset Discovery Data', 'tmwseo'), 'delete', 'submit', false);
         echo '</form>';
         echo '</div>';
 
