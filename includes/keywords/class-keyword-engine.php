@@ -79,6 +79,7 @@ class KeywordEngine {
         $accepted_total = 0;
         $seed_report = [
             'base_seeds' => 0,
+            'static_seeds' => 0,
             'model_seeds' => 0,
             'tag_seeds' => 0,
             'video_seeds' => 0,
@@ -395,7 +396,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
     }
 
     private static function collect_seeds(int $limit): array {
-        $base_seeds = [
+        $static_seeds = [
             'adult webcam chat',
             'live cam girls',
             'webcam chat rooms',
@@ -412,7 +413,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         $video_seeds = self::get_video_seeds();
         $comp_seeds = self::get_competitor_seeds();
 
-        $all = array_merge($base_seeds, $model_seeds, $tag_seeds, $video_seeds, $category_seeds, $comp_seeds);
+        $all = array_merge($static_seeds, $model_seeds, $tag_seeds, $video_seeds, $category_seeds, $comp_seeds);
         $all = array_values(array_unique(array_filter(array_map('strval', $all))));
 
         shuffle($all);
@@ -423,7 +424,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         return [
             'seeds' => $final_seeds,
             'counts' => [
-                'base_seeds' => count($base_seeds),
+                'base_seeds' => count($static_seeds),
+                'static_seeds' => count($static_seeds),
                 'model_seeds' => count($model_seeds),
                 'tag_seeds' => count($tag_seeds),
                 'video_seeds' => count($video_seeds),
@@ -438,7 +440,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         $models = get_posts([
             'post_type' => 'model',
             'post_status' => 'publish',
-            'posts_per_page' => 100,
+            'posts_per_page' => -1,
             'fields' => 'ids',
             'orderby' => 'modified',
             'order' => 'DESC',
@@ -460,7 +462,6 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             $seeds[] = $model_name . ' cam girl';
             $seeds[] = $model_name . ' cam model';
             $seeds[] = $model_name . ' webcam chat';
-            $seeds[] = $model_name . ' live show';
         }
 
         return array_values(array_unique($seeds));
@@ -499,7 +500,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         $videos = get_posts([
             'post_type' => 'video',
             'post_status' => 'publish',
-            'posts_per_page' => 100,
+            'posts_per_page' => -1,
             'fields' => 'ids',
             'orderby' => 'modified',
             'order' => 'DESC',
@@ -525,35 +526,31 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
     }
 
     private static function get_category_seeds(): array {
-        // Add your top categories / tax terms as seeds (adaptive to theme).
-        $terms = [];
-        $taxes = get_taxonomies(['public' => true], 'names');
-        foreach ($taxes as $tax) {
-            if (strpos($tax, 'cat') === false && strpos($tax, 'category') === false) continue;
-            $t = get_terms([
-                'taxonomy' => $tax,
-                'hide_empty' => false,
-                'number' => 10,
-                'orderby' => 'count',
-                'order' => 'DESC',
-            ]);
-            if (is_wp_error($t) || empty($t)) continue;
-            foreach ($t as $term) {
-                if (!isset($term->name)) continue;
-                $name = trim((string)$term->name);
-                if ($name === '') {
-                    continue;
-                }
+        $terms = get_terms([
+            'taxonomy' => 'category',
+            'hide_empty' => false,
+            'number' => 200,
+            'orderby' => 'count',
+            'order' => 'DESC',
+        ]);
 
-                $terms[] = $name . ' cam';
-                $terms[] = $name . ' cam girl';
-                $terms[] = $name . ' webcam model';
-                $terms[] = $name . ' live cam';
-                $terms[] = 'best ' . $name . ' cam girls';
-            }
+        if (is_wp_error($terms) || empty($terms)) {
+            return [];
         }
 
-        return array_values(array_unique($terms));
+        $seeds = [];
+        foreach ($terms as $term) {
+            $name = trim((string) ($term->name ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $seeds[] = $name . ' cam girl';
+            $seeds[] = $name . ' webcam model';
+            $seeds[] = 'best ' . $name . ' cam girls';
+        }
+
+        return array_values(array_unique($seeds));
     }
 
     private static function get_competitor_seeds(): array {
