@@ -598,11 +598,12 @@ class AdminDashboardV2 {
             <?php else : ?>
                 <?php
                 self::table(
-                    [ 'Keyword', 'Competitor', 'Position', 'Traffic Estimate' ],
+                    [ 'Keyword', 'Competitor', 'Position', 'Search Volume', 'Traffic Estimate' ],
                     array_map( fn( $k ) => [
                         esc_html( $k['keyword'] ?? '' ),
                         esc_html( $k['competitor'] ?? '' ),
-                        '<strong>#' . esc_html( (string) (int) ( $k['position'] ?? 0 ) ) . '</strong>',
+                        '<strong>#' . esc_html( (string) (int) ( $k['competitor_position'] ?? 0 ) ) . '</strong>',
+                        esc_html( number_format( (int) ( $k['search_volume'] ?? 0 ) ) ),
                         '<strong>' . esc_html( number_format( (float) ( $k['estimated_traffic'] ?? 0 ), 2 ) ) . '</strong>',
                     ], array_slice( $top_traffic_keywords, 0, 20 ) ),
                     'Estimated monthly traffic based on position-based CTR and search volume'
