@@ -130,6 +130,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-suggest
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-suggestion-module.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-improvement-analyzer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-storage.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-materializer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-topical-authority-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-serp-weakness-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-engine.php';
@@ -256,6 +257,7 @@ class Plugin {
         wp_clear_scheduled_hook('tmwseo_daily');
         wp_clear_scheduled_hook('tmwseo_weekly');
         wp_clear_scheduled_hook('tmw_lighthouse_weekly_scan');
+        wp_clear_scheduled_hook('tmwseo_materialize_intelligence');
         wp_clear_scheduled_hook('tmwseo_orphan_scan_weekly');
         wp_clear_scheduled_hook('tmwseo_competitor_monitor_weekly');
         wp_clear_scheduled_hook('tmwseo_keyword_scheduler_monthly');

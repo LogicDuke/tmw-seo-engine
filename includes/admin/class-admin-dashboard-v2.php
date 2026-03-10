@@ -109,7 +109,7 @@ class AdminDashboardV2 {
 
         $raw_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_raw" );
         $cand_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates" );
-        $opp_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_opportunities" );
+        $opp_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_top_opportunities" );
 
         $orphan_data    = (array) get_option( OrphanPageDetector::OPTION_RESULTS, [] );
         $orphan_count   = (int) ( $orphan_data['orphan_count'] ?? 0 );
@@ -277,9 +277,9 @@ class AdminDashboardV2 {
         $raw_count      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_raw" );
         $cand_count     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates" );
         $approved_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates WHERE status='approved'" );
-        $cluster_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_clusters" );
-        $new_clusters   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_clusters WHERE status='new'" );
-        $opp_count      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_opportunities" );
+        $cluster_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_cluster_summary" );
+        $new_clusters   = 0;
+        $opp_count      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_top_opportunities" );
 
         self::wrap_open( 'Keywords' );
         self::tabs( [
@@ -341,9 +341,9 @@ class AdminDashboardV2 {
 
         elseif ( $tab === 'clusters' ) :
             $clusters = $wpdb->get_results(
-                "SELECT id, cluster_key, representative, total_volume, avg_difficulty, opportunity, status, page_id
-                 FROM {$wpdb->prefix}tmw_keyword_clusters
-                 ORDER BY opportunity DESC, total_volume DESC LIMIT 40",
+                "SELECT cluster_id, cluster_size, avg_volume, avg_difficulty, materialized_at
+                 FROM {$wpdb->prefix}tmwseo_cluster_summary
+                 ORDER BY cluster_size DESC, avg_volume DESC LIMIT 40",
                 ARRAY_A
             );
             ?>
@@ -354,16 +354,15 @@ class AdminDashboardV2 {
             </div>
             <?php
             self::table(
-                [ 'Opp Score', 'Volume', 'Avg KD', 'Representative Keyword', 'Status', 'Page' ],
+                [ 'Cluster ID', 'Cluster Size', 'Avg Volume', 'Avg KD', 'Materialized' ],
                 array_map( fn( $c ) => [
-                    '<strong>' . esc_html( $c['opportunity'] ) . '</strong>',
-                    esc_html( number_format( (int) $c['total_volume'] ) ),
-                    self::kd_badge( (float) $c['avg_difficulty'] ),
-                    esc_html( $c['representative'] ),
-                    self::status_badge( $c['status'] ),
-                    $c['page_id'] ? '<a href="' . esc_url( get_edit_post_link( (int) $c['page_id'] ) ) . '">Edit</a>' : '—',
+                    esc_html( (string) ( $c['cluster_id'] ?? '' ) ),
+                    '<strong>' . esc_html( number_format( (int) ( $c['cluster_size'] ?? 0 ) ) ) . '</strong>',
+                    esc_html( number_format( (int) ( $c['avg_volume'] ?? 0 ) ) ),
+                    self::kd_badge( (float) ( $c['avg_difficulty'] ?? 0 ) ),
+                    esc_html( substr( (string) ( $c['materialized_at'] ?? '' ), 0, 10 ) ),
                 ], $clusters ),
-                'Top 40 clusters by opportunity score'
+                'Materialized cluster summary (top 40 by cluster size)'
             );
 
 
@@ -397,8 +396,8 @@ class AdminDashboardV2 {
 
         elseif ( $tab === 'opportunities' ) :
             $opps = $wpdb->get_results(
-                "SELECT keyword, search_volume, difficulty, competitor_url, opportunity_score, status, created_at
-                 FROM {$wpdb->prefix}tmwseo_opportunities
+                "SELECT keyword, search_volume, difficulty, serp_weakness, opportunity_score, materialized_at
+                 FROM {$wpdb->prefix}tmwseo_top_opportunities
                  ORDER BY opportunity_score DESC LIMIT 40",
                 ARRAY_A
             );
@@ -409,17 +408,16 @@ class AdminDashboardV2 {
             </div>
             <?php
             self::table(
-                [ 'Keyword', 'Volume', 'KD', 'Competitor', 'Opp Score', 'Status', 'Found' ],
+                [ 'Keyword', 'Volume', 'KD', 'SERP Weakness', 'Opp Score', 'Materialized' ],
                 array_map( fn( $o ) => [
-                    esc_html( $o['keyword'] ),
-                    '<strong>' . esc_html( number_format( (int) $o['search_volume'] ) ) . '</strong>',
-                    self::kd_badge( (float) $o['difficulty'] ),
-                    esc_html( $o['competitor_url'] ?? '—' ),
-                    '<strong>' . esc_html( round( (float) $o['opportunity_score'], 1 ) ) . '</strong>',
-                    self::status_badge( $o['status'] ),
-                    esc_html( substr( $o['created_at'], 0, 10 ) ),
+                    esc_html( (string) ( $o['keyword'] ?? '' ) ),
+                    '<strong>' . esc_html( number_format( (int) ( $o['search_volume'] ?? 0 ) ) ) . '</strong>',
+                    self::kd_badge( (float) ( $o['difficulty'] ?? 0 ) ),
+                    esc_html( round( (float) ( $o['serp_weakness'] ?? 0 ), 2 ) ),
+                    '<strong>' . esc_html( round( (float) ( $o['opportunity_score'] ?? 0 ), 2 ) ) . '</strong>',
+                    esc_html( substr( (string) ( $o['materialized_at'] ?? '' ), 0, 10 ) ),
                 ], $opps ),
-                'Top 40 opportunities by score'
+                'Materialized top opportunities (top 40 by score)'
             );
         endif;
 

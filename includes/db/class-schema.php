@@ -184,6 +184,10 @@ class Schema {
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
         $internal_links = $wpdb->prefix . 'tmwseo_internal_links';
         $seeds_registry = $wpdb->prefix . 'tmwseo_seeds';
+        $top_opportunities = $wpdb->prefix . 'tmwseo_top_opportunities';
+        $cluster_summary = $wpdb->prefix . 'tmwseo_cluster_summary';
+        $entity_keyword_map = $wpdb->prefix . 'tmwseo_entity_keyword_map';
+        $keyword_trends = $wpdb->prefix . 'tmwseo_keyword_trends';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -506,6 +510,60 @@ class Schema {
             KEY target_status (target_post_id, status)
         ) $charset_collate;";
 
+        $sql_top_opportunities = "CREATE TABLE $top_opportunities (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NOT NULL DEFAULT 0,
+            difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+            serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
+            cluster_id VARCHAR(64) NOT NULL DEFAULT '',
+            opportunity_score DECIMAL(10,4) NOT NULL DEFAULT 0,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY score_volume (opportunity_score, search_volume),
+            KEY cluster_id (cluster_id),
+            KEY keyword (keyword)
+        ) $charset_collate;";
+
+        $sql_cluster_summary = "CREATE TABLE $cluster_summary (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            cluster_id VARCHAR(64) NOT NULL,
+            cluster_size INT(11) NOT NULL DEFAULT 0,
+            avg_volume DECIMAL(10,2) NOT NULL DEFAULT 0,
+            avg_difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY cluster_id (cluster_id),
+            KEY cluster_size (cluster_size)
+        ) $charset_collate;";
+
+        $sql_entity_keyword_map = "CREATE TABLE $entity_keyword_map (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            entity_type VARCHAR(32) NOT NULL,
+            entity_id BIGINT(20) UNSIGNED NOT NULL,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword_entity (keyword, entity_type, entity_id),
+            KEY entity_lookup (entity_type, entity_id),
+            KEY keyword (keyword)
+        ) $charset_collate;";
+
+        $sql_keyword_trends = "CREATE TABLE $keyword_trends (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            current_position INT(11) NOT NULL DEFAULT 0,
+            previous_position INT(11) NOT NULL DEFAULT 0,
+            rank_change INT(11) NOT NULL DEFAULT 0,
+            trend_score DECIMAL(10,2) NOT NULL DEFAULT 0,
+            snapshot_week VARCHAR(12) NOT NULL,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword_week (keyword, snapshot_week),
+            KEY trend_score (trend_score),
+            KEY rank_change (rank_change)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -539,6 +597,10 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_ranking_probability);
         dbDelta($sql_suggestions);
         dbDelta($sql_internal_links);
+        dbDelta($sql_top_opportunities);
+        dbDelta($sql_cluster_summary);
+        dbDelta($sql_entity_keyword_map);
+        dbDelta($sql_keyword_trends);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
