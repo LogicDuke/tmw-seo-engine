@@ -456,36 +456,41 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             'live adult chat',
         ];
 
-        $category_seeds = self::get_category_seeds();
-        $model_seeds = self::get_model_seeds();
-        $tag_seeds = self::get_tag_seeds();
-        $video_seeds = self::get_video_seeds();
-        $comp_seeds = self::get_competitor_seeds();
+        $source_counts = [
+            'base_seeds' => count($static_seeds),
+            'static_seeds' => 0,
+            'model_seeds' => 0,
+            'tag_seeds' => 0,
+            'video_seeds' => 0,
+            'category_seeds' => 0,
+            'competitor_seeds' => 0,
+            'total_seeds' => 0,
+        ];
 
-        $all = array_merge($static_seeds, $model_seeds, $tag_seeds, $video_seeds, $category_seeds, $comp_seeds);
-        $all = array_values(array_unique(array_filter(array_map('strval', $all))));
+        foreach ($static_seeds as $seed) {
+            if (SeedRegistry::register_seed($seed, 'static', 'system', 0)) {
+                $source_counts['static_seeds']++;
+            }
+        }
 
-        shuffle($all);
+        self::register_model_seeds($source_counts);
+        self::register_tag_seeds($source_counts);
+        self::register_video_seeds($source_counts);
+        self::register_category_seeds($source_counts);
+        self::register_competitor_seeds($source_counts);
 
-        $capped_limit = min(300, max(1, $limit));
-        $final_seeds = array_slice($all, 0, $capped_limit);
+        $orchestrated = DiscoveryOrchestrator::run(['source' => 'keyword_cycle']);
+        $final_seeds = array_slice((array) ($orchestrated['seeds'] ?? []), 0, min(300, max(1, $limit)));
+
+        $source_counts['total_seeds'] = count($final_seeds);
 
         return [
             'seeds' => $final_seeds,
-            'counts' => [
-                'base_seeds' => count($static_seeds),
-                'static_seeds' => count($static_seeds),
-                'model_seeds' => count($model_seeds),
-                'tag_seeds' => count($tag_seeds),
-                'video_seeds' => count($video_seeds),
-                'category_seeds' => count($category_seeds),
-                'competitor_seeds' => count($comp_seeds),
-                'total_seeds' => count($final_seeds),
-            ],
+            'counts' => $source_counts,
         ];
     }
 
-    private static function get_model_seeds(): array {
+    private static function register_model_seeds(array &$source_counts): void {
         $models = get_posts([
             'post_type' => 'model',
             'post_status' => 'publish',
@@ -496,27 +501,33 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ]);
 
         if (!is_array($models) || empty($models)) {
-            return [];
+            return;
         }
 
-        $seeds = [];
         foreach ($models as $model_id) {
-            $model_name = trim((string) get_the_title((int) $model_id));
+            $model_id = (int) $model_id;
+            $model_name = trim((string) get_the_title($model_id));
             if ($model_name === '') {
                 continue;
             }
 
-            $seeds[] = $model_name . ' webcam';
-            $seeds[] = $model_name . ' live cam';
-            $seeds[] = $model_name . ' cam girl';
-            $seeds[] = $model_name . ' cam model';
-            $seeds[] = $model_name . ' webcam chat';
-        }
+            $variants = [
+                $model_name . ' webcam',
+                $model_name . ' live cam',
+                $model_name . ' cam girl',
+                $model_name . ' cam model',
+                $model_name . ' webcam chat',
+            ];
 
-        return array_values(array_unique($seeds));
+            foreach ($variants as $seed) {
+                if (SeedRegistry::register_seed($seed, 'model', 'model', $model_id)) {
+                    $source_counts['model_seeds']++;
+                }
+            }
+        }
     }
 
-    private static function get_tag_seeds(): array {
+    private static function register_tag_seeds(array &$source_counts): void {
         $terms = get_terms([
             'taxonomy' => 'post_tag',
             'hide_empty' => false,
@@ -526,26 +537,31 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ]);
 
         if (is_wp_error($terms) || empty($terms)) {
-            return [];
+            return;
         }
 
-        $seeds = [];
         foreach ($terms as $term) {
             $name = trim((string) ($term->name ?? ''));
             if (mb_strlen($name, 'UTF-8') < 3) {
                 continue;
             }
 
-            $seeds[] = $name . ' cam girl';
-            $seeds[] = $name . ' webcam model';
-            $seeds[] = $name . ' live cam';
-            $seeds[] = $name . ' cam model';
-        }
+            $variants = [
+                $name . ' cam girl',
+                $name . ' webcam model',
+                $name . ' live cam',
+                $name . ' cam model',
+            ];
 
-        return array_values(array_unique($seeds));
+            foreach ($variants as $seed) {
+                if (SeedRegistry::register_seed($seed, 'tag', 'post_tag', (int) ($term->term_id ?? 0))) {
+                    $source_counts['tag_seeds']++;
+                }
+            }
+        }
     }
 
-    private static function get_video_seeds(): array {
+    private static function register_video_seeds(array &$source_counts): void {
         $videos = get_posts([
             'post_type' => 'video',
             'post_status' => 'publish',
@@ -556,25 +572,31 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ]);
 
         if (!is_array($videos) || empty($videos)) {
-            return [];
+            return;
         }
 
-        $seeds = [];
         foreach ($videos as $video_id) {
-            $title = trim((string) get_the_title((int) $video_id));
+            $video_id = (int) $video_id;
+            $title = trim((string) get_the_title($video_id));
             if ($title === '') {
                 continue;
             }
 
-            $seeds[] = $title . ' cam show';
-            $seeds[] = $title . ' live cam';
-            $seeds[] = $title . ' cam video';
-        }
+            $variants = [
+                $title . ' cam show',
+                $title . ' live cam',
+                $title . ' cam video',
+            ];
 
-        return array_values(array_unique($seeds));
+            foreach ($variants as $seed) {
+                if (SeedRegistry::register_seed($seed, 'video', 'video', $video_id)) {
+                    $source_counts['video_seeds']++;
+                }
+            }
+        }
     }
 
-    private static function get_category_seeds(): array {
+    private static function register_category_seeds(array &$source_counts): void {
         $terms = get_terms([
             'taxonomy' => 'category',
             'hide_empty' => false,
@@ -584,46 +606,54 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ]);
 
         if (is_wp_error($terms) || empty($terms)) {
-            return [];
+            return;
         }
 
-        $seeds = [];
         foreach ($terms as $term) {
             $name = trim((string) ($term->name ?? ''));
             if ($name === '') {
                 continue;
             }
 
-            $seeds[] = $name . ' cam girl';
-            $seeds[] = $name . ' webcam model';
-            $seeds[] = 'best ' . $name . ' cam girls';
-        }
+            $variants = [
+                $name . ' cam girl',
+                $name . ' webcam model',
+                'best ' . $name . ' cam girls',
+            ];
 
-        return array_values(array_unique($seeds));
-    }
-
-    private static function get_competitor_seeds(): array {
-        // Competitor rotation: pull 1 competitor's ranked keywords as extra seeds.
-        $competitors = Settings::competitor_domains();
-        $comp_seeds = [];
-        if (!empty($competitors) && DataForSEO::is_configured()) {
-            $rot = (int) get_option('tmwseo_engine_competitor_rot', 0);
-            $domain = $competitors[$rot % count($competitors)];
-            update_option('tmwseo_engine_competitor_rot', $rot + 1, false);
-
-            $rk = DataForSEO::ranked_keywords($domain, 50);
-            if ($rk['ok']) {
-                foreach (($rk['items'] ?? []) as $it) {
-                    $kw = '';
-                    if (is_array($it) && isset($it['keyword_data']['keyword'])) {
-                        $kw = (string)$it['keyword_data']['keyword'];
-                    }
-                    if ($kw !== '') $comp_seeds[] = $kw;
+            foreach ($variants as $seed) {
+                if (SeedRegistry::register_seed($seed, 'category', 'category', (int) ($term->term_id ?? 0))) {
+                    $source_counts['category_seeds']++;
                 }
             }
         }
+    }
 
-        return array_values(array_unique($comp_seeds));
+    private static function register_competitor_seeds(array &$source_counts): void {
+        $competitors = Settings::competitor_domains();
+        if (empty($competitors) || !DataForSEO::is_configured()) {
+            return;
+        }
+
+        $rot = (int) get_option('tmwseo_engine_competitor_rot', 0);
+        $domain = $competitors[$rot % count($competitors)];
+        update_option('tmwseo_engine_competitor_rot', $rot + 1, false);
+
+        $rk = DataForSEO::ranked_keywords($domain, 50);
+        if (!$rk['ok']) {
+            return;
+        }
+
+        foreach (($rk['items'] ?? []) as $it) {
+            $kw = '';
+            if (is_array($it) && isset($it['keyword_data']['keyword'])) {
+                $kw = (string) $it['keyword_data']['keyword'];
+            }
+
+            if ($kw !== '' && SeedRegistry::register_seed($kw, 'competitor', 'domain', 0)) {
+                $source_counts['competitor_seeds']++;
+            }
+        }
     }
 
     private static function rebuild_clusters(): void {

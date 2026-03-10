@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Debug;
 use TMWSEO\Engine\AutopilotMigrationRegistry;
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\TrustPolicy;
+use TMWSEO\Engine\Keywords\SeedRegistry;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -21,8 +22,12 @@ class DebugPanels {
         $review_bundle_count = self::meta_count('_tmwseo_review_bundle_prepared_at');
         $review_handoff_count = self::meta_count('_tmwseo_review_handoff_exported_at');
         $review_signoff_count = self::meta_count('_tmwseo_review_state');
+        $seed_diagnostics = SeedRegistry::diagnostics();
 
         $status = [
+            'seed registry total seeds' => (string) ((int) ($seed_diagnostics['total_seeds'] ?? 0)),
+            'seed registry used this cycle' => (string) ((int) ($seed_diagnostics['seeds_used_this_cycle'] ?? 0)),
+            'seed registry duplicates prevented' => (string) ((int) ($seed_diagnostics['duplicate_prevention_count'] ?? 0)),
             'DataForSEO status' => DataForSEO::is_configured() ? 'Ready' : 'Missing credentials',
             'keyword intelligence status' => self::meta_count('tmw_keyword_pack') > 0 ? 'Ready for Review' : 'Needs Attention',
             'clustering status' => self::table_count('tmw_keyword_clusters') > 0 ? 'Ready for Review' : 'Needs Attention',

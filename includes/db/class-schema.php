@@ -182,6 +182,7 @@ class Schema {
         $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
         $internal_links = $wpdb->prefix . 'tmwseo_internal_links';
+        $seeds_registry = $wpdb->prefix . 'tmwseo_seeds';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -203,6 +204,21 @@ class Schema {
             KEY status_run_after (status, run_after),
             KEY entity (entity_type, entity_id),
             KEY type (type)
+        ) $charset_collate;";
+
+        $sql_seeds_registry = "CREATE TABLE $seeds_registry (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            seed VARCHAR(255) NOT NULL,
+            source VARCHAR(50) NOT NULL,
+            entity_type VARCHAR(50) NOT NULL,
+            entity_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            last_used DATETIME NULL,
+            hash CHAR(32) NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY seed_hash (hash),
+            KEY source_entity (source, entity_type, entity_id),
+            KEY last_used (last_used)
         ) $charset_collate;";
 
         $sql_logs = "CREATE TABLE $logs (
@@ -476,6 +492,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
 
         dbDelta($sql_jobs);
         dbDelta($sql_logs);
+        dbDelta($sql_seeds_registry);
         dbDelta($sql_platform);
         dbDelta($sql_keywords);
         dbDelta($sql_competitors);

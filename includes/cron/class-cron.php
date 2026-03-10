@@ -1,6 +1,8 @@
 <?php
 namespace TMWSEO\Engine;
 
+use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
+
 if (!defined('ABSPATH')) { exit; }
 
 class Cron {
@@ -110,6 +112,7 @@ class Cron {
     public static function daily(): void {
         Logs::info('cron', 'Daily tick');
         Jobs::enqueue('healthcheck', 'system', null, ['note' => 'daily tick']);
+        DiscoveryOrchestrator::run(['source' => 'cron_keyword_cycle']);
         // alpha.8: keyword cycle (adaptive budget inside the job)
         Jobs::enqueue('keyword_cycle', 'system', null, ['trigger' => 'daily']);
     }
