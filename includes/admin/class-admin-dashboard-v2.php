@@ -510,6 +510,7 @@ class AdminDashboardV2 {
         $authority    = (array) get_option( CompetitorMonitor::OPTION_AUTHORITY, [] );
         $threats      = (array) ( $comp_data['threats'] ?? [] );
         $intersection = (array) ( $comp_data['intersection'] ?? [] );
+        $top_traffic_keywords = (array) ( $comp_data['top_traffic_keywords'] ?? [] );
         $last_run     = (string) get_option( CompetitorMonitor::OPTION_LAST_RUN, '' );
         $competitors  = Settings::competitor_domains();
 
@@ -580,6 +581,31 @@ class AdminDashboardV2 {
                         esc_html( substr( $t['found_at'], 0, 10 ) ),
                     ], $threats ),
                     'Keywords where competitors rank top 20 that overlap with your keyword set'
+                );
+                ?>
+            <?php endif; ?>
+        </div>
+
+
+        <!-- Top Competitor Traffic Keywords -->
+        <div class="td-card mb-6">
+            <div class="td-card-header">
+                <span class="td-card-icon">🚦</span>
+                <h3 class="td-card-title">Top Competitor Traffic Keywords</h3>
+            </div>
+            <?php if ( empty( $top_traffic_keywords ) ) : ?>
+                <?php self::empty_state( 'ℹ️', 'No competitor traffic data yet', 'Run a competitor scan to estimate traffic potential from competitor keywords.' ); ?>
+            <?php else : ?>
+                <?php
+                self::table(
+                    [ 'Keyword', 'Competitor', 'Position', 'Traffic Estimate' ],
+                    array_map( fn( $k ) => [
+                        esc_html( $k['keyword'] ?? '' ),
+                        esc_html( $k['competitor'] ?? '' ),
+                        '<strong>#' . esc_html( (string) (int) ( $k['position'] ?? 0 ) ) . '</strong>',
+                        '<strong>' . esc_html( number_format( (float) ( $k['estimated_traffic'] ?? 0 ), 2 ) ) . '</strong>',
+                    ], array_slice( $top_traffic_keywords, 0, 20 ) ),
+                    'Estimated monthly traffic based on position-based CTR and search volume'
                 );
                 ?>
             <?php endif; ?>

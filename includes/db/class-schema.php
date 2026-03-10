@@ -380,6 +380,8 @@ class Schema {
             difficulty DECIMAL(6,2) NULL,
             opportunity_score DECIMAL(6,2) NOT NULL DEFAULT 0,
             competitor_url VARCHAR(255) NOT NULL DEFAULT '',
+            competitor_position INT(11) NULL,
+            estimated_traffic DECIMAL(12,2) NULL,
             source VARCHAR(50) NOT NULL DEFAULT 'keyword_cycle',
             type VARCHAR(30) NOT NULL DEFAULT 'keyword',
             recommended_action VARCHAR(50) NOT NULL DEFAULT 'Create Draft',
