@@ -425,10 +425,22 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             ]);
 
             if (!empty($to_refresh)) {
-                $kd_res = DataForSEO::bulk_keyword_difficulty($to_refresh);
-                if ($kd_res['ok']) {
+                $chunks = array_chunk($to_refresh, 100);
+                $had_failures = false;
+
+                foreach ($chunks as $chunk) {
+                    $kd_res = DataForSEO::bulk_keyword_difficulty($chunk);
+                    if (!$kd_res['ok']) {
+                        $had_failures = true;
+                        Logs::warn('keywords', '[TMW-KW] KD refresh batch failed', [
+                            'error' => $kd_res['error'] ?? '',
+                            'batch_size' => count($chunk),
+                        ]);
+                        continue;
+                    }
+
                     $map = $kd_res['map'] ?? [];
-                    foreach ($to_refresh as $kw) {
+                    foreach ($chunk as $kw) {
                         $kwn = mb_strtolower($kw, 'UTF-8');
                         $kd = $map[$kwn] ?? null;
                         if ($kd === null) continue;
@@ -464,9 +476,18 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
 
                         $updated++;
                     }
-                    Logs::info('keywords', '[TMW-KW] KD refreshed', ['updated' => $updated, 'scored' => count($to_score)]);
-                } else {
-                    Logs::warn('keywords', '[TMW-KW] KD refresh failed', ['error' => $kd_res['error'] ?? '']);
+                }
+
+                Logs::info('keywords', '[TMW-KW] KD refreshed', [
+                    'updated' => $updated,
+                    'scored' => count($to_score),
+                    'batched_requests' => count($chunks),
+                ]);
+
+                if ($had_failures) {
+                    Logs::warn('keywords', '[TMW-KW] One or more KD batches failed', [
+                        'batch_count' => count($chunks),
+                    ]);
                 }
             } else {
                 Logs::info('keywords', '[TMW-KW] KD refresh skipped — all keywords recently checked');
