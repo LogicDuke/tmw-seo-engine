@@ -68,7 +68,7 @@ class CompetitorMonitor {
             }
 
             // 2. Get keywords the competitor ranks for
-            $res = DataForSEO::domain_organic_keywords( $domain, 300 );
+            $res = DataForSEO::ranked_keywords( $domain, 300 );
             if ( ! ( $res['ok'] ?? false ) ) {
                 Logs::warn( 'competitor_monitor', "Failed to fetch keywords for {$domain}", [ 'error' => $res['error'] ?? '' ] );
                 continue;
@@ -140,8 +140,6 @@ class CompetitorMonitor {
 
     private static function fetch_domain_authority( string $domain ): ?array {
         // DataForSEO backlinks_summary endpoint
-        $payload = [ [ 'target' => $domain, 'include_subdomains' => true ] ];
-
         $res = DataForSEO::backlinks_summary( $domain );
         if ( ! ( $res['ok'] ?? false ) ) return null;
 

@@ -39,7 +39,7 @@ class OpportunityEngine {
 
         $all_competitor_keywords = [];
         foreach ($competitors as $domain) {
-            $res = DataForSEO::domain_organic_keywords((string) $domain, 500);
+            $res = DataForSEO::ranked_keywords((string) $domain, 500);
             if (empty($res['ok'])) {
                 Logs::warn('opportunities', '[TMW-OPP] Competitor scan failed', [
                     'domain' => $domain,

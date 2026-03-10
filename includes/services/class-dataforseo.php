@@ -41,6 +41,12 @@ class DataForSEO {
 
         $args['headers']['Authorization'] = 'Basic ' . base64_encode(trim($login) . ':' . trim($pass));
 
+        DebugLogger::log_api_request([
+            'service' => 'dataforseo',
+            'path' => $path,
+            'request' => $post_array,
+        ]);
+
         $started_at = microtime(true);
         $resp = wp_remote_post($url, $args);
 
@@ -64,6 +70,11 @@ class DataForSEO {
                 'path' => $path,
                 'error' => $resp->get_error_message(),
             ]);
+            DebugLogger::log_api_request([
+                'service' => 'dataforseo',
+                'path' => $path,
+                'error' => $resp->get_error_message(),
+            ]);
             Logs::error('dataforseo', 'WP error', ['error' => $resp->get_error_message(), 'path' => $path]);
             return ['ok' => false, 'error' => $resp->get_error_message()];
         }
@@ -79,6 +90,13 @@ class DataForSEO {
                 'body' => substr($raw, 0, 300),
             ]);
             Logs::error('dataforseo', 'Bad response', ['code' => $code, 'path' => $path, 'body' => substr($raw, 0, 500)]);
+            DebugLogger::log_api_request([
+                'service' => 'dataforseo',
+                'path' => $path,
+                'http_code' => $code,
+                'response' => is_array($json) ? $json : substr($raw, 0, 2000),
+                'error' => 'bad_response',
+            ]);
             return ['ok' => false, 'error' => 'bad_response', 'code' => $code, 'body' => $raw];
         }
 
@@ -90,11 +108,38 @@ class DataForSEO {
                 'path' => $path,
                 'body' => substr($raw, 0, 500),
             ]);
+            DebugLogger::log_api_request([
+                'service' => 'dataforseo',
+                'path' => $path,
+                'http_code' => $code,
+                'status_code' => (int) $json['status_code'],
+                'status_message' => (string) ($json['status_message'] ?? ''),
+                'response' => $json,
+            ]);
+        }
+
+        $tasks = $json['tasks'] ?? null;
+        if (!is_array($tasks) || empty($tasks)) {
+            Logs::error('dataforseo', 'Empty tasks response', ['path' => $path, 'body' => substr($raw, 0, 500)]);
+            DebugLogger::log_api_request([
+                'service' => 'dataforseo',
+                'path' => $path,
+                'http_code' => $code,
+                'response' => $json,
+                'error' => 'empty_tasks',
+            ]);
+            return ['ok' => false, 'error' => 'empty_tasks', 'code' => $code, 'data' => $json];
         }
 
         $response_time_ms = (microtime(true) - $started_at) * 1000;
         $keywords_returned = self::extract_keywords_count($json);
         DebugAPIMonitor::record_request($path, $code, $response_time_ms, $keywords_returned);
+        DebugLogger::log_api_request([
+            'service' => 'dataforseo',
+            'path' => $path,
+            'http_code' => $code,
+            'response' => $json,
+        ]);
 
         return ['ok' => true, 'data' => $json];
     }
@@ -128,27 +173,6 @@ class DataForSEO {
         ]];
 
         $res = self::post('/v3/dataforseo_labs/google/keyword_suggestions/live', $payload);
-        if (!$res['ok']) return $res;
-
-        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
-        if (!is_array($items)) $items = [];
-        return ['ok' => true, 'items' => $items, 'raw' => $res['data']];
-    }
-
-    public static function keyword_ideas(array $seed_keywords, int $limit = 200): array {
-        $seed_keywords = array_values(array_filter(array_map('strval', $seed_keywords)));
-        $seed_keywords = array_slice($seed_keywords, 0, 200);
-
-        $payload = [[
-            'keywords' => array_map(fn($k) => mb_strtolower($k, 'UTF-8'), $seed_keywords),
-            'location_code' => self::loc_code(),
-            'language_code' => self::lang_code(),
-            'include_serp_info' => false,
-            'include_clickstream_data' => false,
-            'limit' => min(1000, max(10, $limit)),
-        ]];
-
-        $res = self::post('/v3/dataforseo_labs/google/keyword_ideas/live', $payload);
         if (!$res['ok']) return $res;
 
         $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
@@ -232,14 +256,6 @@ class DataForSEO {
     }
 
     /**
-     * Backward-compatible alias of ranked_keywords().
-     */
-    public static function domain_organic_keywords(string $domain, int $limit = 500): array {
-        return self::ranked_keywords($domain, $limit);
-    }
-
-
-    /**
      * Search volume enrichment (Google Ads keywords_data endpoint).
      *
      * @param string[] $keywords
@@ -256,7 +272,7 @@ class DataForSEO {
             'include_adult_keywords' => true,
         ]];
 
-        $res = self::post('/v3/keywords_data/google_ads/search_volume/live', $payload);
+        $res = self::post('/v3/keywords_data/google/search_volume/live', $payload);
         if (!$res['ok']) return $res;
 
         $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
@@ -327,6 +343,7 @@ class DataForSEO {
                 'heading_count'  => 0, // not available at this endpoint
                 'faq_count'      => 0,
                 'position'       => (int) ($item['rank_absolute'] ?? 0),
+                'word_count'     => (int) ($item['ranked_serp_element']['word_count'] ?? 0),
             ];
         }
 
@@ -414,4 +431,3 @@ class DataForSEO {
         return self::search_volume($keywords);
     }
 }
-
