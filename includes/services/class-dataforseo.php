@@ -16,6 +16,7 @@ class DataForSEO {
         '/v3/dataforseo_labs/google/related_keywords/live'    => 0.01,
         '/v3/dataforseo_labs/google/bulk_keyword_difficulty/live' => 0.02,
         '/v3/dataforseo_labs/google/ranked_keywords/live'     => 0.02,
+        '/v3/serp/google/organic/live/advanced'               => 0.02,
     ];
 
     public static function is_configured(): bool {
@@ -552,16 +553,33 @@ class DataForSEO {
         $normalised = [];
         foreach ($items as $item) {
             if (($item['type'] ?? '') !== 'organic') continue;
+            $url = (string) ($item['url'] ?? '');
+            $host = (string) parse_url($url, PHP_URL_HOST);
+            if ($host === '') {
+                $host = (string) ($item['domain'] ?? '');
+            }
+            $host = strtolower(preg_replace('/^www\./i', '', $host));
+
+            $content_length = 0;
+            if (isset($item['ranked_serp_element']['word_count'])) {
+                $content_length = (int) $item['ranked_serp_element']['word_count'];
+            } elseif (isset($item['word_count'])) {
+                $content_length = (int) $item['word_count'];
+            }
+
             $normalised[] = [
+                'domain'         => $host,
                 'url'            => $item['url'] ?? '',
                 'title'          => $item['title'] ?? '',
                 'snippet'        => $item['description'] ?? '',
-                'domain_rating'  => (float) ($item['domain_info']['domain_rank'] ?? $item['domain_rank'] ?? 50),
+                'domain_rank'    => (float) ($item['domain_info']['domain_rank'] ?? $item['domain_rank'] ?? 50),
+                'domain_rating'  => (float) ($item['domain_info']['domain_rank'] ?? $item['domain_rank'] ?? 50), // backward compat
                 'age_days'       => isset($item['timestamp']) ? (int) ((time() - strtotime((string)$item['timestamp'])) / 86400) : 0,
                 'heading_count'  => 0, // not available at this endpoint
                 'faq_count'      => 0,
                 'position'       => (int) ($item['rank_absolute'] ?? 0),
-                'word_count'     => (int) ($item['ranked_serp_element']['word_count'] ?? 0),
+                'content_length' => $content_length,
+                'word_count'     => $content_length, // backward compat
             ];
         }
 

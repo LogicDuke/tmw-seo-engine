@@ -35,13 +35,17 @@ class Schema {
             $serp_analysis => "CREATE TABLE $serp_analysis (
                 id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 keyword VARCHAR(255) NOT NULL,
-                serp_weakness_score DECIMAL(4,2) NOT NULL DEFAULT 1,
+                cluster_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                serp_weakness_score DECIMAL(6,4) NOT NULL DEFAULT 0,
+                competitor_count INT(11) NOT NULL DEFAULT 0,
                 reason TEXT NULL,
                 signals_json LONGTEXT NULL,
+                analyzed_at DATETIME NOT NULL,
                 created_at DATETIME NOT NULL,
                 PRIMARY KEY (id),
                 KEY keyword (keyword),
-                KEY score_created (serp_weakness_score, created_at)
+                KEY cluster_id (cluster_id),
+                KEY score_created (serp_weakness_score, analyzed_at)
             ) $charset_collate;",
 
             $seo_competitors => "CREATE TABLE $seo_competitors (
