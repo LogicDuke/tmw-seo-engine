@@ -242,7 +242,7 @@ class RankingProbabilityOrchestrator {
         }
 
         // Pull from persisted serp_analysis table
-        $table = $wpdb->prefix . 'tmwseo_serp_analysis';
+        $table = IntelligenceStorage::table_serp_analysis();
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
             $detail['competitor_weakness'] = [ 'score' => 50, 'source' => 'table_missing' ];
             return 50.0;
@@ -257,9 +257,19 @@ class RankingProbabilityOrchestrator {
             return 50.0;
         }
 
-        // serp_weakness_score is 1–10, convert to 0–100 for probability engine
-        $score = ( (float) $row->serp_weakness_score / 10 ) * 100;
-        $detail['competitor_weakness'] = [ 'score' => round( $score, 1 ), 'weakness_score_raw' => $row->serp_weakness_score ];
+        // serp_weakness_score is now a ratio (0+). Convert to 0–100 and boost opportunities above 0.3
+        $weakness_ratio = max( 0.0, (float) $row->serp_weakness_score );
+        $score = min( 100, $weakness_ratio * 100 );
+
+        if ( $weakness_ratio > 0.3 ) {
+            $score = min( 100, $score + 10 );
+        }
+
+        $detail['competitor_weakness'] = [
+            'score' => round( $score, 1 ),
+            'weakness_score_raw' => $row->serp_weakness_score,
+            'opportunity_boost_applied' => ( $weakness_ratio > 0.3 ),
+        ];
         return round( $score, 1 );
     }
 
