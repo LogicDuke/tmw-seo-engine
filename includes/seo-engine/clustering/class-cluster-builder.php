@@ -24,7 +24,7 @@ class ClusterBuilder {
 
     /**
      * @param string[] $keywords
-     * @param array<string,array{intent_type?:string,entity_type?:string,entity_id?:int}> $classification_map
+     * @param array<string,array{intent_type?:string,entity_type?:string,entity_id?:int,entities?:array<int,array{entity_type:string,entity_name:string,source_id?:int}>}> $classification_map
      * @return array<int,array{cluster:string,primary:string,keywords:string[]}>
      */
     public function build(array $keywords, array $classification_map = []): array {
@@ -45,6 +45,12 @@ class ClusterBuilder {
                     && (int) ($entry['entity_id'] ?? 0) > 0
                     && (int) ($entry['entity_id'] ?? 0) === (int) ($cluster_map[$cluster_key]['entity_id'] ?? 0)) {
                     $score += 1.0;
+                }
+
+                $entry_combo = (string) ($entry['entity_combo_key'] ?? '');
+                $cluster_combo = (string) ($cluster_map[$cluster_key]['entity_combo_key'] ?? '');
+                if ($entry_combo !== '' && $cluster_combo !== '' && $entry_combo === $cluster_combo) {
+                    $score += 1.2;
                 }
 
                 if (($entry['intent_type'] ?? 'generic') === ($cluster_map[$cluster_key]['intent_type'] ?? '')) {
@@ -88,6 +94,7 @@ class ClusterBuilder {
                 'entity_type' => (string) ($entry['entity_type'] ?? 'generic'),
                 'entity_id' => (int) ($entry['entity_id'] ?? 0),
                 'intent_type' => (string) ($entry['intent_type'] ?? 'generic'),
+                'entity_combo_key' => (string) ($entry['entity_combo_key'] ?? ''),
             ];
             $cluster_order[] = $cluster_key;
         }
@@ -132,8 +139,8 @@ class ClusterBuilder {
 
     /**
      * @param string[] $keywords
-     * @param array<string,array{intent_type?:string,entity_type?:string,entity_id?:int}> $classification_map
-     * @return array<int,array{keyword:string,normalized:string,tokens:string[],intent_type:string,entity_type:string,entity_id:int}>
+     * @param array<string,array{intent_type?:string,entity_type?:string,entity_id?:int,entities?:array<int,array{entity_type:string,entity_name:string,source_id?:int}>}> $classification_map
+     * @return array<int,array{keyword:string,normalized:string,tokens:string[],intent_type:string,entity_type:string,entity_id:int,entity_combo_key:string}>
      */
     private function prepare_keywords(array $keywords, array $classification_map = []): array {
         $unique = [];
@@ -156,6 +163,8 @@ class ClusterBuilder {
 
             $classification = $classification_map[strtolower($keyword)] ?? [];
 
+            $entity_combo_key = $this->build_entity_combo_key((array) ($classification['entities'] ?? []));
+
             $entries[] = [
                 'keyword' => $keyword,
                 'normalized' => implode(' ', $tokens),
@@ -163,6 +172,7 @@ class ClusterBuilder {
                 'intent_type' => (string) ($classification['intent_type'] ?? 'generic'),
                 'entity_type' => (string) ($classification['entity_type'] ?? 'generic'),
                 'entity_id' => (int) ($classification['entity_id'] ?? 0),
+                'entity_combo_key' => $entity_combo_key,
             ];
         }
 
@@ -176,6 +186,33 @@ class ClusterBuilder {
         });
 
         return $entries;
+    }
+
+
+    /**
+     * @param array<int,array{entity_type:string,entity_name:string,source_id?:int}> $entities
+     */
+    private function build_entity_combo_key(array $entities): string {
+        $parts = [];
+        foreach ($entities as $entity) {
+            if (!is_array($entity)) {
+                continue;
+            }
+            $type = strtolower(trim((string) ($entity['entity_type'] ?? '')));
+            $name = strtolower(trim((string) ($entity['entity_name'] ?? '')));
+            if ($type === '' || $name === '') {
+                continue;
+            }
+            $parts[] = $type . ':' . $name;
+        }
+
+        if (empty($parts)) {
+            return '';
+        }
+
+        $parts = array_values(array_unique($parts));
+        sort($parts, SORT_NATURAL | SORT_FLAG_CASE);
+        return implode('|', $parts);
     }
 
     /** @param string[] $tokens_a @param string[] $tokens_b */

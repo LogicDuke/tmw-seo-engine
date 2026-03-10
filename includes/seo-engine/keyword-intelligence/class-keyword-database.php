@@ -5,10 +5,22 @@ if (!defined('ABSPATH')) { exit; }
 
 class KeywordDatabase {
     public const TABLE_SUFFIX = 'tmwseo_keywords';
+    public const ENTITY_TABLE_SUFFIX = 'tmw_seo_entities';
+    public const ENTITY_KEYWORD_TABLE_SUFFIX = 'tmw_seo_entity_keyword';
 
     public static function table_name(): string {
         global $wpdb;
         return $wpdb->prefix . self::TABLE_SUFFIX;
+    }
+
+    public static function entity_table_name(): string {
+        global $wpdb;
+        return $wpdb->prefix . self::ENTITY_TABLE_SUFFIX;
+    }
+
+    public static function entity_keyword_table_name(): string {
+        global $wpdb;
+        return $wpdb->prefix . self::ENTITY_KEYWORD_TABLE_SUFFIX;
     }
 
     public static function create_table(): void {
@@ -46,6 +58,29 @@ class KeywordDatabase {
         ) {$charset_collate};";
 
         dbDelta($sql);
+
+        $entity_table = self::entity_table_name();
+        $entity_keyword_table = self::entity_keyword_table_name();
+
+        $entity_sql = "CREATE TABLE {$entity_table} (
+            entity_id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            entity_type VARCHAR(50) NOT NULL,
+            entity_name VARCHAR(191) NOT NULL,
+            PRIMARY KEY (entity_id),
+            UNIQUE KEY entity_unique (entity_type, entity_name),
+            KEY entity_lookup (entity_type)
+        ) {$charset_collate};";
+
+        $entity_keyword_sql = "CREATE TABLE {$entity_keyword_table} (
+            keyword_id BIGINT(20) UNSIGNED NOT NULL,
+            entity_id BIGINT(20) UNSIGNED NOT NULL,
+            PRIMARY KEY (keyword_id, entity_id),
+            KEY entity_lookup (entity_id),
+            KEY keyword_lookup (keyword_id)
+        ) {$charset_collate};";
+
+        dbDelta($entity_sql);
+        dbDelta($entity_keyword_sql);
     }
 
     /**
@@ -89,7 +124,7 @@ class KeywordDatabase {
     }
 
     /**
-     * @param array{keyword:string,search_volume?:int,difficulty?:float,expanded_level?:int,serp_weakness?:float,opportunity_score?:float,source?:string,intent_type?:string,entity_type?:string,entity_id?:int} $metrics
+     * @param array{keyword:string,search_volume?:int,difficulty?:float,expanded_level?:int,serp_weakness?:float,opportunity_score?:float,source?:string,intent_type?:string,entity_type?:string,entity_id?:int,entities?:array<int,array{entity_type:string,entity_name:string,source_id?:int}>} $metrics
      */
     public static function upsert_metrics(array $metrics): void {
         global $wpdb;
@@ -131,6 +166,92 @@ class KeywordDatabase {
             $now,
             $now
         ));
+
+        self::sync_keyword_entities((int) $wpdb->insert_id, $keyword, (array) ($metrics['entities'] ?? []));
+    }
+
+    /**
+     * @param array<int,array{entity_type:string,entity_name:string,source_id?:int}> $entities
+     */
+    private static function sync_keyword_entities(int $keyword_id, string $keyword, array $entities): void {
+        global $wpdb;
+
+        if ($keyword_id <= 0) {
+            $keyword_id = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM " . self::table_name() . " WHERE keyword = %s LIMIT 1",
+                $keyword
+            ));
+        }
+
+        if ($keyword_id <= 0) {
+            return;
+        }
+
+        $normalized = [];
+        foreach ($entities as $entity) {
+            if (!is_array($entity)) {
+                continue;
+            }
+            $type = sanitize_key((string) ($entity['entity_type'] ?? ''));
+            $name = strtolower(trim((string) ($entity['entity_name'] ?? '')));
+            if ($type === '' || $name === '') {
+                continue;
+            }
+            $key = $type . '::' . $name;
+            $normalized[$key] = ['entity_type' => $type, 'entity_name' => $name];
+        }
+
+        if (empty($normalized)) {
+            return;
+        }
+
+        $entity_ids = [];
+        $entity_table = self::entity_table_name();
+        $entity_keyword_table = self::entity_keyword_table_name();
+
+        foreach (array_values($normalized) as $entity) {
+            $type = $entity['entity_type'];
+            $name = $entity['entity_name'];
+
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO {$entity_table} (entity_type, entity_name) VALUES (%s, %s)
+                 ON DUPLICATE KEY UPDATE entity_id = LAST_INSERT_ID(entity_id)",
+                $type,
+                $name
+            ));
+
+            $entity_id = (int) $wpdb->insert_id;
+            if ($entity_id <= 0) {
+                $entity_id = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT entity_id FROM {$entity_table} WHERE entity_type = %s AND entity_name = %s LIMIT 1",
+                    $type,
+                    $name
+                ));
+            }
+
+            if ($entity_id > 0) {
+                $entity_ids[] = $entity_id;
+                $wpdb->query($wpdb->prepare(
+                    "INSERT INTO {$entity_keyword_table} (keyword_id, entity_id) VALUES (%d, %d)
+                     ON DUPLICATE KEY UPDATE keyword_id = VALUES(keyword_id)",
+                    $keyword_id,
+                    $entity_id
+                ));
+            }
+        }
+
+        $entity_ids = array_values(array_unique(array_filter($entity_ids)));
+        if (empty($entity_ids)) {
+            return;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($entity_ids), '%d'));
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$entity_keyword_table}
+             WHERE keyword_id = %d
+               AND entity_id NOT IN ({$placeholders})",
+            ...array_merge([$keyword_id], $entity_ids)
+        ));
     }
 
     /**
@@ -166,6 +287,39 @@ class KeywordDatabase {
         }
 
         return $map;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    public static function get_generation_candidates_by_entity_combinations(int $limit): array {
+        global $wpdb;
+
+        $limit = max(1, min(100, $limit));
+        $table = self::table_name();
+        $entity_table = self::entity_table_name();
+        $entity_keyword_table = self::entity_keyword_table_name();
+
+        return (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT k.keyword, k.search_volume, k.difficulty, k.ranking_probability, k.mapped_url,
+                    SUM(CASE WHEN e.entity_type = 'model' THEN 1 ELSE 0 END) AS model_count,
+                    SUM(CASE WHEN e.entity_type = 'category' THEN 1 ELSE 0 END) AS category_count,
+                    GROUP_CONCAT(DISTINCT CONCAT(e.entity_type, ':', e.entity_name) ORDER BY e.entity_type, e.entity_name SEPARATOR '|') AS entity_combo
+             FROM {$table} k
+             LEFT JOIN {$entity_keyword_table} ek ON ek.keyword_id = k.id
+             LEFT JOIN {$entity_table} e ON e.entity_id = ek.entity_id
+             WHERE k.search_volume >= %d
+               AND k.difficulty <= %d
+               AND k.ranking_probability >= %f
+               AND (k.mapped_url IS NULL OR k.mapped_url = '')
+             GROUP BY k.id
+             ORDER BY k.ranking_probability DESC, k.search_volume DESC
+             LIMIT %d",
+            50,
+            40,
+            0.6,
+            $limit
+        ), ARRAY_A);
     }
 
     /**

@@ -57,6 +57,7 @@ class KeywordIntelligence {
             $row['intent_type'] = (string) ($classification['intent_type'] ?? 'generic');
             $row['entity_type'] = (string) ($classification['entity_type'] ?? 'generic');
             $row['entity_id'] = (int) ($classification['entity_id'] ?? 0);
+            $row['entities'] = (array) ($classification['entities'] ?? []);
             $row['score'] = $score;
             $scored[] = $row;
         }

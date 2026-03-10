@@ -73,12 +73,18 @@ class KeywordExpander {
                 continue;
             }
 
+            $classification = KeywordClassifier::classify($keyword);
+
             KeywordDatabase::upsert_metrics([
                 'keyword' => $keyword,
                 'search_volume' => (int) ($row['search_volume'] ?? 0),
                 'difficulty' => (float) ($row['keyword_difficulty'] ?? 0),
                 'expanded_level' => (int) ($row['expanded_level'] ?? 0),
                 'source' => 'dataforseo',
+                'intent_type' => (string) ($classification['intent_type'] ?? 'generic'),
+                'entity_type' => (string) ($classification['entity_type'] ?? 'generic'),
+                'entity_id' => (int) ($classification['entity_id'] ?? 0),
+                'entities' => (array) ($classification['entities'] ?? []),
             ]);
         }
 
