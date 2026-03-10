@@ -181,6 +181,7 @@ class Schema {
         $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
         $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
+        $internal_links = $wpdb->prefix . 'tmwseo_internal_links';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -445,6 +446,24 @@ class Schema {
             KEY type (type)
         ) $charset_collate;";
 
+        $sql_internal_links = "CREATE TABLE $internal_links (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            source_post_id BIGINT(20) UNSIGNED NOT NULL,
+            source_url VARCHAR(255) NOT NULL,
+            source_title VARCHAR(255) NOT NULL,
+            target_post_id BIGINT(20) UNSIGNED NOT NULL,
+            target_url VARCHAR(255) NOT NULL,
+            target_title VARCHAR(255) NOT NULL,
+            anchor VARCHAR(255) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'suggested',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY source_target_anchor (source_post_id, target_post_id, anchor),
+            KEY source_status (source_post_id, status),
+            KEY target_status (target_post_id, status)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -473,6 +492,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_seo_competitors);
         dbDelta($sql_ranking_probability);
         dbDelta($sql_suggestions);
+        dbDelta($sql_internal_links);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────

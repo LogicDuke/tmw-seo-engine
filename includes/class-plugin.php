@@ -54,6 +54,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-rankin
 require_once TMWSEO_ENGINE_PATH . 'includes/schema/class-schema-generator.php';
 // Orphan Page Detector (zero inbound internal links)
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-orphan-page-detector.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-internal-link-opportunities.php';
 // CSV Exporter
 require_once TMWSEO_ENGINE_PATH . 'includes/export/class-csv-exporter.php';
 // Competitor Monitor (weekly domain authority + keyword threat detection)
@@ -317,6 +318,7 @@ class Plugin {
         if ((bool) \TMWSEO\Engine\Services\Settings::get('orphan_scan_enabled', 1)) {
             \TMWSEO\Engine\InternalLinks\OrphanPageDetector::init();
         }
+        \TMWSEO\Engine\InternalLinks\InternalLinkOpportunities::init();
         // CSV exporter
         \TMWSEO\Engine\Export\CSVExporter::init();
         // Competitor monitor
