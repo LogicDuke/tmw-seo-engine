@@ -188,6 +188,7 @@ class Schema {
         $cluster_summary = $wpdb->prefix . 'tmwseo_cluster_summary';
         $entity_keyword_map = $wpdb->prefix . 'tmwseo_entity_keyword_map';
         $keyword_trends = $wpdb->prefix . 'tmwseo_keyword_trends';
+        $keyword_metrics_cache = $wpdb->prefix . 'tmwseo_keywords';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -567,6 +568,20 @@ class Schema {
             KEY rank_change (rank_change)
         ) $charset_collate;";
 
+        $sql_keyword_metrics_cache = "CREATE TABLE $keyword_metrics_cache (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NULL,
+            difficulty DECIMAL(6,2) NULL,
+            serp_score DECIMAL(6,2) NULL,
+            last_checked DATETIME NOT NULL,
+            source VARCHAR(50) NOT NULL DEFAULT 'dataforseo',
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword (keyword),
+            KEY last_checked (last_checked),
+            KEY source (source)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -604,6 +619,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_cluster_summary);
         dbDelta($sql_entity_keyword_map);
         dbDelta($sql_keyword_trends);
+        dbDelta($sql_keyword_metrics_cache);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────

@@ -162,9 +162,93 @@ class DataForSEO {
         return count($items);
     }
 
+    private static function keyword_metrics_table(): string {
+        global $wpdb;
+        return $wpdb->prefix . 'tmwseo_keywords';
+    }
+
+    /**
+     * @param string[] $keywords
+     * @return array<string,array<string,mixed>>
+     */
+    private static function get_recent_keyword_metrics(array $keywords, int $max_age_days = 30): array {
+        global $wpdb;
+
+        $keywords = array_values(array_unique(array_filter(array_map('strval', $keywords))));
+        if (empty($keywords)) {
+            return [];
+        }
+
+        $table = self::keyword_metrics_table();
+        $placeholders = implode(',', array_fill(0, count($keywords), '%s'));
+        $since = gmdate('Y-m-d H:i:s', time() - ($max_age_days * DAY_IN_SECONDS));
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT keyword, search_volume, difficulty, serp_score, last_checked, source
+                 FROM {$table}
+                 WHERE keyword IN ({$placeholders})
+                   AND last_checked >= %s",
+                ...array_merge($keywords, [$since])
+            ),
+            ARRAY_A
+        );
+
+        if (!is_array($rows)) {
+            return [];
+        }
+
+        $map = [];
+        foreach ($rows as $row) {
+            $kw = isset($row['keyword']) ? (string) $row['keyword'] : '';
+            if ($kw === '') {
+                continue;
+            }
+            $map[$kw] = $row;
+        }
+
+        return $map;
+    }
+
+    private static function upsert_keyword_metric(string $keyword, ?int $search_volume, ?float $difficulty, ?float $serp_score, string $source): void {
+        global $wpdb;
+
+        $keyword = trim($keyword);
+        if ($keyword === '') {
+            return;
+        }
+
+        $table = self::keyword_metrics_table();
+        $wpdb->query(
+            $wpdb->prepare(
+                "INSERT INTO {$table} (keyword, search_volume, difficulty, serp_score, last_checked, source)
+                 VALUES (%s, %d, %f, %f, %s, %s)
+                 ON DUPLICATE KEY UPDATE
+                    search_volume = VALUES(search_volume),
+                    difficulty = VALUES(difficulty),
+                    serp_score = VALUES(serp_score),
+                    last_checked = VALUES(last_checked),
+                    source = VALUES(source)",
+                $keyword,
+                (int) ($search_volume ?? 0),
+                (float) ($difficulty ?? 0.0),
+                (float) ($serp_score ?? 0.0),
+                current_time('mysql', true),
+                $source
+            )
+        );
+    }
+
     public static function keyword_suggestions(string $seed_keyword, int $limit = 200): array {
+        $keyword = mb_strtolower(trim($seed_keyword), 'UTF-8');
+        $cache_key = 'tmwseo_kw_expand_' . md5($keyword);
+        $cached = get_transient($cache_key);
+        if (is_array($cached) && isset($cached['keyword_suggestions']) && is_array($cached['keyword_suggestions'])) {
+            return $cached['keyword_suggestions'];
+        }
+
         $payload = [[
-            'keyword' => mb_strtolower($seed_keyword, 'UTF-8'),
+            'keyword' => $keyword,
             'location_code' => self::loc_code(),
             'language_code' => self::lang_code(),
             'include_seed_keyword' => true,
@@ -178,12 +262,25 @@ class DataForSEO {
 
         $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
         if (!is_array($items)) $items = [];
-        return ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        $cache_payload = is_array($cached) ? $cached : [];
+        $cache_payload['keyword_suggestions'] = $result;
+        set_transient($cache_key, $cache_payload, WEEK_IN_SECONDS);
+
+        return $result;
     }
 
     public static function related_keywords(string $seed_keyword, int $depth = 1, int $limit = 200): array {
+        $keyword = mb_strtolower(trim($seed_keyword), 'UTF-8');
+        $cache_key = 'tmwseo_kw_expand_' . md5($keyword);
+        $cached = get_transient($cache_key);
+        if (is_array($cached) && isset($cached['related_keywords']) && is_array($cached['related_keywords'])) {
+            return $cached['related_keywords'];
+        }
+
         $payload = [[
-            'keyword' => mb_strtolower($seed_keyword, 'UTF-8'),
+            'keyword' => $keyword,
             'location_code' => self::loc_code(),
             'language_code' => self::lang_code(),
             'depth' => max(1, min(4, $depth)),
@@ -197,7 +294,13 @@ class DataForSEO {
 
         $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
         if (!is_array($items)) $items = [];
-        return ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        $cache_payload = is_array($cached) ? $cached : [];
+        $cache_payload['related_keywords'] = $result;
+        set_transient($cache_key, $cache_payload, WEEK_IN_SECONDS);
+
+        return $result;
     }
 
     /**
@@ -207,28 +310,58 @@ class DataForSEO {
         $keywords = array_values(array_unique(array_filter(array_map('strval', $keywords))));
         $keywords = array_slice($keywords, 0, 1000);
 
+        $normalized_keywords = array_map(fn($k) => mb_strtolower($k, 'UTF-8'), $keywords);
+        $cache_key = 'tmwseo_kd_' . md5(implode(',', $normalized_keywords));
+        $difficulty = get_transient($cache_key);
+        if ($difficulty !== false && is_array($difficulty)) {
+            return $difficulty;
+        }
+
+        $recent_metrics = self::get_recent_keyword_metrics($normalized_keywords, 30);
+        $map = [];
+        $to_lookup = [];
+
+        foreach ($normalized_keywords as $keyword) {
+            $cached_metric = $recent_metrics[$keyword] ?? null;
+            if (is_array($cached_metric) && isset($cached_metric['difficulty']) && $cached_metric['difficulty'] !== null) {
+                $map[$keyword] = (float) $cached_metric['difficulty'];
+                continue;
+            }
+            $to_lookup[] = $keyword;
+        }
+
+        if (empty($to_lookup)) {
+            $result = ['ok' => true, 'map' => $map, 'raw' => []];
+            set_transient($cache_key, $result, 30 * DAY_IN_SECONDS);
+            return $result;
+        }
+
         $payload = [[
             'location_code' => self::loc_code(),
             'language_code' => self::lang_code(),
-            'keywords' => array_map(fn($k) => mb_strtolower($k, 'UTF-8'), $keywords),
+            'keywords' => $to_lookup,
         ]];
 
         $res = self::post('/v3/dataforseo_labs/google/bulk_keyword_difficulty/live', $payload);
         if (!$res['ok']) return $res;
 
         $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
-        $map = [];
         if (is_array($items)) {
             foreach ($items as $it) {
                 $kw = $it['keyword'] ?? null;
                 if (!is_string($kw) || $kw === '') continue;
                 $kd = $it['keyword_difficulty'] ?? null;
                 if ($kd === null) continue;
-                $map[$kw] = (float)$kd;
+                $normalized_keyword = mb_strtolower($kw, 'UTF-8');
+                $map[$normalized_keyword] = (float)$kd;
+                self::upsert_keyword_metric($normalized_keyword, null, (float) $kd, null, 'dataforseo');
             }
         }
 
-        return ['ok' => true, 'map' => $map, 'raw' => $res['data']];
+        $result = ['ok' => true, 'map' => $map, 'raw' => $res['data']];
+        set_transient($cache_key, $result, 30 * DAY_IN_SECONDS);
+
+        return $result;
     }
 
     /**
@@ -311,7 +444,7 @@ class DataForSEO {
         $keyword = mb_strtolower(trim($keyword), 'UTF-8');
         if ($keyword === '') return ['ok' => false, 'error' => 'empty_keyword'];
 
-        // Transient cache: SERP data valid for 6 hours
+        // Transient cache: SERP data valid for 24 hours
         $cache_key = 'tmwseo_serp_' . md5($keyword . self::loc_code() . self::lang_code());
         $cached    = get_transient($cache_key);
         if ($cached !== false && is_array($cached)) {
@@ -349,7 +482,7 @@ class DataForSEO {
         }
 
         $result = ['ok' => true, 'items' => $normalised, 'raw' => $res['data']];
-        set_transient($cache_key, $result, 6 * HOUR_IN_SECONDS);
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
         return $result;
     }
 
