@@ -136,7 +136,7 @@ class ExpansionCandidateRepository {
                 'rejection_reason' => null,
                 'hash'            => $hash,
             ],
-            [ '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%f', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
+            [ '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%f', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
         );
 
         return $inserted !== false;
