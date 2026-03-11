@@ -121,6 +121,8 @@ class Schema {
      * Safe to run repeatedly.
      */
     public static function ensure_intelligence_schema(): void {
+        global $wpdb;
+
         $target_version = 1;
 
         if (class_exists('TMW_Intelligence_DB_Migration') && defined('TMW_Intelligence_DB_Migration::SCHEMA_VERSION')) {
@@ -129,8 +131,10 @@ class Schema {
 
         $stored_version = (int) get_option('tmw_intelligence_schema_version', 0);
         $missing_tables = self::get_missing_required_intelligence_tables();
+        $expansion_candidates = $wpdb->prefix . 'tmw_seed_expansion_candidates';
+        $has_expansion_candidates = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $expansion_candidates)) === $expansion_candidates);
 
-        if ($stored_version >= $target_version && empty($missing_tables)) {
+        if ($stored_version >= $target_version && empty($missing_tables) && $has_expansion_candidates) {
             return;
         }
 
