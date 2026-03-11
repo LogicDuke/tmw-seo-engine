@@ -188,6 +188,7 @@ class Schema {
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
         $internal_links = $wpdb->prefix . 'tmwseo_internal_links';
         $seeds_registry = $wpdb->prefix . 'tmwseo_seeds';
+        $expansion_candidates = $wpdb->prefix . 'tmw_seed_expansion_candidates'; // Phase 1 preview layer (4.3.0)
         $top_opportunities = $wpdb->prefix . 'tmwseo_top_opportunities';
         $cluster_summary = $wpdb->prefix . 'tmwseo_cluster_summary';
         $entity_keyword_map = $wpdb->prefix . 'tmwseo_entity_keyword_map';
@@ -195,6 +196,8 @@ class Schema {
         $keyword_metrics_cache = $wpdb->prefix . 'tmwseo_keywords';
         $cluster_keyword_map = $wpdb->prefix . 'tmw_keyword_cluster_map';
         $traffic_opportunities = $wpdb->prefix . 'tmwseo_traffic_opportunities';
+        $dirty_queue = $wpdb->prefix . 'tmw_seo_dirty_queue';
+        $cluster_stats = $wpdb->prefix . 'tmw_seo_cluster_stats';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -229,11 +232,40 @@ class Schema {
             created_at DATETIME NOT NULL,
             last_used DATETIME NULL,
             hash CHAR(32) NOT NULL,
+            import_batch_id VARCHAR(80) NULL DEFAULT NULL,
+            import_source_label VARCHAR(120) NULL DEFAULT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY seed_hash (hash),
             KEY source_entity (source, entity_type, entity_id),
             KEY priority_last_used (priority, last_used),
             KEY last_used (last_used)
+        ) $charset_collate;";
+
+        // 4.3.0 — Preview/review layer for all generated phrases.
+        $sql_expansion_candidates = "CREATE TABLE $expansion_candidates (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            phrase VARCHAR(255) NOT NULL,
+            source VARCHAR(60) NOT NULL,
+            generation_rule VARCHAR(120) NOT NULL DEFAULT '',
+            entity_type VARCHAR(50) NOT NULL DEFAULT 'system',
+            entity_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            batch_id VARCHAR(80) NOT NULL DEFAULT '',
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            quality_score FLOAT NULL DEFAULT NULL,
+            duplicate_flag TINYINT(1) NOT NULL DEFAULT 0,
+            intent_guess VARCHAR(50) NULL DEFAULT NULL,
+            provenance_meta LONGTEXT NULL DEFAULT NULL,
+            rejection_reason VARCHAR(255) NULL DEFAULT NULL,
+            created_at DATETIME NOT NULL,
+            reviewed_at DATETIME NULL DEFAULT NULL,
+            reviewed_by BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+            hash CHAR(32) NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY phrase_hash (hash),
+            KEY source_status (source, status),
+            KEY batch_status (batch_id, status),
+            KEY status_created (status, created_at),
+            KEY reviewed_by (reviewed_by)
         ) $charset_collate;";
 
         $sql_logs = "CREATE TABLE $logs (
@@ -368,6 +400,10 @@ class Schema {
             graph_cluster_size INT(11) NOT NULL DEFAULT 0,
             sources LONGTEXT NULL,
             notes TEXT NULL,
+            needs_recluster TINYINT(1) NOT NULL DEFAULT 0,
+            needs_rescore TINYINT(1) NOT NULL DEFAULT 0,
+            clustered_at DATETIME NULL,
+            metrics_updated_at DATETIME NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY keyword (keyword),
@@ -390,6 +426,10 @@ class Schema {
             opportunity DECIMAL(10,4) NULL,
             page_id BIGINT(20) UNSIGNED NULL,
             status VARCHAR(20) NOT NULL DEFAULT 'new',
+            needs_recluster TINYINT(1) NOT NULL DEFAULT 0,
+            needs_rescore TINYINT(1) NOT NULL DEFAULT 0,
+            clustered_at DATETIME NULL,
+            metrics_updated_at DATETIME NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY cluster_key (cluster_key),
@@ -600,6 +640,36 @@ class Schema {
             KEY source (source)
         ) $charset_collate;";
 
+        $sql_dirty_queue = "CREATE TABLE $dirty_queue (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            object_type VARCHAR(32) NOT NULL,
+            object_id BIGINT(20) UNSIGNED NOT NULL,
+            reason VARCHAR(191) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'queued',
+            scheduled_at DATETIME NOT NULL,
+            attempts INT(11) NOT NULL DEFAULT 0,
+            last_error TEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY status_schedule (status, scheduled_at),
+            KEY object_lookup (object_type, object_id)
+        ) $charset_collate;";
+
+        $sql_cluster_stats = "CREATE TABLE $cluster_stats (
+            cluster_id BIGINT(20) UNSIGNED NOT NULL,
+            keyword_count INT(11) NOT NULL DEFAULT 0,
+            volume_sum INT(11) NOT NULL DEFAULT 0,
+            avg_kd DECIMAL(6,2) NOT NULL DEFAULT 0,
+            serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
+            ranking_probability DECIMAL(6,2) NOT NULL DEFAULT 0,
+            opportunity_score DECIMAL(10,4) NOT NULL DEFAULT 0,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (cluster_id),
+            KEY opportunity_score (opportunity_score),
+            KEY updated_at (updated_at)
+        ) $charset_collate;";
+
         $sql_traffic_opportunities = "CREATE TABLE $traffic_opportunities (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             query VARCHAR(255) NOT NULL,
@@ -657,6 +727,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_entity_keyword_map);
         dbDelta($sql_keyword_trends);
         dbDelta($sql_keyword_metrics_cache);
+        dbDelta($sql_dirty_queue);
+        dbDelta($sql_cluster_stats);
         dbDelta($sql_traffic_opportunities);
         dbDelta($sql_legacy_rank);
 
@@ -693,13 +765,16 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_kw_usage);
         dbDelta($sql_kw_usage_log);
 
+        // 4.3.0 — Preview layer for generated phrases.
+        dbDelta($sql_expansion_candidates);
+
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();
 
         // FIX: Add UNIQUE keys to serp_analysis and ranking_probability for existing installs.
-        // New installs get the keys via the CREATE TABLE definitions above. For sites already
-        // running, we add the key if it doesn't exist. De-duplicate existing rows first so
-        // ALTER TABLE doesn't fail on a constraint violation.
         self::migrate_add_unique_keyword_keys();
+
+        // 4.3.0 — Add provenance columns to tmwseo_seeds for existing installs.
+        self::migrate_add_seed_provenance_columns();
 
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);
     }
@@ -737,6 +812,33 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
 
             // Now safely add the unique key
             $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY unique_keyword (keyword)" );
+        }
+    }
+
+    /**
+     * 4.3.0 — Add import_batch_id and import_source_label provenance columns
+     * to tmwseo_seeds for existing installations.
+     * New installs get these via the CREATE TABLE definition above.
+     * Idempotent: checks column existence before altering.
+     */
+    private static function migrate_add_seed_provenance_columns(): void {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'tmwseo_seeds';
+
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            return; // table not yet created; CREATE TABLE above will include the columns
+        }
+
+        $columns = $wpdb->get_results( "SHOW COLUMNS FROM {$table}", ARRAY_A );
+        $existing = array_column( $columns, 'Field' );
+
+        if ( ! in_array( 'import_batch_id', $existing, true ) ) {
+            $wpdb->query(
+                "ALTER TABLE {$table}
+                 ADD COLUMN import_batch_id VARCHAR(80) NULL DEFAULT NULL AFTER hash,
+                 ADD COLUMN import_source_label VARCHAR(120) NULL DEFAULT NULL AFTER import_batch_id"
+            );
         }
     }
 }

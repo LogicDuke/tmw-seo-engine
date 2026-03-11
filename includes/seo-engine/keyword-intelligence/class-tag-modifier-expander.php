@@ -2,10 +2,20 @@
 namespace TMWSEO\Engine\KeywordIntelligence;
 
 use TMWSEO\Engine\Keywords\SeedRegistry;
+use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
 use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
 
+/**
+ * Tag Modifier Expander — generates tag-based phrase candidates.
+ *
+ * As of 4.3.0 all output goes to the preview layer (tmw_seed_expansion_candidates).
+ * Nothing is written directly to tmwseo_seeds.
+ *
+ * Kill switch option: tmwseo_builder_tag_modifier_expander_enabled (default 0 = OFF)
+ * Enable from the Auto Builders Control Center before running.
+ */
 class TagModifierExpander {
     private const CRON_HOOK = 'tmwseo_tag_modifier_expander_weekly';
     private const MAX_TAG_COMBINATIONS = 100;
@@ -39,7 +49,6 @@ class TagModifierExpander {
                 'display' => __('Weekly (TMW SEO Engine)', 'tmwseo'),
             ];
         }
-
         return $schedules;
     }
 
@@ -54,47 +63,48 @@ class TagModifierExpander {
     }
 
     public static function run(): array {
-        $tags = self::load_tags();
-        $categories = self::load_categories();
-
-        $tagKeywords = self::generate_single_tag_keywords($tags);
-        $tagCombinations = self::generate_tag_combinations($tags);
-        $tagCategoryCombinations = self::generate_tag_category_keywords($tags, $categories);
-
-        $candidates = array_merge($tagKeywords, $tagCombinations, $tagCategoryCombinations);
-        $candidates = self::normalize_keywords($candidates);
-        $candidates = array_slice($candidates, 0, self::MAX_SEEDS_PER_RUN);
-
-        $inserted = 0;
-        $duplicates = 0;
-
-        foreach ($candidates as $seed) {
-            if (SeedRegistry::seed_exists($seed)) {
-                $duplicates++;
-                continue;
-            }
-
-            if (SeedRegistry::register_seed($seed, 'tag_modifier_expander', 'taxonomy', 0)) {
-                $inserted++;
-            } else {
-                $duplicates++;
-            }
+        // Kill switch — OFF by default. Enable from Admin > Auto Builders.
+        if (!(bool) get_option('tmwseo_builder_tag_modifier_expander_enabled', 0)) {
+            Logs::info('keywords', '[TMW-KW-TAG] TagModifierExpander skipped — kill switch is OFF');
+            return ['skipped' => true, 'reason' => 'kill_switch_off'];
         }
 
+        $tags       = self::load_tags();
+        $categories = self::load_categories();
+
+        $tagKeywords              = self::generate_single_tag_keywords($tags);
+        $tagCombinations          = self::generate_tag_combinations($tags);
+        $tagCategoryCombinations  = self::generate_tag_category_keywords($tags, $categories);
+
+        $candidates = array_merge($tagKeywords, $tagCombinations, $tagCategoryCombinations);
+        $candidates = self::normalize_candidates($candidates);
+        $candidates = array_slice($candidates, 0, self::MAX_SEEDS_PER_RUN);
+
+        // Route to preview layer — NOT to tmwseo_seeds.
+        $result = ExpansionCandidateRepository::insert_batch(
+            $candidates,
+            'tag_modifier_expander',
+            'tag_x_modifier_combinatorics',
+            'taxonomy',
+            0,
+            ['tag_count' => count($tags), 'category_count' => count($categories)]
+        );
+
         $report = [
-            'tags_processed' => count($tags),
-            'tag_keyword_candidates' => count($tagKeywords),
-            'tag_combinations_generated' => count($tagCombinations),
+            'tags_processed'                   => count($tags),
+            'tag_keyword_candidates'           => count($tagKeywords),
+            'tag_combinations_generated'       => count($tagCombinations),
             'tag_category_combinations_generated' => count($tagCategoryCombinations),
-            'total_candidates' => count($candidates),
-            'seeds_inserted' => $inserted,
-            'duplicates_skipped' => $duplicates,
+            'total_candidates'                 => count($candidates),
+            'preview_inserted'                 => $result['inserted'],
+            'preview_skipped'                  => $result['skipped'],
+            'batch_id'                         => $result['batch_id'],
         ];
 
-        Logs::info('keywords', '[TMW-KW-TAG] Tag modifier seed expansion completed', $report);
+        Logs::info('keywords', '[TMW-KW-TAG] Tag modifier expansion → preview layer', $report);
         update_option('tmwseo_last_tag_modifier_expander_report', [
             'timestamp' => current_time('mysql'),
-            'report' => $report,
+            'report'    => $report,
         ], false);
 
         return $report;
@@ -103,12 +113,12 @@ class TagModifierExpander {
     /** @return string[] */
     private static function load_tags(): array {
         $terms = get_terms([
-            'taxonomy' => 'post_tag',
+            'taxonomy'   => 'post_tag',
             'hide_empty' => false,
-            'fields' => 'names',
-            'number' => 500,
-            'orderby' => 'count',
-            'order' => 'DESC',
+            'fields'     => 'names',
+            'number'     => 500,
+            'orderby'    => 'count',
+            'order'      => 'DESC',
         ]);
 
         if (!is_array($terms) || is_wp_error($terms)) {
@@ -117,7 +127,7 @@ class TagModifierExpander {
 
         $tags = [];
         foreach ($terms as $term) {
-            $name = trim((string) $term);
+            $name   = trim((string) $term);
             $length = mb_strlen($name, 'UTF-8');
             if ($length < self::MIN_TAG_LENGTH || $length > self::MAX_TAG_LENGTH) {
                 continue;
@@ -131,12 +141,12 @@ class TagModifierExpander {
     /** @return string[] */
     private static function load_categories(): array {
         $terms = get_terms([
-            'taxonomy' => 'category',
+            'taxonomy'   => 'category',
             'hide_empty' => true,
-            'fields' => 'names',
-            'number' => 50,
-            'orderby' => 'count',
-            'order' => 'DESC',
+            'fields'     => 'names',
+            'number'     => 50,
+            'orderby'    => 'count',
+            'order'      => 'DESC',
         ]);
 
         if (!is_array($terms) || is_wp_error($terms)) {
@@ -165,7 +175,6 @@ class TagModifierExpander {
                 $keywords[] = $tag . ' ' . $modifier;
             }
         }
-
         return $keywords;
     }
 
@@ -175,7 +184,7 @@ class TagModifierExpander {
      */
     private static function generate_tag_combinations(array $tags): array {
         $keywords = [];
-        $count = count($tags);
+        $count    = count($tags);
 
         for ($i = 0; $i < $count; $i++) {
             for ($j = $i + 1; $j < $count; $j++) {
@@ -213,11 +222,11 @@ class TagModifierExpander {
      * @param string[] $keywords
      * @return string[]
      */
-    private static function normalize_keywords(array $keywords): array {
+    private static function normalize_candidates(array $keywords): array {
         $normalized = [];
 
         foreach ($keywords as $keyword) {
-            $candidate = SeedRegistry::normalize_seed((string) $keyword);
+            $candidate  = SeedRegistry::normalize_seed((string) $keyword);
             if ($candidate === '') {
                 continue;
             }

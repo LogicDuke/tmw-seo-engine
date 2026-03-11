@@ -77,6 +77,11 @@ class WorkerCron {
             \TMWSEO\Engine\Worker::dispatch($job);
         }
 
+
+        if (class_exists('\TMWSEO\Engine\Keywords\DirtyQueue')) {
+            \TMWSEO\Engine\Keywords\DirtyQueue::process_batches(60, 30, 20);
+        }
+
         delete_transient('tmwseo_worker_lock');
     }
 }

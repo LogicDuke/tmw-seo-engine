@@ -5,8 +5,16 @@ use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
 
+/**
+ * Content Keyword Miner — mines phrases from published post content.
+ *
+ * As of 4.3.0 all output goes to the preview layer (tmw_seed_expansion_candidates).
+ * Nothing is written directly to tmwseo_seeds.
+ *
+ * Kill switch option: tmwseo_builder_content_miner_enabled (default 0 = OFF)
+ */
 class ContentKeywordMiner {
-    const HOOK = 'tmwseo_engine_content_keyword_miner';
+    const HOOK                = 'tmwseo_engine_content_keyword_miner';
     const MAX_PHRASES_PER_RUN = 200;
 
     public static function init(): void {
@@ -24,20 +32,40 @@ class ContentKeywordMiner {
     }
 
     public static function run(): array {
+        // Kill switch — OFF by default.
+        if (!(bool) get_option('tmwseo_builder_content_miner_enabled', 0)) {
+            Logs::info('keywords', '[TMW-KW-MINER] ContentKeywordMiner skipped — kill switch is OFF');
+            return ['skipped' => true, 'reason' => 'kill_switch_off'];
+        }
+
         $report = [
-            'phrases_scanned' => 0,
-            'seeds_generated' => 0,
+            'phrases_scanned'   => 0,
+            'candidates_queued' => 0,
             'duplicates_skipped' => 0,
-            'invalid_skipped' => 0,
-            'limit' => self::MAX_PHRASES_PER_RUN,
+            'invalid_skipped'   => 0,
+            'limit'             => self::MAX_PHRASES_PER_RUN,
         ];
 
-        $seen = [];
+        $seen       = [];
+        $candidates = [];
 
-        self::scan_posts(['model', 'video', 'page'], $report, $seen);
-        self::scan_categories($report, $seen);
+        self::scan_posts(['model', 'video', 'page'], $candidates, $report, $seen);
+        self::scan_categories($candidates, $report, $seen);
 
-        Logs::info('keywords', '[TMW-KW-MINER] Content keyword miner run complete', $report);
+        // Flush collected candidates to preview layer in one batch.
+        $batch_result = ExpansionCandidateRepository::insert_batch(
+            $candidates,
+            'content_miner',
+            'content_phrase_extraction',
+            'system',
+            0,
+            ['source_post_types' => ['model', 'video', 'page']]
+        );
+
+        $report['candidates_queued'] = $batch_result['inserted'];
+        $report['batch_id']          = $batch_result['batch_id'];
+
+        Logs::info('keywords', '[TMW-KW-MINER] Content keyword miner → preview layer', $report);
         update_option('tmwseo_last_content_keyword_miner_report', array_merge($report, [
             'timestamp' => current_time('mysql'),
         ]), false);
@@ -45,20 +73,26 @@ class ContentKeywordMiner {
         return $report;
     }
 
-    private static function scan_posts(array $post_types, array &$report, array &$seen): void {
+    /**
+     * @param string[]              $post_types
+     * @param string[]              $candidates  Collected by reference.
+     * @param array<string,mixed>   $report
+     * @param array<string,bool>    $seen
+     */
+    private static function scan_posts(array $post_types, array &$candidates, array &$report, array &$seen): void {
         foreach ($post_types as $post_type) {
             if ($report['phrases_scanned'] >= self::MAX_PHRASES_PER_RUN) {
                 return;
             }
 
             $query = new \WP_Query([
-                'post_type' => $post_type,
-                'post_status' => 'publish',
+                'post_type'      => $post_type,
+                'post_status'    => 'publish',
                 'posts_per_page' => 100,
-                'orderby' => 'date',
-                'order' => 'DESC',
-                'fields' => 'ids',
-                'no_found_rows' => true,
+                'orderby'        => 'date',
+                'order'          => 'DESC',
+                'fields'         => 'ids',
+                'no_found_rows'  => true,
             ]);
 
             $post_ids = is_array($query->posts) ? $query->posts : [];
@@ -68,10 +102,10 @@ class ContentKeywordMiner {
                 }
 
                 $title = get_the_title($post_id);
-                self::process_phrase((string) $title, 'post', (int) $post_id, $report, $seen);
+                self::collect_phrase((string) $title, $candidates, $report, $seen);
 
                 foreach (self::extract_h1_headings((int) $post_id) as $h1) {
-                    self::process_phrase($h1, 'post', (int) $post_id, $report, $seen);
+                    self::collect_phrase($h1, $candidates, $report, $seen);
                     if ($report['phrases_scanned'] >= self::MAX_PHRASES_PER_RUN) {
                         return;
                     }
@@ -81,7 +115,7 @@ class ContentKeywordMiner {
                 if (is_array($tags)) {
                     foreach ($tags as $tag) {
                         $tag_name = (string) ($tag->name ?? '');
-                        self::process_phrase($tag_name, 'post', (int) $post_id, $report, $seen);
+                        self::collect_phrase($tag_name, $candidates, $report, $seen);
                         if ($report['phrases_scanned'] >= self::MAX_PHRASES_PER_RUN) {
                             return;
                         }
@@ -91,15 +125,20 @@ class ContentKeywordMiner {
         }
     }
 
-    private static function scan_categories(array &$report, array &$seen): void {
+    /**
+     * @param string[]              $candidates
+     * @param array<string,mixed>   $report
+     * @param array<string,bool>    $seen
+     */
+    private static function scan_categories(array &$candidates, array &$report, array &$seen): void {
         if ($report['phrases_scanned'] >= self::MAX_PHRASES_PER_RUN) {
             return;
         }
 
         $categories = get_terms([
-            'taxonomy' => 'category',
+            'taxonomy'   => 'category',
             'hide_empty' => false,
-            'number' => 100,
+            'number'     => 100,
         ]);
 
         if (!is_array($categories)) {
@@ -112,11 +151,23 @@ class ContentKeywordMiner {
             }
 
             $name = (string) ($term->name ?? '');
-            self::process_phrase($name, 'category', (int) ($term->term_id ?? 0), $report, $seen);
+            self::collect_phrase($name, $candidates, $report, $seen);
         }
     }
 
-    private static function process_phrase(string $phrase, string $entity_type, int $entity_id, array &$report, array &$seen): void {
+    /**
+     * Validate and collect a phrase for batched preview insertion.
+     *
+     * @param string[]              $candidates
+     * @param array<string,mixed>   $report
+     * @param array<string,bool>    $seen
+     */
+    private static function collect_phrase(
+        string $phrase,
+        array  &$candidates,
+        array  &$report,
+        array  &$seen
+    ): void {
         if ($report['phrases_scanned'] >= self::MAX_PHRASES_PER_RUN) {
             return;
         }
@@ -139,16 +190,11 @@ class ContentKeywordMiner {
             return;
         }
 
-        $registered = SeedRegistry::register_seed($normalized, 'content_miner', $entity_type, $entity_id);
-        if ($registered) {
-            $report['seeds_generated']++;
-        } else {
-            $report['duplicates_skipped']++;
-        }
+        $candidates[] = $normalized;
     }
 
     private static function extract_h1_headings(int $post_id): array {
-        $post = get_post($post_id);
+        $post    = get_post($post_id);
         $content = (string) ($post->post_content ?? '');
         if ($content === '') {
             return [];
@@ -184,7 +230,7 @@ class ContentKeywordMiner {
 
         $words = explode(' ', $phrase);
         if (count($words) > 6) {
-            $words = array_slice($words, 0, 6);
+            $words  = array_slice($words, 0, 6);
             $phrase = implode(' ', $words);
         }
 

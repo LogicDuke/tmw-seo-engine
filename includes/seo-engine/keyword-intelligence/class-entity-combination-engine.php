@@ -2,53 +2,67 @@
 namespace TMWSEO\Engine\KeywordIntelligence;
 
 use TMWSEO\Engine\Keywords\SeedRegistry;
+use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
 use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
 
+/**
+ * Entity Combination Engine — generates model×tag×category phrase candidates.
+ *
+ * As of 4.3.0 all output goes to the preview layer (tmw_seed_expansion_candidates).
+ * Nothing is written directly to tmwseo_seeds.
+ *
+ * Kill switch option: tmwseo_builder_entity_combo_enabled (default 0 = OFF)
+ */
 class EntityCombinationEngine {
-    private const MAX_MODELS = 100;
-    private const MAX_TAGS = 50;
+    private const MAX_MODELS        = 100;
+    private const MAX_TAGS          = 50;
     private const MAX_SEEDS_PER_RUN = 500;
 
     public static function expand_weekly_seeds(): array {
-        $models = self::load_models();
-        $tags = self::load_terms('post_tag', self::MAX_TAGS);
+        // Kill switch — OFF by default.
+        if (!(bool) get_option('tmwseo_builder_entity_combo_enabled', 0)) {
+            Logs::info('keywords', '[TMW-KW-ENTITY] EntityCombinationEngine skipped — kill switch is OFF');
+            return ['skipped' => true, 'reason' => 'kill_switch_off'];
+        }
+
+        $models     = self::load_models();
+        $tags       = self::load_terms('post_tag', self::MAX_TAGS);
         $categories = self::load_terms('category', self::MAX_TAGS);
 
         $candidates = self::build_combinations($models, $tags, $categories);
 
-        $created = 0;
-        $duplicates = 0;
-
-        foreach ($candidates as $seed) {
-            if (SeedRegistry::seed_exists($seed)) {
-                $duplicates++;
-                continue;
-            }
-
-            if (SeedRegistry::register_seed($seed, 'entity_combo', 'entity_combo', 0)) {
-                $created++;
-            } else {
-                $duplicates++;
-            }
-        }
+        // Route to preview layer — NOT to tmwseo_seeds.
+        $result = ExpansionCandidateRepository::insert_batch(
+            $candidates,
+            'entity_combo',
+            'model_x_tag_x_modifier',
+            'system',
+            0,
+            [
+                'models_count'     => count($models),
+                'tags_count'       => count($tags),
+                'categories_count' => count($categories),
+            ]
+        );
 
         $report = [
-            'models_loaded' => count($models),
-            'tags_loaded' => count($tags),
-            'categories_loaded' => count($categories),
-            'combinations_generated' => count($candidates),
-            'new_seeds_created' => $created,
-            'duplicates_skipped' => $duplicates,
-            'max_seeds_per_run' => self::MAX_SEEDS_PER_RUN,
+            'models_loaded'           => count($models),
+            'tags_loaded'             => count($tags),
+            'categories_loaded'       => count($categories),
+            'combinations_generated'  => count($candidates),
+            'preview_inserted'        => $result['inserted'],
+            'preview_skipped'         => $result['skipped'],
+            'batch_id'                => $result['batch_id'],
+            'max_seeds_per_run'       => self::MAX_SEEDS_PER_RUN,
         ];
 
-        Logs::info('keywords', '[TMW-KW-ENTITY] Entity combination expansion completed', $report);
+        Logs::info('keywords', '[TMW-KW-ENTITY] Entity combination expansion → preview layer', $report);
 
         update_option('tmwseo_last_entity_combination_expansion', [
             'timestamp' => current_time('mysql'),
-            'report' => $report,
+            'report'    => $report,
         ], false);
 
         return $report;
@@ -57,13 +71,13 @@ class EntityCombinationEngine {
     /** @return string[] */
     private static function load_models(): array {
         $items = get_posts([
-            'post_type' => 'model',
-            'post_status' => 'publish',
+            'post_type'      => 'model',
+            'post_status'    => 'publish',
             'posts_per_page' => self::MAX_MODELS,
-            'orderby' => 'date',
-            'order' => 'DESC',
-            'fields' => 'ids',
-            'no_found_rows' => true,
+            'orderby'        => 'date',
+            'order'          => 'DESC',
+            'fields'         => 'ids',
+            'no_found_rows'  => true,
         ]);
 
         if (!is_array($items) || empty($items)) {
@@ -84,12 +98,12 @@ class EntityCombinationEngine {
     /** @return string[] */
     private static function load_terms(string $taxonomy, int $limit): array {
         $terms = get_terms([
-            'taxonomy' => $taxonomy,
+            'taxonomy'   => $taxonomy,
             'hide_empty' => true,
-            'number' => $limit,
-            'orderby' => 'count',
-            'order' => 'DESC',
-            'fields' => 'names',
+            'number'     => $limit,
+            'orderby'    => 'count',
+            'order'      => 'DESC',
+            'fields'     => 'names',
         ]);
 
         if (!is_array($terms) || is_wp_error($terms)) {

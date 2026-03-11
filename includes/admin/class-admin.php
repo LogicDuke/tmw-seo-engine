@@ -2566,6 +2566,9 @@ class Admin {
         $source = sanitize_text_field((string)($_POST['import_source'] ?? 'manual'));
         $run_kd = !empty($_POST['run_kd']);
 
+        // Generate a batch ID for this import for rollback and provenance tracking (4.3.0)
+        $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id('csv_import');
+
         $fh = fopen($tmp, 'r');
         if (!$fh) wp_die(__('Could not read CSV', 'tmwseo'));
 
@@ -2624,7 +2627,7 @@ class Admin {
                 }
             }
 
-            SeedRegistry::register_seed($kw, 'csv_import', 'import', 0, $seed_type, $priority);
+            SeedRegistry::register_trusted_seed($kw, 'approved_import', 'import', 0, $seed_type, $priority, $batch_id ?? '', $source);
 
             $vol = null;
             if ($vol_col !== null && isset($row[$vol_col])) {
@@ -2809,6 +2812,10 @@ private static function header(string $title): void {
                 delete_option('tmw_keyword_engine_breaker');
             }
 
+            if (isset($_POST['full_rebuild_projections'])) {
+                \TMWSEO\Engine\Keywords\KeywordEngine::full_rebuild_projections();
+            }
+
             if (isset($_POST['run_cycle'])) {
                 if (!wp_next_scheduled('tmw_manual_cycle_event')) {
                     wp_schedule_single_event(time(), 'tmw_manual_cycle_event', [[
@@ -2897,6 +2904,7 @@ private static function header(string $title): void {
                     <button type="submit" name="release_lock" class="button">Release Lock</button>
                     <button type="submit" name="reset_breaker" class="button">Reset Circuit Breaker</button>
                     <button type="submit" name="run_cycle" class="button button-primary">Run Cycle Now</button>
+                    <button type="submit" name="full_rebuild_projections" class="button">Full Rebuild Projections</button>
                 </p>
             </form>
 

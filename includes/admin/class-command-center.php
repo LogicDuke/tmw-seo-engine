@@ -222,10 +222,7 @@ class CommandCenter {
         global $wpdb;
 
         $clusters_table = $wpdb->prefix . 'tmw_keyword_clusters';
-        $map_table      = $wpdb->prefix . 'tmw_keyword_cluster_map';
-        $rank_table     = $wpdb->prefix . 'tmw_seo_ranking_probability';
-        $cand_table     = $wpdb->prefix . 'tmw_keyword_candidates';
-        $serp_table     = $wpdb->prefix . 'tmw_seo_serp_analysis';
+        $stats_table    = $wpdb->prefix . 'tmw_seo_cluster_stats';
 
         $sql = "
             SELECT
@@ -233,28 +230,13 @@ class CommandCenter {
                 c.cluster_key,
                 c.representative,
                 c.page_id,
-                c.total_volume AS search_volume,
-                COALESCE( stats.cluster_keyword_count, 0 ) AS cluster_keyword_count,
-                COALESCE( stats.ranking_probability, 0 ) AS ranking_probability,
-                COALESCE( stats.serp_weakness_score, 0 ) AS serp_weakness_score,
-                (
-                    ( COALESCE( c.total_volume, 0 ) * COALESCE( stats.ranking_probability, 0 ) )
-                    + ( COALESCE( stats.serp_weakness_score, 0 ) * 100 )
-                    + COALESCE( stats.cluster_keyword_count, 0 )
-                ) AS opportunity_score
+                COALESCE( s.volume_sum, c.total_volume, 0 ) AS search_volume,
+                COALESCE( s.keyword_count, 0 ) AS cluster_keyword_count,
+                COALESCE( s.ranking_probability, 0 ) AS ranking_probability,
+                COALESCE( s.serp_weakness, 0 ) AS serp_weakness_score,
+                COALESCE( s.opportunity_score, 0 ) AS opportunity_score
             FROM {$clusters_table} c
-            LEFT JOIN (
-                SELECT
-                    m.cluster_id,
-                    COUNT(*) AS cluster_keyword_count,
-                    AVG( COALESCE( rp.ranking_probability, 0 ) ) AS ranking_probability,
-                    AVG( COALESCE( sa.serp_weakness_score, kc.serp_weakness, 0 ) ) AS serp_weakness_score
-                FROM {$map_table} m
-                LEFT JOIN {$rank_table} rp ON rp.keyword = m.keyword
-                LEFT JOIN {$cand_table} kc ON kc.keyword = m.keyword
-                LEFT JOIN {$serp_table} sa ON sa.cluster_id = m.cluster_id
-                GROUP BY m.cluster_id
-            ) stats ON stats.cluster_id = c.id
+            LEFT JOIN {$stats_table} s ON s.cluster_id = c.id
             ORDER BY opportunity_score DESC
             LIMIT 20
         ";

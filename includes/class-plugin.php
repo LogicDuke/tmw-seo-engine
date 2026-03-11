@@ -14,6 +14,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-seed-registry-admin-page.php'; // 4.3.0
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
@@ -72,8 +73,10 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-rank-tracker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-expansion-candidate-repository.php'; // 4.3.0
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dirty-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-content-keyword-miner.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-discovery-orchestrator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php';
@@ -415,6 +418,7 @@ class Plugin {
         if (is_admin()) {
             Admin::init();
             \TMWSEO\Engine\Admin\CommandCenter::init();
+            \TMWSEO\Engine\Admin\SeedRegistryAdminPage::init(); // 4.3.0
             \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
