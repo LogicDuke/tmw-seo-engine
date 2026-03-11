@@ -65,20 +65,65 @@ class OrphanPageDetector {
             return [ 'orphans' => [], 'total_scanned' => 0, 'scan_time_ms' => 0 ];
         }
 
-        $orphans = [];
+        // FIX: Replaced the previous O(n²) approach that ran one LIKE full-table scan per post.
+        // On a site with 500 posts that was 500 separate unindexed queries — unusable at scale.
+        //
+        // New approach: load all post_content in ONE query, build an in-memory slug map,
+        // then do PHP string matching. This is O(n) in queries and O(n*m) in memory (fast).
+        $post_ids_set = array_map( 'intval', $posts );
 
-        foreach ( $posts as $post_id ) {
-            $inbound = self::count_inbound_links( (int) $post_id );
-            if ( $inbound === 0 ) {
-                $orphans[] = [
-                    'post_id'    => (int) $post_id,
-                    'post_type'  => get_post_type( $post_id ),
-                    'title'      => get_the_title( $post_id ),
-                    'permalink'  => get_permalink( $post_id ),
-                    'modified'   => get_the_modified_date( 'Y-m-d', $post_id ),
-                    'word_count' => str_word_count( strip_tags( (string) get_post_field( 'post_content', $post_id ) ) ),
-                ];
+        // Build slug → post_id map for every post we're scanning
+        $slug_map = [];
+        foreach ( $post_ids_set as $pid ) {
+            $permalink = get_permalink( $pid );
+            if ( ! $permalink ) continue;
+            $slug = rtrim( (string) parse_url( $permalink, PHP_URL_PATH ), '/' );
+            if ( $slug !== '' && $slug !== '/' ) {
+                $slug_map[ $pid ] = $slug;
             }
+        }
+
+        // Load all published post content in one query (excluding the posts we're checking,
+        // to match the original semantics of "other posts that link to this one")
+        global $wpdb;
+        $all_content_rows = $wpdb->get_results(
+            "SELECT ID, post_content FROM {$wpdb->posts}
+             WHERE post_status = 'publish'
+             ORDER BY ID ASC",
+            ARRAY_A
+        );
+
+        // Build a concatenated content blob per post for fast matching
+        $content_by_id = [];
+        foreach ( (array) $all_content_rows as $row ) {
+            $content_by_id[ (int) $row['ID'] ] = (string) $row['post_content'];
+        }
+
+        // For each post we are scanning, check whether any OTHER post's content contains its slug
+        $linked_post_ids = [];
+        foreach ( $slug_map as $target_pid => $slug ) {
+            foreach ( $content_by_id as $source_pid => $content ) {
+                if ( $source_pid === $target_pid ) continue;
+                if ( strpos( $content, $slug ) !== false ) {
+                    $linked_post_ids[ $target_pid ] = true;
+                    break; // found at least one inbound link — no need to keep searching
+                }
+            }
+        }
+
+        $orphans = [];
+        foreach ( $post_ids_set as $post_id ) {
+            if ( isset( $linked_post_ids[ $post_id ] ) ) {
+                continue; // has at least one inbound link
+            }
+            $orphans[] = [
+                'post_id'    => $post_id,
+                'post_type'  => get_post_type( $post_id ),
+                'title'      => get_the_title( $post_id ),
+                'permalink'  => get_permalink( $post_id ),
+                'modified'   => get_the_modified_date( 'Y-m-d', $post_id ),
+                'word_count' => str_word_count( strip_tags( (string) ( $content_by_id[ $post_id ] ?? '' ) ) ),
+            ];
         }
 
         $result = [

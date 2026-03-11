@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\KeywordIntelligence;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Clustering\ClusterEngine;
 use TMWSEO\Engine\Debug\DebugLogger;
+use TMWSEO\Engine\KeywordIntelligence\KeywordClassifier;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -52,6 +53,11 @@ class KeywordIntelligence {
             }
 
             $row['intent'] = $this->intent->classify($keyword, $context);
+            $classification = KeywordClassifier::classify($keyword);
+            $row['intent_type'] = (string) ($classification['intent_type'] ?? 'generic');
+            $row['entity_type'] = (string) ($classification['entity_type'] ?? 'generic');
+            $row['entity_id'] = (int) ($classification['entity_id'] ?? 0);
+            $row['entities'] = (array) ($classification['entities'] ?? []);
             $row['score'] = $score;
             $scored[] = $row;
         }

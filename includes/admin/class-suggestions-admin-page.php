@@ -27,9 +27,21 @@ class SuggestionsAdminPage {
      */
     private const SUGGESTION_DESTINATION_POST_TYPE_MAP = [
         'category_page' => 'tmw_category_page',
-        'model_page' => 'model',
-        'video_page' => 'post',
-        'generic_post' => 'post',
+        'model_page'    => 'model',
+        'video_page'    => 'video',   // Audit-verified: video CPT is post_type='video', not 'post'
+        'generic_post'  => 'post',
+    ];
+
+    /**
+     * Destination types that MUST bind to an already-existing target post.
+     * wp_insert_post() is NEVER called for these types.
+     *
+     * @var string[]
+     */
+    private const EXISTING_TARGET_TYPES = [
+        'model_page',
+        'video_page',
+        'category_page',
     ];
 
     private SuggestionEngine $engine;
@@ -59,7 +71,10 @@ class SuggestionsAdminPage {
         add_action('admin_post_tmwseo_export_suggestion_review_handoff', [$ui, 'handle_export_suggestion_review_handoff']);
         add_action('admin_post_tmwseo_add_competitor_domain', [$ui, 'handle_add_competitor_domain']);
         add_action('admin_post_tmwseo_generate_brief_from_suggestion', [$ui, 'handle_generate_brief_from_suggestion']);
+        add_action('admin_post_tmwseo_archive_stale_suggestions', [$ui, 'handle_archive_stale_suggestions']);
+        add_action('admin_post_tmwseo_unarchive_all_suggestions', [$ui, 'handle_unarchive_all_suggestions']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
+        add_action('admin_notices', [$ui, 'render_bound_suggestion_context_notice']);
     }
 
     public function register_menu(): void {
@@ -122,8 +137,8 @@ class SuggestionsAdminPage {
 
         echo '</div>';
 
-        echo '<h2 style="margin-top:24px;">' . esc_html__('Reviewer Workload (Draft-Only)', 'tmwseo') . '</h2>';
-        echo '<p>' . esc_html__('Visibility and triage widgets for explicit drafts only. Review stays manual-only, nothing auto-applies, and nothing is published automatically.', 'tmwseo') . '</p>';
+        echo '<h2 style="margin-top:24px;">' . esc_html__('Reviewer Workload (Review Queue)', 'tmwseo') . '</h2>';
+        echo '<p>' . esc_html__('Visibility and triage widgets for review-queue drafts. Review stays manual-only, nothing auto-applies, and nothing is published automatically.', 'tmwseo') . '</p>';
         echo '<div class="tmwseo-command-grid">';
 
         foreach ($review_workload_widgets as $metric) {
@@ -152,8 +167,8 @@ class SuggestionsAdminPage {
 
         echo '</div>';
 
-        echo '<h2 style="margin-top:24px;">' . esc_html__('Reviewer Aging SLA (Draft-Only)', 'tmwseo') . '</h2>';
-        echo '<p>' . esc_html__('Review-only aging visibility for explicit draft queues. Manual next step pending, draft-only / noindex, and nothing is published automatically.', 'tmwseo') . '</p>';
+        echo '<h2 style="margin-top:24px;">' . esc_html__('Reviewer Aging SLA (Review Queue)', 'tmwseo') . '</h2>';
+        echo '<p>' . esc_html__('Review-only aging visibility for review-queue drafts. Manual next step pending, generated drafts remain noindex, and nothing is published automatically.', 'tmwseo') . '</p>';
         echo '<div class="tmwseo-command-grid">';
 
         foreach ($review_aging_widgets as $metric) {
@@ -283,7 +298,7 @@ class SuggestionsAdminPage {
         $counts = $this->build_review_queue_counts($rows, 'all');
         $category_page_counts = $this->build_review_queue_counts($rows, 'category_page');
 
-        $common_trust_copy = __('Review only · manual next step · draft-only / noindex · nothing is published automatically.', 'tmwseo');
+        $common_trust_copy = __('Review only · manual next step · generated drafts remain noindex (bound existing posts are not affected) · nothing is published automatically.', 'tmwseo');
 
         $widgets = [
             $this->build_metric(
@@ -390,7 +405,7 @@ class SuggestionsAdminPage {
         $rows = $this->engine->getSuggestions(['limit' => 1000]);
         $counts = $this->build_review_aging_state_counts($rows, 'all');
         $category_page_counts = $this->build_review_aging_state_counts($rows, 'category_page');
-        $common_trust_copy = __('Review-only aging · manual next step pending · draft-only / noindex · nothing is published automatically.', 'tmwseo');
+        $common_trust_copy = __('Review-only aging · manual next step pending · generated drafts remain noindex (bound existing posts are not affected) · nothing is published automatically.', 'tmwseo');
 
         $widgets = [
             $this->build_metric(
@@ -550,7 +565,8 @@ class SuggestionsAdminPage {
     // ── Focused Model Mode Renderer ───────────────────────────────────────
     // A clean, model-only operator screen. Suppresses generic workload widgets,
     // aging widgets, category-page pivots, and cross-destination triage clutter.
-    // Trust policy is unchanged: everything is manual-only, draft-only.
+    // Trust policy is unchanged: everything is manual-only.
+    // Model-page suggestions bind to existing model posts (no new post is created).
 
     /**
      * @param array<int,array<string,mixed>> $all_rows
@@ -578,7 +594,7 @@ class SuggestionsAdminPage {
         foreach ($model_rows as $row) {
             $s = (string) ($row['status'] ?? 'new');
             if ($s === 'new') { $model_counts['new']++; }
-            if ($s === 'draft_created') { $model_counts['draft']++; }
+            if ($s === 'draft_created' || $s === 'target_bound') { $model_counts['draft']++; }
         }
 
         $review_queue_counts = $this->build_review_queue_counts($model_rows, 'model_page');
@@ -623,7 +639,7 @@ class SuggestionsAdminPage {
         // Header
         echo '<div class="tmwseo-mf-header">';
         echo '<h1 class="tmwseo-mf-title">&#127918; Model Page Suggestions</h1>';
-        echo '<p class="tmwseo-mf-subtitle">Focused model-only operator queue. <strong>Manual-only / draft-only mode enforced</strong> — nothing publishes automatically, no links inserted automatically, every action requires your explicit approval.</p>';
+        echo '<p class="tmwseo-mf-subtitle">Focused model-only operator queue. <strong>Manual-only mode enforced</strong> — nothing publishes automatically, no links inserted automatically, every action requires your explicit approval.</p>';
         echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '" class="tmwseo-mf-all-link">&larr; Back to full Suggestions Dashboard</a>';
         echo '</div>';
 
@@ -632,7 +648,7 @@ class SuggestionsAdminPage {
         $kpi_items = [
             ['label' => 'Total Model Suggestions', 'count' => $model_counts['all'],  'url' => $base . '&tmw_filter=all'],
             ['label' => 'New / Unactioned',          'count' => $model_counts['new'],  'url' => $base . '&tmw_filter=new'],
-            ['label' => 'Drafts Created',             'count' => $model_counts['draft'],'url' => $base . '&tmw_filter=review_drafts_all'],
+            ['label' => 'Actions Taken',              'count' => $model_counts['draft'],'url' => $base . '&tmw_filter=review_drafts_all'],
             ['label' => 'Not Reviewed',               'count' => (int) ($review_queue_counts['review_not_reviewed'] ?? 0), 'url' => $base . '&tmw_filter=review_not_reviewed'],
             ['label' => 'Needs Changes',              'count' => (int) ($review_queue_counts['review_needs_changes'] ?? 0), 'url' => $base . '&tmw_filter=review_needs_changes'],
             ['label' => 'Signed Off',                 'count' => (int) ($review_queue_counts['review_signed_off'] ?? 0),   'url' => $base . '&tmw_filter=review_not_reviewed'],
@@ -652,7 +668,7 @@ class SuggestionsAdminPage {
             'new'                  => 'New',
             'review_not_reviewed'  => 'Not Reviewed',
             'review_needs_changes' => 'Needs Changes',
-            'review_drafts_all'    => 'All Drafts',
+            'review_drafts_all'    => 'Review Queue',
             'approved'             => 'Approved',
         ];
         echo '<ul class="subsubsub tmwseo-mf-filters">';
@@ -677,7 +693,7 @@ class SuggestionsAdminPage {
         }
         echo '</ul>';
 
-        echo '<p class="description" style="margin:4px 0 14px;"><strong>Trust reminder:</strong> Draft-only · noindex · no autopublish · no auto link insertion · manual next step required on every action.</p>';
+        echo '<p class="description" style="margin:4px 0 14px;"><strong>Trust reminder:</strong> Bound-existing targets · clicking the action opens the existing post editor directly · no new post is created · apply all changes manually · nothing is published or mutated automatically.</p>';
 
         // Table or empty state
         if (empty($filtered_rows)) {
@@ -709,7 +725,8 @@ class SuggestionsAdminPage {
                 $priority_class = strtolower($priority_label);
                 $status = sanitize_key((string) ($row['status'] ?? 'new'));
                 $status_meta = $this->suggestion_status_meta($status);
-                $primary_action_meta = $this->primary_action_meta((string) ($row['type'] ?? ''));
+                $row_destination     = $this->resolve_draft_destination($row);
+                $primary_action_meta = $this->primary_action_meta_for_row((string) ($row['type'] ?? ''), (string) $row_destination['destination_type']);
                 $type_label = $this->format_label((string) ($row['type'] ?? ''));
                 $review_state_badges = $this->build_review_state_badges($row);
                 $review_queue_state  = $this->review_queue_state_for_row($row);
@@ -743,10 +760,14 @@ class SuggestionsAdminPage {
                 if ((string) ($row['type'] ?? '') === 'internal_link') {
                     $this->render_action_button($id, 'insert_link_draft', __('Insert Link Draft', 'tmwseo'), 'secondary');
                 } else {
-                    $this->render_action_button($id, 'create_draft', __('Create Noindex Draft', 'tmwseo'), 'secondary');
+                    $this->render_action_button($id, 'create_draft', $primary_action_meta['label'], 'secondary');
                 }
                 if ($status === 'draft_created' && $this->find_suggestion_draft_id($id) > 0) {
-                    $this->render_assisted_draft_enrichment_button($id);
+                    $bound_draft_id   = $this->find_suggestion_draft_id($id);
+                    $is_bound_existing = (sanitize_key((string) get_post_meta($bound_draft_id, '_tmwseo_binding_type', true)) === 'bound_existing');
+                    if (!$is_bound_existing) {
+                        $this->render_assisted_draft_enrichment_button($id);
+                    }
                 }
                 $this->render_action_button($id, 'ignore', __('Ignore', 'tmwseo'), 'delete');
                 echo '</td>';
@@ -760,7 +781,7 @@ class SuggestionsAdminPage {
         echo '<style>
 /* ── Focused Model Page — design aligned with Command Center ── */
 .tmwseo-model-focused-wrap {
-    max-width: 1240px;
+    max-width: 100%;
     font-family: "DM Sans","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
 
@@ -916,29 +937,67 @@ class SuggestionsAdminPage {
 .tmwseo-mf-empty-title { font-size: 17px; font-weight: 700; color: #4c1d95; margin-bottom: 8px; }
 .tmwseo-mf-empty-sub { font-size: 13px; color: #6b7280; max-width: 460px; margin: 0 auto 18px; line-height: 1.5; }
 
-/* Actions column — stack buttons */
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child .button,
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child input[type="submit"],
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child input[type="button"] {
+/* ── Table: full-width, no scroll, fixed layout ───────────── */
+/* Override the global display:block / overflow-x:auto rule */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table {
+    display: table !important;
+    table-layout: fixed !important;
+    width: 100% !important;
+    overflow-x: visible !important;
+}
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table thead,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table tbody {
+    display: table-header-group !important;
+    width: auto !important;
+}
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table tbody {
+    display: table-row-group !important;
+}
+
+/* Column widths — tuned to fill the available ~1300px admin area */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(1),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(1) { width: 80px; }   /* Priority     */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(2),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(2) { width: 130px; }  /* Status       */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(3),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(3) { width: 110px; }  /* Type         */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(4),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(4) { width: 130px; }  /* Primary Action */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(5),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(5) { width: 140px; }  /* Title        */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(6),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(6) { width: auto; word-break: break-word; overflow-wrap: break-word; } /* Description — fills remaining space */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(7),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(7) { width: 60px; text-align: right; }  /* Est. Traffic */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(8),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(8) { width: 130px; }  /* Review State */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table th:nth-child(9),
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) { width: 210px; }  /* Actions      */
+
+/* Actions column — stack buttons, full width */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) .button,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) input[type="submit"],
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) input[type="button"] {
     display: block;
     width: 100%;
     margin: 0 0 5px !important;
     text-align: center;
     box-sizing: border-box;
     white-space: normal;
+    font-size: 12px !important;
 }
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child form {
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) form {
     display: block !important;
     margin: 0 0 5px !important;
 }
 
-/* Preset apply panel — contained, not overflowing */
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child > div,
-.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:last-child > p {
-    font-size: 12px;
+/* Preset panel text — contained */
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) > div,
+.tmwseo-model-focused-wrap .tmwseo-suggestions-table td:nth-child(9) > p {
+    font-size: 11px;
     color: #475569;
     margin: 6px 0 !important;
-    line-height: 1.45;
+    line-height: 1.4;
     word-break: break-word;
 }
 </style>';
@@ -1072,7 +1131,7 @@ class SuggestionsAdminPage {
 
         $helper_notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
         $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
-        if ($helper_notice !== 'internal_link_helper_opened' && !in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused', 'review_handoff_exported', 'review_handoff_export_refused'], true)) {
+        if ($helper_notice !== 'internal_link_helper_opened' && !in_array($notice, ['draft_created', 'target_bound', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused', 'review_handoff_exported', 'review_handoff_export_refused'], true)) {
             return;
         }
 
@@ -1081,7 +1140,7 @@ class SuggestionsAdminPage {
             return;
         }
 
-        if (in_array($notice, ['draft_created', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused', 'review_handoff_exported', 'review_handoff_export_refused'], true) && (!$is_suggestions_page || !current_user_can('manage_options'))) {
+        if (in_array($notice, ['draft_created', 'target_bound', 'brief_generated', 'draft_enriched', 'draft_enrich_refused', 'draft_preview_generated', 'draft_preview_refused', 'draft_preview_applied', 'draft_preview_apply_refused', 'review_bundle_prepared', 'review_bundle_refused', 'review_handoff_exported', 'review_handoff_export_refused'], true) && (!$is_suggestions_page || !current_user_can('manage_options'))) {
             return;
         }
 
@@ -1227,6 +1286,33 @@ class SuggestionsAdminPage {
                 }
             }
 
+            echo '</p></div>';
+            return;
+        }
+
+        if ($notice === 'target_bound') {
+            $draft_id          = isset($_GET['draft_id']) ? (int) $_GET['draft_id'] : 0;
+            $draft_target_type = sanitize_key((string) ($_GET['draft_target_type'] ?? ''));
+            if ($draft_target_type === '') {
+                $suggestion_id     = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+                $draft_target_type = $this->get_suggestion_destination_type($suggestion_id);
+            }
+            $destination_label = $this->format_destination_type_label($draft_target_type);
+
+            echo '<div class="notice notice-info is-dismissible"><p>';
+            echo '<strong>' . esc_html__('[TMW SEO] Suggestion linked to existing post.', 'tmwseo') . '</strong> ';
+            if ($destination_label !== '') {
+                echo esc_html('(' . $destination_label . ') ');
+            }
+            // The post editor was opened directly when binding was performed (Goal A).
+            // This notice appears on the Suggestions page if the operator navigates back.
+            echo esc_html__('No new post was created. The existing post editor was opened directly when you clicked the action. Apply the suggested changes manually in that post. Nothing is live-mutated automatically.', 'tmwseo');
+            if ($draft_id > 0) {
+                $edit_link = get_edit_post_link($draft_id, '');
+                if (is_string($edit_link) && $edit_link !== '') {
+                    echo ' <a href="' . esc_url($edit_link) . '"><strong>' . esc_html__('Open Linked Post', 'tmwseo') . '</strong></a>';
+                }
+            }
             echo '</p></div>';
             return;
         }
@@ -1626,17 +1712,39 @@ class SuggestionsAdminPage {
         if ($row_action === 'approve' || $row_action === 'create_draft') {
             $draft_id = $this->create_draft_from_suggestion($id);
             if ($draft_id > 0) {
-                $this->engine->updateSuggestionStatus($id, 'draft_created');
-                $notice = 'draft_created';
+                // Distinguish binding type BEFORE writing status so the status
+                // correctly reflects what actually happened.
+                $binding_type = sanitize_key((string) get_post_meta($draft_id, '_tmwseo_binding_type', true));
+                $is_bound     = ($binding_type === 'bound_existing');
+
+                $new_status = $is_bound ? 'target_bound' : 'draft_created';
+                $this->engine->updateSuggestionStatus($id, $new_status);
+
+                if ($is_bound) {
+                    // Goal A: For bound_existing targets, redirect directly to the
+                    // existing post edit screen so the operator lands in the editor
+                    // immediately. The in-editor notice (render_bound_suggestion_context_notice)
+                    // will surface the suggestion context on that screen.
+                    $edit_url = add_query_arg([
+                        'post'                    => $draft_id,
+                        'action'                  => 'edit',
+                        'tmwseo_bound_suggestion' => 1,
+                        'tmwseo_suggestion_id'    => $id,
+                        'tmwseo_notice'           => 'bound_existing_opened',
+                    ], admin_url('post.php'));
+                    wp_safe_redirect($edit_url);
+                    exit;
+                }
+
                 $destination_type = sanitize_key((string) get_post_meta($draft_id, '_tmwseo_suggestion_destination_type', true));
                 if ($destination_type === '') {
                     $destination_type = $this->get_suggestion_destination_type($id);
                 }
                 wp_safe_redirect(add_query_arg([
-                    'page' => 'tmwseo-suggestions',
-                    'notice' => $notice,
-                    'id' => $id,
-                    'draft_id' => $draft_id,
+                    'page'              => 'tmwseo-suggestions',
+                    'notice'            => 'draft_created',
+                    'id'                => $id,
+                    'draft_id'          => $draft_id,
                     'draft_target_type' => $destination_type,
                 ], admin_url('admin.php')));
                 exit;
@@ -1697,15 +1805,17 @@ class SuggestionsAdminPage {
         }
 
         $draft_destination = $this->resolve_draft_destination($row);
+        $destination_type  = (string) $draft_destination['destination_type'];
 
+        // ── Idempotency: if already bound/drafted, return the existing post. ──
         $existing = get_posts([
-            'post_type' => array_values(array_unique(array_values(self::SUGGESTION_DESTINATION_POST_TYPE_MAP))),
-            'post_status' => ['draft', 'pending', 'publish', 'future', 'private'],
+            'post_type'      => array_values(array_unique(array_values(self::SUGGESTION_DESTINATION_POST_TYPE_MAP))),
+            'post_status'    => ['draft', 'pending', 'publish', 'future', 'private'],
             'posts_per_page' => 1,
-            'fields' => 'ids',
-            'meta_query' => [
+            'fields'         => 'ids',
+            'meta_query'     => [
                 [
-                    'key' => '_tmwseo_suggestion_id',
+                    'key'   => '_tmwseo_suggestion_id',
                     'value' => (string) $suggestion_id,
                 ],
             ],
@@ -1715,13 +1825,49 @@ class SuggestionsAdminPage {
             return (int) $existing[0];
         }
 
-        $title = sanitize_text_field((string) $row['title']);
-        $description = sanitize_textarea_field((string) ($row['description'] ?? ''));
+        // ── Existing-target branch: model_page / video_page / category_page ──
+        // For these destination types the real target is an already-published WP
+        // object managed by the theme. We MUST NOT call wp_insert_post() and create
+        // a competing post. Instead, resolve the real target and bind the suggestion
+        // to it via post meta.
+        if (in_array($destination_type, self::EXISTING_TARGET_TYPES, true)) {
+            $target_post_id = $this->resolve_existing_target_post_id($row, $destination_type);
+
+            if ($target_post_id <= 0) {
+                Logs::error('suggestions', '[TMW-SUGGEST] Cannot bind suggestion to existing target: no matching post found. wp_insert_post() refused.', [
+                    'suggestion_id'    => $suggestion_id,
+                    'destination_type' => $destination_type,
+                    'title'            => (string) ($row['title'] ?? ''),
+                ]);
+                return 0;
+            }
+
+            // Bind: store the suggestion reference on the target post, but do NOT
+            // mark it _tmwseo_generated (that flag is only for plugin-created drafts).
+            update_post_meta($target_post_id, '_tmwseo_suggestion_id', $suggestion_id);
+            update_post_meta($target_post_id, '_tmwseo_binding_type', 'bound_existing');
+            update_post_meta($target_post_id, '_tmwseo_suggestion_destination_type', $destination_type);
+            update_post_meta($target_post_id, '_tmwseo_suggestion_type', sanitize_key((string) ($row['type'] ?? '')));
+            update_post_meta($target_post_id, '_tmwseo_suggestion_source_engine', sanitize_key((string) ($row['source_engine'] ?? '')));
+            update_post_meta($target_post_id, '_tmwseo_suggestion_priority', (float) ($row['priority_score'] ?? 0));
+
+            Logs::info('suggestions', '[TMW-SUGGEST] Suggestion bound to existing post (no new post created)', [
+                'suggestion_id'    => $suggestion_id,
+                'target_post_id'   => $target_post_id,
+                'destination_type' => $destination_type,
+            ]);
+
+            return $target_post_id;
+        }
+
+        // ── generic_post: only path that calls wp_insert_post() ──
+        $title            = sanitize_text_field((string) $row['title']);
+        $description      = sanitize_textarea_field((string) ($row['description'] ?? ''));
         $suggested_action = sanitize_textarea_field((string) ($row['suggested_action'] ?? ''));
 
-        $problem = $title;
+        $problem       = $title;
         $why_it_matters = $description;
-        $evidence = $description;
+        $evidence      = $description;
 
         if ((string) ($row['type'] ?? '') === 'internal_link') {
             $why_it_matters = 'This page is missing a contextual internal link opportunity that can improve crawl depth and topical authority.';
@@ -1731,7 +1877,7 @@ class SuggestionsAdminPage {
             }
         }
 
-        $content = '<!-- TMWSEO:SUGGESTION -->\n';
+        $content  = '<!-- TMWSEO:SUGGESTION -->\n';
         $content .= '<h2>' . esc_html__('Problem', 'tmwseo') . '</h2>';
         $content .= '<p>' . esc_html($problem) . '</p>';
         $content .= '<h2>' . esc_html__('Why it matters', 'tmwseo') . '</h2>';
@@ -1742,17 +1888,17 @@ class SuggestionsAdminPage {
         $content .= '<p>' . esc_html($suggested_action) . '</p>';
 
         $post_id = wp_insert_post([
-            'post_type' => $draft_destination['post_type'],
-            'post_status' => 'draft',
-            'post_title' => wp_strip_all_tags($title),
+            'post_type'    => $draft_destination['post_type'],
+            'post_status'  => 'draft',
+            'post_title'   => wp_strip_all_tags($title),
             'post_content' => $content,
-            'post_author' => get_current_user_id() ?: 1,
+            'post_author'  => get_current_user_id() ?: 1,
         ], true);
 
         if (is_wp_error($post_id)) {
             Logs::error('suggestions', '[TMW-SUGGEST] Failed to create draft from suggestion', [
                 'suggestion_id' => $suggestion_id,
-                'error' => $post_id->get_error_message(),
+                'error'         => $post_id->get_error_message(),
             ]);
             return 0;
         }
@@ -1764,15 +1910,172 @@ class SuggestionsAdminPage {
         update_post_meta($post_id, '_tmwseo_suggestion_priority', (float) ($row['priority_score'] ?? 0));
         update_post_meta($post_id, '_tmwseo_suggestion_destination_type', $draft_destination['destination_type']);
         update_post_meta($post_id, '_tmwseo_suggestion_destination_post_type', $draft_destination['post_type']);
+        update_post_meta($post_id, '_tmwseo_binding_type', 'generated_draft');
         update_post_meta($post_id, '_tmwseo_autopilot_migration_status', 'not_migrated');
         update_post_meta($post_id, 'rank_math_robots', ['noindex']);
 
         Logs::info('suggestions', '[TMW-SUGGEST] Draft created from suggestion (manual action)', [
             'suggestion_id' => $suggestion_id,
-            'post_id' => (int) $post_id,
+            'post_id'       => (int) $post_id,
         ]);
 
         return (int) $post_id;
+    }
+
+    /**
+     * Resolves an already-existing target WP post for a suggestion whose destination
+     * type is one of EXISTING_TARGET_TYPES.
+     *
+     * Resolution order:
+     *   1. Parse TARGET_POST_ID from suggested_action (set by source engines that scan
+     *      existing posts — the authoritative, zero-ambiguity path).
+     *   2. Title-based fallback for older suggestions that predate the TARGET_POST_ID
+     *      convention. Strips the "Improve SEO coverage for: " prefix emitted by
+     *      ContentImprovementAnalyzer, then queries by title / slug.
+     *   3. Returns 0 if no matching post is found. Caller must NOT call wp_insert_post().
+     *
+     * @param array<string,mixed> $row
+     */
+    private function resolve_existing_target_post_id(array $row, string $destination_type): int {
+        $suggested_action = (string) ($row['suggested_action'] ?? '');
+        $suggestion_title = (string) ($row['title'] ?? '');
+
+        // ── Path 1: TARGET_POST_ID embedded in suggested_action ──────────────
+        $explicit_id = $this->parse_target_post_id_from_action($suggested_action);
+
+        if ($explicit_id > 0) {
+            $post = get_post($explicit_id);
+            if ($post instanceof \WP_Post) {
+                $expected_type = self::SUGGESTION_DESTINATION_POST_TYPE_MAP[$destination_type] ?? '';
+                if ($expected_type !== '' && $post->post_type !== $expected_type) {
+                    Logs::warn('suggestions', '[TMW-SUGGEST] TARGET_POST_ID post_type mismatch — ignoring explicit ID, falling to title search', [
+                        'target_post_id'   => $explicit_id,
+                        'post_type_actual' => $post->post_type,
+                        'post_type_expect' => $expected_type,
+                        'destination_type' => $destination_type,
+                    ]);
+                } elseif ($post->post_status === 'trash') {
+                    Logs::warn('suggestions', '[TMW-SUGGEST] TARGET_POST_ID is trashed — binding refused', [
+                        'target_post_id'   => $explicit_id,
+                        'destination_type' => $destination_type,
+                    ]);
+                    return 0;
+                } else {
+                    return $explicit_id;
+                }
+            }
+        }
+
+        // ── Path 2: title-based fallback for legacy suggestions ──────────────
+        // Strip the standard "Improve SEO coverage for: " prefix and any other
+        // known engine prefix patterns.
+        $clean_title = preg_replace(
+            '/^(Improve SEO coverage for|SEO opportunity|Content gap for|Cluster gap for):\s*/i',
+            '',
+            $suggestion_title
+        );
+        $clean_title = trim((string) $clean_title);
+
+        if ($clean_title === '') {
+            return 0;
+        }
+
+        if ($destination_type === 'model_page') {
+            return $this->resolve_model_page_by_title($clean_title);
+        }
+
+        if ($destination_type === 'category_page') {
+            return $this->resolve_category_page_by_title($clean_title);
+        }
+
+        // video_page: title-based resolution is too ambiguous for video posts.
+        // Require TARGET_POST_ID (emitted by the updated analyzer).
+        Logs::warn('suggestions', '[TMW-SUGGEST] video_page binding requires TARGET_POST_ID in suggested_action — title-based fallback refused', [
+            'suggestion_title' => $suggestion_title,
+        ]);
+        return 0;
+    }
+
+    /**
+     * Parse a TARGET_POST_ID integer from a suggested_action text field.
+     * Uses the same "TARGET_POST_ID: {n}" convention as the internal-link scanner.
+     */
+    private function parse_target_post_id_from_action(string $suggested_action): int {
+        if ($suggested_action === '') {
+            return 0;
+        }
+        if (preg_match('/TARGET_POST_ID:\s*(\d+)/i', $suggested_action, $matches)) {
+            return max(0, (int) $matches[1]);
+        }
+        return 0;
+    }
+
+    /**
+     * Resolve an existing model CPT post by display title or slug.
+     * Called only as a fallback when TARGET_POST_ID is absent.
+     */
+    private function resolve_model_page_by_title(string $clean_title): int {
+        // Prefer slug-based lookup (get_page_by_path works for any CPT).
+        $by_slug = get_page_by_path(sanitize_title($clean_title), OBJECT, 'model');
+        if ($by_slug instanceof \WP_Post && $by_slug->post_status !== 'trash') {
+            return (int) $by_slug->ID;
+        }
+
+        // Exact post_title match fallback.
+        $by_title = get_posts([
+            'post_type'      => 'model',
+            'title'          => $clean_title,
+            'post_status'    => ['publish', 'draft', 'pending', 'private'],
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+        ]);
+        if (!empty($by_title)) {
+            return (int) $by_title[0];
+        }
+
+        Logs::warn('suggestions', '[TMW-SUGGEST] model_page title-based fallback found no match', [
+            'clean_title' => $clean_title,
+        ]);
+        return 0;
+    }
+
+    /**
+     * Resolve a tmw_category_page CPT post via the theme's canonical lookup
+     * function, falling back to a direct post title query.
+     * Called only as a fallback when TARGET_POST_ID is absent.
+     */
+    private function resolve_category_page_by_title(string $clean_title): int {
+        // Prefer the theme's authoritative resolver.
+        if (function_exists('tmw_get_category_page_post')) {
+            // Try by category name first, then by slug.
+            foreach (['name', 'slug'] as $field) {
+                $term_value = ($field === 'slug') ? sanitize_title($clean_title) : $clean_title;
+                $cat_term   = get_term_by($field, $term_value, 'category');
+                if ($cat_term instanceof \WP_Term) {
+                    $cat_post = tmw_get_category_page_post($cat_term);
+                    if ($cat_post instanceof \WP_Post && $cat_post->post_status !== 'trash') {
+                        return (int) $cat_post->ID;
+                    }
+                }
+            }
+        }
+
+        // Direct tmw_category_page post title query as last resort.
+        $by_title = get_posts([
+            'post_type'      => 'tmw_category_page',
+            'title'          => $clean_title,
+            'post_status'    => ['publish', 'draft', 'pending', 'private'],
+            'posts_per_page' => 1,
+            'fields'         => 'ids',
+        ]);
+        if (!empty($by_title)) {
+            return (int) $by_title[0];
+        }
+
+        Logs::warn('suggestions', '[TMW-SUGGEST] category_page title-based fallback found no match', [
+            'clean_title' => $clean_title,
+        ]);
+        return 0;
     }
 
     /**
@@ -1930,6 +2233,171 @@ class SuggestionsAdminPage {
         exit;
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Goal B: In-editor suggestion context (bound_existing path)
+    // Fires on post.php when the operator lands there via the direct-open
+    // redirect. Surfaces key suggestion data so the operator knows exactly
+    // what changes to apply. Manual-only, no auto-apply, no content mutation.
+    // ────────────────────────────────────────────────────────────────────────
+
+    public function render_bound_suggestion_context_notice(): void {
+        if (!is_admin() || !current_user_can('edit_posts')) {
+            return;
+        }
+
+        $tmwseo_notice = sanitize_key((string) ($_GET['tmwseo_notice'] ?? ''));
+        if ($tmwseo_notice !== 'bound_existing_opened') {
+            return;
+        }
+
+        $bound_flag    = isset($_GET['tmwseo_bound_suggestion']) ? (int) $_GET['tmwseo_bound_suggestion'] : 0;
+        $suggestion_id = isset($_GET['tmwseo_suggestion_id'])    ? (int) $_GET['tmwseo_suggestion_id']    : 0;
+
+        if ($bound_flag !== 1 || $suggestion_id <= 0) {
+            return;
+        }
+
+        // Retrieve suggestion row.
+        $row = $this->engine->getSuggestion($suggestion_id);
+        if (!is_array($row) || empty($row)) {
+            return;
+        }
+
+        $title          = sanitize_text_field((string) ($row['title']         ?? ''));
+        $description    = sanitize_textarea_field((string) ($row['description']    ?? ''));
+        $type           = $this->format_label((string) ($row['type']          ?? ''));
+        $source_engine  = $this->format_label((string) ($row['source_engine'] ?? ''));
+        $priority_score = (float) ($row['priority_score'] ?? 0);
+        $priority_label = $this->priority_label($priority_score);
+        $suggested_action = trim((string) ($row['suggested_action'] ?? ''));
+        // Resolve destination_type so the fallback step text is accurate.
+        // This context is always bound_existing so destination will be model_page,
+        // category_page, or video_page — never generic_post.
+        $row_dest_info  = $this->resolve_draft_destination($row);
+        $row_dest_type  = (string) ($row_dest_info['destination_type'] ?? '');
+        $manual_step    = $suggested_action !== ''
+            ? wp_trim_words($suggested_action, 30, '…')
+            : $this->manual_next_step_text((string) ($row['type'] ?? ''), $row_dest_type);
+
+        // Suggestions page back-link.
+        $suggestions_url = add_query_arg([
+            'page'       => 'tmwseo-suggestions',
+            'tmw_filter' => 'draft_created',
+        ], admin_url('admin.php'));
+
+        ?>
+        <div class="notice notice-info tmwseo-bound-context-notice" style="border-left-color:#7c3aed;padding:14px 16px;">
+            <p style="margin:0 0 8px;"><strong style="color:#3b0764;">&#128204; TMW SEO — Suggestion Context</strong>
+            <span style="font-size:12px;color:#6b7280;margin-left:8px;">(Suggestion #<?php echo esc_html((string) $suggestion_id); ?> · Manual-only: apply changes yourself, nothing is auto-applied)</span></p>
+
+            <table style="border-collapse:collapse;width:100%;max-width:900px;font-size:13px;">
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;width:160px;"><?php esc_html_e('Title', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html($title); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;"><?php esc_html_e('Suggestion Type', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html($type); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;"><?php esc_html_e('Source Engine', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html($source_engine); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;"><?php esc_html_e('Priority', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#111827;"><?php echo esc_html(sprintf('%s (%.1f)', $priority_label, $priority_score)); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;vertical-align:top;"><?php esc_html_e('Description', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#374151;line-height:1.5;"><?php echo esc_html(wp_trim_words($description, 40, '…')); ?></td>
+                </tr>
+                <tr>
+                    <td style="padding:3px 12px 3px 0;font-weight:600;color:#374151;white-space:nowrap;vertical-align:top;"><?php esc_html_e('Manual Next Step', 'tmwseo'); ?></td>
+                    <td style="padding:3px 0;color:#1d4ed8;line-height:1.5;"><strong><?php echo esc_html($manual_step); ?></strong></td>
+                </tr>
+            </table>
+
+            <p style="margin:10px 0 0;font-size:12px;color:#6b7280;">
+                <a href="<?php echo esc_url($suggestions_url); ?>" style="color:#7c3aed;">&larr; <?php esc_html_e('Back to Suggestions Dashboard', 'tmwseo'); ?></a>
+                &nbsp;·&nbsp;
+                <?php esc_html_e('This notice is informational only. Apply suggested changes manually, then save. No content was mutated automatically.', 'tmwseo'); ?>
+            </p>
+        </div>
+        <?php
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Goal C: Legacy cleanup handlers
+    // Stores archived suggestion IDs in a WP option (no DB schema change).
+    // Explicit admin click required. Fully reversible via Unarchive All.
+    // ────────────────────────────────────────────────────────────────────────
+
+    private const ARCHIVED_IDS_OPTION = 'tmwseo_archived_suggestion_ids';
+
+    /** @return int[] */
+    private function get_archived_suggestion_ids(): array {
+        $raw = get_option(self::ARCHIVED_IDS_OPTION, []);
+        return is_array($raw) ? array_map('intval', $raw) : [];
+    }
+
+    public function handle_archive_stale_suggestions(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_archive_stale_suggestions');
+
+        // Fetch all suggestions and identify stale candidates:
+        // - status = ignored  (operator already dismissed these)
+        // - status = target_bound  AND  created_at older than 60 days (no longer actionable)
+        // - status = new  AND  created_at older than 90 days (very stale)
+        $rows = $this->engine->getSuggestions(['limit' => 2000]);
+        $now  = time();
+        $to_archive = [];
+
+        foreach ($rows as $row) {
+            $id         = (int) ($row['id'] ?? 0);
+            $status     = sanitize_key((string) ($row['status'] ?? 'new'));
+            $created_ts = strtotime((string) ($row['created_at'] ?? '')) ?: 0;
+            $age_days   = $created_ts > 0 ? (int) floor(($now - $created_ts) / DAY_IN_SECONDS) : 0;
+
+            if ($status === 'ignored') {
+                $to_archive[] = $id;
+            } elseif ($status === 'target_bound' && $age_days >= 60) {
+                $to_archive[] = $id;
+            } elseif ($status === 'new' && $age_days >= 90) {
+                $to_archive[] = $id;
+            }
+        }
+
+        $existing_archived = $this->get_archived_suggestion_ids();
+        $merged            = array_values(array_unique(array_merge($existing_archived, $to_archive)));
+        update_option(self::ARCHIVED_IDS_OPTION, $merged, false);
+
+        $count = count($to_archive);
+        wp_safe_redirect(add_query_arg([
+            'page'             => 'tmwseo-suggestions',
+            'notice'           => 'archive_complete',
+            'archived_count'   => $count,
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public function handle_unarchive_all_suggestions(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_unarchive_all_suggestions');
+        delete_option(self::ARCHIVED_IDS_OPTION);
+
+        wp_safe_redirect(add_query_arg([
+            'page'   => 'tmwseo-suggestions',
+            'notice' => 'unarchive_complete',
+        ], admin_url('admin.php')));
+        exit;
+    }
+
     public function render_competitor_domains_page(): void {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
@@ -2030,9 +2498,24 @@ class SuggestionsAdminPage {
         $review_queue_counts = $this->build_review_queue_counts($rows, $active_destination_filter);
         $review_aging_bucket_counts = $this->build_review_aging_bucket_counts($rows, $active_destination_filter, $active_filter);
 
-        $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter, $active_review_aging): bool {
-            $type = (string) ($row['type'] ?? '');
+        // Goal C: Collect archived IDs so we can hide them from normal queues.
+        $archived_ids = $this->get_archived_suggestion_ids();
+
+        $queue_rows = array_values(array_filter($rows, function (array $row) use ($active_filter, $active_review_aging, $archived_ids): bool {
+            $id     = (int) ($row['id'] ?? 0);
+            $type   = (string) ($row['type'] ?? '');
             $status = (string) ($row['status'] ?? 'new');
+
+            // Archived filter: show only archived rows.
+            if ($active_filter === 'archived') {
+                return in_array($id, $archived_ids, true);
+            }
+
+            // For all other filters, hide archived rows so they don't clutter the queue.
+            if (!empty($archived_ids) && in_array($id, $archived_ids, true)) {
+                return false;
+            }
+
             $priority = (float) ($row['priority_score'] ?? 0);
             $review_queue_state = $this->review_queue_state_for_row($row);
             $review_matches_filter = false;
@@ -2084,7 +2567,7 @@ class SuggestionsAdminPage {
             }
 
             if ($active_filter === 'draft_created') {
-                return $status === 'draft_created';
+                return $status === 'draft_created' || $status === 'target_bound';
             }
 
             if ($active_filter === 'review_ready') {
@@ -2154,7 +2637,7 @@ class SuggestionsAdminPage {
 
         // ── KPI counts (derived from full $rows, no logic change) ────────────
         $kpi_new          = count(array_filter($rows, fn($r) => ($r['status'] ?? 'new') === 'new'));
-        $kpi_draft        = count(array_filter($rows, fn($r) => ($r['status'] ?? '') === 'draft_created'));
+        $kpi_draft        = count(array_filter($rows, fn($r) => in_array(($r['status'] ?? ''), ['draft_created', 'target_bound'], true)));
         $kpi_high         = count(array_filter($rows, fn($r) => (float)($r['priority_score'] ?? 0) >= 8 && !in_array($r['status'] ?? 'new', ['ignored','implemented'], true)));
         $kpi_implemented  = count(array_filter($rows, fn($r) => ($r['status'] ?? '') === 'implemented'));
 
@@ -2166,7 +2649,7 @@ class SuggestionsAdminPage {
         );
 
         // ── Success notices ──────────────────────────────────────────────────
-        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete', 'phase_c_discovery_snapshot_blocked'], true)) {
+        if (in_array($notice, ['ignored', 'scan_complete', 'content_scan_complete', 'phase_c_discovery_snapshot_complete', 'phase_c_discovery_snapshot_blocked', 'archive_complete', 'unarchive_complete'], true)) {
             echo '<div class="notice notice-success is-dismissible"><p>';
             if ($notice === 'scan_complete') {
                 $created = isset($_GET['created']) ? (int) $_GET['created'] : 0;
@@ -2184,6 +2667,11 @@ class SuggestionsAdminPage {
                 echo esc_html(sprintf(__('Phase C discovery snapshot complete: %d posts scanned and %d legacy candidates identified for manual review. No jobs were enqueued and no content was mutated.', 'tmwseo'), $scanned, $eligible));
             } elseif ($notice === 'phase_c_discovery_snapshot_blocked') {
                 echo esc_html__('Phase C discovery snapshot is currently fenced for this migration phase. No jobs were enqueued and no content was mutated.', 'tmwseo');
+            } elseif ($notice === 'archive_complete') {
+                $archived_count = isset($_GET['archived_count']) ? (int) $_GET['archived_count'] : 0;
+                echo esc_html(sprintf(__('%d stale/ignored suggestion(s) archived and hidden from the active queue. Nothing was deleted. Use "Unarchive All" to restore them.', 'tmwseo'), $archived_count));
+            } elseif ($notice === 'unarchive_complete') {
+                echo esc_html__('All archived suggestions restored to the active queue.', 'tmwseo');
             } else {
                 echo esc_html__('Suggestion ignored.', 'tmwseo');
             }
@@ -2192,10 +2680,10 @@ class SuggestionsAdminPage {
 
         // ── KPI row ──────────────────────────────────────────────────────────
         AdminUI::kpi_row([
-            [ 'value' => $kpi_new,         'label' => __('New', 'tmwseo'),          'color' => $kpi_new > 0 ? 'neutral' : 'neutral' ],
-            [ 'value' => $kpi_draft,        'label' => __('Draft Created', 'tmwseo'), 'color' => $kpi_draft > 0 ? 'ok' : 'neutral' ],
-            [ 'value' => $kpi_high,         'label' => __('High Priority', 'tmwseo'), 'color' => $kpi_high > 0 ? 'warn' : 'neutral' ],
-            [ 'value' => $kpi_implemented,  'label' => __('Implemented', 'tmwseo'),  'color' => 'ok' ],
+            [ 'value' => $kpi_new,         'label' => __('New', 'tmwseo'),             'color' => $kpi_new > 0 ? 'neutral' : 'neutral' ],
+            [ 'value' => $kpi_draft,        'label' => __('Action Taken', 'tmwseo'),    'color' => $kpi_draft > 0 ? 'ok' : 'neutral' ],
+            [ 'value' => $kpi_high,         'label' => __('High Priority', 'tmwseo'),   'color' => $kpi_high > 0 ? 'warn' : 'neutral' ],
+            [ 'value' => $kpi_implemented,  'label' => __('Implemented', 'tmwseo'),     'color' => 'ok' ],
         ]);
 
         // ── Primary filter bar ───────────────────────────────────────────────
@@ -2212,7 +2700,7 @@ class SuggestionsAdminPage {
             'review_handoff_ready'   => 'Handoff Ready',
             'review_handoff_exported'=> 'Handoff Exported',
             'high_priority'          => 'High Priority',
-            'draft_created'          => 'Draft Created',
+            'draft_created'          => 'Draft Created / Bound',
             'review_ready'           => 'Review Ready',
             'ignored'                => 'Ignored',
             'content_opportunity'    => 'Content Opportunities',
@@ -2225,6 +2713,7 @@ class SuggestionsAdminPage {
             'serp_weakness'          => 'SERP Weakness',
             'authority_cluster'      => 'Authority Clusters',
             'content_brief'          => 'Content Briefs',
+            'archived'               => 'Archived (Legacy)',
         ];
         echo '<ul class="subsubsub">';
         $first = true;
@@ -2310,7 +2799,7 @@ class SuggestionsAdminPage {
 
         // Review Draft Queues
         echo '<h3 style="margin:0 0 4px;">' . esc_html__('Review Draft Queues', 'tmwseo') . '</h3>';
-        echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Trust-safe reviewer handoff queues for explicit drafts only. Review only, manual-only, and never auto-publish.', 'tmwseo') . '</p>';
+        echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Trust-safe reviewer handoff queues for generated drafts. Review only, manual-only, and never auto-publish.', 'tmwseo') . '</p>';
         echo '<ul class="subsubsub">';
         $review_views = $this->review_queue_views();
         $first_review_tab = true;
@@ -2341,7 +2830,7 @@ class SuggestionsAdminPage {
                 self::REVIEW_AGING_BUCKET_OVERDUE => __('Overdue (8+d)', 'tmwseo'),
             ];
             echo '<h3 style="margin:12px 0 4px;">' . esc_html__('Review Aging Buckets', 'tmwseo') . '</h3>';
-            echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Review-only aging visibility for draft queues. Buckets are triage cues only and never auto-apply or publish.', 'tmwseo') . '</p>';
+            echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Review-only aging visibility for generated drafts in the review queue. Buckets are triage cues only and never auto-apply or publish.', 'tmwseo') . '</p>';
             echo '<ul class="subsubsub">';
             $first_aging_tab = true;
             foreach ($review_aging_tabs as $aging_key => $aging_label) {
@@ -2384,7 +2873,7 @@ class SuggestionsAdminPage {
 
         // Triage Quick Views
         echo '<h3 style="margin:12px 0 4px;">' . esc_html__('Triage Quick Views', 'tmwseo') . '</h3>';
-        echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Open queue-focused views in one click. All output remains manual-only: drafts require manual editing, and links require manual insertion.', 'tmwseo') . '</p>';
+        echo '<p style="margin:0 0 6px;font-size:12px;color:#6b7280;">' . esc_html__('Open queue-focused views in one click. All output remains manual-only: generated drafts require manual editing, linked existing posts require manual content changes, and links require manual insertion.', 'tmwseo') . '</p>';
         echo '<ul class="subsubsub">';
         $first_view_tab = true;
         foreach ($quick_views as $view_key => $view_meta) {
@@ -2426,6 +2915,26 @@ class SuggestionsAdminPage {
         submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
         echo '</form>';
 
+        // Goal C: Legacy cleanup controls
+        $archived_count = count($this->get_archived_suggestion_ids());
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="border-left:3px solid #f59e0b;padding-left:10px;">';
+        wp_nonce_field('tmwseo_archive_stale_suggestions');
+        echo '<input type="hidden" name="action" value="tmwseo_archive_stale_suggestions">';
+        echo '<p style="margin:0 0 4px;font-size:12px;color:#92400e;"><strong>' . esc_html__('Legacy Cleanup', 'tmwseo') . '</strong> — ' . esc_html__('Hides ignored + stale legacy suggestions from the queue. Nothing is deleted. Reversible.', 'tmwseo') . '</p>';
+        submit_button(__('Archive Stale / Ignored Suggestions', 'tmwseo'), 'secondary small', 'submit', false);
+        echo '</form>';
+
+        if ($archived_count > 0) {
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            wp_nonce_field('tmwseo_unarchive_all_suggestions');
+            echo '<input type="hidden" name="action" value="tmwseo_unarchive_all_suggestions">';
+            echo '<p style="margin:0 0 4px;font-size:12px;color:#6b7280;">';
+            echo esc_html(sprintf(__('%d archived — restore with Unarchive All, or view under the "Archived (Legacy)" tab.', 'tmwseo'), $archived_count));
+            echo '</p>';
+            submit_button(__('Unarchive All', 'tmwseo'), 'secondary small', 'submit', false);
+            echo '</form>';
+        }
+
         echo '</div>'; // .tmwui-cta-row
 
         // ── Suggestions table ────────────────────────────────────────────────
@@ -2433,7 +2942,7 @@ class SuggestionsAdminPage {
         echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Suggestion Type', 'tmwseo') . '</th>';
-        echo '<th>' . esc_html__('Draft Target Type', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Action Target', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Primary Action', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Title', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Description', 'tmwseo') . '</th>';
@@ -2459,12 +2968,12 @@ class SuggestionsAdminPage {
             $status_meta = $this->suggestion_status_meta($status);
             $destination = $this->resolve_draft_destination($row);
             $destination_meta = $this->destination_type_meta($destination['destination_type']);
-            $primary_action_meta = $this->primary_action_meta((string) ($row['type'] ?? ''));
+            $primary_action_meta = $this->primary_action_meta_for_row((string) ($row['type'] ?? ''), (string) $destination['destination_type']);
             $type_label = $this->format_label((string) ($row['type'] ?? ''));
             $source_engine_label = $this->format_label((string) ($row['source_engine'] ?? ''));
             $description_summary = $this->build_row_summary((string) ($row['title'] ?? ''), (string) ($row['description'] ?? ''));
             $opportunity_cue = $this->opportunity_cue((int) ($row['estimated_traffic'] ?? 0));
-            $manual_next_step = $this->manual_next_step_text((string) ($row['type'] ?? ''));
+            $manual_next_step = $this->manual_next_step_text((string) ($row['type'] ?? ''), (string) $destination['destination_type']);
             $review_state_badges = $this->build_review_state_badges($row);
             $review_queue_state = $this->review_queue_state_for_row($row);
             $review_aging = $this->build_review_aging_profile_for_row($row, $review_queue_state);
@@ -2536,12 +3045,22 @@ class SuggestionsAdminPage {
             if ((string) ($row['type'] ?? '') === 'internal_link') {
                 $this->render_action_button($id, 'insert_link_draft', __('Insert Link Draft', 'tmwseo'), 'secondary');
             } else {
-                $this->render_action_button($id, 'create_draft', __('Create Noindex Draft', 'tmwseo'), 'secondary');
+                // Use the destination-aware label so existing-target rows say
+                // "Link to Existing Post" instead of "Create Noindex Draft".
+                $this->render_action_button($id, 'create_draft', $primary_action_meta['label'], 'secondary');
             }
 
             if ($status === 'draft_created' && $this->find_suggestion_draft_id($id) > 0) {
-                $this->render_assisted_draft_enrichment_button($id);
+                $bound_draft_id    = $this->find_suggestion_draft_id($id);
+                $is_bound_existing = (sanitize_key((string) get_post_meta($bound_draft_id, '_tmwseo_binding_type', true)) === 'bound_existing');
+                if (!$is_bound_existing) {
+                    $this->render_assisted_draft_enrichment_button($id);
+                }
             }
+            // target_bound rows: enrichment buttons are deliberately NOT shown.
+            // Status = target_bound means the suggestion was linked to a live published
+            // post. Enrichment acts on drafts only; gating on draft_created excludes
+            // target_bound rows automatically.
 
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin:0 6px 6px 0;">';
             wp_nonce_field('tmwseo_generate_brief_from_suggestion');
@@ -2562,12 +3081,12 @@ class SuggestionsAdminPage {
         echo '<summary>' . esc_html__('Workflow Guide', 'tmwseo') . '</summary>';
         echo '<div class="tmwui-advanced-body">';
         echo '<p><strong>' . esc_html__('Operator quick guide:', 'tmwseo') . '</strong> ';
-        echo esc_html__('Statuses track workflow only (New → Draft Created → Implemented, or Ignored). Draft Target Type shows where a draft will be created (Category, Model, Video, or Generic fallback). Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');
+        echo esc_html__('Statuses track workflow only (New → Draft Created or Linked to Existing Post → Implemented, or Ignored). Action Target shows the destination: an existing post for Category/Model/Video destinations, or a new noindex draft for Generic fallback. Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');
         echo '</p>';
         echo '<p><strong>' . esc_html__('Next step guidance:', 'tmwseo') . '</strong> ';
-        echo esc_html__('Draft created → open/edit the draft manually, then optionally run Enrich Draft Metadata for safe metadata-only enrichment. Brief generated → review the brief manually. Internal-link helper opened → review anchor/context and insert manually only if approved. Nothing is published or inserted live automatically.', 'tmwseo');
+        echo esc_html__('Draft created → open/edit the draft manually, then optionally run Enrich Draft Metadata for safe metadata-only enrichment. Linked to existing post → the post editor opened directly when binding was performed; apply the suggested changes manually in that post; no draft was created. Brief generated → review the brief manually. Internal-link helper opened → review anchor/context and insert manually only if approved. Nothing is published or inserted live automatically.', 'tmwseo');
         echo '</p>';
-        echo '<p class="description">' . esc_html__('Review only queues are draft-only. Signed off for manual next step still means nothing has been published automatically; draft remains draft-only / noindex.', 'tmwseo') . '</p>';
+        echo '<p class="description">' . esc_html__('Review queues apply to generated drafts only (linked existing posts do not enter the review queue). Signed off for manual next step still means nothing has been published automatically; generated drafts remain noindex.', 'tmwseo') . '</p>';
         echo '</div>';
         echo '</details>';
 
@@ -2774,12 +3293,23 @@ class SuggestionsAdminPage {
             echo '<li><strong>' . esc_html__('Why this suggestion exists:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($description, 22, '…')) . '</li>';
             echo '<li><strong>' . esc_html__('Manual next step:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Generate/review the brief manually, then decide execution manually. Nothing goes live automatically.', 'tmwseo') . '</li>';
         } else {
+            // Determine whether this suggestion targets an existing post (bound_existing path)
+            // or will create a new noindex draft (generic_post path). The manual-only
+            // reminder must reflect the actual outcome, not a generic draft assumption.
+            $row_destination      = $this->resolve_draft_destination($row);
+            $row_destination_type = (string) ($row_destination['destination_type'] ?? '');
+            $is_bound_target      = in_array($row_destination_type, ['model_page', 'category_page', 'video_page'], true);
+
             echo '<li><strong>' . esc_html__('Destination type:', 'tmwseo') . '</strong> ' . esc_html($destination_label) . '</li>';
             echo '<li><strong>' . esc_html__('Source engine:', 'tmwseo') . '</strong> ' . esc_html($source_engine_label) . '</li>';
             echo '<li><strong>' . esc_html__('Priority cue:', 'tmwseo') . '</strong> ' . esc_html($priority_confidence) . '</li>';
             echo '<li><strong>' . esc_html__('Problem / why it matters:', 'tmwseo') . '</strong> ' . esc_html(wp_trim_words($description, 22, '…')) . '</li>';
             echo '<li><strong>' . esc_html__('Suggested next step:', 'tmwseo') . '</strong> ' . esc_html($next_step) . '</li>';
-            echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Draft editing is manual and nothing is published automatically.', 'tmwseo') . '</li>';
+            if ($is_bound_target) {
+                echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. Clicking the action opens the existing post editor directly — no new post is created. Apply suggested changes manually in that editor. Nothing is mutated automatically.', 'tmwseo') . '</li>';
+            } else {
+                echo '<li><strong>' . esc_html__('Manual-only reminder:', 'tmwseo') . '</strong> ' . esc_html__('Preview only. A noindex draft will be created for manual editing. Publish only with explicit operator approval. Nothing goes live automatically.', 'tmwseo') . '</li>';
+            }
         }
 
         echo '</ul>';
@@ -2805,7 +3335,15 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Draft Created', 'tmwseo'),
                 'class' => 'draft-created',
-                'help' => __('A draft exists for manual editing and approval. Nothing is live yet.', 'tmwseo'),
+                'help'  => __('A noindex draft was created for manual editing and approval. Nothing is live yet.', 'tmwseo'),
+            ];
+        }
+
+        if ($status === 'target_bound') {
+            return [
+                'label' => __('Linked to Existing Post', 'tmwseo'),
+                'class' => 'draft-created',  // reuse same visual class; no new CSS needed
+                'help'  => __('This suggestion is linked to an already-existing published post. No new draft was created. Apply changes to that post manually.', 'tmwseo'),
             ];
         }
 
@@ -2840,7 +3378,7 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Category Page (Priority)', 'tmwseo'),
                 'class' => 'category-page',
-                'help' => __('Priority destination for manual triage. Creates a noindex draft targeting a category page workflow.', 'tmwseo'),
+                'help'  => __('Priority destination. Links this suggestion to the existing tmw_category_page CPT post. No new post is created.', 'tmwseo'),
             ];
         }
 
@@ -2848,7 +3386,7 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Model Page', 'tmwseo'),
                 'class' => 'model-page',
-                'help' => __('Creates a noindex draft targeting a model page workflow.', 'tmwseo'),
+                'help'  => __('Links this suggestion to the existing model CPT post. No new post is created.', 'tmwseo'),
             ];
         }
 
@@ -2856,14 +3394,14 @@ class SuggestionsAdminPage {
             return [
                 'label' => __('Video Page', 'tmwseo'),
                 'class' => 'video-page',
-                'help' => __('Creates a noindex draft targeting a video page workflow.', 'tmwseo'),
+                'help'  => __('Links this suggestion to the existing video CPT post. No new post is created.', 'tmwseo'),
             ];
         }
 
         return [
             'label' => __('Generic Post Fallback', 'tmwseo'),
             'class' => 'generic-post',
-            'help' => __('Creates a noindex draft in the generic post fallback when no specific destination is detected.', 'tmwseo'),
+            'help'  => __('Creates a noindex draft (post type: post). Only destination type that creates a new post.', 'tmwseo'),
         ];
     }
 
@@ -2918,7 +3456,7 @@ class SuggestionsAdminPage {
                 'sort'               => 'status',
             ],
             'draft_created_newest' => [
-                'label'              => __('Draft Created → Newest First', 'tmwseo'),
+                'label'              => __('Draft Created / Bound → Newest First', 'tmwseo'),
                 'filter'             => 'draft_created',
                 'destination_filter' => 'all',
                 'sort'               => 'newest',
@@ -3063,7 +3601,7 @@ class SuggestionsAdminPage {
         if ($status === 'new') {
             return 0;
         }
-        if ($status === 'draft_created') {
+        if ($status === 'draft_created' || $status === 'target_bound') {
             return 1;
         }
         if ($status === 'implemented') {
@@ -3570,21 +4108,37 @@ class SuggestionsAdminPage {
         if ($type === 'internal_link') {
             return [
                 'label' => __('Insert Link Draft', 'tmwseo'),
-                'help' => __('Opens the internal-link helper in editor draft mode so you can insert the link manually after review. No auto-insert happens.', 'tmwseo'),
+                'help'  => __('Opens the internal-link helper in editor draft mode so you can insert the link manually after review. No auto-insert happens.', 'tmwseo'),
             ];
         }
 
         if ($type === 'content_brief') {
             return [
                 'label' => __('Generate Brief', 'tmwseo'),
-                'help' => __('Generates and saves a content brief for manual review. No publication or live update occurs.', 'tmwseo'),
+                'help'  => __('Generates and saves a content brief for manual review. No publication or live update occurs.', 'tmwseo'),
             ];
         }
 
         return [
             'label' => __('Create Noindex Draft', 'tmwseo'),
-            'help' => __('Creates a noindex draft for manual review and edits. It will not go live unless an operator publishes it.', 'tmwseo'),
+            'help'  => __('Creates a noindex draft for manual review and edits. It will not go live unless an operator publishes it.', 'tmwseo'),
         ];
+    }
+
+    /**
+     * Returns button label and help text for a suggestion row, taking destination type
+     * into account so existing-target rows don't say "Create Noindex Draft".
+     *
+     * @return array{label:string,help:string}
+     */
+    private function primary_action_meta_for_row(string $type, string $destination_type): array {
+        if (in_array($destination_type, self::EXISTING_TARGET_TYPES, true)) {
+            return [
+                'label' => __('Link to Existing Post', 'tmwseo'),
+                'help'  => __('Binds this suggestion to the matching existing post. No new post is created. You must apply changes manually.', 'tmwseo'),
+            ];
+        }
+        return $this->primary_action_meta($type);
     }
 
     private function priority_label(float $score): string {
@@ -3697,9 +4251,17 @@ class SuggestionsAdminPage {
         ];
     }
 
-    private function manual_next_step_text(string $type): string {
+    private function manual_next_step_text(string $type, string $destination_type = ''): string {
         if ($type === 'content_brief') {
             return __('Generate and review the brief manually, then decide on execution. No automatic publish occurs.', 'tmwseo');
+        }
+
+        // For existing-target destinations no draft is created — the suggestion is
+        // bound to the already-published post. The correct step is to open that post
+        // and apply changes manually, not to "create a noindex draft".
+        $existing_target_types = ['model_page', 'video_page', 'category_page'];
+        if (in_array($destination_type, $existing_target_types, true)) {
+            return __('Open the linked existing post and apply the suggested changes manually. No new post is created. Nothing is mutated automatically.', 'tmwseo');
         }
 
         return __('Create a noindex draft, review/edit manually, and publish only with operator approval.', 'tmwseo');

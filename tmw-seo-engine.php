@@ -53,6 +53,90 @@ if (!function_exists('tmwseo_engine_run_migrations')) {
     }
 }
 
+
+if (!function_exists('tmw_seo_is_blocked_keyword')) {
+    /**
+     * Returns true when keyword matches a configured negative filter phrase.
+     */
+    function tmw_seo_is_blocked_keyword($keyword): bool {
+        $keyword = strtolower(trim((string) wp_strip_all_tags((string) $keyword)));
+        if ($keyword === '') {
+            return false;
+        }
+
+        $defaults = "video chat
+random chat
+omegle
+chatroulette
+chat room
+chatroom
+stranger chat
+talk to strangers";
+        $raw_filters = (string) \TMWSEO\Engine\Services\Settings::get('keyword_negative_filters', $defaults);
+        $filters = preg_split('/\\r\\n|\\r|\\n/', $raw_filters);
+        if (!is_array($filters)) {
+            $filters = [];
+        }
+
+        foreach ($filters as $filter) {
+            $phrase = strtolower(trim((string) $filter));
+            if ($phrase === '') {
+                continue;
+            }
+
+            if (strpos($keyword, $phrase) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('tmw_seo_classify_keyword_intent')) {
+    /**
+     * Lightweight keyword intent classifier for discovery and clustering.
+     *
+     * Returns one of: model, category, interaction, generic.
+     */
+    function tmw_seo_classify_keyword_intent($keyword): string {
+        $keyword = strtolower(trim((string) wp_strip_all_tags((string) $keyword)));
+        if ($keyword === '') {
+            return 'generic';
+        }
+
+        $interaction_rules = [
+            '/\b(private|pvt|exclusive|one\s*on\s*one|1\s*on\s*1)\b/u',
+            '/\b(cam\s*to\s*cam|c2c|video\s*chat|chat\s*show|cam\s*show|live\s*show)\b/u',
+            '/\b(sext|roleplay|custom\s*show|ticket\s*show)\b/u',
+        ];
+
+        foreach ($interaction_rules as $rule) {
+            if (preg_match($rule, $keyword)) {
+                return 'interaction';
+            }
+        }
+
+        $category_rules = [
+            '/\b(cam\s*girl|cam\s*girls|webcam\s*girls?|models?)\b/u',
+            '/\b(tattoo|bbw|milf|teen|asian|latina|blonde|brunette|ebony|fetish|cosplay|couple|redhead|petite|curvy)\b/u',
+            '/\b(best|top)\s+.+\b(cam|webcam|model|models|girls)\b/u',
+        ];
+
+        foreach ($category_rules as $rule) {
+            if (preg_match($rule, $keyword)) {
+                return 'category';
+            }
+        }
+
+        if (preg_match('/\b[a-z]{3,}\s+[a-z]{3,}\s+(webcam|cam|model|live)\b/u', $keyword)) {
+            return 'model';
+        }
+
+        return 'generic';
+    }
+}
+
 // Core activation/deactivation.
 register_activation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'activate']);
 register_deactivation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'deactivate']);

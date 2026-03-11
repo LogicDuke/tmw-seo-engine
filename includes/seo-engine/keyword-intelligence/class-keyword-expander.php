@@ -1,14 +1,23 @@
 <?php
 namespace TMWSEO\Engine\KeywordIntelligence;
 
+use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Logs;
-use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Keywords\QueryExpansionGraph;
 
 if (!defined('ABSPATH')) { exit; }
 
 class KeywordExpander {
-
-    private const API_BASE = 'https://api.dataforseo.com';
+    private const CACHE_TTL = 30 * DAY_IN_SECONDS;
+    private const SECONDARY_EXPANSION_LIMIT = 50;
+    private const DATAFORSEO_SEED_ANCHORS = [
+        'webcam',
+        'webcam model',
+        'cam model',
+        'live cam show',
+        'webcam show',
+    ];
+    private const DATAFORSEO_DEFAULT_ANCHOR = 'webcam model';
 
     /**
      * @param string[] $seed_keywords
@@ -38,6 +47,7 @@ class KeywordExpander {
                             'keyword' => $keyword,
                             'search_volume' => (int) ($row['search_volume'] ?? 0),
                             'keyword_difficulty' => (float) ($row['keyword_difficulty'] ?? 0),
+                            'expanded_level' => 0,
                         ];
                         continue;
                     }
@@ -54,91 +64,191 @@ class KeywordExpander {
             }
         }
 
+        $secondary_stats = $this->secondary_expand($expanded);
+        Logs::info('keyword_intelligence', '[TMW-KIP] Secondary keyword expansion', $secondary_stats);
+
+        foreach ($expanded as $row) {
+            $keyword = (string) ($row['keyword'] ?? '');
+            if ($keyword === '') {
+                continue;
+            }
+
+            $classification = KeywordClassifier::classify($keyword);
+
+            KeywordDatabase::upsert_metrics([
+                'keyword' => $keyword,
+                'search_volume' => (int) ($row['search_volume'] ?? 0),
+                'difficulty' => (float) ($row['keyword_difficulty'] ?? 0),
+                'expanded_level' => (int) ($row['expanded_level'] ?? 0),
+                'source' => 'dataforseo',
+                'intent_type' => (string) ($classification['intent_type'] ?? 'generic'),
+                'entity_type' => (string) ($classification['entity_type'] ?? 'generic'),
+                'entity_id' => (int) ($classification['entity_id'] ?? 0),
+                'entities' => (array) ($classification['entities'] ?? []),
+            ]);
+        }
+
         return array_values($expanded);
+    }
+
+    /**
+     * @param array<string,array<string,mixed>> $expanded
+     * @return array{secondary_expansions_executed:int,new_keywords_discovered:int}
+     */
+    private function secondary_expand(array &$expanded): array {
+        $candidate_keywords = [];
+        foreach ($expanded as $keyword => $row) {
+            $search_volume = (int) ($row['search_volume'] ?? 0);
+            $difficulty = (float) ($row['keyword_difficulty'] ?? 0);
+
+            if ($search_volume < 30 || $difficulty > 50) {
+                continue;
+            }
+
+            $candidate_keywords[] = $keyword;
+        }
+
+        if (empty($candidate_keywords)) {
+            return [
+                'secondary_expansions_executed' => 0,
+                'new_keywords_discovered' => 0,
+            ];
+        }
+
+        $existing_levels = KeywordDatabase::get_expanded_levels($candidate_keywords);
+
+        $seeds_to_expand = [];
+        foreach ($candidate_keywords as $keyword) {
+            $current_level = isset($expanded[$keyword]['expanded_level']) ? (int) $expanded[$keyword]['expanded_level'] : 0;
+            $stored_level = (int) ($existing_levels[$keyword] ?? 0);
+            if (max($current_level, $stored_level) >= 1) {
+                continue;
+            }
+
+            $seeds_to_expand[] = $keyword;
+        }
+
+        if (empty($seeds_to_expand)) {
+            return [
+                'secondary_expansions_executed' => 0,
+                'new_keywords_discovered' => 0,
+            ];
+        }
+
+        $seeds_to_expand = array_slice($seeds_to_expand, 0, self::SECONDARY_EXPANSION_LIMIT);
+
+        $new_keywords_discovered = 0;
+        $secondary_expansions_executed = 0;
+
+        foreach ($seeds_to_expand as $seed_keyword) {
+            $suggestions = $this->keyword_suggestions($seed_keyword);
+            $related = $this->related_keywords($seed_keyword);
+
+            $secondary_expansions_executed++;
+
+            foreach ([$suggestions, $related] as $source_rows) {
+                foreach ($source_rows as $row) {
+                    $keyword = $this->normalize((string) ($row['keyword'] ?? ''));
+                    if ($keyword === '') {
+                        continue;
+                    }
+
+                    if (!isset($expanded[$keyword])) {
+                        $expanded[$keyword] = [
+                            'keyword' => $keyword,
+                            'search_volume' => (int) ($row['search_volume'] ?? 0),
+                            'keyword_difficulty' => (float) ($row['keyword_difficulty'] ?? 0),
+                            'expanded_level' => 1,
+                        ];
+                        $new_keywords_discovered++;
+                        continue;
+                    }
+
+                    $expanded[$keyword]['search_volume'] = max(
+                        (int) $expanded[$keyword]['search_volume'],
+                        (int) ($row['search_volume'] ?? 0)
+                    );
+                    $expanded[$keyword]['keyword_difficulty'] = max(
+                        (float) $expanded[$keyword]['keyword_difficulty'],
+                        (float) ($row['keyword_difficulty'] ?? 0)
+                    );
+                    $expanded[$keyword]['expanded_level'] = max(
+                        (int) ($expanded[$keyword]['expanded_level'] ?? 0),
+                        1
+                    );
+                }
+            }
+
+            $expanded[$seed_keyword]['expanded_level'] = max(
+                (int) ($expanded[$seed_keyword]['expanded_level'] ?? 0),
+                1
+            );
+        }
+
+        return [
+            'secondary_expansions_executed' => $secondary_expansions_executed,
+            'new_keywords_discovered' => $new_keywords_discovered,
+        ];
     }
 
     /** @return array<int,array<string,mixed>> */
     private function keyword_suggestions(string $seed_keyword): array {
-        $payload = [[
-            'keyword' => $seed_keyword,
-            'location_code' => (int) Settings::get('dataforseo_location_code', 2840),
-            'language_code' => (string) Settings::get('dataforseo_language_code', 'en'),
-            'limit' => 100,
-        ]];
+        $request_seed = $this->normalize_seed_for_expansion($seed_keyword);
+        $cache_key = 'tmwseo_kw_suggest_' . md5($request_seed);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            Logs::debug('keywords', '[TMW-KW-CACHE] Keyword suggestions cache hit', [
+                'seed' => $seed_keyword,
+                'request_seed' => $request_seed,
+                'count' => count($cached),
+            ]);
+            return $cached;
+        }
 
-        $response = $this->post('/v3/keywords_data/google/keyword_suggestions', $payload);
-        if (!$response['ok']) {
+        Logs::debug('keywords', '[TMW-DFS] Requesting keyword suggestions', [
+            'seed' => $seed_keyword,
+            'request_seed' => $request_seed,
+        ]);
+        $response = DataForSEO::keyword_suggestions($request_seed, 100);
+        if (empty($response['ok'])) {
             return [];
         }
 
-        return $this->extract_items($response['data']);
+        $items = $this->extract_items((array) ($response['items'] ?? []));
+        set_transient($cache_key, $items, self::CACHE_TTL);
+
+        foreach ($items as $item) {
+            QueryExpansionGraph::store_relationship($seed_keyword, (string) ($item['keyword'] ?? ''), 'dataforseo_suggest');
+        }
+
+        return $items;
     }
 
     /** @return array<int,array<string,mixed>> */
     private function related_keywords(string $seed_keyword): array {
-        $payload = [[
-            'keyword' => $seed_keyword,
-            'location_code' => (int) Settings::get('dataforseo_location_code', 2840),
-            'language_code' => (string) Settings::get('dataforseo_language_code', 'en'),
-            'depth' => 1,
-            'limit' => 100,
-        ]];
-
-        $response = $this->post('/v3/dataforseo_labs/google/related_keywords', $payload);
-        if (!$response['ok']) {
+        $request_seed = $this->normalize_seed_for_expansion($seed_keyword);
+        Logs::debug('keywords', '[TMW-DFS] Requesting related keywords', [
+            'seed' => $seed_keyword,
+            'request_seed' => $request_seed,
+        ]);
+        $response = DataForSEO::related_keywords($request_seed, 1, 100);
+        if (empty($response['ok'])) {
             return [];
         }
 
-        return $this->extract_items($response['data']);
+        $items = $this->extract_items((array) ($response['items'] ?? []));
+        foreach ($items as $item) {
+            QueryExpansionGraph::store_relationship($seed_keyword, (string) ($item['keyword'] ?? ''), 'related_keywords');
+        }
+
+        return $items;
     }
 
     /**
-     * @param array<int,array<string,mixed>> $payload
-     * @return array{ok:bool,data?:array<string,mixed>}
-     */
-    private function post(string $path, array $payload): array {
-        $login = trim((string) Settings::get('dataforseo_login', ''));
-        $password = trim((string) Settings::get('dataforseo_password', ''));
-
-        if ($login === '' || $password === '') {
-            return ['ok' => false];
-        }
-
-        $url = rtrim(self::API_BASE, '/') . '/' . ltrim($path, '/');
-        $response = wp_remote_post($url, [
-            'timeout' => 30,
-            'headers' => [
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-                'Authorization' => 'Basic ' . base64_encode($login . ':' . $password),
-            ],
-            'body' => wp_json_encode($payload),
-            'sslverify' => true,
-        ]);
-
-        if (is_wp_error($response)) {
-            Logs::warn('keyword_intelligence', '[TMW-KIP] DataForSEO call failed', ['error' => $response->get_error_message(), 'path' => $path]);
-            return ['ok' => false];
-        }
-
-        $body = json_decode((string) wp_remote_retrieve_body($response), true);
-        if (!is_array($body)) {
-            return ['ok' => false];
-        }
-
-        return ['ok' => true, 'data' => $body];
-    }
-
-    /**
-     * @param array<string,mixed> $body
+     * @param array<int,array<string,mixed>> $items
      * @return array<int,array<string,mixed>>
      */
-    private function extract_items(array $body): array {
-        $items = $body['tasks'][0]['result'][0]['items'] ?? [];
-        if (!is_array($items)) {
-            return [];
-        }
-
+    private function extract_items(array $items): array {
         $result = [];
         foreach ($items as $item) {
             if (!is_array($item)) {
@@ -164,5 +274,20 @@ class KeywordExpander {
         $keyword = strtolower(trim(wp_strip_all_tags($keyword)));
         $keyword = preg_replace('/\s+/u', ' ', $keyword);
         return (string) $keyword;
+    }
+
+    private function normalize_seed_for_expansion(string $seed_keyword): string {
+        $normalized_seed = $this->normalize($seed_keyword);
+        if ($normalized_seed === '') {
+            return '';
+        }
+
+        foreach (self::DATAFORSEO_SEED_ANCHORS as $anchor) {
+            if (strpos($normalized_seed, $anchor) !== false) {
+                return $normalized_seed;
+            }
+        }
+
+        return $normalized_seed . ' ' . self::DATAFORSEO_DEFAULT_ANCHOR;
     }
 }

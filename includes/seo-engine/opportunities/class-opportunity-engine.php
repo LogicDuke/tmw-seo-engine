@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Opportunities;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\KeywordIntelligence\KeywordDatabase;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -39,7 +40,7 @@ class OpportunityEngine {
 
         $all_competitor_keywords = [];
         foreach ($competitors as $domain) {
-            $res = DataForSEO::domain_organic_keywords((string) $domain, 500);
+            $res = DataForSEO::ranked_keywords((string) $domain, 500);
             if (empty($res['ok'])) {
                 Logs::warn('opportunities', '[TMW-OPP] Competitor scan failed', [
                     'domain' => $domain,
@@ -90,6 +91,7 @@ class OpportunityEngine {
             'missing_count' => count($missing),
             'qualified_count' => count($scored),
             'stored' => $stored,
+            'traffic_page_candidates' => count($this->traffic_page_candidates(20)),
         ]);
 
         return [
@@ -97,7 +99,18 @@ class OpportunityEngine {
             'stored' => $stored,
             'qualified_count' => count($scored),
             'missing_count' => count($missing),
+            'traffic_page_candidates' => count($this->traffic_page_candidates(20)),
         ];
+    }
+
+
+    /**
+     * Provides keyword candidates suitable for programmatic traffic page generation.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function traffic_page_candidates(int $limit = 20): array {
+        return KeywordDatabase::get_generation_candidates_by_entity_combinations(max(1, min(100, $limit)));
     }
 
     private function estimate_model_relevance(string $keyword): float {

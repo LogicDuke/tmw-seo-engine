@@ -48,6 +48,9 @@ class Worker {
             case 'pagespeed_cycle':
                 \TMWSEO\Engine\Services\PageSpeed::run_cycle_job($job);
                 return;
+            case 'rank_tracking_cycle':
+                \TMWSEO\Engine\Services\RankTracker::run_cycle_job($job);
+                return;
 
             case 'lighthouse_scan_url':
                 \TMW\SEO\Lighthouse\Worker::run_scan_job($job);

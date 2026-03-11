@@ -46,14 +46,16 @@ if (defined('WP_CLI') && WP_CLI) {
 require_once TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php';
 // Real Google Search Console API (replaces fake rand() data)
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-seed-importer.php';
 // Google Indexing API (pings Google on publish)
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-indexing-api.php';
-// Ranking Probability Orchestrator (assembles all 7 real signals)
+// Ranking Probability Orchestrator (assembles full ranking signal set)
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-orchestrator.php';
 // JSON-LD Schema Generator (Person, VideoObject, FAQPage)
 require_once TMWSEO_ENGINE_PATH . 'includes/schema/class-schema-generator.php';
 // Orphan Page Detector (zero inbound internal links)
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-orphan-page-detector.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-internal-link-opportunities.php';
 // CSV Exporter
 require_once TMWSEO_ENGINE_PATH . 'includes/export/class-csv-exporter.php';
 // Competitor Monitor (weekly domain authority + keyword threat detection)
@@ -66,9 +68,14 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-title-fixer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-openai.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-rank-tracker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-content-keyword-miner.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-discovery-orchestrator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.php';
@@ -88,9 +95,14 @@ require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-intelligence.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-expander.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intent.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-classifier.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-model-discovery-trigger.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-database.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-entity-combination-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-tag-modifier-expander.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-normalizer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php';
@@ -117,10 +129,13 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-oppor
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-feedback-discovery.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/traffic-pages/class-traffic-page-generator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-suggestion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-suggestion-module.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-improvement-analyzer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-storage.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-materializer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-topical-authority-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-serp-weakness-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-engine.php';
@@ -140,6 +155,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-advisor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-cluster-importer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/compat/class-tmw-main-class.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-schema.php';
@@ -246,10 +262,15 @@ class Plugin {
         wp_clear_scheduled_hook('tmwseo_daily');
         wp_clear_scheduled_hook('tmwseo_weekly');
         wp_clear_scheduled_hook('tmw_lighthouse_weekly_scan');
+        wp_clear_scheduled_hook('tmwseo_materialize_intelligence');
         wp_clear_scheduled_hook('tmwseo_orphan_scan_weekly');
         wp_clear_scheduled_hook('tmwseo_competitor_monitor_weekly');
         wp_clear_scheduled_hook('tmwseo_keyword_scheduler_monthly');
         wp_clear_scheduled_hook('tmw_keyword_refresh_monthly');
+        wp_clear_scheduled_hook('tmwseo_generate_traffic_pages');
+        wp_clear_scheduled_hook('tmwseo_gsc_seed_import_weekly');
+        wp_clear_scheduled_hook('tmwseo_engine_content_keyword_miner');
+        wp_clear_scheduled_hook('tmwseo_tag_modifier_expander_weekly');
 
         update_option($applied_key, (string) TMWSEO_ENGINE_VERSION);
         Logs::info('core', 'Manual Control Mode applied (cron/auto hooks disabled)', [
@@ -279,6 +300,9 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordUsage::maybe_upgrade();
         // Keyword data crons (update CSV files only, no content writing)
         \TMWSEO\Engine\Keywords\KeywordScheduler::init();
+        \TMWSEO\Engine\Keywords\ContentKeywordMiner::init();
+        \TMWSEO\Engine\Integrations\GSCSeedImporter::init();
+        \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::init();
         // Automated image ALT/title/caption on featured image assignment
         \TMWSEO\Engine\Media\ImageMetaHooks::init();
         // Cron custom schedules for keyword scheduler
@@ -315,10 +339,13 @@ class Plugin {
         if ((bool) \TMWSEO\Engine\Services\Settings::get('orphan_scan_enabled', 1)) {
             \TMWSEO\Engine\InternalLinks\OrphanPageDetector::init();
         }
+        \TMWSEO\Engine\InternalLinks\InternalLinkOpportunities::init();
         // CSV exporter
         \TMWSEO\Engine\Export\CSVExporter::init();
         // Competitor monitor
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::init();
+        // Traffic pages generator (CPT, cron, manual action)
+        \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::init();
         // Admin Dashboard v2
         \TMWSEO\Engine\Admin\AdminDashboardV2::init();
         // ──────────────────────────────────────────────────────────────────
@@ -336,6 +363,8 @@ class Plugin {
 
         // Keyword engine currently has no automatic hooks, safe to init.
         \TMWSEO\Engine\Keywords\KeywordEngine::init();
+        // Auto-discover keyword seeds when a new model is published.
+        \TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger::init();
 
         // Platform profiles + affiliate redirects.
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
@@ -404,6 +433,7 @@ class Plugin {
         Schema::create_or_update_tables();
         Schema::ensure_intelligence_schema();
         Schema::normalize_cluster_schema_version_option();
+        \TMWSEO\Engine\KeywordIntelligence\KeywordDatabase::create_table();
 
         // ── Keyword usage tables (anti-cannibalization) ────────────────────
         \TMWSEO\Engine\Keywords\KeywordUsage::install();
@@ -421,6 +451,10 @@ class Plugin {
         // ── Keyword data maintenance crons (safe in manual mode) ───────────
         // These only update keyword CSV data files, never write post content.
         \TMWSEO\Engine\Keywords\KeywordScheduler::schedule();
+        \TMWSEO\Engine\Keywords\ContentKeywordMiner::schedule();
+        \TMWSEO\Engine\Integrations\GSCSeedImporter::schedule();
+        \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::schedule();
+        \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::activate();
 
         // ── v4.2 crons — only schedule if NOT in manual mode ───────────────
         // These are read-only scans, but we respect the manual-only trust policy.
@@ -441,8 +475,12 @@ class Plugin {
         Cron::unschedule_events();
         SmartQueue::unschedule_daily_scan();
         \TMWSEO\Engine\Keywords\KeywordScheduler::unschedule();
+        \TMWSEO\Engine\Keywords\ContentKeywordMiner::unschedule();
+        \TMWSEO\Engine\Integrations\GSCSeedImporter::unschedule();
+        \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::unschedule();
         \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
+        \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::deactivate();
         flush_rewrite_rules();
         Logs::info('core', 'Deactivated ' . TMWSEO_ENGINE_VERSION);
     }

@@ -3,7 +3,13 @@ namespace TMWSEO\Engine;
 
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TrustPolicy;
+use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\Services\OpenAI;
+use TMWSEO\Engine\Integrations\GSCApi;
+use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Admin\AdminUI;
+use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
+use TMWSEO\Engine\Keywords\SeedRegistry;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -31,6 +37,8 @@ class Admin {
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
+        add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
+        add_action('admin_post_tmwseo_generate_model_seeds', [__CLASS__, 'handle_generate_model_seeds']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -138,6 +146,8 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-connections',
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
+            self::MENU_SLUG . '_page_tmwseo-internal-links',
+            self::MENU_SLUG . '_page_tmwseo-keyword-graph',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -806,6 +816,7 @@ class Admin {
             'tmwseo_openai_budget_usd' => max(0.0, (float)($input['tmwseo_openai_budget_usd'] ?? $existing['tmwseo_openai_budget_usd'] ?? 20.0)),
 
             // DataForSEO
+            'tmwseo_dataforseo_budget_usd' => max(0.0, (float)($input['tmwseo_dataforseo_budget_usd'] ?? $existing['tmwseo_dataforseo_budget_usd'] ?? 20.0)),
             'dataforseo_login'         => sanitize_text_field((string)($input['dataforseo_login'] ?? $existing['dataforseo_login'] ?? '')),
             'dataforseo_password'      => sanitize_text_field((string)($input['dataforseo_password'] ?? $existing['dataforseo_password'] ?? '')),
             'dataforseo_location_code' => sanitize_text_field((string)($input['dataforseo_location_code'] ?? $existing['dataforseo_location_code'] ?? '2840')),
@@ -824,6 +835,7 @@ class Admin {
             'schema_enabled'    => !empty($input['schema_enabled']) ? 1 : 0,
             'schema_post_types' => sanitize_text_field((string)($input['schema_post_types'] ?? $existing['schema_post_types'] ?? 'model,video,tmw_video')),
             'orphan_scan_enabled' => !empty($input['orphan_scan_enabled']) ? 1 : 0,
+            'enable_model_auto_keyword_discovery' => !empty($input['enable_model_auto_keyword_discovery']) ? 1 : 0,
 
             // Keyword engine
             'keyword_min_volume'     => max(0, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30)),
@@ -831,13 +843,14 @@ class Admin {
             'keyword_new_limit'      => max(0, (int)($input['keyword_new_limit'] ?? $existing['keyword_new_limit'] ?? 300)),
             'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? $existing['keyword_kd_batch_limit'] ?? 300)),
             'keyword_pages_per_day'  => max(0, (int)($input['keyword_pages_per_day'] ?? $existing['keyword_pages_per_day'] ?? 3)),
+            'keyword_negative_filters' => sanitize_textarea_field((string)($input['keyword_negative_filters'] ?? $existing['keyword_negative_filters'] ?? "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers")),
             'competitor_domains'     => sanitize_textarea_field((string)($input['competitor_domains'] ?? $existing['competitor_domains'] ?? '')),
 
             // Misc
             'google_pagespeed_api_key' => sanitize_text_field((string)($input['google_pagespeed_api_key'] ?? $existing['google_pagespeed_api_key'] ?? '')),
             'serper_api_key'           => sanitize_text_field((string)($input['serper_api_key'] ?? $existing['serper_api_key'] ?? '')),
-            'intel_max_seeds'          => max(1, (int)($input['intel_max_seeds'] ?? $existing['intel_max_seeds'] ?? 3)),
-            'intel_max_keywords'       => max(50, (int)($input['intel_max_keywords'] ?? $existing['intel_max_keywords'] ?? 400)),
+            'intel_max_seeds'          => max(1, (int)($input['intel_max_seeds'] ?? $existing['intel_max_seeds'] ?? 10)),
+            'intel_max_keywords'       => max(50, (int)($input['intel_max_keywords'] ?? $existing['intel_max_keywords'] ?? 1000)),
             'debug_mode'               => !empty($input['debug_mode']) ? 1 : 0,
 
             // Affiliates (preserved from existing)
@@ -914,6 +927,8 @@ class Admin {
         // ── Intelligence ───────────────────────────────────────────────────
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
+        add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
+        add_submenu_page(self::MENU_SLUG, __('Keyword Graph', 'tmwseo'), __('Keyword Graph', 'tmwseo'), 'manage_options', 'tmwseo-keyword-graph', ['\\TMWSEO\\Engine\\Admin\\KeywordGraphAdminPage', 'render']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
@@ -971,6 +986,7 @@ class Admin {
             'tmwseo-content-briefs',
             'tmwseo-keywords',
             'tmwseo-opportunities',
+            'tmwseo-internal-links',
             'tmwseo-competitor-domains',
             'tmwseo-ranking-probability',
             'tmwseo-models',
@@ -1046,7 +1062,7 @@ class Admin {
         $rows     = [];
         $last_run = '';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$intel_table}'") === $intel_table) {
+        if ($wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $intel_table ) ) === $intel_table) {
             $rows = $wpdb->get_results($wpdb->prepare(
                 "SELECT post_id, signal_type, signal_value, computed_at
                  FROM {$intel_table}
@@ -1120,6 +1136,7 @@ class Admin {
             echo '<th>' . esc_html__('Page', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Probability Score', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Signal Bar', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Page Type Fit', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Computed', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Actions', 'tmwseo') . '</th>';
             echo '</tr></thead><tbody>';
@@ -1131,11 +1148,18 @@ class Admin {
                 $title = get_the_title($pid) ?: "Post #{$pid}";
                 $edit  = get_edit_post_link($pid);
                 $color = $prob >= 70 ? '#16a34a' : ($prob >= 40 ? '#ca8a04' : '#dc2626');
+                $signals_json = (string) get_post_meta($pid, '_tmwseo_ranking_probability_signals_json', true);
+                $signals = json_decode($signals_json, true);
+                $page_type_fit = is_array($signals) ? (float) ($signals['page_type_fit']['fit'] ?? 0) : 0.0;
+                $page_type_fit_label = is_array($signals)
+                    ? (string) ($signals['page_type_fit']['status'] ?? 'unknown')
+                    : 'not_available';
 
                 echo '<tr>';
                 echo '<td><a href="' . esc_url($edit ?: '#') . '">' . esc_html($title) . '</a></td>';
                 echo '<td><strong style="color:' . esc_attr($color) . ';font-size:16px;">' . esc_html($prob) . '%</strong></td>';
                 echo '<td><div style="background:#e5e7eb;border-radius:4px;height:8px;width:120px;overflow:hidden;"><div style="background:' . esc_attr($color) . ';height:100%;width:' . esc_attr($prob) . '%;"></div></div></td>';
+                echo '<td><strong>' . esc_html((string) (int) round($page_type_fit * 100)) . '%</strong><br><span style="color:#9ca3af;font-size:11px;">' . esc_html(str_replace('_', ' ', $page_type_fit_label)) . '</span></td>';
                 echo '<td style="color:#9ca3af;font-size:12px;">' . esc_html($date) . '</td>';
                 echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">' . esc_html__('Edit', 'tmwseo') . '</a></td>';
                 echo '</tr>';
@@ -1163,6 +1187,222 @@ class Admin {
         Worker::run();
         wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_notice=worker_ran'));
         exit;
+    }
+
+    public static function handle_reset_discovery_data(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'tmwseo'));
+        }
+
+        check_admin_referer('tmwseo_reset_discovery_data');
+
+        global $wpdb;
+
+        $tables = [
+            'keywords' => $wpdb->prefix . 'tmw_seo_keywords',
+            'clusters' => $wpdb->prefix . 'tmw_seo_clusters',
+            'suggestions' => $wpdb->prefix . 'tmw_seo_suggestions',
+        ];
+
+        $deleted = [
+            'keywords' => 0,
+            'clusters' => 0,
+            'suggestions' => 0,
+        ];
+
+        foreach ($tables as $key => $table) {
+            $exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+            if ($exists !== $table) {
+                continue;
+            }
+
+            $wpdb->query("DELETE FROM {$table}"); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $affected = $wpdb->rows_affected;
+            $deleted[$key] = $affected > 0 ? (int) $affected : 0;
+        }
+
+        Logs::info('tools', '[TMW-RESET] Discovery data reset from Tools page', [
+            'keywords_deleted' => $deleted['keywords'],
+            'clusters_deleted' => $deleted['clusters'],
+            'suggestions_deleted' => $deleted['suggestions'],
+            'scope' => 'discovery_tables_only',
+        ]);
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-tools',
+            'tmwseo_notice' => 'discovery_data_reset',
+            'tmwseo_keywords_deleted' => $deleted['keywords'],
+            'tmwseo_clusters_deleted' => $deleted['clusters'],
+            'tmwseo_suggestions_deleted' => $deleted['suggestions'],
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    public static function handle_generate_model_seeds(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'tmwseo'));
+        }
+
+        check_admin_referer('tmwseo_generate_model_seeds');
+
+        global $wpdb;
+
+        $offset = isset($_REQUEST['offset']) ? max(0, (int) $_REQUEST['offset']) : 0;
+        $processed_total = isset($_REQUEST['processed']) ? max(0, (int) $_REQUEST['processed']) : 0;
+        $created_total = isset($_REQUEST['created']) ? max(0, (int) $_REQUEST['created']) : 0;
+        $batch_size = 75;
+
+        $total_models = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(ID) FROM {$wpdb->posts} WHERE post_type = %s AND post_status NOT IN ('trash', 'auto-draft')",
+            'model'
+        ));
+
+        $model_ids = get_posts([
+            'post_type' => 'model',
+            'post_status' => ['publish', 'draft', 'pending', 'private', 'future'],
+            'posts_per_page' => $batch_size,
+            'offset' => $offset,
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'fields' => 'ids',
+            'no_found_rows' => true,
+            'cache_results' => false,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+            'suppress_filters' => true,
+        ]);
+
+        if (!is_array($model_ids)) {
+            $model_ids = [];
+        }
+
+        $keywords_table = $wpdb->prefix . 'tmw_seo_keywords';
+        $updated_at = current_time('mysql');
+
+        $keywords_table_exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keywords_table));
+        if ($keywords_table_exists !== $keywords_table) {
+            wp_safe_redirect(add_query_arg([
+                'page' => 'tmwseo-tools',
+                'tmwseo_notice' => 'model_seeds_generated',
+                'tmwseo_models_processed' => $processed_total,
+                'tmwseo_seeds_created' => $created_total,
+            ], admin_url('admin.php')));
+            exit;
+        }
+
+        foreach ($model_ids as $model_id) {
+            $model_id = (int) $model_id;
+            if ($model_id <= 0) {
+                continue;
+            }
+
+            $model_name = trim((string) get_the_title($model_id));
+            if ($model_name === '') {
+                $processed_total++;
+                continue;
+            }
+
+            $seed_keywords = self::build_model_seed_keywords($model_name);
+            if (empty($seed_keywords)) {
+                $processed_total++;
+                continue;
+            }
+
+            $placeholders = implode(', ', array_fill(0, count($seed_keywords), '%s'));
+            $existing_rows = $wpdb->get_col($wpdb->prepare(
+                "SELECT keyword FROM {$keywords_table} WHERE entity_type = %s AND entity_id = %d AND keyword IN ({$placeholders})",
+                ...array_merge(['model', $model_id], $seed_keywords)
+            ));
+
+            $existing_map = [];
+            if (is_array($existing_rows)) {
+                foreach ($existing_rows as $existing_keyword) {
+                    $existing_map[(string) $existing_keyword] = true;
+                }
+            }
+
+            foreach ($seed_keywords as $seed_keyword) {
+                if (isset($existing_map[$seed_keyword])) {
+                    continue;
+                }
+
+                $inserted = $wpdb->insert(
+                    $keywords_table,
+                    [
+                        'entity_type' => 'model',
+                        'entity_id' => $model_id,
+                        'keyword' => $seed_keyword,
+                        'volume' => null,
+                        'cpc' => null,
+                        'difficulty' => null,
+                        'intent' => null,
+                        'source' => 'model_seed_tool',
+                        'raw' => null,
+                        'updated_at' => $updated_at,
+                    ]
+                );
+
+                if ($inserted !== false) {
+                    $created_total++;
+                }
+            }
+
+            $processed_total++;
+        }
+
+        $next_offset = $offset + count($model_ids);
+
+        if (!empty($model_ids) && $next_offset < $total_models) {
+            wp_safe_redirect(add_query_arg([
+                'action' => 'tmwseo_generate_model_seeds',
+                '_wpnonce' => wp_create_nonce('tmwseo_generate_model_seeds'),
+                'offset' => $next_offset,
+                'processed' => $processed_total,
+                'created' => $created_total,
+            ], admin_url('admin-post.php')));
+            exit;
+        }
+
+        Logs::info('keywords', '[TMW-SEEDS] Model seed generation completed', [
+            'models_processed' => $processed_total,
+            'seeds_created' => $created_total,
+            'total_models' => $total_models,
+            'batch_size' => $batch_size,
+        ]);
+
+        wp_safe_redirect(add_query_arg([
+            'page' => 'tmwseo-tools',
+            'tmwseo_notice' => 'model_seeds_generated',
+            'tmwseo_models_processed' => $processed_total,
+            'tmwseo_seeds_created' => $created_total,
+        ], admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * @return string[]
+     */
+    private static function build_model_seed_keywords(string $model_name): array {
+        $patterns = [
+            '%s webcam model',
+            '%s live cam girl',
+            '%s webcam show',
+            '%s cam model',
+            '%s private cam show',
+            '%s live webcam show',
+            '%s cam girl live',
+        ];
+
+        $keywords = [];
+        foreach ($patterns as $pattern) {
+            $keyword = \TMWSEO\Engine\Keywords\SeedRegistry::normalize_seed(sprintf($pattern, $model_name));
+            if ($keyword === '') {
+                continue;
+            }
+            $keywords[$keyword] = true;
+        }
+
+        return array_keys($keywords);
     }
 
     public static function save_settings(): void {
@@ -1225,6 +1465,7 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_keyword_cycle');
 
+        DiscoveryOrchestrator::run(['source' => 'manual_keyword_cycle']);
         Jobs::enqueue('keyword_cycle', 'system', 0, [
             'trigger' => 'manual',
         ]);
@@ -1476,6 +1717,32 @@ class Admin {
             $message = __('Prepared for human review. Nothing has been applied automatically. Draft remains draft-only/noindex and requires manual review + manual apply.', 'tmwseo');
         } elseif ($notice === 'review_bundle_refused') {
             $message = __('Prepare for Human Review was refused. This action is allowed only for explicit operator-created draft posts.', 'tmwseo');
+        } elseif ($notice === 'traffic_pages_generated') {
+            $created = isset($_GET['tmwseo_created']) ? (int) $_GET['tmwseo_created'] : 0;
+            $skipped = isset($_GET['tmwseo_skipped']) ? (int) $_GET['tmwseo_skipped'] : 0;
+            $message = sprintf(
+                __('Traffic page generation complete. Created: %1$d, Skipped: %2$d.', 'tmwseo'),
+                $created,
+                $skipped
+            );
+        } elseif ($notice === 'discovery_data_reset') {
+            $keywords_deleted = isset($_GET['tmwseo_keywords_deleted']) ? max(0, (int) $_GET['tmwseo_keywords_deleted']) : 0;
+            $clusters_deleted = isset($_GET['tmwseo_clusters_deleted']) ? max(0, (int) $_GET['tmwseo_clusters_deleted']) : 0;
+            $suggestions_deleted = isset($_GET['tmwseo_suggestions_deleted']) ? max(0, (int) $_GET['tmwseo_suggestions_deleted']) : 0;
+            $message = sprintf(
+                __('Discovery data reset complete. Deleted rows — keywords: %1$d, clusters: %2$d, suggestions: %3$d.', 'tmwseo'),
+                $keywords_deleted,
+                $clusters_deleted,
+                $suggestions_deleted
+            );
+        } elseif ($notice === 'model_seeds_generated') {
+            $models_processed = isset($_GET['tmwseo_models_processed']) ? max(0, (int) $_GET['tmwseo_models_processed']) : 0;
+            $seeds_created = isset($_GET['tmwseo_seeds_created']) ? max(0, (int) $_GET['tmwseo_seeds_created']) : 0;
+            $message = sprintf(
+                __('Model seed generation complete. Models processed: %1$d, Seeds created: %2$d.', 'tmwseo'),
+                $models_processed,
+                $seeds_created
+            );
         }
 
         if ($message === '') {
@@ -1513,6 +1780,9 @@ class Admin {
             __('TMW SEO Engine — Tools', 'tmwseo'),
             __('Operator-triggered utilities. Every action requires explicit approval — nothing runs automatically.', 'tmwseo')
         );
+
+        // ── Helper & Data Readiness ──────────────────────────────────────────
+        self::render_readiness_section();
 
         // ── Content Scans ────────────────────────────────────────────────────
         AdminUI::section_start( __('Content Scans', 'tmwseo') );
@@ -1609,12 +1879,35 @@ class Admin {
         echo '</div>';
 
         echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Generate Model Seeds', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Generates predefined seed keywords for every model post and inserts new rows into the keyword table.', 'tmwseo') . '</p>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Runs in batches to prevent timeouts and skips duplicates automatically.', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_generate_model_seeds');
+        echo '<input type="hidden" name="action" value="tmwseo_generate_model_seeds">';
+        submit_button(__('Generate Model Seeds', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+        echo '</div>';
+
+        echo '<div class="tmwui-card">';
         echo '<h3 class="tmwui-card-title">' . esc_html__('System Worker', 'tmwseo') . '</h3>';
         echo '<p class="tmwui-card-desc">' . esc_html__('Runs a healthcheck job and processes any queued tasks. Use this to unstick the queue if the background worker missed a job.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_worker');
         echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
         submit_button(__('Run Worker Now', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+        echo '</div>';
+
+        $reset_discovery_confirm = esc_js(__('Are you sure you want to reset discovery data? This permanently deletes imported keywords, clusters, and suggestions only.', 'tmwseo'));
+        echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__('Reset Discovery Data', 'tmwseo') . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Clears all imported keywords and clusters so a new seed set can be tested.', 'tmwseo') . '</p>';
+        echo '<p class="tmwui-card-desc">' . esc_html__('Deletes rows only from tmw_seo_keywords, tmw_seo_clusters, and tmw_seo_suggestions. Does not delete posts, models, settings, or API keys.', 'tmwseo') . '</p>';
+        echo "<form method=\"post\" action=\"" . esc_url(admin_url('admin-post.php')) . "\" onsubmit=\"return window.confirm('" . $reset_discovery_confirm . "');\">";
+        wp_nonce_field('tmwseo_reset_discovery_data');
+        echo '<input type="hidden" name="action" value="tmwseo_reset_discovery_data">';
+        submit_button(__('Reset Discovery Data', 'tmwseo'), 'delete', 'submit', false);
         echo '</form>';
         echo '</div>';
 
@@ -1659,6 +1952,351 @@ class Admin {
         ');
 
         self::footer();
+    }
+
+    // ── Helper & Data Readiness ───────────────────────────────────────────
+    //
+    // Surfaces helper connection state, keyword corpus quality, and metric
+    // coverage so the operator can immediately see what is missing, why it
+    // limits suggestion quality, and the exact admin page to fix it.
+    //
+    // Thresholds (explicit documented defaults):
+    //   raw_min     = 100   fewer raw keywords = corpus too small
+    //   cand_min    = 50    fewer candidates = corpus too small or over-filtered
+    //   cluster_min = 5     fewer clusters = not enough topical structure
+    //   vol_min_pct = 50%   <50% candidates with volume = priority is volume-blind
+    //   kd_min_pct  = 50%   <50% candidates with KD = difficulty scoring unreliable
+    //   comp_ok     = 1+    at least one competitor domain required for gap analysis
+    //   comp_good   = 3+    three or more domains recommended for gap breadth
+    //
+    private static function render_readiness_section(): void {
+        global $wpdb;
+
+        // 1. Collect all signals ───────────────────────────────────────────────
+
+        $dfs_ok         = DataForSEO::is_configured();
+        $gsc_configured = GSCApi::is_configured();
+        $gsc_connected  = GSCApi::is_connected();
+        $openai_ok      = OpenAI::is_configured();
+        $anthropic_ok   = trim((string) Settings::get('tmwseo_anthropic_api_key', '')) !== '';
+        $ai_ok          = $openai_ok || $anthropic_ok;
+
+        $competitor_domains = IntelligenceStorage::get_competitor_domains();
+        $competitor_count   = count($competitor_domains);
+
+        $raw_table     = $wpdb->prefix . 'tmw_keyword_raw';
+        $cand_table    = $wpdb->prefix . 'tmw_keyword_candidates';
+        $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
+
+        $raw_count     = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$raw_table}");
+        $cand_count    = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table}");
+        $cluster_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table}");
+
+        $cand_with_vol = 0;
+        $cand_with_kd  = 0;
+        if ($cand_count > 0) {
+            $cand_with_vol = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table} WHERE volume IS NOT NULL AND volume > 0");
+            $cand_with_kd  = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table} WHERE difficulty IS NOT NULL");
+        }
+        $vol_pct = $cand_count > 0 ? (int) round($cand_with_vol / $cand_count * 100) : 0;
+        $kd_pct  = $cand_count > 0 ? (int) round($cand_with_kd  / $cand_count * 100) : 0;
+
+        // 2. Apply thresholds ─────────────────────────────────────────────────
+
+        $raw_ok     = $raw_count     >= 100;
+        $cand_ok    = $cand_count    >= 50;
+        $cluster_ok = $cluster_count >= 5;
+        $vol_ok     = $cand_count    === 0 || $vol_pct >= 50;
+        $kd_ok      = $cand_count    === 0 || $kd_pct  >= 50;
+
+        // 3. Derive quality-limit messages from actual state ──────────────────
+        // These are truthful and derived — not generic fear text.
+
+        $limits = [];
+        if (!$dfs_ok) {
+            $limits[] = __('DataForSEO is not configured — suggestions have no keyword difficulty (KD), search volume, SERP weakness, or competitor backlink data. Priority scoring is unreliable without this.', 'tmwseo');
+        }
+        if (!$gsc_connected) {
+            $limits[] = __('Google Search Console is not connected — suggestions are blind to real clicks, impressions, and CTR from your live site. Ranking probability uses placeholder data instead.', 'tmwseo');
+        }
+        if (!$ai_ok) {
+            $limits[] = __('No AI provider is configured — content briefs, intent classification, SEO copy generation, and draft enrichment are all unavailable.', 'tmwseo');
+        }
+        if ($competitor_count === 0) {
+            $limits[] = __('No competitor domains are configured — competitor gap analysis is disabled and suggestions cannot include keyword gap or domain intersection signals.', 'tmwseo');
+        }
+        if ($raw_count < 100) {
+            $limits[] = sprintf(
+                __('Keyword corpus is too small (%d raw keywords; recommended minimum: 100) — suggestions cover only a fraction of available opportunities.', 'tmwseo'),
+                $raw_count
+            );
+        }
+        if ($cand_count >= 50 && !$vol_ok) {
+            $limits[] = sprintf(
+                __('Only %d%% of keyword candidates have search volume data — run the keyword cycle to fetch missing metrics so suggestion priority reflects real traffic opportunity.', 'tmwseo'),
+                $vol_pct
+            );
+        }
+        if ($cand_count >= 50 && !$kd_ok) {
+            $limits[] = sprintf(
+                __('Only %d%% of keyword candidates have difficulty (KD) data — run the keyword cycle to fetch missing KD so content improvement difficulty is scored reliably.', 'tmwseo'),
+                $kd_pct
+            );
+        }
+
+        // 4. Row renderer (closure — status, label, why, action_html) ─────────
+        // $action_html must be pre-sanitized safe HTML.
+
+        $render_row = static function(
+            string $status,
+            string $label,
+            string $why,
+            string $action_html
+        ): void {
+            $badge_map = [
+                'ok'      => ['style' => 'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;', 'text' => '✓ Connected'],
+                'warn'    => ['style' => 'background:#fefce8;color:#78350f;border:1px solid #fde68a;', 'text' => '⚠ Warning'],
+                'partial' => ['style' => 'background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;', 'text' => '◑ Partial'],
+                'missing' => ['style' => 'background:#fef2f2;color:#991b1b;border:1px solid #fecaca;', 'text' => '✗ Missing'],
+            ];
+            $badge = $badge_map[$status] ?? $badge_map['missing'];
+            echo '<tr>';
+            echo '<td style="vertical-align:top;padding-top:10px;">';
+            echo '<span style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;' . esc_attr($badge['style']) . '">';
+            echo esc_html($badge['text']);
+            echo '</span></td>';
+            echo '<td style="vertical-align:top;"><strong>' . esc_html($label) . '</strong></td>';
+            echo '<td style="vertical-align:top;font-size:12px;color:#4b5563;">' . esc_html($why) . '</td>';
+            echo '<td style="vertical-align:top;font-size:12px;">' . $action_html . '</td>';
+            echo '</tr>';
+        };
+
+        // 5. Render section ────────────────────────────────────────────────────
+
+        AdminUI::section_start(
+            __('Helper & Data Readiness', 'tmwseo'),
+            __('Every helper below improves suggestion quality. Missing helpers do not block the plugin — they reduce how much intelligence suggestions can carry.', 'tmwseo')
+        );
+
+        echo '<div class="tmwui-table-wrap">';
+        echo '<table class="widefat striped" style="table-layout:fixed;">';
+        echo '<colgroup><col style="width:120px;"><col style="width:175px;"><col><col style="width:270px;"></colgroup>';
+        echo '<thead><tr>';
+        echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Helper / Data', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Why it matters for suggestion quality', 'tmwseo') . '</th>';
+        echo '<th>' . esc_html__('Next action', 'tmwseo') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        // DataForSEO
+        $dfs_action = $dfs_ok
+            ? esc_html__('Configured.', 'tmwseo')
+                . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">'
+                . esc_html__('View Connections', 'tmwseo') . '</a>'
+            : '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=dataforseo')) . '">'
+                . esc_html__('Add credentials in Settings → DataForSEO', 'tmwseo') . '</a>';
+        $render_row(
+            $dfs_ok ? 'ok' : 'missing',
+            'DataForSEO',
+            __('KD, search volume, SERP live data, competitor backlink authority, and domain gap analysis. Without this, suggestion priority cannot reflect real traffic or competitive difficulty.', 'tmwseo'),
+            $dfs_action
+        );
+
+        // Google Search Console
+        if ($gsc_connected) {
+            $gsc_status = 'ok';
+            $gsc_action = esc_html__('Connected and active.', 'tmwseo')
+                . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">'
+                . esc_html__('View Connections', 'tmwseo') . '</a>';
+        } elseif ($gsc_configured) {
+            $gsc_status = 'partial';
+            $gsc_action = '<a href="' . esc_url(GSCApi::get_auth_url()) . '">'
+                . esc_html__('Credentials saved — click to authorise with Google →', 'tmwseo') . '</a>';
+        } else {
+            $gsc_status = 'missing';
+            $gsc_action = '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=gsc')) . '">'
+                . esc_html__('Add OAuth2 credentials in Settings → Google SC', 'tmwseo') . '</a>';
+        }
+        $render_row(
+            $gsc_status,
+            'Google Search Console',
+            __('Real clicks, impressions, CTR, and position for your site. Without it, ranking probability uses placeholder data and suggestions cannot factor in what is already driving traffic.', 'tmwseo'),
+            $gsc_action
+        );
+
+        // AI Provider
+        if ($openai_ok) {
+            $ai_status = 'ok';
+            $ai_label  = 'OpenAI' . ($anthropic_ok ? ' + Anthropic fallback' : '');
+            $ai_action = esc_html__('Configured.', 'tmwseo')
+                . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=ai')) . '">'
+                . esc_html__('Edit in Settings → AI', 'tmwseo') . '</a>';
+        } elseif ($anthropic_ok) {
+            $ai_status = 'partial';
+            $ai_label  = 'Anthropic (OpenAI missing)';
+            $ai_action = '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=ai')) . '">'
+                . esc_html__('Add OpenAI key in Settings → AI for full coverage', 'tmwseo') . '</a>';
+        } else {
+            $ai_status = 'missing';
+            $ai_label  = 'AI Provider';
+            $ai_action = '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=ai')) . '">'
+                . esc_html__('Add API key in Settings → AI', 'tmwseo') . '</a>';
+        }
+        $render_row(
+            $ai_status,
+            $ai_label,
+            __('Content briefs, intent classification, SEO copy generation, draft enrichment, and ranking probability explanations. Without AI, brief generation and suggestion reasoning are unavailable.', 'tmwseo'),
+            $ai_action
+        );
+
+        // Competitor Domains
+        if ($competitor_count >= 3) {
+            $comp_status = 'ok';
+            $comp_why_sfx = sprintf(__('%d domain(s) tracked.', 'tmwseo'), $competitor_count);
+        } elseif ($competitor_count >= 1) {
+            $comp_status = 'warn';
+            $comp_why_sfx = sprintf(__('%d domain(s) tracked — add more for broader gap coverage (3+ recommended).', 'tmwseo'), $competitor_count);
+        } else {
+            $comp_status = 'missing';
+            $comp_why_sfx = __('No domains configured — gap analysis disabled.', 'tmwseo');
+        }
+        $render_row(
+            $comp_status,
+            'Competitor Domains',
+            __('Keyword gap detection, domain intersection, and competitor content monitoring. Required for gap-based suggestions. ', 'tmwseo') . $comp_why_sfx,
+            '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-competitor-domains')) . '">'
+                . esc_html__('Manage Competitor Domains', 'tmwseo') . '</a>'
+        );
+
+        // Keyword Corpus
+        $corpus_summary = sprintf(
+            __('%1$d raw · %2$d candidates · %3$d clusters', 'tmwseo'),
+            $raw_count, $cand_count, $cluster_count
+        );
+        if ($raw_ok && $cand_ok && $cluster_ok) {
+            $corpus_status = 'ok';
+            $corpus_why    = $corpus_summary . '. ' . __('Corpus meets minimum thresholds (100 raw / 50 candidates / 5 clusters).', 'tmwseo');
+        } elseif ($raw_count > 0) {
+            $corpus_status = 'warn';
+            $corpus_why    = $corpus_summary . '. ' . __('Below recommended minimums: 100 raw / 50 candidates / 5 clusters. Run the keyword cycle.', 'tmwseo');
+        } else {
+            $corpus_status = 'missing';
+            $corpus_why    = __('No keywords discovered yet. Without a keyword corpus, content improvement suggestions have no volume, KD, or cluster data.', 'tmwseo');
+        }
+        $render_row(
+            $corpus_status,
+            'Keyword Corpus',
+            $corpus_why,
+            '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                . esc_html__('View Keywords → Run Keyword Cycle', 'tmwseo') . '</a>'
+        );
+
+        // Search Volume Coverage
+        if ($cand_count === 0) {
+            $render_row(
+                'missing',
+                'Search Volume Coverage',
+                __('No candidates yet — volume data unavailable. Grow the keyword corpus first.', 'tmwseo'),
+                '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('View Keywords', 'tmwseo') . '</a>'
+            );
+        } else {
+            $vol_status = $vol_ok ? 'ok' : 'warn';
+            $vol_why    = sprintf(
+                __('%1$d%% of %2$d candidates have volume data. Threshold: ≥50%% recommended. Missing volume = suggestion priority cannot reflect real traffic opportunity.', 'tmwseo'),
+                $vol_pct, $cand_count
+            );
+            $vol_action = $dfs_ok
+                ? '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('Run Keyword Cycle on Keywords page', 'tmwseo') . '</a>'
+                : '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=dataforseo')) . '">'
+                    . esc_html__('Connect DataForSEO first', 'tmwseo') . '</a>';
+            $render_row($vol_status, 'Search Volume Coverage', $vol_why, $vol_action);
+        }
+
+        // KD Coverage
+        if ($cand_count === 0) {
+            $render_row(
+                'missing',
+                'KD Coverage',
+                __('No candidates yet — KD data unavailable. Grow the keyword corpus first.', 'tmwseo'),
+                '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('View Keywords', 'tmwseo') . '</a>'
+            );
+        } else {
+            $kd_status = $kd_ok ? 'ok' : 'warn';
+            $kd_why    = sprintf(
+                __('%1$d%% of %2$d candidates have KD data. Threshold: ≥50%% recommended. Missing KD = content improvement difficulty scoring is unreliable, suggestions may be mis-prioritised.', 'tmwseo'),
+                $kd_pct, $cand_count
+            );
+            $kd_action = $dfs_ok
+                ? '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+                    . esc_html__('Run Keyword Cycle on Keywords page', 'tmwseo') . '</a>'
+                : '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-settings&stab=dataforseo')) . '">'
+                    . esc_html__('Connect DataForSEO first', 'tmwseo') . '</a>';
+            $render_row($kd_status, 'KD Coverage', $kd_why, $kd_action);
+        }
+
+        echo '</tbody></table>';
+        echo '</div>'; // .tmwui-table-wrap
+
+        // 6. Quality limits box ────────────────────────────────────────────────
+
+        if (!empty($limits)) {
+            echo '<div style="margin-top:12px;padding:14px 16px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;">';
+            echo '<p style="font-size:13px;font-weight:700;color:#78350f;margin:0 0 8px;">'
+                . esc_html__('Current suggestion quality limits:', 'tmwseo') . '</p>';
+            echo '<ul style="list-style:disc;margin:0 0 0 18px;padding:0;">';
+            foreach ($limits as $limit) {
+                echo '<li style="font-size:12px;color:#92400e;margin-bottom:4px;line-height:1.5;">' . esc_html($limit) . '</li>';
+            }
+            echo '</ul>';
+            echo '<p style="font-size:11px;color:#a16207;margin:10px 0 0;">'
+                . esc_html__('These limits are derived from actual plugin state — not generic warnings. Fix the helpers above to improve suggestion quality.', 'tmwseo')
+                . '</p>';
+            echo '</div>';
+        } else {
+            AdminUI::alert(
+                __('All helpers connected and keyword data meets minimum thresholds. Suggestion quality is at full capacity.', 'tmwseo'),
+                'info'
+            );
+        }
+
+        // 7. Quick action shortcuts ────────────────────────────────────────────
+
+        echo '<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">';
+        echo '<strong style="font-size:12px;color:#6b7280;margin-right:4px;">'
+            . esc_html__('Quick links:', 'tmwseo') . '</strong>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">'
+            . esc_html__('All Connections', 'tmwseo') . '</a>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-competitor-domains')) . '">'
+            . esc_html__('Competitor Domains', 'tmwseo') . '</a>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-keywords')) . '">'
+            . esc_html__('Keywords &amp; Keyword Cycle', 'tmwseo') . '</a>';
+        echo '<a class="button button-small" href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '">'
+            . esc_html__('View Suggestions', 'tmwseo') . '</a>';
+        echo '</div>';
+
+        $seed_diag = SeedRegistry::diagnostics();
+        $seed_sources = (array) ($seed_diag['seed_sources'] ?? []);
+        $seed_rows = [];
+        foreach ($seed_sources as $seed_source => $seed_count) {
+            $seed_rows[] = esc_html((string) $seed_source) . ' seeds: ' . (int) $seed_count;
+        }
+
+        echo '<div style="margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">';
+        echo '<p style="margin:0 0 8px;font-weight:600;">' . esc_html__('Seed Health Monitoring', 'tmwseo') . '</p>';
+        echo '<ul style="margin:0 0 0 18px;list-style:disc;">';
+        echo '<li>' . esc_html__('Total seeds:', 'tmwseo') . ' ' . (int) ($seed_diag['total_seeds'] ?? 0) . '</li>';
+        echo '<li>' . esc_html__('Seeds used this cycle:', 'tmwseo') . ' ' . (int) ($seed_diag['seeds_used_this_cycle'] ?? 0) . '</li>';
+        echo '<li>' . esc_html__('Duplicate prevention count:', 'tmwseo') . ' ' . (int) ($seed_diag['duplicate_prevention_count'] ?? 0) . '</li>';
+        foreach ($seed_rows as $seed_row) {
+            echo '<li>' . $seed_row . '</li>';
+        }
+        echo '</ul>';
+        echo '</div>';
+
+        AdminUI::section_end();
     }
 
     public static function render_keywords(): void {
@@ -1885,6 +2523,7 @@ class Admin {
         self::header(__('TMW SEO Engine — Import Keywords', 'tmwseo'));
 
         echo '<p>Import keywords from <strong>Google Keyword Planner</strong> or <strong>SEMrush</strong> (CSV). Imported keywords go through the adult relevancy filter and then can be KD-scored via DataForSEO.</p>';
+        echo '<p><em>Seed CSV format supports <code>keyword,type,priority</code>. Missing columns default to <code>general</code> and <code>1</code>.</em></p>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data" style="max-width:720px;">';
         wp_nonce_field('tmwseo_import_keywords');
@@ -1935,6 +2574,8 @@ class Admin {
 
         $kw_col = 0;
         $vol_col = null;
+        $type_col = null;
+        $priority_col = null;
 
         foreach ($header as $i => $col) {
             $c = strtolower(trim((string)$col));
@@ -1943,6 +2584,8 @@ class Admin {
             if (strpos($c, 'volume') !== false) $vol_col = (int)$i;
             if ($c === 'avg. monthly searches') $vol_col = (int)$i;
             if ($c === 'search volume') $vol_col = (int)$i;
+            if ($c === 'type') $type_col = (int)$i;
+            if ($c === 'priority') $priority_col = (int)$i;
         }
 
         global $wpdb;
@@ -1964,6 +2607,24 @@ class Admin {
                 $rejected++;
                 continue;
             }
+
+            $seed_type = 'general';
+            if ($type_col !== null && isset($row[$type_col])) {
+                $seed_type_candidate = sanitize_key((string) $row[$type_col]);
+                if ($seed_type_candidate !== '') {
+                    $seed_type = $seed_type_candidate;
+                }
+            }
+
+            $priority = 1;
+            if ($priority_col !== null && isset($row[$priority_col])) {
+                $priority_candidate = absint((string) $row[$priority_col]);
+                if ($priority_candidate > 0) {
+                    $priority = $priority_candidate;
+                }
+            }
+
+            SeedRegistry::register_seed($kw, 'csv_import', 'import', 0, $seed_type, $priority);
 
             $vol = null;
             if ($vol_col !== null && isset($row[$vol_col])) {
@@ -2036,7 +2697,7 @@ private static function header(string $title): void {
     private static function count_posts_with_query(array $args): int {
         $query = new \WP_Query(array_merge([
             'post_type' => 'post',
-            'post_status' => 'any',
+            'post_status' => ['publish', 'draft', 'pending', 'private', 'future'],
             'fields' => 'ids',
             'posts_per_page' => 1,
             'no_found_rows' => false,
@@ -2261,6 +2922,7 @@ private static function header(string $title): void {
         $d_pass                 = esc_attr((string)($opts['dataforseo_password'] ?? ''));
         $d_loc                  = esc_attr((string)($opts['dataforseo_location_code'] ?? '2840'));
         $d_lang                 = esc_attr((string)($opts['dataforseo_language_code'] ?? 'en'));
+        $d_budget               = esc_attr((string)($opts['tmwseo_dataforseo_budget_usd'] ?? 20.0));
         $gsc_client_id          = esc_attr((string)($opts['gsc_client_id'] ?? ''));
         $gsc_client_secret      = esc_attr((string)($opts['gsc_client_secret'] ?? ''));
         $gsc_site_url           = esc_attr((string)($opts['gsc_site_url'] ?? ''));
@@ -2269,13 +2931,14 @@ private static function header(string $title): void {
         $schema_enabled         = (bool)($opts['schema_enabled'] ?? 1);
         $schema_post_types      = esc_attr((string)($opts['schema_post_types'] ?? 'model,video,tmw_video'));
         $orphan_scan_enabled    = (bool)($opts['orphan_scan_enabled'] ?? 1);
+        $model_auto_discovery   = (bool)($opts['enable_model_auto_keyword_discovery'] ?? 1);
         $safe_mode              = !empty($opts['safe_mode']);
         $dry_run_mode           = !empty($opts['tmwseo_dry_run_mode']);
         $auto_clear_noindex     = !empty($opts['auto_clear_noindex']);
         $debug_mode             = (bool)($opts['debug_mode'] ?? 0);
         $serper_api_key         = esc_attr((string)($opts['serper_api_key'] ?? ''));
-        $intel_max_seeds        = esc_attr((string)($opts['intel_max_seeds'] ?? 3));
-        $intel_max_keywords     = esc_attr((string)($opts['intel_max_keywords'] ?? 400));
+        $intel_max_seeds        = esc_attr((string)($opts['intel_max_seeds'] ?? 10));
+        $intel_max_keywords     = esc_attr((string)($opts['intel_max_keywords'] ?? 1000));
 
         echo '<p>' . esc_html__('Settings are grouped by subsystem. Save once at the bottom. The Connections page provides live status cards for each integration.', 'tmwseo') . ' <a href="' . esc_url(admin_url('admin.php?page=tmwseo-connections')) . '">' . esc_html__('Go to Connections →', 'tmwseo') . '</a></p>';
 
@@ -2384,6 +3047,7 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Password', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[dataforseo_password]" value="' . $d_pass . '" class="regular-text" autocomplete="off"></td></tr>';
         echo '<tr><th>' . esc_html__('Location code', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_location_code]" value="' . $d_loc . '" class="regular-text"><p class="description">Default: <code>2840</code> (US)</p></td></tr>';
         echo '<tr><th>' . esc_html__('Language code', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[dataforseo_language_code]" value="' . $d_lang . '" class="regular-text"><p class="description">Default: <code>en</code></p></td></tr>';
+        echo '<tr><th>' . esc_html__('API Budget (USD / month)', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[tmwseo_dataforseo_budget_usd]" value="' . $d_budget . '" class="small-text" min="0" step="1"><p class="description">Default: <code>$20/month</code>. Set <code>0</code> for unlimited usage.</p></td></tr>';
         echo '</table>';
 
         // ── Schema ────────────────────────────────────────────────────────
@@ -2399,6 +3063,13 @@ private static function header(string $title): void {
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[orphan_scan_enabled]" value="1" ' . checked($orphan_scan_enabled, true, false) . '> ' . esc_html__('Enable orphan page detection (AJAX scan from Tools page)', 'tmwseo') . '</label>';
         echo '</td></tr></table>';
 
+        // ── Model Keyword Discovery ─────────────────────────────────────
+        echo '<h2>' . esc_html__('Model Keyword Discovery', 'tmwseo') . '</h2>';
+        echo '<table class="form-table"><tr><th>' . esc_html__('Automatic discovery', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[enable_model_auto_keyword_discovery]" value="1" ' . checked($model_auto_discovery, true, false) . '> ' . esc_html__('Enable automatic model keyword discovery', 'tmwseo') . '</label>';
+        echo '<p class="description">' . esc_html__('When enabled, newly published model posts automatically generate keyword seeds and trigger discovery.', 'tmwseo') . '</p>';
+        echo '</td></tr></table>';
+
         // ── Keyword Engine ────────────────────────────────────────────────
         echo '<h2>' . esc_html__('Keyword Engine', 'tmwseo') . '</h2>';
         echo '<table class="form-table">';
@@ -2407,13 +3078,21 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Max KD', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_max_kd]" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('New keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_new_limit]" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('KD batch size', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_kd_batch_limit]" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Keyword Filters', 'tmwseo') . '</th><td><textarea name="tmwseo_engine_settings[keyword_negative_filters]" rows="8" class="large-text code">' . esc_textarea((string)($opts['keyword_negative_filters'] ?? "video chat
+random chat
+omegle
+chatroulette
+chat room
+chatroom
+stranger chat
+talk to strangers")) . '</textarea><p class="description">' . esc_html__('One blocked phrase per line. Matching keywords are silently discarded before candidate insertion.', 'tmwseo') . '</p></td></tr>';
         echo '</table>';
 
         // ── Intelligence ──────────────────────────────────────────────────
         echo '<h2>' . esc_html__('Intelligence', 'tmwseo') . '</h2>';
         echo '<table class="form-table">';
         echo '<tr><th>' . esc_html__('Serper API key', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[serper_api_key]" value="' . $serper_api_key . '" class="regular-text" autocomplete="off"><p class="description">' . esc_html__('Optional. Enables People Also Ask keyword expansion.', 'tmwseo') . '</p></td></tr>';
-        echo '<tr><th>' . esc_html__('Max seeds per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_seeds]" value="' . $intel_max_seeds . '" class="small-text" min="1" max="10"></td></tr>';
+        echo '<tr><th>' . esc_html__('Max seeds per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_seeds]" value="' . $intel_max_seeds . '" class="small-text" min="1" max="20"></td></tr>';
         echo '<tr><th>' . esc_html__('Max keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[intel_max_keywords]" value="' . $intel_max_keywords . '" class="small-text" min="50" max="2000"></td></tr>';
         echo '</table>';
 

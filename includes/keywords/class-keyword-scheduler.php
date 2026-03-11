@@ -9,9 +9,12 @@
  *   tmwseo_engine_keyword_discovery  — weekly
  *     Expands keyword libraries via Google Suggest for each category.
  *
- *   tmwseo_engine_keyword_metrics    — monthly
+ *   tmwseo_engine_keyword_metrics    — weekly
  *     Refreshes search_volume, KD and competition for all library keywords
- *     via DataForSEO in batches of 100.
+ *     via DataForSEO in batches of 300.
+ *
+ *   tmwseo_engine_keyword_prune      — weekly
+ *     Prunes stale low-value keywords from the keyword candidate table.
  *
  * @package TMWSEO\Engine\Keywords
  */
@@ -20,17 +23,20 @@ namespace TMWSEO\Engine\Keywords;
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\KeywordIntelligence\EntityCombinationEngine;
 
 class KeywordScheduler {
 
     const HOOK_DISCOVERY = 'tmwseo_engine_keyword_discovery';
     const HOOK_METRICS   = 'tmwseo_engine_keyword_metrics';
+    const HOOK_PRUNE     = 'tmwseo_engine_keyword_prune';
 
     // ── Boot ───────────────────────────────────────────────────────────────
 
     public static function init(): void {
         add_action( self::HOOK_DISCOVERY, [ __CLASS__, 'discover_new_keywords' ] );
         add_action( self::HOOK_METRICS,   [ __CLASS__, 'refresh_keyword_metrics' ] );
+        add_action( self::HOOK_PRUNE,     [ __CLASS__, 'prune_stale_keywords' ] );
     }
 
     // ── Activation / deactivation ──────────────────────────────────────────
@@ -40,13 +46,17 @@ class KeywordScheduler {
             wp_schedule_event( time() + 3600, 'tmwseo_weekly', self::HOOK_DISCOVERY );
         }
         if ( ! wp_next_scheduled( self::HOOK_METRICS ) ) {
-            wp_schedule_event( time() + 7200, 'tmwseo_monthly', self::HOOK_METRICS );
+            wp_schedule_event( time() + 7200, 'tmwseo_weekly', self::HOOK_METRICS );
+        }
+        if ( ! wp_next_scheduled( self::HOOK_PRUNE ) ) {
+            wp_schedule_event( time() + 10800, 'tmwseo_weekly', self::HOOK_PRUNE );
         }
     }
 
     public static function unschedule(): void {
         wp_clear_scheduled_hook( self::HOOK_DISCOVERY );
         wp_clear_scheduled_hook( self::HOOK_METRICS );
+        wp_clear_scheduled_hook( self::HOOK_PRUNE );
     }
 
     // ── Weekly: discover new keywords ─────────────────────────────────────
@@ -61,7 +71,7 @@ class KeywordScheduler {
 
         foreach ( $categories as $category ) {
             $patterns = CuratedKeywordLibrary::get_seed_patterns( $category );
-            $seeds    = array_slice( $patterns['seeds'] ?? [], 0, 3 );
+            $seeds    = array_slice( $patterns['seeds'] ?? [], 0, 10 );
 
             foreach ( $seeds as $seed ) {
                 $suggestions = self::fetch_google_suggest_cached( $seed );
@@ -77,6 +87,16 @@ class KeywordScheduler {
             }
         }
 
+        $entity_report = EntityCombinationEngine::expand_weekly_seeds();
+
+        \TMWSEO\Engine\Logs::debug( 'keywords', '[TMW-KW-DISCOVERY] Seed discovery run complete', [
+            'categories' => count( $categories ),
+            'discovered' => $discovered,
+            'entity_combinations_generated' => (int) ( $entity_report['combinations_generated'] ?? 0 ),
+            'entity_new_seeds_created' => (int) ( $entity_report['new_seeds_created'] ?? 0 ),
+            'entity_duplicates_skipped' => (int) ( $entity_report['duplicates_skipped'] ?? 0 ),
+        ] );
+
         update_option( 'tmwseo_last_keyword_discovery', [
             'timestamp'  => current_time( 'mysql' ),
             'categories' => count( $categories ),
@@ -84,24 +104,18 @@ class KeywordScheduler {
         ], false );
     }
 
-    // ── Monthly: refresh metrics ───────────────────────────────────────────
+    // ── Weekly: refresh metrics ───────────────────────────────────────────
 
     /**
      * Refreshes search_volume, KD, and competition for library keywords
-     * in batches of 100, picking up where it left off.
+     * in batches of 300, picking up where it left off.
      */
     public static function refresh_keyword_metrics(): void {
-        $location_code = (int) get_option( 'tmwseo_dataforseo_location_code', 2840 );
-        $language_code = (string) get_option( 'tmwseo_dataforseo_language_code', 'en' );
-
-        // Check DataForSEO is configured
-        $login    = (string) get_option( 'tmwseo_dataforseo_login', '' );
-        $password = (string) get_option( 'tmwseo_dataforseo_password', '' );
-        if ( $login === '' || $password === '' ) {
+        if ( ! DataForSEO::is_configured() ) {
             return;
         }
 
-        $batch_size = 100;
+        $batch_size = 300;
         $state      = get_option( 'tmwseo_keyword_metrics_refresh_state', [] );
         $offset     = (int) ( $state['offset'] ?? 0 );
 
@@ -125,8 +139,12 @@ class KeywordScheduler {
         }
 
         // Fetch metrics from DataForSEO
-        $dfs    = new DataForSEO( $login, $password );
-        $vols   = self::safe_search_volume( $dfs, $keywords, $location_code, $language_code );
+        $vols   = self::safe_search_volume( $keywords );
+        \TMWSEO\Engine\Logs::debug( 'keywords', '[TMW-DFS] Keyword metrics batch refresh', [
+            'batch_size' => count( $keywords ),
+            'offset' => $offset,
+            'total' => $total,
+        ] );
 
         // Write metrics back to CSV files
         foreach ( $batch as $ref ) {
@@ -156,6 +174,31 @@ class KeywordScheduler {
         ], false );
     }
 
+
+    /**
+     * Weekly pruning of stale low-volume keyword candidates.
+     */
+    public static function prune_stale_keywords(): void {
+        global $wpdb;
+
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
+        $cutoff = gmdate( 'Y-m-d H:i:s', time() - ( 180 * DAY_IN_SECONDS ) );
+
+        $sql = "DELETE c FROM {$cand_table} c
+                INNER JOIN {$usage_table} u ON u.keyword_text = c.keyword
+                WHERE COALESCE(c.volume, 0) < 10
+                  AND u.last_used_at IS NOT NULL
+                  AND u.last_used_at <= %s";
+
+        $deleted = (int) $wpdb->query( $wpdb->prepare( $sql, $cutoff ) );
+
+        \TMWSEO\Engine\Logs::debug( 'keywords', '[TMW-KW-PRUNE] Weekly keyword pruning complete', [
+            'deleted' => $deleted,
+            'cutoff' => $cutoff,
+        ] );
+    }
+
     // ── Internal helpers ───────────────────────────────────────────────────
 
     /**
@@ -170,6 +213,10 @@ class KeywordScheduler {
         $cache_key = 'tmwseo_ks_suggest_' . md5( $query );
         $cached    = get_transient( $cache_key );
         if ( $cached !== false && is_array( $cached ) ) {
+            \TMWSEO\Engine\Logs::debug( 'keywords', '[TMW-KW-CACHE] Google suggest cache hit', [
+                'query' => $query,
+                'count' => count( $cached ),
+            ] );
             return $cached;
         }
 
@@ -383,12 +430,15 @@ class KeywordScheduler {
     /**
      * Wraps DataForSEO search_volume call safely.
      */
-    private static function safe_search_volume( DataForSEO $dfs, array $keywords, int $location, string $language ): array {
-        try {
-            $result = $dfs->search_volume( $keywords, $location, $language );
-            return is_wp_error( $result ) ? [] : (array) $result;
-        } catch ( \Throwable $e ) {
+    private static function safe_search_volume( array $keywords ): array {
+        $result = DataForSEO::search_volume( $keywords );
+        if ( ! ( $result['ok'] ?? false ) ) {
+            \TMWSEO\Engine\Logs::warn( 'keywords', '[TMW-DFS] search_volume refresh failed', [
+                'error' => $result['error'] ?? 'unknown',
+            ] );
             return [];
         }
+
+        return (array) ( $result['map'] ?? [] );
     }
 }

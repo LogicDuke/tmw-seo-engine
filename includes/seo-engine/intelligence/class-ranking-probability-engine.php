@@ -20,15 +20,25 @@ class RankingProbabilityEngine {
         $internal_linking_strength = $this->clamp((float) ($inputs['internal_linking_strength'] ?? 0));
         $competitor_weakness = $this->clamp((float) ($inputs['competitor_weakness'] ?? 0));
         $keyword_difficulty = $this->clamp((float) ($inputs['keyword_difficulty'] ?? 0));
+        $page_type_fit = $this->clamp((float) ($inputs['page_type_fit'] ?? 0));
+
+        // FIX: Replaced raw KD subtraction with a positive ease factor.
+        // Old formula: - ($keyword_difficulty * 0.15)
+        //   → KD 100 = -15 pts, KD 0 = 0 pts (only penalises hard, no reward for easy)
+        // New formula: + ((1 - KD/100) * 0.15)
+        //   → KD 0 = +15 pts, KD 50 = +7.5 pts, KD 100 = 0 pts (rewards easy keywords)
+        // Weights still sum to 1.0 (0.25+0.20+0.15+0.10+0.10+0.05+0.10+0.15 = 1.10 max → clamped)
+        $kd_ease = ( 1.0 - ( $keyword_difficulty / 100.0 ) ) * 0.15;
 
         $raw =
-            ($intent_match * 0.20) +
-            ($topical_authority * 0.20) +
-            ($cluster_coverage * 0.15) +
-            ($content_depth * 0.15) +
+            ($intent_match * 0.25) +
+            ($competitor_weakness * 0.20) +
+            ($topical_authority * 0.15) +
+            ($content_depth * 0.10) +
             ($internal_linking_strength * 0.10) +
-            ($competitor_weakness * 0.10) -
-            ($keyword_difficulty * 0.10);
+            ($page_type_fit * 0.05) +
+            ($cluster_coverage * 0.10) +
+            $kd_ease;
 
         $score = round($this->clamp($raw), 2);
         $tier = $this->tier($score);
@@ -75,16 +85,26 @@ class RankingProbabilityEngine {
     private function persist(string $keyword, array $inputs, array $result): void {
         global $wpdb;
 
-        $wpdb->insert(
-            IntelligenceStorage::table_ranking_probability(),
-            [
-                'keyword' => sanitize_text_field($keyword),
-                'inputs_json' => wp_json_encode($inputs),
-                'ranking_probability' => (float) $result['ranking_probability'],
-                'ranking_tier' => sanitize_text_field((string) $result['ranking_tier']),
-                'created_at' => current_time('mysql'),
-            ],
-            ['%s', '%s', '%f', '%s', '%s']
+        // FIX: Changed from INSERT to INSERT ... ON DUPLICATE KEY UPDATE.
+        // Previously every calculation appended a new row (no UNIQUE key) causing the
+        // ranking_probability table to grow unbounded with duplicate keyword rows.
+        $table = IntelligenceStorage::table_ranking_probability();
+        $wpdb->query(
+            $wpdb->prepare(
+                "INSERT INTO {$table}
+                    (keyword, inputs_json, ranking_probability, ranking_tier, created_at)
+                 VALUES (%s, %s, %f, %s, %s)
+                 ON DUPLICATE KEY UPDATE
+                    inputs_json          = VALUES(inputs_json),
+                    ranking_probability  = VALUES(ranking_probability),
+                    ranking_tier         = VALUES(ranking_tier),
+                    created_at           = VALUES(created_at)",
+                sanitize_text_field( $keyword ),
+                wp_json_encode( $inputs ),
+                (float) $result['ranking_probability'],
+                sanitize_text_field( (string) $result['ranking_tier'] ),
+                current_time( 'mysql' )
+            )
         );
     }
 }

@@ -33,6 +33,7 @@ use TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor;
 use TMWSEO\Engine\Export\CSVExporter;
 use TMWSEO\Engine\Db\Jobs;
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Services\RankTracker;
 
 class AdminDashboardV2 {
 
@@ -108,7 +109,7 @@ class AdminDashboardV2 {
 
         $raw_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_raw" );
         $cand_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates" );
-        $opp_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_opportunities" );
+        $opp_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_top_opportunities" );
 
         $orphan_data    = (array) get_option( OrphanPageDetector::OPTION_RESULTS, [] );
         $orphan_count   = (int) ( $orphan_data['orphan_count'] ?? 0 );
@@ -214,6 +215,11 @@ class AdminDashboardV2 {
                         <input type="hidden" name="action" value="tmwseo_run_keyword_cycle">
                         <button class="td-btn td-btn-secondary td-btn-full">🔄 Refresh Keyword Cycle</button>
                     </form>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:8px">
+                        <?php wp_nonce_field( 'tmwseo_generate_traffic_pages' ); ?>
+                        <input type="hidden" name="action" value="tmwseo_generate_traffic_pages">
+                        <button class="td-btn td-btn-secondary td-btn-full">🚀 Generate Traffic Pages</button>
+                    </form>
                     <button class="td-btn td-btn-ghost td-btn-full mt-2" id="td-scan-orphans">🔍 Scan Orphan Pages</button>
                     <button class="td-btn td-btn-ghost td-btn-full mt-2" id="td-scan-competitors">📡 Run Competitor Scan</button>
                 </div>
@@ -271,15 +277,16 @@ class AdminDashboardV2 {
         $raw_count      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_raw" );
         $cand_count     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates" );
         $approved_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates WHERE status='approved'" );
-        $cluster_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_clusters" );
-        $new_clusters   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_clusters WHERE status='new'" );
-        $opp_count      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_opportunities" );
+        $cluster_count  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_cluster_summary" );
+        $new_clusters   = 0;
+        $opp_count      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_top_opportunities" );
 
         self::wrap_open( 'Keywords' );
         self::tabs( [
             'pipeline'     => 'Pipeline',
             'clusters'     => 'Clusters',
             'opportunities'=> 'Opportunities',
+            'graph'        => 'Keyword Graph',
         ], $tab, self::PAGE_KEYWORDS );
 
         if ( $tab === 'pipeline' ) :
@@ -334,9 +341,9 @@ class AdminDashboardV2 {
 
         elseif ( $tab === 'clusters' ) :
             $clusters = $wpdb->get_results(
-                "SELECT id, cluster_key, representative, total_volume, avg_difficulty, opportunity, status, page_id
-                 FROM {$wpdb->prefix}tmw_keyword_clusters
-                 ORDER BY opportunity DESC, total_volume DESC LIMIT 40",
+                "SELECT cluster_id, cluster_size, avg_volume, avg_difficulty, materialized_at
+                 FROM {$wpdb->prefix}tmwseo_cluster_summary
+                 ORDER BY cluster_size DESC, avg_volume DESC LIMIT 40",
                 ARRAY_A
             );
             ?>
@@ -347,22 +354,50 @@ class AdminDashboardV2 {
             </div>
             <?php
             self::table(
-                [ 'Opp Score', 'Volume', 'Avg KD', 'Representative Keyword', 'Status', 'Page' ],
+                [ 'Cluster ID', 'Cluster Size', 'Avg Volume', 'Avg KD', 'Materialized' ],
                 array_map( fn( $c ) => [
-                    '<strong>' . esc_html( $c['opportunity'] ) . '</strong>',
-                    esc_html( number_format( (int) $c['total_volume'] ) ),
-                    self::kd_badge( (float) $c['avg_difficulty'] ),
-                    esc_html( $c['representative'] ),
-                    self::status_badge( $c['status'] ),
-                    $c['page_id'] ? '<a href="' . esc_url( get_edit_post_link( (int) $c['page_id'] ) ) . '">Edit</a>' : '—',
+                    esc_html( (string) ( $c['cluster_id'] ?? '' ) ),
+                    '<strong>' . esc_html( number_format( (int) ( $c['cluster_size'] ?? 0 ) ) ) . '</strong>',
+                    esc_html( number_format( (int) ( $c['avg_volume'] ?? 0 ) ) ),
+                    self::kd_badge( (float) ( $c['avg_difficulty'] ?? 0 ) ),
+                    esc_html( substr( (string) ( $c['materialized_at'] ?? '' ), 0, 10 ) ),
                 ], $clusters ),
-                'Top 40 clusters by opportunity score'
+                'Materialized cluster summary (top 40 by cluster size)'
+            );
+
+
+        elseif ( $tab === 'graph' ) :
+            $graph_clusters = $wpdb->get_results(
+                "SELECT graph_cluster_id, COUNT(*) AS cluster_size, SUM(node_degree) AS degree_total, MAX(keyword) AS top_seed
+                 FROM {$wpdb->prefix}tmw_keyword_candidates
+                 WHERE graph_cluster_id IS NOT NULL
+                 GROUP BY graph_cluster_id
+                 ORDER BY cluster_size DESC, degree_total DESC
+                 LIMIT 25",
+                ARRAY_A
+            );
+            ?>
+            <div class="td-grid td-grid-3 mb-6">
+                <?php self::kpi_card( number_format( count( $graph_clusters ) ), 'Top Clusters', 'neutral', 'Graph-based topic clusters' ); ?>
+                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates WHERE graph_cluster_size > 0" ) ), 'Clustered Keywords', 'success', 'Keywords with graph cluster assignment' ); ?>
+                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT MAX(node_degree) FROM {$wpdb->prefix}tmw_keyword_candidates" ) ), 'Max Node Degree', 'neutral', 'Highest relationship count' ); ?>
+            </div>
+            <?php
+            self::table(
+                [ 'Cluster', 'Cluster Size', 'Top Seed Keyword', 'Total Node Degree' ],
+                array_map( fn( $g ) => [
+                    esc_html( (string) ( $g['graph_cluster_id'] ?? '' ) ),
+                    '<strong>' . esc_html( number_format( (int) ( $g['cluster_size'] ?? 0 ) ) ) . '</strong>',
+                    esc_html( (string) ( $g['top_seed'] ?? '—' ) ),
+                    esc_html( number_format( (int) ( $g['degree_total'] ?? 0 ) ) ),
+                ], $graph_clusters ),
+                'Top graph clusters by size and relationship density'
             );
 
         elseif ( $tab === 'opportunities' ) :
             $opps = $wpdb->get_results(
-                "SELECT keyword, search_volume, difficulty, competitor_url, opportunity_score, status, created_at
-                 FROM {$wpdb->prefix}tmwseo_opportunities
+                "SELECT keyword, search_volume, difficulty, serp_weakness, opportunity_score, materialized_at
+                 FROM {$wpdb->prefix}tmwseo_top_opportunities
                  ORDER BY opportunity_score DESC LIMIT 40",
                 ARRAY_A
             );
@@ -373,17 +408,16 @@ class AdminDashboardV2 {
             </div>
             <?php
             self::table(
-                [ 'Keyword', 'Volume', 'KD', 'Competitor', 'Opp Score', 'Status', 'Found' ],
+                [ 'Keyword', 'Volume', 'KD', 'SERP Weakness', 'Opp Score', 'Materialized' ],
                 array_map( fn( $o ) => [
-                    esc_html( $o['keyword'] ),
-                    '<strong>' . esc_html( number_format( (int) $o['search_volume'] ) ) . '</strong>',
-                    self::kd_badge( (float) $o['difficulty'] ),
-                    esc_html( $o['competitor_url'] ?? '—' ),
-                    '<strong>' . esc_html( round( (float) $o['opportunity_score'], 1 ) ) . '</strong>',
-                    self::status_badge( $o['status'] ),
-                    esc_html( substr( $o['created_at'], 0, 10 ) ),
+                    esc_html( (string) ( $o['keyword'] ?? '' ) ),
+                    '<strong>' . esc_html( number_format( (int) ( $o['search_volume'] ?? 0 ) ) ) . '</strong>',
+                    self::kd_badge( (float) ( $o['difficulty'] ?? 0 ) ),
+                    esc_html( round( (float) ( $o['serp_weakness'] ?? 0 ), 2 ) ),
+                    '<strong>' . esc_html( round( (float) ( $o['opportunity_score'] ?? 0 ), 2 ) ) . '</strong>',
+                    esc_html( substr( (string) ( $o['materialized_at'] ?? '' ), 0, 10 ) ),
                 ], $opps ),
-                'Top 40 opportunities by score'
+                'Materialized top opportunities (top 40 by score)'
             );
         endif;
 
@@ -455,7 +489,7 @@ class AdminDashboardV2 {
 
         elseif ( $tab === 'ranking' ) :
             ?>
-            <p class="td-help">Ranking probability is calculated per post using 7 real signals: keyword intent, topical authority, cluster coverage, content depth, internal link strength, competitor SERP weakness, and keyword difficulty.</p>
+            <p class="td-help">Ranking probability is calculated per post using 8 real signals: keyword intent, SERP weakness, keyword difficulty, cluster authority, content depth, internal linking, cluster coverage, and page type fit.</p>
             <div style="margin-bottom:16px;">
                 <?php echo CSVExporter::button( 'ranking_probability', '📥 Export Ranking Probability CSV' ); ?>
             </div>
@@ -505,6 +539,7 @@ class AdminDashboardV2 {
         $authority    = (array) get_option( CompetitorMonitor::OPTION_AUTHORITY, [] );
         $threats      = (array) ( $comp_data['threats'] ?? [] );
         $intersection = (array) ( $comp_data['intersection'] ?? [] );
+        $top_traffic_keywords = (array) ( $comp_data['top_traffic_keywords'] ?? [] );
         $last_run     = (string) get_option( CompetitorMonitor::OPTION_LAST_RUN, '' );
         $competitors  = Settings::competitor_domains();
 
@@ -580,6 +615,32 @@ class AdminDashboardV2 {
             <?php endif; ?>
         </div>
 
+
+        <!-- Top Competitor Traffic Keywords -->
+        <div class="td-card mb-6">
+            <div class="td-card-header">
+                <span class="td-card-icon">🚦</span>
+                <h3 class="td-card-title">Top Competitor Traffic Keywords</h3>
+            </div>
+            <?php if ( empty( $top_traffic_keywords ) ) : ?>
+                <?php self::empty_state( 'ℹ️', 'No competitor traffic data yet', 'Run a competitor scan to estimate traffic potential from competitor keywords.' ); ?>
+            <?php else : ?>
+                <?php
+                self::table(
+                    [ 'Keyword', 'Competitor', 'Position', 'Search Volume', 'Traffic Estimate' ],
+                    array_map( fn( $k ) => [
+                        esc_html( $k['keyword'] ?? '' ),
+                        esc_html( $k['competitor'] ?? '' ),
+                        '<strong>#' . esc_html( (string) (int) ( $k['competitor_position'] ?? 0 ) ) . '</strong>',
+                        esc_html( number_format( (int) ( $k['search_volume'] ?? 0 ) ) ),
+                        '<strong>' . esc_html( number_format( (float) ( $k['estimated_traffic'] ?? 0 ), 2 ) ) . '</strong>',
+                    ], array_slice( $top_traffic_keywords, 0, 20 ) ),
+                    'Estimated monthly traffic based on position-based CTR and search volume'
+                );
+                ?>
+            <?php endif; ?>
+        </div>
+
         <!-- Domain Intersection -->
         <?php if ( ! empty( $intersection ) ) : ?>
         <div class="td-card mb-6">
@@ -625,7 +686,7 @@ class AdminDashboardV2 {
         $tab = sanitize_key( $_GET['tab'] ?? 'health' );
 
         self::wrap_open( 'Reports' );
-        self::tabs( [ 'health' => 'SEO Health', 'models' => '🎯 Model SEO', 'orphans' => 'Orphan Pages', 'pagespeed' => 'PageSpeed', 'ai' => 'AI Token Usage' ], $tab, self::PAGE_REPORTS );
+        self::tabs( [ 'health' => 'SEO Health', 'models' => '🎯 Model SEO', 'rankings' => 'Keyword Rankings', 'orphans' => 'Orphan Pages', 'pagespeed' => 'PageSpeed', 'ai' => 'AI Token Usage' ], $tab, self::PAGE_REPORTS );
 
         if ( $tab === 'health' ) :
             $tracked = [ 'post', 'model', 'tmw_category_page' ];
@@ -743,6 +804,35 @@ class AdminDashboardV2 {
                     );
                 }
             }
+
+
+        elseif ( $tab === 'rankings' ) :
+            $history = RankTracker::get_history( 6, 84 );
+            ?>
+            <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;">
+                <span style="font-size:12px;color:#6b7280;">Weekly cron job checks tracked focus keywords via SERP API and stores keyword, position, date, and URL.</span>
+            </div>
+            <?php if ( empty( $history ) ) : ?>
+                <?php self::empty_state( '📈', 'No ranking history yet', 'Weekly rank tracking will populate this chart after the next cron run.' ); ?>
+            <?php else : ?>
+                <?php self::render_rank_history_chart( $history ); ?>
+                <?php
+                $rows = [];
+                foreach ( $history as $keyword => $points ) {
+                    if ( empty( $points ) ) {
+                        continue;
+                    }
+                    $last = $points[ count( $points ) - 1 ];
+                    $rows[] = [
+                        '<strong>' . esc_html( $keyword ) . '</strong>',
+                        esc_html( (string) $last['position'] ),
+                        esc_html( (string) $last['date'] ),
+                        $last['url'] !== '' ? '<a href="' . esc_url( $last['url'] ) . '" target="_blank">' . esc_html( $last['url'] ) . '</a>' : '—',
+                    ];
+                }
+                self::table( [ 'Keyword', 'Latest Position', 'Date', 'URL' ], $rows, 'Latest ranking snapshot' );
+                ?>
+            <?php endif; ?>
 
         elseif ( $tab === 'orphans' ) :
             $orphan_data = (array) get_option( OrphanPageDetector::OPTION_RESULTS, [] );
@@ -1033,6 +1123,7 @@ class AdminDashboardV2 {
                 self::text_field( 'dataforseo_password', 'Password',        $opts, 'password', '' ),
                 self::text_field( 'dataforseo_location_code', 'Location Code', $opts, 'text', 'Default: 2840 (US). See DataForSEO docs for other codes.' ),
                 self::text_field( 'dataforseo_language_code', 'Language Code', $opts, 'text', 'Default: en' ),
+                self::text_field( 'tmwseo_dataforseo_budget_usd', 'API Budget (USD / month)', $opts, 'number', 'Default: 20. Set to 0 for unlimited usage.' ),
             ] );
 
         elseif ( $stab === 'gsc' ) :
@@ -1061,6 +1152,7 @@ class AdminDashboardV2 {
                 self::text_field( 'intel_max_keywords', 'Max KWs per Run',     $opts, 'number', 'Default: 400' ),
                 self::text_field( 'serper_api_key',     'Serper API Key',      $opts, 'password', 'Optional. Enables People Also Ask + related searches.' ),
             ] );
+            echo '<div class="td-field-row"><label class="td-label">Negative Keyword Filters</label><div class="td-input-wrap"><textarea name="tmwseo_engine_settings[keyword_negative_filters]" rows="8" class="td-textarea">' . esc_textarea( (string) ( $opts['keyword_negative_filters'] ?? "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers" ) ) . '</textarea><p class="td-field-hint">One blocked phrase per line. Candidate keywords containing any phrase are silently discarded before insertion.</p></div></div>';
             self::settings_section( 'Competitor Domains', [] );
             echo '<div class="td-field-row"><label class="td-label">Competitor Domains</label><div class="td-input-wrap"><textarea name="tmwseo_engine_settings[competitor_domains]" rows="7" class="td-textarea">' . esc_textarea( (string) ( $opts['competitor_domains'] ?? '' ) ) . '</textarea><p class="td-field-hint">One per line. Domain only — no https://</p></div></div>';
 
@@ -1077,6 +1169,7 @@ class AdminDashboardV2 {
             self::settings_section( 'Schema & Features', [
                 self::checkbox_field( 'schema_enabled', 'Enable JSON-LD Schema', $opts, 'Outputs Person, VideoObject, and FAQ structured data in <head>.' ),
                 self::checkbox_field( 'orphan_scan_enabled', 'Enable Orphan Page Scanning', $opts, 'Weekly cron scan for pages with zero inbound internal links.' ),
+                self::checkbox_field( 'enable_model_auto_keyword_discovery', 'Enable automatic model keyword discovery', $opts, 'Generates and registers model keyword seeds when a model post is first published.' ),
             ] );
             self::settings_section( 'Debug', [
                 self::checkbox_field( 'debug_mode', 'Enable Debug Mode', $opts, 'Shows the Debug Dashboard menu item and enables verbose logging.' ),
@@ -1154,6 +1247,10 @@ class AdminDashboardV2 {
             $lock_time  = get_transient( 'tmw_dfseo_keyword_lock' );
             $lock_active= $lock_time && ( time() - (int) $lock_time ) < 600;
             $failures   = (int) ( $metrics['failures'] ?? 0 );
+            $dfseo_budget = DataForSEO::get_monthly_budget_stats();
+            $dfseo_spent = (float) ( $dfseo_budget['spent_usd'] ?? 0 );
+            $dfseo_cap = (float) ( $dfseo_budget['budget_usd'] ?? 0 );
+            $dfseo_remaining = $dfseo_budget['remaining_usd'] ?? null;
             $health     = 'Healthy';
             $hcol       = 'success';
             if ( ! empty( $breaker['last_triggered'] ) )  { $health = 'Circuit Breaker Active'; $hcol = 'danger'; }
@@ -1164,6 +1261,11 @@ class AdminDashboardV2 {
                 <?php self::kpi_card( $health, 'Engine Status', $hcol, '' ); ?>
                 <?php self::kpi_card( $lock_active ? 'Yes' : 'No', 'Lock Active', $lock_active ? 'warning' : 'success', '' ); ?>
                 <?php self::kpi_card( (string) $failures, 'Failure Count', $failures > 2 ? 'danger' : 'success', '' ); ?>
+            </div>
+            <div class="td-grid td-grid-3 mb-6">
+                <?php self::kpi_card( '$' . number_format( $dfseo_cap, 2 ), 'Monthly API Budget', 'neutral', 'DataForSEO' ); ?>
+                <?php self::kpi_card( '$' . number_format( $dfseo_spent, 2 ), 'Spent', ! empty( $dfseo_budget['over_budget'] ) ? 'danger' : 'success', 'DataForSEO' ); ?>
+                <?php self::kpi_card( $dfseo_remaining !== null ? '$' . number_format( (float) $dfseo_remaining, 2 ) : '∞', 'Remaining', 'neutral', 'Current month' ); ?>
             </div>
             <div class="td-card mb-6">
                 <div class="td-card-header"><span class="td-card-icon">📊</span><h3 class="td-card-title">Engine Metrics</h3></div>
@@ -1404,6 +1506,99 @@ class AdminDashboardV2 {
     // ══════════════════════════════════════════════════════════════════════
     // CSS + JS
     // ══════════════════════════════════════════════════════════════════════
+
+
+    /**
+     * @param array<string,array<int,array{date:string,position:int,url:string}>> $history
+     */
+    private static function render_rank_history_chart( array $history ): void {
+        $all_dates = [];
+        foreach ( $history as $points ) {
+            foreach ( $points as $point ) {
+                $d = (string) ( $point['date'] ?? '' );
+                if ( $d !== '' ) {
+                    $all_dates[$d] = true;
+                }
+            }
+        }
+
+        $labels = array_keys( $all_dates );
+        sort( $labels );
+        if ( empty( $labels ) ) {
+            self::empty_state( '📉', 'No chart points yet', 'Ranking data exists but chart points are not available yet.' );
+            return;
+        }
+
+        $palette = [ '#2563eb', '#16a34a', '#dc2626', '#9333ea', '#f59e0b', '#0891b2' ];
+        $datasets = [];
+        $max_position = 1;
+
+        foreach ( $history as $keyword => $points ) {
+            $map = [];
+            foreach ( $points as $point ) {
+                $map[(string) $point['date']] = (int) $point['position'];
+                $max_position = max( $max_position, (int) $point['position'] );
+            }
+
+            $series = [];
+            foreach ( $labels as $label ) {
+                $series[] = $map[$label] ?? 0;
+            }
+
+            $datasets[] = [
+                'keyword' => (string) $keyword,
+                'series' => $series,
+            ];
+        }
+
+        $max_position = max( 10, $max_position );
+        $w = 860;
+        $h = 320;
+        $pad_l = 50;
+        $pad_r = 16;
+        $pad_t = 20;
+        $pad_b = 36;
+        $plot_w = $w - $pad_l - $pad_r;
+        $plot_h = $h - $pad_t - $pad_b;
+
+        echo '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin-bottom:14px;overflow:auto;">';
+        echo '<h3 style="margin:0 0 10px 0;font-size:14px;">Keyword ranking history</h3>';
+        echo '<svg width="' . esc_attr( (string) $w ) . '" height="' . esc_attr( (string) $h ) . '" role="img" aria-label="Keyword ranking history chart">';
+
+        echo '<line x1="' . $pad_l . '" y1="' . $pad_t . '" x2="' . $pad_l . '" y2="' . ( $pad_t + $plot_h ) . '" stroke="#d1d5db" />';
+        echo '<line x1="' . $pad_l . '" y1="' . ( $pad_t + $plot_h ) . '" x2="' . ( $pad_l + $plot_w ) . '" y2="' . ( $pad_t + $plot_h ) . '" stroke="#d1d5db" />';
+
+        for ( $tick = 1; $tick <= $max_position; $tick += max( 1, (int) ceil( $max_position / 6 ) ) ) {
+            $y = $pad_t + ( ( $tick - 1 ) / max( 1, $max_position - 1 ) ) * $plot_h;
+            echo '<line x1="' . $pad_l . '" y1="' . round( $y, 2 ) . '" x2="' . ( $pad_l + $plot_w ) . '" y2="' . round( $y, 2 ) . '" stroke="#f3f4f6" />';
+            echo '<text x="' . ( $pad_l - 8 ) . '" y="' . round( $y + 4, 2 ) . '" text-anchor="end" font-size="10" fill="#6b7280">' . esc_html( (string) $tick ) . '</text>';
+        }
+
+        foreach ( $datasets as $i => $dataset ) {
+            $points = [];
+            $count = count( $dataset['series'] );
+            foreach ( $dataset['series'] as $j => $pos ) {
+                if ( $pos <= 0 ) {
+                    continue;
+                }
+                $x = $pad_l + ( $count <= 1 ? 0 : ( $j / ( $count - 1 ) ) * $plot_w );
+                $y = $pad_t + ( ( $pos - 1 ) / max( 1, $max_position - 1 ) ) * $plot_h;
+                $points[] = round( $x, 2 ) . ',' . round( $y, 2 );
+            }
+
+            if ( count( $points ) >= 2 ) {
+                echo '<polyline fill="none" stroke="' . esc_attr( $palette[ $i % count( $palette ) ] ) . '" stroke-width="2" points="' . esc_attr( implode( ' ', $points ) ) . '" />';
+            }
+        }
+
+        echo '</svg>';
+        echo '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;">';
+        foreach ( $datasets as $i => $dataset ) {
+            echo '<span style="font-size:11px;color:#374151;"><span style="display:inline-block;width:10px;height:10px;border-radius:999px;background:' . esc_attr( $palette[ $i % count( $palette ) ] ) . ';margin-right:5px;"></span>' . esc_html( $dataset['keyword'] ) . '</span>';
+        }
+        echo '</div>';
+        echo '</div>';
+    }
 
     private static function css(): string { return '
 /* ── Design tokens ─────────────────────────────────────────────────── */

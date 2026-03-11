@@ -24,6 +24,14 @@ class CompetitorMonitor {
     const OPTION_AUTHORITY = 'tmwseo_competitor_authority_cache';
     const OPTION_LAST_RUN  = 'tmwseo_competitor_monitor_last_run';
 
+    private const POSITION_CTR_MAP = [
+        1 => 0.30,
+        2 => 0.16,
+        3 => 0.10,
+        4 => 0.07,
+        5 => 0.05,
+    ];
+
     // ── Boot ───────────────────────────────────────────────────────────────
 
     public static function init(): void {
@@ -56,9 +64,10 @@ class CompetitorMonitor {
         // Collect our known keywords from DB
         $known_keywords = self::get_our_known_keywords();
 
-        $threats         = [];
-        $authority_data  = [];
-        $domain_keywords = [];
+        $threats              = [];
+        $authority_data       = [];
+        $domain_keywords      = [];
+        $top_traffic_keywords = [];
 
         foreach ( $competitors as $domain ) {
             // 1. Get domain authority via backlinks_summary
@@ -68,7 +77,7 @@ class CompetitorMonitor {
             }
 
             // 2. Get keywords the competitor ranks for
-            $res = DataForSEO::domain_organic_keywords( $domain, 300 );
+            $res = DataForSEO::ranked_keywords( $domain, 300 );
             if ( ! ( $res['ok'] ?? false ) ) {
                 Logs::warn( 'competitor_monitor', "Failed to fetch keywords for {$domain}", [ 'error' => $res['error'] ?? '' ] );
                 continue;
@@ -76,24 +85,47 @@ class CompetitorMonitor {
 
             $domain_keywords[ $domain ] = [];
             foreach ( (array) ( $res['items'] ?? [] ) as $item ) {
-                $kw  = strtolower( trim( (string) ( $item['keyword'] ?? '' ) ) );
-                $pos = (int) ( $item['rank_absolute'] ?? $item['position'] ?? 100 );
-                $vol = (int) ( $item['keyword_info']['search_volume'] ?? $item['search_volume'] ?? 0 );
+                $kw  = self::extract_ranked_keyword( $item );
+                $pos = self::extract_ranked_position( $item );
+                $vol = self::extract_ranked_search_volume( $item );
                 $kd  = (float) ( $item['keyword_properties']['keyword_difficulty'] ?? $item['keyword_difficulty'] ?? 0 );
+                $estimated_clicks = (float) ( $item['keyword_info']['last_month_clicks'] ?? $item['estimated_clicks'] ?? 0 );
+                $estimated_traffic = self::estimate_traffic( $vol, $pos );
 
                 if ( $kw === '' ) continue;
-                $domain_keywords[ $domain ][] = [ 'keyword' => $kw, 'position' => $pos, 'volume' => $vol, 'kd' => $kd ];
+                $domain_keywords[ $domain ][] = [
+                    'keyword'           => $kw,
+                    'position'          => $pos,
+                    'search_volume'     => $vol,
+                    'estimated_clicks'  => $estimated_clicks,
+                    'estimated_traffic' => $estimated_traffic,
+                    'kd'                => $kd,
+                ];
+
+                $top_traffic_keywords[] = [
+                    'keyword'           => $kw,
+                    'competitor'        => $domain,
+                    'competitor_position' => $pos,
+                    'search_volume'     => $vol,
+                    'estimated_clicks'  => $estimated_clicks,
+                    'estimated_traffic' => $estimated_traffic,
+                ];
 
                 // Threat if: they rank in top 20 for a keyword we also track, with decent volume
                 if ( $vol >= 100 && $pos <= 20 && isset( $known_keywords[ $kw ] ) ) {
+                    $opportunity_score = $pos > 5 ? 20 : 10;
                     $threats[] = [
-                        'keyword'    => $kw,
-                        'competitor' => $domain,
-                        'their_pos'  => $pos,
-                        'our_pos'    => $known_keywords[ $kw ]['position'] ?? 0,
-                        'volume'     => $vol,
-                        'kd'         => $kd,
-                        'found_at'   => current_time( 'mysql' ),
+                        'keyword'             => $kw,
+                        'competitor'          => $domain,
+                        'their_pos'           => $pos,
+                        'our_pos'             => $known_keywords[ $kw ]['position'] ?? 0,
+                        'volume'              => $vol,
+                        'kd'                  => $kd,
+                        'competitor_position' => $pos,
+                        'estimated_clicks'    => $estimated_clicks,
+                        'estimated_traffic'   => $estimated_traffic,
+                        'opportunity_score'   => $opportunity_score,
+                        'found_at'            => current_time( 'mysql' ),
                     ];
                 }
             }
@@ -101,6 +133,10 @@ class CompetitorMonitor {
 
         // 3. Keyword intersection (keywords they ALL rank for but we don't)
         $intersection = self::find_domain_intersection( $competitors );
+
+        usort( $top_traffic_keywords, static function( array $a, array $b ): int {
+            return ( $b['estimated_traffic'] <=> $a['estimated_traffic'] );
+        } );
 
         $result = [
             'ok'             => true,
@@ -110,6 +146,7 @@ class CompetitorMonitor {
             'threat_count'   => count( $threats ),
             'authority'      => $authority_data,
             'intersection'   => $intersection,
+            'top_traffic_keywords' => array_slice( $top_traffic_keywords, 0, 50 ),
         ];
 
         update_option( self::OPTION_RESULTS, $result, false );
@@ -119,7 +156,7 @@ class CompetitorMonitor {
         // Store threats in opportunities table
         self::persist_threats( $threats );
 
-        Logs::info( 'competitor_monitor', '[CM] Weekly scan complete', [
+        Logs::info( 'competitor_monitor', '[TMW-CM] Weekly scan complete', [
             'competitors' => count( $competitors ),
             'threats'     => count( $threats ),
             'intersection'=> count( $intersection ),
@@ -140,8 +177,6 @@ class CompetitorMonitor {
 
     private static function fetch_domain_authority( string $domain ): ?array {
         // DataForSEO backlinks_summary endpoint
-        $payload = [ [ 'target' => $domain, 'include_subdomains' => true ] ];
-
         $res = DataForSEO::backlinks_summary( $domain );
         if ( ! ( $res['ok'] ?? false ) ) return null;
 
@@ -183,7 +218,7 @@ class CompetitorMonitor {
         global $wpdb;
         $map = [];
         // From keyword_candidates table
-        $table = $wpdb->prefix . 'tmwseo_keyword_candidates';
+        $table = $wpdb->prefix . 'tmw_keyword_candidates'; // FIX: was 'tmwseo_keyword_candidates' — wrong prefix caused threat detection to always return empty
         $rows  = $wpdb->get_results( "SELECT keyword FROM {$table} LIMIT 5000", ARRAY_A );
         foreach ( (array) $rows as $row ) {
             $kw = strtolower( trim( (string) ( $row['keyword'] ?? '' ) ) );
@@ -204,10 +239,70 @@ class CompetitorMonitor {
         return $map;
     }
 
+    private static function estimate_traffic( int $search_volume, int $position ): float {
+        if ( $search_volume <= 0 ) {
+            return 0.0;
+        }
+
+        if ( isset( self::POSITION_CTR_MAP[ $position ] ) ) {
+            $ctr = self::POSITION_CTR_MAP[ $position ];
+        } elseif ( $position >= 6 && $position <= 10 ) {
+            $ctr = 0.02;
+        } else {
+            $ctr = 0.0;
+        }
+
+        return round( $search_volume * $ctr, 2 );
+    }
+
+    private static function extract_ranked_keyword( array $item ): string {
+        $keyword = (string) ( $item['keyword_data']['keyword'] ?? $item['keyword'] ?? '' );
+        return strtolower( trim( $keyword ) );
+    }
+
+    private static function extract_ranked_position( array $item ): int {
+        return (int) (
+            $item['ranked_serp_element']['serp_item']['rank_absolute']
+            ?? $item['ranked_serp_element']['serp_item']['rank_group']
+            ?? $item['rank_absolute']
+            ?? $item['position']
+            ?? 100
+        );
+    }
+
+    private static function extract_ranked_search_volume( array $item ): int {
+        return (int) (
+            $item['keyword_data']['keyword_info']['search_volume']
+            ?? $item['keyword_info']['search_volume']
+            ?? $item['search_volume']
+            ?? 0
+        );
+    }
+
+    private static function ensure_opportunity_columns( string $table ): void {
+        global $wpdb;
+
+        $required_columns = [
+            'competitor_position' => "ALTER TABLE {$table} ADD COLUMN competitor_position INT(11) NULL AFTER competitor_url",
+            'estimated_traffic'   => "ALTER TABLE {$table} ADD COLUMN estimated_traffic DECIMAL(12,2) NULL AFTER competitor_position",
+        ];
+
+        $existing_columns = (array) $wpdb->get_col( "SHOW COLUMNS FROM {$table}", 0 );
+        foreach ( $required_columns as $column_name => $alter_sql ) {
+            if ( in_array( $column_name, $existing_columns, true ) ) {
+                continue;
+            }
+
+            $wpdb->query( $alter_sql );
+        }
+    }
+
     private static function persist_threats( array $threats ): void {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_opportunities';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) return;
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) return;
+
+        self::ensure_opportunity_columns( $table );
 
         foreach ( array_slice( $threats, 0, 100 ) as $threat ) {
             $existing = $wpdb->get_var(
@@ -221,9 +316,11 @@ class CompetitorMonitor {
                 'search_volume'     => (int) $threat['volume'],
                 'difficulty'        => (float) $threat['kd'],
                 'competitor_url'    => sanitize_text_field( $threat['competitor'] ),
+                'competitor_position' => (int) ( $threat['competitor_position'] ?? 0 ),
+                'estimated_traffic' => (float) ( $threat['estimated_traffic'] ?? 0 ),
                 'status'            => 'new',
                 'created_at'        => $threat['found_at'],
-            ], [ '%s', '%f', '%d', '%f', '%s', '%s', '%s' ] );
+            ], [ '%s', '%f', '%d', '%f', '%s', '%d', '%f', '%s', '%s' ] );
         }
     }
 }

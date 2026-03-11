@@ -134,7 +134,7 @@ PROMPT;
         // Pull most recent SERP weakness from DB
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_serp_analysis';
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) return [];
+        if ($wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table) return [];
 
         $row = $wpdb->get_row(
             $wpdb->prepare("SELECT serp_weakness_score, reason, signals_json FROM {$table} WHERE keyword = %s ORDER BY created_at DESC LIMIT 1", strtolower($keyword))

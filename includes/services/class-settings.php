@@ -15,12 +15,14 @@ class Settings {
             'manual_control_mode' => 1,
             'debug_mode' => 0,
 
-            // Optional: Serper API key (People Also Ask / related searches).
+            // Optional: Serper API key — required by RankTracker (weekly rank tracking) and
+            // IntelligenceRunner. Without this key, rank tracking is silently skipped.
+            // Get a key at https://serper.dev (free tier available).
             'serper_api_key' => '',
 
             // Intelligence (Phase 1)
-            'intel_max_seeds' => 3,
-            'intel_max_keywords' => 400,
+            'intel_max_seeds' => 10,
+            'intel_max_keywords' => 1000,
 
             // OpenAI
             'openai_api_key' => '',
@@ -40,6 +42,9 @@ class Settings {
             'dataforseo_password' => '',
             'dataforseo_location_code' => '2840', // US by default (legacy expectation)
             'dataforseo_language_code' => 'en',
+            // FIX: Raised default budget from $20 to $50. With 8 active endpoints the $20 default
+            // triggered budget_exceeded halts early in the month, stopping keyword discovery.
+            'tmwseo_dataforseo_budget_usd' => 50.0,
 
             // Keyword engine (adaptive defaults)
             'keyword_seeds_per_run' => 5,
@@ -49,6 +54,7 @@ class Settings {
             'keyword_pages_per_day' => 3,
             'keyword_min_volume' => 30,
             'keyword_max_kd' => 60,
+            'keyword_negative_filters' => "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers",
 
             // Competitors (one per line)
             'competitor_domains' => "chaturbate.com\nstripchat.com\nlivejasmin.com\nmyfreecams.com\ncamsoda.com\nbonga-cams.com\ncam4.com",
@@ -88,6 +94,9 @@ class Settings {
 
             // Orphan page detection
             'orphan_scan_enabled' => 1,
+
+            // Model keyword discovery automation
+            'enable_model_auto_keyword_discovery' => 1,
         ];
     }
 

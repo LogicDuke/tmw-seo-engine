@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Clustering;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Debug\DebugLogger;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
+use TMWSEO\Engine\KeywordIntelligence\KeywordClassifier;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -22,7 +23,12 @@ class ClusterEngine {
      */
     public function build_for_post(int $post_id): array {
         $keywords = $this->keywords_from_existing_packs($post_id);
-        $clusters = $this->builder->build($keywords);
+        $classification_map = [];
+        foreach ($keywords as $keyword) {
+            $classification_map[strtolower($keyword)] = KeywordClassifier::classify($keyword);
+        }
+
+        $clusters = $this->builder->build($keywords, $classification_map);
 
         update_post_meta($post_id, 'tmw_keyword_clusters', $clusters);
 

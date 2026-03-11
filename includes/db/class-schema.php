@@ -35,13 +35,17 @@ class Schema {
             $serp_analysis => "CREATE TABLE $serp_analysis (
                 id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 keyword VARCHAR(255) NOT NULL,
-                serp_weakness_score DECIMAL(4,2) NOT NULL DEFAULT 1,
+                cluster_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                serp_weakness_score DECIMAL(6,4) NOT NULL DEFAULT 0,
+                competitor_count INT(11) NOT NULL DEFAULT 0,
                 reason TEXT NULL,
                 signals_json LONGTEXT NULL,
+                analyzed_at DATETIME NOT NULL,
                 created_at DATETIME NOT NULL,
                 PRIMARY KEY (id),
-                KEY keyword (keyword),
-                KEY score_created (serp_weakness_score, created_at)
+                UNIQUE KEY unique_keyword (keyword),
+                KEY cluster_id (cluster_id),
+                KEY score_created (serp_weakness_score, analyzed_at)
             ) $charset_collate;",
 
             $seo_competitors => "CREATE TABLE $seo_competitors (
@@ -63,7 +67,7 @@ class Schema {
                 ranking_tier VARCHAR(20) NOT NULL,
                 created_at DATETIME NOT NULL,
                 PRIMARY KEY (id),
-                KEY keyword (keyword),
+                UNIQUE KEY unique_keyword (keyword),
                 KEY score_tier (ranking_probability, ranking_tier)
             ) $charset_collate;",
         ];
@@ -172,6 +176,7 @@ class Schema {
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
         $keyword_clusters = $wpdb->prefix . 'tmw_keyword_clusters';
+        $keyword_graph = $wpdb->prefix . 'tmwseo_keyword_graph';
         $generated_pages = $wpdb->prefix . 'tmw_generated_pages';
         $opportunities = $wpdb->prefix . 'tmw_seo_opportunities';
         $suggestions = $wpdb->prefix . 'tmw_seo_suggestions';
@@ -181,6 +186,15 @@ class Schema {
         $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
         $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
+        $internal_links = $wpdb->prefix . 'tmwseo_internal_links';
+        $seeds_registry = $wpdb->prefix . 'tmwseo_seeds';
+        $top_opportunities = $wpdb->prefix . 'tmwseo_top_opportunities';
+        $cluster_summary = $wpdb->prefix . 'tmwseo_cluster_summary';
+        $entity_keyword_map = $wpdb->prefix . 'tmwseo_entity_keyword_map';
+        $keyword_trends = $wpdb->prefix . 'tmwseo_keyword_trends';
+        $keyword_metrics_cache = $wpdb->prefix . 'tmwseo_keywords';
+        $cluster_keyword_map = $wpdb->prefix . 'tmw_keyword_cluster_map';
+        $traffic_opportunities = $wpdb->prefix . 'tmwseo_traffic_opportunities';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -202,6 +216,24 @@ class Schema {
             KEY status_run_after (status, run_after),
             KEY entity (entity_type, entity_id),
             KEY type (type)
+        ) $charset_collate;";
+
+        $sql_seeds_registry = "CREATE TABLE $seeds_registry (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            seed VARCHAR(255) NOT NULL,
+            source VARCHAR(50) NOT NULL,
+            seed_type VARCHAR(50) NOT NULL DEFAULT 'general',
+            priority SMALLINT(5) UNSIGNED NOT NULL DEFAULT 1,
+            entity_type VARCHAR(50) NOT NULL,
+            entity_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            last_used DATETIME NULL,
+            hash CHAR(32) NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY seed_hash (hash),
+            KEY source_entity (source, entity_type, entity_id),
+            KEY priority_last_used (priority, last_used),
+            KEY last_used (last_used)
         ) $charset_collate;";
 
         $sql_logs = "CREATE TABLE $logs (
@@ -323,10 +355,17 @@ class Schema {
             canonical VARCHAR(255) NOT NULL,
             status VARCHAR(20) NOT NULL DEFAULT 'new',
             intent VARCHAR(30) NULL,
+            intent_type VARCHAR(50) NOT NULL DEFAULT 'generic',
+            entity_type VARCHAR(50) NOT NULL DEFAULT 'generic',
+            entity_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
             volume INT(11) NULL,
             cpc DECIMAL(10,2) NULL,
             difficulty DECIMAL(6,2) NULL,
             opportunity DECIMAL(10,4) NULL,
+            serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
+            node_degree INT(11) NOT NULL DEFAULT 0,
+            graph_cluster_id VARCHAR(64) NULL,
+            graph_cluster_size INT(11) NOT NULL DEFAULT 0,
             sources LONGTEXT NULL,
             notes TEXT NULL,
             updated_at DATETIME NOT NULL,
@@ -334,7 +373,11 @@ class Schema {
             UNIQUE KEY keyword (keyword),
             KEY canonical (canonical),
             KEY status (status),
-            KEY opportunity (opportunity)
+            KEY intent_entity (intent_type, entity_type, entity_id),
+            KEY opportunity (opportunity),
+            KEY serp_weakness (serp_weakness),
+            KEY graph_cluster (graph_cluster_id, graph_cluster_size),
+            KEY node_degree (node_degree)
         ) $charset_collate;";
 
         $sql_keyword_clusters = "CREATE TABLE $keyword_clusters (
@@ -353,6 +396,34 @@ class Schema {
             KEY status (status),
             KEY opportunity (opportunity),
             KEY page_id (page_id)
+        ) $charset_collate;";
+
+        $sql_cluster_keyword_map = "CREATE TABLE $cluster_keyword_map (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            cluster_id BIGINT(20) UNSIGNED NOT NULL,
+            page_id BIGINT(20) UNSIGNED NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword (keyword),
+            KEY cluster_id (cluster_id),
+            KEY page_id (page_id)
+        ) $charset_collate;";
+
+        $sql_keyword_graph = "CREATE TABLE $keyword_graph (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            related_keyword VARCHAR(255) NOT NULL,
+            source VARCHAR(40) NOT NULL,
+            relationship_type VARCHAR(40) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword (keyword),
+            KEY related_keyword (related_keyword),
+            KEY source (source),
+            KEY relationship_type (relationship_type),
+            KEY keyword_related (keyword, related_keyword),
+            KEY created_at (created_at)
         ) $charset_collate;";
 
         $sql_generated_pages = "CREATE TABLE $generated_pages (
@@ -378,6 +449,8 @@ class Schema {
             difficulty DECIMAL(6,2) NULL,
             opportunity_score DECIMAL(6,2) NOT NULL DEFAULT 0,
             competitor_url VARCHAR(255) NOT NULL DEFAULT '',
+            competitor_position INT(11) NULL,
+            estimated_traffic DECIMAL(12,2) NULL,
             source VARCHAR(50) NOT NULL DEFAULT 'keyword_cycle',
             type VARCHAR(30) NOT NULL DEFAULT 'keyword',
             recommended_action VARCHAR(50) NOT NULL DEFAULT 'Create Draft',
@@ -441,16 +514,123 @@ class Schema {
             KEY type (type)
         ) $charset_collate;";
 
+        $sql_internal_links = "CREATE TABLE $internal_links (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            source_post_id BIGINT(20) UNSIGNED NOT NULL,
+            source_url VARCHAR(255) NOT NULL,
+            source_title VARCHAR(255) NOT NULL,
+            target_post_id BIGINT(20) UNSIGNED NOT NULL,
+            target_url VARCHAR(255) NOT NULL,
+            target_title VARCHAR(255) NOT NULL,
+            anchor VARCHAR(255) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'suggested',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY source_target_anchor (source_post_id, target_post_id, anchor),
+            KEY source_status (source_post_id, status),
+            KEY target_status (target_post_id, status)
+        ) $charset_collate;";
+
+        $sql_top_opportunities = "CREATE TABLE $top_opportunities (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NOT NULL DEFAULT 0,
+            difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+            serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
+            cluster_id VARCHAR(64) NOT NULL DEFAULT '',
+            opportunity_score DECIMAL(10,4) NOT NULL DEFAULT 0,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY score_volume (opportunity_score, search_volume),
+            KEY cluster_id (cluster_id),
+            KEY keyword (keyword)
+        ) $charset_collate;";
+
+        $sql_cluster_summary = "CREATE TABLE $cluster_summary (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            cluster_id VARCHAR(64) NOT NULL,
+            cluster_size INT(11) NOT NULL DEFAULT 0,
+            avg_volume DECIMAL(10,2) NOT NULL DEFAULT 0,
+            avg_difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY cluster_id (cluster_id),
+            KEY cluster_size (cluster_size)
+        ) $charset_collate;";
+
+        $sql_entity_keyword_map = "CREATE TABLE $entity_keyword_map (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            entity_type VARCHAR(32) NOT NULL,
+            entity_id BIGINT(20) UNSIGNED NOT NULL,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword_entity (keyword, entity_type, entity_id),
+            KEY entity_lookup (entity_type, entity_id),
+            KEY keyword (keyword)
+        ) $charset_collate;";
+
+        $sql_keyword_trends = "CREATE TABLE $keyword_trends (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            current_position INT(11) NOT NULL DEFAULT 0,
+            previous_position INT(11) NOT NULL DEFAULT 0,
+            rank_change INT(11) NOT NULL DEFAULT 0,
+            trend_score DECIMAL(10,2) NOT NULL DEFAULT 0,
+            snapshot_week VARCHAR(12) NOT NULL,
+            materialized_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword_week (keyword, snapshot_week),
+            KEY trend_score (trend_score),
+            KEY rank_change (rank_change)
+        ) $charset_collate;";
+
+        $sql_keyword_metrics_cache = "CREATE TABLE $keyword_metrics_cache (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NULL,
+            difficulty DECIMAL(6,2) NULL,
+            serp_score DECIMAL(6,2) NULL,
+            last_checked DATETIME NOT NULL,
+            source VARCHAR(50) NOT NULL DEFAULT 'dataforseo',
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword (keyword),
+            KEY last_checked (last_checked),
+            KEY source (source)
+        ) $charset_collate;";
+
+        $sql_traffic_opportunities = "CREATE TABLE $traffic_opportunities (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            query VARCHAR(255) NOT NULL,
+            impressions INT(11) NOT NULL DEFAULT 0,
+            clicks INT(11) NOT NULL DEFAULT 0,
+            position DECIMAL(8,2) NOT NULL DEFAULT 0,
+            page TEXT NULL,
+            cluster_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+            opportunity_score DECIMAL(10,2) NOT NULL DEFAULT 0,
+            discovered_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY query (query),
+            KEY cluster_id (cluster_id),
+            KEY score (opportunity_score),
+            KEY imp_pos (impressions, position)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
             position INT UNSIGNED NOT NULL,
+            url VARCHAR(255) NOT NULL DEFAULT '',
             checked_at DATETIME NOT NULL,
-            PRIMARY KEY (id)
+            PRIMARY KEY (id),
+            KEY keyword_checked (keyword(191), checked_at)
         ) $charset_collate;";
 
         dbDelta($sql_jobs);
         dbDelta($sql_logs);
+        dbDelta($sql_seeds_registry);
         dbDelta($sql_platform);
         dbDelta($sql_keywords);
         dbDelta($sql_competitors);
@@ -460,6 +640,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_keyword_clusters);
+        dbDelta($sql_cluster_keyword_map);
+        dbDelta($sql_keyword_graph);
         dbDelta($sql_generated_pages);
         dbDelta($sql_opportunities);
         dbDelta($sql_model_similarity);
@@ -469,6 +651,13 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_seo_competitors);
         dbDelta($sql_ranking_probability);
         dbDelta($sql_suggestions);
+        dbDelta($sql_internal_links);
+        dbDelta($sql_top_opportunities);
+        dbDelta($sql_cluster_summary);
+        dbDelta($sql_entity_keyword_map);
+        dbDelta($sql_keyword_trends);
+        dbDelta($sql_keyword_metrics_cache);
+        dbDelta($sql_traffic_opportunities);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
@@ -506,6 +695,48 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
 
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();
 
+        // FIX: Add UNIQUE keys to serp_analysis and ranking_probability for existing installs.
+        // New installs get the keys via the CREATE TABLE definitions above. For sites already
+        // running, we add the key if it doesn't exist. De-duplicate existing rows first so
+        // ALTER TABLE doesn't fail on a constraint violation.
+        self::migrate_add_unique_keyword_keys();
+
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);
+    }
+
+    /**
+     * Idempotent: adds UNIQUE KEY unique_keyword (keyword) to the two intelligence tables
+     * that previously grew unbounded. Safe to run on existing installations.
+     */
+    private static function migrate_add_unique_keyword_keys(): void {
+        global $wpdb;
+
+        $tables = [
+            $wpdb->prefix . 'tmw_seo_serp_analysis',
+            $wpdb->prefix . 'tmw_seo_ranking_probability',
+        ];
+
+        foreach ( $tables as $table ) {
+            // Skip if table doesn't exist yet (fresh install handled by CREATE TABLE above)
+            if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+                continue;
+            }
+
+            // Check if UNIQUE key already exists
+            $existing = $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'unique_keyword'", ARRAY_A );
+            if ( ! empty( $existing ) ) {
+                continue;
+            }
+
+            // Remove duplicate rows, keeping only the most recent per keyword
+            $wpdb->query(
+                "DELETE t1 FROM {$table} t1
+                 INNER JOIN {$table} t2
+                 WHERE t1.keyword = t2.keyword AND t1.id < t2.id"
+            );
+
+            // Now safely add the unique key
+            $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY unique_keyword (keyword)" );
+        }
     }
 }
