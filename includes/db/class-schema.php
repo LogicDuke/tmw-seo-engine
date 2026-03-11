@@ -195,6 +195,8 @@ class Schema {
         $keyword_metrics_cache = $wpdb->prefix . 'tmwseo_keywords';
         $cluster_keyword_map = $wpdb->prefix . 'tmw_keyword_cluster_map';
         $traffic_opportunities = $wpdb->prefix . 'tmwseo_traffic_opportunities';
+        $dirty_queue = $wpdb->prefix . 'tmw_seo_dirty_queue';
+        $cluster_stats = $wpdb->prefix . 'tmw_seo_cluster_stats';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -368,6 +370,10 @@ class Schema {
             graph_cluster_size INT(11) NOT NULL DEFAULT 0,
             sources LONGTEXT NULL,
             notes TEXT NULL,
+            needs_recluster TINYINT(1) NOT NULL DEFAULT 0,
+            needs_rescore TINYINT(1) NOT NULL DEFAULT 0,
+            clustered_at DATETIME NULL,
+            metrics_updated_at DATETIME NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY keyword (keyword),
@@ -390,6 +396,10 @@ class Schema {
             opportunity DECIMAL(10,4) NULL,
             page_id BIGINT(20) UNSIGNED NULL,
             status VARCHAR(20) NOT NULL DEFAULT 'new',
+            needs_recluster TINYINT(1) NOT NULL DEFAULT 0,
+            needs_rescore TINYINT(1) NOT NULL DEFAULT 0,
+            clustered_at DATETIME NULL,
+            metrics_updated_at DATETIME NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY cluster_key (cluster_key),
@@ -600,6 +610,36 @@ class Schema {
             KEY source (source)
         ) $charset_collate;";
 
+        $sql_dirty_queue = "CREATE TABLE $dirty_queue (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            object_type VARCHAR(32) NOT NULL,
+            object_id BIGINT(20) UNSIGNED NOT NULL,
+            reason VARCHAR(191) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'queued',
+            scheduled_at DATETIME NOT NULL,
+            attempts INT(11) NOT NULL DEFAULT 0,
+            last_error TEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY status_schedule (status, scheduled_at),
+            KEY object_lookup (object_type, object_id)
+        ) $charset_collate;";
+
+        $sql_cluster_stats = "CREATE TABLE $cluster_stats (
+            cluster_id BIGINT(20) UNSIGNED NOT NULL,
+            keyword_count INT(11) NOT NULL DEFAULT 0,
+            volume_sum INT(11) NOT NULL DEFAULT 0,
+            avg_kd DECIMAL(6,2) NOT NULL DEFAULT 0,
+            serp_weakness DECIMAL(6,4) NOT NULL DEFAULT 0,
+            ranking_probability DECIMAL(6,2) NOT NULL DEFAULT 0,
+            opportunity_score DECIMAL(10,4) NOT NULL DEFAULT 0,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (cluster_id),
+            KEY opportunity_score (opportunity_score),
+            KEY updated_at (updated_at)
+        ) $charset_collate;";
+
         $sql_traffic_opportunities = "CREATE TABLE $traffic_opportunities (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             query VARCHAR(255) NOT NULL,
@@ -657,6 +697,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_entity_keyword_map);
         dbDelta($sql_keyword_trends);
         dbDelta($sql_keyword_metrics_cache);
+        dbDelta($sql_dirty_queue);
+        dbDelta($sql_cluster_stats);
         dbDelta($sql_traffic_opportunities);
         dbDelta($sql_legacy_rank);
 

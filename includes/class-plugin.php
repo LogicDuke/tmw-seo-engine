@@ -73,6 +73,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dirty-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-content-keyword-miner.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-discovery-orchestrator.php';

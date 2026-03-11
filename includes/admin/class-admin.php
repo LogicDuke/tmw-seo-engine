@@ -2809,6 +2809,10 @@ private static function header(string $title): void {
                 delete_option('tmw_keyword_engine_breaker');
             }
 
+            if (isset($_POST['full_rebuild_projections'])) {
+                \TMWSEO\Engine\Keywords\KeywordEngine::full_rebuild_projections();
+            }
+
             if (isset($_POST['run_cycle'])) {
                 if (!wp_next_scheduled('tmw_manual_cycle_event')) {
                     wp_schedule_single_event(time(), 'tmw_manual_cycle_event', [[
@@ -2897,6 +2901,7 @@ private static function header(string $title): void {
                     <button type="submit" name="release_lock" class="button">Release Lock</button>
                     <button type="submit" name="reset_breaker" class="button">Reset Circuit Breaker</button>
                     <button type="submit" name="run_cycle" class="button button-primary">Run Cycle Now</button>
+                    <button type="submit" name="full_rebuild_projections" class="button">Full Rebuild Projections</button>
                 </p>
             </form>
 
