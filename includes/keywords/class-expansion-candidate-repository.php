@@ -219,6 +219,8 @@ class ExpansionCandidateRepository {
     public static function approve_candidate( int $id, int $reviewed_by = 0 ): bool {
         global $wpdb;
 
+        error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate start id=%d reviewed_by=%d', $id, $reviewed_by ) );
+
         $table = self::table();
         $row   = $wpdb->get_row(
             $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d LIMIT 1", $id ),
@@ -226,15 +228,24 @@ class ExpansionCandidateRepository {
         );
 
         if ( empty( $row ) ) {
+            error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate missing_row id=%d', $id ) );
             return false;
         }
 
+        error_log( sprintf(
+            '[TMW-PREVIEW-DIAG] approve_candidate row_loaded id=%d phrase="%s" status=%s',
+            $id,
+            (string) ( $row['phrase'] ?? '' ),
+            (string) ( $row['status'] ?? '' )
+        ) );
+
         if ( $row['status'] === self::STATUS_APPROVED ) {
+            error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate already_approved id=%d', $id ) );
             return true; // already approved
         }
 
         // Mark approved
-        $wpdb->update(
+        $updated = $wpdb->update(
             $table,
             [
                 'status'      => self::STATUS_APPROVED,
@@ -246,7 +257,16 @@ class ExpansionCandidateRepository {
             [ '%d' ]
         );
 
+        error_log( sprintf(
+            '[TMW-PREVIEW-DIAG] approve_candidate status_transition id=%d from=%s to=%s update_result=%s',
+            $id,
+            (string) ( $row['status'] ?? '' ),
+            self::STATUS_APPROVED,
+            var_export( $updated, true )
+        ) );
+
         // Promote to working keyword pipeline
+        error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate invoking_promotion id=%d', $id ) );
         self::promote_to_working_keywords( $row );
 
         Logs::info( 'keywords', '[TMW-PREVIEW] Candidate approved', [
@@ -512,7 +532,15 @@ class ExpansionCandidateRepository {
         $entity_type = (string) ( $row['entity_type'] ?? 'system' );
         $entity_id = (int) ( $row['entity_id'] ?? 0 );
 
+        error_log( sprintf(
+            '[TMW-PREVIEW-DIAG] promote_to_working_keywords start candidate_id=%d phrase="%s" source=%s',
+            (int) ( $row['id'] ?? 0 ),
+            $phrase,
+            $source
+        ) );
+
         if ( $phrase === '' ) {
+            error_log( '[TMW-PREVIEW-DIAG] promote_to_working_keywords empty_phrase_skip' );
             return;
         }
 
@@ -520,6 +548,7 @@ class ExpansionCandidateRepository {
 
         // Check the table exists before trying to write
         if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $cand_table ) ) !== $cand_table ) {
+            error_log( sprintf( '[TMW-PREVIEW-DIAG] promote_to_working_keywords missing_table table=%s', $cand_table ) );
             Logs::warn( 'keywords', '[TMW-PREVIEW] tmw_keyword_candidates table missing — skipping promotion', [
                 'phrase' => $phrase,
             ] );
@@ -531,30 +560,41 @@ class ExpansionCandidateRepository {
         );
 
         if ( $existing ) {
+            error_log( sprintf( '[TMW-PREVIEW-DIAG] promote_to_working_keywords already_exists keyword="%s" existing_id=%s', $phrase, (string) $existing ) );
             return; // already in working keywords
         }
 
         $canonical = KeywordValidator::normalize( $phrase );
         $intent    = KeywordValidator::infer_intent( $phrase );
 
-        $wpdb->insert(
+        $insert_payload = [
+            'keyword'        => $phrase,
+            'canonical'      => $canonical,
+            'status'         => 'pending',
+            'intent'         => $intent,
+            'intent_type'    => 'generic',
+            'entity_type'    => sanitize_key( $entity_type ),
+            'entity_id'      => $entity_id,
+            'volume'         => 0,
+            'sources'        => wp_json_encode( [ sanitize_key( $source ) ] ),
+            'notes'          => 'Promoted from expansion candidate #' . (int) ( $row['id'] ?? 0 ),
+            'needs_recluster' => 0,
+            'needs_rescore'  => 1,
+            'updated_at'     => current_time( 'mysql' ),
+        ];
+
+        error_log( '[TMW-PREVIEW-DIAG] promote_to_working_keywords insert_payload_keys=' . implode( ',', array_keys( $insert_payload ) ) );
+
+        $inserted = $wpdb->insert(
             $cand_table,
-            [
-                'keyword'        => $phrase,
-                'canonical'      => $canonical,
-                'status'         => 'pending',
-                'intent'         => $intent,
-                'intent_type'    => 'generic',
-                'entity_type'    => sanitize_key( $entity_type ),
-                'entity_id'      => $entity_id,
-                'volume'         => 0,
-                'sources'        => wp_json_encode( [ sanitize_key( $source ) ] ),
-                'notes'          => 'Promoted from expansion candidate #' . (int) ( $row['id'] ?? 0 ),
-                'needs_recluster' => 0,
-                'needs_rescore'  => 1,
-                'updated_at'     => current_time( 'mysql' ),
-            ],
+            $insert_payload,
             [ '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%d', '%d', '%s' ]
         );
+
+        error_log( sprintf( '[TMW-PREVIEW-DIAG] promote_to_working_keywords insert_result=%s', var_export( $inserted, true ) ) );
+
+        if ( $inserted === false ) {
+            error_log( '[TMW-PREVIEW-DIAG] promote_to_working_keywords insert_last_error=' . (string) $wpdb->last_error );
+        }
     }
 }
