@@ -985,6 +985,7 @@ class Admin {
             'tmwseo-suggestions',
             'tmwseo-content-briefs',
             'tmwseo-keywords',
+            'tmwseo-seed-registry',
             'tmwseo-opportunities',
             'tmwseo-internal-links',
             'tmwseo-competitor-domains',
