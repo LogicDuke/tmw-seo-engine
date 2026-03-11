@@ -542,19 +542,19 @@ class ExpansionCandidateRepository {
             [
                 'keyword'        => $phrase,
                 'canonical'      => $canonical,
-                'source'         => sanitize_key( $source ),
-                'source_ref'     => 'expansion_candidate:' . (int) ( $row['id'] ?? 0 ),
-                'entity_type'    => sanitize_key( $entity_type ),
-                'entity_id'      => $entity_id,
                 'status'         => 'pending',
                 'intent'         => $intent,
+                'intent_type'    => 'generic',
+                'entity_type'    => sanitize_key( $entity_type ),
+                'entity_id'      => $entity_id,
                 'volume'         => 0,
-                'difficulty'     => null,
-                'opportunity'    => null,
-                'discovered_at'  => current_time( 'mysql' ),
-                'enriched_at'    => null,
+                'sources'        => wp_json_encode( [ sanitize_key( $source ) ] ),
+                'notes'          => 'Promoted from expansion candidate #' . (int) ( $row['id'] ?? 0 ),
+                'needs_recluster' => 0,
+                'needs_rescore'  => 1,
+                'updated_at'     => current_time( 'mysql' ),
             ],
-            [ '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%d', '%f', '%f', '%s', '%s' ]
+            [ '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%d', '%d', '%s' ]
         );
     }
 }
