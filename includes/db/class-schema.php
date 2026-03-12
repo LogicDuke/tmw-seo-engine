@@ -180,6 +180,7 @@ class Schema {
         // Keyword intelligence (alpha.8)
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
+        $keyword_blacklist = $wpdb->prefix . 'tmw_keyword_blacklist';
         $serp_domains = $wpdb->prefix . 'tmwseo_serp_domains';
         $competitor_keywords = $wpdb->prefix . 'tmwseo_competitor_keywords';
         $competitor_domains = $wpdb->prefix . 'tmwseo_competitor_domains';
@@ -449,6 +450,14 @@ class Schema {
             KEY graph_cluster (graph_cluster_id, graph_cluster_size),
             KEY node_degree (node_degree),
             KEY trend_score (trend_score)
+        ) $charset_collate;";
+
+        $sql_keyword_blacklist = "CREATE TABLE $keyword_blacklist (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(191) NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword (keyword)
         ) $charset_collate;";
 
         $sql_serp_domains = "CREATE TABLE $serp_domains (
@@ -880,6 +889,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_aff_clicks);
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
+        dbDelta($sql_keyword_blacklist);
         dbDelta($sql_serp_domains);
         dbDelta($sql_competitor_keywords);
         dbDelta($sql_competitor_domains);
@@ -948,6 +958,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         // 4.3.0 — Preview layer for generated phrases.
         dbDelta($sql_expansion_candidates);
 
+        self::seed_keyword_blacklist();
+
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();
 
         // FIX: Add UNIQUE keys to serp_analysis and ranking_probability for existing installs.
@@ -961,6 +973,40 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         self::migrate_discovery_logs_table();
 
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);
+    }
+
+    private static function seed_keyword_blacklist(): void {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'tmw_keyword_blacklist';
+        $defaults = [
+            'tattoo',
+            'heels',
+            'shoes',
+            'lyrics',
+            'bank',
+            'drug',
+            'crime',
+            'missing',
+            'celebrity',
+            'makeup',
+            'shopping',
+        ];
+
+        foreach ($defaults as $word) {
+            $word = strtolower(trim((string) $word));
+            if ($word === '') {
+                continue;
+            }
+
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO {$table} (keyword, created_at)
+                 VALUES (%s, %s)
+                 ON DUPLICATE KEY UPDATE keyword = VALUES(keyword)",
+                $word,
+                current_time('mysql')
+            ));
+        }
     }
 
     /**

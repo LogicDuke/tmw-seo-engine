@@ -85,6 +85,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-discovery-governor.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-topical-relevance-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-recursive-keyword-expansion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-expansion-candidate-repository.php'; // 4.3.0
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';

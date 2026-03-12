@@ -265,6 +265,15 @@ class KeywordEngine {
                                 if (!KeywordValidator::is_relevant($kw, $reason)) {
                                     continue;
                                 }
+
+                                $topical = TopicalRelevanceFilter::evaluate($kw, [
+                                    'serp_items' => (array) ($it['items'] ?? $it['serp_items'] ?? []),
+                                ]);
+                                if (empty($topical['allowed'])) {
+                                    TopicalRelevanceFilter::log_rejection($kw, $topical);
+                                    continue;
+                                }
+
                                 $accepted_total++;
             
                                 $metrics = $it['keyword_info'] ?? [];
@@ -344,8 +353,14 @@ class KeywordEngine {
 
                                 if ($depth < 2 && $secondary_expansions < $max_secondary_expansions && $vol !== null && $vol >= 20 && $difficulty <= 50) {
                                     $candidate_seed = KeywordValidator::normalize($kw);
-                                    if ($candidate_seed !== '' && !isset($expanded_seeds[$candidate_seed])) {
+                                    if ($candidate_seed !== '' && !isset($expanded_seeds[$candidate_seed]) && TopicalRelevanceFilter::should_expand($candidate_seed)) {
                                         $eligible_secondary[] = $candidate_seed;
+                                    } elseif ($candidate_seed !== '' && !TopicalRelevanceFilter::should_expand($candidate_seed)) {
+                                        TopicalRelevanceFilter::log_rejection($candidate_seed, [
+                                            'score' => 0,
+                                            'similarity' => 0,
+                                            'reasons' => ['topic similarity below threshold'],
+                                        ]);
                                     }
                                 }
                             }
