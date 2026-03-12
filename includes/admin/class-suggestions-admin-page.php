@@ -72,6 +72,7 @@ class SuggestionsAdminPage {
         add_action('admin_post_tmwseo_export_suggestion_review_handoff', [$ui, 'handle_export_suggestion_review_handoff']);
         add_action('admin_post_tmwseo_add_competitor_domain', [$ui, 'handle_add_competitor_domain']);
         add_action('admin_post_tmwseo_generate_brief_from_suggestion', [$ui, 'handle_generate_brief_from_suggestion']);
+        add_action('admin_post_tmwseo_create_draft_from_brief', [$ui, 'handle_create_draft_from_brief']);
         add_action('admin_post_tmwseo_archive_stale_suggestions', [$ui, 'handle_archive_stale_suggestions']);
         add_action('admin_post_tmwseo_unarchive_all_suggestions', [$ui, 'handle_unarchive_all_suggestions']);
         add_action('admin_footer-post.php', [$ui, 'render_insert_link_draft_helper']);
@@ -2250,6 +2251,139 @@ class SuggestionsAdminPage {
         exit;
     }
 
+    public function handle_create_draft_from_brief(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        check_admin_referer('tmwseo_create_draft_from_brief');
+
+        $brief_id = isset($_POST['brief_id']) ? (int) $_POST['brief_id'] : 0;
+        if ($brief_id <= 0) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&notice=draft_missing_brief'));
+            exit;
+        }
+
+        global $wpdb;
+        $brief_row = $wpdb->get_row(
+            $wpdb->prepare(
+                'SELECT id, primary_keyword, brief_json FROM ' . IntelligenceStorage::table_content_briefs() . ' WHERE id = %d LIMIT 1',
+                $brief_id
+            ),
+            ARRAY_A
+        );
+
+        if (!is_array($brief_row) || empty($brief_row)) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&notice=draft_missing_brief&brief_id=' . $brief_id));
+            exit;
+        }
+
+        $payload = [];
+        if (!empty($brief_row['brief_json'])) {
+            $decoded = json_decode((string) $brief_row['brief_json'], true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        if (empty($payload)) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&notice=draft_invalid_brief&brief_id=' . $brief_id));
+            exit;
+        }
+
+        $recommended_titles = is_array($payload['recommended_title_options'] ?? null) ? $payload['recommended_title_options'] : [];
+        $first_title_option = '';
+        foreach ($recommended_titles as $option) {
+            if (is_scalar($option)) {
+                $candidate = trim((string) $option);
+                if ($candidate !== '') {
+                    $first_title_option = $candidate;
+                    break;
+                }
+            }
+        }
+
+        $primary_keyword = sanitize_text_field((string) ($brief_row['primary_keyword'] ?? ''));
+        $post_title = $first_title_option !== '' ? $first_title_option : $primary_keyword;
+        if ($post_title === '') {
+            $post_title = 'Content Brief Draft #' . $brief_id;
+        }
+
+        $post_content = $this->build_draft_content_from_brief_payload($payload);
+
+        $post_id = wp_insert_post([
+            'post_type'    => 'post',
+            'post_status'  => 'draft',
+            'post_title'   => wp_strip_all_tags($post_title),
+            'post_content' => $post_content,
+            'post_author'  => get_current_user_id() ?: 1,
+        ], true);
+
+        if (is_wp_error($post_id)) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&notice=draft_create_failed&brief_id=' . $brief_id));
+            exit;
+        }
+
+        update_post_meta((int) $post_id, '_tmwseo_content_brief_id', $brief_id);
+
+        wp_safe_redirect(add_query_arg([
+            'post'   => (int) $post_id,
+            'action' => 'edit',
+        ], admin_url('post.php')));
+        exit;
+    }
+
+    private function build_draft_content_from_brief_payload(array $payload): string {
+        $lines = [];
+
+        $recommended_h1 = sanitize_text_field((string) ($payload['recommended_h1'] ?? ''));
+        if ($recommended_h1 !== '') {
+            $lines[] = 'Recommended H1: ' . $recommended_h1;
+            $lines[] = '';
+        }
+
+        $append_list_section = static function (string $heading, array $items, array &$target): void {
+            $target[] = $heading . ':';
+            $added = false;
+            foreach ($items as $item) {
+                $value = '';
+                if (is_scalar($item)) {
+                    $value = trim((string) $item);
+                } elseif (is_array($item)) {
+                    $encoded = wp_json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    $value = is_string($encoded) ? trim($encoded) : '';
+                }
+
+                if ($value === '') {
+                    continue;
+                }
+
+                $added = true;
+                $target[] = '- ' . $value;
+            }
+
+            if (!$added) {
+                $target[] = '- (none provided)';
+            }
+
+            $target[] = '';
+        };
+
+        $append_list_section('Suggested outline', (array) ($payload['suggested_outline'] ?? []), $lines);
+        $append_list_section('Questions to answer', (array) ($payload['questions_to_answer'] ?? []), $lines);
+        $append_list_section('Semantic terms', (array) ($payload['semantic_terms'] ?? []), $lines);
+
+        $cta_note = sanitize_text_field((string) ($payload['recommended_cta_type'] ?? ''));
+        $word_count_note = sanitize_text_field((string) ($payload['suggested_word_count_range'] ?? ''));
+        $content_angle = sanitize_text_field((string) ($payload['content_angle'] ?? ''));
+
+        $lines[] = 'CTA note: ' . ($cta_note !== '' ? $cta_note : '(none provided)');
+        $lines[] = 'Word count note: ' . ($word_count_note !== '' ? $word_count_note : '(none provided)');
+        $lines[] = 'Content angle: ' . ($content_angle !== '' ? $content_angle : '(none provided)');
+
+        return implode("\n", $lines);
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // Goal B: In-editor suggestion context (bound_existing path)
     // Fires on post.php when the operator lands there via the direct-open
@@ -2457,6 +2591,7 @@ class SuggestionsAdminPage {
         global $wpdb;
         $rows = (array) $wpdb->get_results('SELECT id, primary_keyword, cluster_key, brief_type, status, created_at FROM ' . IntelligenceStorage::table_content_briefs() . ' ORDER BY id DESC LIMIT 200', ARRAY_A);
         $focus_brief_id = isset($_GET['brief_id']) ? (int) $_GET['brief_id'] : 0;
+        $notice = sanitize_key((string) ($_GET['notice'] ?? ''));
         $briefs_link = admin_url('admin.php?page=tmwseo-content-briefs');
         $focus_brief_row = null;
         $focus_brief_payload = null;
@@ -2519,6 +2654,14 @@ class SuggestionsAdminPage {
         echo '<div class="wrap"><h1>Content Briefs</h1>';
         echo '<p>Suggestion-first briefs only. No automatic publishing or live content updates.</p>';
 
+        if ($notice === 'draft_missing_brief') {
+            echo '<div class="notice notice-error inline"><p>Could not create draft: content brief record was not found.</p></div>';
+        } elseif ($notice === 'draft_invalid_brief') {
+            echo '<div class="notice notice-error inline"><p>Could not create draft: saved brief JSON is missing or invalid.</p></div>';
+        } elseif ($notice === 'draft_create_failed') {
+            echo '<div class="notice notice-error inline"><p>Could not create draft from brief due to a post creation error.</p></div>';
+        }
+
         if ($focus_brief_id > 0) {
             echo '<div class="notice notice-warning inline"><p><strong>Manual Brief Record.</strong> This is a human-reviewed planning brief only. It is not auto-published and not finished content.</p></div>';
 
@@ -2553,6 +2696,13 @@ class SuggestionsAdminPage {
                 echo '<p><strong>Suggested word count range:</strong> ' . esc_html((string) ($focus_brief_payload['suggested_word_count_range'] ?? '')) . '</p>';
                 echo '<p><strong>SERP weakness notes:</strong><br />' . nl2br(esc_html((string) ($focus_brief_payload['serp_weakness_notes'] ?? '')) ) . '</p>';
                 echo '<p><strong>Content angle:</strong> ' . esc_html((string) ($focus_brief_payload['content_angle'] ?? '')) . '</p>';
+
+                echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:16px 0 0 0;">';
+                wp_nonce_field('tmwseo_create_draft_from_brief');
+                echo '<input type="hidden" name="action" value="tmwseo_create_draft_from_brief" />';
+                echo '<input type="hidden" name="brief_id" value="' . esc_attr((string) ($focus_brief_row['id'] ?? 0)) . '" />';
+                submit_button('Create Draft from Brief', 'primary', 'submit', false);
+                echo '</form>';
 
                 echo '<h3>Suggested internal links</h3>';
                 $render_list((array) ($focus_brief_payload['suggested_internal_links'] ?? []));
