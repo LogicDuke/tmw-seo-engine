@@ -2636,10 +2636,12 @@ class SuggestionsAdminPage {
         });
 
         // ── KPI counts (derived from full $rows, no logic change) ────────────
-        $kpi_new          = count(array_filter($rows, fn($r) => ($r['status'] ?? 'new') === 'new'));
+        $kpi_total        = count($rows);
+        $kpi_awaiting     = (int) ($review_queue_counts['review_not_reviewed'] ?? 0);
         $kpi_draft        = count(array_filter($rows, fn($r) => in_array(($r['status'] ?? ''), ['draft_created', 'target_bound'], true)));
         $kpi_high         = count(array_filter($rows, fn($r) => (float)($r['priority_score'] ?? 0) >= 8 && !in_array($r['status'] ?? 'new', ['ignored','implemented'], true)));
         $kpi_implemented  = count(array_filter($rows, fn($r) => ($r['status'] ?? '') === 'implemented'));
+        $kpi_ignored      = count(array_filter($rows, fn($r) => ($r['status'] ?? '') === 'ignored'));
 
         // ── Page shell ───────────────────────────────────────────────────────
         echo '<div class="wrap tmwseo-suggestions-page">';
@@ -2680,10 +2682,12 @@ class SuggestionsAdminPage {
 
         // ── KPI row ──────────────────────────────────────────────────────────
         AdminUI::kpi_row([
-            [ 'value' => $kpi_new,         'label' => __('New', 'tmwseo'),             'color' => $kpi_new > 0 ? 'neutral' : 'neutral' ],
-            [ 'value' => $kpi_draft,        'label' => __('Action Taken', 'tmwseo'),    'color' => $kpi_draft > 0 ? 'ok' : 'neutral' ],
+            [ 'value' => $kpi_total,        'label' => __('Total Suggestions', 'tmwseo'), 'color' => 'neutral' ],
+            [ 'value' => $kpi_awaiting,     'label' => __('Awaiting Review', 'tmwseo'),   'color' => $kpi_awaiting > 0 ? 'warn' : 'neutral' ],
             [ 'value' => $kpi_high,         'label' => __('High Priority', 'tmwseo'),   'color' => $kpi_high > 0 ? 'warn' : 'neutral' ],
+            [ 'value' => $kpi_draft,        'label' => __('Drafts Created', 'tmwseo'),  'color' => $kpi_draft > 0 ? 'ok' : 'neutral' ],
             [ 'value' => $kpi_implemented,  'label' => __('Implemented', 'tmwseo'),     'color' => 'ok' ],
+            [ 'value' => $kpi_ignored,      'label' => __('Ignored', 'tmwseo'),         'color' => 'neutral' ],
         ]);
 
         // ── Primary filter bar ───────────────────────────────────────────────
@@ -2698,8 +2702,10 @@ class SuggestionsAdminPage {
             'review_signed_off'      => 'Signed Off',
             'review_needs_changes'   => 'Needs Changes',
             'review_handoff_ready'   => 'Handoff Ready',
-            'review_handoff_exported'=> 'Handoff Exported',
             'high_priority'          => 'High Priority',
+        ];
+        $secondary_status_tabs = [
+            'review_handoff_exported'=> 'Handoff Exported',
             'draft_created'          => 'Draft Created / Bound',
             'review_ready'           => 'Review Ready',
             'ignored'                => 'Ignored',
@@ -2734,51 +2740,7 @@ class SuggestionsAdminPage {
         }
         echo '</ul>';
 
-        // Destination tabs
-        $destination_tabs = [
-            'all'           => __('All', 'tmwseo'),
-            'category_page' => __('Category Pages', 'tmwseo'),
-            'model_page'    => __('Model Pages', 'tmwseo'),
-            'video_page'    => __('Video Pages', 'tmwseo'),
-            'generic_post'  => __('Generic Posts', 'tmwseo'),
-        ];
-        echo '<ul class="subsubsub" style="margin-top:6px;">';
-        $first_destination_tab = true;
-        foreach ($destination_tabs as $key => $label) {
-            $url = add_query_arg([
-                'page'                   => 'tmwseo-suggestions',
-                'tmw_filter'             => $active_filter,
-                'tmw_destination_filter' => $key,
-                'tmw_sort'               => $active_sort,
-                'tmw_review_age'         => $active_review_aging,
-            ], admin_url('admin.php'));
-            $class = $active_destination_filter === $key ? 'current' : '';
-            
-            $count = (int) ($destination_counts[$key] ?? 0);
-            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
-            $first_destination_tab = false;
-        }
-        echo '</ul>';
-
-        // Sorting tabs
         $sort_options = $this->sort_options();
-        echo '<ul class="subsubsub" style="margin-top:6px;">';
-        $first_sort_tab = true;
-        foreach ($sort_options as $sort_key => $sort_label) {
-            $url = add_query_arg([
-                'page'                   => 'tmwseo-suggestions',
-                'tmw_filter'             => $active_filter,
-                'tmw_destination_filter' => $active_destination_filter,
-                'tmw_sort'               => $sort_key,
-                'tmw_view'               => $active_view,
-                'tmw_review_age'         => $active_review_aging,
-            ], admin_url('admin.php'));
-            $class = $active_sort === $sort_key ? 'current' : '';
-            
-            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($sort_label) . '</a></li>';
-            $first_sort_tab = false;
-        }
-        echo '</ul>';
 
         // Active state summary line
         $active_sort_label = $sort_options[$active_sort] ?? $sort_options['priority_desc'];
@@ -2796,6 +2758,65 @@ class SuggestionsAdminPage {
         echo '<details class="tmwui-advanced">';
         echo '<summary>' . esc_html__('Advanced Review Filters', 'tmwseo') . '</summary>';
         echo '<div class="tmwui-advanced-body">';
+
+        echo '<h3 style="margin:0 0 4px;">' . esc_html__('Additional Status Filters', 'tmwseo') . '</h3>';
+        echo '<ul class="subsubsub">';
+        foreach ($secondary_status_tabs as $key => $label) {
+            $url = add_query_arg([
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_filter'             => $key,
+                'tmw_destination_filter' => $active_destination_filter,
+                'tmw_review_age'         => $active_review_aging,
+            ], admin_url('admin.php'));
+            $class = $active_filter === $key ? 'current' : '';
+
+            if (isset($review_queue_counts[$key])) {
+                $label = sprintf('%s (%d)', $label, (int) $review_queue_counts[$key]);
+            }
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($label) . '</a></li>';
+        }
+        echo '</ul>';
+
+        echo '<h3 style="margin:12px 0 4px;">' . esc_html__('Destination Filters', 'tmwseo') . '</h3>';
+        $destination_tabs = [
+            'all'           => __('All', 'tmwseo'),
+            'category_page' => __('Category Pages', 'tmwseo'),
+            'model_page'    => __('Model Pages', 'tmwseo'),
+            'video_page'    => __('Video Pages', 'tmwseo'),
+            'generic_post'  => __('Generic Posts', 'tmwseo'),
+        ];
+        echo '<ul class="subsubsub">';
+        foreach ($destination_tabs as $key => $label) {
+            $url = add_query_arg([
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_filter'             => $active_filter,
+                'tmw_destination_filter' => $key,
+                'tmw_sort'               => $active_sort,
+                'tmw_review_age'         => $active_review_aging,
+            ], admin_url('admin.php'));
+            $class = $active_destination_filter === $key ? 'current' : '';
+
+            $count = (int) ($destination_counts[$key] ?? 0);
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html(sprintf('%s (%d)', $label, $count)) . '</a></li>';
+        }
+        echo '</ul>';
+
+        echo '<h3 style="margin:12px 0 4px;">' . esc_html__('Sort Options', 'tmwseo') . '</h3>';
+        echo '<ul class="subsubsub">';
+        foreach ($sort_options as $sort_key => $sort_label) {
+            $url = add_query_arg([
+                'page'                   => 'tmwseo-suggestions',
+                'tmw_filter'             => $active_filter,
+                'tmw_destination_filter' => $active_destination_filter,
+                'tmw_sort'               => $sort_key,
+                'tmw_view'               => $active_view,
+                'tmw_review_age'         => $active_review_aging,
+            ], admin_url('admin.php'));
+            $class = $active_sort === $sort_key ? 'current' : '';
+
+            echo '<li><a class="' . esc_attr($class) . '" href="' . esc_url($url) . '">' . esc_html($sort_label) . '</a></li>';
+        }
+        echo '</ul>';
 
         // Review Draft Queues
         echo '<h3 style="margin:0 0 4px;">' . esc_html__('Review Draft Queues', 'tmwseo') . '</h3>';
@@ -2938,6 +2959,11 @@ class SuggestionsAdminPage {
         echo '</div>'; // .tmwui-cta-row
 
         // ── Suggestions table ────────────────────────────────────────────────
+        AdminUI::section_start(
+            __('Suggestion Queue', 'tmwseo'),
+            __('Manual review queue with no autonomous content mutations or publishing.', 'tmwseo')
+        );
+        echo '<div class="tmwui-table-wrap">';
         echo '<table class="widefat fixed striped tmwseo-suggestions-table"><thead><tr>';
         echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
@@ -3075,6 +3101,8 @@ class SuggestionsAdminPage {
         }
 
         echo '</tbody></table>';
+        echo '</div>';
+        AdminUI::section_end();
 
         // ── Workflow Guide (collapsed, below table) ──────────────────────────
         echo '<details class="tmwui-advanced" style="margin-top:16px;">';
