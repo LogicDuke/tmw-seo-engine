@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\DiscoveryGovernor;
 use TMWSEO\Engine\KeywordIntelligence\KeywordDatabase;
 use TMWSEO\Engine\KeywordIntelligence\KeywordClassifier;
 use TMWSEO\Engine\Services\Settings;
@@ -20,6 +21,10 @@ class KeywordEngine {
         global $wpdb;
 
         Logs::info('keywords', 'Keyword cycle started', ['job_id' => $job['id'] ?? null]);
+
+        if (!DiscoveryGovernor::is_discovery_allowed()) {
+            return;
+        }
 
         $payload = $job['payload'] ?? [];
         if (!is_array($payload)) $payload = [];
@@ -358,6 +363,11 @@ class KeywordEngine {
                                         ], [ 'id' => (int) $existing ], [ '%d', '%d' ], [ '%d' ] );
                                     }
                                 } else {
+                                    if (!DiscoveryGovernor::can_increment('keywords_discovered', 1)) {
+                                        Logs::warn('keywords', 'Discovery governor triggered: keyword limit reached.');
+                                        break;
+                                    }
+
                                     $wpdb->insert($cand_table, [
                                         'keyword'       => $kw,
                                         'canonical'     => $canonical,
@@ -383,6 +393,7 @@ class KeywordEngine {
                                     ]);
             
                                     $inserted++;
+                                    DiscoveryGovernor::increment('keywords_discovered', 1);
                                 }
 
                                 TopicEntityLayer::persist_keyword_mapping($kw, $resolved_entity_id, (float) ($entity_match['similarity_score'] ?? 0));
@@ -866,6 +877,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 );
                 if ($ok) {
                     $inserted++;
+                    DiscoveryGovernor::increment('keywords_discovered', 1);
                     $source_counts['model_seeds'] = ($source_counts['model_seeds'] ?? 0) + 1;
                 } else {
                     $skipped++;
@@ -928,6 +940,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 );
                 if ($ok) {
                     $inserted++;
+                    DiscoveryGovernor::increment('keywords_discovered', 1);
                     $source_counts['tag_seeds'] = ($source_counts['tag_seeds'] ?? 0) + 1;
                 } else {
                     $skipped++;
@@ -990,6 +1003,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 );
                 if ($ok) {
                     $inserted++;
+                    DiscoveryGovernor::increment('keywords_discovered', 1);
                     $source_counts['video_seeds'] = ($source_counts['video_seeds'] ?? 0) + 1;
                 } else {
                     $skipped++;
@@ -1050,6 +1064,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 );
                 if ($ok) {
                     $inserted++;
+                    DiscoveryGovernor::increment('keywords_discovered', 1);
                     $source_counts['category_seeds'] = ($source_counts['category_seeds'] ?? 0) + 1;
                 } else {
                     $skipped++;
@@ -1112,6 +1127,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
 
             if ($ok) {
                 $inserted++;
+                DiscoveryGovernor::increment('keywords_discovered', 1);
                 $source_counts['competitor_seeds'] = ($source_counts['competitor_seeds'] ?? 0) + 1;
             } else {
                 $skipped++;

@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\DiscoveryGovernor;
 use TMWSEO\Engine\Services\DataForSEO;
 
 if (!defined('ABSPATH')) { exit; }
@@ -29,6 +30,10 @@ class CompetitorMiningService {
     public static function run(array $args = []): array {
         global $wpdb;
 
+        if (!DiscoveryGovernor::is_discovery_allowed()) {
+            return ['ok' => false, 'error' => 'discovery_disabled'];
+        }
+
         $seed_limit = max(1, (int) ($args['seed_limit'] ?? 10));
         $seed_table = $wpdb->prefix . 'tmwseo_seeds';
         $seed_rows = $wpdb->get_results(
@@ -50,7 +55,12 @@ class CompetitorMiningService {
                 continue;
             }
 
+            if (!DiscoveryGovernor::can_increment('serp_requests', 1)) {
+                break;
+            }
+
             $serp = DataForSEO::serp_organic_live($keyword, 10);
+            DiscoveryGovernor::increment('serp_requests', 1);
             if (empty($serp['ok']) || !is_array($serp['items'] ?? null)) {
                 continue;
             }
@@ -134,6 +144,11 @@ class CompetitorMiningService {
                     continue;
                 }
 
+                if (!DiscoveryGovernor::can_increment('keywords_discovered', 1)) {
+                    Logs::warn('keywords', 'Discovery governor triggered: keyword limit reached.');
+                    break 2;
+                }
+
                 $canonical = KeywordValidator::normalize($keyword);
                 $intent = KeywordValidator::infer_intent($keyword);
                 $classification = KeywordClassifier::classify($keyword);
@@ -172,6 +187,8 @@ class CompetitorMiningService {
                 if ($candidate_id > 0) {
                     $candidate_ids[] = $candidate_id;
                 }
+
+                DiscoveryGovernor::increment('keywords_discovered', 1);
 
                 $existing_keywords[$keyword] = true;
                 $candidate_inserts++;

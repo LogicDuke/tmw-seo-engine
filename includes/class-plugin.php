@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) { exit; }
 require_once TMWSEO_ENGINE_PATH . 'includes/db/class-schema.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/db/class-logs.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/db/class-jobs.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/class-discovery-governor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
