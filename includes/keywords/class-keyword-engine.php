@@ -112,6 +112,7 @@ class KeywordEngine {
             if ($mode !== 'import_only') {
                         $seed_bundle = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 300));
                         $seeds = $seed_bundle['seeds'];
+                        $entities = (array) ($seed_bundle['entities'] ?? []);
                         $seed_report = $seed_bundle['counts'];
                         $max_seeds_per_run = (int) Settings::get('keyword_seed_batch_limit', 300);
                         $max_seeds_per_run = min(300, $max_seeds_per_run);
@@ -148,6 +149,7 @@ class KeywordEngine {
                         }
                         $seeds = array_slice($seeds, 0, max(1, $max_seeds_per_run));
                         $seed_report['total_seeds'] = count($seeds);
+                        $seed_report['total_entities'] = count($entities);
                         Logs::info('keywords', '[TMW-KW] Seed source counts', $seed_report);
                         Logs::info('keywords', 'Seeds', ['count' => count($seeds), 'seeds' => array_slice($seeds, 0, 10)]);
                         $failures = 0;
@@ -163,9 +165,23 @@ class KeywordEngine {
                                 continue;
                             }
 
+                            $seed_entity_match = TopicEntityLayer::match_keyword_to_entities($normalized_seed, $entities);
+                            if (empty($seed_entity_match['matched'])) {
+                                Logs::debug('keywords', sprintf('Rejected keyword "%s" — no entity match.', $normalized_seed), [
+                                    'keyword' => $normalized_seed,
+                                    'similarity_score' => (float) ($seed_entity_match['similarity_score'] ?? 0),
+                                    'minimum_similarity' => TopicEntityLayer::minimum_similarity(),
+                                ]);
+                                continue;
+                            }
+
                             $queue[] = [
                                 'keyword' => $normalized_seed,
                                 'depth' => 0,
+                                'entity_id' => (int) ($seed_entity_match['entity_id'] ?? 0),
+                                'entity_name' => (string) ($seed_entity_match['entity_name'] ?? ''),
+                                'entity_type' => (string) ($seed_entity_match['entity_type'] ?? 'authority_node'),
+                                'similarity_score' => (float) ($seed_entity_match['similarity_score'] ?? 0),
                             ];
                             $expanded_seeds[$normalized_seed] = true;
                         }
@@ -178,7 +194,10 @@ class KeywordEngine {
                             $node = $queue[$i];
                             $seed = (string) ($node['keyword'] ?? '');
                             $depth = (int) ($node['depth'] ?? 0);
-                            if ($seed === '') {
+                            $node_entity_id = (int) ($node['entity_id'] ?? 0);
+                            $node_entity_name = (string) ($node['entity_name'] ?? '');
+                            $node_entity_type = (string) ($node['entity_type'] ?? 'authority_node');
+                            if ($seed === '' || $node_entity_id <= 0 || $node_entity_name === '') {
                                 continue;
                             }
 
@@ -266,8 +285,21 @@ class KeywordEngine {
                                     continue;
                                 }
 
+                                $entity_match = TopicEntityLayer::match_keyword_to_entities($kw, $entities);
+                                if (empty($entity_match['matched'])) {
+                                    Logs::debug('keywords', sprintf('Rejected keyword "%s" — no entity match.', $kw), [
+                                        'keyword' => $kw,
+                                        'seed' => $seed,
+                                        'similarity_score' => (float) ($entity_match['similarity_score'] ?? 0),
+                                        'minimum_similarity' => TopicEntityLayer::minimum_similarity(),
+                                    ]);
+                                    continue;
+                                }
+
                                 $topical = TopicalRelevanceFilter::evaluate($kw, [
                                     'serp_items' => (array) ($it['items'] ?? $it['serp_items'] ?? []),
+                                    'entity_name' => (string) ($entity_match['entity_name'] ?? $node_entity_name),
+                                    'similarity_score' => (float) ($entity_match['similarity_score'] ?? 0),
                                 ]);
                                 if (empty($topical['allowed'])) {
                                     TopicalRelevanceFilter::log_rejection($kw, $topical);
@@ -296,7 +328,9 @@ class KeywordEngine {
                                 $canonical = KeywordValidator::normalize($kw);
                                 $intent = KeywordValidator::infer_intent($kw);
                                 $classification = KeywordClassifier::classify($kw);
-            
+                                $resolved_entity_type = 'topic_entity';
+                                $resolved_entity_id = (int) ($entity_match['entity_id'] ?? 0);
+
                                 // skip very low volume early (still store raw)
                                 if ($vol !== null && $vol < $min_volume) continue;
             
@@ -311,8 +345,8 @@ class KeywordEngine {
                                         $vol_src,
                                         $cpc_src,
                                         (string) ($classification['intent_type'] ?? 'generic'),
-                                        (string) ($classification['entity_type'] ?? 'generic'),
-                                        (int) ($classification['entity_id'] ?? 0),
+                                        $resolved_entity_type,
+                                        $resolved_entity_id,
                                         current_time('mysql'),
                                         (int)$existing
                                     ));
@@ -330,8 +364,8 @@ class KeywordEngine {
                                         'status'        => 'new',
                                         'intent'        => $intent,
                                         'intent_type'   => (string) ($classification['intent_type'] ?? 'generic'),
-                                        'entity_type'   => (string) ($classification['entity_type'] ?? 'generic'),
-                                        'entity_id'     => (int) ($classification['entity_id'] ?? 0),
+                                        'entity_type'   => $resolved_entity_type,
+                                        'entity_id'     => $resolved_entity_id,
                                         'volume'        => $vol,
                                         'cpc'           => $cpc,
                                         'difficulty'    => null,
@@ -351,10 +385,18 @@ class KeywordEngine {
                                     $inserted++;
                                 }
 
+                                TopicEntityLayer::persist_keyword_mapping($kw, $resolved_entity_id, (float) ($entity_match['similarity_score'] ?? 0));
+
                                 if ($depth < 2 && $secondary_expansions < $max_secondary_expansions && $vol !== null && $vol >= 20 && $difficulty <= 50) {
                                     $candidate_seed = KeywordValidator::normalize($kw);
                                     if ($candidate_seed !== '' && !isset($expanded_seeds[$candidate_seed]) && TopicalRelevanceFilter::should_expand($candidate_seed)) {
-                                        $eligible_secondary[] = $candidate_seed;
+                                        $eligible_secondary[] = [
+                                            'keyword' => $candidate_seed,
+                                            'entity_id' => $resolved_entity_id,
+                                            'entity_name' => (string) ($entity_match['entity_name'] ?? $node_entity_name),
+                                            'entity_type' => 'authority_node',
+                                            'similarity_score' => (float) ($entity_match['similarity_score'] ?? 0),
+                                        ];
                                     } elseif ($candidate_seed !== '' && !TopicalRelevanceFilter::should_expand($candidate_seed)) {
                                         TopicalRelevanceFilter::log_rejection($candidate_seed, [
                                             'score' => 0,
@@ -365,11 +407,13 @@ class KeywordEngine {
                                 }
                             }
 
-                            foreach ($eligible_secondary as $candidate_seed) {
+                            foreach ($eligible_secondary as $candidate_node) {
                                 if ($secondary_expansions >= $max_secondary_expansions) {
                                     break;
                                 }
-                                if (isset($expanded_seeds[$candidate_seed])) {
+
+                                $candidate_seed = (string) ($candidate_node['keyword'] ?? '');
+                                if ($candidate_seed === '' || isset($expanded_seeds[$candidate_seed])) {
                                     continue;
                                 }
 
@@ -377,6 +421,10 @@ class KeywordEngine {
                                 $queue[] = [
                                     'keyword' => $candidate_seed,
                                     'depth' => $depth + 1,
+                                    'entity_id' => (int) ($candidate_node['entity_id'] ?? 0),
+                                    'entity_name' => (string) ($candidate_node['entity_name'] ?? ''),
+                                    'entity_type' => (string) ($candidate_node['entity_type'] ?? 'authority_node'),
+                                    'similarity_score' => (float) ($candidate_node['similarity_score'] ?? 0),
                                 ];
                                 $secondary_expansions++;
                             }
@@ -716,6 +764,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             }
         }
 
+        TopicEntityLayer::ensure_default_entities();
+
         // Generated phrase methods (model/tag/video/category/competitor) have been
         // moved to their own cron/run cycles and now write to the preview layer.
         // They are intentionally NOT called here any more.
@@ -748,11 +798,14 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
 
         $orchestrated = DiscoveryOrchestrator::run(['source' => 'keyword_cycle']);
         $final_seeds = array_slice((array) ($orchestrated['seeds'] ?? []), 0, min(300, max(1, $limit)));
+        $entities = (array) ($orchestrated['entities'] ?? TopicEntityLayer::get_entities_for_discovery(100));
 
         $source_counts['total_seeds'] = count($final_seeds);
+        $source_counts['total_entities'] = count($entities);
 
         return [
             'seeds'  => $final_seeds,
+            'entities' => $entities,
             'counts' => $source_counts,
         ];
     }

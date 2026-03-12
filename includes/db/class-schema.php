@@ -213,6 +213,8 @@ class Schema {
         $dirty_queue = $wpdb->prefix . 'tmw_seo_dirty_queue';
         $cluster_stats = $wpdb->prefix . 'tmw_seo_cluster_stats';
         $topic_maps = $wpdb->prefix . 'tmwseo_topic_maps';
+        $topic_entities = $wpdb->prefix . 'tmw_topic_entities';
+        $entity_keywords = $wpdb->prefix . 'tmw_entity_keywords';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -867,6 +869,28 @@ class Schema {
             KEY total_search_volume (total_search_volume)
         ) $charset_collate;";
 
+        $sql_topic_entities = "CREATE TABLE $topic_entities (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            entity_name VARCHAR(255) NOT NULL,
+            entity_type VARCHAR(50) NOT NULL DEFAULT 'authority_node',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY entity_name (entity_name),
+            KEY entity_type (entity_type)
+        ) $charset_collate;";
+
+        $sql_entity_keywords = "CREATE TABLE $entity_keywords (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            entity_id BIGINT(20) UNSIGNED NOT NULL,
+            keyword VARCHAR(255) NOT NULL,
+            similarity_score DECIMAL(6,4) NOT NULL DEFAULT 0.0000,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY entity_keyword (entity_id, keyword),
+            KEY entity_similarity (entity_id, similarity_score),
+            KEY keyword (keyword)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -920,6 +944,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_cluster_stats);
         dbDelta($sql_traffic_opportunities);
         dbDelta($sql_topic_maps);
+        dbDelta($sql_topic_entities);
+        dbDelta($sql_entity_keywords);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
@@ -971,8 +997,18 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         // Discovery governor schema reconciliation.
         self::migrate_keywords_hash_column();
         self::migrate_discovery_logs_table();
+        self::seed_topic_entities();
 
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);
+    }
+
+
+    private static function seed_topic_entities(): void {
+        if (!class_exists('TMWSEO\Engine\Keywords\TopicEntityLayer')) {
+            return;
+        }
+
+        \TMWSEO\Engine\Keywords\TopicEntityLayer::ensure_default_entities();
     }
 
     private static function seed_keyword_blacklist(): void {

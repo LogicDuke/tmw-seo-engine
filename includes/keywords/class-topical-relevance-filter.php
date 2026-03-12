@@ -84,7 +84,7 @@ class TopicalRelevanceFilter {
             }
         }
 
-        $similarity = self::similarity_score($normalized_keyword);
+        $similarity = self::similarity_score($normalized_keyword, (string) ($context['entity_name'] ?? ''));
         if ($similarity < 1) {
             $reasons[] = 'topic similarity below threshold';
         }
@@ -99,7 +99,7 @@ class TopicalRelevanceFilter {
     }
 
     public static function should_expand(string $keyword): bool {
-        return self::similarity_score(self::normalize($keyword)) >= 1;
+        return self::similarity_score(self::normalize($keyword), '') >= 1;
     }
 
     public static function log_rejection(string $keyword, array $evaluation): void {
@@ -211,14 +211,20 @@ class TopicalRelevanceFilter {
         return false;
     }
 
-    private static function similarity_score(string $keyword): int {
+    private static function similarity_score(string $keyword, string $entity_name = ''): int {
         $keyword_words = self::tokenize($keyword);
         if (empty($keyword_words)) {
             return 0;
         }
 
         $best_overlap = 0;
-        foreach (self::TOPIC_AUTHORITY as $phrase) {
+        $authority_pool = self::TOPIC_AUTHORITY;
+        $entity_name = self::normalize($entity_name);
+        if ($entity_name !== '') {
+            $authority_pool[] = $entity_name;
+        }
+
+        foreach ($authority_pool as $phrase) {
             $authority_words = self::tokenize($phrase);
             $overlap = count(array_intersect($keyword_words, $authority_words));
             if ($overlap > $best_overlap) {
