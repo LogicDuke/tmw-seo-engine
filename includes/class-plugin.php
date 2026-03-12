@@ -17,6 +17,9 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-seed-registry-admin-page.php'; // 4.3.0
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-serp-analyzer-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-link-graph-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php';
 
@@ -432,6 +435,9 @@ class Plugin {
             \TMWSEO\Engine\Suggestions\SuggestionsAdminPage::init();
             \TMWSEO\Engine\Debug\DebugDashboard::init();
             \TMWSEO\Engine\Admin\Staging_Validation_Helper::init();
+            \TMWSEO\Engine\Admin\SerpAnalyzerAdminPage::init();
+            \TMWSEO\Engine\Admin\LinkGraphAdminPage::init();
+            \TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin::init();
         }
     }
 
