@@ -994,6 +994,7 @@ class Admin {
             'tmwseo-connections',
             'tmwseo-settings',
             'tmwseo-tools',
+            'tmwseo-staging-validation-helper',
             'tmw-seo-debug',
         ];
 

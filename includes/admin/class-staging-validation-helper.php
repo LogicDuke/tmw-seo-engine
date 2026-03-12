@@ -28,8 +28,12 @@ class Staging_Validation_Helper {
     }
 
     public static function register_menu(): void {
+        $environment = function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'production';
+        $is_staging_like = in_array($environment, ['staging', 'development'], true);
+        $parent_slug = $is_staging_like ? Admin::MENU_SLUG : null;
+
         add_submenu_page(
-            null,
+            $parent_slug,
             __('Staging Validation Helper', 'tmwseo'),
             __('↳ Staging Validation Helper', 'tmwseo'),
             'manage_options',
