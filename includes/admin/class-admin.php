@@ -2338,6 +2338,50 @@ class Admin {
         echo '<a class="button" href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_run_worker'), 'tmwseo_run_worker')) . '">Run Worker (healthcheck)</a>';
         echo '</div>';
 
+        // ── Recent Candidates table ───────────────────────────────────────────
+        $recent_candidates = $wpdb->get_results(
+            "SELECT keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
+             FROM {$cand_table}
+             ORDER BY updated_at DESC, volume DESC
+             LIMIT 30",
+            ARRAY_A
+        );
+
+        AdminUI::section_start( __('Recent Candidates', 'tmwseo') );
+        if (empty($recent_candidates)) {
+            AdminUI::empty_state( __('No candidate rows available yet.', 'tmwseo') );
+        } else {
+            echo '<div class="tmwui-table-wrap">';
+            echo '<table class="widefat striped">';
+            echo '<thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Intent</th><th>Status</th><th>Updated</th></tr></thead><tbody>';
+            foreach ($recent_candidates as $candidate) {
+                $intent_type = strtolower(trim((string) ($candidate['intent_type'] ?? '')));
+                $entity_type = strtolower(trim((string) ($candidate['entity_type'] ?? '')));
+
+                $keyword_secondary = '';
+                if ($entity_type !== '' && $entity_type !== 'generic') {
+                    $keyword_secondary = '<div style="color:#6b7280;font-size:12px;">' . esc_html($candidate['entity_type']) . '</div>';
+                }
+
+                $intent_secondary = '';
+                if ($intent_type !== '' && $intent_type !== 'generic') {
+                    $intent_secondary = '<div style="color:#6b7280;font-size:12px;">' . esc_html($candidate['intent_type']) . '</div>';
+                }
+
+                echo '<tr>';
+                echo '<td>' . esc_html((string) ($candidate['keyword'] ?? '')) . $keyword_secondary . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['volume'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['difficulty'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['intent'] ?? '')) . $intent_secondary . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['status'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['updated_at'] ?? '')) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+            echo '</div>';
+        }
+        AdminUI::section_end();
+
         // ── Top Clusters table ────────────────────────────────────────────────
         $clusters = $wpdb->get_results(
             "SELECT id, cluster_key, representative, total_volume, avg_difficulty, opportunity, status, page_id
