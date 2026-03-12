@@ -8,6 +8,7 @@ use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 use TMWSEO\Engine\ContentGap\ContentGapService;
+use TMWSEO\Engine\Keywords\RecursiveKeywordExpansionEngine;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -162,6 +163,15 @@ class JobWorker {
         ContentGapService::run_analysis();
     }
 
+    public static function run_recursive_keyword_expansion(array $payload): void {
+        $seed_keywords = array_values(array_filter(array_map('strval', (array) ($payload['seed_keywords'] ?? []))));
+        if (empty($seed_keywords)) {
+            throw new \RuntimeException('Invalid recursive keyword expansion payload.');
+        }
+
+        RecursiveKeywordExpansionEngine::run($seed_keywords);
+    }
+
     public static function counts(): array {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
@@ -196,6 +206,9 @@ class JobWorker {
                 return;
             case 'content_gap_analysis':
                 self::run_content_gap_analysis($payload);
+                return;
+            case 'recursive_keyword_expansion':
+                self::run_recursive_keyword_expansion($payload);
                 return;
             case 'ai_content_brief_generation':
                 AIContentBriefGeneratorAdmin::run_background_brief_generation($payload);
