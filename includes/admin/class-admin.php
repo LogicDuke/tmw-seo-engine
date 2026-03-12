@@ -10,6 +10,7 @@ use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Admin\AdminUI;
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\SeedRegistry;
+use TMWSEO\Engine\Keywords\CompetitorMiningService;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -29,6 +30,7 @@ class Admin {
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
+        add_action('admin_post_tmwseo_run_competitor_mining', [__CLASS__, 'run_competitor_mining_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_keyword_candidate_action', [__CLASS__, 'handle_keyword_candidate_action']);
@@ -150,6 +152,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-tools',
             self::MENU_SLUG . '_page_tmwseo-internal-links',
             self::MENU_SLUG . '_page_tmwseo-serp-analyzer',
+            self::MENU_SLUG . '_page_tmwseo-competitor-mining',
             self::MENU_SLUG . '_page_tmwseo-link-graph',
             self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
             self::MENU_SLUG . '_page_tmw-seo-debug',
@@ -950,6 +953,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
+        add_submenu_page(self::MENU_SLUG, __('Competitor Mining', 'tmwseo'), __('Competitor Mining', 'tmwseo'), 'manage_options', 'tmwseo-competitor-mining', [__CLASS__, 'render_competitor_mining']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
         // ── Content ────────────────────────────────────────────────────────
@@ -1498,6 +1502,21 @@ class Admin {
         ]);
 
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=keyword_cycle_ran'));
+        exit;
+    }
+
+
+    public static function run_competitor_mining_now(): void {
+        if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
+        check_admin_referer('tmwseo_run_competitor_mining');
+
+        JobWorker::enqueue_job('competitor_mining', [
+            'trigger' => 'manual_competitor_mining',
+            'user_id' => get_current_user_id(),
+            'seed_limit' => 25,
+        ]);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-competitor-mining&tmwseo_notice=competitor_mining_queued'));
         exit;
     }
 
@@ -2530,6 +2549,60 @@ class Admin {
         echo '</div>';
 
         AdminUI::section_end();
+    }
+
+
+    public static function render_competitor_mining(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'tmwseo'));
+        }
+
+        $data = CompetitorMiningService::dashboard_data();
+        $domains = (array) ($data['top_domains'] ?? []);
+        $keywords = (array) ($data['top_keywords'] ?? []);
+
+        echo '<div class="wrap tmwseo-dashboard">';
+        echo '<h1>' . esc_html__('Competitor Mining', 'tmwseo') . '</h1>';
+        echo '<p>' . esc_html__('SERP-driven domain mining pipeline. Discovers competitor domains from seed keyword SERPs, expands their ranked keywords, filters low-value terms, and pushes candidates into clustering.', 'tmwseo') . '</p>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:16px 0;">';
+        wp_nonce_field('tmwseo_run_competitor_mining');
+        echo '<input type="hidden" name="action" value="tmwseo_run_competitor_mining" />';
+        submit_button(__('Run Competitor Mining (Background)', 'tmwseo'), 'primary', 'submit', false);
+        echo '</form>';
+
+        echo '<h2>' . esc_html__('Top discovered domains', 'tmwseo') . '</h2>';
+        echo '<table class="widefat striped"><thead><tr><th>Domain</th><th>SERP Hits</th><th>Best Position</th></tr></thead><tbody>';
+        if (empty($domains)) {
+            echo '<tr><td colspan="3">' . esc_html__('No domains discovered yet.', 'tmwseo') . '</td></tr>';
+        } else {
+            foreach ($domains as $row) {
+                echo '<tr>';
+                echo '<td>' . esc_html((string) ($row['domain'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) (int) ($row['hits'] ?? 0)) . '</td>';
+                echo '<td>' . esc_html((string) (int) ($row['best_position'] ?? 0)) . '</td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table>';
+
+        echo '<h2 style="margin-top:20px;">' . esc_html__('Top discovered keywords', 'tmwseo') . '</h2>';
+        echo '<table class="widefat striped"><thead><tr><th>Keyword</th><th>Volume</th><th>Difficulty</th><th>CPC</th><th>Opportunity score</th></tr></thead><tbody>';
+        if (empty($keywords)) {
+            echo '<tr><td colspan="5">' . esc_html__('No keyword opportunities discovered yet.', 'tmwseo') . '</td></tr>';
+        } else {
+            foreach ($keywords as $row) {
+                echo '<tr>';
+                echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) (int) ($row['volume'] ?? 0)) . '</td>';
+                echo '<td>' . esc_html(number_format((float) ($row['difficulty'] ?? 0), 2)) . '</td>';
+                echo '<td>$' . esc_html(number_format((float) ($row['cpc'] ?? 0), 2)) . '</td>';
+                echo '<td>' . esc_html(number_format((float) ($row['opportunity_score'] ?? 0), 2)) . '</td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table>';
+        echo '</div>';
     }
 
     public static function render_keywords(): void {

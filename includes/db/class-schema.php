@@ -180,6 +180,8 @@ class Schema {
         // Keyword intelligence (alpha.8)
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
+        $serp_domains = $wpdb->prefix . 'tmwseo_serp_domains';
+        $competitor_keywords = $wpdb->prefix . 'tmwseo_competitor_keywords';
         $keyword_clusters = $wpdb->prefix . 'tmw_keyword_clusters';
         $keyword_graph = $wpdb->prefix . 'tmwseo_keyword_graph';
         $generated_pages = $wpdb->prefix . 'tmw_generated_pages';
@@ -441,6 +443,35 @@ class Schema {
             KEY graph_cluster (graph_cluster_id, graph_cluster_size),
             KEY node_degree (node_degree),
             KEY trend_score (trend_score)
+        ) $charset_collate;";
+
+        $sql_serp_domains = "CREATE TABLE $serp_domains (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_id BIGINT(20) UNSIGNED NOT NULL,
+            domain VARCHAR(191) NOT NULL,
+            url TEXT NOT NULL,
+            title TEXT NULL,
+            position INT(11) NOT NULL DEFAULT 0,
+            captured_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword_id (keyword_id),
+            KEY domain_captured (domain, captured_at),
+            KEY position (position)
+        ) $charset_collate;";
+
+        $sql_competitor_keywords = "CREATE TABLE $competitor_keywords (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            domain VARCHAR(191) NOT NULL,
+            keyword VARCHAR(255) NOT NULL,
+            volume INT(11) NOT NULL DEFAULT 0,
+            difficulty DECIMAL(6,2) NULL,
+            cpc DECIMAL(10,2) NULL,
+            source_keyword VARCHAR(255) NOT NULL DEFAULT '',
+            captured_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY domain_captured (domain, captured_at),
+            KEY keyword (keyword),
+            KEY volume (volume)
         ) $charset_collate;";
 
         $sql_keyword_clusters = "CREATE TABLE $keyword_clusters (
@@ -788,6 +819,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_aff_clicks);
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
+        dbDelta($sql_serp_domains);
+        dbDelta($sql_competitor_keywords);
         dbDelta($sql_keyword_clusters);
         dbDelta($sql_cluster_keyword_map);
         dbDelta($sql_keyword_graph);

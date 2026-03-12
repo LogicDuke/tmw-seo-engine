@@ -5,6 +5,7 @@ use TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin;
 use TMWSEO\Engine\Admin\LinkGraphAdminPage;
 use TMWSEO\Engine\Admin\SerpAnalyzerAdminPage;
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
+use TMWSEO\Engine\Keywords\CompetitorMiningService;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 
 if (!defined('ABSPATH')) { exit; }
@@ -137,6 +138,10 @@ class JobWorker {
         UnifiedKeywordWorkflowService::run_cycle(['payload' => $payload, 'source' => 'background_cluster_generation']);
     }
 
+    public static function run_competitor_mining(array $payload): void {
+        CompetitorMiningService::run($payload);
+    }
+
     public static function run_internal_link_scan(array $payload): void {
         $user_id = (int) ($payload['user_id'] ?? 0);
         if ($user_id <= 0) {
@@ -177,6 +182,9 @@ class JobWorker {
                 return;
             case 'cluster_generation':
                 self::run_cluster_generation($payload);
+                return;
+            case 'competitor_mining':
+                self::run_competitor_mining($payload);
                 return;
             case 'internal_link_scan':
                 self::run_internal_link_scan($payload);
