@@ -66,7 +66,7 @@ class TopicalRelevanceFilter {
         $blacklist_match = self::blacklist_match($normalized_keyword);
         if ($blacklist_match !== '') {
             $score -= 5;
-            $reasons[] = sprintf('blacklist match: %s', $blacklist_match);
+            $reasons[] = sprintf('blacklist (%s)', $blacklist_match);
         }
 
         if (self::word_count($normalized_keyword) < 3) {
@@ -80,7 +80,7 @@ class TopicalRelevanceFilter {
                 $score += 2;
             } else {
                 $score -= 2;
-                $reasons[] = 'top SERP domains not in adult webcam niche';
+                $reasons[] = 'serp domain mismatch';
             }
         }
 
@@ -90,7 +90,7 @@ class TopicalRelevanceFilter {
         }
 
         return [
-            'allowed' => $score >= 2 && $similarity >= 1 && $blacklist_match === '',
+            'allowed' => $score >= 2,
             'score' => $score,
             'reasons' => $reasons,
             'similarity' => $similarity,
@@ -108,7 +108,7 @@ class TopicalRelevanceFilter {
             $reason = 'insufficient relevance score';
         }
 
-        Logs::debug('keywords', sprintf('Rejected keyword "%s" — reason: %s.', $keyword, $reason), [
+        Logs::debug('keywords', sprintf('Rejected keyword "%s" — reason: %s', $keyword, $reason), [
             'keyword' => $keyword,
             'score' => (int) ($evaluation['score'] ?? 0),
             'similarity' => (int) ($evaluation['similarity'] ?? 0),
@@ -239,4 +239,3 @@ class TopicalRelevanceFilter {
         return array_values(array_filter($parts, 'strlen'));
     }
 }
-

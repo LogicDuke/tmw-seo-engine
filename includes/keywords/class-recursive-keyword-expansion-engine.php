@@ -121,7 +121,14 @@ class RecursiveKeywordExpansionEngine {
                 $inserted_graph_rows++;
                 $children_added++;
 
-                if (self::insert_candidate_keyword($child_keyword, $search_volume, $keyword_difficulty)) {
+                if (self::insert_candidate_keyword(
+                    $child_keyword,
+                    $search_volume,
+                    $keyword_difficulty,
+                    [
+                        'serp_items' => (array) ($item['items'] ?? $item['serp_items'] ?? []),
+                    ]
+                )) {
                     $inserted_candidates++;
                     $governor->mark_added_keyword();
                 }
@@ -239,10 +246,13 @@ class RecursiveKeywordExpansionEngine {
         return $count > 0;
     }
 
-    private static function insert_candidate_keyword(string $keyword, int $volume, float $difficulty): bool {
+    /**
+     * @param array<string,mixed> $context
+     */
+    private static function insert_candidate_keyword(string $keyword, int $volume, float $difficulty, array $context = []): bool {
         global $wpdb;
 
-        $evaluation = TopicalRelevanceFilter::evaluate($keyword);
+        $evaluation = TopicalRelevanceFilter::evaluate($keyword, $context);
         if (empty($evaluation['allowed'])) {
             TopicalRelevanceFilter::log_rejection($keyword, $evaluation);
             return false;

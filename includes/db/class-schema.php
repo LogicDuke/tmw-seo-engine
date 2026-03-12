@@ -453,8 +453,8 @@ class Schema {
         ) $charset_collate;";
 
         $sql_keyword_blacklist = "CREATE TABLE $keyword_blacklist (
-            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-            keyword VARCHAR(191) NOT NULL,
+            id INT NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(100) NOT NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY keyword (keyword)
