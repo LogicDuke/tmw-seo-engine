@@ -20,6 +20,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-serp-analyzer-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-link-graph-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-topic-maps-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
@@ -139,6 +140,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-inten
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-map.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-page-generator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-authority-mapper.php';
 
 
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-database.php';
@@ -447,6 +449,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\Staging_Validation_Helper::init();
             \TMWSEO\Engine\Admin\SerpAnalyzerAdminPage::init();
             \TMWSEO\Engine\Admin\LinkGraphAdminPage::init();
+            \TMWSEO\Engine\Admin\TopicMapsAdminPage::init();
             \TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin::init();
             \TMWSEO\Engine\ContentGap\ContentGapAdmin::init();
         }

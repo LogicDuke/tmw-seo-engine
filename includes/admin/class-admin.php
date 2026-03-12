@@ -155,6 +155,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-serp-analyzer',
             self::MENU_SLUG . '_page_tmwseo-competitor-mining',
             self::MENU_SLUG . '_page_tmwseo-link-graph',
+            self::MENU_SLUG . '_page_tmwseo-topic-maps',
             self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
@@ -953,6 +954,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
         add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Topic Maps', 'tmwseo'), __('Topic Maps', 'tmwseo'), 'manage_options', 'tmwseo-topic-maps', ['\TMWSEO\Engine\Admin\TopicMapsAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
         add_submenu_page(self::MENU_SLUG, __('Content Gap', 'tmwseo'), __('Content Gap', 'tmwseo'), 'manage_options', 'tmwseo-content-gap', ['\\TMWSEO\\Engine\\ContentGap\\ContentGapAdmin', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Mining', 'tmwseo'), __('Competitor Mining', 'tmwseo'), 'manage_options', 'tmwseo-competitor-mining', [__CLASS__, 'render_competitor_mining']);
@@ -1018,6 +1020,7 @@ class Admin {
             'tmwseo-internal-links',
             'tmwseo-serp-analyzer',
             'tmwseo-link-graph',
+            'tmwseo-topic-maps',
             'tmwseo-competitor-domains',
             'tmwseo-content-gap',
             'tmwseo-ranking-probability',

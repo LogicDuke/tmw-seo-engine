@@ -211,6 +211,7 @@ class Schema {
         $traffic_opportunities = $wpdb->prefix . 'tmwseo_traffic_opportunities';
         $dirty_queue = $wpdb->prefix . 'tmw_seo_dirty_queue';
         $cluster_stats = $wpdb->prefix . 'tmw_seo_cluster_stats';
+        $topic_maps = $wpdb->prefix . 'tmwseo_topic_maps';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -841,6 +842,18 @@ class Schema {
             KEY imp_pos (impressions, position)
         ) $charset_collate;";
 
+        $sql_topic_maps = "CREATE TABLE $topic_maps (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            topic_name VARCHAR(255) NOT NULL,
+            pillar_keyword VARCHAR(255) NOT NULL,
+            cluster_ids LONGTEXT NOT NULL,
+            total_search_volume INT(11) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY pillar_keyword (pillar_keyword),
+            KEY total_search_volume (total_search_volume)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -892,6 +905,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_dirty_queue);
         dbDelta($sql_cluster_stats);
         dbDelta($sql_traffic_opportunities);
+        dbDelta($sql_topic_maps);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
