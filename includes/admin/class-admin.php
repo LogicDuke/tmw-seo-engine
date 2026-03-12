@@ -142,6 +142,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-command-center',
             self::MENU_SLUG . '_page_tmwseo-content-briefs',
             self::MENU_SLUG . '_page_tmwseo-competitor-domains',
+            self::MENU_SLUG . '_page_tmwseo-content-gap',
             self::MENU_SLUG . '_page_tmwseo-keywords',
             self::MENU_SLUG . '_page_tmwseo-opportunities',
             self::MENU_SLUG . '_page_tmwseo-autopilot',
@@ -953,6 +954,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
+        add_submenu_page(self::MENU_SLUG, __('Content Gap', 'tmwseo'), __('Content Gap', 'tmwseo'), 'manage_options', 'tmwseo-content-gap', ['\\TMWSEO\\Engine\\ContentGap\\ContentGapAdmin', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Mining', 'tmwseo'), __('Competitor Mining', 'tmwseo'), 'manage_options', 'tmwseo-competitor-mining', [__CLASS__, 'render_competitor_mining']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
@@ -1017,6 +1019,7 @@ class Admin {
             'tmwseo-serp-analyzer',
             'tmwseo-link-graph',
             'tmwseo-competitor-domains',
+            'tmwseo-content-gap',
             'tmwseo-ranking-probability',
             'tmwseo-models',
             'tmwseo-reports',

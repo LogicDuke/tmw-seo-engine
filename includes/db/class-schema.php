@@ -182,6 +182,9 @@ class Schema {
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
         $serp_domains = $wpdb->prefix . 'tmwseo_serp_domains';
         $competitor_keywords = $wpdb->prefix . 'tmwseo_competitor_keywords';
+        $competitor_domains = $wpdb->prefix . 'tmwseo_competitor_domains';
+        $site_keywords = $wpdb->prefix . 'tmwseo_site_keywords';
+        $content_gaps = $wpdb->prefix . 'tmwseo_content_gaps';
         $keyword_clusters = $wpdb->prefix . 'tmw_keyword_clusters';
         $keyword_graph = $wpdb->prefix . 'tmwseo_keyword_graph';
         $generated_pages = $wpdb->prefix . 'tmw_generated_pages';
@@ -463,15 +466,56 @@ class Schema {
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             domain VARCHAR(191) NOT NULL,
             keyword VARCHAR(255) NOT NULL,
-            volume INT(11) NOT NULL DEFAULT 0,
-            difficulty DECIMAL(6,2) NULL,
+            search_volume INT(11) NOT NULL DEFAULT 0,
+            keyword_difficulty DECIMAL(6,2) NULL,
             cpc DECIMAL(10,2) NULL,
+            position INT(11) NOT NULL DEFAULT 0,
             source_keyword VARCHAR(255) NOT NULL DEFAULT '',
             captured_at DATETIME NOT NULL,
             PRIMARY KEY (id),
+            UNIQUE KEY domain_keyword (domain, keyword),
             KEY domain_captured (domain, captured_at),
             KEY keyword (keyword),
-            KEY volume (volume)
+            KEY search_volume (search_volume)
+        ) $charset_collate;";
+
+        $sql_competitor_domains = "CREATE TABLE $competitor_domains (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            domain VARCHAR(191) NOT NULL,
+            source VARCHAR(50) NOT NULL DEFAULT 'manual',
+            added_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY domain (domain),
+            KEY source_added (source, added_at)
+        ) $charset_collate;";
+
+        $sql_site_keywords = "CREATE TABLE $site_keywords (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            source VARCHAR(50) NOT NULL,
+            search_volume INT(11) NOT NULL DEFAULT 0,
+            captured_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword_source (keyword, source),
+            KEY keyword (keyword),
+            KEY source_captured (source, captured_at)
+        ) $charset_collate;";
+
+        $sql_content_gaps = "CREATE TABLE $content_gaps (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NOT NULL DEFAULT 0,
+            keyword_difficulty DECIMAL(6,2) NULL,
+            competitor_count INT(11) NOT NULL DEFAULT 0,
+            opportunity_score DECIMAL(10,2) NOT NULL DEFAULT 0,
+            competitors_json LONGTEXT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'new',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY keyword (keyword),
+            KEY status_score (status, opportunity_score),
+            KEY search_volume (search_volume)
         ) $charset_collate;";
 
         $sql_keyword_clusters = "CREATE TABLE $keyword_clusters (
@@ -821,6 +865,9 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_serp_domains);
         dbDelta($sql_competitor_keywords);
+        dbDelta($sql_competitor_domains);
+        dbDelta($sql_site_keywords);
+        dbDelta($sql_content_gaps);
         dbDelta($sql_keyword_clusters);
         dbDelta($sql_cluster_keyword_map);
         dbDelta($sql_keyword_graph);
