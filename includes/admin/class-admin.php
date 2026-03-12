@@ -142,6 +142,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-competitor-domains',
             self::MENU_SLUG . '_page_tmwseo-keywords',
             self::MENU_SLUG . '_page_tmwseo-opportunities',
+            self::MENU_SLUG . '_page_tmwseo-autopilot',
             self::MENU_SLUG . '_page_tmwseo-ranking-probability',
             self::MENU_SLUG . '_page_tmwseo-reports',
             self::MENU_SLUG . '_page_tmwseo-connections',
@@ -943,6 +944,7 @@ class Admin {
 
         // ── Intelligence ───────────────────────────────────────────────────
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
+        add_submenu_page(self::MENU_SLUG, __('Autopilot', 'tmwseo'),           __('Autopilot', 'tmwseo'),           'manage_options', 'tmwseo-autopilot',          ['\\TMWSEO\\Engine\\Admin\\AutopilotAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
         add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
         add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
@@ -1004,6 +1006,7 @@ class Admin {
             'tmwseo-suggestions',
             'tmwseo-content-briefs',
             'tmwseo-keywords',
+            'tmwseo-autopilot',
             'tmwseo-seed-registry',
             'tmwseo-opportunities',
             'tmwseo-internal-links',

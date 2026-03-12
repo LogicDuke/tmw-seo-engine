@@ -20,8 +20,10 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helpe
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-serp-analyzer-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-link-graph-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/autopilot/class-seo-autopilot.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
 
@@ -312,6 +314,7 @@ class Plugin {
         \TMWSEO\Engine\Keywords\KeywordUsage::maybe_upgrade();
         // Keyword data crons (update CSV files only, no content writing)
         \TMWSEO\Engine\Keywords\KeywordScheduler::init();
+        \TMWSEO\Engine\Autopilot\SEOAutopilot::init();
         \TMWSEO\Engine\Keywords\ContentKeywordMiner::init();
         \TMWSEO\Engine\Integrations\GSCSeedImporter::init();
         \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::init();
