@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Services\OpenAI;
+use TMWSEO\Engine\JobWorker;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -15,6 +16,9 @@ class AIContentBriefGeneratorAdmin {
     public static function render_widget(): void {
         echo '<div class="tmwseo-card" style="max-width:1100px;margin:16px 0;">';
         echo '<h2>AI Content Brief Generator</h2>';
+        if (isset($_GET['queued']) && (int) $_GET['queued'] === 1) {
+            echo '<div class="notice notice-success inline"><p>' . esc_html__('AI content brief job queued. Refresh shortly to view the generated brief.', 'tmwseo') . '</p></div>';
+        }
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" id="tmwseo-ai-brief-form">';
         wp_nonce_field('tmwseo_generate_ai_brief');
         echo '<input type="hidden" name="action" value="tmwseo_generate_ai_brief" />';
@@ -25,6 +29,13 @@ class AIContentBriefGeneratorAdmin {
         echo '</form>';
 
         $key = sanitize_key((string) ($_GET['ai_brief_key'] ?? ''));
+        if ($key === '') {
+            $queued_key = get_transient('tmwseo_ai_brief_last_result_user_' . get_current_user_id());
+            if (is_string($queued_key) && $queued_key !== '') {
+                $key = sanitize_key($queued_key);
+                delete_transient('tmwseo_ai_brief_last_result_user_' . get_current_user_id());
+            }
+        }
         if ($key !== '') {
             $brief = get_transient('tmwseo_ai_brief_ui_' . $key);
             if (is_array($brief)) {
@@ -51,25 +62,13 @@ class AIContentBriefGeneratorAdmin {
             self::redirect_with_error('Invalid cluster ID.');
         }
 
-        $keywords = self::get_cluster_keywords($cluster_id);
-        if (empty($keywords)) {
-            self::redirect_with_error('No keywords found for this cluster.');
-        }
+        JobWorker::enqueue_job('ai_content_brief_generation', [
+            'cluster_id' => $cluster_id,
+            'user_id' => get_current_user_id(),
+            'trigger' => 'ai_brief_admin',
+        ]);
 
-        $serp_data = self::get_cluster_serp_data($cluster_id);
-        $metrics = self::get_keyword_metrics($keywords);
-
-        $brief = self::generate_brief($cluster_id, $keywords, $serp_data, $metrics);
-        if (!is_array($brief) || empty($brief['primary_keyword'])) {
-            self::redirect_with_error('Failed to generate AI brief.');
-        }
-
-        $brief['cluster_id'] = $cluster_id;
-        $brief['generated_at'] = current_time('mysql');
-
-        $key = wp_generate_password(20, false, false);
-        set_transient('tmwseo_ai_brief_ui_' . $key, $brief, HOUR_IN_SECONDS);
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&ai_brief_key=' . rawurlencode($key)));
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-content-briefs&queued=1'));
         exit;
     }
 
@@ -120,6 +119,38 @@ class AIContentBriefGeneratorAdmin {
         header('Content-Disposition: attachment; filename="tmwseo-ai-brief-' . gmdate('Ymd-His') . '.json"');
         echo wp_json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         exit;
+    }
+
+    public static function run_background_brief_generation(array $payload): void {
+        $cluster_id = (int) ($payload['cluster_id'] ?? 0);
+        $user_id = (int) ($payload['user_id'] ?? 0);
+        if ($cluster_id <= 0 || $user_id <= 0) {
+            throw new \RuntimeException('Invalid AI brief payload.');
+        }
+
+        $cache_key = 'tmwseo_bg_ai_brief_' . $cluster_id;
+        $brief = get_transient($cache_key);
+        if (!is_array($brief)) {
+            $keywords = self::get_cluster_keywords($cluster_id);
+            if (empty($keywords)) {
+                throw new \RuntimeException('No keywords found for this cluster.');
+            }
+
+            $serp_data = self::get_cluster_serp_data($cluster_id);
+            $metrics = self::get_keyword_metrics($keywords);
+            $brief = self::generate_brief($cluster_id, $keywords, $serp_data, $metrics);
+            if (!is_array($brief) || empty($brief['primary_keyword'])) {
+                throw new \RuntimeException('Failed to generate AI brief.');
+            }
+
+            $brief['cluster_id'] = $cluster_id;
+            $brief['generated_at'] = current_time('mysql');
+            set_transient($cache_key, $brief, 30 * MINUTE_IN_SECONDS);
+        }
+
+        $key = wp_generate_password(20, false, false);
+        set_transient('tmwseo_ai_brief_ui_' . $key, $brief, HOUR_IN_SECONDS);
+        set_transient('tmwseo_ai_brief_last_result_user_' . $user_id, $key, 20 * MINUTE_IN_SECONDS);
     }
 
     private static function generate_brief(int $cluster_id, array $keywords, array $serp_data, array $metrics): array {

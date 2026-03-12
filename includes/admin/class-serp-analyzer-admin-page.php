@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\OpenAI;
+use TMWSEO\Engine\JobWorker;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -19,6 +20,13 @@ class SerpAnalyzerAdminPage {
         }
 
         $result_key = sanitize_key((string) ($_GET['result_key'] ?? ''));
+        if ($result_key === '') {
+            $queued_token = get_transient('tmwseo_serp_last_result_user_' . get_current_user_id());
+            if (is_string($queued_token) && $queued_token !== '') {
+                $result_key = sanitize_key($queued_token);
+                delete_transient('tmwseo_serp_last_result_user_' . get_current_user_id());
+            }
+        }
         $result = is_string($result_key) && $result_key !== '' ? get_transient('tmwseo_serp_ui_' . $result_key) : null;
         if (is_array($result)) {
             delete_transient('tmwseo_serp_ui_' . $result_key);
@@ -26,6 +34,9 @@ class SerpAnalyzerAdminPage {
 
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__('SERP Analyzer', 'tmwseo') . '</h1>';
+        if (isset($_GET['queued']) && (int) $_GET['queued'] === 1) {
+            echo '<div class="notice notice-success"><p>' . esc_html__('SERP analysis job queued. Refresh this page in a moment to view results.', 'tmwseo') . '</p></div>';
+        }
 
         echo '<div class="tmwseo-card" style="max-width:1100px;">';
         echo '<h2>' . esc_html__('SERP Reverse Engineering Engine', 'tmwseo') . '</h2>';
@@ -62,15 +73,24 @@ class SerpAnalyzerAdminPage {
             self::redirect_with_result(['error' => 'Keyword is required.']);
         }
 
-        $cache_key = 'tmwseo_serp_analyzer_' . md5(mb_strtolower($keyword, 'UTF-8'));
-        $cached = get_transient($cache_key);
-        if (is_array($cached)) {
-            self::redirect_with_result($cached);
+        JobWorker::enqueue_job('serp_analysis', [
+            'keyword' => $keyword,
+            'user_id' => get_current_user_id(),
+        ]);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-serp-analyzer&queued=1'));
+        exit;
+    }
+
+    public static function build_serp_result(string $keyword): array {
+        $keyword = sanitize_text_field($keyword);
+        if ($keyword === '') {
+            return ['error' => 'Keyword is required.'];
         }
 
         $serp = DataForSEO::serp_organic_live($keyword, 10);
         if (empty($serp['ok'])) {
-            self::redirect_with_result(['error' => 'DataForSEO request failed: ' . (string) ($serp['error'] ?? 'unknown')]);
+            return ['error' => 'DataForSEO request failed: ' . (string) ($serp['error'] ?? 'unknown')];
         }
 
         $items = array_slice((array) ($serp['items'] ?? []), 0, 10);
@@ -90,18 +110,15 @@ class SerpAnalyzerAdminPage {
 
             foreach ((array) ($page_stats['headings'] ?? []) as $h) {
                 $h = trim((string) $h);
-                if ($h === '') {
-                    continue;
+                if ($h !== '') {
+                    $heading_freq[$h] = ($heading_freq[$h] ?? 0) + 1;
                 }
-                $heading_freq[$h] = ($heading_freq[$h] ?? 0) + 1;
             }
-
             foreach ((array) ($page_stats['entities'] ?? []) as $entity) {
                 $entity = trim((string) $entity);
-                if ($entity === '') {
-                    continue;
+                if ($entity !== '') {
+                    $entity_freq[$entity] = ($entity_freq[$entity] ?? 0) + 1;
                 }
-                $entity_freq[$entity] = ($entity_freq[$entity] ?? 0) + 1;
             }
 
             $analyzed[] = [
@@ -121,16 +138,15 @@ class SerpAnalyzerAdminPage {
 
         arsort($heading_freq);
         arsort($entity_freq);
-
-        $recommended_word_count = 0;
         $valid_wc = array_values(array_filter($word_counts, static fn($wc) => $wc > 0));
+        $recommended_word_count = 0;
         if (!empty($valid_wc)) {
             sort($valid_wc);
             $median = $valid_wc[(int) floor(count($valid_wc) / 2)];
             $recommended_word_count = (int) round($median * 1.1);
         }
 
-        $result = [
+        return [
             'keyword' => $keyword,
             'rows' => $analyzed,
             'blueprint' => [
@@ -140,9 +156,6 @@ class SerpAnalyzerAdminPage {
             ],
             'raw_json' => (array) ($serp['raw'] ?? []),
         ];
-
-        set_transient($cache_key, $result, DAY_IN_SECONDS);
-        self::redirect_with_result($result);
     }
 
     private static function redirect_with_result(array $result): void {
