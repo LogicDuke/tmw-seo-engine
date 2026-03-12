@@ -199,6 +199,9 @@ class Schema {
         $entity_keyword_map = $wpdb->prefix . 'tmwseo_entity_keyword_map';
         $keyword_trends = $wpdb->prefix . 'tmwseo_keyword_trends';
         $keyword_metrics_cache = $wpdb->prefix . 'tmwseo_keywords';
+        $keyword_metrics_history = $wpdb->prefix . 'tmwseo_keyword_metrics_history';
+        $serp_snapshots = $wpdb->prefix . 'tmwseo_serp_snapshots';
+        $rank_tracking = $wpdb->prefix . 'tmwseo_rank_tracking';
         $cluster_keyword_map = $wpdb->prefix . 'tmw_keyword_cluster_map';
         $traffic_opportunities = $wpdb->prefix . 'tmwseo_traffic_opportunities';
         $dirty_queue = $wpdb->prefix . 'tmw_seo_dirty_queue';
@@ -664,6 +667,57 @@ class Schema {
             KEY source (source)
         ) $charset_collate;";
 
+        $sql_keyword_metrics_history = "CREATE TABLE $keyword_metrics_history (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_id BIGINT(20) UNSIGNED NOT NULL,
+            keyword VARCHAR(255) NOT NULL,
+            search_volume INT(11) NULL,
+            difficulty DECIMAL(6,2) NULL,
+            cpc DECIMAL(10,2) NULL,
+            competition DECIMAL(6,4) NULL,
+            source VARCHAR(50) NOT NULL DEFAULT 'dataforseo',
+            recorded_at DATETIME NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword_id (keyword_id),
+            KEY keyword (keyword),
+            KEY recorded_at (recorded_at),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+
+        $sql_serp_snapshots = "CREATE TABLE $serp_snapshots (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_id BIGINT(20) UNSIGNED NOT NULL,
+            keyword VARCHAR(255) NOT NULL,
+            serp_json LONGTEXT NOT NULL,
+            top_url VARCHAR(255) NULL,
+            top_domain VARCHAR(191) NULL,
+            captured_at DATETIME NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword_id (keyword_id),
+            KEY keyword (keyword),
+            KEY captured_at (captured_at),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+
+        $sql_rank_tracking = "CREATE TABLE $rank_tracking (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_id BIGINT(20) UNSIGNED NOT NULL,
+            keyword VARCHAR(255) NOT NULL,
+            ranking_url VARCHAR(255) NULL,
+            ranking_domain VARCHAR(191) NULL,
+            position INT(11) NOT NULL,
+            device VARCHAR(20) NOT NULL DEFAULT 'desktop',
+            tracked_at DATETIME NOT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY keyword_id (keyword_id),
+            KEY keyword (keyword),
+            KEY tracked_at (tracked_at),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+
         $sql_dirty_queue = "CREATE TABLE $dirty_queue (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             object_type VARCHAR(32) NOT NULL,
@@ -752,6 +806,9 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_entity_keyword_map);
         dbDelta($sql_keyword_trends);
         dbDelta($sql_keyword_metrics_cache);
+        dbDelta($sql_keyword_metrics_history);
+        dbDelta($sql_serp_snapshots);
+        dbDelta($sql_rank_tracking);
         dbDelta($sql_dirty_queue);
         dbDelta($sql_cluster_stats);
         dbDelta($sql_traffic_opportunities);
