@@ -77,7 +77,7 @@ class AutopilotAdminPage {
                 echo '<td>' . esc_html(number_format_i18n((int) ($row['total_volume'] ?? 0))) . '</td>';
                 echo '<td>' . esc_html((string) ($row['avg_keyword_difficulty'] ?? '0')) . '</td>';
                 echo '<td>' . esc_html((string) ($row['opportunity_score'] ?? '0')) . '</td>';
-                echo '<td>' . esc_html((string) ($row['suggested_page_type'] ?? 'Guide / Blog Page')) . '</td>';
+                echo '<td>' . esc_html((string) ($row['suggested_page_type'] ?? 'Directory Page')) . '</td>';
                 echo '</tr>';
             }
         }
@@ -114,7 +114,7 @@ class AutopilotAdminPage {
                         sprintf('How to choose the best %s?', $primary),
                     ],
                     'internal_linking_targets' => ['Related hub pages', 'Relevant cluster pages'],
-                    'meta_title_suggestions' => [sprintf('%s Guide (%s)', ucwords($primary), date('Y'))],
+                    'meta_title_suggestions' => [sprintf('%s Directory (%s)', ucwords($primary), date('Y'))],
                     'note' => 'Autopilot generated draft brief. Manual editorial review required.',
                 ];
                 $brief_json = wp_json_encode($brief, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);

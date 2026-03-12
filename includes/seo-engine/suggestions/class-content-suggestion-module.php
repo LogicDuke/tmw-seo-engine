@@ -33,6 +33,16 @@ class ContentSuggestionModule {
         'dance', 'chatty', 'livejasmin', 'compare platform', 'chat',
     ];
 
+    /** @var string[] */
+    private const DIRECTORY_KEYWORD_SIGNALS = [
+        'webcam models', 'camgirls', 'cam models', 'best webcam models', 'top camgirls',
+    ];
+
+    /** @var string[] */
+    private const PLATFORM_SIGNALS = [
+        'chaturbate', 'stripchat', 'camsoda', 'bongacams', 'livejasmin', 'myfreecams', 'flirt4free',
+    ];
+
     private SuggestionEngine $suggestion_engine;
 
     public function __construct(?SuggestionEngine $suggestion_engine = null) {
@@ -80,7 +90,7 @@ class ContentSuggestionModule {
 
             $suggestions[] = [
                 'type' => 'content_opportunity',
-                'title' => sprintf('Create article targeting: %s', $keyword),
+                'title' => sprintf('Create directory page targeting: %s', $keyword),
                 'description' => $this->buildDescription(
                     $keyword,
                     $search_volume,
@@ -102,7 +112,7 @@ class ContentSuggestionModule {
                 'difficulty' => $keyword_difficulty,
                 'suggested_action' => implode("\n", [
                     'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name, (string) ($row['intent_type'] ?? 'generic')),
-                    'Generate draft idea only for manual review. Do not auto-create content.',
+                    'Generate directory page plan only for manual review. Do not auto-create content.',
                 ]),
                 'status' => 'new',
             ];
@@ -135,7 +145,7 @@ class ContentSuggestionModule {
                     'difficulty' => $keyword_difficulty,
                     'suggested_action' => implode("\n", [
                         'DESTINATION_TYPE: ' . $this->resolve_suggestion_destination($keyword, $cluster_name, (string) ($row['intent_type'] ?? 'generic')),
-                        'Create article targeting this keyword. Never create the article automatically.',
+                        'Create directory landing page targeting this keyword. Never create content automatically.',
                     ]),
                     'status' => 'new',
                 ];
@@ -396,7 +406,7 @@ class ContentSuggestionModule {
             (string) $this->calculateEstimatedTraffic($search_volume),
             '',
             'Suggested action:',
-            'Create article targeting this keyword.',
+            'Create directory page targeting this keyword.',
             '',
             'Never create the article automatically.',
         ]);
@@ -549,7 +559,7 @@ class ContentSuggestionModule {
      * Routing rules (deterministic, explainable):
      * 1. If keyword or cluster clearly targets model/performer content → model_page
      * 2. If cluster is a physical-attribute / niche / platform category → category_page
-     * 3. Fallback for genuinely generic informational intent → generic_post
+     * 3. Fallback for generic discovery intent → directory_page
      *
      * IMPORTANT: This never forces model_page for ambiguous content.
      * Only use model_page when signals are explicit and clear.
@@ -578,8 +588,15 @@ class ContentSuggestionModule {
             }
         }
 
-        // Genuinely generic informational / comparison content.
-        return 'generic_post';
+        if ($this->is_platform_directory_keyword($haystack)) {
+            return 'platform_page';
+        }
+
+        if ($this->is_directory_keyword($haystack)) {
+            return 'category_page';
+        }
+
+        return 'directory_page';
     }
 
 
@@ -616,8 +633,36 @@ class ContentSuggestionModule {
             }
         }
 
-        // Named clusters that aren't clearly model or category: keep generic.
-        return 'generic_post';
+        if ($this->is_platform_directory_keyword($haystack)) {
+            return 'platform_page';
+        }
+
+        if ($this->is_directory_keyword($haystack)) {
+            return 'category_page';
+        }
+
+        return 'directory_page';
+    }
+
+
+    private function is_directory_keyword(string $haystack): bool {
+        foreach (self::DIRECTORY_KEYWORD_SIGNALS as $signal) {
+            if (strpos($haystack, $signal) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function is_platform_directory_keyword(string $haystack): bool {
+        foreach (self::PLATFORM_SIGNALS as $signal) {
+            if (strpos($haystack, $signal) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
