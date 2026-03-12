@@ -251,19 +251,23 @@ class CommandCenter {
         echo '<section class="tmwcc-section">';
         echo '<h2 class="tmwcc-section-title">📍 Command Center</h2>';
         echo '<div class="tmwcc-summary-grid">';
-        self::render_summary_card( 'Total Seeds', (int) ( $summary['total_seeds'] ?? 0 ) );
-        self::render_summary_card( 'Total Keywords', (int) ( $summary['total_keywords'] ?? 0 ) );
+        self::render_summary_card( 'Total Seeds', (int) ( $summary['total_seeds'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-seed-registry' ) );
+        self::render_summary_card( 'Total Keywords', (int) ( $summary['total_keywords'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-keywords' ) );
         self::render_summary_card( 'Total Clusters', (int) ( $summary['total_clusters'] ?? 0 ) );
         self::render_summary_card( 'Pages Created', (int) ( $summary['pages_created'] ?? 0 ) );
         echo '</div>';
         echo '</section>';
     }
 
-    private static function render_summary_card( string $label, int $value ): void {
-        echo '<div class="tmwcc-summary-card">';
+    private static function render_summary_card( string $label, int $value, string $url = '' ): void {
+        if ( $url !== '' ) {
+            echo '<a class="tmwcc-summary-card" href="' . esc_url( $url ) . '">';
+        } else {
+            echo '<div class="tmwcc-summary-card">';
+        }
         echo '<span class="tmwcc-summary-value">' . esc_html( (string) $value ) . '</span>';
         echo '<span class="tmwcc-summary-label">' . esc_html( $label ) . '</span>';
-        echo '</div>';
+        echo $url !== '' ? '</a>' : '</div>';
     }
 
     private static function render_cluster_opportunities( array $d ): void {
