@@ -26,8 +26,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ExpansionCandidateRepository {
 
-    private const LAST_PROMOTION_DIAG_OPTION = 'tmwseo_last_promotion_diag';
-
     // -------------------------------------------------------------------------
     // Status constants
     // -------------------------------------------------------------------------
@@ -269,22 +267,6 @@ class ExpansionCandidateRepository {
     public static function approve_candidate( int $id, int $reviewed_by = 0 ): bool {
         global $wpdb;
 
-        $diag = [
-            'TMW-PREVIEW-DIAG timestamp'                   => current_time( 'mysql' ),
-            'TMW-PREVIEW-DIAG candidate_id'                => $id,
-            'TMW-PREVIEW-DIAG phrase'                      => '',
-            'TMW-PREVIEW-DIAG source'                      => '',
-            'TMW-PREVIEW-DIAG status_transition_result'    => null,
-            'TMW-PREVIEW-DIAG promote_invoked'             => false,
-            'TMW-PREVIEW-DIAG table_found'                 => null,
-            'TMW-PREVIEW-DIAG keyword_already_exists'      => null,
-            'TMW-PREVIEW-DIAG insert_payload_keys'         => [],
-            'TMW-PREVIEW-DIAG insert_result'               => null,
-            'TMW-PREVIEW-DIAG insert_last_error'           => '',
-        ];
-
-        error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate start id=%d reviewed_by=%d', $id, $reviewed_by ) );
-
         $table = self::table();
         $row   = $wpdb->get_row(
             $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d LIMIT 1", $id ),
@@ -292,26 +274,10 @@ class ExpansionCandidateRepository {
         );
 
         if ( empty( $row ) ) {
-            error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate missing_row id=%d', $id ) );
-            $diag['TMW-PREVIEW-DIAG message'] = 'approve_candidate missing_row';
-            self::save_last_promotion_diag( $diag );
             return false;
         }
 
-        $diag['TMW-PREVIEW-DIAG phrase'] = (string) ( $row['phrase'] ?? '' );
-        $diag['TMW-PREVIEW-DIAG source'] = (string) ( $row['source'] ?? '' );
-
-        error_log( sprintf(
-            '[TMW-PREVIEW-DIAG] approve_candidate row_loaded id=%d phrase="%s" status=%s',
-            $id,
-            (string) ( $row['phrase'] ?? '' ),
-            (string) ( $row['status'] ?? '' )
-        ) );
-
         if ( $row['status'] === self::STATUS_APPROVED ) {
-            error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate already_approved id=%d', $id ) );
-            $diag['TMW-PREVIEW-DIAG message'] = 'approve_candidate already_approved';
-            self::save_last_promotion_diag( $diag );
             return true; // already approved
         }
 
@@ -328,25 +294,12 @@ class ExpansionCandidateRepository {
             [ '%d' ]
         );
 
-        error_log( sprintf(
-            '[TMW-PREVIEW-DIAG] approve_candidate status_transition id=%d from=%s to=%s update_result=%s',
-            $id,
-            (string) ( $row['status'] ?? '' ),
-            self::STATUS_APPROVED,
-            var_export( $updated, true )
-        ) );
-        $diag['TMW-PREVIEW-DIAG status_transition_result'] = var_export( $updated, true );
-
         if ( $updated === false ) {
-            $diag['TMW-PREVIEW-DIAG message'] = 'approve_candidate status_transition_failed';
-            self::save_last_promotion_diag( $diag );
             return false;
         }
 
         // Promote to working keyword pipeline
-        error_log( sprintf( '[TMW-PREVIEW-DIAG] approve_candidate invoking_promotion id=%d', $id ) );
-        $diag['TMW-PREVIEW-DIAG promote_invoked'] = true;
-        $promoted = self::promote_to_working_keywords( $row, $diag );
+        $promoted = self::promote_to_working_keywords( $row );
 
         if ( ! $promoted ) {
             $wpdb->update(
@@ -360,12 +313,8 @@ class ExpansionCandidateRepository {
                 [ '%s', '%s', '%s' ],
                 [ '%d' ]
             );
-            $diag['TMW-PREVIEW-DIAG message'] = (string) ( $diag['TMW-PREVIEW-DIAG message'] ?? 'promotion_failed_reverted' );
-            self::save_last_promotion_diag( $diag );
             return false;
         }
-
-        self::save_last_promotion_diag( $diag );
 
         Logs::info( 'keywords', '[TMW-PREVIEW] Candidate approved', [
             'id'          => $id,
@@ -622,7 +571,7 @@ class ExpansionCandidateRepository {
      *
      * @param array<string,mixed> $row Candidate row.
      */
-    private static function promote_to_working_keywords( array $row, array &$diag ): bool {
+    private static function promote_to_working_keywords( array $row ): bool {
         global $wpdb;
 
         $phrase      = (string) ( $row['phrase'] ?? '' );
@@ -630,37 +579,22 @@ class ExpansionCandidateRepository {
         $entity_type = (string) ( $row['entity_type'] ?? 'system' );
         $entity_id   = (int) ( $row['entity_id'] ?? 0 );
 
-        error_log( sprintf(
-            '[TMW-PREVIEW-DIAG] promote_to_working_keywords start candidate_id=%d phrase="%s" source=%s',
-            (int) ( $row['id'] ?? 0 ),
-            $phrase,
-            $source
-        ) );
-
         if ( $phrase === '' ) {
-            error_log( '[TMW-PREVIEW-DIAG] promote_to_working_keywords empty_phrase_skip' );
-            $diag['TMW-PREVIEW-DIAG message'] = 'promote_to_working_keywords empty_phrase_skip';
             return false;
         }
 
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
 
         if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $cand_table ) ) !== $cand_table ) {
-            error_log( sprintf( '[TMW-PREVIEW-DIAG] promote_to_working_keywords missing_table table=%s', $cand_table ) );
-            $diag['TMW-PREVIEW-DIAG table_found'] = false;
-            $diag['TMW-PREVIEW-DIAG message']     = 'promote_to_working_keywords missing_table';
             Logs::warn( 'keywords', '[TMW-PREVIEW] tmw_keyword_candidates table missing — skipping promotion', [
                 'phrase' => $phrase,
             ] );
             return false;
         }
 
-        $diag['TMW-PREVIEW-DIAG table_found'] = true;
-
         $columns      = self::keyword_candidate_columns();
         $column_index = array_fill_keys( $columns, true );
         if ( empty( $column_index ) ) {
-            $diag['TMW-PREVIEW-DIAG message'] = 'promote_to_working_keywords missing_columns';
             return false;
         }
 
@@ -683,13 +617,8 @@ class ExpansionCandidateRepository {
         }
 
         if ( $existing ) {
-            error_log( sprintf( '[TMW-PREVIEW-DIAG] promote_to_working_keywords already_exists keyword="%s" existing_id=%s', $phrase, (string) $existing ) );
-            $diag['TMW-PREVIEW-DIAG keyword_already_exists'] = true;
-            $diag['TMW-PREVIEW-DIAG message']                = 'promote_to_working_keywords already_exists';
             return true;
         }
-
-        $diag['TMW-PREVIEW-DIAG keyword_already_exists'] = false;
 
         $preferred_status = isset( $column_index['status'] ) ? 'new' : null;
         $candidate_values = [
@@ -719,11 +648,7 @@ class ExpansionCandidateRepository {
             $insert_payload[ $column ] = $value;
         }
 
-        $diag['TMW-PREVIEW-DIAG insert_payload_keys'] = array_keys( $insert_payload );
-        error_log( '[TMW-PREVIEW-DIAG] promote_to_working_keywords insert_payload_keys=' . implode( ',', array_keys( $insert_payload ) ) );
-
         if ( empty( $insert_payload['keyword'] ?? '' ) ) {
-            $diag['TMW-PREVIEW-DIAG message'] = 'promote_to_working_keywords empty_insert_payload';
             return false;
         }
 
@@ -733,13 +658,7 @@ class ExpansionCandidateRepository {
             self::infer_insert_formats( $insert_payload )
         );
 
-        error_log( sprintf( '[TMW-PREVIEW-DIAG] promote_to_working_keywords insert_result=%s', var_export( $inserted, true ) ) );
-        $diag['TMW-PREVIEW-DIAG insert_result'] = var_export( $inserted, true );
-
         if ( $inserted === false ) {
-            $diag['TMW-PREVIEW-DIAG insert_last_error'] = (string) $wpdb->last_error;
-            $diag['TMW-PREVIEW-DIAG message']           = 'promote_to_working_keywords insert_failed';
-            error_log( '[TMW-PREVIEW-DIAG] promote_to_working_keywords insert_last_error=' . (string) $wpdb->last_error );
             return false;
         }
 
@@ -747,31 +666,10 @@ class ExpansionCandidateRepository {
             $wpdb->prepare( "SELECT COUNT(1) FROM {$cand_table} WHERE keyword = %s", $phrase )
         );
         if ( $verified < 1 ) {
-            $diag['TMW-PREVIEW-DIAG message'] = 'promote_to_working_keywords verification_failed';
             return false;
         }
 
-        $diag['TMW-PREVIEW-DIAG message'] = 'promote_to_working_keywords insert_success';
         return true;
-    }
-
-    /**
-     * @return array<string,mixed>
-     */
-    public static function get_last_promotion_diag(): array {
-        $diag = get_option( self::LAST_PROMOTION_DIAG_OPTION, [] );
-        return is_array( $diag ) ? $diag : [];
-    }
-
-    public static function clear_last_promotion_diag(): void {
-        delete_option( self::LAST_PROMOTION_DIAG_OPTION );
-    }
-
-    /**
-     * @param array<string,mixed> $diag
-     */
-    private static function save_last_promotion_diag( array $diag ): void {
-        update_option( self::LAST_PROMOTION_DIAG_OPTION, $diag, false );
     }
 
 }
