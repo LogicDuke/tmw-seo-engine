@@ -260,14 +260,16 @@ class CommandCenter {
     }
 
     private static function render_summary_card( string $label, int $value, string $url = '' ): void {
-        if ( $url !== '' ) {
-            echo '<a class="tmwcc-summary-card" href="' . esc_url( $url ) . '">';
+        $card_url = trim( $url );
+
+        if ( $card_url !== '' ) {
+            echo '<a class="tmwcc-summary-card" href="' . esc_url( $card_url ) . '">';
         } else {
             echo '<div class="tmwcc-summary-card">';
         }
         echo '<span class="tmwcc-summary-value">' . esc_html( (string) $value ) . '</span>';
         echo '<span class="tmwcc-summary-label">' . esc_html( $label ) . '</span>';
-        echo $url !== '' ? '</a>' : '</div>';
+        echo $card_url !== '' ? '</a>' : '</div>';
     }
 
     private static function render_cluster_opportunities( array $d ): void {
