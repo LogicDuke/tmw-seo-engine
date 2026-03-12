@@ -11,6 +11,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/db/class-jobs.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php';
@@ -272,6 +273,7 @@ class Plugin {
 
         // Defensive: clear any lingering events by name.
         wp_clear_scheduled_hook('tmwseo_process_queue');
+        wp_clear_scheduled_hook('tmwseo_worker_tick');
         wp_clear_scheduled_hook('tmwseo_daily_scan');
         wp_clear_scheduled_hook('tmwseo_daily');
         wp_clear_scheduled_hook('tmwseo_weekly');

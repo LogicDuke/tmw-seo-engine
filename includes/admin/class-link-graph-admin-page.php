@@ -1,6 +1,8 @@
 <?php
 namespace TMWSEO\Engine\Admin;
 
+use TMWSEO\Engine\JobWorker;
+
 if (!defined('ABSPATH')) { exit; }
 
 class LinkGraphAdminPage {
@@ -15,12 +17,22 @@ class LinkGraphAdminPage {
         }
 
         $key = sanitize_key((string) ($_GET['graph_key'] ?? ''));
+        if ($key === '') {
+            $queued_key = get_transient('tmwseo_link_graph_last_result_user_' . get_current_user_id());
+            if (is_string($queued_key) && $queued_key !== '') {
+                $key = sanitize_key($queued_key);
+                delete_transient('tmwseo_link_graph_last_result_user_' . get_current_user_id());
+            }
+        }
         $payload = $key !== '' ? get_transient('tmwseo_link_graph_ui_' . $key) : null;
         if (is_array($payload)) {
             delete_transient('tmwseo_link_graph_ui_' . $key);
         }
 
         echo '<div class="wrap"><h1>Link Graph</h1>';
+        if (isset($_GET['queued']) && (int) $_GET['queued'] === 1) {
+            echo '<div class="notice notice-success"><p>' . esc_html__('Internal link graph scan queued. Refresh shortly to view results.', 'tmwseo') . '</p></div>';
+        }
         echo '<div class="tmwseo-card" style="max-width:1200px;">';
         echo '<h2>Internal Link Graph Engine</h2>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" id="tmwseo-link-graph-form">';
@@ -44,6 +56,16 @@ class LinkGraphAdminPage {
         }
         check_admin_referer('tmwseo_build_link_graph');
 
+        JobWorker::enqueue_job('internal_link_scan', [
+            'user_id' => get_current_user_id(),
+            'trigger' => 'link_graph_admin',
+        ]);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-link-graph&queued=1'));
+        exit;
+    }
+
+    public static function build_graph_payload(): array {
         $posts = get_posts([
             'post_type' => ['post', 'page'],
             'post_status' => 'publish',
@@ -113,7 +135,7 @@ class LinkGraphAdminPage {
         $suggestions = array_slice($suggestions, 0, 200);
 
         $inbound = array_fill_keys($ids, 0);
-        foreach ($existing_edges as $src => $targets) {
+        foreach ($existing_edges as $targets) {
             foreach ((array) $targets as $target) {
                 $inbound[(int) $target] = ($inbound[(int) $target] ?? 0) + 1;
             }
@@ -124,7 +146,7 @@ class LinkGraphAdminPage {
 
         $depth_map = self::compute_depth_map($existing_edges);
 
-        $result = [
+        return [
             'suggestions' => $suggestions,
             'metrics' => [
                 'most_linked' => $most_linked_id > 0 ? ($post_map[$most_linked_id]['title'] ?? '') : '',
@@ -132,12 +154,6 @@ class LinkGraphAdminPage {
                 'avg_link_depth' => !empty($depth_map) ? round(array_sum($depth_map) / max(1, count($depth_map)), 2) : 0,
             ],
         ];
-
-        $token = wp_generate_password(20, false, false);
-        set_transient('tmwseo_link_graph_ui_' . $token, $result, 10 * MINUTE_IN_SECONDS);
-        set_transient('tmwseo_link_graph_suggestions_' . get_current_user_id(), $suggestions, HOUR_IN_SECONDS);
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-link-graph&graph_key=' . rawurlencode($token)));
-        exit;
     }
 
     public static function handle_insert_suggestions(): void {

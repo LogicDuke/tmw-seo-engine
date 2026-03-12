@@ -1205,13 +1205,8 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_worker');
 
-        // Always enqueue at least one lightweight job so the button produces
-        // a deterministic result (and a log entry), even when the queue is empty.
-        Jobs::enqueue('healthcheck', 'system', 0, [
-            'trigger' => 'manual',
-            'version' => defined('TMWSEO_ENGINE_VERSION') ? TMWSEO_ENGINE_VERSION : 'unknown',
-        ]);
-
+        JobWorker::process_next_job();
+        // Keep legacy queue processing for backward compatibility.
         Worker::run();
         wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_notice=worker_ran'));
         exit;
@@ -1493,12 +1488,14 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_keyword_cycle');
 
-        DiscoveryOrchestrator::run(['source' => 'manual_keyword_cycle']);
-        Jobs::enqueue('keyword_cycle', 'system', 0, [
-            'trigger' => 'manual',
+        JobWorker::enqueue_job('keyword_discovery', [
+            'trigger' => 'manual_keyword_cycle',
+            'user_id' => get_current_user_id(),
         ]);
-
-        Worker::run();
+        JobWorker::enqueue_job('cluster_generation', [
+            'trigger' => 'manual_keyword_cycle',
+            'user_id' => get_current_user_id(),
+        ]);
 
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=keyword_cycle_ran'));
         exit;
@@ -2036,7 +2033,9 @@ class Admin {
 
         echo '<div class="tmwui-card">';
         echo '<h3 class="tmwui-card-title">' . esc_html__('System Worker', 'tmwseo') . '</h3>';
-        echo '<p class="tmwui-card-desc">' . esc_html__('Runs a healthcheck job and processes any queued tasks. Use this to unstick the queue if the background worker missed a job.', 'tmwseo') . '</p>';
+        $job_counts = JobWorker::counts();
+        echo '<p class="tmwui-card-desc">' . esc_html__('Runs one queued background SEO job immediately. Worker cron also runs every minute.', 'tmwseo') . '</p>';
+        echo '<p class="tmwui-card-desc"><strong>' . esc_html__('Pending:', 'tmwseo') . '</strong> ' . esc_html((string) ($job_counts['pending'] ?? 0)) . ' · <strong>' . esc_html__('Running:', 'tmwseo') . '</strong> ' . esc_html((string) ($job_counts['running'] ?? 0)) . ' · <strong>' . esc_html__('Failed:', 'tmwseo') . '</strong> ' . esc_html((string) ($job_counts['failed'] ?? 0)) . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_worker');
         echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
