@@ -327,6 +327,7 @@ class Schema {
             entity_type VARCHAR(30) NOT NULL,
             entity_id BIGINT(20) UNSIGNED NOT NULL,
             keyword VARCHAR(255) NOT NULL,
+            keyword_hash CHAR(40) NOT NULL,
             volume INT(11) NULL,
             cpc DECIMAL(10,2) NULL,
             difficulty DECIMAL(6,2) NULL,
@@ -336,7 +337,8 @@ class Schema {
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY entity (entity_type, entity_id),
-            KEY keyword (keyword)
+            KEY keyword (keyword),
+            UNIQUE KEY keyword_hash (keyword_hash)
         ) $charset_collate;";
 
         $sql_competitors = "CREATE TABLE $competitors (
@@ -954,6 +956,10 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         // 4.3.0 — Add provenance columns to tmwseo_seeds for existing installs.
         self::migrate_add_seed_provenance_columns();
 
+        // Discovery governor schema reconciliation.
+        self::migrate_keywords_hash_column();
+        self::migrate_discovery_logs_table();
+
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);
     }
 
@@ -1019,4 +1025,73 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             );
         }
     }
+    /**
+     * Ensure tmw_keywords contains a SHA1 hash column with a unique index.
+     * Idempotent for existing installs.
+     */
+    private static function migrate_keywords_hash_column(): void {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'tmw_keywords';
+
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            return;
+        }
+
+        $columns = (array) $wpdb->get_results( "SHOW COLUMNS FROM {$table}", ARRAY_A );
+        $fields = array_column( $columns, 'Field' );
+
+        if ( ! in_array( 'keyword_hash', $fields, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table} ADD COLUMN keyword_hash CHAR(40) NULL AFTER keyword" );
+        }
+
+        $wpdb->query( "UPDATE {$table} SET keyword_hash = SHA1(LOWER(TRIM(keyword))) WHERE keyword_hash IS NULL OR keyword_hash = ''" );
+
+        $duplicates = (array) $wpdb->get_results(
+            "SELECT keyword_hash FROM {$table} WHERE keyword_hash <> '' GROUP BY keyword_hash HAVING COUNT(*) > 1",
+            ARRAY_A
+        );
+
+        if ( ! empty( $duplicates ) ) {
+            $wpdb->query(
+                "DELETE t1 FROM {$table} t1
+                 INNER JOIN {$table} t2
+                    ON t1.keyword_hash = t2.keyword_hash
+                   AND t1.id < t2.id
+                 WHERE t1.keyword_hash <> ''"
+            );
+        }
+
+        $wpdb->query( "ALTER TABLE {$table} MODIFY keyword_hash CHAR(40) NOT NULL" );
+
+        $index = (array) $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'keyword_hash'", ARRAY_A );
+        if ( empty( $index ) ) {
+            $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY keyword_hash (keyword_hash)" );
+        }
+    }
+
+    /**
+     * Ensure discovery logs table exists.
+     */
+    private static function migrate_discovery_logs_table(): void {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $table = $wpdb->prefix . 'tmwseo_discovery_logs';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        $sql = "CREATE TABLE {$table} (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            keywords_processed INT(11) NOT NULL DEFAULT 0,
+            keywords_added INT(11) NOT NULL DEFAULT 0,
+            keywords_filtered INT(11) NOT NULL DEFAULT 0,
+            runtime DECIMAL(10,4) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY created_at (created_at)
+        ) {$charset_collate};";
+
+        dbDelta( $sql );
+    }
+
 }

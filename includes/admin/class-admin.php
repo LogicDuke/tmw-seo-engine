@@ -854,6 +854,11 @@ class Admin {
             'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? $existing['keyword_kd_batch_limit'] ?? 300)),
             'keyword_pages_per_day'  => max(0, (int)($input['keyword_pages_per_day'] ?? $existing['keyword_pages_per_day'] ?? 3)),
             'keyword_negative_filters' => sanitize_textarea_field((string)($input['keyword_negative_filters'] ?? $existing['keyword_negative_filters'] ?? "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers")),
+            'max_keywords_per_run'   => max(1, (int)($input['max_keywords_per_run'] ?? $existing['max_keywords_per_run'] ?? 500)),
+            'max_keywords_per_day'   => max(1, (int)($input['max_keywords_per_day'] ?? $existing['max_keywords_per_day'] ?? 5000)),
+            'max_depth'              => max(1, (int)($input['max_depth'] ?? $existing['max_depth'] ?? 3)),
+            'min_search_volume'      => max(0, (int)($input['min_search_volume'] ?? $existing['min_search_volume'] ?? 50)),
+            'max_keywords_per_topic' => max(1, (int)($input['max_keywords_per_topic'] ?? $existing['max_keywords_per_topic'] ?? 300)),
             'competitor_domains'     => sanitize_textarea_field((string)($input['competitor_domains'] ?? $existing['competitor_domains'] ?? '')),
 
             // Misc
@@ -958,6 +963,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Topic Maps', 'tmwseo'), __('Topic Maps', 'tmwseo'), 'manage_options', 'tmwseo-topic-maps', ['\TMWSEO\Engine\Admin\TopicMapsAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Keyword Graph', 'tmwseo'), __('Keyword Graph', 'tmwseo'), 'manage_options', 'tmwseo-keyword-graph', ['\TMWSEO\Engine\Admin\KeywordGraphAdminPage', 'render']);
+        add_submenu_page(self::MENU_SLUG, __('Discovery Control', 'tmwseo'), __('Discovery Control', 'tmwseo'), 'manage_options', 'tmwseo-discovery-control', ['\TMWSEO\Engine\Admin\DiscoveryControlAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
         add_submenu_page(self::MENU_SLUG, __('Content Gap', 'tmwseo'), __('Content Gap', 'tmwseo'), 'manage_options', 'tmwseo-content-gap', ['\\TMWSEO\\Engine\\ContentGap\\ContentGapAdmin', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Mining', 'tmwseo'), __('Competitor Mining', 'tmwseo'), 'manage_options', 'tmwseo-competitor-mining', [__CLASS__, 'render_competitor_mining']);
@@ -3497,6 +3503,11 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Min search volume', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_min_volume]" value="' . esc_attr((string)($opts['keyword_min_volume'] ?? 30)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('Max KD', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_max_kd]" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('New keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_new_limit]" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_keywords_per_run]" value="' . esc_attr((string)($opts['max_keywords_per_run'] ?? 500)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max keywords per day', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_keywords_per_day]" value="' . esc_attr((string)($opts['max_keywords_per_day'] ?? 5000)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max expansion depth', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_depth]" value="' . esc_attr((string)($opts['max_depth'] ?? 3)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Minimum search volume', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[min_search_volume]" value="' . esc_attr((string)($opts['min_search_volume'] ?? 50)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max keywords per topic', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_keywords_per_topic]" value="' . esc_attr((string)($opts['max_keywords_per_topic'] ?? 300)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('KD batch size', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_kd_batch_limit]" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('Keyword Filters', 'tmwseo') . '</th><td><textarea name="tmwseo_engine_settings[keyword_negative_filters]" rows="8" class="large-text code">' . esc_textarea((string)($opts['keyword_negative_filters'] ?? "video chat
 random chat

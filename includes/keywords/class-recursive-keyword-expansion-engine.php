@@ -8,10 +8,7 @@ use TMWSEO\Engine\Services\DataForSEO;
 if (!defined('ABSPATH')) { exit; }
 
 class RecursiveKeywordExpansionEngine {
-    private const MAX_DEPTH = 3;
-    private const MAX_KEYWORDS_PER_RUN = 100;
     private const MAX_CHILDREN_PER_KEYWORD = 50;
-    private const MIN_VOLUME = 50;
 
     /**
      * @param string[] $seed_keywords
@@ -21,11 +18,26 @@ class RecursiveKeywordExpansionEngine {
         global $wpdb;
 
         $graph_table = QueryExpansionGraph::table_name();
+        $governor = new KeywordDiscoveryGovernor();
+
+        if (!$governor->can_start_run()) {
+            Logs::warn('keywords', '[TMW-RECURSIVE-EXPAND] Daily keyword budget reached. Discovery skipped.', [
+                'max_keywords_per_day' => $governor->config()['max_keywords_per_day'] ?? 0,
+                'keywords_added_today' => $governor->get_keywords_added_today(),
+            ]);
+            return [
+                'expanded_keywords' => 0,
+                'graph_rows_inserted' => 0,
+                'candidates_inserted' => 0,
+            ];
+        }
+
+        $run_started = microtime(true);
         $queue = [];
         $seen = [];
 
         foreach ($seed_keywords as $seed_keyword) {
-            $seed_keyword = self::normalize_keyword((string) $seed_keyword);
+            $seed_keyword = $governor->normalize_keyword((string) $seed_keyword);
             if ($seed_keyword === '' || mb_strlen($seed_keyword, 'UTF-8') < 3) {
                 continue;
             }
@@ -37,7 +49,7 @@ class RecursiveKeywordExpansionEngine {
         $inserted_graph_rows = 0;
         $inserted_candidates = 0;
 
-        while (!empty($queue) && $expanded_count < self::MAX_KEYWORDS_PER_RUN) {
+        while (!empty($queue) && $governor->can_add_keyword_this_run()) {
             $node = array_shift($queue);
             if (!is_array($node)) {
                 continue;
@@ -45,7 +57,7 @@ class RecursiveKeywordExpansionEngine {
 
             $keyword = (string) ($node['keyword'] ?? '');
             $depth = (int) ($node['depth'] ?? 0);
-            if ($keyword === '' || $depth >= self::MAX_DEPTH) {
+            if ($keyword === '' || $depth >= $governor->max_depth()) {
                 continue;
             }
 
@@ -66,11 +78,16 @@ class RecursiveKeywordExpansionEngine {
                     continue;
                 }
 
-                $child_keyword = self::normalize_keyword((string) ($item['keyword'] ?? $item['keyword_info']['keyword'] ?? ''));
+                $child_keyword = $governor->normalize_keyword((string) ($item['keyword'] ?? $item['keyword_info']['keyword'] ?? ''));
                 $search_volume = (int) ($item['keyword_info']['search_volume'] ?? $item['search_volume'] ?? 0);
                 $keyword_difficulty = (float) ($item['keyword_info']['keyword_difficulty'] ?? $item['keyword_difficulty'] ?? 0);
 
-                if ($child_keyword === '' || mb_strlen($child_keyword, 'UTF-8') < 3 || $search_volume < self::MIN_VOLUME) {
+                if ($child_keyword === '' || mb_strlen($child_keyword, 'UTF-8') < 3 || $search_volume < $governor->min_search_volume()) {
+                    $governor->mark_filtered_keyword();
+                    continue;
+                }
+
+                if (!$governor->can_expand_topic(self::topic_prefix($keyword))) {
                     continue;
                 }
 
@@ -97,9 +114,10 @@ class RecursiveKeywordExpansionEngine {
 
                 if (self::insert_candidate_keyword($child_keyword, $search_volume, $keyword_difficulty)) {
                     $inserted_candidates++;
+                    $governor->mark_added_keyword();
                 }
 
-                if (($depth + 1) < self::MAX_DEPTH && !self::was_already_expanded($child_keyword)) {
+                if (($depth + 1) < $governor->max_depth() && !self::was_already_expanded($child_keyword)) {
                     $queue_key = $child_keyword . '|' . ($depth + 1);
                     if (!isset($seen[$queue_key])) {
                         $queue[] = ['keyword' => $child_keyword, 'depth' => $depth + 1, 'parent' => $keyword];
@@ -112,16 +130,23 @@ class RecursiveKeywordExpansionEngine {
             $expanded_count++;
         }
 
+        $runtime = microtime(true) - $run_started;
+        $governor->log_run($expanded_count, $runtime);
+
         Logs::info('keywords', '[TMW-RECURSIVE-EXPAND] Recursive expansion completed', [
             'expanded_keywords' => $expanded_count,
             'graph_rows_inserted' => $inserted_graph_rows,
             'candidates_inserted' => $inserted_candidates,
+            'keywords_filtered' => $governor->keywords_filtered_this_run(),
+            'runtime_seconds' => round($runtime, 4),
         ]);
 
         return [
             'expanded_keywords' => $expanded_count,
             'graph_rows_inserted' => $inserted_graph_rows,
             'candidates_inserted' => $inserted_candidates,
+            'keywords_filtered' => $governor->keywords_filtered_this_run(),
+            'runtime_seconds' => round($runtime, 4),
         ];
     }
 
@@ -132,13 +157,6 @@ class RecursiveKeywordExpansionEngine {
         return JobWorker::enqueue_job('recursive_keyword_expansion', [
             'seed_keywords' => array_values(array_unique(array_map('strval', $seed_keywords))),
         ]);
-    }
-
-    private static function normalize_keyword(string $keyword): string {
-        $keyword = strtolower(trim(wp_strip_all_tags($keyword)));
-        $keyword = preg_replace('/\s+/u', ' ', $keyword);
-
-        return (string) $keyword;
     }
 
     private static function was_already_expanded(string $keyword): bool {
@@ -190,6 +208,16 @@ class RecursiveKeywordExpansionEngine {
         return $count > 0;
     }
 
+
+    private static function topic_prefix(string $keyword): string {
+        $parts = preg_split('/\s+/u', trim($keyword));
+        if (!is_array($parts) || empty($parts)) {
+            return $keyword;
+        }
+
+        return (string) ($parts[0] ?? $keyword);
+    }
+
     private static function candidate_keyword_exists(string $keyword): bool {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
@@ -206,6 +234,10 @@ class RecursiveKeywordExpansionEngine {
         global $wpdb;
 
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $keywords_table = $wpdb->prefix . 'tmw_keywords';
+        $hash = sha1($keyword);
+        $timestamp = current_time('mysql');
+
         $inserted = $wpdb->insert($table, [
             'keyword' => $keyword,
             'canonical' => $keyword,
@@ -213,9 +245,25 @@ class RecursiveKeywordExpansionEngine {
             'volume' => $volume,
             'difficulty' => $difficulty,
             'sources' => wp_json_encode(['recursive_keyword_graph']),
-            'updated_at' => current_time('mysql'),
+            'updated_at' => $timestamp,
         ], ['%s', '%s', '%s', '%d', '%f', '%s', '%s']);
 
-        return $inserted !== false;
+        if ($inserted === false) {
+            return false;
+        }
+
+        $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO {$keywords_table} (entity_type, entity_id, keyword, keyword_hash, volume, source, updated_at)
+             VALUES (%s, %d, %s, %s, %d, %s, %s)",
+            'generic',
+            0,
+            $keyword,
+            $hash,
+            $volume,
+            'recursive',
+            $timestamp
+        ));
+
+        return true;
     }
 }

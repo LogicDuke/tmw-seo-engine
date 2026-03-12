@@ -21,6 +21,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helpe
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-serp-analyzer-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-link-graph-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-topic-maps-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-discovery-control-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php';
@@ -83,6 +84,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-rank-tracker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-discovery-governor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-recursive-keyword-expansion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-expansion-candidate-repository.php'; // 4.3.0
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
