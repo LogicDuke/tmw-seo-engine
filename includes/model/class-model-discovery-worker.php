@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Model;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\DiscoveryGovernor;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -49,6 +50,10 @@ class ModelDiscoveryWorker {
     public static function run(): void {
         global $wpdb;
 
+        if (!DiscoveryGovernor::is_discovery_allowed()) {
+            return;
+        }
+
         $models_table = $wpdb->prefix . 'tmw_models';
         $limit_per_source = 30;
 
@@ -82,6 +87,13 @@ class ModelDiscoveryWorker {
                 $tags = self::extract_tags($model_name);
                 $tag_csv = implode(',', $tags);
 
+                if (!DiscoveryGovernor::can_increment('models_discovered', 1)) {
+                    Logs::warn('model_discovery', 'Discovery governor triggered: model limit reached.', [
+                        'platform' => $platform,
+                    ]);
+                    break;
+                }
+
                 $wpdb->insert(
                     $models_table,
                     [
@@ -95,6 +107,8 @@ class ModelDiscoveryWorker {
                     ],
                     ['%s', '%s', '%s', '%s', '%s', '%s', '%s']
                 );
+
+                DiscoveryGovernor::increment('models_discovered', 1);
 
                 self::ensure_model_page($model_name, $slug, $platform, $tags);
                 self::ensure_category_pages($tags);

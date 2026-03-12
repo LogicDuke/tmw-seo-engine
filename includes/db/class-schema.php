@@ -216,6 +216,7 @@ class Schema {
         $topic_entities = $wpdb->prefix . 'tmw_topic_entities';
         $entity_keywords = $wpdb->prefix . 'tmw_entity_keywords';
         $models = $wpdb->prefix . 'tmw_models';
+        $discovery_governor = $wpdb->prefix . 'tmw_discovery_governor';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -916,6 +917,16 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             KEY keyword_checked (keyword(191), checked_at)
         ) $charset_collate;";
 
+        $sql_discovery_governor = "CREATE TABLE $discovery_governor (
+            id INT(11) NOT NULL AUTO_INCREMENT,
+            metric VARCHAR(100) NOT NULL,
+            limit_value INT(11) NOT NULL DEFAULT 0,
+            current_value INT(11) NOT NULL DEFAULT 0,
+            reset_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY metric (metric)
+        ) $charset_collate;";
+
         dbDelta($sql_jobs);
         dbDelta($sql_tmwseo_jobs);
         dbDelta($sql_logs);
@@ -963,6 +974,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_entity_keywords);
         dbDelta($sql_models);
         dbDelta($sql_legacy_rank);
+        dbDelta($sql_discovery_governor);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
         $kw_usage     = $wpdb->prefix . 'tmwseo_keyword_usage';
@@ -1013,6 +1025,9 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         // Discovery governor schema reconciliation.
         self::migrate_keywords_hash_column();
         self::migrate_discovery_logs_table();
+        if (class_exists('TMWSEO\\Engine\\DiscoveryGovernor')) {
+            \TMWSEO\Engine\DiscoveryGovernor::ensure_defaults();
+        }
         self::seed_topic_entities();
 
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);

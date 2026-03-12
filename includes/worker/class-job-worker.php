@@ -8,6 +8,7 @@ use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 use TMWSEO\Engine\ContentGap\ContentGapService;
+use TMWSEO\Engine\DiscoveryGovernor;
 use TMWSEO\Engine\Keywords\RecursiveKeywordExpansionEngine;
 
 if (!defined('ABSPATH')) { exit; }
@@ -18,6 +19,10 @@ class JobWorker {
     public static function enqueue_job(string $type, array $payload): int {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
+
+        if (!DiscoveryGovernor::can_increment('queue_jobs_created', 1)) {
+            return 0;
+        }
 
         $safe_payload = self::sanitize_payload($payload);
         $wpdb->insert(
@@ -31,6 +36,8 @@ class JobWorker {
             ],
             ['%s', '%s', '%s', '%s', '%d']
         );
+
+        DiscoveryGovernor::increment('queue_jobs_created', 1);
 
         return (int) $wpdb->insert_id;
     }
@@ -73,8 +80,21 @@ class JobWorker {
                 $payload = [];
             }
 
+            $job_type = (string) ($job['job_type'] ?? '');
+
+            if (self::is_discovery_job_type($job_type) && !DiscoveryGovernor::is_discovery_allowed()) {
+                $wpdb->update(
+                    $table,
+                    ['status' => 'done', 'finished_at' => current_time('mysql'), 'error_message' => 'Discovery disabled by tmw_discovery_enabled'],
+                    ['id' => $job_id],
+                    ['%s', '%s', '%s'],
+                    ['%d']
+                );
+                return;
+            }
+
             try {
-                self::execute_job((string) ($job['job_type'] ?? ''), $payload);
+                self::execute_job($job_type, $payload);
 
                 $wpdb->update(
                     $table,
@@ -124,10 +144,15 @@ class JobWorker {
             throw new \RuntimeException('Invalid SERP payload.');
         }
 
+        if (!DiscoveryGovernor::can_increment('serp_requests', 1)) {
+            throw new \RuntimeException('Discovery governor triggered: serp_requests limit reached.');
+        }
+
         $cache_key = 'tmwseo_bg_serp_' . md5(mb_strtolower($keyword, 'UTF-8'));
         $result = get_transient($cache_key);
         if (!is_array($result)) {
             $result = SerpAnalyzerAdminPage::build_serp_result($keyword);
+            DiscoveryGovernor::increment('serp_requests', 1);
             set_transient($cache_key, $result, DAY_IN_SECONDS);
         }
 
@@ -175,6 +200,7 @@ class JobWorker {
     public static function counts(): array {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
+
         $rows = (array) $wpdb->get_results("SELECT status, COUNT(*) AS cnt FROM {$table} GROUP BY status", ARRAY_A);
         $counts = ['pending' => 0, 'running' => 0, 'failed' => 0, 'done' => 0];
         foreach ($rows as $row) {
@@ -185,6 +211,10 @@ class JobWorker {
         }
 
         return $counts;
+    }
+
+    private static function is_discovery_job_type(string $job_type): bool {
+        return in_array($job_type, ['keyword_discovery', 'competitor_mining', 'recursive_keyword_expansion'], true);
     }
 
     private static function execute_job(string $job_type, array $payload): void {
