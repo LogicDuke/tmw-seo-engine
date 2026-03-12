@@ -97,6 +97,20 @@ class Settings {
 
             // Model keyword discovery automation
             'enable_model_auto_keyword_discovery' => 1,
+
+            // Google Ads Keyword Planner
+            'google_ads_enabled'        => 0,
+            'google_ads_developer_token'=> '',
+            'google_ads_client_id'      => '',
+            'google_ads_client_secret'  => '',
+            'google_ads_refresh_token'  => '',
+            'google_ads_customer_id'    => '',
+
+            // Google Trends
+            'google_trends_enabled'  => 0,
+            'google_trends_geo'      => 'US',
+            'google_trends_locale'   => 'en-US',
+            'google_trends_timeframe'=> 'today 3-m',
         ];
     }
 

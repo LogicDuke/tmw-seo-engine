@@ -251,19 +251,25 @@ class CommandCenter {
         echo '<section class="tmwcc-section">';
         echo '<h2 class="tmwcc-section-title">📍 Command Center</h2>';
         echo '<div class="tmwcc-summary-grid">';
-        self::render_summary_card( 'Total Seeds', (int) ( $summary['total_seeds'] ?? 0 ) );
-        self::render_summary_card( 'Total Keywords', (int) ( $summary['total_keywords'] ?? 0 ) );
-        self::render_summary_card( 'Total Clusters', (int) ( $summary['total_clusters'] ?? 0 ) );
-        self::render_summary_card( 'Pages Created', (int) ( $summary['pages_created'] ?? 0 ) );
+        self::render_summary_card( 'Total Seeds', (int) ( $summary['total_seeds'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-seed-registry' ) );
+        self::render_summary_card( 'Total Keywords', (int) ( $summary['total_keywords'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-keywords' ) );
+        self::render_summary_card( 'Total Clusters', (int) ( $summary['total_clusters'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-keywords' ) );
+        self::render_summary_card( 'Pages Created', (int) ( $summary['pages_created'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-generated' ) );
         echo '</div>';
         echo '</section>';
     }
 
-    private static function render_summary_card( string $label, int $value ): void {
-        echo '<div class="tmwcc-summary-card">';
+    private static function render_summary_card( string $label, int $value, string $url = '' ): void {
+        $card_url = trim( $url );
+
+        if ( $card_url !== '' ) {
+            echo '<a class="tmwcc-summary-card" href="' . esc_url( $card_url ) . '">';
+        } else {
+            echo '<div class="tmwcc-summary-card">';
+        }
         echo '<span class="tmwcc-summary-value">' . esc_html( (string) $value ) . '</span>';
         echo '<span class="tmwcc-summary-label">' . esc_html( $label ) . '</span>';
-        echo '</div>';
+        echo $card_url !== '' ? '</a>' : '</div>';
     }
 
     private static function render_cluster_opportunities( array $d ): void {
@@ -372,6 +378,19 @@ class CommandCenter {
         }
         if ( $d['threat_count'] > 0 ) {
             $alerts[] = [ 'level' => 'info', 'msg' => $d['threat_count'] . ' competitor keyword threat(s) detected this week.', 'link' => admin_url( 'admin.php?page=tmwseo-competitor-domains' ), 'action' => 'Review threats →' ];
+        }
+
+        // Google Ads Keyword Planner
+        $s = \TMWSEO\Engine\Services\Settings::all();
+        if ( empty( $s['google_ads_enabled'] ) ) {
+            $alerts[] = [ 'level' => 'info', 'msg' => 'Google Ads Keyword Planner disabled — volume data relies on DataForSEO only. Enable for richer keyword metrics.', 'link' => admin_url( 'admin.php?page=tmwseo-settings&stab=google_ads' ), 'action' => 'Configure →' ];
+        } elseif ( empty( $s['google_ads_developer_token'] ) || empty( $s['google_ads_client_id'] ) || empty( $s['google_ads_refresh_token'] ) ) {
+            $alerts[] = [ 'level' => 'warn', 'msg' => 'Google Ads Keyword Planner is enabled but credentials are incomplete — keyword enrichment pass will be skipped.', 'link' => admin_url( 'admin.php?page=tmwseo-settings&stab=google_ads' ), 'action' => 'Fix credentials →' ];
+        }
+
+        // Google Trends
+        if ( empty( $s['google_trends_enabled'] ) ) {
+            $alerts[] = [ 'level' => 'info', 'msg' => 'Google Trends disabled — trend scoring is unavailable. Enable to surface trending keywords in seed discovery.', 'link' => admin_url( 'admin.php?page=tmwseo-settings&stab=google_trends' ), 'action' => 'Enable →' ];
         }
         if ( $d['ai_pct'] >= 80 ) {
             $lvl = $d['ai_pct'] >= 95 ? 'danger' : 'warn';
@@ -676,6 +695,33 @@ class CommandCenter {
             $schema_on ? 'Schema markup enabled for configured post types' : 'Schema output is off — enable in Settings',
             null,
             admin_url( 'admin.php?page=tmwseo-settings&stab=schema' )
+        );
+
+        // ── Google Ads Keyword Planner ──────────────────────────────────────
+        $gads_ok = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::is_configured();
+        $gads_enabled = (bool) \TMWSEO\Engine\Services\Settings::get( 'google_ads_enabled', 0 );
+        self::sys_card(
+            'Google Keyword Planner', 'KP', '#34a853',
+            $gads_ok,
+            $gads_ok
+                ? 'Volume + CPC enrichment active — supplements DataForSEO metrics'
+                : ( ! $gads_enabled
+                    ? 'Disabled — enable in Settings → Google Ads to unlock volume/CPC enrichment'
+                    : 'Enabled but credentials incomplete — check Settings → Google Ads' ),
+            null,
+            admin_url( 'admin.php?page=tmwseo-settings&stab=google_ads' )
+        );
+
+        // ── Google Trends ───────────────────────────────────────────────────
+        $gtrends_ok = \TMWSEO\Engine\Services\GoogleTrends::is_enabled();
+        self::sys_card(
+            'Google Trends', 'GT', '#fbbc04',
+            $gtrends_ok,
+            $gtrends_ok
+                ? 'Trend seeds + direction enrichment active — rising queries feed into preview layer'
+                : 'Disabled — enable in Settings → Google Trends to unlock trending seed phrases',
+            null,
+            admin_url( 'admin.php?page=tmwseo-settings&stab=google_trends' )
         );
 
         echo '</div></section>';

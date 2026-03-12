@@ -99,9 +99,6 @@ class SeedRegistryAdminPage {
                 }
                 break;
 
-            case 'clear_promotion_diag':
-                ExpansionCandidateRepository::clear_last_promotion_diag();
-                break;
 
             case 'save_builder_switches':
                 $switches = [
@@ -247,26 +244,6 @@ class SeedRegistryAdminPage {
 
         echo '<h2>' . esc_html__( 'Expansion Preview Queue', 'tmwseo' ) . '</h2>';
 
-        $diag = ExpansionCandidateRepository::get_last_promotion_diag();
-        if ( current_user_can( 'manage_options' ) ) {
-            echo '<div class="notice notice-info" style="padding:12px;margin:12px 0;">';
-            echo '<h3 style="margin-top:0;">' . esc_html__( 'TEMP: Last Promotion Diagnostic (TMW-PREVIEW-DIAG)', 'tmwseo' ) . '</h3>';
-            if ( empty( $diag ) ) {
-                echo '<p><em>' . esc_html__( 'No promotion diagnostics captured yet.', 'tmwseo' ) . '</em></p>';
-            } else {
-                echo '<pre style="max-height:260px;overflow:auto;background:#fff;border:1px solid #ccd0d4;padding:10px;">';
-                echo esc_html( wp_json_encode( $diag, JSON_PRETTY_PRINT ) ?: '' );
-                echo '</pre>';
-            }
-
-            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:8px;">';
-            wp_nonce_field( 'tmwseo_seed_registry_nonce' );
-            echo '<input type="hidden" name="action" value="tmwseo_seed_registry_action">';
-            echo '<input type="hidden" name="tmwseo_action" value="clear_promotion_diag">';
-            echo '<button type="submit" class="button button-small">' . esc_html__( 'Clear diagnostics', 'tmwseo' ) . '</button>';
-            echo '</form>';
-            echo '</div>';
-        }
 
         // Status filter links
         $filter_labels = [

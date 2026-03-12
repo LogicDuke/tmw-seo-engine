@@ -321,23 +321,36 @@ class AdminDashboardV2 {
             <!-- Recent candidates -->
             <?php
             $candidates = $wpdb->get_results(
-                "SELECT keyword, search_volume, difficulty, intent, status, created_at
+                "SELECT keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
                  FROM {$wpdb->prefix}tmw_keyword_candidates
-                 ORDER BY search_volume DESC LIMIT 30",
+                 ORDER BY updated_at DESC, volume DESC LIMIT 30",
                 ARRAY_A
             );
-            self::table(
-                [ 'Keyword', 'Volume', 'KD', 'Intent', 'Status', 'Added' ],
-                array_map( fn( $r ) => [
-                    esc_html( $r['keyword'] ),
-                    '<strong>' . esc_html( number_format( (int) $r['search_volume'] ) ) . '</strong>',
-                    self::kd_badge( (float) $r['difficulty'] ),
-                    esc_html( $r['intent'] ?? '—' ),
-                    self::status_badge( $r['status'] ?? 'new' ),
-                    esc_html( substr( $r['created_at'], 0, 10 ) ),
-                ], $candidates ),
-                'Top 30 candidates by search volume'
-            );
+            ?>
+            <div class="td-card mb-6">
+                <div class="td-card-header">
+                    <span class="td-card-icon">🧩</span>
+                    <h3 class="td-card-title">Recent Candidates</h3>
+                </div>
+                <?php
+                if ( empty( $candidates ) ) {
+                    echo '<div style="padding:0 20px 20px;color:var(--td-muted)">No candidate rows available yet.</div>';
+                } else {
+                    self::table(
+                        [ 'Keyword', 'Volume', 'KD', 'Intent', 'Status', 'Updated' ],
+                        array_map( fn( $r ) => [
+                            esc_html( $r['keyword'] ),
+                            '<strong>' . esc_html( number_format( (int) ( $r['volume'] ?? 0 ) ) ) . '</strong>',
+                            self::kd_badge( (float) ( $r['difficulty'] ?? 0 ) ),
+                            esc_html( $r['intent'] ?? '—' ) . ( ! empty( $r['intent_type'] ) && $r['intent_type'] !== 'generic' ? '<div style="font-size:11px;color:var(--td-muted)">' . esc_html( $r['intent_type'] ) . '</div>' : '' ),
+                            self::status_badge( $r['status'] ?? 'new' ) . ( ! empty( $r['entity_type'] ) && $r['entity_type'] !== 'generic' ? '<div style="font-size:11px;color:var(--td-muted)">' . esc_html( $r['entity_type'] ) . '</div>' : '' ),
+                            esc_html( substr( (string) ( $r['updated_at'] ?? '' ), 0, 10 ) ),
+                        ], $candidates ),
+                        'Top 30 candidates by most recent updates'
+                    );
+                }
+                ?>
+            </div>
 
         elseif ( $tab === 'clusters' ) :
             $clusters = $wpdb->get_results(

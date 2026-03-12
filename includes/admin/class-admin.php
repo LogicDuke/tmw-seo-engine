@@ -31,6 +31,7 @@ class Admin {
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
+        add_action('admin_post_tmwseo_keyword_candidate_action', [__CLASS__, 'handle_keyword_candidate_action']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
         add_action('admin_post_tmwseo_refresh_keywords_now', [__CLASS__, 'handle_refresh_keywords_now']);
         add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
@@ -147,7 +148,6 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
             self::MENU_SLUG . '_page_tmwseo-internal-links',
-            self::MENU_SLUG . '_page_tmwseo-keyword-graph',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -853,6 +853,20 @@ class Admin {
             'intel_max_keywords'       => max(50, (int)($input['intel_max_keywords'] ?? $existing['intel_max_keywords'] ?? 1000)),
             'debug_mode'               => !empty($input['debug_mode']) ? 1 : 0,
 
+            // Google Ads Keyword Planner
+            'google_ads_enabled'         => !empty($input['google_ads_enabled']) ? 1 : 0,
+            'google_ads_developer_token' => sanitize_text_field((string)($input['google_ads_developer_token'] ?? $existing['google_ads_developer_token'] ?? '')),
+            'google_ads_client_id'       => sanitize_text_field((string)($input['google_ads_client_id'] ?? $existing['google_ads_client_id'] ?? '')),
+            'google_ads_client_secret'   => sanitize_text_field((string)($input['google_ads_client_secret'] ?? $existing['google_ads_client_secret'] ?? '')),
+            'google_ads_refresh_token'   => sanitize_text_field((string)($input['google_ads_refresh_token'] ?? $existing['google_ads_refresh_token'] ?? '')),
+            'google_ads_customer_id'     => sanitize_text_field((string)($input['google_ads_customer_id'] ?? $existing['google_ads_customer_id'] ?? '')),
+
+            // Google Trends
+            'google_trends_enabled'   => !empty($input['google_trends_enabled']) ? 1 : 0,
+            'google_trends_geo'       => sanitize_text_field((string)($input['google_trends_geo'] ?? $existing['google_trends_geo'] ?? 'US')),
+            'google_trends_locale'    => sanitize_text_field((string)($input['google_trends_locale'] ?? $existing['google_trends_locale'] ?? 'en-US')),
+            'google_trends_timeframe' => sanitize_text_field((string)($input['google_trends_timeframe'] ?? $existing['google_trends_timeframe'] ?? 'today 3-m')),
+
             // Affiliates (preserved from existing)
             'affiliate' => self::sanitize_affiliate_settings($input['affiliate'] ?? ($existing['affiliate'] ?? [])),
         ];
@@ -928,7 +942,6 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
         add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
-        add_submenu_page(self::MENU_SLUG, __('Keyword Graph', 'tmwseo'), __('Keyword Graph', 'tmwseo'), 'manage_options', 'tmwseo-keyword-graph', ['\\TMWSEO\\Engine\\Admin\\KeywordGraphAdminPage', 'render']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
@@ -995,6 +1008,7 @@ class Admin {
             'tmwseo-connections',
             'tmwseo-settings',
             'tmwseo-tools',
+            'tmwseo-staging-validation-helper',
             'tmw-seo-debug',
         ];
 
@@ -1477,6 +1491,93 @@ class Admin {
         exit;
     }
 
+    public static function handle_keyword_candidate_action(): void {
+        if (!current_user_can('manage_options')) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_action_unauthorized'));
+            exit;
+        }
+
+        $candidate_id = isset($_REQUEST['candidate_id']) ? absint($_REQUEST['candidate_id']) : 0;
+        $requested_action = isset($_REQUEST['candidate_action'])
+            ? sanitize_key((string) wp_unslash($_REQUEST['candidate_action']))
+            : '';
+
+        if ($candidate_id <= 0) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_invalid_request'));
+            exit;
+        }
+
+        $nonce_action = 'tmwseo_keyword_candidate_action_' . $candidate_id;
+        if (!isset($_REQUEST['_wpnonce']) || !wp_verify_nonce((string) wp_unslash($_REQUEST['_wpnonce']), $nonce_action)) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_invalid_nonce'));
+            exit;
+        }
+
+        $status_map = [
+            'approve' => 'approved',
+            'reject'  => 'ignored',
+        ];
+
+        if (!isset($status_map[$requested_action])) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_invalid_request'));
+            exit;
+        }
+
+        global $wpdb;
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $new_status = $status_map[$requested_action];
+
+        $updated = $wpdb->update(
+            $cand_table,
+            [
+                'status' => $new_status,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $candidate_id],
+            ['%s', '%s'],
+            ['%d']
+        );
+
+        $current_status = strtolower(trim((string) $wpdb->get_var($wpdb->prepare(
+            "SELECT status FROM {$cand_table} WHERE id = %d",
+            $candidate_id
+        ))));
+
+        if ($current_status === 'approved' && $new_status === 'approved') {
+            $redirect_url = add_query_arg([
+                'page' => 'tmwseo-keywords',
+                'tmwseo_notice' => 'candidate_action_not_available',
+                'tmwseo_candidate_id' => $candidate_id,
+            ], admin_url('admin.php'));
+            wp_safe_redirect($redirect_url);
+            exit;
+        }
+
+        if ($current_status === 'ignored' && $new_status === 'ignored') {
+            $redirect_url = add_query_arg([
+                'page' => 'tmwseo-keywords',
+                'tmwseo_notice' => 'candidate_action_not_available',
+                'tmwseo_candidate_id' => $candidate_id,
+            ], admin_url('admin.php'));
+            wp_safe_redirect($redirect_url);
+            exit;
+        }
+
+        $notice = 'candidate_update_failed';
+        if ($updated !== false) {
+            $notice = $updated > 0 ? 'candidate_updated' : 'candidate_not_found';
+        }
+
+        $redirect_url = add_query_arg([
+            'page' => 'tmwseo-keywords',
+            'tmwseo_notice' => $notice,
+            'tmwseo_candidate_id' => $candidate_id,
+            'tmwseo_candidate_status' => $new_status,
+        ], admin_url('admin.php'));
+        wp_safe_redirect($redirect_url);
+        exit;
+    }
+
     public static function run_pagespeed_cycle_now(): void {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_pagespeed_cycle');
@@ -1744,13 +1845,43 @@ class Admin {
                 $models_processed,
                 $seeds_created
             );
+        } elseif ($notice === 'candidate_updated') {
+            $candidate_id = isset($_GET['tmwseo_candidate_id']) ? absint($_GET['tmwseo_candidate_id']) : 0;
+            $status = isset($_GET['tmwseo_candidate_status'])
+                ? sanitize_key((string) wp_unslash($_GET['tmwseo_candidate_status']))
+                : '';
+            $message = sprintf(
+                __('Candidate #%1$d updated to status: %2$s.', 'tmwseo'),
+                $candidate_id,
+                $status
+            );
+        } elseif ($notice === 'candidate_not_found') {
+            $message = __('Candidate update skipped. The selected row was not found or unchanged.', 'tmwseo');
+        } elseif ($notice === 'candidate_invalid_request') {
+            $message = __('Candidate action failed. Invalid request.', 'tmwseo');
+        } elseif ($notice === 'candidate_invalid_nonce') {
+            $message = __('Candidate action failed. Security check did not pass.', 'tmwseo');
+        } elseif ($notice === 'candidate_action_unauthorized') {
+            $message = __('Candidate action failed. You are not allowed to do that.', 'tmwseo');
+        } elseif ($notice === 'candidate_update_failed') {
+            $message = __('Candidate action failed due to a database error.', 'tmwseo');
+        } elseif ($notice === 'candidate_action_not_available') {
+            $message = __('Candidate action skipped. This row is already in a final status for that action.', 'tmwseo');
         }
 
         if ($message === '') {
             return;
         }
 
-        echo '<div class="notice notice-success is-dismissible"><p>';
+        $is_error_notice = in_array($notice, [
+            'candidate_invalid_request',
+            'candidate_invalid_nonce',
+            'candidate_action_unauthorized',
+            'candidate_update_failed',
+            'candidate_action_not_available',
+        ], true);
+
+        echo '<div class="notice ' . esc_attr($is_error_notice ? 'notice-error' : 'notice-success') . ' is-dismissible"><p>';
         echo esc_html($message);
         echo '</p></div>';
     }
@@ -2337,6 +2468,101 @@ class Admin {
         echo '</form>';
         echo '<a class="button" href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_run_worker'), 'tmwseo_run_worker')) . '">Run Worker (healthcheck)</a>';
         echo '</div>';
+
+        // ── Recent Candidates table ───────────────────────────────────────────
+        $focused_candidate_id = isset($_GET['tmwseo_candidate_focus']) ? absint($_GET['tmwseo_candidate_focus']) : 0;
+        $recent_candidates = $wpdb->get_results(
+            "SELECT id, keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
+             FROM {$cand_table}
+             ORDER BY updated_at DESC, volume DESC
+             LIMIT 30",
+            ARRAY_A
+        );
+
+        AdminUI::section_start( __('Recent Candidates', 'tmwseo') );
+        if (empty($recent_candidates)) {
+            AdminUI::empty_state( __('No candidate rows available yet.', 'tmwseo') );
+        } else {
+            echo '<div class="tmwui-table-wrap">';
+            echo '<table class="widefat striped">';
+            echo '<thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Intent</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>';
+            foreach ($recent_candidates as $candidate) {
+                $candidate_id = isset($candidate['id']) ? absint($candidate['id']) : 0;
+                $intent_type = strtolower(trim((string) ($candidate['intent_type'] ?? '')));
+                $entity_type = strtolower(trim((string) ($candidate['entity_type'] ?? '')));
+                $keyword_value = trim((string) ($candidate['keyword'] ?? ''));
+                $candidate_status = strtolower(trim((string) ($candidate['status'] ?? '')));
+                $is_approved = $candidate_status === 'approved';
+                $is_ignored = $candidate_status === 'ignored';
+                $status_styles = [
+                    'approved' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;',
+                    'ignored'  => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;',
+                    'new'      => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1e40af;font-weight:600;',
+                ];
+                $status_style = $status_styles[$candidate_status] ?? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#374151;font-weight:600;';
+
+                $inspect_url = add_query_arg([
+                    'page' => 'tmwseo-keywords',
+                    'tmwseo_candidate_focus' => $candidate_id,
+                ], admin_url('admin.php'));
+                $approve_url = wp_nonce_url(add_query_arg([
+                    'action' => 'tmwseo_keyword_candidate_action',
+                    'candidate_id' => $candidate_id,
+                    'candidate_action' => 'approve',
+                ], admin_url('admin-post.php')), 'tmwseo_keyword_candidate_action_' . $candidate_id);
+                $reject_url = wp_nonce_url(add_query_arg([
+                    'action' => 'tmwseo_keyword_candidate_action',
+                    'candidate_id' => $candidate_id,
+                    'candidate_action' => 'reject',
+                ], admin_url('admin-post.php')), 'tmwseo_keyword_candidate_action_' . $candidate_id);
+
+                $copy_keyword_button = '<button type="button" class="button button-small" data-tmw-copy-keyword="' . esc_attr($keyword_value) . '">' . esc_html__('Copy keyword', 'tmwseo') . '</button>';
+                $action_parts = ['<a class="button button-small" href="' . esc_url($inspect_url) . '">' . esc_html__('View / Inspect', 'tmwseo') . '</a>'];
+                if (!$is_approved) {
+                    $action_parts[] = '<a class="button button-small" href="' . esc_url($approve_url) . '">' . esc_html__('Approve', 'tmwseo') . '</a>';
+                }
+                if (!$is_ignored) {
+                    $action_parts[] = '<a class="button button-small" href="' . esc_url($reject_url) . '">' . esc_html__('Reject', 'tmwseo') . '</a>';
+                }
+                $action_parts[] = $copy_keyword_button;
+                $actions = implode(' ', $action_parts);
+
+                $keyword_secondary = '';
+                if ($entity_type !== '' && $entity_type !== 'generic') {
+                    $keyword_secondary = '<div style="color:#6b7280;font-size:12px;">' . esc_html($candidate['entity_type']) . '</div>';
+                }
+
+                $intent_secondary = '';
+                if ($intent_type !== '' && $intent_type !== 'generic') {
+                    $intent_secondary = '<div style="color:#6b7280;font-size:12px;">' . esc_html($candidate['intent_type']) . '</div>';
+                }
+
+                $row_style = '';
+                if ($focused_candidate_id > 0 && $candidate_id === $focused_candidate_id) {
+                    $row_style = ' style="outline:2px solid #2271b1;outline-offset:-2px;background:#f0f6fc;"';
+                }
+
+                $just_updated = isset($_GET['tmwseo_candidate_id']) ? absint((string) $_GET['tmwseo_candidate_id']) : 0;
+                if ($just_updated > 0 && $candidate_id === $just_updated) {
+                    $row_style = ' style="outline:2px solid #16a34a;outline-offset:-2px;background:#f0fdf4;"';
+                }
+
+                echo '<tr id="tmw-candidate-' . esc_attr((string) $candidate_id) . '"' . $row_style . '>';
+                echo '<td>' . esc_html((string) ($candidate['keyword'] ?? '')) . $keyword_secondary . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['volume'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['difficulty'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) ($candidate['intent'] ?? '')) . $intent_secondary . '</td>';
+                echo '<td><span style="' . esc_attr($status_style) . '">' . esc_html((string) ($candidate['status'] ?? '')) . '</span></td>';
+                echo '<td>' . esc_html((string) ($candidate['updated_at'] ?? '')) . '</td>';
+                echo '<td>' . $actions . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+            echo '</div>';
+            echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
+            echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve sets candidate status to approved. Reject sets candidate status to ignored. View / Inspect focuses this row on the Keywords page.', 'tmwseo') . '</p>';
+        }
+        AdminUI::section_end();
 
         // ── Top Clusters table ────────────────────────────────────────────────
         $clusters = $wpdb->get_results(
@@ -3110,6 +3336,46 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
         echo '<table class="form-table"><tr><th>' . esc_html__('Debug mode', 'tmwseo') . '</th><td>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[debug_mode]" value="1" ' . checked($debug_mode, true, false) . '> ' . esc_html__('Enable debug logging', 'tmwseo') . '</label>';
         echo '</td></tr></table>';
+
+        // ── Google Ads Keyword Planner ────────────────────────────────────
+        $ga_enabled        = !empty($opts['google_ads_enabled']);
+        $ga_dev_token      = esc_attr((string)($opts['google_ads_developer_token'] ?? ''));
+        $ga_client_id      = esc_attr((string)($opts['google_ads_client_id'] ?? ''));
+        $ga_client_secret  = esc_attr((string)($opts['google_ads_client_secret'] ?? ''));
+        $ga_refresh_token  = esc_attr((string)($opts['google_ads_refresh_token'] ?? ''));
+        $ga_customer_id    = esc_attr((string)($opts['google_ads_customer_id'] ?? ''));
+        echo '<h2>' . esc_html__('Google Ads Keyword Planner', 'tmwseo') . '</h2>';
+        echo '<div style="background:#f0f9ff;border-left:4px solid #3b82f6;padding:10px 14px;margin-bottom:12px;">';
+        echo '<p style="margin:0;">' . esc_html__('Keyword Planner enriches candidate keyword metrics (volume, CPC) via the Google Ads API. Credentials require a Google Ads developer account with a manager (MCC) customer ID and OAuth2 tokens.', 'tmwseo') . '</p>';
+        echo '</div>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('Enable', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[google_ads_enabled]" value="1" ' . checked($ga_enabled, true, false) . '> ' . esc_html__('Enable Google Ads Keyword Planner integration', 'tmwseo') . '</label>';
+        echo '</td></tr>';
+        echo '<tr><th>' . esc_html__('Developer Token', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[google_ads_developer_token]" value="' . $ga_dev_token . '" class="regular-text" autocomplete="off"><p class="description">' . esc_html__('From your Google Ads API Center under your MCC account.', 'tmwseo') . '</p></td></tr>';
+        echo '<tr><th>' . esc_html__('OAuth2 Client ID', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[google_ads_client_id]" value="' . $ga_client_id . '" class="regular-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('OAuth2 Client Secret', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[google_ads_client_secret]" value="' . $ga_client_secret . '" class="regular-text" autocomplete="off"></td></tr>';
+        echo '<tr><th>' . esc_html__('Refresh Token', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[google_ads_refresh_token]" value="' . $ga_refresh_token . '" class="regular-text" autocomplete="off"><p class="description">' . esc_html__('Long-lived OAuth2 refresh token. Generate via the Google OAuth2 Playground.', 'tmwseo') . '</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Customer ID', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[google_ads_customer_id]" value="' . $ga_customer_id . '" class="regular-text"><p class="description">' . esc_html__('10-digit Google Ads Customer ID (without dashes).', 'tmwseo') . '</p></td></tr>';
+        echo '</table>';
+
+        // ── Google Trends ──────────────────────────────────────────────────
+        $gt_enabled   = !empty($opts['google_trends_enabled']);
+        $gt_geo       = esc_attr((string)($opts['google_trends_geo'] ?? 'US'));
+        $gt_locale    = esc_attr((string)($opts['google_trends_locale'] ?? 'en-US'));
+        $gt_timeframe = esc_attr((string)($opts['google_trends_timeframe'] ?? 'today 3-m'));
+        echo '<h2>' . esc_html__('Google Trends', 'tmwseo') . '</h2>';
+        echo '<div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:10px 14px;margin-bottom:12px;">';
+        echo '<p style="margin:0;">' . esc_html__('Google Trends seeds daily trending queries into your candidate pool and overlays trend scores on existing candidates. No API key required — uses public RSS and explore endpoints.', 'tmwseo') . '</p>';
+        echo '</div>';
+        echo '<table class="form-table">';
+        echo '<tr><th>' . esc_html__('Enable', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[google_trends_enabled]" value="1" ' . checked($gt_enabled, true, false) . '> ' . esc_html__('Enable Google Trends seed discovery and trend scoring', 'tmwseo') . '</label>';
+        echo '</td></tr>';
+        echo '<tr><th>' . esc_html__('Geo', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[google_trends_geo]" value="' . $gt_geo . '" class="small-text"><p class="description">' . esc_html__('Two-letter country code (e.g. US, GB, DE). Leave blank for worldwide.', 'tmwseo') . '</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Locale', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[google_trends_locale]" value="' . $gt_locale . '" class="small-text"><p class="description">' . esc_html__('BCP-47 locale for trend data (e.g. en-US, de-DE).', 'tmwseo') . '</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Timeframe', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[google_trends_timeframe]" value="' . $gt_timeframe . '" class="regular-text"><p class="description">' . esc_html__('Google Trends timeframe string. Examples: <code>today 3-m</code>, <code>today 12-m</code>, <code>now 7-d</code>.', 'tmwseo') . '</p></td></tr>';
+        echo '</table>';
 
         submit_button();
         echo '</form>';

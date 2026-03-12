@@ -404,6 +404,9 @@ class Schema {
             graph_cluster_size INT(11) NOT NULL DEFAULT 0,
             sources LONGTEXT NULL,
             notes TEXT NULL,
+            trend_score DECIMAL(10,2) NOT NULL DEFAULT 0,
+            volume_source VARCHAR(50) NULL,
+            cpc_source VARCHAR(50) NULL,
             needs_recluster TINYINT(1) NOT NULL DEFAULT 0,
             needs_rescore TINYINT(1) NOT NULL DEFAULT 0,
             clustered_at DATETIME NULL,
@@ -417,7 +420,8 @@ class Schema {
             KEY opportunity (opportunity),
             KEY serp_weakness (serp_weakness),
             KEY graph_cluster (graph_cluster_id, graph_cluster_size),
-            KEY node_degree (node_degree)
+            KEY node_degree (node_degree),
+            KEY trend_score (trend_score)
         ) $charset_collate;";
 
         $sql_keyword_clusters = "CREATE TABLE $keyword_clusters (

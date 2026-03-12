@@ -291,36 +291,44 @@ class KeywordEngine {
             
                                 $existing = $existing_map[$kw] ?? null;
                                 if ($existing) {
-                                    // update sources
+                                    // update sources + provenance
                                     $wpdb->query($wpdb->prepare(
                                         "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), intent_type=%s, entity_type=%s, entity_id=%d, needs_recluster=1, needs_rescore=1, updated_at=%s WHERE id=%d",
-                                        "\n" . 'dataforseo_suggest:' . $seed,
+                                        "\n" . ( (string)($it['_tmw_volume_source'] ?? 'dataforseo') ) . ':' . $seed,
                                         (string) ($classification['intent_type'] ?? 'generic'),
                                         (string) ($classification['entity_type'] ?? 'generic'),
                                         (int) ($classification['entity_id'] ?? 0),
                                         current_time('mysql'),
                                         (int)$existing
                                     ));
+                                    // Apply trend overlay if present.
+                                    if ( isset( $it['_tmw_trend_score'] ) && (int) $it['_tmw_trend_score'] > 0 ) {
+                                        $wpdb->update( $cand_table, [
+                                            'trend_score'       => (int) $it['_tmw_trend_score'],
+                                            'needs_rescore'     => 1,
+                                        ], [ 'id' => (int) $existing ], [ '%d', '%d' ], [ '%d' ] );
+                                    }
                                 } else {
                                     $wpdb->insert($cand_table, [
-                                        'keyword' => $kw,
-                                        'canonical' => $canonical,
-                                        'status' => 'new',
-                                        'intent' => $intent,
-                                        'intent_type' => (string) ($classification['intent_type'] ?? 'generic'),
-                                        'entity_type' => (string) ($classification['entity_type'] ?? 'generic'),
-                                        'entity_id' => (int) ($classification['entity_id'] ?? 0),
-                                        'volume' => $vol,
-                                        'cpc' => $cpc,
-                                        'difficulty' => null,
-                                        'opportunity' => null,
-                                        'sources' => 'dataforseo_suggest:' . $seed,
-                                        'notes' => null,
+                                        'keyword'       => $kw,
+                                        'canonical'     => $canonical,
+                                        'status'        => 'new',
+                                        'intent'        => $intent,
+                                        'intent_type'   => (string) ($classification['intent_type'] ?? 'generic'),
+                                        'entity_type'   => (string) ($classification['entity_type'] ?? 'generic'),
+                                        'entity_id'     => (int) ($classification['entity_id'] ?? 0),
+                                        'volume'        => $vol,
+                                        'cpc'           => $cpc,
+                                        'difficulty'    => null,
+                                        'opportunity'   => null,
+                                        'sources'       => ( (string)($it['_tmw_volume_source'] ?? 'dataforseo') ) . ':' . $seed,
+                                        'notes'         => null,
                                         'needs_recluster' => 1,
                                         'needs_rescore' => 1,
-                                        'updated_at' => current_time('mysql'),
+                                        'trend_score'   => (int) ($it['_tmw_trend_score'] ?? 0),
+                                        'updated_at'    => current_time('mysql'),
                                     ], [
-                                        '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%f', '%f', '%f', '%s', '%s', '%d', '%d', '%s'
+                                        '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%f', '%f', '%f', '%s', '%s', '%d', '%d', '%d', '%s'
                                     ]);
             
                                     $inserted++;
@@ -519,6 +527,62 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             }
         }
 
+        // 3b) Google Keyword Planner enrichment pass — volume + CPC.
+        // Only runs when Google Ads Keyword Planner is configured and enabled.
+        // Enriches approved candidates that have low/null volume with Planner data,
+        // then re-scores opportunity. This is additive — DataForSEO data is not replaced
+        // if it already provided a non-null volume.
+        if ( \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::is_configured() ) {
+            $gkp_candidates = $wpdb->get_col( $wpdb->prepare(
+                "SELECT keyword FROM {$cand_table}
+                 WHERE status IN ('new','approved')
+                   AND (volume IS NULL OR volume = 0)
+                   AND (sources NOT LIKE %s)
+                 ORDER BY updated_at DESC
+                 LIMIT 200",
+                '%google_keyword_planner%'
+            ) );
+
+            if ( ! empty( $gkp_candidates ) ) {
+                $gkp_metrics = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::enrich_metrics( $gkp_candidates );
+
+                foreach ( $gkp_metrics as $kw => $metrics ) {
+                    $gkp_vol = (int) ($metrics['volume'] ?? 0);
+                    $gkp_cpc = (float) ($metrics['cpc'] ?? 0.0);
+                    if ( $gkp_vol === 0 ) { continue; }
+
+                    $intent_row = (array) $wpdb->get_row( $wpdb->prepare(
+                        "SELECT intent, opportunity FROM {$cand_table} WHERE keyword = %s LIMIT 1",
+                        $kw
+                    ), ARRAY_A );
+
+                    $intent_val = (string) ($intent_row['intent'] ?? 'mixed');
+                    $gkp_kd     = 0.0; // KP doesn't provide KD; keep existing difficulty.
+                    $existing_kd = (float) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT difficulty FROM {$cand_table} WHERE keyword = %s LIMIT 1", $kw
+                    ) );
+                    $opp = \TMWSEO\Engine\Keywords\KDFilter::opportunity_score( $existing_kd ?: $gkp_kd, $gkp_vol, $intent_val );
+
+                    $wpdb->update( $cand_table, [
+                        'volume'      => $gkp_vol,
+                        'cpc'         => $gkp_cpc,
+                        'opportunity' => $opp,
+                        'sources'     => $wpdb->get_var( $wpdb->prepare(
+                            "SELECT CONCAT(IFNULL(sources,''), '\ngoogle_keyword_planner:enrichment') FROM {$cand_table} WHERE keyword = %s LIMIT 1", $kw
+                        ) ),
+                        'needs_rescore'   => 1,
+                        'needs_recluster' => 1,
+                        'updated_at'      => current_time('mysql'),
+                    ], [ 'keyword' => $kw ], [ '%d', '%f', '%f', '%s', '%d', '%d', '%s' ], [ '%s' ] );
+                }
+
+                Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment pass complete', [
+                    'enriched' => count($gkp_metrics),
+                    'candidates_checked' => count($gkp_candidates),
+                ]);
+            }
+        }
+
         // 4) Incremental clustering and projection materialization from dirty queue.
         self::enqueue_dirty_keywords();
         DirtyQueue::process_batches(80, 40, 20);
@@ -562,53 +626,35 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
     }
 
     /**
+     * Fetch keyword ideas for $seed via the multi-provider aggregator.
+     *
+     * Previously this was hard-wired to DataForSEO only. Now it fans out to
+     * all configured providers (DataForSEO + Google Keyword Planner + Google Trends)
+     * and merges results. DataForSEO remains fully supported — no regressions.
+     *
+     * Results are cached for 1 hour (same as the old single-provider behaviour).
+     *
      * @return array{ok:bool,items?:array<int,array<string,mixed>>,error?:string}
      */
     private static function fetch_seed_relationships(string $seed): array {
         $cache_key = 'tmw_seed_suggestions_' . md5($seed);
-        $cached = get_transient($cache_key);
+        $cached    = get_transient($cache_key);
 
         if ($cached !== false && is_array($cached)) {
             return $cached;
         }
 
         $limit = (int) Settings::get('keyword_suggestions_limit', 200);
-        $suggestions_res = DataForSEO::keyword_suggestions($seed, $limit);
-        $related_res = DataForSEO::related_keywords($seed, 1, $limit);
 
-        if (empty($suggestions_res['ok']) && empty($related_res['ok'])) {
-            return [
-                'ok' => false,
-                'error' => (string) ($suggestions_res['error'] ?? $related_res['error'] ?? 'keyword_discovery_failed'),
-            ];
+        // Multi-provider aggregator — DataForSEO + Google KP + Google Trends.
+        // Falls back gracefully: if all providers are unavailable the original
+        // budget-exceeded / credentials-missing error is propagated.
+        $agg = new KeywordIdeaAggregator();
+        $res = $agg->fetch($seed, $limit);
+
+        if (!empty($res['ok'])) {
+            set_transient($cache_key, $res, HOUR_IN_SECONDS);
         }
-
-        $merged_items = [];
-        foreach ([
-            ['type' => 'suggestion', 'items' => (array) ($suggestions_res['items'] ?? [])],
-            ['type' => 'related', 'items' => (array) ($related_res['items'] ?? [])],
-        ] as $source) {
-            foreach ($source['items'] as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
-
-                $kw = (string) ($item['keyword'] ?? '');
-                if ($kw === '') {
-                    continue;
-                }
-
-                $item['_tmw_relationship_type'] = (string) $source['type'];
-                $merged_items[KeywordValidator::normalize($kw)] = $item;
-            }
-        }
-
-        $res = [
-            'ok' => true,
-            'items' => array_values($merged_items),
-        ];
-
-        set_transient($cache_key, $res, HOUR_IN_SECONDS);
 
         return $res;
     }
@@ -626,15 +672,16 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ];
 
         $source_counts = [
-            'base_seeds' => count($static_seeds),
-            'static_seeds' => 0,
+            'base_seeds'       => count($static_seeds),
+            'static_seeds'     => 0,
             // Generated phrase methods no longer write to seeds; they write to preview layer via their own cron.
-            'model_seeds' => 0,
-            'tag_seeds' => 0,
-            'video_seeds' => 0,
-            'category_seeds' => 0,
+            'model_seeds'      => 0,
+            'tag_seeds'        => 0,
+            'video_seeds'      => 0,
+            'category_seeds'   => 0,
             'competitor_seeds' => 0,
-            'total_seeds' => 0,
+            'trend_seeds'      => 0,
+            'total_seeds'      => 0,
         ];
 
         // Static curated roots are trusted — write directly to registry.
@@ -649,13 +696,38 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         // They are intentionally NOT called here any more.
         // Use the Auto Builders Control Center admin page to trigger/manage them.
 
+        // ── Google Trends: daily trending seeds ───────────────────────────
+        // Adds rising/trending phrases as candidate phrases (preview layer) when
+        // Google Trends is enabled. These never write directly to tmwseo_seeds.
+        if ( \TMWSEO\Engine\Services\GoogleTrends::is_enabled() ) {
+            $trending = \TMWSEO\Engine\Services\GoogleTrends::get_daily_trending( 30 );
+            $trend_batch_id = ExpansionCandidateRepository::make_batch_id('trend_daily');
+            foreach ($trending as $trend_item) {
+                $phrase = (string) ($trend_item['keyword'] ?? '');
+                if ($phrase === '') { continue; }
+                $ok = SeedRegistry::register_candidate_phrase(
+                    $phrase,
+                    'trend_rising_query',
+                    'google_trends_daily',
+                    'system',
+                    0,
+                    $trend_batch_id,
+                    [ 'trend_score' => (int) ($trend_item['trend_score'] ?? 0) ]
+                );
+                if ($ok) { $source_counts['trend_seeds']++; }
+            }
+            Logs::info('keywords', '[TMW-KW] Google Trends daily seeds added to preview layer', [
+                'count' => $source_counts['trend_seeds'],
+            ]);
+        }
+
         $orchestrated = DiscoveryOrchestrator::run(['source' => 'keyword_cycle']);
         $final_seeds = array_slice((array) ($orchestrated['seeds'] ?? []), 0, min(300, max(1, $limit)));
 
         $source_counts['total_seeds'] = count($final_seeds);
 
         return [
-            'seeds' => $final_seeds,
+            'seeds'  => $final_seeds,
             'counts' => $source_counts,
         ];
     }
