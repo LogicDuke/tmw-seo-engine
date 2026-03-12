@@ -145,6 +145,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-content-gap',
             self::MENU_SLUG . '_page_tmwseo-keywords',
             self::MENU_SLUG . '_page_tmwseo-opportunities',
+            self::MENU_SLUG . '_page_tmwseo-traffic-forecast',
             self::MENU_SLUG . '_page_tmwseo-autopilot',
             self::MENU_SLUG . '_page_tmwseo-ranking-probability',
             self::MENU_SLUG . '_page_tmwseo-reports',
@@ -951,6 +952,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
         add_submenu_page(self::MENU_SLUG, __('Autopilot', 'tmwseo'),           __('Autopilot', 'tmwseo'),           'manage_options', 'tmwseo-autopilot',          ['\\TMWSEO\\Engine\\Admin\\AutopilotAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
+        add_submenu_page(self::MENU_SLUG, __('Traffic Forecast', 'tmwseo'),   __('Traffic Forecast', 'tmwseo'),   'manage_options', 'tmwseo-traffic-forecast',   ['\\TMWSEO\\Engine\\Opportunities\\TrafficForecastUI', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
         add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
@@ -1017,6 +1019,7 @@ class Admin {
             'tmwseo-autopilot',
             'tmwseo-seed-registry',
             'tmwseo-opportunities',
+            'tmwseo-traffic-forecast',
             'tmwseo-internal-links',
             'tmwseo-serp-analyzer',
             'tmwseo-link-graph',

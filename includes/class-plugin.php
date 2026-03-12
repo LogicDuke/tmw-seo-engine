@@ -148,6 +148,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-oppor
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-forecast-ui.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-feedback-discovery.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-admin.php';
@@ -444,6 +445,7 @@ class Plugin {
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
             \TMWSEO\Engine\Opportunities\OpportunityUI::init();
+            \TMWSEO\Engine\Opportunities\TrafficForecastUI::init();
             \TMWSEO\Engine\Suggestions\SuggestionsAdminPage::init();
             \TMWSEO\Engine\Debug\DebugDashboard::init();
             \TMWSEO\Engine\Admin\Staging_Validation_Helper::init();
