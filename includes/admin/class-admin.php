@@ -148,6 +148,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
             self::MENU_SLUG . '_page_tmwseo-internal-links',
+            self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -956,7 +957,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
         add_submenu_page(self::MENU_SLUG, __('Keyword Planner API Test', 'tmwseo'), __('Keyword Planner Test', 'tmwseo'), 'manage_options', 'tmwseo-gkp-test', [__CLASS__, 'render_keyword_planner_test']);
-        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmw-seo-debug', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmwseo-debug-dashboard', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
 
         // ── Hidden (legacy routes — direct URLs still work) ────────────────
         add_submenu_page(null, __('Drafts to Review', 'tmwseo'), __('Drafts to Review', 'tmwseo'), 'manage_options', 'tmwseo-generated',   [__CLASS__, 'render_generated_pages']);
@@ -1011,6 +1012,7 @@ class Admin {
             'tmwseo-tools',
             'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
+            'tmwseo-debug-dashboard',
             'tmw-seo-debug',
         ];
 
@@ -1062,7 +1064,7 @@ class Admin {
     }
 
     public static function render_debug_redirect(): void {
-        wp_safe_redirect(admin_url('admin.php?page=tmw-seo-debug'));
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-debug-dashboard'));
         exit;
     }
 
