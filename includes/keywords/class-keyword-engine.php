@@ -26,20 +26,21 @@ class KeywordEngine {
         $mode = (string)($payload['mode'] ?? 'full');
 
 
-        if (!DataForSEO::is_configured()) {
-            Logs::warn('keywords', 'DataForSEO not configured; skipping keyword cycle');
-            return;
-        }
-
-        if (DataForSEO::is_over_budget()) {
+        // DataForSEO is no longer a hard prerequisite for the whole cycle.
+        // Availability is handled per-provider inside the aggregator:
+        //   - DataForSEOKeywordIdeaProvider::is_available() gates on is_configured() + budget.
+        //   - Google KP and Google Trends run independently when DataForSEO is absent.
+        // KD refresh calls DataForSEO::bulk_keyword_difficulty() which returns ok=>false
+        // gracefully when credentials are missing or budget is exceeded.
+        if ( ! DataForSEO::is_configured() ) {
+            Logs::info( 'keywords', '[TMW-KW] DataForSEO not configured — discovery will use Google KP / Google Trends only; KD refresh skipped.' );
+        } elseif ( DataForSEO::is_over_budget() ) {
             $budget = DataForSEO::get_monthly_budget_stats();
-            Logs::warn('keywords', 'Discovery stopped: DataForSEO monthly API budget exceeded', [
-                'budget_usd' => $budget['budget_usd'] ?? 0,
-                'spent_usd' => $budget['spent_usd'] ?? 0,
+            Logs::warn( 'keywords', '[TMW-KW] DataForSEO monthly budget exceeded — discovery continues via other providers; KD refresh skipped.', [
+                'budget_usd'    => $budget['budget_usd'] ?? 0,
+                'spent_usd'     => $budget['spent_usd'] ?? 0,
                 'remaining_usd' => $budget['remaining_usd'] ?? 0,
-                'calls' => $budget['calls'] ?? 0,
-            ]);
-            return;
+            ] );
         }
 
         $job_started = microtime(true);
@@ -273,10 +274,11 @@ class KeywordEngine {
                                 $difficulty = isset($metrics['keyword_difficulty']) ? (float) $metrics['keyword_difficulty'] : (float) ($it['keyword_difficulty'] ?? 0);
             
                                 // Raw insert (ignore duplicates)
+                                $raw_source = (string) ( $it['_tmw_volume_source'] ?? 'dataforseo_suggest' );
                                 $wpdb->query($wpdb->prepare(
                                     "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
                                      VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
-                                    $kw, 'dataforseo_suggest', $seed,
+                                    $kw, $raw_source, $seed,
                                     (int)($vol ?? 0), (float)($cpc ?? 0), (float)($comp ?? 0),
                                     wp_json_encode($it), current_time('mysql')
                                 ));
@@ -292,9 +294,13 @@ class KeywordEngine {
                                 $existing = $existing_map[$kw] ?? null;
                                 if ($existing) {
                                     // update sources + provenance
+                                    $vol_src = (string) ( $it['_tmw_volume_source'] ?? 'dataforseo' );
+                                    $cpc_src = (string) ( $it['_tmw_cpc_source']    ?? $vol_src );
                                     $wpdb->query($wpdb->prepare(
-                                        "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), intent_type=%s, entity_type=%s, entity_id=%d, needs_recluster=1, needs_rescore=1, updated_at=%s WHERE id=%d",
-                                        "\n" . ( (string)($it['_tmw_volume_source'] ?? 'dataforseo') ) . ':' . $seed,
+                                        "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), volume_source=%s, cpc_source=%s, intent_type=%s, entity_type=%s, entity_id=%d, needs_recluster=1, needs_rescore=1, updated_at=%s WHERE id=%d",
+                                        "\n" . $vol_src . ':' . $seed,
+                                        $vol_src,
+                                        $cpc_src,
                                         (string) ($classification['intent_type'] ?? 'generic'),
                                         (string) ($classification['entity_type'] ?? 'generic'),
                                         (int) ($classification['entity_id'] ?? 0),
@@ -326,9 +332,11 @@ class KeywordEngine {
                                         'needs_recluster' => 1,
                                         'needs_rescore' => 1,
                                         'trend_score'   => (int) ($it['_tmw_trend_score'] ?? 0),
+                                        'volume_source' => (string) ($it['_tmw_volume_source'] ?? 'dataforseo'),
+                                        'cpc_source'    => (string) ($it['_tmw_cpc_source']    ?? $it['_tmw_volume_source'] ?? 'dataforseo'),
                                         'updated_at'    => current_time('mysql'),
                                     ], [
-                                        '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%f', '%f', '%f', '%s', '%s', '%d', '%d', '%d', '%s'
+                                        '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%f', '%f', '%f', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s'
                                     ]);
             
                                     $inserted++;
@@ -564,16 +572,18 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     $opp = \TMWSEO\Engine\Keywords\KDFilter::opportunity_score( $existing_kd ?: $gkp_kd, $gkp_vol, $intent_val );
 
                     $wpdb->update( $cand_table, [
-                        'volume'      => $gkp_vol,
-                        'cpc'         => $gkp_cpc,
-                        'opportunity' => $opp,
-                        'sources'     => $wpdb->get_var( $wpdb->prepare(
+                        'volume'        => $gkp_vol,
+                        'cpc'           => $gkp_cpc,
+                        'opportunity'   => $opp,
+                        'volume_source' => 'google_keyword_planner',
+                        'cpc_source'    => 'google_keyword_planner',
+                        'sources'       => $wpdb->get_var( $wpdb->prepare(
                             "SELECT CONCAT(IFNULL(sources,''), '\ngoogle_keyword_planner:enrichment') FROM {$cand_table} WHERE keyword = %s LIMIT 1", $kw
                         ) ),
                         'needs_rescore'   => 1,
                         'needs_recluster' => 1,
                         'updated_at'      => current_time('mysql'),
-                    ], [ 'keyword' => $kw ], [ '%d', '%f', '%f', '%s', '%d', '%d', '%s' ], [ '%s' ] );
+                    ], [ 'keyword' => $kw ], [ '%d', '%f', '%f', '%s', '%s', '%s', '%d', '%d', '%s' ], [ '%s' ] );
                 }
 
                 Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment pass complete', [
