@@ -955,6 +955,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Connections', 'tmwseo'), __('Connections', 'tmwseo'), 'manage_options', 'tmwseo-connections', ['\\TMWSEO\\Engine\\Admin\\AdminDashboardV2', 'page_connections']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
+        add_submenu_page(self::MENU_SLUG, __('Keyword Planner API Test', 'tmwseo'), __('Keyword Planner Test', 'tmwseo'), 'manage_options', 'tmwseo-gkp-test', [__CLASS__, 'render_keyword_planner_test']);
         add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmw-seo-debug', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
 
         // ── Hidden (legacy routes — direct URLs still work) ────────────────
@@ -1008,6 +1009,7 @@ class Admin {
             'tmwseo-connections',
             'tmwseo-settings',
             'tmwseo-tools',
+            'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
             'tmw-seo-debug',
         ];
@@ -2084,6 +2086,95 @@ class Admin {
         ');
 
         self::footer();
+    }
+
+    public static function render_keyword_planner_test(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $keyword = '';
+        $result = null;
+        $did_submit = false;
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_gkp_test_submit'])) {
+            check_admin_referer('tmwseo_gkp_test_run');
+            $did_submit = true;
+            $keyword = sanitize_text_field((string) wp_unslash($_POST['tmwseo_gkp_keyword'] ?? ''));
+            if ($keyword === '') {
+                $keyword = 'webcam models';
+            }
+
+            $result = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::keyword_ideas_debug($keyword, 50);
+        }
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__('Keyword Planner API Test', 'tmwseo') . '</h1>';
+        echo '<p>' . esc_html__('Run a read-only Google Ads Keyword Planner test using existing OAuth credentials.', 'tmwseo') . '</p>';
+
+        echo '<form method="post" action="">';
+        wp_nonce_field('tmwseo_gkp_test_run');
+        echo '<table class="form-table" role="presentation"><tbody>';
+        echo '<tr>';
+        echo '<th scope="row"><label for="tmwseo_gkp_keyword">' . esc_html__('Keyword', 'tmwseo') . '</label></th>';
+        echo '<td><input type="text" class="regular-text" id="tmwseo_gkp_keyword" name="tmwseo_gkp_keyword" value="' . esc_attr($keyword) . '" placeholder="webcam models"></td>';
+        echo '</tr>';
+        echo '</tbody></table>';
+        submit_button(__('Run Test', 'tmwseo'), 'primary', 'tmwseo_gkp_test_submit');
+        echo '</form>';
+
+        if ($did_submit && is_array($result)) {
+            if (!empty($result['ok'])) {
+                $items = is_array($result['items'] ?? null) ? $result['items'] : [];
+                echo '<h2>' . esc_html__('Results', 'tmwseo') . '</h2>';
+                echo '<table class="widefat striped"><thead><tr>';
+                echo '<th>' . esc_html__('Keyword', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('Avg Monthly Searches', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('Competition', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('Low CPC', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('High CPC', 'tmwseo') . '</th>';
+                echo '</tr></thead><tbody>';
+
+                if (empty($items)) {
+                    echo '<tr><td colspan="5">' . esc_html__('No keyword ideas returned.', 'tmwseo') . '</td></tr>';
+                } else {
+                    foreach ($items as $item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+                        $metrics = is_array($item['keyword_info'] ?? null) ? $item['keyword_info'] : [];
+                        $competition = (float) ($metrics['competition'] ?? 0.0);
+                        $low_cpc = (float) ($metrics['low_top_of_page_bid'] ?? 0.0);
+                        $high_cpc = (float) ($metrics['high_top_of_page_bid'] ?? 0.0);
+
+                        echo '<tr>';
+                        echo '<td>' . esc_html((string) ($item['keyword'] ?? '')) . '</td>';
+                        echo '<td>' . esc_html(number_format_i18n((int) ($metrics['search_volume'] ?? 0))) . '</td>';
+                        echo '<td>' . esc_html(number_format_i18n($competition, 2)) . '</td>';
+                        echo '<td>' . esc_html('$' . number_format_i18n($low_cpc, 2)) . '</td>';
+                        echo '<td>' . esc_html('$' . number_format_i18n($high_cpc, 2)) . '</td>';
+                        echo '</tr>';
+                    }
+                }
+
+                echo '</tbody></table>';
+            } else {
+                echo '<div class="notice notice-error"><p><strong>' . esc_html__('Keyword Planner API request failed.', 'tmwseo') . '</strong></p>';
+                echo '<p>' . esc_html__('Error message:', 'tmwseo') . ' ' . esc_html((string) ($result['message'] ?? $result['error'] ?? 'unknown_error')) . '</p>';
+                echo '<p>' . esc_html__('HTTP status:', 'tmwseo') . ' ' . esc_html((string) ($result['http_status'] ?? 'n/a')) . '</p>';
+                echo '<p>' . esc_html__('Google Ads error code:', 'tmwseo') . ' ' . esc_html((string) ($result['google_ads_error_code'] ?? 'n/a')) . '</p>';
+                echo '</div>';
+            }
+
+            echo '<h2>' . esc_html__('Debug Response', 'tmwseo') . '</h2>';
+            echo '<details><summary>' . esc_html__('Show raw API response', 'tmwseo') . '</summary>';
+            echo '<pre style="max-height:420px;overflow:auto;background:#fff;border:1px solid #ccd0d4;padding:12px;">';
+            echo esc_html(wp_json_encode($result['raw_response'] ?? null, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            echo '</pre>';
+            echo '</details>';
+        }
+
+        echo '</div>';
     }
 
     // ── Helper & Data Readiness ───────────────────────────────────────────
