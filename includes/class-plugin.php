@@ -114,6 +114,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-registry.php
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-optimizer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-discovery-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-intelligence.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-expander.php';
@@ -397,6 +398,9 @@ class Plugin {
         // Auto-discover keyword seeds when a new model is published.
         \TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger::init();
 
+        // Model Discovery Engine worker (hourly crawl + model/page/category creation).
+        \TMWSEO\Engine\Model\ModelDiscoveryWorker::init();
+
         // Platform profiles + affiliate redirects.
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
         \TMWSEO\Engine\Platform\AffiliateLinkBuilder::init();
@@ -493,6 +497,7 @@ class Plugin {
         \TMWSEO\Engine\Integrations\GSCSeedImporter::schedule();
         \TMWSEO\Engine\KeywordIntelligence\TagModifierExpander::schedule();
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::activate();
+        \TMWSEO\Engine\Model\ModelDiscoveryWorker::schedule();
 
         // ── v4.2 crons — only schedule if NOT in manual mode ───────────────
         // These are read-only scans, but we respect the manual-only trust policy.
@@ -519,6 +524,7 @@ class Plugin {
         \TMWSEO\Engine\InternalLinks\OrphanPageDetector::unschedule();
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::unschedule();
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::deactivate();
+        \TMWSEO\Engine\Model\ModelDiscoveryWorker::unschedule();
         flush_rewrite_rules();
         Logs::info('core', 'Deactivated ' . TMWSEO_ENGINE_VERSION);
     }
