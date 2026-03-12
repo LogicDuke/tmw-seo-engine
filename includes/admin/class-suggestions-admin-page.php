@@ -2457,26 +2457,44 @@ class SuggestionsAdminPage {
         global $wpdb;
         $rows = (array) $wpdb->get_results('SELECT id, primary_keyword, cluster_key, brief_type, status, created_at FROM ' . IntelligenceStorage::table_content_briefs() . ' ORDER BY id DESC LIMIT 200', ARRAY_A);
         $focus_brief_id = isset($_GET['brief_id']) ? (int) $_GET['brief_id'] : 0;
+        $briefs_link = admin_url('admin.php?page=tmwseo-content-briefs');
 
         echo '<div class="wrap"><h1>Content Briefs</h1>';
         echo '<p>Suggestion-first briefs only. No automatic publishing or live content updates.</p>';
-        echo '<table class="widefat striped"><thead><tr><th>ID</th><th>Primary Keyword</th><th>Cluster</th><th>Type</th><th>Status</th><th>Created</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr><th>ID</th><th>Primary Keyword</th><th>Cluster</th><th>Type</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
         foreach ($rows as $row) {
             $row_id = (int) ($row['id'] ?? 0);
+            $brief_record_link = $row_id > 0
+                ? add_query_arg('brief_id', $row_id, $briefs_link) . '#tmwseo-brief-' . $row_id
+                : '';
             $highlight_style = ($focus_brief_id > 0 && $focus_brief_id === $row_id)
                 ? ' style="background:#fff8e5;"'
                 : '';
             echo '<tr id="tmwseo-brief-' . esc_attr((string) $row_id) . '"' . $highlight_style . '>';
             echo '<td>' . esc_html((string) ($row['id'] ?? '')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['primary_keyword'] ?? '')) . '</td>';
+            echo '<td>';
+            if ($brief_record_link !== '') {
+                echo '<a href="' . esc_url($brief_record_link) . '"><strong>' . esc_html((string) ($row['primary_keyword'] ?? '')) . '</strong></a>';
+            } else {
+                echo esc_html((string) ($row['primary_keyword'] ?? ''));
+            }
+            echo '</td>';
             echo '<td>' . esc_html((string) ($row['cluster_key'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($row['brief_type'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($row['status'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($row['created_at'] ?? '')) . '</td>';
+            echo '<td>';
+            if ($brief_record_link !== '') {
+                echo '<a class="button button-small" href="' . esc_url($brief_record_link) . '">Open</a>';
+                echo ' <a href="' . esc_url($brief_record_link) . '">Edit</a>';
+            } else {
+                echo '—';
+            }
+            echo '</td>';
             echo '</tr>';
         }
         if (empty($rows)) {
-            echo '<tr><td colspan="6">No content briefs generated yet.</td></tr>';
+            echo '<tr><td colspan="7">No content briefs generated yet.</td></tr>';
         }
         echo '</tbody></table></div>';
     }
