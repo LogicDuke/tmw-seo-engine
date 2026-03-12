@@ -148,7 +148,6 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
             self::MENU_SLUG . '_page_tmwseo-internal-links',
-            self::MENU_SLUG . '_page_tmwseo-keyword-graph',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -929,7 +928,6 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
         add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
-        add_submenu_page(self::MENU_SLUG, __('Keyword Graph', 'tmwseo'), __('Keyword Graph', 'tmwseo'), 'manage_options', 'tmwseo-keyword-graph', ['\\TMWSEO\\Engine\\Admin\\KeywordGraphAdminPage', 'render']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
@@ -1525,6 +1523,31 @@ class Admin {
             ['%d']
         );
 
+        $current_status = strtolower(trim((string) $wpdb->get_var($wpdb->prepare(
+            "SELECT status FROM {$cand_table} WHERE id = %d",
+            $candidate_id
+        ))));
+
+        if ($current_status === 'approved' && $new_status === 'approved') {
+            $redirect_url = add_query_arg([
+                'page' => 'tmwseo-keywords',
+                'tmwseo_notice' => 'candidate_action_not_available',
+                'tmwseo_candidate_id' => $candidate_id,
+            ], admin_url('admin.php'));
+            wp_safe_redirect($redirect_url);
+            exit;
+        }
+
+        if ($current_status === 'ignored' && $new_status === 'ignored') {
+            $redirect_url = add_query_arg([
+                'page' => 'tmwseo-keywords',
+                'tmwseo_notice' => 'candidate_action_not_available',
+                'tmwseo_candidate_id' => $candidate_id,
+            ], admin_url('admin.php'));
+            wp_safe_redirect($redirect_url);
+            exit;
+        }
+
         $notice = 'candidate_update_failed';
         if ($updated !== false) {
             $notice = $updated > 0 ? 'candidate_updated' : 'candidate_not_found';
@@ -1827,13 +1850,23 @@ class Admin {
             $message = __('Candidate action failed. You are not allowed to do that.', 'tmwseo');
         } elseif ($notice === 'candidate_update_failed') {
             $message = __('Candidate action failed due to a database error.', 'tmwseo');
+        } elseif ($notice === 'candidate_action_not_available') {
+            $message = __('Candidate action skipped. This row is already in a final status for that action.', 'tmwseo');
         }
 
         if ($message === '') {
             return;
         }
 
-        echo '<div class="notice notice-success is-dismissible"><p>';
+        $is_error_notice = in_array($notice, [
+            'candidate_invalid_request',
+            'candidate_invalid_nonce',
+            'candidate_action_unauthorized',
+            'candidate_update_failed',
+            'candidate_action_not_available',
+        ], true);
+
+        echo '<div class="notice ' . esc_attr($is_error_notice ? 'notice-error' : 'notice-success') . ' is-dismissible"><p>';
         echo esc_html($message);
         echo '</p></div>';
     }
@@ -2443,6 +2476,15 @@ class Admin {
                 $intent_type = strtolower(trim((string) ($candidate['intent_type'] ?? '')));
                 $entity_type = strtolower(trim((string) ($candidate['entity_type'] ?? '')));
                 $keyword_value = trim((string) ($candidate['keyword'] ?? ''));
+                $candidate_status = strtolower(trim((string) ($candidate['status'] ?? '')));
+                $is_approved = $candidate_status === 'approved';
+                $is_ignored = $candidate_status === 'ignored';
+                $status_styles = [
+                    'approved' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;',
+                    'ignored'  => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;',
+                    'new'      => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1e40af;font-weight:600;',
+                ];
+                $status_style = $status_styles[$candidate_status] ?? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#374151;font-weight:600;';
 
                 $inspect_url = add_query_arg([
                     'page' => 'tmwseo-keywords',
@@ -2460,10 +2502,15 @@ class Admin {
                 ], admin_url('admin-post.php')), 'tmwseo_keyword_candidate_action_' . $candidate_id);
 
                 $copy_keyword_button = '<button type="button" class="button button-small" data-tmw-copy-keyword="' . esc_attr($keyword_value) . '">' . esc_html__('Copy keyword', 'tmwseo') . '</button>';
-                $actions = '<a class="button button-small" href="' . esc_url($inspect_url) . '">' . esc_html__('View / Inspect', 'tmwseo') . '</a> '
-                    . '<a class="button button-small" href="' . esc_url($approve_url) . '">' . esc_html__('Approve', 'tmwseo') . '</a> '
-                    . '<a class="button button-small" href="' . esc_url($reject_url) . '">' . esc_html__('Reject', 'tmwseo') . '</a> '
-                    . $copy_keyword_button;
+                $action_parts = ['<a class="button button-small" href="' . esc_url($inspect_url) . '">' . esc_html__('View / Inspect', 'tmwseo') . '</a>'];
+                if (!$is_approved) {
+                    $action_parts[] = '<a class="button button-small" href="' . esc_url($approve_url) . '">' . esc_html__('Approve', 'tmwseo') . '</a>';
+                }
+                if (!$is_ignored) {
+                    $action_parts[] = '<a class="button button-small" href="' . esc_url($reject_url) . '">' . esc_html__('Reject', 'tmwseo') . '</a>';
+                }
+                $action_parts[] = $copy_keyword_button;
+                $actions = implode(' ', $action_parts);
 
                 $keyword_secondary = '';
                 if ($entity_type !== '' && $entity_type !== 'generic') {
@@ -2480,12 +2527,17 @@ class Admin {
                     $row_style = ' style="outline:2px solid #2271b1;outline-offset:-2px;background:#f0f6fc;"';
                 }
 
+                $just_updated = isset($_GET['tmwseo_candidate_id']) ? absint((string) $_GET['tmwseo_candidate_id']) : 0;
+                if ($just_updated > 0 && $candidate_id === $just_updated) {
+                    $row_style = ' style="outline:2px solid #16a34a;outline-offset:-2px;background:#f0fdf4;"';
+                }
+
                 echo '<tr id="tmw-candidate-' . esc_attr((string) $candidate_id) . '"' . $row_style . '>';
                 echo '<td>' . esc_html((string) ($candidate['keyword'] ?? '')) . $keyword_secondary . '</td>';
                 echo '<td>' . esc_html((string) ($candidate['volume'] ?? '')) . '</td>';
                 echo '<td>' . esc_html((string) ($candidate['difficulty'] ?? '')) . '</td>';
                 echo '<td>' . esc_html((string) ($candidate['intent'] ?? '')) . $intent_secondary . '</td>';
-                echo '<td>' . esc_html((string) ($candidate['status'] ?? '')) . '</td>';
+                echo '<td><span style="' . esc_attr($status_style) . '">' . esc_html((string) ($candidate['status'] ?? '')) . '</span></td>';
                 echo '<td>' . esc_html((string) ($candidate['updated_at'] ?? '')) . '</td>';
                 echo '<td>' . $actions . '</td>';
                 echo '</tr>';
