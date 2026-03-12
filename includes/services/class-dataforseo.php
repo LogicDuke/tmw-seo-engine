@@ -17,6 +17,7 @@ class DataForSEO {
         '/v3/dataforseo_labs/google/bulk_keyword_difficulty/live' => 0.02,
         '/v3/dataforseo_labs/google/ranked_keywords/live'     => 0.02,
         '/v3/serp/google/organic/live/advanced'               => 0.02,
+        '/v3/serp/google/organic/live'                        => 0.02,
     ];
 
     public static function is_configured(): bool {
@@ -603,6 +604,63 @@ class DataForSEO {
                 'position'       => (int) ($item['rank_absolute'] ?? 0),
                 'content_length' => $content_length,
                 'word_count'     => $content_length, // backward compat
+            ];
+        }
+
+        $result = ['ok' => true, 'items' => $normalised, 'raw' => $res['data']];
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * Fetches live Google organic SERP results from /v3/serp/google/organic/live.
+     * Cached for 24 hours.
+     *
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function serp_organic_live(string $keyword, int $depth = 10): array {
+        $keyword = mb_strtolower(trim($keyword), 'UTF-8');
+        if ($keyword === '') {
+            return ['ok' => false, 'error' => 'empty_keyword'];
+        }
+
+        $cache_key = 'tmwseo_serp_org_live_' . md5($keyword . self::loc_code() . self::lang_code() . $depth);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keyword'       => $keyword,
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+            'depth'         => min(100, max(10, $depth)),
+        ]];
+
+        $res = self::post('/v3/serp/google/organic/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+
+        $normalised = [];
+        foreach ($items as $item) {
+            if (($item['type'] ?? '') !== 'organic') {
+                continue;
+            }
+
+            $url = (string) ($item['url'] ?? '');
+            $host = (string) parse_url($url, PHP_URL_HOST);
+            $normalised[] = [
+                'position' => (int) ($item['rank_absolute'] ?? 0),
+                'url' => $url,
+                'domain' => strtolower((string) preg_replace('/^www\./i', '', $host)),
+                'title' => (string) ($item['title'] ?? ''),
+                'description' => (string) ($item['description'] ?? ''),
             ];
         }
 

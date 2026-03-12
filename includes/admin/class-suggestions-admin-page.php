@@ -10,6 +10,7 @@ use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Intelligence\ContentBriefGenerator;
 use TMWSEO\Engine\Services\TrustPolicy;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
+use TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -2652,7 +2653,12 @@ class SuggestionsAdminPage {
         };
 
         echo '<div class="wrap"><h1>Content Briefs</h1>';
+        AIContentBriefGeneratorAdmin::render_widget();
         echo '<p>Suggestion-first briefs only. No automatic publishing or live content updates.</p>';
+
+        if ($notice === 'ai_brief_saved') {
+            echo '<div class="notice notice-success inline"><p>AI brief saved to Content Briefs table.</p></div>';
+        }
 
         if ($notice === 'draft_missing_brief') {
             echo '<div class="notice notice-error inline"><p>Could not create draft: content brief record was not found.</p></div>';
