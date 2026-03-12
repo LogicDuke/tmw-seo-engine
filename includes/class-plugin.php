@@ -86,6 +86,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dirty-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-content-keyword-miner.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-competitor-mining-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-discovery-orchestrator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-idea-provider-interface.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dataforseo-keyword-idea-provider.php';

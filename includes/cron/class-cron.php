@@ -127,6 +127,7 @@ class Cron {
         DiscoveryOrchestrator::run(['source' => 'cron_keyword_cycle']);
         // alpha.8: keyword cycle (adaptive budget inside the job)
         Jobs::enqueue('keyword_cycle', 'system', null, ['trigger' => 'daily']);
+        JobWorker::enqueue_job('competitor_mining', ['trigger' => 'daily_cron_competitor_mining', 'seed_limit' => 25]);
     }
 
     public static function weekly(): void {
