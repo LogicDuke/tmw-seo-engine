@@ -7,6 +7,7 @@ use TMWSEO\Engine\Admin\SerpAnalyzerAdminPage;
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
+use TMWSEO\Engine\ContentGap\ContentGapService;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -157,6 +158,10 @@ class JobWorker {
         set_transient('tmwseo_link_graph_last_result_user_' . $user_id, $token, 20 * MINUTE_IN_SECONDS);
     }
 
+    public static function run_content_gap_analysis(array $payload): void {
+        ContentGapService::run_analysis();
+    }
+
     public static function counts(): array {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
@@ -188,6 +193,9 @@ class JobWorker {
                 return;
             case 'internal_link_scan':
                 self::run_internal_link_scan($payload);
+                return;
+            case 'content_gap_analysis':
+                self::run_content_gap_analysis($payload);
                 return;
             case 'ai_content_brief_generation':
                 AIContentBriefGeneratorAdmin::run_background_brief_generation($payload);

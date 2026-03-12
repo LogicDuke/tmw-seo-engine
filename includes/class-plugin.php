@@ -147,6 +147,8 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keywo
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-feedback-discovery.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-service.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/traffic-pages/class-traffic-page-generator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-suggestion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-suggestion-module.php';
@@ -364,6 +366,8 @@ class Plugin {
         \TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor::init();
         // Traffic pages generator (CPT, cron, manual action)
         \TMWSEO\Engine\TrafficPages\TrafficPageGenerator::init();
+        // Content gap analysis service (weekly queue + storage sync)
+        \TMWSEO\Engine\ContentGap\ContentGapService::init();
         // Admin Dashboard v2
         \TMWSEO\Engine\Admin\AdminDashboardV2::init();
         // ──────────────────────────────────────────────────────────────────
@@ -444,6 +448,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\SerpAnalyzerAdminPage::init();
             \TMWSEO\Engine\Admin\LinkGraphAdminPage::init();
             \TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin::init();
+            \TMWSEO\Engine\ContentGap\ContentGapAdmin::init();
         }
     }
 
