@@ -2353,10 +2353,31 @@ class Admin {
         } else {
             echo '<div class="tmwui-table-wrap">';
             echo '<table class="widefat striped">';
-            echo '<thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Intent</th><th>Status</th><th>Updated</th></tr></thead><tbody>';
+            echo '<thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Intent</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>';
             foreach ($recent_candidates as $candidate) {
                 $intent_type = strtolower(trim((string) ($candidate['intent_type'] ?? '')));
                 $entity_type = strtolower(trim((string) ($candidate['entity_type'] ?? '')));
+                $keyword_value = trim((string) ($candidate['keyword'] ?? ''));
+
+                $inspect_url = add_query_arg([
+                    'page' => 'tmwseo-keyword-graph',
+                ], admin_url('admin.php'));
+                $approve_url = add_query_arg([
+                    'page' => 'tmwseo-suggestions',
+                    'tmw_filter' => 'review_not_reviewed',
+                    'tmw_sort' => 'priority_desc',
+                ], admin_url('admin.php'));
+                $reject_url = add_query_arg([
+                    'page' => 'tmwseo-suggestions',
+                    'tmw_filter' => 'new',
+                    'tmw_sort' => 'priority_desc',
+                ], admin_url('admin.php'));
+
+                $copy_keyword_button = '<button type="button" class="button button-small" data-tmw-copy-keyword="' . esc_attr($keyword_value) . '">' . esc_html__('Copy keyword', 'tmwseo') . '</button>';
+                $actions = '<a class="button button-small" href="' . esc_url($inspect_url) . '">' . esc_html__('View / Inspect', 'tmwseo') . '</a> '
+                    . '<a class="button button-small" href="' . esc_url($approve_url) . '">' . esc_html__('Approve', 'tmwseo') . '</a> '
+                    . '<a class="button button-small" href="' . esc_url($reject_url) . '">' . esc_html__('Reject', 'tmwseo') . '</a> '
+                    . $copy_keyword_button;
 
                 $keyword_secondary = '';
                 if ($entity_type !== '' && $entity_type !== 'generic') {
@@ -2375,10 +2396,13 @@ class Admin {
                 echo '<td>' . esc_html((string) ($candidate['intent'] ?? '')) . $intent_secondary . '</td>';
                 echo '<td>' . esc_html((string) ($candidate['status'] ?? '')) . '</td>';
                 echo '<td>' . esc_html((string) ($candidate['updated_at'] ?? '')) . '</td>';
+                echo '<td>' . $actions . '</td>';
                 echo '</tr>';
             }
             echo '</tbody></table>';
             echo '</div>';
+            echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
+            echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve/Reject open the existing Suggestions review workflow; no keyword-candidate status is changed directly from this table.', 'tmwseo') . '</p>';
         }
         AdminUI::section_end();
 
