@@ -14,6 +14,7 @@ use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 if (!defined('ABSPATH')) { exit; }
 
 class SuggestionsAdminPage {
+    private const TEST_DATA_MARKER = '[TEST DATA]';
     private const SUGGESTION_DESTINATION_FALLBACK = 'generic_post';
     private const REVIEW_AGING_BUCKET_ALL = 'all';
     private const REVIEW_AGING_BUCKET_FRESH = 'fresh';
@@ -633,6 +634,14 @@ class SuggestionsAdminPage {
             return $this->compare_suggestions($left, $right, $active_sort);
         });
 
+        $has_test_data_rows = false;
+        foreach ($filtered_rows as $row) {
+            if ($this->is_test_data_row($row)) {
+                $has_test_data_rows = true;
+                break;
+            }
+        }
+
         // ── Render ───────────────────────────────────────────────────────
         echo '<div class="wrap tmwseo-suggestions-page tmwseo-model-focused-wrap">';
 
@@ -642,6 +651,10 @@ class SuggestionsAdminPage {
         echo '<p class="tmwseo-mf-subtitle">Focused model-only operator queue. <strong>Manual-only mode enforced</strong> — nothing publishes automatically, no links inserted automatically, every action requires your explicit approval.</p>';
         echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-suggestions')) . '" class="tmwseo-mf-all-link">&larr; Back to full Suggestions Dashboard</a>';
         echo '</div>';
+
+        if ($has_test_data_rows) {
+            AdminUI::alert(__('TEST DATA fixtures are visible in this queue. These are staging-only QA rows.', 'tmwseo'), 'info');
+        }
 
         // KPI strip
         echo '<div class="tmwseo-mf-kpi-strip">';
@@ -743,7 +756,11 @@ class SuggestionsAdminPage {
                 echo '</td>';
                 echo '<td>' . esc_html($type_label) . '</td>';
                 echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span></td>';
-                echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong></td>';
+                echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong>';
+                if ($this->is_test_data_row($row)) {
+                    echo '<div style="margin-top:4px;"><span class="tmwseo-target-badge">' . esc_html__('TEST DATA', 'tmwseo') . '</span></div>';
+                }
+                echo '</td>';
                 echo '<td><p style="margin:0;font-size:12px;">' . esc_html(wp_trim_words((string) ($row['description'] ?? ''), 16, '…')) . '</p></td>';
                 echo '<td>' . esc_html(number_format_i18n((int) ($row['estimated_traffic'] ?? 0))) . '</td>';
                 echo '<td>';
@@ -2635,6 +2652,14 @@ class SuggestionsAdminPage {
             return $this->compare_suggestions($left, $right, $active_sort);
         });
 
+        $has_test_data_rows = false;
+        foreach ($filtered_rows as $row) {
+            if ($this->is_test_data_row($row)) {
+                $has_test_data_rows = true;
+                break;
+            }
+        }
+
         // ── KPI counts (derived from full $rows, no logic change) ────────────
         $kpi_total        = count($rows);
         $kpi_awaiting     = (int) ($review_queue_counts['review_not_reviewed'] ?? 0);
@@ -2678,6 +2703,10 @@ class SuggestionsAdminPage {
                 echo esc_html__('Suggestion ignored.', 'tmwseo');
             }
             echo '</p></div>';
+        }
+
+        if ($has_test_data_rows) {
+            AdminUI::alert(__('TEST DATA fixtures are visible in this queue. These are staging-only QA rows.', 'tmwseo'), 'info');
         }
 
         // ── KPI row ──────────────────────────────────────────────────────────
@@ -3038,7 +3067,11 @@ class SuggestionsAdminPage {
             }
             echo '</td>';
             echo '<td><span class="tmwseo-action-label">' . esc_html($primary_action_meta['label']) . '</span><div class="tmwseo-cell-note"><strong>' . esc_html__('On click:', 'tmwseo') . '</strong> ' . esc_html($primary_action_meta['help']) . '</div></td>';
-            echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong></td>';
+            echo '<td><strong>' . esc_html((string) ($row['title'] ?? '')) . '</strong>';
+            if ($this->is_test_data_row($row)) {
+                echo '<div style="margin-top:4px;"><span class="tmwseo-target-badge">' . esc_html__('TEST DATA', 'tmwseo') . '</span></div>';
+            }
+            echo '</td>';
             echo '<td>';
             echo '<div class="tmwseo-description-block">';
             echo '<p class="tmwseo-description-summary"><strong>' . esc_html($description_summary) . '</strong></p>';
@@ -4278,6 +4311,24 @@ class SuggestionsAdminPage {
             'anchor' => isset($anchor_matches[1]) ? sanitize_text_field(trim((string) $anchor_matches[1])) : '',
         ];
     }
+
+    private function is_test_data_row(array $row): bool {
+        $marker = self::TEST_DATA_MARKER;
+
+        $title = (string) ($row['title'] ?? '');
+        if ($title !== '' && strpos($title, $marker) !== false) {
+            return true;
+        }
+
+        $description = (string) ($row['description'] ?? '');
+        if ($description !== '' && strpos($description, $marker) !== false) {
+            return true;
+        }
+
+        $suggested_action = (string) ($row['suggested_action'] ?? '');
+        return $suggested_action !== '' && strpos($suggested_action, $marker) !== false;
+    }
+
 
     private function manual_next_step_text(string $type, string $destination_type = ''): string {
         if ($type === 'content_brief') {
