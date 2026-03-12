@@ -95,6 +95,15 @@ class RecursiveKeywordExpansionEngine {
                     continue;
                 }
 
+                if (!TopicalRelevanceFilter::should_expand($child_keyword)) {
+                    TopicalRelevanceFilter::log_rejection($child_keyword, [
+                        'score' => 0,
+                        'similarity' => 0,
+                        'reasons' => ['topic similarity below threshold'],
+                    ]);
+                    continue;
+                }
+
                 $inserted = $wpdb->insert($graph_table, [
                     'parent_keyword' => $keyword,
                     'child_keyword' => $child_keyword,
@@ -232,6 +241,12 @@ class RecursiveKeywordExpansionEngine {
 
     private static function insert_candidate_keyword(string $keyword, int $volume, float $difficulty): bool {
         global $wpdb;
+
+        $evaluation = TopicalRelevanceFilter::evaluate($keyword);
+        if (empty($evaluation['allowed'])) {
+            TopicalRelevanceFilter::log_rejection($keyword, $evaluation);
+            return false;
+        }
 
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
         $keywords_table = $wpdb->prefix . 'tmw_keywords';
