@@ -31,6 +31,7 @@ class Admin {
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
+        add_action('admin_post_tmwseo_keyword_candidate_action', [__CLASS__, 'handle_keyword_candidate_action']);
         add_action('admin_post_tmwseo_optimize_post_now', [__CLASS__, 'handle_optimize_post_now']);
         add_action('admin_post_tmwseo_refresh_keywords_now', [__CLASS__, 'handle_refresh_keywords_now']);
         add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
@@ -1477,6 +1478,68 @@ class Admin {
         exit;
     }
 
+    public static function handle_keyword_candidate_action(): void {
+        if (!current_user_can('manage_options')) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_action_unauthorized'));
+            exit;
+        }
+
+        $candidate_id = isset($_REQUEST['candidate_id']) ? absint($_REQUEST['candidate_id']) : 0;
+        $requested_action = isset($_REQUEST['candidate_action'])
+            ? sanitize_key((string) wp_unslash($_REQUEST['candidate_action']))
+            : '';
+
+        if ($candidate_id <= 0) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_invalid_request'));
+            exit;
+        }
+
+        $nonce_action = 'tmwseo_keyword_candidate_action_' . $candidate_id;
+        if (!isset($_REQUEST['_wpnonce']) || !wp_verify_nonce((string) wp_unslash($_REQUEST['_wpnonce']), $nonce_action)) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_invalid_nonce'));
+            exit;
+        }
+
+        $status_map = [
+            'approve' => 'approved',
+            'reject'  => 'ignored',
+        ];
+
+        if (!isset($status_map[$requested_action])) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=candidate_invalid_request'));
+            exit;
+        }
+
+        global $wpdb;
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $new_status = $status_map[$requested_action];
+
+        $updated = $wpdb->update(
+            $cand_table,
+            [
+                'status' => $new_status,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $candidate_id],
+            ['%s', '%s'],
+            ['%d']
+        );
+
+        $notice = 'candidate_update_failed';
+        if ($updated !== false) {
+            $notice = $updated > 0 ? 'candidate_updated' : 'candidate_not_found';
+        }
+
+        $redirect_url = add_query_arg([
+            'page' => 'tmwseo-keywords',
+            'tmwseo_notice' => $notice,
+            'tmwseo_candidate_id' => $candidate_id,
+            'tmwseo_candidate_status' => $new_status,
+        ], admin_url('admin.php'));
+        wp_safe_redirect($redirect_url);
+        exit;
+    }
+
     public static function run_pagespeed_cycle_now(): void {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_pagespeed_cycle');
@@ -1744,6 +1807,26 @@ class Admin {
                 $models_processed,
                 $seeds_created
             );
+        } elseif ($notice === 'candidate_updated') {
+            $candidate_id = isset($_GET['tmwseo_candidate_id']) ? absint($_GET['tmwseo_candidate_id']) : 0;
+            $status = isset($_GET['tmwseo_candidate_status'])
+                ? sanitize_key((string) wp_unslash($_GET['tmwseo_candidate_status']))
+                : '';
+            $message = sprintf(
+                __('Candidate #%1$d updated to status: %2$s.', 'tmwseo'),
+                $candidate_id,
+                $status
+            );
+        } elseif ($notice === 'candidate_not_found') {
+            $message = __('Candidate update skipped. The selected row was not found or unchanged.', 'tmwseo');
+        } elseif ($notice === 'candidate_invalid_request') {
+            $message = __('Candidate action failed. Invalid request.', 'tmwseo');
+        } elseif ($notice === 'candidate_invalid_nonce') {
+            $message = __('Candidate action failed. Security check did not pass.', 'tmwseo');
+        } elseif ($notice === 'candidate_action_unauthorized') {
+            $message = __('Candidate action failed. You are not allowed to do that.', 'tmwseo');
+        } elseif ($notice === 'candidate_update_failed') {
+            $message = __('Candidate action failed due to a database error.', 'tmwseo');
         }
 
         if ($message === '') {
@@ -2339,8 +2422,9 @@ class Admin {
         echo '</div>';
 
         // ── Recent Candidates table ───────────────────────────────────────────
+        $focused_candidate_id = isset($_GET['tmwseo_candidate_focus']) ? absint($_GET['tmwseo_candidate_focus']) : 0;
         $recent_candidates = $wpdb->get_results(
-            "SELECT keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
+            "SELECT id, keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
              FROM {$cand_table}
              ORDER BY updated_at DESC, volume DESC
              LIMIT 30",
@@ -2355,23 +2439,25 @@ class Admin {
             echo '<table class="widefat striped">';
             echo '<thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Intent</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>';
             foreach ($recent_candidates as $candidate) {
+                $candidate_id = isset($candidate['id']) ? absint($candidate['id']) : 0;
                 $intent_type = strtolower(trim((string) ($candidate['intent_type'] ?? '')));
                 $entity_type = strtolower(trim((string) ($candidate['entity_type'] ?? '')));
                 $keyword_value = trim((string) ($candidate['keyword'] ?? ''));
 
                 $inspect_url = add_query_arg([
-                    'page' => 'tmwseo-keyword-graph',
+                    'page' => 'tmwseo-keywords',
+                    'tmwseo_candidate_focus' => $candidate_id,
                 ], admin_url('admin.php'));
-                $approve_url = add_query_arg([
-                    'page' => 'tmwseo-suggestions',
-                    'tmw_filter' => 'review_not_reviewed',
-                    'tmw_sort' => 'priority_desc',
-                ], admin_url('admin.php'));
-                $reject_url = add_query_arg([
-                    'page' => 'tmwseo-suggestions',
-                    'tmw_filter' => 'new',
-                    'tmw_sort' => 'priority_desc',
-                ], admin_url('admin.php'));
+                $approve_url = wp_nonce_url(add_query_arg([
+                    'action' => 'tmwseo_keyword_candidate_action',
+                    'candidate_id' => $candidate_id,
+                    'candidate_action' => 'approve',
+                ], admin_url('admin-post.php')), 'tmwseo_keyword_candidate_action_' . $candidate_id);
+                $reject_url = wp_nonce_url(add_query_arg([
+                    'action' => 'tmwseo_keyword_candidate_action',
+                    'candidate_id' => $candidate_id,
+                    'candidate_action' => 'reject',
+                ], admin_url('admin-post.php')), 'tmwseo_keyword_candidate_action_' . $candidate_id);
 
                 $copy_keyword_button = '<button type="button" class="button button-small" data-tmw-copy-keyword="' . esc_attr($keyword_value) . '">' . esc_html__('Copy keyword', 'tmwseo') . '</button>';
                 $actions = '<a class="button button-small" href="' . esc_url($inspect_url) . '">' . esc_html__('View / Inspect', 'tmwseo') . '</a> '
@@ -2389,7 +2475,12 @@ class Admin {
                     $intent_secondary = '<div style="color:#6b7280;font-size:12px;">' . esc_html($candidate['intent_type']) . '</div>';
                 }
 
-                echo '<tr>';
+                $row_style = '';
+                if ($focused_candidate_id > 0 && $candidate_id === $focused_candidate_id) {
+                    $row_style = ' style="outline:2px solid #2271b1;outline-offset:-2px;background:#f0f6fc;"';
+                }
+
+                echo '<tr id="tmw-candidate-' . esc_attr((string) $candidate_id) . '"' . $row_style . '>';
                 echo '<td>' . esc_html((string) ($candidate['keyword'] ?? '')) . $keyword_secondary . '</td>';
                 echo '<td>' . esc_html((string) ($candidate['volume'] ?? '')) . '</td>';
                 echo '<td>' . esc_html((string) ($candidate['difficulty'] ?? '')) . '</td>';
@@ -2402,7 +2493,7 @@ class Admin {
             echo '</tbody></table>';
             echo '</div>';
             echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
-            echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve/Reject open the existing Suggestions review workflow; no keyword-candidate status is changed directly from this table.', 'tmwseo') . '</p>';
+            echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve sets candidate status to approved. Reject sets candidate status to ignored. View / Inspect focuses this row on the Keywords page.', 'tmwseo') . '</p>';
         }
         AdminUI::section_end();
 
