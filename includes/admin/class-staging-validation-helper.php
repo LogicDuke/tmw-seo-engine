@@ -28,18 +28,20 @@ class Staging_Validation_Helper {
     }
 
     public static function register_menu(): void {
-        $environment = function_exists('wp_get_environment_type') ? wp_get_environment_type() : 'production';
-        $is_staging_like = in_array($environment, ['staging', 'development'], true);
-        $parent_slug = $is_staging_like ? Admin::MENU_SLUG : null;
+        $parent_slug = self::can_show_in_admin_menu() ? Admin::MENU_SLUG : null;
 
         add_submenu_page(
             $parent_slug,
             __('Staging Validation Helper', 'tmwseo'),
-            __('↳ Staging Validation Helper', 'tmwseo'),
+            __('Staging Validation Helper', 'tmwseo'),
             'manage_options',
             self::PAGE_SLUG,
             [__CLASS__, 'render_page']
         );
+    }
+
+    private static function can_show_in_admin_menu(): bool {
+        return self::can_run_mutation_actions();
     }
 
     public static function render_page(): void {
