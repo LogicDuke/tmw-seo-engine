@@ -215,6 +215,7 @@ class Schema {
         $topic_maps = $wpdb->prefix . 'tmwseo_topic_maps';
         $topic_entities = $wpdb->prefix . 'tmw_topic_entities';
         $entity_keywords = $wpdb->prefix . 'tmw_entity_keywords';
+        $models = $wpdb->prefix . 'tmw_models';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -891,6 +892,20 @@ class Schema {
             KEY keyword (keyword)
         ) $charset_collate;";
 
+        $sql_models = "CREATE TABLE $models (
+            id INT(11) NOT NULL AUTO_INCREMENT,
+            model_name VARCHAR(255) NOT NULL,
+            slug VARCHAR(255) NOT NULL,
+            platform VARCHAR(100) NOT NULL,
+            thumbnail_url TEXT NULL,
+            tags TEXT NULL,
+            discovered_from VARCHAR(255) NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY slug (slug),
+            KEY platform_created (platform, created_at)
+        ) $charset_collate;";
+
 $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             keyword VARCHAR(255) NOT NULL,
@@ -946,6 +961,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_topic_maps);
         dbDelta($sql_topic_entities);
         dbDelta($sql_entity_keywords);
+        dbDelta($sql_models);
         dbDelta($sql_legacy_rank);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
