@@ -555,17 +555,19 @@ class Schema {
 
         $sql_keyword_graph = "CREATE TABLE $keyword_graph (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-            keyword VARCHAR(255) NOT NULL,
-            related_keyword VARCHAR(255) NOT NULL,
+            parent_keyword VARCHAR(255) NOT NULL,
+            child_keyword VARCHAR(255) NOT NULL,
+            depth TINYINT(3) UNSIGNED NOT NULL DEFAULT 1,
+            search_volume INT(11) NOT NULL DEFAULT 0,
+            keyword_difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
             source VARCHAR(40) NOT NULL,
-            relationship_type VARCHAR(40) NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
-            KEY keyword (keyword),
-            KEY related_keyword (related_keyword),
+            KEY parent_keyword (parent_keyword),
+            KEY child_keyword (child_keyword),
+            KEY depth (depth),
             KEY source (source),
-            KEY relationship_type (relationship_type),
-            KEY keyword_related (keyword, related_keyword),
+            KEY keyword_edge (parent_keyword, child_keyword),
             KEY created_at (created_at)
         ) $charset_collate;";
 
