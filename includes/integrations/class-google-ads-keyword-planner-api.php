@@ -19,8 +19,8 @@
  *  - Customer ID       (your Google Ads account ID, no dashes)
  *
  * ENDPOINTS:
- *  POST https://googleads.googleapis.com/v17/customers/{customer_id}:generateKeywordIdeas
- *  POST https://googleads.googleapis.com/v17/customers/{customer_id}/googleAds:searchStream
+ *  POST https://googleads.googleapis.com/v18/customers/{customer_id}:generateKeywordIdeas
+ *  POST https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream
  *
  * CSV IMPORT FALLBACK:
  *  When the API is not configured, the existing import pipeline already handles
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 class GoogleAdsKeywordPlannerApi {
 
     private const TOKEN_ENDPOINT    = 'https://oauth2.googleapis.com/token';
-    private const ADS_API_BASE      = 'https://googleads.googleapis.com/v17';
+    private const ADS_API_BASE      = 'https://googleads.googleapis.com/v18';
     private const TOKEN_CACHE_KEY   = 'tmwseo_google_ads_access_token';
     private const CACHE_TTL         = 55 * MINUTE_IN_SECONDS; // access tokens last 60 min
 
