@@ -159,6 +159,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-competitor-mining',
             self::MENU_SLUG . '_page_tmwseo-link-graph',
             self::MENU_SLUG . '_page_tmwseo-topic-maps',
+            self::MENU_SLUG . '_page_tmwseo-topic-authority',
             self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
@@ -964,6 +965,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Topic Maps', 'tmwseo'), __('Topic Maps', 'tmwseo'), 'manage_options', 'tmwseo-topic-maps', ['\TMWSEO\Engine\Admin\TopicMapsAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Topic Authority', 'tmwseo'), __('Topic Authority', 'tmwseo'), 'manage_options', 'tmwseo-topic-authority', [__CLASS__, 'render_topic_authority']);
         add_submenu_page(self::MENU_SLUG, __('Keyword Graph', 'tmwseo'), __('Keyword Graph', 'tmwseo'), 'manage_options', 'tmwseo-keyword-graph', ['\TMWSEO\Engine\Admin\KeywordGraphAdminPage', 'render']);
         add_submenu_page(self::MENU_SLUG, __('Discovery Control', 'tmwseo'), __('Discovery Control', 'tmwseo'), 'manage_options', 'tmwseo-discovery-control', ['\TMWSEO\Engine\Admin\DiscoveryControlAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
@@ -1034,6 +1036,7 @@ class Admin {
             'tmwseo-serp-analyzer',
             'tmwseo-link-graph',
             'tmwseo-topic-maps',
+            'tmwseo-topic-authority',
             'tmwseo-keyword-graph',
             'tmwseo-competitor-domains',
             'tmwseo-content-gap',
@@ -1103,6 +1106,14 @@ class Admin {
     }
 
     // ── Ranking Probability page ───────────────────────────────────────────
+
+    public static function render_topic_authority(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        \TMWSEO\Engine\Admin\TopicAuthorityPage::render_page();
+    }
 
     public static function render_ranking_probability(): void {
         if (!current_user_can('manage_options')) {

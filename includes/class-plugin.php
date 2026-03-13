@@ -32,11 +32,13 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/topic-authority-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/autopilot/class-seo-autopilot.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-topic-authority-engine.php';
 
 // ── Autopilot integration: new classes ────────────────────────────────────────
 // Keyword usage deduplication (anti-cannibalization)
