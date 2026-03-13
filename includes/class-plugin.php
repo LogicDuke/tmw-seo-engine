@@ -132,6 +132,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/clas
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/expansion/class-keyword-expansion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-database.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-entity-combination-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-tag-modifier-expander.php';
@@ -472,6 +473,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\CSVManagerAdminPage::init();
             \TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin::init();
             \TMWSEO\Engine\ContentGap\ContentGapAdmin::init();
+            \TMWSEO\Engine\Expansion\KeywordExpansionEngine::init();
         }
     }
 
