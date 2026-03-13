@@ -46,6 +46,7 @@ class DebugDashboard {
         echo '<h1>TMW SEO Engine → Debug Dashboard</h1>';
         echo '<p>Developer-only diagnostics for SEO APIs and pipeline components. Results are view-only and are not stored as debug records.</p>';
 
+        self::render_keyword_pipeline_health();
         self::render_keyword_planner_section($state);
         self::render_dataforseo_suggestions_section($state);
         self::render_serp_analysis_section($state);
@@ -177,6 +178,179 @@ class DebugDashboard {
 
     private static function render_card_close(): void {
         echo '</div></div>';
+    }
+
+    private static function render_card_close(): void {
+        echo '</div></div>';
+    }
+
+    /**
+     * Keyword Pipeline Health Panel — read-only operational diagnostics.
+     * Computes all states from actual options/transients/tables. No fake health states.
+     */
+    private static function render_keyword_pipeline_health(): void {
+        global $wpdb;
+
+        self::render_card_open('⚕️ KEYWORD PIPELINE HEALTH');
+
+        $rows = [];
+        $alerts = [];
+
+        // 1. Worker tick scheduled?
+        $worker_tick_ts = wp_next_scheduled('tmwseo_worker_tick');
+        $worker_tick_ok = $worker_tick_ts !== false;
+        $rows[] = ['Worker tick (tmwseo_worker_tick)', $worker_tick_ok ? '✅ Scheduled — next: ' . gmdate('Y-m-d H:i:s', $worker_tick_ts) : '❌ NOT scheduled (manual mode kills this cron)'];
+        if (!$worker_tick_ok) {
+            $alerts[] = 'Background worker tick is not scheduled. Manual keyword cycle triggers now execute synchronously, but any cron-enqueued jobs will stall.';
+        }
+
+        // 2. Job queue counts (tmwseo_jobs — new JobWorker table)
+        $jobs_table = $wpdb->prefix . 'tmwseo_jobs';
+        $jobs_table_exists = ((string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $jobs_table)) === $jobs_table);
+        if ($jobs_table_exists) {
+            $job_counts_raw = $wpdb->get_results("SELECT status, COUNT(*) AS cnt FROM {$jobs_table} GROUP BY status", ARRAY_A);
+            $job_counts = ['pending' => 0, 'running' => 0, 'done' => 0, 'failed' => 0];
+            if (is_array($job_counts_raw)) {
+                foreach ($job_counts_raw as $jc) {
+                    $s = (string) ($jc['status'] ?? '');
+                    if (isset($job_counts[$s])) { $job_counts[$s] = (int) $jc['cnt']; }
+                }
+            }
+            $rows[] = ['Job queue (tmwseo_jobs)', sprintf('pending=%d  running=%d  done=%d  failed=%d', $job_counts['pending'], $job_counts['running'], $job_counts['done'], $job_counts['failed'])];
+            if ($job_counts['pending'] > 0 && !$worker_tick_ok) {
+                $alerts[] = sprintf('%d pending job(s) exist but the worker tick is not scheduled. These will not process automatically.', $job_counts['pending']);
+            }
+        } else {
+            $rows[] = ['Job queue (tmwseo_jobs)', '⚠️ Table does not exist'];
+        }
+
+        // 3. Discovery enabled?
+        $discovery_enabled = (bool) get_option('tmw_discovery_enabled', 1);
+        $rows[] = ['Discovery enabled', $discovery_enabled ? '✅ Yes' : '❌ DISABLED — all discovery blocked'];
+        if (!$discovery_enabled) {
+            $alerts[] = 'Discovery is globally disabled (tmw_discovery_enabled=0). No seeds or keywords will be discovered.';
+        }
+
+        // 4. Circuit breaker
+        $breaker = get_option('tmw_keyword_engine_breaker', []);
+        $breaker = is_array($breaker) ? $breaker : [];
+        $breaker_active = false;
+        $cooldown_until = 0;
+        if (!empty($breaker['last_triggered'])) {
+            $cooldown_until = (int) $breaker['last_triggered'] + (15 * MINUTE_IN_SECONDS);
+            $breaker_active = time() < $cooldown_until;
+        }
+        $rows[] = ['Circuit breaker', $breaker_active ? '🔴 ACTIVE — cooldown until ' . gmdate('H:i:s', $cooldown_until) . ' UTC' : '✅ Clear'];
+        if ($breaker_active) {
+            $alerts[] = 'Keyword engine breaker is active (3+ consecutive provider failures). Auto-clears after 15 min.';
+        }
+
+        // 5. DataForSEO
+        $dfseo_configured = DataForSEO::is_configured();
+        $dfseo_over = false;
+        if ($dfseo_configured) {
+            $dfseo_stats = DataForSEO::get_monthly_budget_stats();
+            $dfseo_over = (bool) ($dfseo_stats['over_budget'] ?? false);
+            $rows[] = ['DataForSEO', sprintf('✅ Configured — $%.2f / $%.2f spent%s', (float) ($dfseo_stats['spent_usd'] ?? 0), (float) ($dfseo_stats['budget_usd'] ?? 0), $dfseo_over ? ' — 🔴 OVER BUDGET' : '')];
+        } else {
+            $rows[] = ['DataForSEO', '⚠️ Not configured (missing login/password)'];
+        }
+        if ($dfseo_over) {
+            $alerts[] = 'DataForSEO monthly budget exceeded. API calls blocked until next month or budget increase.';
+        }
+
+        // 6. Google Ads
+        $gads_enabled = (bool) Settings::get('google_ads_enabled', 0);
+        $gads_configured = GoogleAdsKeywordPlannerApi::is_configured();
+        if ($gads_enabled && $gads_configured) {
+            $rows[] = ['Google Ads Keyword Planner', '✅ Enabled + configured'];
+        } elseif ($gads_enabled && !$gads_configured) {
+            $rows[] = ['Google Ads Keyword Planner', '⚠️ Enabled but missing credentials'];
+            $alerts[] = 'Google Ads enabled but not fully configured. Check developer token, OAuth, customer ID in Settings.';
+        } else {
+            $rows[] = ['Google Ads Keyword Planner', 'ℹ️ Disabled'];
+        }
+
+        // 7. Google Trends
+        $gtrends_enabled = (bool) Settings::get('google_trends_enabled', 0);
+        $rows[] = ['Google Trends', $gtrends_enabled ? '✅ Enabled' : 'ℹ️ Disabled'];
+
+        // 8. Keyword lock
+        $lock_active = (bool) get_transient('tmw_dfseo_keyword_lock');
+        $rows[] = ['Keyword lock', $lock_active ? '🔒 LOCKED — cycle will skip' : '✅ Clear'];
+        if ($lock_active) {
+            $alerts[] = 'Keyword lock transient is active. Either a cycle is running or the lock is stale (auto-expires 10 min).';
+        }
+
+        // 9. Settings integrity
+        $stored = get_option('tmwseo_engine_settings', []);
+        $stored = is_array($stored) ? $stored : [];
+        $critical_keys = [
+            'safe_mode', 'dataforseo_login', 'dataforseo_password',
+            'tmwseo_dataforseo_budget_usd', 'keyword_min_volume', 'keyword_max_kd',
+            'competitor_domains', 'google_ads_enabled', 'google_trends_enabled',
+        ];
+        $missing_keys = [];
+        foreach ($critical_keys as $ck) {
+            if (!array_key_exists($ck, $stored)) {
+                $missing_keys[] = $ck;
+            }
+        }
+        if (empty($missing_keys)) {
+            $rows[] = ['Settings integrity', '✅ All critical keys present (' . count($stored) . ' total keys)'];
+        } else {
+            $rows[] = ['Settings integrity', '🔴 MISSING: ' . implode(', ', $missing_keys)];
+            $alerts[] = 'Critical settings keys missing from tmwseo_engine_settings. Possible partial/legacy save. Re-save from Settings page.';
+        }
+
+        // 10. Last cycle timestamps and stop reason
+        $metrics = get_option('tmw_keyword_engine_metrics', []);
+        $metrics = is_array($metrics) ? $metrics : [];
+        $last_run = (int) ($metrics['last_run'] ?? 0);
+        $last_discovery = (int) ($metrics['last_discovery_run'] ?? 0);
+        $last_stop = (string) ($metrics['last_stop_reason'] ?? '');
+        $rows[] = ['Last keyword cycle', $last_run > 0 ? gmdate('Y-m-d H:i:s', $last_run) . ' UTC (' . human_time_diff($last_run) . ' ago)' : 'Never'];
+        $rows[] = ['Last discovery run', $last_discovery > 0 ? gmdate('Y-m-d H:i:s', $last_discovery) . ' UTC' : 'Never'];
+        if ($last_stop !== '') {
+            $rows[] = ['Last stop reason', $last_stop];
+        }
+
+        // 11. Seed count
+        $seeds_table = $wpdb->prefix . 'tmwseo_seeds';
+        $seeds_exists = ((string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $seeds_table)) === $seeds_table);
+        if ($seeds_exists) {
+            $seed_total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$seeds_table}");
+            $rows[] = ['Seeds in registry', (string) $seed_total . ($seed_total < 5 ? ' ⚠️ Very low seed diversity' : '')];
+            if ($seed_total === 0) {
+                $alerts[] = 'Seed registry is empty. Discovery has nothing to expand. Add seeds manually or enable seed builders.';
+            }
+        }
+
+        // 12. Provider availability summary
+        $prov = [];
+        if ($dfseo_configured && !$dfseo_over) { $prov[] = 'DataForSEO'; }
+        if ($gads_configured) { $prov[] = 'Google KP'; }
+        if ($gtrends_enabled) { $prov[] = 'Google Trends'; }
+        $rows[] = ['Available providers', empty($prov) ? '🔴 NONE — discovery will fail' : implode(', ', $prov)];
+        if (empty($prov)) {
+            $alerts[] = 'No keyword idea providers available. Configure DataForSEO, enable Google Ads, or enable Google Trends.';
+        }
+
+        // Render alerts box
+        if (!empty($alerts)) {
+            echo '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;margin-bottom:14px;">';
+            echo '<strong style="color:#991b1b;">⚠️ ' . count($alerts) . ' issue(s) detected:</strong>';
+            echo '<ul style="margin:8px 0 0 20px;list-style:disc;color:#991b1b;">';
+            foreach ($alerts as $a) {
+                echo '<li>' . esc_html($a) . '</li>';
+            }
+            echo '</ul></div>';
+        } else {
+            echo '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 16px;margin-bottom:14px;color:#15803d;"><strong>✅ No critical pipeline issues detected.</strong></div>';
+        }
+
+        self::render_table(['Check', 'Status'], $rows);
+        self::render_card_close();
     }
 
     private static function render_keyword_planner_section(array $state): void {
