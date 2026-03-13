@@ -20,6 +20,37 @@ class CSVExporter {
         add_action( 'admin_post_tmwseo_export_csv', [ __CLASS__, 'handle_export' ] );
     }
 
+    /**
+     * Deletes temporary CSV files older than 7 days.
+     */
+    public static function cleanup_temp_csv_files(): void {
+        if ( ! function_exists( 'tmw_get_csv_directory' ) ) {
+            return;
+        }
+
+        $csv_dir = tmw_get_csv_directory();
+        if ( ! is_dir( $csv_dir ) ) {
+            return;
+        }
+
+        $files = glob( trailingslashit( $csv_dir ) . '*.csv' ) ?: [];
+        if ( empty( $files ) ) {
+            return;
+        }
+
+        $cutoff = time() - ( 7 * DAY_IN_SECONDS );
+        foreach ( $files as $file_path ) {
+            if ( ! is_file( $file_path ) ) {
+                continue;
+            }
+
+            $modified = @filemtime( $file_path );
+            if ( $modified !== false && $modified < $cutoff ) {
+                @unlink( $file_path );
+            }
+        }
+    }
+
     public static function handle_export(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( 'Unauthorized', 403 );
@@ -199,13 +230,23 @@ class CSVExporter {
             ob_end_clean();
         }
 
-        header( 'Content-Type: text/csv; charset=UTF-8' );
-        header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
-        header( 'Pragma: no-cache' );
-        header( 'Expires: 0' );
+        $csv_dir = function_exists( 'tmw_get_csv_directory' )
+            ? tmw_get_csv_directory()
+            : trailingslashit( WP_CONTENT_DIR ) . 'tmw-temp';
 
-        $fh = fopen( 'php://output', 'w' );
-        if ( ! $fh ) exit;
+        if ( ! is_dir( $csv_dir ) ) {
+            wp_mkdir_p( $csv_dir );
+        }
+
+        if ( is_dir( $csv_dir ) ) {
+            @chmod( $csv_dir, 0755 );
+        }
+
+        $file_path = trailingslashit( $csv_dir ) . $filename;
+        $fh        = fopen( $file_path, 'w' );
+        if ( ! $fh ) {
+            wp_die( 'Unable to generate CSV file', 500 );
+        }
 
         // BOM for Excel UTF-8 compatibility
         fwrite( $fh, "\xEF\xBB\xBF" );
@@ -217,6 +258,15 @@ class CSVExporter {
         }
 
         fclose( $fh );
+
+        header( 'Content-Type: text/csv; charset=UTF-8' );
+        header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+        header( 'Content-Length: ' . (string) filesize( $file_path ) );
+        header( 'Pragma: no-cache' );
+        header( 'Expires: 0' );
+
+        readfile( $file_path );
         exit;
     }
 }
+

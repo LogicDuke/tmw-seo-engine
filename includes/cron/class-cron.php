@@ -3,6 +3,7 @@ namespace TMWSEO\Engine;
 
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Intelligence\IntelligenceMaterializer;
+use TMWSEO\Engine\Export\CSVExporter;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -128,6 +129,7 @@ class Cron {
         // alpha.8: keyword cycle (adaptive budget inside the job)
         Jobs::enqueue('keyword_cycle', 'system', null, ['trigger' => 'daily']);
         JobWorker::enqueue_job('competitor_mining', ['trigger' => 'daily_cron_competitor_mining', 'seed_limit' => 25]);
+        CSVExporter::cleanup_temp_csv_files();
     }
 
     public static function weekly(): void {
