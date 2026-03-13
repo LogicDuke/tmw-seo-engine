@@ -92,27 +92,7 @@ class TMW_Cluster_Admin_Page {
             }
         }
 
-        $advisor = TMW_Main_Class::get_cluster_advisor();
-
-        $allowed_page_sizes = [25, 50, 100];
-        $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 50;
-        if (!in_array($per_page, $allowed_page_sizes, true)) {
-            $per_page = 50;
-        }
-
-        $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-        $offset = ($current_page - 1) * $per_page;
-
-        $total_rows = $this->cluster_service->count_clusters();
-        $clusters = $this->cluster_service->list_clusters([
-            'limit' => $per_page,
-            'offset' => $offset,
-            'orderby' => 'created_at',
-            'order' => 'DESC',
-        ]);
-
-        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
-        $showing_to = min($offset + count($clusters), $total_rows);
+        $table = new \TMWSEO\Engine\Admin\Tables\ClustersTable($this->cluster_service, $this->scoring_engine);
 
         echo '<div class="wrap">';
         echo '<h1>SEO Clusters</h1>';
@@ -125,102 +105,12 @@ class TMW_Cluster_Admin_Page {
         echo '</button>';
         echo '</form>';
 
-        echo '<p>' . esc_html(sprintf('Showing %d–%d of %d clusters', $showing_from, $showing_to, $total_rows)) . '</p>';
-        echo '<form method="get" style="margin:8px 0 12px;">';
+        echo '<form method="get">';
         echo '<input type="hidden" name="page" value="tmw-seo-clusters">';
-        echo '<label for="tmwseo-clusters-per-page" style="margin-right:6px;">Rows per page:</label>';
-        echo '<select id="tmwseo-clusters-per-page" name="per_page" onchange="this.form.submit()">';
-        foreach ($allowed_page_sizes as $size) {
-            echo '<option value="' . esc_attr((string) $size) . '" ' . selected($per_page, $size, false) . '>' . esc_html((string) $size) . '</option>';
-        }
-        echo '</select>';
+        $table->prepare_items();
+        $table->search_box(__('Search Clusters', 'tmwseo'), 'clusters-search');
+        $table->display();
         echo '</form>';
-
-        if (empty($clusters) || !is_array($clusters)) {
-            echo '<p>' . esc_html('No clusters found.') . '</p>';
-            echo '</div>';
-
-            return;
-        }
-
-        echo '<table class="widefat striped">';
-        echo '<thead><tr>';
-        echo '<th>' . esc_html('Name') . '</th>';
-        echo '<th>' . esc_html('Score') . '</th>';
-        echo '<th>' . esc_html('Grade') . '</th>';
-        echo '<th>' . esc_html('Pillar') . '</th>';
-        echo '<th>' . esc_html('Supports') . '</th>';
-        echo '<th>' . esc_html('Keywords') . '</th>';
-        echo '<th>' . esc_html('Missing Links') . '</th>';
-        echo '<th>' . esc_html('Opportunity') . '</th>';
-        echo '</tr></thead>';
-        echo '<tbody>';
-
-        foreach ($clusters as $cluster) {
-            if (!is_array($cluster) || !isset($cluster['id'])) {
-                continue;
-            }
-
-            $cluster_id = (int) $cluster['id'];
-            $score_data = $this->scoring_engine->score_cluster($cluster_id);
-            $analysis = TMW_Main_Class::get_cluster_linking_engine()->analyze_cluster($cluster_id);
-            $keywords = $this->cluster_service->get_cluster_keywords($cluster_id);
-            $opportunity = $advisor->get_cluster_opportunity_score($cluster['id']);
-
-            $name = isset($cluster['name']) ? (string) $cluster['name'] : '';
-            $score = (is_array($score_data) && isset($score_data['score'])) ? (int) $score_data['score'] : 0;
-            $grade = (is_array($score_data) && isset($score_data['grade'])) ? (string) $score_data['grade'] : 'F';
-            $has_pillar = (is_array($analysis) && !empty($analysis['pillar'])) ? 'Yes' : 'No';
-            $supports_count = (is_array($analysis) && isset($analysis['supports']) && is_array($analysis['supports']))
-                ? count($analysis['supports'])
-                : 0;
-            $keywords_count = is_array($keywords) ? count($keywords) : 0;
-            $missing_links_count = (is_array($analysis) && isset($analysis['missing_links']) && is_array($analysis['missing_links']))
-                ? count($analysis['missing_links'])
-                : 0;
-
-            $opportunity_display = '—';
-            if (!empty($opportunity) && is_array($opportunity) && isset($opportunity['score'])) {
-                $opportunity_score = (int) $opportunity['score'];
-                $opportunity_color = '#6b7280';
-
-                if ($opportunity_score >= 70) {
-                    $opportunity_color = '#dc2626';
-                } elseif ($opportunity_score >= 40) {
-                    $opportunity_color = '#ea580c';
-                }
-
-                $opportunity_display = '<span style="padding:4px 8px;border-radius:4px;background:' . esc_attr($opportunity_color) . ';color:#fff;font-weight:bold;">' . esc_html((string) $opportunity_score) . '</span>';
-            }
-
-            echo '<tr>';
-            echo '<td><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-clusters&cluster_id=' . $cluster['id'])) . '">' . esc_html($name) . '</a></td>';
-            echo '<td>' . esc_html((string) $score) . '</td>';
-            echo '<td>' . esc_html($grade) . '</td>';
-            echo '<td>' . esc_html($has_pillar) . '</td>';
-            echo '<td>' . esc_html((string) $supports_count) . '</td>';
-            echo '<td>' . esc_html((string) $keywords_count) . '</td>';
-            echo '<td>' . esc_html((string) $missing_links_count) . '</td>';
-            echo '<td>' . $opportunity_display . '</td>';
-            echo '</tr>';
-        }
-
-        echo '</tbody>';
-        echo '</table>';
-
-        $pagination_query_args = ['page' => 'tmw-seo-clusters', 'per_page' => $per_page];
-        foreach (['status', 'keyword', 'cluster', 'type', 'search'] as $filter_key) {
-            if (isset($_GET[$filter_key]) && $_GET[$filter_key] !== '') {
-                $pagination_query_args[$filter_key] = sanitize_text_field(wp_unslash((string) $_GET[$filter_key]));
-            }
-        }
-
-        \TMWSEO\Engine\Admin\ListTablePagination::render([
-            'total_items' => $total_rows,
-            'per_page' => $per_page,
-            'current_page' => $current_page,
-            'query_args' => $pagination_query_args,
-        ]);
 
         echo '</div>';
     }
