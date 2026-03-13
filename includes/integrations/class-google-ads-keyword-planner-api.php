@@ -19,8 +19,8 @@
  *  - Customer ID       (your Google Ads account ID, no dashes)
  *
  * ENDPOINTS:
- *  POST https://googleads.googleapis.com/v17/customers/{customer_id}:generateKeywordIdeas
- *  POST https://googleads.googleapis.com/v17/customers/{customer_id}/googleAds:searchStream
+ *  POST https://googleads.googleapis.com/v16/customers/{customer_id}:generateKeywordIdeas
+ *  POST https://googleads.googleapis.com/v16/customers/{customer_id}/googleAds:searchStream
  *
  * CSV IMPORT FALLBACK:
  *  When the API is not configured, the existing import pipeline already handles
@@ -40,7 +40,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 class GoogleAdsKeywordPlannerApi {
 
     private const TOKEN_ENDPOINT    = 'https://oauth2.googleapis.com/token';
-    private const ADS_API_BASE      = 'https://googleads.googleapis.com/v17';
+    private const ADS_API_BASE      = 'https://googleads.googleapis.com/v16';
     private const TOKEN_CACHE_KEY   = 'tmwseo_google_ads_access_token';
     private const CACHE_TTL         = 55 * MINUTE_IN_SECONDS; // access tokens last 60 min
 
@@ -90,21 +90,6 @@ class GoogleAdsKeywordPlannerApi {
         if ( $access_token === null ) {
             return [ 'ok' => false, 'error' => 'google_ads_token_failed' ];
         }
-
-        $customer_id = preg_replace( '/[^0-9]/', '', (string) Settings::get( 'google_ads_customer_id', '' ) );
-        $endpoint    = self::ADS_API_BASE . "/customers/{$customer_id}:generateKeywordIdeas";
-
-        $location_code = (int) ( Settings::get( 'dataforseo_location_code', '2840' ) ?: 2840 );
-        // Google Ads uses resource names for geo targets.
-        $geo_target = "geoTargetConstants/{$location_code}";
-
-        $body = wp_json_encode( [
-            'keywordSeed'     => [ 'keywords' => [ $seed ] ],
-            'language'        => 'languageConstants/1000', // English
-            'geoTargetConstants' => [ $geo_target ],
-            'keywordPlanNetwork' => 'GOOGLE_SEARCH_AND_PARTNERS',
-            'pageSize'        => min( 1000, max( 1, $limit ) ),
-        ] );
 
         $request_result = self::request_keyword_ideas( $seed, $limit, $access_token );
         if ( ! (bool) ( $request_result['ok'] ?? false ) ) {
@@ -308,8 +293,15 @@ class GoogleAdsKeywordPlannerApi {
             'keywordSeed'        => [ 'keywords' => [ $seed ] ],
             'language'           => 'languageConstants/1000',
             'geoTargetConstants' => [ $geo_target ],
-            'keywordPlanNetwork' => 'GOOGLE_SEARCH_AND_PARTNERS',
+            'keywordPlanNetwork' => 'GOOGLE_SEARCH',
             'pageSize'           => min( 1000, max( 1, $limit ) ),
+        ] );
+
+        Logs::info( 'google-ads', 'GenerateKeywordIdeas request', [
+            'endpoint'    => $endpoint,
+            'customer_id' => $customer_id,
+            'seed'        => $seed,
+            'limit'       => $limit,
         ] );
 
         $resp = wp_safe_remote_post( $endpoint, [
@@ -324,6 +316,8 @@ class GoogleAdsKeywordPlannerApi {
 
         if ( is_wp_error( $resp ) ) {
             Logs::warn( 'google-ads', 'Keyword ideas request failed', [
+                'endpoint'    => $endpoint,
+                'customer_id' => $customer_id,
                 'seed'  => $seed,
                 'error' => $resp->get_error_message(),
             ] );
@@ -340,6 +334,13 @@ class GoogleAdsKeywordPlannerApi {
         if ( ! is_array( $data ) ) {
             $data = [];
         }
+
+        Logs::info( 'google-ads', 'GenerateKeywordIdeas response', [
+            'endpoint'    => $endpoint,
+            'customer_id' => $customer_id,
+            'http_code'   => $http_code,
+            'body'        => substr( $raw_body, 0, 500 ),
+        ] );
 
         if ( $http_code !== 200 ) {
             Logs::warn( 'google-ads', 'Keyword ideas HTTP error', [
