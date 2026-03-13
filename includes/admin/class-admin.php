@@ -1533,7 +1533,7 @@ class Admin {
             'user_id' => get_current_user_id(),
         ]);
 
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=keyword_cycle_ran'));
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=seo_engine_cycle_executed'));
         exit;
     }
 
@@ -1926,7 +1926,7 @@ class Admin {
             $message = __('Candidate action failed. You are not allowed to do that.', 'tmwseo');
         } elseif ($notice === 'candidate_update_failed') {
             $message = __('Candidate action failed due to a database error.', 'tmwseo');
-        } elseif ($notice === 'seo_engine_cycle_executed') {
+        } elseif ($notice === 'seo_engine_cycle_executed' || $notice === 'keyword_cycle_ran') {
             $message = __('SEO Engine cycle executed.', 'tmwseo');
         } elseif ($notice === 'candidate_action_not_available') {
             $message = __('Candidate action skipped. This row is already in a final status for that action.', 'tmwseo');
@@ -2050,9 +2050,9 @@ class Admin {
         echo '<h3 class="tmwui-card-title">' . esc_html__('Keyword Cycle', 'tmwseo') . '</h3>';
         echo '<p class="tmwui-card-desc">' . esc_html__('Refreshes keyword data from DataForSEO: discovery, KD scoring, clustering. Creates new candidate clusters for review.', 'tmwseo') . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmw_seo_run_cycle');
-        echo '<input type="hidden" name="action" value="tmw_run_keyword_cycle">';
-        submit_button(__('Run SEO Engine Now', 'tmwseo'), 'primary', 'submit', false);
+        wp_nonce_field('tmwseo_run_keyword_cycle');
+        echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
+        submit_button(__('Run Keyword Cycle', 'tmwseo'), 'primary', 'submit', false);
         echo '</form>';
         echo '</div>';
 
