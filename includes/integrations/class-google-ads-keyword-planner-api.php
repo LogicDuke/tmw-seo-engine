@@ -183,6 +183,7 @@ class GoogleAdsKeywordPlannerApi {
                 'message'               => (string) ( $request_result['message'] ?? 'Google Ads request failed.' ),
                 'http_status'           => isset( $request_result['http_status'] ) ? (int) $request_result['http_status'] : null,
                 'google_ads_error_code' => (string) ( $request_result['google_ads_error_code'] ?? '' ),
+                'diagnostic_hints'      => (array) ( $request_result['diagnostic_hints'] ?? [] ),
                 'raw_response'          => $request_result['raw_response'] ?? null,
             ];
         }
@@ -354,44 +355,67 @@ class GoogleAdsKeywordPlannerApi {
      * @return array<string,mixed>
      */
     private static function request_keyword_ideas( string $seed, int $limit, string $access_token ): array {
-        $customer_id = self::sanitize_customer_id( (string) Settings::get( 'google_ads_customer_id', '' ) );
-        $endpoint    = self::ADS_API_BASE . "/customers/{$customer_id}:generateKeywordIdeas";
+        $raw_customer_id = (string) Settings::get( 'google_ads_customer_id', '' );
+        $customer_id     = self::sanitize_customer_id( $raw_customer_id );
+        $endpoint        = self::ADS_API_BASE . "/customers/{$customer_id}:generateKeywordIdeas";
 
         $location_code = (int) ( Settings::get( 'dataforseo_location_code', '2840' ) ?: 2840 );
         $geo_target = "geoTargetConstants/{$location_code}";
 
-        $body = wp_json_encode( [
+        $request_body = [
             'keywordSeed'        => [ 'keywords' => [ $seed ] ],
             'language'           => 'languageConstants/1000',
             'geoTargetConstants' => [ $geo_target ],
             'keywordPlanNetwork' => 'GOOGLE_SEARCH',
             'pageSize'           => min( 1000, max( 1, $limit ) ),
-        ] );
+        ];
+        $body = wp_json_encode( $request_body );
 
-        Logs::info( 'google-ads', 'GenerateKeywordIdeas request', [
-            'endpoint'    => $endpoint,
-            'sanitized_customer_id' => $customer_id,
-            'seed'        => $seed,
-            'limit'       => $limit,
-        ] );
+        // Build headers — include login-customer-id when configured (required for MCC/manager accounts).
+        $login_customer_id_raw = (string) Settings::get( 'google_ads_login_customer_id', '' );
+        $login_customer_id     = self::sanitize_customer_id( $login_customer_id_raw );
+        $dev_token             = (string) Settings::get( 'google_ads_developer_token', '' );
+
+        $headers = [
+            'Authorization'   => 'Bearer ' . $access_token,
+            'developer-token' => $dev_token,
+            'Content-Type'    => 'application/json',
+        ];
+        if ( $login_customer_id !== '' ) {
+            $headers['login-customer-id'] = $login_customer_id;
+        }
+
+        // Diagnostic context — logged on every request for 404 forensics.
+        $diag = [
+            'endpoint'              => $endpoint,
+            'api_version'           => 'v16',
+            'customer_id_raw_set'   => $raw_customer_id !== '',
+            'customer_id_sanitized' => $customer_id,
+            'login_customer_id_set' => $login_customer_id !== '',
+            'login_customer_id_val' => $login_customer_id !== '' ? $login_customer_id : '(not configured)',
+            'dev_token_present'     => $dev_token !== '',
+            'dev_token_prefix'      => $dev_token !== '' ? substr( $dev_token, 0, 6 ) . '...' : '(empty)',
+            'refresh_token_present' => trim( (string) Settings::get( 'google_ads_refresh_token', '' ) ) !== '',
+            'access_token_present'  => $access_token !== '',
+            'geo_target'            => $geo_target,
+            'language'              => 'languageConstants/1000',
+            'seed'                  => $seed,
+            'limit'                 => $limit,
+            'body_keys'             => array_keys( $request_body ),
+        ];
+
+        Logs::info( 'google-ads', 'GenerateKeywordIdeas request (diagnostic)', $diag );
 
         $resp = wp_safe_remote_post( $endpoint, [
             'timeout' => 30,
-            'headers' => [
-                'Authorization'   => 'Bearer ' . $access_token,
-                'developer-token' => (string) Settings::get( 'google_ads_developer_token', '' ),
-                'Content-Type'    => 'application/json',
-            ],
-            'body' => $body ?: '',
+            'headers' => $headers,
+            'body'    => $body ?: '',
         ] );
 
         if ( is_wp_error( $resp ) ) {
-            Logs::warn( 'google-ads', 'Keyword ideas request failed', [
-                'endpoint'    => $endpoint,
-                'sanitized_customer_id' => $customer_id,
-                'seed'  => $seed,
-                'error' => $resp->get_error_message(),
-            ] );
+            Logs::warn( 'google-ads', 'Keyword ideas WP HTTP error', array_merge( $diag, [
+                'wp_error' => $resp->get_error_message(),
+            ] ) );
             return [
                 'ok'      => false,
                 'error'   => 'google_ads_request_failed',
@@ -407,26 +431,44 @@ class GoogleAdsKeywordPlannerApi {
         }
 
         Logs::info( 'google-ads', 'GenerateKeywordIdeas response', [
-            'endpoint'    => $endpoint,
-            'sanitized_customer_id' => $customer_id,
-            'http_code'   => $http_code,
-            'body'        => substr( $raw_body, 0, 500 ),
+            'http_code'             => $http_code,
+            'customer_id_sanitized' => $customer_id,
+            'login_customer_id_set' => $login_customer_id !== '',
+            'body_length'           => strlen( $raw_body ),
+            'body_preview'          => substr( $raw_body, 0, 800 ),
         ] );
 
         if ( $http_code !== 200 ) {
-            $error = 'google_ads_http_' . $http_code;
+            $error   = 'google_ads_http_' . $http_code;
             $message = (string) ( $data['error']['message'] ?? 'Google Ads HTTP error.' );
+            $gads_error_code = (string) ( $data['error']['status'] ?? '' );
 
+            // Provide structured diagnostic guidance for 404 specifically.
+            $diagnostic_hints = [];
             if ( $http_code === 404 ) {
                 $error = 'google_ads_http_404_pending_or_unavailable';
-                $message = 'Google Ads Keyword Planner request failed. Credentials may be valid, but API access may still be pending approval.';
+                if ( $login_customer_id === '' ) {
+                    $diagnostic_hints[] = 'login-customer-id header is NOT set. If your developer token belongs to an MCC/manager account, this header is required.';
+                }
+                if ( strlen( $customer_id ) < 7 || strlen( $customer_id ) > 12 ) {
+                    $diagnostic_hints[] = 'Customer ID length looks unusual (' . strlen( $customer_id ) . ' digits). Expected 7-10 digits.';
+                }
+                $diagnostic_hints[] = 'API version is v16. If deprecated, try updating to v17 or v18.';
+                $diagnostic_hints[] = 'If the developer token is pending approval or in test mode, the Keyword Planner endpoint returns 404.';
+                $message = 'Google Ads Keyword Planner 404. See diagnostic_hints in log for possible causes.';
             }
 
-            Logs::warn( 'google-ads', 'Keyword ideas HTTP error', [
-                'seed'      => $seed,
-                'http_code' => $http_code,
-                'body'      => substr( $raw_body, 0, 500 ),
-                'diagnostic_message' => $message,
+            Logs::warn( 'google-ads', 'Keyword ideas HTTP error (diagnostic)', [
+                'http_code'             => $http_code,
+                'gads_error_code'       => $gads_error_code,
+                'gads_error_message'    => $message,
+                'customer_id_sanitized' => $customer_id,
+                'login_customer_id_set' => $login_customer_id !== '',
+                'dev_token_prefix'      => $dev_token !== '' ? substr( $dev_token, 0, 6 ) . '...' : '(empty)',
+                'geo_target'            => $geo_target,
+                'api_version'           => 'v16',
+                'diagnostic_hints'      => $diagnostic_hints,
+                'response_body'         => substr( $raw_body, 0, 1200 ),
             ] );
 
             return [
@@ -435,7 +477,8 @@ class GoogleAdsKeywordPlannerApi {
                 'http_status'           => $http_code,
                 'raw_response'          => $data,
                 'message'               => $message,
-                'google_ads_error_code' => (string) ( $data['error']['status'] ?? '' ),
+                'google_ads_error_code' => $gads_error_code,
+                'diagnostic_hints'      => $diagnostic_hints,
             ];
         }
 
