@@ -388,7 +388,7 @@ class GoogleAdsKeywordPlannerApi {
         // Diagnostic context — logged on every request for 404 forensics.
         $diag = [
             'endpoint'              => $endpoint,
-            'api_version'           => 'v16',
+            'api_version'           => 'v18',
             'customer_id_raw_set'   => $raw_customer_id !== '',
             'customer_id_sanitized' => $customer_id,
             'login_customer_id_set' => $login_customer_id !== '',
@@ -466,7 +466,7 @@ class GoogleAdsKeywordPlannerApi {
                 'login_customer_id_set' => $login_customer_id !== '',
                 'dev_token_prefix'      => $dev_token !== '' ? substr( $dev_token, 0, 6 ) . '...' : '(empty)',
                 'geo_target'            => $geo_target,
-                'api_version'           => 'v16',
+                'api_version'           => 'v18',
                 'diagnostic_hints'      => $diagnostic_hints,
                 'response_body'         => substr( $raw_body, 0, 1200 ),
             ] );
