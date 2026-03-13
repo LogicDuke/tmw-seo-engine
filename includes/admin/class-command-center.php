@@ -175,7 +175,12 @@ class CommandCenter {
         $schema_enabled = (bool) Settings::get( 'schema_enabled', false );
         $safe_mode      = Settings::is_safe_mode();
         $ai_primary     = (string) Settings::get( 'tmwseo_ai_primary', 'openai' );
-        $last_discovery = (string) get_option( 'tmwseo_last_phase_c_run', '' );
+        $metrics = get_option( 'tmw_keyword_engine_metrics', [] );
+        if ( ! is_array( $metrics ) ) {
+            $metrics = [];
+        }
+        $last_discovery_ts = (int) ( $metrics['last_discovery_run'] ?? ( $metrics['last_run'] ?? 0 ) );
+        $last_discovery = $last_discovery_ts > 0 ? gmdate( 'Y-m-d H:i:s', $last_discovery_ts ) : (string) get_option( 'tmwseo_last_phase_c_run', '' );
         $last_comp      = (string) get_option( 'tmwseo_competitor_monitor_last_run', '' );
 
         // Model intelligence aggregate (5-min cache inside ModelIntelligence)

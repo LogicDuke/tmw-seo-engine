@@ -11,7 +11,7 @@ class KeywordDiscoveryService {
     /**
      * @param string[] $seed_keywords
      */
-    public static function discover_from_seeds(array $seed_keywords = [], int $limit = 100): int {
+    public static function discover_from_seeds(array $seed_keywords = [], int $limit = 100): array {
         global $wpdb;
 
         $limit = min(100, max(1, $limit));
@@ -34,17 +34,33 @@ class KeywordDiscoveryService {
         }
 
         if (empty($seeds)) {
-            Logs::info('keywords', '[TMW-SEO-AUTO] keyword discovery inserted 0 candidates');
-            return 0;
+            Logs::warn('keywords', '[TMW-KW] keyword discovery inserted 0 candidates', [
+                'reason' => 'no normalized seeds',
+            ]);
+            return [
+                'inserted' => 0,
+                'reason' => 'no_seeds',
+                'providers' => [
+                    'dataforseo' => 0,
+                    'google_autosuggest' => 0,
+                ],
+            ];
         }
 
         $pool = [];
+        $provider_counts = [
+            'dataforseo' => 0,
+            'google_autosuggest' => 0,
+        ];
+
         foreach ($seeds as $seed) {
             if (count($pool) >= ($limit * 2)) {
                 break;
             }
 
-            foreach (self::fetch_dataforseo_suggestions($seed) as $kw) {
+            $dfseo_keywords = self::fetch_dataforseo_suggestions($seed);
+            $provider_counts['dataforseo'] += count($dfseo_keywords);
+            foreach ($dfseo_keywords as $kw) {
                 $pool[$kw] = true;
                 if (count($pool) >= ($limit * 2)) {
                     break;
@@ -55,7 +71,9 @@ class KeywordDiscoveryService {
                 break;
             }
 
-            foreach (self::fetch_google_autosuggest($seed) as $kw) {
+            $google_keywords = self::fetch_google_autosuggest($seed);
+            $provider_counts['google_autosuggest'] += count($google_keywords);
+            foreach ($google_keywords as $kw) {
                 $pool[$kw] = true;
                 if (count($pool) >= ($limit * 2)) {
                     break;
@@ -64,8 +82,23 @@ class KeywordDiscoveryService {
         }
 
         if (empty($pool)) {
-            Logs::info('keywords', '[TMW-SEO-AUTO] keyword discovery inserted 0 candidates');
-            return 0;
+            $reason = 'discovery_inserted_zero_provider_empty';
+            Logs::warn('keywords', '[TMW-KW] keyword discovery inserted 0 candidates', [
+                'reason' => $reason,
+                'providers' => $provider_counts,
+                'provider_diagnostics' => [
+                    'dataforseo' => $provider_counts['dataforseo'] <= 0 ? 'DataForSEO returned empty' : 'DataForSEO returned suggestions',
+                    'google_autosuggest' => $provider_counts['google_autosuggest'] <= 0 ? 'Google Autosuggest returned empty' : 'Google Autosuggest returned suggestions',
+                    'overall' => ($provider_counts['dataforseo'] <= 0 && $provider_counts['google_autosuggest'] <= 0)
+                        ? 'all providers empty'
+                        : 'provider suggestions were filtered before insert',
+                ],
+            ]);
+            return [
+                'inserted' => 0,
+                'reason' => $reason,
+                'providers' => $provider_counts,
+            ];
         }
 
         $candidate_keywords = array_keys($pool);
@@ -73,12 +106,20 @@ class KeywordDiscoveryService {
         $candidate_keywords = array_slice($candidate_keywords, 0, $limit);
 
         if (empty($candidate_keywords)) {
-            Logs::info('keywords', '[TMW-SEO-AUTO] keyword discovery inserted 0 candidates');
-            return 0;
+            Logs::warn('keywords', '[TMW-KW] keyword discovery inserted 0 candidates', [
+                'reason' => 'all fetched suggestions were duplicates of existing candidates',
+                'providers' => $provider_counts,
+            ]);
+            return [
+                'inserted' => 0,
+                'reason' => 'discovery_inserted_zero_all_duplicates',
+                'providers' => $provider_counts,
+            ];
         }
 
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
         $inserted = 0;
+        $ignored_existing_rows = 0;
 
         foreach ($candidate_keywords as $keyword) {
             $result = $wpdb->query(
@@ -93,12 +134,44 @@ class KeywordDiscoveryService {
 
             if ((int) $result > 0) {
                 $inserted++;
+            } else {
+                $ignored_existing_rows++;
             }
         }
 
-        Logs::info('keywords', sprintf('[TMW-SEO-AUTO] keyword discovery inserted %d candidates', $inserted));
+        if ($inserted <= 0) {
+            $reason = $ignored_existing_rows > 0
+                ? 'insert attempts ignored because rows already existed'
+                : 'discovery_inserted_zero_provider_empty';
+            Logs::warn('keywords', '[TMW-KW] keyword discovery inserted 0 candidates', [
+                'reason' => $reason,
+                'providers' => $provider_counts,
+                'ignored_existing_rows' => $ignored_existing_rows,
+            ]);
 
-        return $inserted;
+            return [
+                'inserted' => 0,
+                'reason' => $ignored_existing_rows > 0 ? 'discovery_inserted_zero_all_duplicates' : 'discovery_inserted_zero_provider_empty',
+                'providers' => $provider_counts,
+                'counts' => [
+                    'ignored_existing_rows' => $ignored_existing_rows,
+                ],
+            ];
+        }
+
+        Logs::info('keywords', sprintf('[TMW-SEO-AUTO] keyword discovery inserted %d candidates', $inserted), [
+            'providers' => $provider_counts,
+            'ignored_existing_rows' => $ignored_existing_rows,
+        ]);
+
+        return [
+            'inserted' => $inserted,
+            'reason' => '',
+            'providers' => $provider_counts,
+            'counts' => [
+                'ignored_existing_rows' => $ignored_existing_rows,
+            ],
+        ];
     }
 
     /**

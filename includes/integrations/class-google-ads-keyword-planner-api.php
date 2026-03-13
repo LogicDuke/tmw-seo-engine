@@ -209,15 +209,15 @@ class GoogleAdsKeywordPlannerApi {
      */
     public static function enrich_metrics( array $keywords ): array {
         if ( ! self::is_configured() || empty( $keywords ) ) {
-            return [];
+            return [ 'metrics' => [] ];
         }
 
         $cache_key = 'tmwseo_gads_metrics_' . md5( implode( '|', $keywords ) );
         $cached    = get_transient( $cache_key );
-        if ( is_array( $cached ) ) { return $cached; }
+        if ( is_array( $cached ) ) { return [ 'metrics' => $cached ]; }
 
         $access_token = self::get_access_token();
-        if ( $access_token === null ) { return []; }
+        if ( $access_token === null ) { return [ 'metrics' => [] ]; }
 
         $customer_id = self::sanitize_customer_id( (string) Settings::get( 'google_ads_customer_id', '' ) );
         $endpoint    = self::ADS_API_BASE . "/customers/{$customer_id}:generateKeywordIdeas";
@@ -245,11 +245,35 @@ class GoogleAdsKeywordPlannerApi {
             'body'    => $body ?: '',
         ] );
 
-        if ( is_wp_error( $resp ) || (int) wp_remote_retrieve_response_code( $resp ) !== 200 ) {
-            return [];
+        if ( is_wp_error( $resp ) ) {
+            Logs::warn( 'google-ads', 'Google Ads Keyword Planner metrics request failed', [
+                'error' => $resp->get_error_message(),
+            ] );
+            return [ 'metrics' => [] ];
         }
 
-        $data    = json_decode( wp_remote_retrieve_body( $resp ), true );
+        $http_code = (int) wp_remote_retrieve_response_code( $resp );
+        $raw_body = (string) wp_remote_retrieve_body( $resp );
+        if ( $http_code !== 200 ) {
+            $error_reason = 'google_ads_http_' . $http_code;
+            $diagnostic_message = '';
+            if ( $http_code === 404 ) {
+                $error_reason = 'google_ads_http_404_pending_or_unavailable';
+                $diagnostic_message = 'Google Ads Keyword Planner request failed. Credentials may be valid, but API access may still be pending approval.';
+                Logs::warn( 'google-ads', $diagnostic_message, [
+                    'http_code' => $http_code,
+                    'body' => substr( $raw_body, 0, 500 ),
+                ] );
+            }
+
+            return [
+                'metrics' => [],
+                'error_reason' => $error_reason,
+                'diagnostic_message' => $diagnostic_message,
+            ];
+        }
+
+        $data    = json_decode( $raw_body, true );
         $results = (array) ( $data['results'] ?? [] );
         $map     = [];
 
@@ -274,7 +298,7 @@ class GoogleAdsKeywordPlannerApi {
         }
 
         set_transient( $cache_key, $out, HOUR_IN_SECONDS );
-        return $out;
+        return [ 'metrics' => $out ];
     }
 
     // ── OAuth2 Access Token ──────────────────────────────────────────────────
@@ -390,18 +414,27 @@ class GoogleAdsKeywordPlannerApi {
         ] );
 
         if ( $http_code !== 200 ) {
+            $error = 'google_ads_http_' . $http_code;
+            $message = (string) ( $data['error']['message'] ?? 'Google Ads HTTP error.' );
+
+            if ( $http_code === 404 ) {
+                $error = 'google_ads_http_404_pending_or_unavailable';
+                $message = 'Google Ads Keyword Planner request failed. Credentials may be valid, but API access may still be pending approval.';
+            }
+
             Logs::warn( 'google-ads', 'Keyword ideas HTTP error', [
                 'seed'      => $seed,
                 'http_code' => $http_code,
                 'body'      => substr( $raw_body, 0, 500 ),
+                'diagnostic_message' => $message,
             ] );
 
             return [
                 'ok'                    => false,
-                'error'                 => 'google_ads_http_' . $http_code,
+                'error'                 => $error,
                 'http_status'           => $http_code,
                 'raw_response'          => $data,
-                'message'               => (string) ( $data['error']['message'] ?? 'Google Ads HTTP error.' ),
+                'message'               => $message,
                 'google_ads_error_code' => (string) ( $data['error']['status'] ?? '' ),
             ];
         }
