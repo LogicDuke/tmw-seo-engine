@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Services\TopicAuthorityEngine;
+use TMWSEO\Engine\Services\SemanticCoverageEngine;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -54,6 +55,8 @@ class TopicAuthorityPage {
         AdminUI::section_end();
 
         $cards = [];
+        $semantic_cards = [];
+        $opportunity_cards = [];
         foreach ($topics as $topic) {
             $children = (array) ($topic['children'] ?? []);
             $pillar = (string) ($topic['pillar'] ?? '');
@@ -94,10 +97,64 @@ class TopicAuthorityPage {
                     . '<p><strong>' . esc_html__('Supporting pages', 'tmwseo') . ':</strong></p>' . $hierarchy
                     . '<p><strong>' . esc_html__('Silo structure', 'tmwseo') . ':</strong></p>' . $silo_paths,
             ];
+
+            $semantic = SemanticCoverageEngine::analyze_single_pillar($topic);
+            $missing_topics = (array) ($semantic['missing_topics'] ?? []);
+            $missing_html = '<p style="margin:0;color:#6b7280;">' . esc_html__('No semantic gaps detected.', 'tmwseo') . '</p>';
+            if (!empty($missing_topics)) {
+                $missing_html = '<ul style="margin:8px 0 0 18px;list-style:disc;">';
+                foreach (array_slice($missing_topics, 0, 8) as $missing_topic) {
+                    $missing_html .= '<li>' . esc_html(ucwords((string) $missing_topic)) . '</li>';
+                }
+                $missing_html .= '</ul>';
+            }
+
+            $semantic_cards[] = [
+                'title' => ucwords($pillar),
+                'desc' => sprintf(
+                    __('Coverage Score: %1$s%% · Coverage Gap: %2$d', 'tmwseo'),
+                    number_format_i18n((float) ($semantic['coverage_score'] ?? 0), 0),
+                    (int) ($semantic['coverage_gap_count'] ?? 0)
+                ),
+                'action_html' => '<p><strong>' . esc_html__('Missing Topics', 'tmwseo') . ':</strong></p>' . $missing_html,
+            ];
+
+            $opportunities = (array) ($semantic['content_opportunities'] ?? []);
+            if (!empty($opportunities)) {
+                $rows = '<table class="widefat striped" style="margin-top:10px;"><thead><tr><th>'
+                    . esc_html__('Opportunity', 'tmwseo') . '</th><th>' . esc_html__('Type', 'tmwseo')
+                    . '</th></tr></thead><tbody>';
+                foreach (array_slice($opportunities, 0, 6) as $opportunity) {
+                    if (!is_array($opportunity)) {
+                        continue;
+                    }
+                    $rows .= '<tr><td>' . esc_html(ucwords((string) ($opportunity['topic'] ?? ''))) . '</td><td>'
+                        . esc_html((string) ($opportunity['type'] ?? 'Guide')) . '</td></tr>';
+                }
+                $rows .= '</tbody></table>';
+
+                $opportunity_cards[] = [
+                    'title' => ucwords($pillar),
+                    'desc' => __('Analysis only. No pages are auto-created.', 'tmwseo'),
+                    'action_html' => $rows,
+                ];
+            }
         }
 
         AdminUI::section_start(__('Site Silo Map', 'tmwseo'), __('Simple hierarchy view of each pillar topic and supporting subtopics. Planning-only; no pages are created automatically.', 'tmwseo'));
         AdminUI::card_grid($cards);
+        AdminUI::section_end();
+
+        AdminUI::section_start(__('Semantic Coverage', 'tmwseo'), __('Analyze missing semantic subtopics for each pillar topic to deepen topical authority.', 'tmwseo'));
+        AdminUI::card_grid($semantic_cards);
+        AdminUI::section_end();
+
+        AdminUI::section_start(__('Content Opportunities', 'tmwseo'), __('Semantic topics not covered by existing clusters, mapped to recommended content type. Analysis only.', 'tmwseo'));
+        if (empty($opportunity_cards)) {
+            AdminUI::empty_state(__('No content opportunities detected yet. Build more clusters and rerun Topic Authority.', 'tmwseo'));
+        } else {
+            AdminUI::card_grid($opportunity_cards);
+        }
         AdminUI::section_end();
 
         echo '</div>';

@@ -39,6 +39,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/autopilot/class-seo-autopilot.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-topic-authority-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/services/class-semantic-coverage-engine.php';
 
 // ── Autopilot integration: new classes ────────────────────────────────────────
 // Keyword usage deduplication (anti-cannibalization)
