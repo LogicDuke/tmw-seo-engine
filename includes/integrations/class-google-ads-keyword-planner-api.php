@@ -186,7 +186,7 @@ class GoogleAdsKeywordPlannerApi {
         $access_token = self::get_access_token();
         if ( $access_token === null ) { return []; }
 
-        $customer_id = preg_replace( '/[^0-9]/', '', (string) Settings::get( 'google_ads_customer_id', '' ) );
+        $customer_id = self::sanitize_customer_id( (string) Settings::get( 'google_ads_customer_id', '' ) );
         $endpoint    = self::ADS_API_BASE . "/customers/{$customer_id}:generateKeywordIdeas";
 
         $body = wp_json_encode( [
@@ -194,6 +194,12 @@ class GoogleAdsKeywordPlannerApi {
             'language'           => 'languageConstants/1000',
             'keywordPlanNetwork' => 'GOOGLE_SEARCH',
             'pageSize'           => min( 1000, count( $keywords ) * 2 ),
+        ] );
+
+        Logs::info( 'google-ads', 'GenerateKeywordIdeas metrics request', [
+            'endpoint'              => $endpoint,
+            'sanitized_customer_id' => $customer_id,
+            'keyword_count'         => count( $keywords ),
         ] );
 
         $resp = wp_safe_remote_post( $endpoint, [
@@ -280,10 +286,18 @@ class GoogleAdsKeywordPlannerApi {
     }
 
     /**
+     * Normalize a Google Ads customer ID for API usage.
+     */
+    private static function sanitize_customer_id( string $customer_id ): string {
+        $customer_id = str_replace( '-', '', trim( $customer_id ) );
+        return preg_replace( '/[^0-9]/', '', $customer_id ) ?? '';
+    }
+
+    /**
      * @return array<string,mixed>
      */
     private static function request_keyword_ideas( string $seed, int $limit, string $access_token ): array {
-        $customer_id = preg_replace( '/[^0-9]/', '', (string) Settings::get( 'google_ads_customer_id', '' ) );
+        $customer_id = self::sanitize_customer_id( (string) Settings::get( 'google_ads_customer_id', '' ) );
         $endpoint    = self::ADS_API_BASE . "/customers/{$customer_id}:generateKeywordIdeas";
 
         $location_code = (int) ( Settings::get( 'dataforseo_location_code', '2840' ) ?: 2840 );
@@ -299,7 +313,7 @@ class GoogleAdsKeywordPlannerApi {
 
         Logs::info( 'google-ads', 'GenerateKeywordIdeas request', [
             'endpoint'    => $endpoint,
-            'customer_id' => $customer_id,
+            'sanitized_customer_id' => $customer_id,
             'seed'        => $seed,
             'limit'       => $limit,
         ] );
@@ -317,7 +331,7 @@ class GoogleAdsKeywordPlannerApi {
         if ( is_wp_error( $resp ) ) {
             Logs::warn( 'google-ads', 'Keyword ideas request failed', [
                 'endpoint'    => $endpoint,
-                'customer_id' => $customer_id,
+                'sanitized_customer_id' => $customer_id,
                 'seed'  => $seed,
                 'error' => $resp->get_error_message(),
             ] );
@@ -337,7 +351,7 @@ class GoogleAdsKeywordPlannerApi {
 
         Logs::info( 'google-ads', 'GenerateKeywordIdeas response', [
             'endpoint'    => $endpoint,
-            'customer_id' => $customer_id,
+            'sanitized_customer_id' => $customer_id,
             'http_code'   => $http_code,
             'body'        => substr( $raw_body, 0, 500 ),
         ] );
