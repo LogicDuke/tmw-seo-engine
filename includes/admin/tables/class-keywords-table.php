@@ -34,7 +34,7 @@ class KeywordsTable extends \WP_List_Table {
             'volume'     => ['volume', false],
             'difficulty' => ['difficulty', false],
             'intent'     => ['intent', false],
-            'created_at' => ['created_at', false],
+            'created_at' => ['updated_at', false],
         ];
     }
 
@@ -109,10 +109,13 @@ class KeywordsTable extends \WP_List_Table {
         $sortable = $this->get_sortable_columns();
         $this->_column_headers = [$columns, $hidden, $sortable];
 
-        $allowed_orderby = ['keyword', 'volume', 'difficulty', 'intent', 'created_at'];
+        $allowed_orderby = ['keyword', 'volume', 'difficulty', 'intent', 'created_at', 'updated_at'];
         $orderby = isset($_GET['orderby']) ? sanitize_key((string) $_GET['orderby']) : 'created_at';
         if (!in_array($orderby, $allowed_orderby, true)) {
             $orderby = 'created_at';
+        }
+        if ($orderby === 'created_at') {
+            $orderby = 'updated_at';
         }
 
         $order = isset($_GET['order']) ? strtoupper(sanitize_key((string) $_GET['order'])) : 'DESC';
@@ -134,16 +137,17 @@ class KeywordsTable extends \WP_List_Table {
             ? (int) $wpdb->get_var($total_sql)
             : (int) $wpdb->get_var($wpdb->prepare($total_sql, $where_args));
 
-        $per_page = $this->get_items_per_page('tmw_keywords_per_page', 50);
-        $current_page = $this->get_pagenum();
-        $offset = ($current_page - 1) * $per_page;
+        $per_page = max(1, (int) $this->get_items_per_page('tmw_keywords_per_page', 50));
+        $current_page = max(1, isset($_GET['paged']) ? (int) $_GET['paged'] : 1);
+        $offset = max(0, ($current_page - 1) * $per_page);
 
-        $sql = "SELECT id, keyword, volume, difficulty, intent, status, created_at FROM {$table}{$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $sql = "SELECT id, keyword, volume, difficulty, intent, status, updated_at AS created_at FROM {$table}{$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
         $query_args = $where_args;
         $query_args[] = $per_page;
         $query_args[] = $offset;
 
         $this->items = (array) $wpdb->get_results($wpdb->prepare($sql, $query_args), ARRAY_A);
+        error_log('TMW keywords fetched: ' . count($this->items));
 
         $this->set_pagination_args([
             'total_items' => $total_items,
