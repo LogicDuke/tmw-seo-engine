@@ -13,8 +13,7 @@ class CSVManagerPage {
             wp_die('Unauthorized');
         }
 
-        $upload_dir = wp_upload_dir();
-        $csv_dir = trailingslashit((string) ($upload_dir['basedir'] ?? '')) . 'tmw-seo-engine';
+        $csv_dir = function_exists('tmw_get_csv_directory') ? tmw_get_csv_directory() : trailingslashit(WP_CONTENT_DIR) . 'tmw-temp';
 
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__('CSV Manager', 'tmwseo') . '</h1>';
@@ -73,8 +72,7 @@ class CSVManagerPage {
         $file_name = isset($_GET['file']) ? sanitize_file_name(wp_unslash((string) $_GET['file'])) : '';
         check_admin_referer('tmw_delete_csv_' . $file_name);
 
-        $upload_dir = wp_upload_dir();
-        $base_dir = trailingslashit((string) ($upload_dir['basedir'] ?? '')) . 'tmw-seo-engine';
+        $base_dir = function_exists('tmw_get_csv_directory') ? tmw_get_csv_directory() : trailingslashit(WP_CONTENT_DIR) . 'tmw-temp';
         $base_real = realpath($base_dir);
 
         if ($file_name !== '' && $base_real !== false) {
