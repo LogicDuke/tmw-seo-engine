@@ -12,6 +12,20 @@ if ( ! class_exists( '\WP_List_Table' ) ) {
 
 class ListTablePagination extends \WP_List_Table {
 
+    public static function render( array $args ): void {
+        $total_items   = isset( $args['total_items'] ) ? (int) $args['total_items'] : 0;
+        $per_page      = isset( $args['per_page'] ) ? (int) $args['per_page'] : 50;
+        $current_page  = isset( $args['current_page'] ) ? (int) $args['current_page'] : 1;
+        $query_args    = isset( $args['query_args'] ) && is_array( $args['query_args'] ) ? $args['query_args'] : [];
+
+        if ( $total_items <= $per_page ) {
+            return;
+        }
+
+        $pagination = new self();
+        $pagination->render_bottom( $total_items, $per_page, $current_page, $query_args );
+    }
+
     public function __construct() {
         parent::__construct(
             [
@@ -25,6 +39,9 @@ class ListTablePagination extends \WP_List_Table {
     public function render_bottom( int $total_items, int $per_page, int $current_page, array $extra_query_args = [] ): void {
         $total_items  = max( 0, $total_items );
         $per_page     = max( 1, $per_page );
+        if ( $total_items <= $per_page ) {
+            return;
+        }
         $total_pages  = (int) max( 1, (int) ceil( $total_items / $per_page ) );
         $current_page = max( 1, min( $current_page, $total_pages ) );
 

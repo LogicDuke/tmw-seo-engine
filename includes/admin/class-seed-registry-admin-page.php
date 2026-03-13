@@ -239,12 +239,12 @@ class SeedRegistryAdminPage {
     private static function render_tab_preview(): void {
         $status_filter = sanitize_key( $_GET['status'] ?? '' );
         $allowed_page_sizes = [ 25, 50, 100 ];
-        $per_page = isset( $_GET['per_page'] ) ? (int) $_GET['per_page'] : 50;
+        $per_page = isset( $_GET['per_page'] ) ? intval( $_GET['per_page'] ) : 50;
         if ( ! in_array( $per_page, $allowed_page_sizes, true ) ) {
             $per_page = 50;
         }
 
-        $current_page = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+        $current_page = isset( $_GET['paged'] ) ? max( 1, intval( $_GET['paged'] ) ) : 1;
         $offset = ( $current_page - 1 ) * $per_page;
 
         $rows   = ExpansionCandidateRepository::get_pending( $per_page, $offset, $status_filter );
@@ -362,18 +362,24 @@ class SeedRegistryAdminPage {
         echo '</tbody></table>';
         echo '</form>';
 
-        $pagination = new ListTablePagination();
-        $pagination->render_bottom(
-            $total_rows,
-            $per_page,
-            $current_page,
-            [
-                'page'     => self::PAGE_SLUG,
-                'tab'      => 'preview',
-                'status'   => $status_filter,
-                'per_page' => $per_page,
-            ]
-        );
+        $pagination_query_args = [
+            'page'     => self::PAGE_SLUG,
+            'tab'      => 'preview',
+            'status'   => $status_filter,
+            'per_page' => $per_page,
+        ];
+        foreach ( [ 'keyword', 'cluster', 'type', 'search' ] as $filter_key ) {
+            if ( isset( $_GET[ $filter_key ] ) && $_GET[ $filter_key ] !== '' ) {
+                $pagination_query_args[ $filter_key ] = sanitize_text_field( wp_unslash( (string) $_GET[ $filter_key ] ) );
+            }
+        }
+
+        ListTablePagination::render( [
+            'total_items'  => $total_rows,
+            'per_page'     => $per_page,
+            'current_page' => $current_page,
+            'query_args'   => $pagination_query_args,
+        ] );
     }
 
     // -------------------------------------------------------------------------
