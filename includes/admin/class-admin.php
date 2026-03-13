@@ -10,6 +10,9 @@ use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Admin\AdminUI;
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\SeedRegistry;
+use TMWSEO\Engine\Keywords\CompetitorMiningService;
+use TMWSEO\Engine\Admin\Tables\KeywordsTable;
+use TMWSEO\Engine\Admin\Tables\ClustersTable;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -29,6 +32,7 @@ class Admin {
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
+        add_action('admin_post_tmwseo_run_competitor_mining', [__CLASS__, 'run_competitor_mining_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_keyword_candidate_action', [__CLASS__, 'handle_keyword_candidate_action']);
@@ -140,14 +144,22 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-command-center',
             self::MENU_SLUG . '_page_tmwseo-content-briefs',
             self::MENU_SLUG . '_page_tmwseo-competitor-domains',
+            self::MENU_SLUG . '_page_tmwseo-content-gap',
             self::MENU_SLUG . '_page_tmwseo-keywords',
             self::MENU_SLUG . '_page_tmwseo-opportunities',
+            self::MENU_SLUG . '_page_tmwseo-traffic-forecast',
+            self::MENU_SLUG . '_page_tmwseo-autopilot',
             self::MENU_SLUG . '_page_tmwseo-ranking-probability',
             self::MENU_SLUG . '_page_tmwseo-reports',
             self::MENU_SLUG . '_page_tmwseo-connections',
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
             self::MENU_SLUG . '_page_tmwseo-internal-links',
+            self::MENU_SLUG . '_page_tmwseo-serp-analyzer',
+            self::MENU_SLUG . '_page_tmwseo-competitor-mining',
+            self::MENU_SLUG . '_page_tmwseo-link-graph',
+            self::MENU_SLUG . '_page_tmwseo-topic-maps',
+            self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -844,6 +856,11 @@ class Admin {
             'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? $existing['keyword_kd_batch_limit'] ?? 300)),
             'keyword_pages_per_day'  => max(0, (int)($input['keyword_pages_per_day'] ?? $existing['keyword_pages_per_day'] ?? 3)),
             'keyword_negative_filters' => sanitize_textarea_field((string)($input['keyword_negative_filters'] ?? $existing['keyword_negative_filters'] ?? "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers")),
+            'max_keywords_per_run'   => max(1, (int)($input['max_keywords_per_run'] ?? $existing['max_keywords_per_run'] ?? 500)),
+            'max_keywords_per_day'   => max(1, (int)($input['max_keywords_per_day'] ?? $existing['max_keywords_per_day'] ?? 5000)),
+            'max_depth'              => max(1, (int)($input['max_depth'] ?? $existing['max_depth'] ?? 3)),
+            'min_search_volume'      => max(0, (int)($input['min_search_volume'] ?? $existing['min_search_volume'] ?? 50)),
+            'max_keywords_per_topic' => max(1, (int)($input['max_keywords_per_topic'] ?? $existing['max_keywords_per_topic'] ?? 300)),
             'competitor_domains'     => sanitize_textarea_field((string)($input['competitor_domains'] ?? $existing['competitor_domains'] ?? '')),
 
             // Misc
@@ -940,9 +957,18 @@ class Admin {
 
         // ── Intelligence ───────────────────────────────────────────────────
         add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
+        add_submenu_page(self::MENU_SLUG, __('Autopilot', 'tmwseo'),           __('Autopilot', 'tmwseo'),           'manage_options', 'tmwseo-autopilot',          ['\\TMWSEO\\Engine\\Admin\\AutopilotAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
+        add_submenu_page(self::MENU_SLUG, __('Traffic Forecast', 'tmwseo'),   __('Traffic Forecast', 'tmwseo'),   'manage_options', 'tmwseo-traffic-forecast',   ['\\TMWSEO\\Engine\\Opportunities\\TrafficForecastUI', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
+        add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Topic Maps', 'tmwseo'), __('Topic Maps', 'tmwseo'), 'manage_options', 'tmwseo-topic-maps', ['\TMWSEO\Engine\Admin\TopicMapsAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Keyword Graph', 'tmwseo'), __('Keyword Graph', 'tmwseo'), 'manage_options', 'tmwseo-keyword-graph', ['\TMWSEO\Engine\Admin\KeywordGraphAdminPage', 'render']);
+        add_submenu_page(self::MENU_SLUG, __('Discovery Control', 'tmwseo'), __('Discovery Control', 'tmwseo'), 'manage_options', 'tmwseo-discovery-control', ['\TMWSEO\Engine\Admin\DiscoveryControlAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
+        add_submenu_page(self::MENU_SLUG, __('Content Gap', 'tmwseo'), __('Content Gap', 'tmwseo'), 'manage_options', 'tmwseo-content-gap', ['\\TMWSEO\\Engine\\ContentGap\\ContentGapAdmin', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Competitor Mining', 'tmwseo'), __('Competitor Mining', 'tmwseo'), 'manage_options', 'tmwseo-competitor-mining', [__CLASS__, 'render_competitor_mining']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
         // ── Content ────────────────────────────────────────────────────────
@@ -955,7 +981,9 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Connections', 'tmwseo'), __('Connections', 'tmwseo'), 'manage_options', 'tmwseo-connections', ['\\TMWSEO\\Engine\\Admin\\AdminDashboardV2', 'page_connections']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
-        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmw-seo-debug', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('CSV Manager', 'tmwseo'), __('CSV Manager', 'tmwseo'), 'manage_options', 'tmwseo-csv-manager', ['\TMWSEO\Engine\Admin\CSVManagerAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Keyword Planner API Test', 'tmwseo'), __('Keyword Planner Test', 'tmwseo'), 'manage_options', 'tmwseo-gkp-test', [__CLASS__, 'render_keyword_planner_test']);
+        add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmwseo-debug-dashboard', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
 
         // ── Hidden (legacy routes — direct URLs still work) ────────────────
         add_submenu_page(null, __('Drafts to Review', 'tmwseo'), __('Drafts to Review', 'tmwseo'), 'manage_options', 'tmwseo-generated',   [__CLASS__, 'render_generated_pages']);
@@ -998,17 +1026,27 @@ class Admin {
             'tmwseo-suggestions',
             'tmwseo-content-briefs',
             'tmwseo-keywords',
+            'tmwseo-autopilot',
             'tmwseo-seed-registry',
             'tmwseo-opportunities',
+            'tmwseo-traffic-forecast',
             'tmwseo-internal-links',
+            'tmwseo-serp-analyzer',
+            'tmwseo-link-graph',
+            'tmwseo-topic-maps',
+            'tmwseo-keyword-graph',
             'tmwseo-competitor-domains',
+            'tmwseo-content-gap',
             'tmwseo-ranking-probability',
             'tmwseo-models',
             'tmwseo-reports',
             'tmwseo-connections',
             'tmwseo-settings',
             'tmwseo-tools',
+            'tmwseo-csv-manager',
+            'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
+            'tmwseo-debug-dashboard',
             'tmw-seo-debug',
         ];
 
@@ -1060,7 +1098,7 @@ class Admin {
     }
 
     public static function render_debug_redirect(): void {
-        wp_safe_redirect(admin_url('admin.php?page=tmw-seo-debug'));
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-debug-dashboard'));
         exit;
     }
 
@@ -1192,13 +1230,8 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_worker');
 
-        // Always enqueue at least one lightweight job so the button produces
-        // a deterministic result (and a log entry), even when the queue is empty.
-        Jobs::enqueue('healthcheck', 'system', 0, [
-            'trigger' => 'manual',
-            'version' => defined('TMWSEO_ENGINE_VERSION') ? TMWSEO_ENGINE_VERSION : 'unknown',
-        ]);
-
+        JobWorker::process_next_job();
+        // Keep legacy queue processing for backward compatibility.
         Worker::run();
         wp_safe_redirect(admin_url('admin.php?page=' . self::MENU_SLUG . '&tmwseo_notice=worker_ran'));
         exit;
@@ -1480,14 +1513,31 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_keyword_cycle');
 
-        DiscoveryOrchestrator::run(['source' => 'manual_keyword_cycle']);
-        Jobs::enqueue('keyword_cycle', 'system', 0, [
-            'trigger' => 'manual',
+        JobWorker::enqueue_job('keyword_discovery', [
+            'trigger' => 'manual_keyword_cycle',
+            'user_id' => get_current_user_id(),
+        ]);
+        JobWorker::enqueue_job('cluster_generation', [
+            'trigger' => 'manual_keyword_cycle',
+            'user_id' => get_current_user_id(),
         ]);
 
-        Worker::run();
-
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=keyword_cycle_ran'));
+        exit;
+    }
+
+
+    public static function run_competitor_mining_now(): void {
+        if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
+        check_admin_referer('tmwseo_run_competitor_mining');
+
+        JobWorker::enqueue_job('competitor_mining', [
+            'trigger' => 'manual_competitor_mining',
+            'user_id' => get_current_user_id(),
+            'seed_limit' => 25,
+        ]);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-competitor-mining&tmwseo_notice=competitor_mining_queued'));
         exit;
     }
 
@@ -2023,7 +2073,9 @@ class Admin {
 
         echo '<div class="tmwui-card">';
         echo '<h3 class="tmwui-card-title">' . esc_html__('System Worker', 'tmwseo') . '</h3>';
-        echo '<p class="tmwui-card-desc">' . esc_html__('Runs a healthcheck job and processes any queued tasks. Use this to unstick the queue if the background worker missed a job.', 'tmwseo') . '</p>';
+        $job_counts = JobWorker::counts();
+        echo '<p class="tmwui-card-desc">' . esc_html__('Runs one queued background SEO job immediately. Worker cron also runs every minute.', 'tmwseo') . '</p>';
+        echo '<p class="tmwui-card-desc"><strong>' . esc_html__('Pending:', 'tmwseo') . '</strong> ' . esc_html((string) ($job_counts['pending'] ?? 0)) . ' · <strong>' . esc_html__('Running:', 'tmwseo') . '</strong> ' . esc_html((string) ($job_counts['running'] ?? 0)) . ' · <strong>' . esc_html__('Failed:', 'tmwseo') . '</strong> ' . esc_html((string) ($job_counts['failed'] ?? 0)) . '</p>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_run_worker');
         echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
@@ -2084,6 +2136,95 @@ class Admin {
         ');
 
         self::footer();
+    }
+
+    public static function render_keyword_planner_test(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $keyword = '';
+        $result = null;
+        $did_submit = false;
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_gkp_test_submit'])) {
+            check_admin_referer('tmwseo_gkp_test_run');
+            $did_submit = true;
+            $keyword = sanitize_text_field((string) wp_unslash($_POST['tmwseo_gkp_keyword'] ?? ''));
+            if ($keyword === '') {
+                $keyword = 'webcam models';
+            }
+
+            $result = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::keyword_ideas_debug($keyword, 50);
+        }
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__('Keyword Planner API Test', 'tmwseo') . '</h1>';
+        echo '<p>' . esc_html__('Run a read-only Google Ads Keyword Planner test using existing OAuth credentials.', 'tmwseo') . '</p>';
+
+        echo '<form method="post" action="">';
+        wp_nonce_field('tmwseo_gkp_test_run');
+        echo '<table class="form-table" role="presentation"><tbody>';
+        echo '<tr>';
+        echo '<th scope="row"><label for="tmwseo_gkp_keyword">' . esc_html__('Keyword', 'tmwseo') . '</label></th>';
+        echo '<td><input type="text" class="regular-text" id="tmwseo_gkp_keyword" name="tmwseo_gkp_keyword" value="' . esc_attr($keyword) . '" placeholder="webcam models"></td>';
+        echo '</tr>';
+        echo '</tbody></table>';
+        submit_button(__('Run Test', 'tmwseo'), 'primary', 'tmwseo_gkp_test_submit');
+        echo '</form>';
+
+        if ($did_submit && is_array($result)) {
+            if (!empty($result['ok'])) {
+                $items = is_array($result['items'] ?? null) ? $result['items'] : [];
+                echo '<h2>' . esc_html__('Results', 'tmwseo') . '</h2>';
+                echo '<table class="widefat striped"><thead><tr>';
+                echo '<th>' . esc_html__('Keyword', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('Avg Monthly Searches', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('Competition', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('Low CPC', 'tmwseo') . '</th>';
+                echo '<th>' . esc_html__('High CPC', 'tmwseo') . '</th>';
+                echo '</tr></thead><tbody>';
+
+                if (empty($items)) {
+                    echo '<tr><td colspan="5">' . esc_html__('No keyword ideas returned.', 'tmwseo') . '</td></tr>';
+                } else {
+                    foreach ($items as $item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+                        $metrics = is_array($item['keyword_info'] ?? null) ? $item['keyword_info'] : [];
+                        $competition = (float) ($metrics['competition'] ?? 0.0);
+                        $low_cpc = (float) ($metrics['low_top_of_page_bid'] ?? 0.0);
+                        $high_cpc = (float) ($metrics['high_top_of_page_bid'] ?? 0.0);
+
+                        echo '<tr>';
+                        echo '<td>' . esc_html((string) ($item['keyword'] ?? '')) . '</td>';
+                        echo '<td>' . esc_html(number_format_i18n((int) ($metrics['search_volume'] ?? 0))) . '</td>';
+                        echo '<td>' . esc_html(number_format_i18n($competition, 2)) . '</td>';
+                        echo '<td>' . esc_html('$' . number_format_i18n($low_cpc, 2)) . '</td>';
+                        echo '<td>' . esc_html('$' . number_format_i18n($high_cpc, 2)) . '</td>';
+                        echo '</tr>';
+                    }
+                }
+
+                echo '</tbody></table>';
+            } else {
+                echo '<div class="notice notice-error"><p><strong>' . esc_html__('Keyword Planner API request failed.', 'tmwseo') . '</strong></p>';
+                echo '<p>' . esc_html__('Error message:', 'tmwseo') . ' ' . esc_html((string) ($result['message'] ?? $result['error'] ?? 'unknown_error')) . '</p>';
+                echo '<p>' . esc_html__('HTTP status:', 'tmwseo') . ' ' . esc_html((string) ($result['http_status'] ?? 'n/a')) . '</p>';
+                echo '<p>' . esc_html__('Google Ads error code:', 'tmwseo') . ' ' . esc_html((string) ($result['google_ads_error_code'] ?? 'n/a')) . '</p>';
+                echo '</div>';
+            }
+
+            echo '<h2>' . esc_html__('Debug Response', 'tmwseo') . '</h2>';
+            echo '<details><summary>' . esc_html__('Show raw API response', 'tmwseo') . '</summary>';
+            echo '<pre style="max-height:420px;overflow:auto;background:#fff;border:1px solid #ccd0d4;padding:12px;">';
+            echo esc_html(wp_json_encode($result['raw_response'] ?? null, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            echo '</pre>';
+            echo '</details>';
+        }
+
+        echo '</div>';
     }
 
     // ── Helper & Data Readiness ───────────────────────────────────────────
@@ -2431,6 +2572,60 @@ class Admin {
         AdminUI::section_end();
     }
 
+
+    public static function render_competitor_mining(): void {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Insufficient permissions', 'tmwseo'));
+        }
+
+        $data = CompetitorMiningService::dashboard_data();
+        $domains = (array) ($data['top_domains'] ?? []);
+        $keywords = (array) ($data['top_keywords'] ?? []);
+
+        echo '<div class="wrap tmwseo-dashboard">';
+        echo '<h1>' . esc_html__('Competitor Mining', 'tmwseo') . '</h1>';
+        echo '<p>' . esc_html__('SERP-driven domain mining pipeline. Discovers competitor domains from seed keyword SERPs, expands their ranked keywords, filters low-value terms, and pushes candidates into clustering.', 'tmwseo') . '</p>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:16px 0;">';
+        wp_nonce_field('tmwseo_run_competitor_mining');
+        echo '<input type="hidden" name="action" value="tmwseo_run_competitor_mining" />';
+        submit_button(__('Run Competitor Mining (Background)', 'tmwseo'), 'primary', 'submit', false);
+        echo '</form>';
+
+        echo '<h2>' . esc_html__('Top discovered domains', 'tmwseo') . '</h2>';
+        echo '<table class="widefat striped"><thead><tr><th>Domain</th><th>SERP Hits</th><th>Best Position</th></tr></thead><tbody>';
+        if (empty($domains)) {
+            echo '<tr><td colspan="3">' . esc_html__('No domains discovered yet.', 'tmwseo') . '</td></tr>';
+        } else {
+            foreach ($domains as $row) {
+                echo '<tr>';
+                echo '<td>' . esc_html((string) ($row['domain'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) (int) ($row['hits'] ?? 0)) . '</td>';
+                echo '<td>' . esc_html((string) (int) ($row['best_position'] ?? 0)) . '</td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table>';
+
+        echo '<h2 style="margin-top:20px;">' . esc_html__('Top discovered keywords', 'tmwseo') . '</h2>';
+        echo '<table class="widefat striped"><thead><tr><th>Keyword</th><th>Volume</th><th>Difficulty</th><th>CPC</th><th>Opportunity score</th></tr></thead><tbody>';
+        if (empty($keywords)) {
+            echo '<tr><td colspan="5">' . esc_html__('No keyword opportunities discovered yet.', 'tmwseo') . '</td></tr>';
+        } else {
+            foreach ($keywords as $row) {
+                echo '<tr>';
+                echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) (int) ($row['volume'] ?? 0)) . '</td>';
+                echo '<td>' . esc_html(number_format((float) ($row['difficulty'] ?? 0), 2)) . '</td>';
+                echo '<td>$' . esc_html(number_format((float) ($row['cpc'] ?? 0), 2)) . '</td>';
+                echo '<td>' . esc_html(number_format((float) ($row['opportunity_score'] ?? 0), 2)) . '</td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table>';
+        echo '</div>';
+    }
+
     public static function render_keywords(): void {
         global $wpdb;
         $raw_table    = $wpdb->prefix . 'tmw_keyword_raw';
@@ -2471,134 +2666,45 @@ class Admin {
 
         // ── Recent Candidates table ───────────────────────────────────────────
         $focused_candidate_id = isset($_GET['tmwseo_candidate_focus']) ? absint($_GET['tmwseo_candidate_focus']) : 0;
-        $recent_candidates = $wpdb->get_results(
-            "SELECT id, keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
-             FROM {$cand_table}
-             ORDER BY updated_at DESC, volume DESC
-             LIMIT 30",
-            ARRAY_A
-        );
 
         AdminUI::section_start( __('Recent Candidates', 'tmwseo') );
-        if (empty($recent_candidates)) {
-            AdminUI::empty_state( __('No candidate rows available yet.', 'tmwseo') );
-        } else {
-            echo '<div class="tmwui-table-wrap">';
-            echo '<table class="widefat striped">';
-            echo '<thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Intent</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody>';
-            foreach ($recent_candidates as $candidate) {
-                $candidate_id = isset($candidate['id']) ? absint($candidate['id']) : 0;
-                $intent_type = strtolower(trim((string) ($candidate['intent_type'] ?? '')));
-                $entity_type = strtolower(trim((string) ($candidate['entity_type'] ?? '')));
-                $keyword_value = trim((string) ($candidate['keyword'] ?? ''));
-                $candidate_status = strtolower(trim((string) ($candidate['status'] ?? '')));
-                $is_approved = $candidate_status === 'approved';
-                $is_ignored = $candidate_status === 'ignored';
-                $status_styles = [
-                    'approved' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;',
-                    'ignored'  => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;',
-                    'new'      => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1e40af;font-weight:600;',
-                ];
-                $status_style = $status_styles[$candidate_status] ?? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#374151;font-weight:600;';
+        $keywords_table = new KeywordsTable();
+        $keywords_table->prepare_items();
+        echo '<form method="get">';
+        echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+        $keywords_table->search_box(__('Search Keywords / Clusters', 'tmwseo'), 'keyword-search');
+        $keywords_table->display();
+        echo '</form>';
 
-                $inspect_url = add_query_arg([
-                    'page' => 'tmwseo-keywords',
-                    'tmwseo_candidate_focus' => $candidate_id,
-                ], admin_url('admin.php'));
-                $approve_url = wp_nonce_url(add_query_arg([
-                    'action' => 'tmwseo_keyword_candidate_action',
-                    'candidate_id' => $candidate_id,
-                    'candidate_action' => 'approve',
-                ], admin_url('admin-post.php')), 'tmwseo_keyword_candidate_action_' . $candidate_id);
-                $reject_url = wp_nonce_url(add_query_arg([
-                    'action' => 'tmwseo_keyword_candidate_action',
-                    'candidate_id' => $candidate_id,
-                    'candidate_action' => 'reject',
-                ], admin_url('admin-post.php')), 'tmwseo_keyword_candidate_action_' . $candidate_id);
-
-                $copy_keyword_button = '<button type="button" class="button button-small" data-tmw-copy-keyword="' . esc_attr($keyword_value) . '">' . esc_html__('Copy keyword', 'tmwseo') . '</button>';
-                $action_parts = ['<a class="button button-small" href="' . esc_url($inspect_url) . '">' . esc_html__('View / Inspect', 'tmwseo') . '</a>'];
-                if (!$is_approved) {
-                    $action_parts[] = '<a class="button button-small" href="' . esc_url($approve_url) . '">' . esc_html__('Approve', 'tmwseo') . '</a>';
-                }
-                if (!$is_ignored) {
-                    $action_parts[] = '<a class="button button-small" href="' . esc_url($reject_url) . '">' . esc_html__('Reject', 'tmwseo') . '</a>';
-                }
-                $action_parts[] = $copy_keyword_button;
-                $actions = implode(' ', $action_parts);
-
-                $keyword_secondary = '';
-                if ($entity_type !== '' && $entity_type !== 'generic') {
-                    $keyword_secondary = '<div style="color:#6b7280;font-size:12px;">' . esc_html($candidate['entity_type']) . '</div>';
-                }
-
-                $intent_secondary = '';
-                if ($intent_type !== '' && $intent_type !== 'generic') {
-                    $intent_secondary = '<div style="color:#6b7280;font-size:12px;">' . esc_html($candidate['intent_type']) . '</div>';
-                }
-
-                $row_style = '';
-                if ($focused_candidate_id > 0 && $candidate_id === $focused_candidate_id) {
-                    $row_style = ' style="outline:2px solid #2271b1;outline-offset:-2px;background:#f0f6fc;"';
-                }
-
-                $just_updated = isset($_GET['tmwseo_candidate_id']) ? absint((string) $_GET['tmwseo_candidate_id']) : 0;
-                if ($just_updated > 0 && $candidate_id === $just_updated) {
-                    $row_style = ' style="outline:2px solid #16a34a;outline-offset:-2px;background:#f0fdf4;"';
-                }
-
-                echo '<tr id="tmw-candidate-' . esc_attr((string) $candidate_id) . '"' . $row_style . '>';
-                echo '<td>' . esc_html((string) ($candidate['keyword'] ?? '')) . $keyword_secondary . '</td>';
-                echo '<td>' . esc_html((string) ($candidate['volume'] ?? '')) . '</td>';
-                echo '<td>' . esc_html((string) ($candidate['difficulty'] ?? '')) . '</td>';
-                echo '<td>' . esc_html((string) ($candidate['intent'] ?? '')) . $intent_secondary . '</td>';
-                echo '<td><span style="' . esc_attr($status_style) . '">' . esc_html((string) ($candidate['status'] ?? '')) . '</span></td>';
-                echo '<td>' . esc_html((string) ($candidate['updated_at'] ?? '')) . '</td>';
-                echo '<td>' . $actions . '</td>';
-                echo '</tr>';
-            }
-            echo '</tbody></table>';
-            echo '</div>';
-            echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
-            echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve sets candidate status to approved. Reject sets candidate status to ignored. View / Inspect focuses this row on the Keywords page.', 'tmwseo') . '</p>';
+        if ($focused_candidate_id > 0) {
+            echo '<script>(function(){var row=document.getElementById(' . wp_json_encode('tmw-candidate-' . $focused_candidate_id) . ');if(row){row.style.outline="2px solid #2271b1";row.style.outlineOffset="-2px";row.style.background="#f0f6fc";row.scrollIntoView({behavior:"smooth",block:"center"});}})();</script>';
         }
+
+        echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
+        echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve sets candidate status to approved. Reject sets candidate status to ignored. Use bulk actions for faster moderation.', 'tmwseo') . '</p>';
         AdminUI::section_end();
 
         // ── Top Clusters table ────────────────────────────────────────────────
-        $clusters = $wpdb->get_results(
-            "SELECT id, cluster_key, representative, total_volume, avg_difficulty, opportunity, status, page_id
-             FROM {$cluster_table}
-             ORDER BY opportunity DESC, total_volume DESC
-             LIMIT 20",
-            ARRAY_A
-        );
+        $cluster_service = \TMWSEO\Engine\Plugin::get_cluster_service();
+        $scoring_engine = \TMWSEO\Engine\Plugin::get_cluster_scoring_engine();
 
         AdminUI::section_start( __('Top Clusters', 'tmwseo') );
-        if (empty($clusters)) {
-            AdminUI::empty_state( __('No clusters yet. Run the keyword cycle.', 'tmwseo') );
+        if ($cluster_service && $scoring_engine) {
+            $clusters_table = new ClustersTable($cluster_service, $scoring_engine);
+            $clusters_table->prepare_items();
+            echo '<form method="get">';
+            echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+            $clusters_table->search_box(__('Search Clusters', 'tmwseo'), 'cluster-search');
+            $clusters_table->display();
+            echo '</form>';
         } else {
-            echo '<div class="tmwui-table-wrap">';
-            echo '<table class="widefat striped">';
-            echo '<thead><tr><th>Opportunity</th><th>Volume</th><th>Avg KD</th><th>Representative Keyword</th><th>Status</th><th>Page</th></tr></thead><tbody>';
-            foreach ($clusters as $c) {
-                $page = (int)($c['page_id'] ?? 0);
-                $page_link = $page ? '<a href="' . esc_url(get_edit_post_link($page)) . '">Edit</a>' : '—';
-                echo '<tr>';
-                echo '<td>' . esc_html($c['opportunity']) . '</td>';
-                echo '<td>' . esc_html($c['total_volume']) . '</td>';
-                echo '<td>' . esc_html($c['avg_difficulty']) . '</td>';
-                echo '<td>' . esc_html($c['representative']) . '</td>';
-                echo '<td>' . esc_html($c['status']) . '</td>';
-                echo '<td>' . $page_link . '</td>';
-                echo '</tr>';
-            }
-            echo '</tbody></table>';
-            echo '</div>';
+            AdminUI::empty_state( __('Cluster service unavailable.', 'tmwseo') );
         }
         AdminUI::section_end();
 
         self::footer();
     }
+
 
     public static function render_generated_pages(): void {
         self::header(__('TMW SEO Engine — Drafts to Review', 'tmwseo'));
@@ -2789,15 +2895,37 @@ class Admin {
             wp_die(__('Upload error', 'tmwseo'));
         }
 
-        $tmp = (string)$file['tmp_name'];
         $source = sanitize_text_field((string)($_POST['import_source'] ?? 'manual'));
         $run_kd = !empty($_POST['run_kd']);
 
-        // Generate a batch ID for this import for rollback and provenance tracking (4.3.0)
-        $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id('csv_import');
+        $tmp = (string) $file['tmp_name'];
+        $filename = isset($file['name']) ? sanitize_file_name((string) $file['name']) : 'import.csv';
+        if ($filename === '' || strtolower((string) pathinfo($filename, PATHINFO_EXTENSION)) !== 'csv') {
+            $filename = 'import-' . gmdate('Ymd-His') . '.csv';
+        }
 
-        $fh = fopen($tmp, 'r');
-        if (!$fh) wp_die(__('Could not read CSV', 'tmwseo'));
+        $csv_dir = function_exists('tmw_get_csv_directory') ? tmw_get_csv_directory() : trailingslashit(WP_CONTENT_DIR) . 'uploads/tmw-seo-imports';
+        if (!file_exists($csv_dir)) {
+            wp_mkdir_p($csv_dir);
+        }
+
+        $target = trailingslashit($csv_dir) . wp_unique_filename($csv_dir, $filename);
+        $moved = is_uploaded_file($tmp) ? move_uploaded_file($tmp, $target) : @rename($tmp, $target);
+        if (!$moved) {
+            wp_die(__('Could not store CSV in uploads/tmw-seo-imports.', 'tmwseo'));
+        }
+
+        $result = self::import_keywords_from_csv_path($target, $source, $run_kd);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=imported&raw=' . (int) $result['raw'] . '&cand=' . (int) $result['cand'] . '&rej=' . (int) $result['rej']));
+        exit;
+    }
+
+    public static function import_keywords_from_csv_path(string $file_path, string $source = 'manual', bool $run_kd = true): array {
+        $fh = fopen($file_path, 'r');
+        if (!$fh) {
+            wp_die(__('Could not read CSV', 'tmwseo'));
+        }
 
         $header = fgetcsv($fh);
         if (!is_array($header)) $header = [];
@@ -2817,6 +2945,9 @@ class Admin {
             if ($c === 'type') $type_col = (int)$i;
             if ($c === 'priority') $priority_col = (int)$i;
         }
+
+        // Generate a batch ID for this import for rollback and provenance tracking (4.3.0)
+        $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id('csv_import');
 
         global $wpdb;
         $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
@@ -2862,7 +2993,6 @@ class Admin {
                 if ($v !== '') $vol = (int)$v;
             }
 
-            // Raw
             $wpdb->query($wpdb->prepare(
                 "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
                  VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
@@ -2870,7 +3000,6 @@ class Admin {
             ));
             $raw_ins++;
 
-            // Candidate upsert
             $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$cand_table} WHERE keyword=%s LIMIT 1", $kw));
             if ($exists) continue;
 
@@ -2898,7 +3027,7 @@ class Admin {
 
         fclose($fh);
 
-        Logs::info('import', 'Imported keywords', ['raw' => $raw_ins, 'candidates' => $cand_ins, 'rejected' => $rejected, 'source' => $source]);
+        Logs::info('import', 'Imported keywords', ['raw' => $raw_ins, 'candidates' => $cand_ins, 'rejected' => $rejected, 'source' => $source, 'file' => $file_path]);
 
         if ($run_kd) {
             Jobs::enqueue('keyword_cycle', 'system', 0, [
@@ -2908,8 +3037,7 @@ class Admin {
             Worker::run();
         }
 
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=imported&raw=' . $raw_ins . '&cand=' . $cand_ins . '&rej=' . $rejected));
-        exit;
+        return ['raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected];
     }
 
 private static function header(string $title): void {
@@ -3312,6 +3440,11 @@ private static function header(string $title): void {
         echo '<tr><th>' . esc_html__('Min search volume', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_min_volume]" value="' . esc_attr((string)($opts['keyword_min_volume'] ?? 30)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('Max KD', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_max_kd]" value="' . esc_attr((string)($opts['keyword_max_kd'] ?? 60)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('New keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_new_limit]" value="' . esc_attr((string)($opts['keyword_new_limit'] ?? 300)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max keywords per run', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_keywords_per_run]" value="' . esc_attr((string)($opts['max_keywords_per_run'] ?? 500)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max keywords per day', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_keywords_per_day]" value="' . esc_attr((string)($opts['max_keywords_per_day'] ?? 5000)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max expansion depth', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_depth]" value="' . esc_attr((string)($opts['max_depth'] ?? 3)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Minimum search volume', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[min_search_volume]" value="' . esc_attr((string)($opts['min_search_volume'] ?? 50)) . '" class="small-text"></td></tr>';
+        echo '<tr><th>' . esc_html__('Governor: Max keywords per topic', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[max_keywords_per_topic]" value="' . esc_attr((string)($opts['max_keywords_per_topic'] ?? 300)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('KD batch size', 'tmwseo') . '</th><td><input type="number" name="tmwseo_engine_settings[keyword_kd_batch_limit]" value="' . esc_attr((string)($opts['keyword_kd_batch_limit'] ?? 300)) . '" class="small-text"></td></tr>';
         echo '<tr><th>' . esc_html__('Keyword Filters', 'tmwseo') . '</th><td><textarea name="tmwseo_engine_settings[keyword_negative_filters]" rows="8" class="large-text code">' . esc_textarea((string)($opts['keyword_negative_filters'] ?? "video chat
 random chat

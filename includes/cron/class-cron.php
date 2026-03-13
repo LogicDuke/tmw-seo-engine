@@ -3,12 +3,14 @@ namespace TMWSEO\Engine;
 
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Intelligence\IntelligenceMaterializer;
+use TMWSEO\Engine\Export\CSVExporter;
 
 if (!defined('ABSPATH')) { exit; }
 
 class Cron {
     const HOOK_WORKER = 'tmwseo_worker_event';
     const HOOK_PROCESS_QUEUE = 'tmwseo_process_queue';
+    const HOOK_JOB_WORKER_TICK = 'tmwseo_worker_tick';
     const HOOK_DAILY = 'tmwseo_daily_event';
     const HOOK_WEEKLY = 'tmwseo_weekly_event';
     const HOOK_LIGHTHOUSE_WEEKLY_SCAN = 'tmw_lighthouse_weekly_scan';
@@ -23,6 +25,7 @@ class Cron {
 
         add_action(self::HOOK_WORKER, [Worker::class, 'run']);
         add_action(self::HOOK_PROCESS_QUEUE, [__CLASS__, 'process_queue']);
+        add_action(self::HOOK_JOB_WORKER_TICK, [JobWorker::class, 'process_next_job']);
         add_action(self::HOOK_DAILY, [__CLASS__, 'daily']);
         add_action(self::HOOK_WEEKLY, [__CLASS__, 'weekly']);
         add_action(self::HOOK_MATERIALIZE_INTELLIGENCE, [__CLASS__, 'materialize_intelligence']);
@@ -32,6 +35,9 @@ class Cron {
     }
 
     public static function add_schedules(array $schedules): array {
+        if (!isset($schedules['tmwseo_every_minute'])) {
+            $schedules['tmwseo_every_minute'] = ['interval' => 60, 'display' => __('Every minute (TMW SEO Engine)', 'tmwseo')];
+        }
         if (!isset($schedules['every_ten_minutes'])) {
             $schedules['every_ten_minutes'] = ['interval' => 600, 'display' => 'Every 10 Minutes'];
         }
@@ -50,6 +56,7 @@ class Cron {
 
     public static function schedule_events(): void {
         if (!wp_next_scheduled(self::HOOK_PROCESS_QUEUE)) wp_schedule_event(time(), 'every_ten_minutes', self::HOOK_PROCESS_QUEUE);
+        if (!wp_next_scheduled(self::HOOK_JOB_WORKER_TICK)) wp_schedule_event(time() + 30, 'tmwseo_every_minute', self::HOOK_JOB_WORKER_TICK);
         if (!wp_next_scheduled(self::HOOK_WORKER)) wp_schedule_event(time() + 120, 'tmwseo_10min', self::HOOK_WORKER);
         if (!wp_next_scheduled(self::HOOK_DAILY)) wp_schedule_event(time() + 300, 'daily', self::HOOK_DAILY);
         if (!wp_next_scheduled(self::HOOK_WEEKLY)) wp_schedule_event(time() + 600, 'tmwseo_weekly', self::HOOK_WEEKLY);
@@ -62,6 +69,7 @@ class Cron {
 
     public static function unschedule_events(): void {
         self::unschedule(self::HOOK_PROCESS_QUEUE);
+        self::unschedule(self::HOOK_JOB_WORKER_TICK);
         self::unschedule(self::HOOK_WORKER);
         self::unschedule(self::HOOK_DAILY);
         self::unschedule(self::HOOK_WEEKLY);
@@ -120,6 +128,8 @@ class Cron {
         DiscoveryOrchestrator::run(['source' => 'cron_keyword_cycle']);
         // alpha.8: keyword cycle (adaptive budget inside the job)
         Jobs::enqueue('keyword_cycle', 'system', null, ['trigger' => 'daily']);
+        JobWorker::enqueue_job('competitor_mining', ['trigger' => 'daily_cron_competitor_mining', 'seed_limit' => 25]);
+        CSVExporter::cleanup_temp_csv_files();
     }
 
     public static function weekly(): void {

@@ -16,7 +16,9 @@ class DataForSEO {
         '/v3/dataforseo_labs/google/related_keywords/live'    => 0.01,
         '/v3/dataforseo_labs/google/bulk_keyword_difficulty/live' => 0.02,
         '/v3/dataforseo_labs/google/ranked_keywords/live'     => 0.02,
+        '/v3/dataforseo_labs/google/domain_keywords/live'     => 0.02,
         '/v3/serp/google/organic/live/advanced'               => 0.02,
+        '/v3/serp/google/organic/live'                        => 0.02,
     ];
 
     public static function is_configured(): bool {
@@ -611,6 +613,63 @@ class DataForSEO {
         return $result;
     }
 
+    /**
+     * Fetches live Google organic SERP results from /v3/serp/google/organic/live.
+     * Cached for 24 hours.
+     *
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function serp_organic_live(string $keyword, int $depth = 10): array {
+        $keyword = mb_strtolower(trim($keyword), 'UTF-8');
+        if ($keyword === '') {
+            return ['ok' => false, 'error' => 'empty_keyword'];
+        }
+
+        $cache_key = 'tmwseo_serp_org_live_' . md5($keyword . self::loc_code() . self::lang_code() . $depth);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keyword'       => $keyword,
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+            'depth'         => min(100, max(10, $depth)),
+        ]];
+
+        $res = self::post('/v3/serp/google/organic/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+
+        $normalised = [];
+        foreach ($items as $item) {
+            if (($item['type'] ?? '') !== 'organic') {
+                continue;
+            }
+
+            $url = (string) ($item['url'] ?? '');
+            $host = (string) parse_url($url, PHP_URL_HOST);
+            $normalised[] = [
+                'position' => (int) ($item['rank_absolute'] ?? 0),
+                'url' => $url,
+                'domain' => strtolower((string) preg_replace('/^www\./i', '', $host)),
+                'title' => (string) ($item['title'] ?? ''),
+                'description' => (string) ($item['description'] ?? ''),
+            ];
+        }
+
+        $result = ['ok' => true, 'items' => $normalised, 'raw' => $res['data']];
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
+        return $result;
+    }
+
     // ── NEW: Domain intersection (keywords two domains share) ─────────────
 
     /**
@@ -648,6 +707,70 @@ class DataForSEO {
         $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
 
         set_transient( $cache_key, $result, DAY_IN_SECONDS );
+        return $result;
+    }
+
+    /**
+     * Keywords ranked by a domain with keyword metrics.
+     *
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function domain_keywords_live(string $domain, int $limit = 100): array {
+        $domain = preg_replace('#^https?://#i', '', trim($domain));
+        $domain = preg_replace('#^www\.#i', '', $domain);
+        $domain = preg_replace('#/.*$#', '', $domain);
+
+        if ($domain === '') {
+            return ['ok' => false, 'error' => 'empty_domain'];
+        }
+
+        $cache_key = 'tmwseo_domain_keywords_' . md5($domain . self::loc_code() . self::lang_code() . $limit);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'target' => $domain,
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+            'limit' => min(1000, max(10, $limit)),
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/domain_keywords/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+
+        $normalised = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $keyword = (string) ($item['keyword'] ?? '');
+            if ($keyword === '') {
+                continue;
+            }
+
+            $keyword_info = is_array($item['keyword_info'] ?? null) ? $item['keyword_info'] : [];
+
+            $normalised[] = [
+                'keyword' => $keyword,
+                'search_volume' => isset($keyword_info['search_volume']) ? (int) $keyword_info['search_volume'] : 0,
+                'keyword_difficulty' => isset($item['keyword_difficulty']) ? (float) $item['keyword_difficulty'] : null,
+                'cpc' => isset($keyword_info['cpc']) ? (float) $keyword_info['cpc'] : null,
+                'position' => isset($item['ranked_serp_element']['serp_item']['rank_absolute']) ? (int) $item['ranked_serp_element']['serp_item']['rank_absolute'] : 0,
+            ];
+        }
+
+        $result = ['ok' => true, 'items' => $normalised, 'raw' => $res['data']];
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
         return $result;
     }
 

@@ -22,17 +22,19 @@ class QueryExpansionGraph {
 
         $sql = "CREATE TABLE {$table} (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-            keyword VARCHAR(255) NOT NULL,
-            related_keyword VARCHAR(255) NOT NULL,
+            parent_keyword VARCHAR(255) NOT NULL,
+            child_keyword VARCHAR(255) NOT NULL,
+            depth TINYINT(3) UNSIGNED NOT NULL DEFAULT 1,
+            search_volume INT(11) NOT NULL DEFAULT 0,
+            keyword_difficulty DECIMAL(6,2) NOT NULL DEFAULT 0,
             source VARCHAR(40) NOT NULL,
-            relationship_type VARCHAR(40) NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
-            KEY keyword (keyword),
-            KEY related_keyword (related_keyword),
+            KEY parent_keyword (parent_keyword),
+            KEY child_keyword (child_keyword),
+            KEY depth (depth),
             KEY source (source),
-            KEY relationship_type (relationship_type),
-            KEY keyword_related (keyword, related_keyword),
+            KEY keyword_edge (parent_keyword, child_keyword),
             KEY created_at (created_at)
         ) {$charset_collate};";
 
@@ -51,12 +53,14 @@ class QueryExpansionGraph {
         }
 
         $inserted = $wpdb->insert(self::table_name(), [
-            'keyword' => $keyword,
-            'related_keyword' => $related_keyword,
+            'parent_keyword' => $keyword,
+            'child_keyword' => $related_keyword,
+            'depth' => 1,
+            'search_volume' => 0,
+            'keyword_difficulty' => 0.0,
             'source' => $source,
-            'relationship_type' => $source,
             'created_at' => current_time('mysql'),
-        ], ['%s', '%s', '%s', '%s', '%s']);
+        ], ['%s', '%s', '%d', '%d', '%f', '%s', '%s']);
 
         return $inserted !== false;
     }
@@ -76,8 +80,8 @@ class QueryExpansionGraph {
         $cutoff = gmdate('Y-m-d H:i:s', time() - (DAY_IN_SECONDS * max(1, $days)));
         $count = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM " . self::table_name() . "
-             WHERE keyword = %s
-               AND COALESCE(source, relationship_type) = 'expanded'
+             WHERE parent_keyword = %s
+               AND source = 'expanded'
                AND created_at >= %s",
             $keyword,
             $cutoff
@@ -91,10 +95,10 @@ class QueryExpansionGraph {
         global $wpdb;
 
         $rows = (array) $wpdb->get_results(
-            "SELECT keyword, related_keyword, COUNT(*) AS rel_count
+            "SELECT parent_keyword, child_keyword, COUNT(*) AS rel_count
              FROM " . self::table_name() . "
-             WHERE COALESCE(source, relationship_type) IN ('suggestion', 'related', 'dataforseo_suggest', 'related_keywords')
-             GROUP BY keyword, related_keyword
+             WHERE source IN ('suggestion', 'related', 'dataforseo_suggest', 'related_keywords', 'dataforseo_keyword_suggestions')
+             GROUP BY parent_keyword, child_keyword
              HAVING COUNT(*) >= 2",
             ARRAY_A
         );
@@ -110,8 +114,8 @@ class QueryExpansionGraph {
 
         $adj = [];
         foreach ($rows as $row) {
-            $a = KeywordValidator::normalize((string) ($row['keyword'] ?? ''));
-            $b = KeywordValidator::normalize((string) ($row['related_keyword'] ?? ''));
+            $a = KeywordValidator::normalize((string) ($row['parent_keyword'] ?? ''));
+            $b = KeywordValidator::normalize((string) ($row['child_keyword'] ?? ''));
             if ($a === '' || $b === '') {
                 continue;
             }

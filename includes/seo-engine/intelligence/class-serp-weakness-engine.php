@@ -20,10 +20,21 @@ class SerpWeaknessEngine {
     private const WEAK_DOMAINS = [
         'reddit.com',
         'quora.com',
-        'pinterest.com',
-        'youtube.com',
         'medium.com',
+        'pinterest.com',
+        'tumblr.com',
         'wordpress.com',
+        'blogspot.com',
+    ];
+
+    /** @var string[] */
+    private const AUTHORITY_DOMAINS = [
+        'wikipedia.org',
+        'forbes.com',
+        'nytimes.com',
+        'hubspot.com',
+        'amazon.com',
+        'bbc.com',
     ];
 
     /** @var string[] */
@@ -86,27 +97,22 @@ class SerpWeaknessEngine {
             $domain_rank = (float) ($row['domain_rank'] ?? $row['domain_rating'] ?? 100);
             $content_length = (int) ($row['content_length'] ?? $row['word_count'] ?? 0);
 
-            if ($this->has_weak_signal($row, $host)) {
-                $weak_serp += 2.5;
+            if ($this->is_weak_domain($host)) {
+                $weak_serp += 1;
                 $signals['weak_domains_found']++;
             }
 
             if ($domain_rank < 40) {
-                $weak_serp += 1.5;
+                $weak_serp += 1;
                 $signals['low_authority_domains']++;
             }
 
-            if ($content_length > 0 && $content_length < 800) {
-                $weak_serp += 1.5;
-                $signals['thin_pages_detected']++;
+            if ($this->is_authority_domain($host)) {
+                $weak_serp -= 2;
             }
 
-            // FIX: Only penalise results where the title is non-empty but does NOT contain the
-            // keyword. Previously keyword_in_title() returned false for empty titles too, causing
-            // results with missing title fields to inflate the weakness score (false positives).
-            $title = (string) ( $row['title'] ?? '' );
-            if ( $title !== '' && ! $this->keyword_in_title( $keyword, $title ) ) {
-                $weak_serp += 1.0;
+            if ($content_length > 0 && $content_length < 800) {
+                $signals['thin_pages_detected']++;
             }
 
             if ($this->contains_weak_text_signal($row, $host)) {
@@ -114,7 +120,7 @@ class SerpWeaknessEngine {
             }
         }
 
-        $weakness_score = round($weak_serp / max(1, $competitor_count), 4);
+        $weakness_score = round(max(0, $weak_serp), 4);
         $reason   = $this->explain($signals);
 
         $result = [
@@ -137,6 +143,11 @@ class SerpWeaknessEngine {
             'score'               => $weakness_score,
             'source'              => $result['data_source'],
             'duration_ms'         => round((microtime(true) - $started) * 1000, 2),
+        ]);
+
+        Logs::debug('intelligence', sprintf('SERP weakness score for keyword "%s" = %s', $keyword, $weakness_score), [
+            'keyword' => $keyword,
+            'serp_weakness_score' => $weakness_score,
         ]);
 
         return $result;
@@ -184,11 +195,14 @@ class SerpWeaknessEngine {
         return false;
     }
 
-    /**
-     * @param array<string,mixed> $row
-     */
-    private function has_weak_signal(array $row, string $host): bool {
-        return $this->is_weak_domain($host) || $this->contains_weak_text_signal($row, $host);
+    private function is_authority_domain(string $host): bool {
+        foreach (self::AUTHORITY_DOMAINS as $domain) {
+            if ($host === $domain || substr($host, -strlen('.' . $domain)) === '.' . $domain) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -209,18 +223,6 @@ class SerpWeaknessEngine {
         }
 
         return false;
-    }
-
-
-    private function keyword_in_title(string $keyword, string $title): bool {
-        $keyword = mb_strtolower(trim($keyword), 'UTF-8');
-        $title = mb_strtolower(trim($title), 'UTF-8');
-
-        if ($keyword === '' || $title === '') {
-            return false;
-        }
-
-        return strpos($title, $keyword) !== false;
     }
 
     public function explain(array $signals): string {
@@ -273,6 +275,49 @@ class SerpWeaknessEngine {
                 current_time('mysql'),
                 $keyword
             ));
+
+            $this->update_keyword_opportunity_score($keyword, (float) $result['serp_weakness_score']);
         }
+    }
+
+    private function update_keyword_opportunity_score(string $keyword, float $serp_weakness_score): void {
+        global $wpdb;
+
+        $keyword_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $ranking_table = IntelligenceStorage::table_ranking_probability();
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT kc.volume, rp.ranking_probability
+                 FROM {$keyword_table} kc
+                 LEFT JOIN {$ranking_table} rp ON rp.keyword = kc.keyword
+                 WHERE kc.keyword = %s
+                 LIMIT 1",
+                $keyword
+            ),
+            ARRAY_A
+        );
+
+        if (!is_array($row)) {
+            return;
+        }
+
+        $search_volume = max(0, (int) ($row['volume'] ?? 0));
+        $ranking_probability = max(0.0, (float) ($row['ranking_probability'] ?? 0));
+
+        $opportunity_score = ($search_volume * 0.4)
+            * ($serp_weakness_score * 0.4)
+            * ($ranking_probability * 0.2);
+
+        $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$keyword_table}
+                 SET opportunity = %f, updated_at = %s
+                 WHERE keyword = %s",
+                round($opportunity_score, 4),
+                current_time('mysql'),
+                $keyword
+            )
+        );
     }
 }

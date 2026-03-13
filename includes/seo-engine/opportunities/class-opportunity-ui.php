@@ -5,6 +5,7 @@ use TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Admin\Tables\OpportunitiesTable;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -68,6 +69,10 @@ class OpportunityUI {
 
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-opportunities&updated=' . $id));
         exit;
+    }
+
+    public function run_bulk_generate_draft(int $opportunity_id): void {
+        $this->generate_draft_page($opportunity_id);
     }
 
     private function generate_draft_page(int $opportunity_id): void {
@@ -268,8 +273,9 @@ class OpportunityUI {
             wp_die('Unauthorized');
         }
 
-        $rows = $this->db->list_all('', 300);
         $stored = isset($_GET['scan_stored']) ? (int) $_GET['scan_stored'] : null;
+
+        $table = new OpportunitiesTable($this);
 
         echo '<div class="wrap"><h1>Suggestions</h1>';
         echo '<p><strong>Needs Attention:</strong> Review suggested pages and create drafts manually.</p>';
@@ -285,45 +291,13 @@ class OpportunityUI {
         submit_button('Run Competitor Opportunity Scan', 'primary', 'submit', false);
         echo '</form>';
 
-        echo '<table class="widefat striped"><thead><tr>';
-        echo '<th>Keyword</th><th>Type</th><th>Source</th><th>Score</th><th>Recommended Action</th><th>Status</th><th>Actions</th>';
-        echo '</tr></thead><tbody>';
+        echo '<form method="get">';
+        echo '<input type="hidden" name="page" value="tmwseo-opportunities">';
+        $table->prepare_items();
+        $table->search_box(__('Search Keywords / Clusters', 'tmwseo'), 'opportunities-search');
+        $table->display();
+        echo '</form>';
 
-        if (empty($rows)) {
-            echo '<tr><td colspan="7">No suggestions found yet.</td></tr>';
-        }
-
-        foreach ($rows as $row) {
-            $id = (int) ($row['id'] ?? 0);
-            echo '<tr>';
-            echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['type'] ?? 'keyword')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['source'] ?? 'keyword_cycle')) . '</td>';
-            echo '<td><strong>' . esc_html((string) ((float) ($row['opportunity_score'] ?? 0))) . '</strong></td>';
-            echo '<td>' . esc_html((string) ($row['recommended_action'] ?? 'Create Draft')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['status'] ?? 'new')) . '</td>';
-            echo '<td>';
-
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin-right:5px;">';
-            wp_nonce_field('tmwseo_opportunity_action');
-            echo '<input type="hidden" name="action" value="tmwseo_opportunity_action">';
-            echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
-            echo '<input type="hidden" name="row_action" value="generate">';
-            submit_button('Create Draft', 'secondary', 'submit', false);
-            echo '</form>';
-
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;">';
-            wp_nonce_field('tmwseo_opportunity_action');
-            echo '<input type="hidden" name="action" value="tmwseo_opportunity_action">';
-            echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
-            echo '<input type="hidden" name="row_action" value="ignore">';
-            submit_button('Ignore', 'delete', 'submit', false);
-            echo '</form>';
-
-            echo '</td>';
-            echo '</tr>';
-        }
-
-        echo '</tbody></table></div>';
+        echo '</div>';
     }
 }

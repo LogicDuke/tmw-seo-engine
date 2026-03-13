@@ -111,6 +111,13 @@ class Settings {
             'google_trends_geo'      => 'US',
             'google_trends_locale'   => 'en-US',
             'google_trends_timeframe'=> 'today 3-m',
+
+            // Keyword discovery governor
+            'max_keywords_per_run' => 500,
+            'max_keywords_per_day' => 5000,
+            'max_depth' => 3,
+            'min_search_volume' => 50,
+            'max_keywords_per_topic' => 300,
         ];
     }
 

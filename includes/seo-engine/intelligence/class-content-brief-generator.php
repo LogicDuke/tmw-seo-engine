@@ -65,7 +65,7 @@ class ContentBriefGenerator {
         $serp_weakness  = $serp_context['weakness_summary'] ?? 'No SERP weakness data available.';
         $competitor_info = $serp_context['competitor_summary'] ?? '';
 
-        $system = "You are an expert SEO content strategist specialising in adult cam model directory websites. Your briefs are SFW (safe for work) — no explicit content. Always include a note that content must be approved by a human editor before publishing.";
+        $system = "You are an expert SEO content strategist specialising in adult cam model directory websites. Your briefs are SFW (safe for work) — no explicit content. Never propose blog posts, informational guides, or tutorials. Focus on directory landing pages only (model profiles, category pages, platform pages). Always include a note that content must be approved by a human editor before publishing.";
 
         $user = <<<PROMPT
 Create a detailed SEO content brief for the keyword: "{$keyword}"
@@ -80,7 +80,7 @@ SERP weakness analysis: {$serp_weakness}
 {$competitor_info}
 
 Respond ONLY with a JSON object with these keys:
-- recommended_article_type (string)
+- recommended_article_type (string: one of "model_profile_page", "category_page", "platform_page", "directory_page")
 - recommended_title_options (array of 3 title strings)
 - recommended_h1 (string)
 - suggested_outline (array of section headings as strings)
@@ -162,28 +162,49 @@ PROMPT;
 
     private function rule_based_generate(string $keyword, string $cluster, string $intent, string $brief_type, array $input): array {
         return [
-            'recommended_article_type'   => $brief_type ?: (stripos($intent, 'commercial') !== false ? 'comparison article brief' : 'informational guide brief'),
+            'recommended_article_type'   => $brief_type ?: $this->resolve_directory_brief_type($keyword, $cluster, $intent),
             'recommended_title_options'  => [
-                sprintf('%s: Complete Guide', ucwords($keyword)),
-                sprintf('%s (%s)', ucwords($keyword), $intent),
-                sprintf('Best Practices for %s', ucwords($keyword)),
+                sprintf('%s Webcam Models Directory', ucwords($keyword)),
+                sprintf('%s Model Profiles', ucwords($keyword)),
+                sprintf('%s Platform & Models', ucwords($keyword)),
             ],
             'recommended_h1'             => ucwords($keyword),
             'suggested_outline'          => [
-                sprintf('What %s means', $cluster),
-                'Key factors and decision criteria',
-                sprintf('Practical implementation steps for %s intent', strtolower($intent)),
-                'Common mistakes and how to avoid them',
+                'Top models in this directory segment',
+                'Profiles and key attributes',
+                'Where to watch these models live',
+                'Related categories and platform links',
                 'FAQ',
             ],
             'questions_to_answer'        => array_values(array_slice(array_map('sanitize_text_field', (array) ($input['related_questions'] ?? [])), 0, 8)),
             'semantic_terms'             => array_values(array_slice(array_map('sanitize_text_field', (array) ($input['semantic_terms'] ?? [])), 0, 12)),
             'suggested_internal_links'   => array_values(array_slice(array_map('sanitize_text_field', (array) ($input['internal_link_opportunities'] ?? [])), 0, 8)),
-            'recommended_cta_type'       => stripos($intent, 'commercial') !== false ? 'Product comparison CTA' : 'Newsletter/signup CTA',
-            'suggested_word_count_range' => stripos($intent, 'commercial') !== false ? '1400-2200 words' : '1200-2000 words',
+            'recommended_cta_type'       => 'View model profiles CTA',
+            'suggested_word_count_range' => '700-1400 words',
             'serp_weakness_notes'        => sanitize_textarea_field((string) ($input['serp_weakness_notes'] ?? 'Look for outdated or thin competitor pages and answer missing questions with stronger structure.')),
             'content_angle'              => 'Rule-based — upgrade to AI for better angles.',
         ];
+    }
+
+
+    private function resolve_directory_brief_type(string $keyword, string $cluster, string $intent): string {
+        $haystack = strtolower(trim($keyword . ' ' . $cluster . ' ' . $intent));
+
+        foreach (['chaturbate', 'stripchat', 'camsoda', 'bongacams', 'livejasmin', 'myfreecams', 'flirt4free'] as $platform_signal) {
+            if (strpos($haystack, $platform_signal) !== false) {
+                return 'platform_page';
+            }
+        }
+
+        if (preg_match('/\b(model|performer|profile)\b/u', $haystack)) {
+            return 'model_profile_page';
+        }
+
+        if (preg_match('/\b(webcam models|camgirls|cam models|best webcam models|top camgirls)\b/u', $haystack)) {
+            return 'category_page';
+        }
+
+        return 'directory_page';
     }
 
     private function persist(string $keyword, string $cluster, array $brief): int {

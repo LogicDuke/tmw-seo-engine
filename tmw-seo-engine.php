@@ -137,6 +137,31 @@ if (!function_exists('tmw_seo_classify_keyword_intent')) {
     }
 }
 
+if (!function_exists('tmw_get_csv_directory')) {
+    /**
+     * Returns the absolute path used for temporary CSV storage.
+     */
+    function tmw_get_csv_directory(): string {
+        $upload_dir = wp_upload_dir();
+        $csv_dir = trailingslashit((string) ($upload_dir['basedir'] ?? WP_CONTENT_DIR)) . 'tmw-seo-imports';
+
+        if (!file_exists($csv_dir)) {
+            wp_mkdir_p($csv_dir);
+        }
+
+        if (is_dir($csv_dir)) {
+            @chmod($csv_dir, 0755);
+
+            $htaccess_path = trailingslashit($csv_dir) . '.htaccess';
+            if (!file_exists($htaccess_path)) {
+                @file_put_contents($htaccess_path, "deny from all\n");
+            }
+        }
+
+        return $csv_dir;
+    }
+}
+
 // Core activation/deactivation.
 register_activation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'activate']);
 register_deactivation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'deactivate']);

@@ -35,7 +35,21 @@ class IntelligenceStorage {
     public static function get_competitor_domains(): array {
         global $wpdb;
         $rows = (array) $wpdb->get_col("SELECT domain FROM " . self::table_competitors() . " WHERE is_active = 1 ORDER BY domain ASC");
-        return array_values(array_filter(array_map('strval', $rows)));
+        $domains = array_values(array_filter(array_map('strval', $rows)));
+
+        $content_gap_domains_table = $wpdb->prefix . 'tmwseo_competitor_domains';
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $content_gap_domains_table));
+        if ($table_exists === $content_gap_domains_table) {
+            $gap_domains = (array) $wpdb->get_col("SELECT domain FROM {$content_gap_domains_table} ORDER BY domain ASC");
+            $domains = array_merge($domains, array_values(array_filter(array_map('strval', $gap_domains))));
+        }
+
+        $domains = array_values(array_unique(array_map(static function (string $domain): string {
+            return strtolower(trim($domain));
+        }, $domains)));
+
+        sort($domains, SORT_NATURAL | SORT_FLAG_CASE);
+        return $domains;
     }
 
     public static function add_competitor_domain(string $domain): bool {
@@ -75,6 +89,27 @@ class IntelligenceStorage {
             ],
             ['%s', '%s', '%s', '%d']
         );
+
+        $content_gap_domains_table = $wpdb->prefix . 'tmwseo_competitor_domains';
+        $table_exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $content_gap_domains_table));
+        if ($table_exists === $content_gap_domains_table) {
+            $gap_exists = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$content_gap_domains_table} WHERE domain = %s LIMIT 1",
+                $domain
+            ));
+
+            if ($gap_exists <= 0) {
+                $wpdb->insert(
+                    $content_gap_domains_table,
+                    [
+                        'domain' => $domain,
+                        'source' => 'manual',
+                        'added_at' => current_time('mysql'),
+                    ],
+                    ['%s', '%s', '%s']
+                );
+            }
+        }
 
         return (bool) $ok;
     }

@@ -238,14 +238,10 @@ class SeedRegistryAdminPage {
 
     private static function render_tab_preview(): void {
         $status_filter = sanitize_key( $_GET['status'] ?? '' );
-        $offset        = max( 0, (int) ( $_GET['paged'] ?? 0 ) * 50 );
-        $rows          = ExpansionCandidateRepository::get_pending( 50, $offset, $status_filter );
-        $counts        = ExpansionCandidateRepository::count_by_status();
+        $counts = ExpansionCandidateRepository::count_by_status();
 
         echo '<h2>' . esc_html__( 'Expansion Preview Queue', 'tmwseo' ) . '</h2>';
 
-
-        // Status filter links
         $filter_labels = [
             ''            => __( 'Needs Review', 'tmwseo' ),
             'pending'     => __( 'Pending', 'tmwseo' ),
@@ -269,64 +265,17 @@ class SeedRegistryAdminPage {
         }
         echo '</div>';
 
-        if ( empty( $rows ) ) {
-            echo '<p>' . esc_html__( 'No candidates to review.', 'tmwseo' ) . '</p>';
-            return;
+        $table = new \TMWSEO\Engine\Admin\Tables\SeedRegistryTable( $status_filter );
+        $table->prepare_items();
+
+        echo '<form method="get">';
+        echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '">';
+        echo '<input type="hidden" name="tab" value="preview">';
+        if ( $status_filter !== '' ) {
+            echo '<input type="hidden" name="status" value="' . esc_attr( $status_filter ) . '">';
         }
-
-        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
-        wp_nonce_field( 'tmwseo_seed_registry_nonce' );
-        echo '<input type="hidden" name="action" value="tmwseo_seed_registry_action">';
-        echo '<input type="hidden" name="tmwseo_action" id="tmwseo_bulk_action" value="">';
-        echo '<input type="hidden" name="candidate_id" id="tmwseo_candidate_id" value="">';
-        echo '<input type="hidden" name="batch_id" id="tmwseo_batch_id" value="">';
-
-        echo '<table class="widefat striped">';
-        echo '<thead><tr>';
-        echo '<th>' . esc_html__( 'Phrase', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Source', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Rule', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Batch', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Status', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Created', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Actions', 'tmwseo' ) . '</th>';
-        echo '</tr></thead><tbody>';
-
-        foreach ( $rows as $row ) {
-            $id       = (int) $row['id'];
-            $phrase   = (string) $row['phrase'];
-            $source   = (string) $row['source'];
-            $rule     = (string) $row['generation_rule'];
-            $batch_id = (string) $row['batch_id'];
-            $status   = (string) $row['status'];
-            $created  = (string) $row['created_at'];
-
-            echo '<tr>';
-            printf( '<td><strong>%s</strong></td>', esc_html( $phrase ) );
-            printf( '<td>%s</td>', esc_html( $source ) );
-            printf( '<td><small>%s</small></td>', esc_html( $rule ) );
-            printf( '<td><small>%s</small></td>', esc_html( $batch_id ) );
-            printf( '<td>%s</td>', esc_html( $status ) );
-            printf( '<td><small>%s</small></td>', esc_html( $created ) );
-
-            echo '<td>';
-            if ( in_array( $status, [ 'pending', 'fast_track' ], true ) ) {
-                printf(
-                    '<button type="submit" class="button button-small button-primary" onclick="document.getElementById(\'tmwseo_bulk_action\').value=\'approve_candidate\';document.getElementById(\'tmwseo_candidate_id\').value=\'%d\';">%s</button> ',
-                    $id,
-                    esc_html__( 'Approve', 'tmwseo' )
-                );
-                printf(
-                    '<button type="submit" class="button button-small" onclick="document.getElementById(\'tmwseo_bulk_action\').value=\'reject_candidate\';document.getElementById(\'tmwseo_candidate_id\').value=\'%d\';">%s</button>',
-                    $id,
-                    esc_html__( 'Reject', 'tmwseo' )
-                );
-            }
-            echo '</td>';
-            echo '</tr>';
-        }
-
-        echo '</tbody></table>';
+        $table->search_box( __( 'Search Keywords / Clusters', 'tmwseo' ), 'seed-preview-search' );
+        $table->display();
         echo '</form>';
     }
 

@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\DiscoveryGovernor;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -10,7 +11,18 @@ class DiscoveryOrchestrator {
 
     public static function run(array $context = []): array {
         $source = (string) ($context['source'] ?? 'unknown');
+
+        if (!DiscoveryGovernor::is_discovery_allowed()) {
+            return [
+                'seeds' => [],
+                'entities' => [],
+                'seed_count' => 0,
+                'entity_count' => 0,
+                'max_seeds_per_run' => self::MAX_SEEDS_PER_RUN,
+            ];
+        }
         $seeds = SeedRegistry::get_seeds_for_discovery(self::MAX_SEEDS_PER_RUN);
+        $entities = TopicEntityLayer::get_entities_for_discovery(self::MAX_SEEDS_PER_RUN);
         $seed_values = [];
         $seed_ids = [];
 
@@ -32,6 +44,7 @@ class DiscoveryOrchestrator {
         Logs::info('keywords', '[TMW-KW] Discovery orchestrator run', [
             'source' => $source,
             'selected_seeds' => count($seed_values),
+            'selected_entities' => count($entities),
             'max_seeds_per_run' => self::MAX_SEEDS_PER_RUN,
             'seed_sources' => $diagnostics['seed_sources'] ?? [],
             'duplicates_prevented' => $diagnostics['duplicate_prevention_count'] ?? 0,
@@ -39,7 +52,9 @@ class DiscoveryOrchestrator {
 
         return [
             'seeds' => $seed_values,
+            'entities' => $entities,
             'seed_count' => count($seed_values),
+            'entity_count' => count($entities),
             'max_seeds_per_run' => self::MAX_SEEDS_PER_RUN,
         ];
     }

@@ -92,8 +92,7 @@ class TMW_Cluster_Admin_Page {
             }
         }
 
-        $clusters = $this->cluster_service->list_clusters(['limit' => 100]);
-        $advisor = TMW_Main_Class::get_cluster_advisor();
+        $table = new \TMWSEO\Engine\Admin\Tables\ClustersTable($this->cluster_service, $this->scoring_engine);
 
         echo '<div class="wrap">';
         echo '<h1>SEO Clusters</h1>';
@@ -106,94 +105,13 @@ class TMW_Cluster_Admin_Page {
         echo '</button>';
         echo '</form>';
 
-        if (empty($clusters) || !is_array($clusters)) {
-            echo '<p>' . esc_html('No clusters found.') . '</p>';
-            echo '</div>';
+        echo '<form method="get">';
+        echo '<input type="hidden" name="page" value="tmw-seo-clusters">';
+        $table->prepare_items();
+        $table->search_box(__('Search Clusters', 'tmwseo'), 'clusters-search');
+        $table->display();
+        echo '</form>';
 
-            return;
-        }
-
-        usort($clusters, function ($a, $b) use ($advisor) {
-            $a_id = (is_array($a) && isset($a['id'])) ? (int) $a['id'] : 0;
-            $b_id = (is_array($b) && isset($b['id'])) ? (int) $b['id'] : 0;
-
-            $a_opportunity = $advisor->get_cluster_opportunity_score($a_id);
-            $b_opportunity = $advisor->get_cluster_opportunity_score($b_id);
-
-            $a_score = (is_array($a_opportunity) && isset($a_opportunity['score'])) ? (int) $a_opportunity['score'] : -1;
-            $b_score = (is_array($b_opportunity) && isset($b_opportunity['score'])) ? (int) $b_opportunity['score'] : -1;
-
-            if ($a_score === $b_score) {
-                return 0;
-            }
-
-            return ($a_score > $b_score) ? -1 : 1;
-        });
-
-        echo '<table class="widefat striped">';
-        echo '<thead><tr>';
-        echo '<th>' . esc_html('Name') . '</th>';
-        echo '<th>' . esc_html('Score') . '</th>';
-        echo '<th>' . esc_html('Grade') . '</th>';
-        echo '<th>' . esc_html('Pillar') . '</th>';
-        echo '<th>' . esc_html('Supports') . '</th>';
-        echo '<th>' . esc_html('Keywords') . '</th>';
-        echo '<th>' . esc_html('Missing Links') . '</th>';
-        echo '<th>' . esc_html('Opportunity') . '</th>';
-        echo '</tr></thead>';
-        echo '<tbody>';
-
-        foreach ($clusters as $cluster) {
-            if (!is_array($cluster) || !isset($cluster['id'])) {
-                continue;
-            }
-
-            $cluster_id = (int) $cluster['id'];
-            $score_data = $this->scoring_engine->score_cluster($cluster_id);
-            $analysis = TMW_Main_Class::get_cluster_linking_engine()->analyze_cluster($cluster_id);
-            $keywords = $this->cluster_service->get_cluster_keywords($cluster_id);
-            $opportunity = $advisor->get_cluster_opportunity_score($cluster['id']);
-
-            $name = isset($cluster['name']) ? (string) $cluster['name'] : '';
-            $score = (is_array($score_data) && isset($score_data['score'])) ? (int) $score_data['score'] : 0;
-            $grade = (is_array($score_data) && isset($score_data['grade'])) ? (string) $score_data['grade'] : 'F';
-            $has_pillar = (is_array($analysis) && !empty($analysis['pillar'])) ? 'Yes' : 'No';
-            $supports_count = (is_array($analysis) && isset($analysis['supports']) && is_array($analysis['supports']))
-                ? count($analysis['supports'])
-                : 0;
-            $keywords_count = is_array($keywords) ? count($keywords) : 0;
-            $missing_links_count = (is_array($analysis) && isset($analysis['missing_links']) && is_array($analysis['missing_links']))
-                ? count($analysis['missing_links'])
-                : 0;
-
-            $opportunity_display = '—';
-            if (!empty($opportunity) && is_array($opportunity) && isset($opportunity['score'])) {
-                $opportunity_score = (int) $opportunity['score'];
-                $opportunity_color = '#6b7280';
-
-                if ($opportunity_score >= 70) {
-                    $opportunity_color = '#dc2626';
-                } elseif ($opportunity_score >= 40) {
-                    $opportunity_color = '#ea580c';
-                }
-
-                $opportunity_display = '<span style="padding:4px 8px;border-radius:4px;background:' . esc_attr($opportunity_color) . ';color:#fff;font-weight:bold;">' . esc_html((string) $opportunity_score) . '</span>';
-            }
-
-            echo '<tr>';
-            echo '<td><a href="' . esc_url(admin_url('admin.php?page=tmw-seo-clusters&cluster_id=' . $cluster['id'])) . '">' . esc_html($name) . '</a></td>';
-            echo '<td>' . esc_html((string) $score) . '</td>';
-            echo '<td>' . esc_html($grade) . '</td>';
-            echo '<td>' . esc_html($has_pillar) . '</td>';
-            echo '<td>' . esc_html((string) $supports_count) . '</td>';
-            echo '<td>' . esc_html((string) $keywords_count) . '</td>';
-            echo '<td>' . esc_html((string) $missing_links_count) . '</td>';
-            echo '<td>' . $opportunity_display . '</td>';
-            echo '</tr>';
-        }
-
-        echo '</tbody>';
-        echo '</table>';
         echo '</div>';
     }
 
