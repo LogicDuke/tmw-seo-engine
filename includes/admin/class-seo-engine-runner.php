@@ -22,7 +22,7 @@ class SEOEngineRunner {
             check_admin_referer('tmw_seo_run_cycle');
         }
 
-        Logs::info('keyword_engine', '[TMW-SEO-AUTO] manual keyword cycle triggered (legacy action compatibility)');
+        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle triggered via legacy action (SEOEngineRunner)');
 
         JobWorker::enqueue_job('keyword_discovery', [
             'trigger' => 'manual_keyword_cycle',
@@ -32,6 +32,11 @@ class SEOEngineRunner {
             'trigger' => 'manual_keyword_cycle',
             'user_id' => get_current_user_id(),
         ]);
+
+        // Deterministic execution: process immediately instead of relying on killed cron.
+        for ($i = 0; $i < 3; $i++) {
+            JobWorker::process_next_job();
+        }
 
         $redirect_url = wp_get_referer();
         if (!is_string($redirect_url) || $redirect_url === '') {
