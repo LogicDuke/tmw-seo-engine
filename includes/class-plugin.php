@@ -99,6 +99,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-topical-relevance-fil
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-topic-entity-layer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-recursive-keyword-expansion-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-expansion-candidate-repository.php'; // 4.3.0
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-discovery-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dirty-queue.php';
