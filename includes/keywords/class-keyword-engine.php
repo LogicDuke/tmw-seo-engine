@@ -664,7 +664,15 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     'enriched' => count($gkp_metrics),
                     'candidates_checked' => count($gkp_candidates),
                 ]);
+            } else {
+                Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — no eligible candidates', [
+                    'eligible_statuses' => ['new', 'approved'],
+                    'requires_missing_volume' => true,
+                    'already_enriched_source_marker' => 'google_keyword_planner',
+                ]);
             }
+        } else {
+            Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — integration not configured or disabled');
         }
 
         // 4) Incremental clustering and projection materialization from dirty queue.
