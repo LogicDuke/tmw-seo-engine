@@ -102,6 +102,7 @@ class KeywordEngine {
         $inserted = 0;
         $discovered_total = 0;
         $accepted_total = 0;
+        $cycle_seeds = [];
         $seed_report = [
             'base_seeds' => 0,
             'static_seeds' => 0,
@@ -117,6 +118,7 @@ class KeywordEngine {
             if ($mode !== 'import_only') {
                         $seed_bundle = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 300));
                         $seeds = $seed_bundle['seeds'];
+                        $cycle_seeds = $seeds;
                         $entities = (array) ($seed_bundle['entities'] ?? []);
                         $seed_report = $seed_bundle['counts'];
                         $max_seeds_per_run = (int) Settings::get('keyword_seed_batch_limit', 300);
@@ -473,6 +475,10 @@ class KeywordEngine {
         }
 
 Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
+
+        if ($mode !== 'import_only') {
+            KeywordDiscoveryService::discover_from_seeds($cycle_seeds, 100);
+        }
 
         // 3) KD refresh for candidates missing difficulty
         $to_score = $wpdb->get_col($wpdb->prepare(
