@@ -24,6 +24,7 @@ use TMWSEO\Engine\Suggestions\SuggestionEngine;
 use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Opportunities\TrafficFeedbackDiscovery;
 use TMWSEO\Engine\Services\TopicAuthorityEngine;
+use TMWSEO\Engine\Services\SemanticCoverageEngine;
 
 class CommandCenter {
 
@@ -185,6 +186,7 @@ class CommandCenter {
         $command_center_summary = self::get_command_center_summary();
         $cluster_opportunities  = self::get_cluster_opportunities();
         $topic_authority_summary = TopicAuthorityEngine::get_summary();
+        $semantic_coverage_summary = SemanticCoverageEngine::get_summary();
 
         TrafficFeedbackDiscovery::maybe_sync();
         $traffic_opportunities = TrafficFeedbackDiscovery::get_opportunities( 20 );
@@ -197,6 +199,7 @@ class CommandCenter {
             'dfseo_budget', 'dfseo_spent', 'dfseo_remaining',
             'has_anthropic', 'schema_enabled', 'safe_mode', 'ai_primary', 'last_discovery',
             'model_stats', 'command_center_summary', 'cluster_opportunities', 'topic_authority_summary', 'traffic_opportunities'
+            , 'semantic_coverage_summary'
         );
 
         set_transient( $cache_key, $data, 2 * MINUTE_IN_SECONDS );
@@ -267,6 +270,18 @@ class CommandCenter {
                 'Avg score: %1$s · Pillars: %2$d',
                 number_format_i18n( (float) ( $topic_summary['average_authority_score'] ?? 0 ), 1 ),
                 (int) ( $topic_summary['pillar_topics'] ?? 0 )
+            )
+        );
+
+        $semantic_summary = (array) ( $d['semantic_coverage_summary'] ?? [] );
+        self::render_summary_card(
+            'Semantic Coverage',
+            (int) ( $semantic_summary['topics_missing'] ?? 0 ),
+            admin_url( 'admin.php?page=tmwseo-topic-authority' ),
+            sprintf(
+                'Avg: %1$s%% · Clusters: %2$d',
+                number_format_i18n( (float) ( $semantic_summary['average_coverage_score'] ?? 0 ), 0 ),
+                (int) ( $semantic_summary['clusters_analyzed'] ?? 0 )
             )
         );
         echo '</div>';
