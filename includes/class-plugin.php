@@ -29,7 +29,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-link-graph-admin-page.ph
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-topic-maps-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-discovery-control-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
@@ -469,7 +469,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\SerpAnalyzerAdminPage::init();
             \TMWSEO\Engine\Admin\LinkGraphAdminPage::init();
             \TMWSEO\Engine\Admin\TopicMapsAdminPage::init();
-            \TMWSEO\Engine\Admin\CSVManagerPage::init();
+            \TMWSEO\Engine\Admin\CSVManagerAdminPage::init();
             \TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin::init();
             \TMWSEO\Engine\ContentGap\ContentGapAdmin::init();
         }

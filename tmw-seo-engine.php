@@ -142,9 +142,10 @@ if (!function_exists('tmw_get_csv_directory')) {
      * Returns the absolute path used for temporary CSV storage.
      */
     function tmw_get_csv_directory(): string {
-        $csv_dir = trailingslashit(WP_CONTENT_DIR) . 'tmw-temp';
+        $upload_dir = wp_upload_dir();
+        $csv_dir = trailingslashit((string) ($upload_dir['basedir'] ?? WP_CONTENT_DIR)) . 'tmw-seo-imports';
 
-        if (!is_dir($csv_dir)) {
+        if (!file_exists($csv_dir)) {
             wp_mkdir_p($csv_dir);
         }
 
