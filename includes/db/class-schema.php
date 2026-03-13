@@ -169,6 +169,7 @@ class Schema {
         // New tables (Phase 1+)
         $jobs = $wpdb->prefix . 'tmw_jobs';
         $tmwseo_jobs = $wpdb->prefix . 'tmwseo_jobs';
+        $job_history = $wpdb->prefix . 'tmw_job_history';
         $logs = $wpdb->prefix . 'tmw_logs';
         $platform = $wpdb->prefix . 'tmw_platform_profiles';
         $keywords = $wpdb->prefix . 'tmw_keywords';
@@ -252,6 +253,21 @@ class Schema {
             retry_count INT(11) NOT NULL DEFAULT 0,
             PRIMARY KEY (id),
             KEY status_created (status, created_at),
+            KEY job_type (job_type)
+        ) $charset_collate;";
+
+        $sql_job_history = "CREATE TABLE $job_history (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            job_type VARCHAR(50) NOT NULL,
+            source VARCHAR(255) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            items_total INT(11) NOT NULL DEFAULT 0,
+            items_processed INT(11) NOT NULL DEFAULT 0,
+            started_at DATETIME NOT NULL,
+            finished_at DATETIME NULL,
+            message TEXT NULL,
+            PRIMARY KEY (id),
+            KEY status_started (status, started_at),
             KEY job_type (job_type)
         ) $charset_collate;";
 
@@ -929,6 +945,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
 
         dbDelta($sql_jobs);
         dbDelta($sql_tmwseo_jobs);
+        dbDelta($sql_job_history);
         dbDelta($sql_logs);
         dbDelta($sql_seeds_registry);
         dbDelta($sql_platform);

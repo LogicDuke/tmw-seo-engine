@@ -982,6 +982,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
         add_submenu_page(self::MENU_SLUG, __('CSV Manager', 'tmwseo'), __('CSV Manager', 'tmwseo'), 'manage_options', 'tmwseo-csv-manager', ['\TMWSEO\Engine\Admin\CSVManagerAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Job Monitor', 'tmwseo'), __('Job Monitor', 'tmwseo'), 'manage_options', 'tmwseo-job-monitor', [__CLASS__, 'render_job_monitor']);
         add_submenu_page(self::MENU_SLUG, __('Keyword Planner API Test', 'tmwseo'), __('Keyword Planner Test', 'tmwseo'), 'manage_options', 'tmwseo-gkp-test', [__CLASS__, 'render_keyword_planner_test']);
         add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmwseo-debug-dashboard', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
 
@@ -1044,6 +1045,7 @@ class Admin {
             'tmwseo-settings',
             'tmwseo-tools',
             'tmwseo-csv-manager',
+            'tmwseo-job-monitor',
             'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
             'tmwseo-debug-dashboard',
@@ -2138,6 +2140,10 @@ class Admin {
         self::footer();
     }
 
+    public static function render_job_monitor(): void {
+        \TMWSEO\Engine\Admin\JobMonitorAdminPage::render_page();
+    }
+
     public static function render_keyword_planner_test(): void {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
@@ -2921,123 +2927,201 @@ class Admin {
         exit;
     }
 
-    public static function import_keywords_from_csv_path(string $file_path, string $source = 'manual', bool $run_kd = true): array {
-        $fh = fopen($file_path, 'r');
-        if (!$fh) {
-            wp_die(__('Could not read CSV', 'tmwseo'));
+    private static function count_csv_data_rows(string $file_path): int {
+        $handle = fopen($file_path, 'r');
+        if (!$handle) {
+            return 0;
         }
 
-        $header = fgetcsv($fh);
-        if (!is_array($header)) $header = [];
-
-        $kw_col = 0;
-        $vol_col = null;
-        $type_col = null;
-        $priority_col = null;
-
-        foreach ($header as $i => $col) {
-            $c = strtolower(trim((string)$col));
-            if ($c === '') continue;
-            if (strpos($c, 'keyword') !== false) $kw_col = (int)$i;
-            if (strpos($c, 'volume') !== false) $vol_col = (int)$i;
-            if ($c === 'avg. monthly searches') $vol_col = (int)$i;
-            if ($c === 'search volume') $vol_col = (int)$i;
-            if ($c === 'type') $type_col = (int)$i;
-            if ($c === 'priority') $priority_col = (int)$i;
-        }
-
-        // Generate a batch ID for this import for rollback and provenance tracking (4.3.0)
-        $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id('csv_import');
-
-        global $wpdb;
-        $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
-        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
-
-        $raw_ins = 0;
-        $cand_ins = 0;
-        $rejected = 0;
-
-        while (($row = fgetcsv($fh)) !== false) {
-            if (!is_array($row)) continue;
-
-            $kw = isset($row[$kw_col]) ? trim((string)$row[$kw_col]) : '';
-            if ($kw === '') continue;
-
-            $reason = null;
-            if (!\TMWSEO\Engine\Keywords\KeywordValidator::is_relevant($kw, $reason)) {
-                $rejected++;
+        $rows = 0;
+        $header_read = false;
+        while (($row = fgetcsv($handle)) !== false) {
+            if (!$header_read) {
+                $header_read = true;
                 continue;
             }
 
-            $seed_type = 'general';
-            if ($type_col !== null && isset($row[$type_col])) {
-                $seed_type_candidate = sanitize_key((string) $row[$type_col]);
-                if ($seed_type_candidate !== '') {
-                    $seed_type = $seed_type_candidate;
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $has_data = false;
+            foreach ($row as $cell) {
+                if (trim((string) $cell) !== '') {
+                    $has_data = true;
+                    break;
                 }
             }
 
-            $priority = 1;
-            if ($priority_col !== null && isset($row[$priority_col])) {
-                $priority_candidate = absint((string) $row[$priority_col]);
-                if ($priority_candidate > 0) {
-                    $priority = $priority_candidate;
+            if ($has_data) {
+                $rows++;
+            }
+        }
+
+        fclose($handle);
+        return $rows;
+    }
+
+    public static function import_keywords_from_csv_path(string $file_path, string $source = 'manual', bool $run_kd = true): array {
+        $job_id = 0;
+        $total_rows = self::count_csv_data_rows($file_path);
+        if (class_exists('TMW_Job_Logger', false)) {
+            $job_id = \TMW_Job_Logger::create_job('csv_import', basename($file_path), $total_rows);
+        }
+
+        $fh = fopen($file_path, 'r');
+        if (!$fh) {
+            if ($job_id > 0 && class_exists('TMW_Job_Logger', false)) {
+                \TMW_Job_Logger::fail_job($job_id, 'Could not read CSV');
+            }
+            wp_die(__('Could not read CSV', 'tmwseo'));
+        }
+
+        try {
+            $header = fgetcsv($fh);
+            if (!is_array($header)) $header = [];
+
+            $kw_col = 0;
+            $vol_col = null;
+            $type_col = null;
+            $priority_col = null;
+
+            foreach ($header as $i => $col) {
+                $c = strtolower(trim((string)$col));
+                if ($c === '') continue;
+                if (strpos($c, 'keyword') !== false) $kw_col = (int)$i;
+                if (strpos($c, 'volume') !== false) $vol_col = (int)$i;
+                if ($c === 'avg. monthly searches') $vol_col = (int)$i;
+                if ($c === 'search volume') $vol_col = (int)$i;
+                if ($c === 'type') $type_col = (int)$i;
+                if ($c === 'priority') $priority_col = (int)$i;
+            }
+
+            // Generate a batch ID for this import for rollback and provenance tracking (4.3.0)
+            $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id('csv_import');
+
+            global $wpdb;
+            $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
+            $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+
+            $raw_ins = 0;
+            $cand_ins = 0;
+            $rejected = 0;
+            $processed_rows = 0;
+
+            while (($row = fgetcsv($fh)) !== false) {
+                if (!is_array($row)) continue;
+
+                $has_data = false;
+                foreach ($row as $cell) {
+                    if (trim((string) $cell) !== '') {
+                        $has_data = true;
+                        break;
+                    }
                 }
+                if (!$has_data) {
+                    continue;
+                }
+
+                $processed_rows++;
+                if ($job_id > 0 && class_exists('TMW_Job_Logger', false) && ($processed_rows % 25 === 0 || $processed_rows === $total_rows)) {
+                    \TMW_Job_Logger::update_progress($job_id, $processed_rows);
+                }
+
+                $kw = isset($row[$kw_col]) ? trim((string)$row[$kw_col]) : '';
+                if ($kw === '') continue;
+
+                $reason = null;
+                if (!\TMWSEO\Engine\Keywords\KeywordValidator::is_relevant($kw, $reason)) {
+                    $rejected++;
+                    continue;
+                }
+
+                $seed_type = 'general';
+                if ($type_col !== null && isset($row[$type_col])) {
+                    $seed_type_candidate = sanitize_key((string) $row[$type_col]);
+                    if ($seed_type_candidate !== '') {
+                        $seed_type = $seed_type_candidate;
+                    }
+                }
+
+                $priority = 1;
+                if ($priority_col !== null && isset($row[$priority_col])) {
+                    $priority_candidate = absint((string) $row[$priority_col]);
+                    if ($priority_candidate > 0) {
+                        $priority = $priority_candidate;
+                    }
+                }
+
+                SeedRegistry::register_trusted_seed($kw, 'approved_import', 'import', 0, $seed_type, $priority, $batch_id ?? '', $source);
+
+                $vol = null;
+                if ($vol_col !== null && isset($row[$vol_col])) {
+                    $v = preg_replace('/[^0-9]/', '', (string)$row[$vol_col]);
+                    if ($v !== '') $vol = (int)$v;
+                }
+
+                $wpdb->query($wpdb->prepare(
+                    "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
+                     VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
+                    $kw, 'import', $source, (int)($vol ?? 0), 0.0, 0.0, null, current_time('mysql')
+                ));
+                $raw_ins++;
+
+                $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$cand_table} WHERE keyword=%s LIMIT 1", $kw));
+                if ($exists) continue;
+
+                $canonical = \TMWSEO\Engine\Keywords\KeywordValidator::normalize($kw);
+                $intent = \TMWSEO\Engine\Keywords\KeywordValidator::infer_intent($kw);
+
+                $cand_inserted = $wpdb->insert($cand_table, [
+                    'keyword' => $kw,
+                    'canonical' => $canonical,
+                    'status' => 'new',
+                    'intent' => $intent,
+                    'volume' => $vol,
+                    'cpc' => null,
+                    'difficulty' => null,
+                    'opportunity' => null,
+                    'sources' => 'import:' . $source,
+                    'notes' => null,
+                    'updated_at' => current_time('mysql'),
+                ], ['%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s']);
+                if ($cand_inserted === false) {
+                    error_log('TMW CSV insert failed: ' . $wpdb->last_error);
+                }
+                $cand_ins++;
             }
 
-            SeedRegistry::register_trusted_seed($kw, 'approved_import', 'import', 0, $seed_type, $priority, $batch_id ?? '', $source);
+            fclose($fh);
 
-            $vol = null;
-            if ($vol_col !== null && isset($row[$vol_col])) {
-                $v = preg_replace('/[^0-9]/', '', (string)$row[$vol_col]);
-                if ($v !== '') $vol = (int)$v;
+            if ($job_id > 0 && class_exists('TMW_Job_Logger', false)) {
+                \TMW_Job_Logger::update_progress($job_id, $processed_rows);
+                \TMW_Job_Logger::complete_job($job_id);
             }
 
-            $wpdb->query($wpdb->prepare(
-                "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
-                 VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
-                $kw, 'import', $source, (int)($vol ?? 0), 0.0, 0.0, null, current_time('mysql')
-            ));
-            $raw_ins++;
+            Logs::info('import', 'Imported keywords', ['raw' => $raw_ins, 'candidates' => $cand_ins, 'rejected' => $rejected, 'source' => $source, 'file' => $file_path]);
 
-            $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$cand_table} WHERE keyword=%s LIMIT 1", $kw));
-            if ($exists) continue;
-
-            $canonical = \TMWSEO\Engine\Keywords\KeywordValidator::normalize($kw);
-            $intent = \TMWSEO\Engine\Keywords\KeywordValidator::infer_intent($kw);
-
-            $cand_inserted = $wpdb->insert($cand_table, [
-                'keyword' => $kw,
-                'canonical' => $canonical,
-                'status' => 'new',
-                'intent' => $intent,
-                'volume' => $vol,
-                'cpc' => null,
-                'difficulty' => null,
-                'opportunity' => null,
-                'sources' => 'import:' . $source,
-                'notes' => null,
-                'updated_at' => current_time('mysql'),
-            ], ['%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s']);
-            if ($cand_inserted === false) {
-                error_log('TMW CSV insert failed: ' . $wpdb->last_error);
+            if ($run_kd) {
+                Jobs::enqueue('keyword_cycle', 'system', 0, [
+                    'trigger' => 'import',
+                    'mode' => 'import_only',
+                ]);
+                Worker::run();
             }
-            $cand_ins++;
+
+            return ['raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected];
+        } catch (\Throwable $e) {
+            if (is_resource($fh)) {
+                fclose($fh);
+            }
+
+            if ($job_id > 0 && class_exists('TMW_Job_Logger', false)) {
+                \TMW_Job_Logger::fail_job($job_id, $e->getMessage());
+            }
+
+            throw $e;
         }
-
-        fclose($fh);
-
-        Logs::info('import', 'Imported keywords', ['raw' => $raw_ins, 'candidates' => $cand_ins, 'rejected' => $rejected, 'source' => $source, 'file' => $file_path]);
-
-        if ($run_kd) {
-            Jobs::enqueue('keyword_cycle', 'system', 0, [
-                'trigger' => 'import',
-                'mode' => 'import_only',
-            ]);
-            Worker::run();
-        }
-
-        return ['raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected];
     }
 
 private static function header(string $title): void {
