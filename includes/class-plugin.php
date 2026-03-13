@@ -30,11 +30,14 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-topic-maps-admin-page.ph
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-discovery-control-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-admin-page.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-job-monitor-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/autopilot/class-seo-autopilot.php';
+
+require_once TMWSEO_ENGINE_PATH . 'includes/jobs/class-job-logger.php';
 
 require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
 
@@ -470,6 +473,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\LinkGraphAdminPage::init();
             \TMWSEO\Engine\Admin\TopicMapsAdminPage::init();
             \TMWSEO\Engine\Admin\CSVManagerAdminPage::init();
+            \TMWSEO\Engine\Admin\JobMonitorAdminPage::init();
             \TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin::init();
             \TMWSEO\Engine\ContentGap\ContentGapAdmin::init();
         }

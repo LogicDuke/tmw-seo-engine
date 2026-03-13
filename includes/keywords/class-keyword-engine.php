@@ -669,7 +669,34 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
 
         // 4) Incremental clustering and projection materialization from dirty queue.
         self::enqueue_dirty_keywords();
-        DirtyQueue::process_batches(80, 40, 20);
+
+        $cluster_job_id = 0;
+        $total_keywords = 0;
+        if (class_exists('TMW_Job_Logger', false)) {
+            $total_keywords = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$cand_table} WHERE needs_recluster=1 OR needs_rescore=1"
+            );
+            $cluster_job_id = \TMW_Job_Logger::create_job('clustering_worker', 'keyword_clusters', $total_keywords);
+        }
+
+        try {
+            DirtyQueue::process_batches(80, 40, 20);
+
+            if ($cluster_job_id > 0 && class_exists('TMW_Job_Logger', false)) {
+                $remaining = (int) $wpdb->get_var(
+                    "SELECT COUNT(*) FROM {$cand_table} WHERE needs_recluster=1 OR needs_rescore=1"
+                );
+                $processed = max(0, $total_keywords - $remaining);
+                \TMW_Job_Logger::update_progress($cluster_job_id, $processed);
+                \TMW_Job_Logger::complete_job($cluster_job_id);
+            }
+        } catch (\Throwable $e) {
+            if ($cluster_job_id > 0 && class_exists('TMW_Job_Logger', false)) {
+                \TMW_Job_Logger::fail_job($cluster_job_id, $e->getMessage());
+            }
+            throw $e;
+        }
+
         $graph_stats = QueryExpansionGraph::generate_topic_clusters();
         Logs::info('keywords', '[TMW-GRAPH] Graph metrics persisted', $graph_stats);
 
