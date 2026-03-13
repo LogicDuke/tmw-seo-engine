@@ -35,6 +35,10 @@ class TMW_Cluster_Service {
         return $this->repository->get_cluster_pages($cluster_id, $args);
     }
 
+    public function count_clusters($status = null) {
+        return $this->repository->count_clusters($status);
+    }
+
     public function create_cluster($data) {
         // TODO: Add service-layer business logic for cluster creation.
         return $this->repository->create_cluster($data);

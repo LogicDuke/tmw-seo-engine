@@ -2662,15 +2662,42 @@ class Admin {
 
         // ── Recent Candidates table ───────────────────────────────────────────
         $focused_candidate_id = isset($_GET['tmwseo_candidate_focus']) ? absint($_GET['tmwseo_candidate_focus']) : 0;
+        $candidate_page_sizes = [25, 50, 100];
+        $candidate_per_page = isset($_GET['cand_per_page']) ? (int) $_GET['cand_per_page'] : 50;
+        if (!in_array($candidate_per_page, $candidate_page_sizes, true)) {
+            $candidate_per_page = 50;
+        }
+
+        $candidate_page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
+        $candidate_offset = ($candidate_page - 1) * $candidate_per_page;
+        $candidate_total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table}");
+
         $recent_candidates = $wpdb->get_results(
-            "SELECT id, keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
-             FROM {$cand_table}
-             ORDER BY updated_at DESC, volume DESC
-             LIMIT 30",
+            $wpdb->prepare(
+                "SELECT id, keyword, volume, difficulty, intent, intent_type, entity_type, status, updated_at
+                 FROM {$cand_table}
+                 ORDER BY updated_at DESC, volume DESC
+                 LIMIT %d OFFSET %d",
+                $candidate_per_page,
+                $candidate_offset
+            ),
             ARRAY_A
         );
 
+        $candidate_showing_from = $candidate_total > 0 ? $candidate_offset + 1 : 0;
+        $candidate_showing_to = min($candidate_offset + count($recent_candidates), $candidate_total);
+
         AdminUI::section_start( __('Recent Candidates', 'tmwseo') );
+        echo '<p>' . esc_html(sprintf('Showing %d–%d of %d keywords', $candidate_showing_from, $candidate_showing_to, $candidate_total)) . '</p>';
+        echo '<form method="get" style="margin:8px 0 12px;">';
+        echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+        echo '<label for="tmwseo-candidates-per-page" style="margin-right:6px;">Rows per page:</label>';
+        echo '<select id="tmwseo-candidates-per-page" name="cand_per_page" onchange="this.form.submit()">';
+        foreach ($candidate_page_sizes as $size) {
+            echo '<option value="' . esc_attr((string) $size) . '" ' . selected($candidate_per_page, $size, false) . '>' . esc_html((string) $size) . '</option>';
+        }
+        echo '</select>';
+        echo '</form>';
         if (empty($recent_candidates)) {
             AdminUI::empty_state( __('No candidate rows available yet.', 'tmwseo') );
         } else {
@@ -2753,6 +2780,9 @@ class Admin {
             echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
             echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve sets candidate status to approved. Reject sets candidate status to ignored. View / Inspect focuses this row on the Keywords page.', 'tmwseo') . '</p>';
         }
+
+        $pagination = new \TMWSEO\Engine\Admin\ListTablePagination();
+        $pagination->render_bottom($candidate_total, $candidate_per_page, $candidate_page, ['page' => 'tmwseo-keywords', 'cand_per_page' => $candidate_per_page]);
         AdminUI::section_end();
 
         // ── Top Clusters table ────────────────────────────────────────────────

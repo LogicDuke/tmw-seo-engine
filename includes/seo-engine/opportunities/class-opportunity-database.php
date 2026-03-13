@@ -34,7 +34,8 @@ class OpportunityDatabase {
             PRIMARY KEY (id),
             UNIQUE KEY keyword_competitor (keyword, competitor_url),
             KEY status_score (status, opportunity_score),
-            KEY source_type (source, type)
+            KEY source_type (source, type),
+            KEY score_volume (opportunity_score, search_volume)
         ) {$charset_collate};";
 
         dbDelta($sql);
@@ -114,17 +115,20 @@ class OpportunityDatabase {
     }
 
     /** @return array<int,array<string,mixed>> */
-    public function list_all(string $status = '', int $limit = 200): array {
+    public function list_page(string $status = '', int $limit = 50, int $offset = 0): array {
         global $wpdb;
         $table = self::table_name();
 
         $limit = max(1, min(1000, $limit));
+        $offset = max(0, $offset);
+
         if ($status !== '') {
             return (array) $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT * FROM {$table} WHERE status = %s ORDER BY opportunity_score DESC, search_volume DESC LIMIT %d",
+                    "SELECT * FROM {$table} WHERE status = %s ORDER BY opportunity_score DESC, search_volume DESC LIMIT %d OFFSET %d",
                     $status,
-                    $limit
+                    $limit,
+                    $offset
                 ),
                 ARRAY_A
             );
@@ -132,11 +136,28 @@ class OpportunityDatabase {
 
         return (array) $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT * FROM {$table} ORDER BY opportunity_score DESC, search_volume DESC LIMIT %d",
-                $limit
+                "SELECT * FROM {$table} ORDER BY opportunity_score DESC, search_volume DESC LIMIT %d OFFSET %d",
+                $limit,
+                $offset
             ),
             ARRAY_A
         );
+    }
+
+    public function count_all(string $status = ''): int {
+        global $wpdb;
+        $table = self::table_name();
+
+        if ($status !== '') {
+            return (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$table} WHERE status = %s",
+                    $status
+                )
+            );
+        }
+
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
     }
 
     public function update_status(int $id, string $status): bool {

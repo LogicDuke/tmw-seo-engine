@@ -14,6 +14,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-list-table-pagination.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-seed-registry-admin-page.php'; // 4.3.0
