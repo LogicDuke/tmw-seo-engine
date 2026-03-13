@@ -51,7 +51,21 @@ class GoogleAdsKeywordPlannerApi {
     }
 
     public static function is_configured(): bool {
-        if ( ! self::is_enabled() ) { return false; }
+        $stored = get_option( 'tmwseo_engine_settings', [] );
+        if ( ! is_array( $stored ) ) {
+            $stored = [];
+        }
+
+        $enabled_raw = $stored['google_ads_enabled'] ?? Settings::get( 'google_ads_enabled', 0 );
+        $is_enabled  = in_array( $enabled_raw, [ 1, '1', true, 'true', 'yes', 'on' ], true );
+
+        if ( ! $is_enabled ) {
+            Logs::info( 'google-ads', '[TMW-SEO-AUTO] Google Ads is_configured=false (integration disabled)', [
+                'google_ads_enabled' => $enabled_raw,
+            ] );
+            return false;
+        }
+
         $required = [
             'google_ads_developer_token',
             'google_ads_client_id',
@@ -59,11 +73,30 @@ class GoogleAdsKeywordPlannerApi {
             'google_ads_refresh_token',
             'google_ads_customer_id',
         ];
+
+        $missing = [];
         foreach ( $required as $key ) {
-            if ( trim( (string) Settings::get( $key, '' ) ) === '' ) {
-                return false;
+            $value = (string) ( $stored[ $key ] ?? Settings::get( $key, '' ) );
+
+            if ( $key === 'google_ads_customer_id' ) {
+                $value = self::sanitize_customer_id( $value );
+            } else {
+                $value = trim( $value );
+            }
+
+            if ( $value === '' ) {
+                $missing[] = $key;
             }
         }
+
+        if ( ! empty( $missing ) ) {
+            Logs::warn( 'google-ads', '[TMW-SEO-AUTO] Google Ads is_configured=false (missing required settings)', [
+                'missing_keys' => $missing,
+            ] );
+            return false;
+        }
+
+        Logs::info( 'google-ads', '[TMW-SEO-AUTO] Google Ads is_configured=true (all required settings present)' );
         return true;
     }
 
