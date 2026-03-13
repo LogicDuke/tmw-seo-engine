@@ -30,7 +30,9 @@ class Admin {
         add_action('admin_head', [__CLASS__, 'print_admin_css_if_tmw_page']);
         add_action('admin_notices', [__CLASS__, 'render_admin_notices']);
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
-        add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'save_settings']);
+        // Legacy handler neutralized — the settings form uses options.php + register_setting().
+        // This redirect prevents a stripped save if any old bookmark/form somehow targets this action.
+        add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'legacy_save_settings_redirect']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
         add_action('admin_post_tmwseo_run_competitor_mining', [__CLASS__, 'run_competitor_mining_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
@@ -878,6 +880,7 @@ class Admin {
             'google_ads_client_secret'   => sanitize_text_field((string)($input['google_ads_client_secret'] ?? $existing['google_ads_client_secret'] ?? '')),
             'google_ads_refresh_token'   => sanitize_text_field((string)($input['google_ads_refresh_token'] ?? $existing['google_ads_refresh_token'] ?? '')),
             'google_ads_customer_id'     => sanitize_text_field((string)($input['google_ads_customer_id'] ?? $existing['google_ads_customer_id'] ?? '')),
+            'google_ads_login_customer_id' => sanitize_text_field((string)($input['google_ads_login_customer_id'] ?? $existing['google_ads_login_customer_id'] ?? '')),
 
             // Google Trends
             'google_trends_enabled'   => !empty($input['google_trends_enabled']) ? 1 : 0,
@@ -1464,7 +1467,30 @@ class Admin {
         return array_keys($keywords);
     }
 
-    public static function save_settings(): void {
+    /**
+     * Legacy settings save handler — neutralized.
+     *
+     * This previously wrote a stripped subset of settings via update_option(),
+     * which could wipe Google Ads, Trends, budget, competitor, and keyword
+     * threshold keys. The modern settings form uses options.php + register_setting()
+     * via sanitize_settings(). This redirect prevents accidental data loss if any
+     * old bookmark/form somehow targets the legacy action.
+     */
+    public static function legacy_save_settings_redirect(): void {
+        Logs::warn('settings', '[TMW-SEO] Legacy admin_post_tmwseo_save_settings triggered — redirecting to settings page without saving. This action is disabled.', [
+            'user_id'  => get_current_user_id(),
+            'referrer' => wp_get_referer() ?: '(none)',
+        ]);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-settings&tmwseo_notice=legacy_save_blocked'));
+        exit;
+    }
+
+    /**
+     * @deprecated Use the WordPress Settings API path (sanitize_settings) instead.
+     * Kept as dead code for reference. No longer callable via admin_post hook.
+     */
+    private static function save_settings_legacy_dead(): void {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         // New (alpha.6): model routing + brand voice, while keeping legacy "openai_model" for compatibility.
         $mode = sanitize_text_field((string)($_POST['openai_mode'] ?? 'hybrid'));
@@ -1524,16 +1550,33 @@ class Admin {
         if (!current_user_can('manage_options')) wp_die(__('Insufficient permissions', 'tmwseo'));
         check_admin_referer('tmwseo_run_keyword_cycle');
 
-        JobWorker::enqueue_job('keyword_discovery', [
+        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle triggered by user ' . get_current_user_id());
+
+        $job_id_1 = JobWorker::enqueue_job('keyword_discovery', [
             'trigger' => 'manual_keyword_cycle',
             'user_id' => get_current_user_id(),
         ]);
-        JobWorker::enqueue_job('cluster_generation', [
+        $job_id_2 = JobWorker::enqueue_job('cluster_generation', [
             'trigger' => 'manual_keyword_cycle',
             'user_id' => get_current_user_id(),
         ]);
 
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=seo_engine_cycle_executed'));
+        // Deterministic execution: immediately process the queued jobs instead of
+        // relying on tmwseo_worker_tick which is killed by manual_control_mode.
+        // This processes up to 2 jobs (the ones we just enqueued).
+        $processed = 0;
+        for ($i = 0; $i < 3; $i++) {
+            JobWorker::process_next_job();
+            $processed++;
+        }
+
+        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle: enqueued + processed', [
+            'job_ids'   => [$job_id_1, $job_id_2],
+            'processed' => $processed,
+        ]);
+
+        $redirect_url = admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=seo_engine_cycle_executed');
+        wp_safe_redirect($redirect_url);
         exit;
     }
 
@@ -1858,6 +1901,17 @@ class Admin {
             }
         }
 
+        // Pipeline health notices — only on TMW SEO admin pages.
+        $page = sanitize_text_field((string) ($_GET['page'] ?? ''));
+        if (strpos($page, 'tmwseo') === 0 || strpos($page, 'tmw-') === 0) {
+            self::render_pipeline_health_notices();
+        }
+
+        // Settings integrity notice — on settings page only.
+        if ($page === 'tmwseo-settings') {
+            self::render_settings_integrity_notice();
+        }
+
         if (!isset($_GET['tmwseo_notice'])) {
             return;
         }
@@ -1927,7 +1981,13 @@ class Admin {
         } elseif ($notice === 'candidate_update_failed') {
             $message = __('Candidate action failed due to a database error.', 'tmwseo');
         } elseif ($notice === 'seo_engine_cycle_executed' || $notice === 'keyword_cycle_ran') {
-            $message = __('SEO Engine cycle executed.', 'tmwseo');
+            $message = __('SEO Engine keyword cycle executed synchronously. Check the Debug Dashboard for results.', 'tmwseo');
+        } elseif ($notice === 'keyword_cycle_queued_worker_dead') {
+            $message = __('Keyword cycle job was queued but the background worker (tmwseo_worker_tick) is not scheduled. The job will not process until the worker is kicked manually from Debug Dashboard → Tools.', 'tmwseo');
+            $is_error_notice_override = true;
+        } elseif ($notice === 'legacy_save_blocked') {
+            $message = __('A legacy settings save action was intercepted and blocked to prevent data loss. Settings were NOT changed. Use the Settings page to save.', 'tmwseo');
+            $is_error_notice_override = true;
         } elseif ($notice === 'candidate_action_not_available') {
             $message = __('Candidate action skipped. This row is already in a final status for that action.', 'tmwseo');
         }
@@ -1936,7 +1996,7 @@ class Admin {
             return;
         }
 
-        $is_error_notice = in_array($notice, [
+        $is_error_notice = isset($is_error_notice_override) ? $is_error_notice_override : in_array($notice, [
             'candidate_invalid_request',
             'candidate_invalid_nonce',
             'candidate_action_unauthorized',
@@ -1947,6 +2007,108 @@ class Admin {
         echo '<div class="notice ' . esc_attr($is_error_notice ? 'notice-error' : 'notice-success') . ' is-dismissible"><p>';
         echo esc_html($message);
         echo '</p></div>';
+    }
+
+    /**
+     * Surface visible admin warnings for critical pipeline states.
+     * Only called on TMW SEO pages. All checks are read-only.
+     */
+    private static function render_pipeline_health_notices(): void {
+        // Use a short transient to avoid recomputing on every page load.
+        $cache_key = 'tmwseo_pipeline_notices_v1';
+        $cached = get_transient($cache_key);
+        if ($cached === 'clean') {
+            return; // No issues last time we checked.
+        }
+        if (is_array($cached)) {
+            foreach ($cached as $msg) {
+                echo '<div class="notice notice-warning is-dismissible"><p>' . wp_kses_post($msg) . '</p></div>';
+            }
+            return;
+        }
+
+        $warnings = [];
+
+        // DataForSEO budget exceeded
+        if (\TMWSEO\Engine\Services\DataForSEO::is_configured() && \TMWSEO\Engine\Services\DataForSEO::is_over_budget()) {
+            $stats = \TMWSEO\Engine\Services\DataForSEO::get_monthly_budget_stats();
+            $warnings[] = sprintf(
+                '<strong>TMW SEO:</strong> DataForSEO monthly budget exceeded ($%.2f / $%.2f). Keyword discovery via DataForSEO is paused. <a href="%s">Adjust budget →</a>',
+                (float) ($stats['spent_usd'] ?? 0),
+                (float) ($stats['budget_usd'] ?? 0),
+                esc_url(admin_url('admin.php?page=tmwseo-settings'))
+            );
+        }
+
+        // Discovery disabled
+        if (!(bool) get_option('tmw_discovery_enabled', 1)) {
+            $warnings[] = '<strong>TMW SEO:</strong> Keyword discovery is globally disabled (tmw_discovery_enabled=0). No keywords will be discovered.';
+        }
+
+        // Breaker active
+        $breaker = get_option('tmw_keyword_engine_breaker', []);
+        if (is_array($breaker) && !empty($breaker['last_triggered'])) {
+            $cooldown_until = (int) $breaker['last_triggered'] + (15 * MINUTE_IN_SECONDS);
+            if (time() < $cooldown_until) {
+                $warnings[] = '<strong>TMW SEO:</strong> Keyword engine circuit breaker is active (3+ consecutive provider failures). Auto-clears in ' . human_time_diff(time(), $cooldown_until) . '.';
+            }
+        }
+
+        // Settings integrity — critical keys missing
+        $stored = get_option('tmwseo_engine_settings', []);
+        $stored = is_array($stored) ? $stored : [];
+        $critical = ['dataforseo_login', 'tmwseo_dataforseo_budget_usd', 'keyword_min_volume', 'keyword_max_kd', 'google_ads_enabled'];
+        $missing = array_filter($critical, static fn($k) => !array_key_exists($k, $stored));
+        if (!empty($missing)) {
+            $warnings[] = sprintf(
+                '<strong>TMW SEO:</strong> Critical settings keys are missing (%s). This may indicate a partial settings save. <a href="%s">Re-save Settings →</a>',
+                esc_html(implode(', ', $missing)),
+                esc_url(admin_url('admin.php?page=tmwseo-settings'))
+            );
+        }
+
+        // No providers available
+        $has_dfseo = \TMWSEO\Engine\Services\DataForSEO::is_configured() && !\TMWSEO\Engine\Services\DataForSEO::is_over_budget();
+        $has_gads = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::is_configured();
+        $has_gtrends = (bool) \TMWSEO\Engine\Services\Settings::get('google_trends_enabled', 0);
+        if (!$has_dfseo && !$has_gads && !$has_gtrends) {
+            $warnings[] = sprintf(
+                '<strong>TMW SEO:</strong> No keyword providers are available. Configure DataForSEO, enable Google Ads, or enable Google Trends in <a href="%s">Settings</a>.',
+                esc_url(admin_url('admin.php?page=tmwseo-settings'))
+            );
+        }
+
+        // Cache result for 5 minutes
+        if (empty($warnings)) {
+            set_transient($cache_key, 'clean', 5 * MINUTE_IN_SECONDS);
+        } else {
+            set_transient($cache_key, $warnings, 5 * MINUTE_IN_SECONDS);
+            foreach ($warnings as $msg) {
+                echo '<div class="notice notice-warning is-dismissible"><p>' . wp_kses_post($msg) . '</p></div>';
+            }
+        }
+    }
+
+    /**
+     * Settings integrity notice — shown on the Settings page only.
+     */
+    private static function render_settings_integrity_notice(): void {
+        $stored = get_option('tmwseo_engine_settings', []);
+        if (!is_array($stored)) { $stored = []; }
+
+        $defaults = \TMWSEO\Engine\Services\Settings::defaults();
+        $expected_keys = array_keys($defaults);
+        $missing = array_diff($expected_keys, array_keys($stored));
+
+        if (count($missing) > 10) {
+            echo '<div class="notice notice-error"><p>';
+            echo '<strong>Settings integrity warning:</strong> ' . count($missing) . ' expected settings keys are missing. ';
+            echo 'This may indicate the settings were overwritten by a partial save. ';
+            echo 'Re-saving this page will restore default values for missing keys. ';
+            echo 'Missing keys include: <code>' . esc_html(implode('</code>, <code>', array_slice($missing, 0, 8))) . '</code>';
+            if (count($missing) > 8) { echo ' and ' . (count($missing) - 8) . ' more'; }
+            echo '.</p></div>';
+        }
     }
 
     // ---------- UI (alpha.8) ----------
@@ -2226,6 +2388,14 @@ class Admin {
                 echo '<p>' . esc_html__('Error message:', 'tmwseo') . ' ' . esc_html((string) ($result['message'] ?? $result['error'] ?? 'unknown_error')) . '</p>';
                 echo '<p>' . esc_html__('HTTP status:', 'tmwseo') . ' ' . esc_html((string) ($result['http_status'] ?? 'n/a')) . '</p>';
                 echo '<p>' . esc_html__('Google Ads error code:', 'tmwseo') . ' ' . esc_html((string) ($result['google_ads_error_code'] ?? 'n/a')) . '</p>';
+                $hints = (array) ($result['diagnostic_hints'] ?? []);
+                if (!empty($hints)) {
+                    echo '<p><strong>' . esc_html__('Diagnostic hints:', 'tmwseo') . '</strong></p><ul style="list-style:disc;padding-left:20px;">';
+                    foreach ($hints as $hint) {
+                        echo '<li>' . esc_html((string) $hint) . '</li>';
+                    }
+                    echo '</ul>';
+                }
                 echo '</div>';
             }
 
@@ -3490,6 +3660,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
         $ga_client_secret  = esc_attr((string)($opts['google_ads_client_secret'] ?? ''));
         $ga_refresh_token  = esc_attr((string)($opts['google_ads_refresh_token'] ?? ''));
         $ga_customer_id    = esc_attr((string)($opts['google_ads_customer_id'] ?? ''));
+        $ga_login_cid      = esc_attr((string)($opts['google_ads_login_customer_id'] ?? ''));
         echo '<h2>' . esc_html__('Google Ads Keyword Planner', 'tmwseo') . '</h2>';
         echo '<div style="background:#f0f9ff;border-left:4px solid #3b82f6;padding:10px 14px;margin-bottom:12px;">';
         echo '<p style="margin:0;">' . esc_html__('Keyword Planner enriches candidate keyword metrics (volume, CPC) via the Google Ads API. Credentials require a Google Ads developer account with a manager (MCC) customer ID and OAuth2 tokens.', 'tmwseo') . '</p>';
@@ -3503,6 +3674,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
         echo '<tr><th>' . esc_html__('OAuth2 Client Secret', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[google_ads_client_secret]" value="' . $ga_client_secret . '" class="regular-text" autocomplete="off"></td></tr>';
         echo '<tr><th>' . esc_html__('Refresh Token', 'tmwseo') . '</th><td><input type="password" name="tmwseo_engine_settings[google_ads_refresh_token]" value="' . $ga_refresh_token . '" class="regular-text" autocomplete="off"><p class="description">' . esc_html__('Long-lived OAuth2 refresh token. Generate via the Google OAuth2 Playground.', 'tmwseo') . '</p></td></tr>';
         echo '<tr><th>' . esc_html__('Customer ID', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[google_ads_customer_id]" value="' . $ga_customer_id . '" class="regular-text"><p class="description">' . esc_html__('10-digit Google Ads Customer ID (without dashes).', 'tmwseo') . '</p></td></tr>';
+        echo '<tr><th>' . esc_html__('Login Customer ID (MCC)', 'tmwseo') . '</th><td><input type="text" name="tmwseo_engine_settings[google_ads_login_customer_id]" value="' . $ga_login_cid . '" class="regular-text"><p class="description">' . esc_html__('Required if your developer token belongs to a Manager (MCC) account. Set this to the MCC account ID (without dashes). Leave blank if using a direct non-MCC account.', 'tmwseo') . '</p></td></tr>';
         echo '</table>';
 
         // ── Google Trends ──────────────────────────────────────────────────
