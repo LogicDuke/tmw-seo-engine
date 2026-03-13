@@ -177,12 +177,8 @@ class DebugDashboard {
     }
 
     private static function render_card_close(): void {
-        echo '</div></div>';
-    }
-
-    private static function render_card_close(): void {
-        echo '</div></div>';
-    }
+    echo '</div></div>';
+}
 
     /**
      * Keyword Pipeline Health Panel — read-only operational diagnostics.
