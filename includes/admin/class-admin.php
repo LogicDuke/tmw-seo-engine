@@ -2665,12 +2665,12 @@ class Admin {
         // ── Recent Candidates table ───────────────────────────────────────────
         $focused_candidate_id = isset($_GET['tmwseo_candidate_focus']) ? absint($_GET['tmwseo_candidate_focus']) : 0;
         $candidate_page_sizes = [25, 50, 100];
-        $candidate_per_page = isset($_GET['cand_per_page']) ? (int) $_GET['cand_per_page'] : 50;
+        $candidate_per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 50;
         if (!in_array($candidate_per_page, $candidate_page_sizes, true)) {
             $candidate_per_page = 50;
         }
 
-        $candidate_page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
+        $candidate_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
         $candidate_offset = ($candidate_page - 1) * $candidate_per_page;
         $candidate_total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$cand_table}");
 
@@ -2694,7 +2694,7 @@ class Admin {
         echo '<form method="get" style="margin:8px 0 12px;">';
         echo '<input type="hidden" name="page" value="tmwseo-keywords">';
         echo '<label for="tmwseo-candidates-per-page" style="margin-right:6px;">Rows per page:</label>';
-        echo '<select id="tmwseo-candidates-per-page" name="cand_per_page" onchange="this.form.submit()">';
+        echo '<select id="tmwseo-candidates-per-page" name="per_page" onchange="this.form.submit()">';
         foreach ($candidate_page_sizes as $size) {
             echo '<option value="' . esc_attr((string) $size) . '" ' . selected($candidate_per_page, $size, false) . '>' . esc_html((string) $size) . '</option>';
         }
@@ -2783,8 +2783,19 @@ class Admin {
             echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve sets candidate status to approved. Reject sets candidate status to ignored. View / Inspect focuses this row on the Keywords page.', 'tmwseo') . '</p>';
         }
 
-        $pagination = new \TMWSEO\Engine\Admin\ListTablePagination();
-        $pagination->render_bottom($candidate_total, $candidate_per_page, $candidate_page, ['page' => 'tmwseo-keywords', 'cand_per_page' => $candidate_per_page]);
+        $pagination_query_args = ['page' => 'tmwseo-keywords', 'per_page' => $candidate_per_page];
+        foreach (['status', 'keyword', 'cluster', 'type', 'search'] as $filter_key) {
+            if (isset($_GET[$filter_key]) && $_GET[$filter_key] !== '') {
+                $pagination_query_args[$filter_key] = sanitize_text_field(wp_unslash((string) $_GET[$filter_key]));
+            }
+        }
+
+        \TMWSEO\Engine\Admin\ListTablePagination::render([
+            'total_items' => $candidate_total,
+            'per_page' => $candidate_per_page,
+            'current_page' => $candidate_page,
+            'query_args' => $pagination_query_args,
+        ]);
         AdminUI::section_end();
 
         // ── Top Clusters table ────────────────────────────────────────────────

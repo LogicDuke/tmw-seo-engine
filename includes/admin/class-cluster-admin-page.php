@@ -95,12 +95,12 @@ class TMW_Cluster_Admin_Page {
         $advisor = TMW_Main_Class::get_cluster_advisor();
 
         $allowed_page_sizes = [25, 50, 100];
-        $per_page = isset($_GET['per_page']) ? (int) $_GET['per_page'] : 50;
+        $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 50;
         if (!in_array($per_page, $allowed_page_sizes, true)) {
             $per_page = 50;
         }
 
-        $current_page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
+        $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
         $offset = ($current_page - 1) * $per_page;
 
         $total_rows = $this->cluster_service->count_clusters();
@@ -208,8 +208,19 @@ class TMW_Cluster_Admin_Page {
         echo '</tbody>';
         echo '</table>';
 
-        $pagination = new \TMWSEO\Engine\Admin\ListTablePagination();
-        $pagination->render_bottom($total_rows, $per_page, $current_page, ['page' => 'tmw-seo-clusters', 'per_page' => $per_page]);
+        $pagination_query_args = ['page' => 'tmw-seo-clusters', 'per_page' => $per_page];
+        foreach (['status', 'keyword', 'cluster', 'type', 'search'] as $filter_key) {
+            if (isset($_GET[$filter_key]) && $_GET[$filter_key] !== '') {
+                $pagination_query_args[$filter_key] = sanitize_text_field(wp_unslash((string) $_GET[$filter_key]));
+            }
+        }
+
+        \TMWSEO\Engine\Admin\ListTablePagination::render([
+            'total_items' => $total_rows,
+            'per_page' => $per_page,
+            'current_page' => $current_page,
+            'query_args' => $pagination_query_args,
+        ]);
 
         echo '</div>';
     }
