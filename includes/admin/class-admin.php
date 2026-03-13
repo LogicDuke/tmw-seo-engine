@@ -936,7 +936,7 @@ class Admin {
             __('TMW SEO Engine', 'tmwseo'),
             'manage_options',
             self::MENU_SLUG,
-            ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render'],
+            [__CLASS__, 'render_command_center'],
             'dashicons-chart-area',
             58
         );
@@ -948,7 +948,17 @@ class Admin {
             __('&#9881; Command Center', 'tmwseo'),
             'manage_options',
             self::MENU_SLUG,
-            ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render']
+            [__CLASS__, 'render_command_center']
+        );
+
+
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('Command Center', 'tmwseo'),
+            __('Command Center', 'tmwseo'),
+            'manage_options',
+            'tmwseo-command-center',
+            [__CLASS__, 'render_command_center']
         );
 
         // ── Workflow ───────────────────────────────────────────────────────
@@ -994,7 +1004,7 @@ class Admin {
         add_submenu_page(null, __('Import', 'tmwseo'),           __('Import', 'tmwseo'),           'manage_options', 'tmwseo-import',      [__CLASS__, 'render_import']);
 
         // Legacy V2 slugs → server-side redirect to canonical pages (no JS bounces)
-        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-command-center',   ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render']); // keep old slug working
+        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-command-center',   [__CLASS__, 'render_command_center']); // keep old slug working
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-engine-v2',        [__CLASS__, 'legacy_redirect_command_center']);
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-pagespeed',        [__CLASS__, 'render_pagespeed_redirect']);
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-cfg',              [__CLASS__, 'render_settings_redirect']);
@@ -1940,6 +1950,10 @@ class Admin {
 
     // ---------- UI (alpha.8) ----------
 
+
+    public static function render_command_center(): void {
+        \TMWSEO\Engine\Admin\CommandCenterAdminPage::render_page();
+    }
 
     /**
      * Legacy overview page — renders Command Center directly.

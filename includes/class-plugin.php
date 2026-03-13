@@ -21,6 +21,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-opportunities-tab
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-seed-registry-table.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-seed-registry-admin-page.php'; // 4.3.0
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
@@ -460,6 +461,7 @@ class Plugin {
         if (is_admin()) {
             Admin::init();
             \TMWSEO\Engine\Admin\CommandCenter::init();
+            \TMWSEO\Engine\Admin\CommandCenterAdminPage::init();
             \TMWSEO\Engine\Admin\SeedRegistryAdminPage::init(); // 4.3.0
             \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
