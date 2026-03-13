@@ -981,7 +981,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Connections', 'tmwseo'), __('Connections', 'tmwseo'), 'manage_options', 'tmwseo-connections', ['\\TMWSEO\\Engine\\Admin\\AdminDashboardV2', 'page_connections']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
-        add_submenu_page(self::MENU_SLUG, __('CSV Manager', 'tmwseo'), __('CSV Manager', 'tmwseo'), 'manage_options', 'tmwseo-csv-manager', ['\TMWSEO\Engine\Admin\CSVManagerPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('CSV Manager', 'tmwseo'), __('CSV Manager', 'tmwseo'), 'manage_options', 'tmwseo-csv-manager', ['\TMWSEO\Engine\Admin\CSVManagerAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Keyword Planner API Test', 'tmwseo'), __('Keyword Planner Test', 'tmwseo'), 'manage_options', 'tmwseo-gkp-test', [__CLASS__, 'render_keyword_planner_test']);
         add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmwseo-debug-dashboard', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
 
@@ -2895,15 +2895,37 @@ class Admin {
             wp_die(__('Upload error', 'tmwseo'));
         }
 
-        $tmp = (string)$file['tmp_name'];
         $source = sanitize_text_field((string)($_POST['import_source'] ?? 'manual'));
         $run_kd = !empty($_POST['run_kd']);
 
-        // Generate a batch ID for this import for rollback and provenance tracking (4.3.0)
-        $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id('csv_import');
+        $tmp = (string) $file['tmp_name'];
+        $filename = isset($file['name']) ? sanitize_file_name((string) $file['name']) : 'import.csv';
+        if ($filename === '' || strtolower((string) pathinfo($filename, PATHINFO_EXTENSION)) !== 'csv') {
+            $filename = 'import-' . gmdate('Ymd-His') . '.csv';
+        }
 
-        $fh = fopen($tmp, 'r');
-        if (!$fh) wp_die(__('Could not read CSV', 'tmwseo'));
+        $csv_dir = function_exists('tmw_get_csv_directory') ? tmw_get_csv_directory() : trailingslashit(WP_CONTENT_DIR) . 'uploads/tmw-seo-imports';
+        if (!file_exists($csv_dir)) {
+            wp_mkdir_p($csv_dir);
+        }
+
+        $target = trailingslashit($csv_dir) . wp_unique_filename($csv_dir, $filename);
+        $moved = is_uploaded_file($tmp) ? move_uploaded_file($tmp, $target) : @rename($tmp, $target);
+        if (!$moved) {
+            wp_die(__('Could not store CSV in uploads/tmw-seo-imports.', 'tmwseo'));
+        }
+
+        $result = self::import_keywords_from_csv_path($target, $source, $run_kd);
+
+        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=imported&raw=' . (int) $result['raw'] . '&cand=' . (int) $result['cand'] . '&rej=' . (int) $result['rej']));
+        exit;
+    }
+
+    public static function import_keywords_from_csv_path(string $file_path, string $source = 'manual', bool $run_kd = true): array {
+        $fh = fopen($file_path, 'r');
+        if (!$fh) {
+            wp_die(__('Could not read CSV', 'tmwseo'));
+        }
 
         $header = fgetcsv($fh);
         if (!is_array($header)) $header = [];
@@ -2923,6 +2945,9 @@ class Admin {
             if ($c === 'type') $type_col = (int)$i;
             if ($c === 'priority') $priority_col = (int)$i;
         }
+
+        // Generate a batch ID for this import for rollback and provenance tracking (4.3.0)
+        $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id('csv_import');
 
         global $wpdb;
         $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
@@ -2968,7 +2993,6 @@ class Admin {
                 if ($v !== '') $vol = (int)$v;
             }
 
-            // Raw
             $wpdb->query($wpdb->prepare(
                 "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
                  VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
@@ -2976,7 +3000,6 @@ class Admin {
             ));
             $raw_ins++;
 
-            // Candidate upsert
             $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$cand_table} WHERE keyword=%s LIMIT 1", $kw));
             if ($exists) continue;
 
@@ -3004,7 +3027,7 @@ class Admin {
 
         fclose($fh);
 
-        Logs::info('import', 'Imported keywords', ['raw' => $raw_ins, 'candidates' => $cand_ins, 'rejected' => $rejected, 'source' => $source]);
+        Logs::info('import', 'Imported keywords', ['raw' => $raw_ins, 'candidates' => $cand_ins, 'rejected' => $rejected, 'source' => $source, 'file' => $file_path]);
 
         if ($run_kd) {
             Jobs::enqueue('keyword_cycle', 'system', 0, [
@@ -3014,8 +3037,7 @@ class Admin {
             Worker::run();
         }
 
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=imported&raw=' . $raw_ins . '&cand=' . $cand_ins . '&rej=' . $rejected));
-        exit;
+        return ['raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected];
     }
 
 private static function header(string $title): void {
