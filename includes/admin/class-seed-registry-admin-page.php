@@ -238,11 +238,30 @@ class SeedRegistryAdminPage {
 
     private static function render_tab_preview(): void {
         $status_filter = sanitize_key( $_GET['status'] ?? '' );
-        $offset        = max( 0, (int) ( $_GET['paged'] ?? 0 ) * 50 );
-        $rows          = ExpansionCandidateRepository::get_pending( 50, $offset, $status_filter );
-        $counts        = ExpansionCandidateRepository::count_by_status();
+        $allowed_page_sizes = [ 25, 50, 100 ];
+        $per_page = isset( $_GET['per_page'] ) ? (int) $_GET['per_page'] : 50;
+        if ( ! in_array( $per_page, $allowed_page_sizes, true ) ) {
+            $per_page = 50;
+        }
+
+        $current_page = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+        $offset = ( $current_page - 1 ) * $per_page;
+
+        $rows   = ExpansionCandidateRepository::get_pending( $per_page, $offset, $status_filter );
+        $counts = ExpansionCandidateRepository::count_by_status();
+
+        $total_rows = 0;
+        if ( $status_filter === '' ) {
+            $total_rows = (int) ( $counts['pending'] ?? 0 ) + (int) ( $counts['fast_track'] ?? 0 );
+        } else {
+            $total_rows = (int) ( $counts[ $status_filter ] ?? 0 );
+        }
+
+        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
+        $showing_to   = min( $offset + count( $rows ), $total_rows );
 
         echo '<h2>' . esc_html__( 'Expansion Preview Queue', 'tmwseo' ) . '</h2>';
+        echo '<p>' . esc_html( sprintf( 'Showing %d–%d of %d keywords', $showing_from, $showing_to, $total_rows ) ) . '</p>';
 
 
         // Status filter links
@@ -268,6 +287,20 @@ class SeedRegistryAdminPage {
             printf( '<a href="%s" style="%s">%s%s</a>&nbsp;&nbsp;', esc_url( $url ), esc_attr( $style ), esc_html( $l ), esc_html( $count_label ) );
         }
         echo '</div>';
+
+        echo '<form method="get" style="margin:8px 0 12px;">';
+        echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '">';
+        echo '<input type="hidden" name="tab" value="preview">';
+        if ( $status_filter !== '' ) {
+            echo '<input type="hidden" name="status" value="' . esc_attr( $status_filter ) . '">';
+        }
+        echo '<label for="tmwseo-preview-per-page" style="margin-right:6px;">Rows per page:</label>';
+        echo '<select id="tmwseo-preview-per-page" name="per_page" onchange="this.form.submit()">';
+        foreach ( $allowed_page_sizes as $size ) {
+            echo '<option value="' . esc_attr( (string) $size ) . '" ' . selected( $per_page, $size, false ) . '>' . esc_html( (string) $size ) . '</option>';
+        }
+        echo '</select>';
+        echo '</form>';
 
         if ( empty( $rows ) ) {
             echo '<p>' . esc_html__( 'No candidates to review.', 'tmwseo' ) . '</p>';
@@ -328,6 +361,19 @@ class SeedRegistryAdminPage {
 
         echo '</tbody></table>';
         echo '</form>';
+
+        $pagination = new ListTablePagination();
+        $pagination->render_bottom(
+            $total_rows,
+            $per_page,
+            $current_page,
+            [
+                'page'     => self::PAGE_SLUG,
+                'tab'      => 'preview',
+                'status'   => $status_filter,
+                'per_page' => $per_page,
+            ]
+        );
     }
 
     // -------------------------------------------------------------------------

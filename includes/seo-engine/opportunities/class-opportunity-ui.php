@@ -268,8 +268,21 @@ class OpportunityUI {
             wp_die('Unauthorized');
         }
 
-        $rows = $this->db->list_all('', 300);
         $stored = isset($_GET['scan_stored']) ? (int) $_GET['scan_stored'] : null;
+
+        $allowed_page_sizes = [25, 50, 100];
+        $per_page = isset($_GET['per_page']) ? (int) $_GET['per_page'] : 50;
+        if (!in_array($per_page, $allowed_page_sizes, true)) {
+            $per_page = 50;
+        }
+
+        $current_page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
+        $offset = ($current_page - 1) * $per_page;
+
+        $total_rows = $this->db->count_all('');
+        $rows = $this->db->list_page('', $per_page, $offset);
+        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
+        $showing_to = min($offset + count($rows), $total_rows);
 
         echo '<div class="wrap"><h1>Suggestions</h1>';
         echo '<p><strong>Needs Attention:</strong> Review suggested pages and create drafts manually.</p>';
@@ -278,6 +291,18 @@ class OpportunityUI {
         if ($stored !== null) {
             echo '<div class="notice notice-success"><p>Scan completed. Stored opportunities: <strong>' . esc_html((string) $stored) . '</strong>.</p></div>';
         }
+
+        echo '<p>' . esc_html(sprintf('Showing %d–%d of %d opportunities', $showing_from, $showing_to, $total_rows)) . '</p>';
+
+        echo '<form method="get" style="margin:8px 0 12px;">';
+        echo '<input type="hidden" name="page" value="tmwseo-opportunities">';
+        echo '<label for="tmwseo-opportunity-per-page" style="margin-right:6px;">Rows per page:</label>';
+        echo '<select id="tmwseo-opportunity-per-page" name="per_page" onchange="this.form.submit()">';
+        foreach ($allowed_page_sizes as $size) {
+            echo '<option value="' . esc_attr((string) $size) . '" ' . selected($per_page, $size, false) . '>' . esc_html((string) $size) . '</option>';
+        }
+        echo '</select>';
+        echo '</form>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 20px;">';
         wp_nonce_field('tmwseo_run_opportunity_scan');
@@ -324,6 +349,11 @@ class OpportunityUI {
             echo '</tr>';
         }
 
-        echo '</tbody></table></div>';
+        echo '</tbody></table>';
+
+        $pagination = new \TMWSEO\Engine\Admin\ListTablePagination();
+        $pagination->render_bottom($total_rows, $per_page, $current_page, ['page' => 'tmwseo-opportunities', 'per_page' => $per_page]);
+
+        echo '</div>';
     }
 }

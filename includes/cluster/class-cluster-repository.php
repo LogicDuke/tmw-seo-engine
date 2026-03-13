@@ -95,6 +95,24 @@ class TMW_Cluster_Repository {
         return $clusters ?: [];
     }
 
+
+    public function count_clusters($status = null) {
+        $prepare_args = [];
+        $where_sql = '';
+
+        if ($status !== null && $status !== '') {
+            $where_sql = 'WHERE status = %s';
+            $prepare_args[] = $status;
+        }
+
+        if ($prepare_args !== []) {
+            $query = $this->wpdb->prepare("SELECT COUNT(*) FROM {$this->clusters_table} {$where_sql}", $prepare_args);
+            return (int) $this->wpdb->get_var($query);
+        }
+
+        return (int) $this->wpdb->get_var("SELECT COUNT(*) FROM {$this->clusters_table}");
+    }
+
     public function create_cluster($data) {
         if (!isset($data['name']) || trim((string) $data['name']) === '') {
             return null;

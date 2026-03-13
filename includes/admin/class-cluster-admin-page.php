@@ -92,8 +92,27 @@ class TMW_Cluster_Admin_Page {
             }
         }
 
-        $clusters = $this->cluster_service->list_clusters(['limit' => 100]);
         $advisor = TMW_Main_Class::get_cluster_advisor();
+
+        $allowed_page_sizes = [25, 50, 100];
+        $per_page = isset($_GET['per_page']) ? (int) $_GET['per_page'] : 50;
+        if (!in_array($per_page, $allowed_page_sizes, true)) {
+            $per_page = 50;
+        }
+
+        $current_page = isset($_GET['paged']) ? max(1, (int) $_GET['paged']) : 1;
+        $offset = ($current_page - 1) * $per_page;
+
+        $total_rows = $this->cluster_service->count_clusters();
+        $clusters = $this->cluster_service->list_clusters([
+            'limit' => $per_page,
+            'offset' => $offset,
+            'orderby' => 'created_at',
+            'order' => 'DESC',
+        ]);
+
+        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
+        $showing_to = min($offset + count($clusters), $total_rows);
 
         echo '<div class="wrap">';
         echo '<h1>SEO Clusters</h1>';
@@ -106,29 +125,23 @@ class TMW_Cluster_Admin_Page {
         echo '</button>';
         echo '</form>';
 
+        echo '<p>' . esc_html(sprintf('Showing %d–%d of %d clusters', $showing_from, $showing_to, $total_rows)) . '</p>';
+        echo '<form method="get" style="margin:8px 0 12px;">';
+        echo '<input type="hidden" name="page" value="tmw-seo-clusters">';
+        echo '<label for="tmwseo-clusters-per-page" style="margin-right:6px;">Rows per page:</label>';
+        echo '<select id="tmwseo-clusters-per-page" name="per_page" onchange="this.form.submit()">';
+        foreach ($allowed_page_sizes as $size) {
+            echo '<option value="' . esc_attr((string) $size) . '" ' . selected($per_page, $size, false) . '>' . esc_html((string) $size) . '</option>';
+        }
+        echo '</select>';
+        echo '</form>';
+
         if (empty($clusters) || !is_array($clusters)) {
             echo '<p>' . esc_html('No clusters found.') . '</p>';
             echo '</div>';
 
             return;
         }
-
-        usort($clusters, function ($a, $b) use ($advisor) {
-            $a_id = (is_array($a) && isset($a['id'])) ? (int) $a['id'] : 0;
-            $b_id = (is_array($b) && isset($b['id'])) ? (int) $b['id'] : 0;
-
-            $a_opportunity = $advisor->get_cluster_opportunity_score($a_id);
-            $b_opportunity = $advisor->get_cluster_opportunity_score($b_id);
-
-            $a_score = (is_array($a_opportunity) && isset($a_opportunity['score'])) ? (int) $a_opportunity['score'] : -1;
-            $b_score = (is_array($b_opportunity) && isset($b_opportunity['score'])) ? (int) $b_opportunity['score'] : -1;
-
-            if ($a_score === $b_score) {
-                return 0;
-            }
-
-            return ($a_score > $b_score) ? -1 : 1;
-        });
 
         echo '<table class="widefat striped">';
         echo '<thead><tr>';
@@ -194,6 +207,10 @@ class TMW_Cluster_Admin_Page {
 
         echo '</tbody>';
         echo '</table>';
+
+        $pagination = new \TMWSEO\Engine\Admin\ListTablePagination();
+        $pagination->render_bottom($total_rows, $per_page, $current_page, ['page' => 'tmw-seo-clusters', 'per_page' => $per_page]);
+
         echo '</div>';
     }
 
