@@ -615,6 +615,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         // then re-scores opportunity. This is additive — DataForSEO data is not replaced
         // if it already provided a non-null volume.
         if ( \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::is_configured() ) {
+            Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment enabled');
             $gkp_candidates = $wpdb->get_col( $wpdb->prepare(
                 "SELECT keyword FROM {$cand_table}
                  WHERE status IN ('new','approved')
@@ -672,6 +673,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 ]);
             }
         } else {
+            Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment skipped: not configured');
             Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — integration not configured or disabled');
         }
 
