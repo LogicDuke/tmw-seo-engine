@@ -5,6 +5,7 @@ use TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Admin\Tables\OpportunitiesTable;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -68,6 +69,10 @@ class OpportunityUI {
 
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-opportunities&updated=' . $id));
         exit;
+    }
+
+    public function run_bulk_generate_draft(int $opportunity_id): void {
+        $this->generate_draft_page($opportunity_id);
     }
 
     private function generate_draft_page(int $opportunity_id): void {
@@ -270,19 +275,7 @@ class OpportunityUI {
 
         $stored = isset($_GET['scan_stored']) ? (int) $_GET['scan_stored'] : null;
 
-        $allowed_page_sizes = [25, 50, 100];
-        $per_page = isset($_GET['per_page']) ? intval($_GET['per_page']) : 50;
-        if (!in_array($per_page, $allowed_page_sizes, true)) {
-            $per_page = 50;
-        }
-
-        $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
-        $offset = ($current_page - 1) * $per_page;
-
-        $total_rows = $this->db->count_all('');
-        $rows = $this->db->list_page('', $per_page, $offset);
-        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
-        $showing_to = min($offset + count($rows), $total_rows);
+        $table = new OpportunitiesTable($this);
 
         echo '<div class="wrap"><h1>Suggestions</h1>';
         echo '<p><strong>Needs Attention:</strong> Review suggested pages and create drafts manually.</p>';
@@ -292,78 +285,18 @@ class OpportunityUI {
             echo '<div class="notice notice-success"><p>Scan completed. Stored opportunities: <strong>' . esc_html((string) $stored) . '</strong>.</p></div>';
         }
 
-        echo '<p>' . esc_html(sprintf('Showing %d–%d of %d opportunities', $showing_from, $showing_to, $total_rows)) . '</p>';
-
-        echo '<form method="get" style="margin:8px 0 12px;">';
-        echo '<input type="hidden" name="page" value="tmwseo-opportunities">';
-        echo '<label for="tmwseo-opportunity-per-page" style="margin-right:6px;">Rows per page:</label>';
-        echo '<select id="tmwseo-opportunity-per-page" name="per_page" onchange="this.form.submit()">';
-        foreach ($allowed_page_sizes as $size) {
-            echo '<option value="' . esc_attr((string) $size) . '" ' . selected($per_page, $size, false) . '>' . esc_html((string) $size) . '</option>';
-        }
-        echo '</select>';
-        echo '</form>';
-
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:12px 0 20px;">';
         wp_nonce_field('tmwseo_run_opportunity_scan');
         echo '<input type="hidden" name="action" value="tmwseo_run_opportunity_scan">';
         submit_button('Run Competitor Opportunity Scan', 'primary', 'submit', false);
         echo '</form>';
 
-        echo '<table class="widefat striped"><thead><tr>';
-        echo '<th>Keyword</th><th>Type</th><th>Source</th><th>Score</th><th>Recommended Action</th><th>Status</th><th>Actions</th>';
-        echo '</tr></thead><tbody>';
-
-        if (empty($rows)) {
-            echo '<tr><td colspan="7">No suggestions found yet.</td></tr>';
-        }
-
-        foreach ($rows as $row) {
-            $id = (int) ($row['id'] ?? 0);
-            echo '<tr>';
-            echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['type'] ?? 'keyword')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['source'] ?? 'keyword_cycle')) . '</td>';
-            echo '<td><strong>' . esc_html((string) ((float) ($row['opportunity_score'] ?? 0))) . '</strong></td>';
-            echo '<td>' . esc_html((string) ($row['recommended_action'] ?? 'Create Draft')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['status'] ?? 'new')) . '</td>';
-            echo '<td>';
-
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;margin-right:5px;">';
-            wp_nonce_field('tmwseo_opportunity_action');
-            echo '<input type="hidden" name="action" value="tmwseo_opportunity_action">';
-            echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
-            echo '<input type="hidden" name="row_action" value="generate">';
-            submit_button('Create Draft', 'secondary', 'submit', false);
-            echo '</form>';
-
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline-block;">';
-            wp_nonce_field('tmwseo_opportunity_action');
-            echo '<input type="hidden" name="action" value="tmwseo_opportunity_action">';
-            echo '<input type="hidden" name="id" value="' . esc_attr((string) $id) . '">';
-            echo '<input type="hidden" name="row_action" value="ignore">';
-            submit_button('Ignore', 'delete', 'submit', false);
-            echo '</form>';
-
-            echo '</td>';
-            echo '</tr>';
-        }
-
-        echo '</tbody></table>';
-
-        $pagination_query_args = ['page' => 'tmwseo-opportunities', 'per_page' => $per_page];
-        foreach (['status', 'keyword', 'cluster', 'type', 'search'] as $filter_key) {
-            if (isset($_GET[$filter_key]) && $_GET[$filter_key] !== '') {
-                $pagination_query_args[$filter_key] = sanitize_text_field(wp_unslash((string) $_GET[$filter_key]));
-            }
-        }
-
-        \TMWSEO\Engine\Admin\ListTablePagination::render([
-            'total_items' => $total_rows,
-            'per_page' => $per_page,
-            'current_page' => $current_page,
-            'query_args' => $pagination_query_args,
-        ]);
+        echo '<form method="get">';
+        echo '<input type="hidden" name="page" value="tmwseo-opportunities">';
+        $table->prepare_items();
+        $table->search_box(__('Search Keywords / Clusters', 'tmwseo'), 'opportunities-search');
+        $table->display();
+        echo '</form>';
 
         echo '</div>';
     }

@@ -238,33 +238,10 @@ class SeedRegistryAdminPage {
 
     private static function render_tab_preview(): void {
         $status_filter = sanitize_key( $_GET['status'] ?? '' );
-        $allowed_page_sizes = [ 25, 50, 100 ];
-        $per_page = isset( $_GET['per_page'] ) ? intval( $_GET['per_page'] ) : 50;
-        if ( ! in_array( $per_page, $allowed_page_sizes, true ) ) {
-            $per_page = 50;
-        }
-
-        $current_page = isset( $_GET['paged'] ) ? max( 1, intval( $_GET['paged'] ) ) : 1;
-        $offset = ( $current_page - 1 ) * $per_page;
-
-        $rows   = ExpansionCandidateRepository::get_pending( $per_page, $offset, $status_filter );
         $counts = ExpansionCandidateRepository::count_by_status();
 
-        $total_rows = 0;
-        if ( $status_filter === '' ) {
-            $total_rows = (int) ( $counts['pending'] ?? 0 ) + (int) ( $counts['fast_track'] ?? 0 );
-        } else {
-            $total_rows = (int) ( $counts[ $status_filter ] ?? 0 );
-        }
-
-        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
-        $showing_to   = min( $offset + count( $rows ), $total_rows );
-
         echo '<h2>' . esc_html__( 'Expansion Preview Queue', 'tmwseo' ) . '</h2>';
-        echo '<p>' . esc_html( sprintf( 'Showing %d–%d of %d keywords', $showing_from, $showing_to, $total_rows ) ) . '</p>';
 
-
-        // Status filter links
         $filter_labels = [
             ''            => __( 'Needs Review', 'tmwseo' ),
             'pending'     => __( 'Pending', 'tmwseo' ),
@@ -288,98 +265,18 @@ class SeedRegistryAdminPage {
         }
         echo '</div>';
 
-        echo '<form method="get" style="margin:8px 0 12px;">';
+        $table = new \TMWSEO\Engine\Admin\Tables\SeedRegistryTable( $status_filter );
+        $table->prepare_items();
+
+        echo '<form method="get">';
         echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '">';
         echo '<input type="hidden" name="tab" value="preview">';
         if ( $status_filter !== '' ) {
             echo '<input type="hidden" name="status" value="' . esc_attr( $status_filter ) . '">';
         }
-        echo '<label for="tmwseo-preview-per-page" style="margin-right:6px;">Rows per page:</label>';
-        echo '<select id="tmwseo-preview-per-page" name="per_page" onchange="this.form.submit()">';
-        foreach ( $allowed_page_sizes as $size ) {
-            echo '<option value="' . esc_attr( (string) $size ) . '" ' . selected( $per_page, $size, false ) . '>' . esc_html( (string) $size ) . '</option>';
-        }
-        echo '</select>';
+        $table->search_box( __( 'Search Keywords / Clusters', 'tmwseo' ), 'seed-preview-search' );
+        $table->display();
         echo '</form>';
-
-        if ( empty( $rows ) ) {
-            echo '<p>' . esc_html__( 'No candidates to review.', 'tmwseo' ) . '</p>';
-            return;
-        }
-
-        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
-        wp_nonce_field( 'tmwseo_seed_registry_nonce' );
-        echo '<input type="hidden" name="action" value="tmwseo_seed_registry_action">';
-        echo '<input type="hidden" name="tmwseo_action" id="tmwseo_bulk_action" value="">';
-        echo '<input type="hidden" name="candidate_id" id="tmwseo_candidate_id" value="">';
-        echo '<input type="hidden" name="batch_id" id="tmwseo_batch_id" value="">';
-
-        echo '<table class="widefat striped">';
-        echo '<thead><tr>';
-        echo '<th>' . esc_html__( 'Phrase', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Source', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Rule', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Batch', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Status', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Created', 'tmwseo' ) . '</th>';
-        echo '<th>' . esc_html__( 'Actions', 'tmwseo' ) . '</th>';
-        echo '</tr></thead><tbody>';
-
-        foreach ( $rows as $row ) {
-            $id       = (int) $row['id'];
-            $phrase   = (string) $row['phrase'];
-            $source   = (string) $row['source'];
-            $rule     = (string) $row['generation_rule'];
-            $batch_id = (string) $row['batch_id'];
-            $status   = (string) $row['status'];
-            $created  = (string) $row['created_at'];
-
-            echo '<tr>';
-            printf( '<td><strong>%s</strong></td>', esc_html( $phrase ) );
-            printf( '<td>%s</td>', esc_html( $source ) );
-            printf( '<td><small>%s</small></td>', esc_html( $rule ) );
-            printf( '<td><small>%s</small></td>', esc_html( $batch_id ) );
-            printf( '<td>%s</td>', esc_html( $status ) );
-            printf( '<td><small>%s</small></td>', esc_html( $created ) );
-
-            echo '<td>';
-            if ( in_array( $status, [ 'pending', 'fast_track' ], true ) ) {
-                printf(
-                    '<button type="submit" class="button button-small button-primary" onclick="document.getElementById(\'tmwseo_bulk_action\').value=\'approve_candidate\';document.getElementById(\'tmwseo_candidate_id\').value=\'%d\';">%s</button> ',
-                    $id,
-                    esc_html__( 'Approve', 'tmwseo' )
-                );
-                printf(
-                    '<button type="submit" class="button button-small" onclick="document.getElementById(\'tmwseo_bulk_action\').value=\'reject_candidate\';document.getElementById(\'tmwseo_candidate_id\').value=\'%d\';">%s</button>',
-                    $id,
-                    esc_html__( 'Reject', 'tmwseo' )
-                );
-            }
-            echo '</td>';
-            echo '</tr>';
-        }
-
-        echo '</tbody></table>';
-        echo '</form>';
-
-        $pagination_query_args = [
-            'page'     => self::PAGE_SLUG,
-            'tab'      => 'preview',
-            'status'   => $status_filter,
-            'per_page' => $per_page,
-        ];
-        foreach ( [ 'keyword', 'cluster', 'type', 'search' ] as $filter_key ) {
-            if ( isset( $_GET[ $filter_key ] ) && $_GET[ $filter_key ] !== '' ) {
-                $pagination_query_args[ $filter_key ] = sanitize_text_field( wp_unslash( (string) $_GET[ $filter_key ] ) );
-            }
-        }
-
-        ListTablePagination::render( [
-            'total_items'  => $total_rows,
-            'per_page'     => $per_page,
-            'current_page' => $current_page,
-            'query_args'   => $pagination_query_args,
-        ] );
     }
 
     // -------------------------------------------------------------------------
