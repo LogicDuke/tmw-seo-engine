@@ -15,7 +15,14 @@ if (!defined('ABSPATH')) { exit; }
 class UnifiedKeywordWorkflowService {
     public static function run_cycle(array $job = []): void {
         $trigger = (string) (($job['payload']['trigger'] ?? $job['trigger'] ?? 'workflow_cycle'));
-        DiscoveryOrchestrator::run(['source' => $trigger]);
+        $orchestrated = DiscoveryOrchestrator::run(['source' => $trigger]);
+
+        $job['orchestrated_discovery'] = [
+            'seeds' => array_values(array_filter(array_map('strval', (array) ($orchestrated['seeds'] ?? [])))),
+            'entities' => (array) ($orchestrated['entities'] ?? []),
+            'source' => $trigger,
+        ];
+
         KeywordEngine::run_cycle_job($job);
     }
 

@@ -4,7 +4,6 @@ namespace TMWSEO\Engine;
 use TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin;
 use TMWSEO\Engine\Admin\LinkGraphAdminPage;
 use TMWSEO\Engine\Admin\SerpAnalyzerAdminPage;
-use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 use TMWSEO\Engine\ContentGap\ContentGapService;
@@ -133,7 +132,6 @@ class JobWorker {
     }
 
     public static function run_keyword_discovery(array $payload): void {
-        DiscoveryOrchestrator::run(['source' => 'background_job']);
         UnifiedKeywordWorkflowService::run_cycle(['payload' => $payload, 'source' => 'background_job']);
     }
 
