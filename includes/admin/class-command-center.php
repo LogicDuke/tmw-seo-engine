@@ -803,7 +803,7 @@ class CommandCenter {
         echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:contents;">';
         wp_nonce_field( 'tmwseo_run_keyword_cycle' );
         echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
-        echo '<button class="tmwcc-action-btn">🔄 Refresh Keyword Cycle</button>';
+        echo '<button class="tmwcc-action-btn">🔄 Run Keyword Cycle</button>';
         echo '</form>';
 
         // Navigation shortcuts — model-first
