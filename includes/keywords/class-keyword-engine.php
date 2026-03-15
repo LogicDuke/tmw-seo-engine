@@ -131,11 +131,24 @@ class KeywordEngine {
 
         try {
             if ($mode !== 'import_only') {
-                        $seed_bundle = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 300));
-                        $seeds = $seed_bundle['seeds'];
-                        $cycle_seeds = $seeds;
-                        $entities = (array) ($seed_bundle['entities'] ?? []);
-                        $seed_report = $seed_bundle['counts'];
+                        $orchestrated = (array) ($job['orchestrated_discovery'] ?? []);
+                        $orchestrated_seeds = array_values(array_filter(array_map('strval', (array) ($orchestrated['seeds'] ?? []))));
+                        $orchestrated_entities = (array) ($orchestrated['entities'] ?? []);
+
+                        if (!empty($orchestrated_seeds)) {
+                            $seeds = $orchestrated_seeds;
+                            $cycle_seeds = $orchestrated_seeds;
+                            $entities = $orchestrated_entities;
+                            $seed_report['orchestrated_seeds'] = count($orchestrated_seeds);
+                            $seed_report['total_seeds'] = count($orchestrated_seeds);
+                            $seed_report['total_entities'] = count($entities);
+                        } else {
+                            $seed_bundle = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 300));
+                            $seeds = $seed_bundle['seeds'];
+                            $cycle_seeds = $seeds;
+                            $entities = (array) ($seed_bundle['entities'] ?? []);
+                            $seed_report = $seed_bundle['counts'];
+                        }
                         $max_seeds_per_run = (int) Settings::get('keyword_seed_batch_limit', 300);
                         $max_seeds_per_run = min(300, $max_seeds_per_run);
                         $adaptive = get_option('tmw_engine_adaptive_state', []);
