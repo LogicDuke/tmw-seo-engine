@@ -734,14 +734,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         }
 
         // 4) Incremental clustering and projection materialization from dirty queue.
-        self::enqueue_dirty_keywords();
-        DirtyQueue::process_batches(80, 40, 20);
-        $graph_stats = QueryExpansionGraph::generate_topic_clusters();
-        Logs::info('keywords', '[TMW-GRAPH] Graph metrics persisted', $graph_stats);
-
-        // 5) Suggestion-first workflow: queue suggested pages only (no auto-creation).
-        self::store_suggested_pages_from_clusters($pages_per_day);
-        self::store_topic_suggestions($pages_per_day);
+        self::run_cluster_projection_steps($pages_per_day);
 
         Logs::info('keywords', 'Keyword cycle completed');
         $summary_report = [
@@ -754,6 +747,35 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         Logs::info('keywords', '[TMW-KW] Discovery report', $summary_report);
         self::log_classification_counts();
 
+    }
+
+    public static function run_cluster_projection_job(array $job = []): void {
+        $pages_per_day = (int) Settings::get('keyword_pages_per_day', 3);
+
+        QueryExpansionGraph::create_table();
+
+        Logs::info('keywords', 'Cluster/projection job started', [
+            'job_id' => $job['id'] ?? null,
+            'source' => $job['source'] ?? null,
+        ]);
+
+        self::run_cluster_projection_steps($pages_per_day);
+
+        Logs::info('keywords', 'Cluster/projection job completed', [
+            'job_id' => $job['id'] ?? null,
+            'source' => $job['source'] ?? null,
+        ]);
+    }
+
+    private static function run_cluster_projection_steps(int $pages_per_day): void {
+        self::enqueue_dirty_keywords();
+        DirtyQueue::process_batches(80, 40, 20);
+        $graph_stats = QueryExpansionGraph::generate_topic_clusters();
+        Logs::info('keywords', '[TMW-GRAPH] Graph metrics persisted', $graph_stats);
+
+        // Suggestion-first workflow: queue suggested pages only (no auto-creation).
+        self::store_suggested_pages_from_clusters($pages_per_day);
+        self::store_topic_suggestions($pages_per_day);
     }
 
 
