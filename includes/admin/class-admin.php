@@ -163,6 +163,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-topic-maps',
             self::MENU_SLUG . '_page_tmwseo-topic-authority',
             self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
+            self::MENU_SLUG . '_page_tmwseo-staging-ops',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -1053,6 +1054,7 @@ class Admin {
             'tmwseo-csv-manager',
             'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
+            'tmwseo-staging-ops',
             'tmwseo-debug-dashboard',
             'tmw-seo-debug',
         ];
