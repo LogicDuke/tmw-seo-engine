@@ -5,6 +5,7 @@ use TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin;
 use TMWSEO\Engine\Admin\LinkGraphAdminPage;
 use TMWSEO\Engine\Admin\SerpAnalyzerAdminPage;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
+use TMWSEO\Engine\Keywords\KeywordEngine;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 use TMWSEO\Engine\ContentGap\ContentGapService;
 use TMWSEO\Engine\DiscoveryGovernor;
@@ -160,7 +161,10 @@ class JobWorker {
     }
 
     public static function run_cluster_generation(array $payload): void {
-        UnifiedKeywordWorkflowService::run_cycle(['payload' => $payload, 'source' => 'background_cluster_generation']);
+        KeywordEngine::run_cluster_projection_job([
+            'payload' => $payload,
+            'source' => 'background_cluster_generation',
+        ]);
     }
 
     public static function run_competitor_mining(array $payload): void {
