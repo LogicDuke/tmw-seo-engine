@@ -713,7 +713,6 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         } else {
             Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment skipped: not configured');
             Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — integration not configured or disabled');
-            self::record_stop_reason('google_ads_not_configured');
         }
 
         // 4) Incremental clustering and projection materialization from dirty queue.
