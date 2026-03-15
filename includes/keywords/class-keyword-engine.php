@@ -27,6 +27,11 @@ class KeywordEngine {
             return;
         }
 
+        self::update_cycle_metrics([
+            'last_stop_reason' => '',
+            'last_stop_reason_at' => 0,
+        ]);
+
         $payload = $job['payload'] ?? [];
         if (!is_array($payload)) $payload = [];
         $mode = (string)($payload['mode'] ?? 'full');
