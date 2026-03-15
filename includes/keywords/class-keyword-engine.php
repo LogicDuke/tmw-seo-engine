@@ -23,6 +23,7 @@ class KeywordEngine {
         Logs::info('keywords', 'Keyword cycle started', ['job_id' => $job['id'] ?? null]);
 
         if (!DiscoveryGovernor::is_discovery_allowed()) {
+            self::record_stop_reason('discovery_governor_blocked', ['job_id' => $job['id'] ?? null]);
             return;
         }
 
@@ -39,6 +40,7 @@ class KeywordEngine {
         // gracefully when credentials are missing or budget is exceeded.
         if ( ! DataForSEO::is_configured() ) {
             Logs::info( 'keywords', '[TMW-KW] DataForSEO not configured — discovery will use Google KP / Google Trends only; KD refresh skipped.' );
+            self::record_stop_reason('dataforseo_not_configured');
         } elseif ( DataForSEO::is_over_budget() ) {
             $budget = DataForSEO::get_monthly_budget_stats();
             Logs::warn( 'keywords', '[TMW-KW] DataForSEO monthly budget exceeded — discovery continues via other providers; KD refresh skipped.', [
@@ -46,6 +48,11 @@ class KeywordEngine {
                 'spent_usd'     => $budget['spent_usd'] ?? 0,
                 'remaining_usd' => $budget['remaining_usd'] ?? 0,
             ] );
+            self::record_stop_reason('dataforseo_over_budget', [
+                'budget_usd' => $budget['budget_usd'] ?? 0,
+                'spent_usd' => $budget['spent_usd'] ?? 0,
+                'remaining_usd' => $budget['remaining_usd'] ?? 0,
+            ]);
         }
 
         $job_started = microtime(true);
@@ -61,6 +68,7 @@ class KeywordEngine {
                 Logs::warn('keywords', 'Stale lock detected and released');
             } else {
                 Logs::warn('keywords', 'Seed processing skipped due to active lock');
+                self::record_stop_reason('active_lock', ['lock_key' => $lock_key]);
                 return;
             }
         }
@@ -78,6 +86,8 @@ class KeywordEngine {
                 Logs::warn('keywords', 'Breaker cooldown active, skipping execution', [
                     'cooldown_until' => $cooldown_until,
                 ]);
+                delete_transient($lock_key);
+                self::record_stop_reason('breaker_cooldown', ['cooldown_until' => $cooldown_until]);
                 return;
             }
         }
@@ -102,6 +112,7 @@ class KeywordEngine {
         $inserted = 0;
         $discovered_total = 0;
         $accepted_total = 0;
+        $cycle_seeds = [];
         $seed_report = [
             'base_seeds' => 0,
             'static_seeds' => 0,
@@ -117,6 +128,7 @@ class KeywordEngine {
             if ($mode !== 'import_only') {
                         $seed_bundle = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 300));
                         $seeds = $seed_bundle['seeds'];
+                        $cycle_seeds = $seeds;
                         $entities = (array) ($seed_bundle['entities'] ?? []);
                         $seed_report = $seed_bundle['counts'];
                         $max_seeds_per_run = (int) Settings::get('keyword_seed_batch_limit', 300);
@@ -157,6 +169,10 @@ class KeywordEngine {
                         $seed_report['total_entities'] = count($entities);
                         Logs::info('keywords', '[TMW-KW] Seed source counts', $seed_report);
                         Logs::info('keywords', 'Seeds', ['count' => count($seeds), 'seeds' => array_slice($seeds, 0, 10)]);
+
+                        if (empty($seeds)) {
+                            self::record_stop_reason('no_seeds');
+                        }
                         $failures = 0;
                         $max_failures = 3;
                         $max_secondary_expansions = 200;
@@ -452,6 +468,7 @@ class KeywordEngine {
                         }
             } else {
                 Logs::info('keywords', 'Discovery skipped (import_only mode)');
+                self::record_stop_reason('import_only_mode');
             }
         } finally {
             $runtime = round(microtime(true) - $job_started, 2);
@@ -462,17 +479,31 @@ class KeywordEngine {
                 'failures' => $failures ?? 0,
             ]);
 
-            update_option('tmw_keyword_engine_metrics', [
-                'last_run'        => time(),
+            self::update_cycle_metrics([
+                'last_run' => time(),
                 'runtime_seconds' => $runtime,
-                'inserted'        => $inserted ?? 0,
-                'failures'        => $failures ?? 0,
+                'inserted' => $inserted ?? 0,
+                'failures' => $failures ?? 0,
             ]);
 
             delete_transient($lock_key);
         }
 
 Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
+
+        if ($mode !== 'import_only') {
+            $discovery_result = KeywordDiscoveryService::discover_from_seeds($cycle_seeds, 100);
+            $discovery_inserted = (int) ($discovery_result['inserted'] ?? 0);
+            self::update_cycle_metrics(['last_discovery_run' => time()]);
+
+            if ($discovery_inserted <= 0) {
+                $reason = (string) ($discovery_result['reason'] ?? 'discovery_inserted_zero_provider_empty');
+                self::record_stop_reason($reason, [
+                    'providers' => (array) ($discovery_result['providers'] ?? []),
+                    'counts' => (array) ($discovery_result['counts'] ?? []),
+                ]);
+            }
+        }
 
         // 3) KD refresh for candidates missing difficulty
         $to_score = $wpdb->get_col($wpdb->prepare(
@@ -615,6 +646,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         // then re-scores opportunity. This is additive — DataForSEO data is not replaced
         // if it already provided a non-null volume.
         if ( \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::is_configured() ) {
+            Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment enabled');
             $gkp_candidates = $wpdb->get_col( $wpdb->prepare(
                 "SELECT keyword FROM {$cand_table}
                  WHERE status IN ('new','approved')
@@ -626,7 +658,14 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             ) );
 
             if ( ! empty( $gkp_candidates ) ) {
-                $gkp_metrics = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::enrich_metrics( $gkp_candidates );
+                $gkp_result = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::enrich_metrics( $gkp_candidates );
+                $gkp_metrics = is_array($gkp_result) && isset($gkp_result['metrics']) ? (array) $gkp_result['metrics'] : (array) $gkp_result;
+
+                if (is_array($gkp_result) && !empty($gkp_result['error_reason'])) {
+                    self::record_stop_reason((string) $gkp_result['error_reason'], [
+                        'diagnostic' => (string) ($gkp_result['diagnostic_message'] ?? ''),
+                    ]);
+                }
 
                 foreach ( $gkp_metrics as $kw => $metrics ) {
                     $gkp_vol = (int) ($metrics['volume'] ?? 0);
@@ -664,7 +703,17 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     'enriched' => count($gkp_metrics),
                     'candidates_checked' => count($gkp_candidates),
                 ]);
+            } else {
+                Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — no eligible candidates', [
+                    'eligible_statuses' => ['new', 'approved'],
+                    'requires_missing_volume' => true,
+                    'already_enriched_source_marker' => 'google_keyword_planner',
+                ]);
             }
+        } else {
+            Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment skipped: not configured');
+            Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — integration not configured or disabled');
+            self::record_stop_reason('google_ads_not_configured');
         }
 
         // 4) Incremental clustering and projection materialization from dirty queue.
@@ -688,6 +737,32 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         Logs::info('keywords', '[TMW-KW] Discovery report', $summary_report);
         self::log_classification_counts();
 
+    }
+
+
+    private static function update_cycle_metrics(array $updates): void {
+        $metrics = get_option('tmw_keyword_engine_metrics', []);
+        if (!is_array($metrics)) {
+            $metrics = [];
+        }
+
+        foreach ($updates as $key => $value) {
+            $metrics[(string) $key] = $value;
+        }
+
+        update_option('tmw_keyword_engine_metrics', $metrics, false);
+    }
+
+    private static function record_stop_reason(string $reason, array $context = []): void {
+        self::update_cycle_metrics([
+            'last_stop_reason' => $reason,
+            'last_stop_reason_at' => time(),
+        ]);
+
+        Logs::warn('keywords', '[TMW-KW] Keyword cycle stop reason', [
+            'reason' => $reason,
+            'context' => $context,
+        ]);
     }
 
 

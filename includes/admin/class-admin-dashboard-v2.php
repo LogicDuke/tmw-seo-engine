@@ -213,7 +213,7 @@ class AdminDashboardV2 {
                     <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:8px">
                         <?php wp_nonce_field( 'tmwseo_run_keyword_cycle' ); ?>
                         <input type="hidden" name="action" value="tmwseo_run_keyword_cycle">
-                        <button class="td-btn td-btn-secondary td-btn-full">🔄 Refresh Keyword Cycle</button>
+                        <button class="td-btn td-btn-secondary td-btn-full">Run Keyword Cycle</button>
                     </form>
                     <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:8px">
                         <?php wp_nonce_field( 'tmwseo_generate_traffic_pages' ); ?>

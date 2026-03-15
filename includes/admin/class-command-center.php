@@ -23,6 +23,8 @@ use TMWSEO\Engine\CompetitorMonitor\CompetitorMonitor;
 use TMWSEO\Engine\Suggestions\SuggestionEngine;
 use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Opportunities\TrafficFeedbackDiscovery;
+use TMWSEO\Engine\Services\TopicAuthorityEngine;
+use TMWSEO\Engine\Services\SemanticCoverageEngine;
 
 class CommandCenter {
 
@@ -173,7 +175,12 @@ class CommandCenter {
         $schema_enabled = (bool) Settings::get( 'schema_enabled', false );
         $safe_mode      = Settings::is_safe_mode();
         $ai_primary     = (string) Settings::get( 'tmwseo_ai_primary', 'openai' );
-        $last_discovery = (string) get_option( 'tmwseo_last_phase_c_run', '' );
+        $metrics = get_option( 'tmw_keyword_engine_metrics', [] );
+        if ( ! is_array( $metrics ) ) {
+            $metrics = [];
+        }
+        $last_discovery_ts = (int) ( $metrics['last_discovery_run'] ?? ( $metrics['last_run'] ?? 0 ) );
+        $last_discovery = $last_discovery_ts > 0 ? gmdate( 'Y-m-d H:i:s', $last_discovery_ts ) : (string) get_option( 'tmwseo_last_phase_c_run', '' );
         $last_comp      = (string) get_option( 'tmwseo_competitor_monitor_last_run', '' );
 
         // Model intelligence aggregate (5-min cache inside ModelIntelligence)
@@ -183,6 +190,8 @@ class CommandCenter {
 
         $command_center_summary = self::get_command_center_summary();
         $cluster_opportunities  = self::get_cluster_opportunities();
+        $topic_authority_summary = TopicAuthorityEngine::get_summary();
+        $semantic_coverage_summary = SemanticCoverageEngine::get_summary();
 
         TrafficFeedbackDiscovery::maybe_sync();
         $traffic_opportunities = TrafficFeedbackDiscovery::get_opportunities( 20 );
@@ -194,7 +203,8 @@ class CommandCenter {
             'ai_spend', 'ai_budget', 'ai_pct',
             'dfseo_budget', 'dfseo_spent', 'dfseo_remaining',
             'has_anthropic', 'schema_enabled', 'safe_mode', 'ai_primary', 'last_discovery',
-            'model_stats', 'command_center_summary', 'cluster_opportunities', 'traffic_opportunities'
+            'model_stats', 'command_center_summary', 'cluster_opportunities', 'topic_authority_summary', 'traffic_opportunities'
+            , 'semantic_coverage_summary'
         );
 
         set_transient( $cache_key, $data, 2 * MINUTE_IN_SECONDS );
@@ -255,11 +265,35 @@ class CommandCenter {
         self::render_summary_card( 'Total Keywords', (int) ( $summary['total_keywords'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-keywords' ) );
         self::render_summary_card( 'Total Clusters', (int) ( $summary['total_clusters'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-keywords' ) );
         self::render_summary_card( 'Pages Created', (int) ( $summary['pages_created'] ?? 0 ), admin_url( 'admin.php?page=tmwseo-generated' ) );
+
+        $topic_summary = (array) ( $d['topic_authority_summary'] ?? [] );
+        self::render_summary_card(
+            'Topic Authority',
+            (int) ( $topic_summary['clusters'] ?? 0 ),
+            admin_url( 'admin.php?page=tmwseo-topic-authority' ),
+            sprintf(
+                'Avg score: %1$s · Pillars: %2$d',
+                number_format_i18n( (float) ( $topic_summary['average_authority_score'] ?? 0 ), 1 ),
+                (int) ( $topic_summary['pillar_topics'] ?? 0 )
+            )
+        );
+
+        $semantic_summary = (array) ( $d['semantic_coverage_summary'] ?? [] );
+        self::render_summary_card(
+            'Semantic Coverage',
+            (int) ( $semantic_summary['topics_missing'] ?? 0 ),
+            admin_url( 'admin.php?page=tmwseo-topic-authority' ),
+            sprintf(
+                'Avg: %1$s%% · Clusters: %2$d',
+                number_format_i18n( (float) ( $semantic_summary['average_coverage_score'] ?? 0 ), 0 ),
+                (int) ( $semantic_summary['clusters_analyzed'] ?? 0 )
+            )
+        );
         echo '</div>';
         echo '</section>';
     }
 
-    private static function render_summary_card( string $label, int $value, string $url = '' ): void {
+    private static function render_summary_card( string $label, int $value, string $url = '', string $sub = '' ): void {
         $card_url = trim( $url );
 
         if ( $card_url !== '' ) {
@@ -269,6 +303,9 @@ class CommandCenter {
         }
         echo '<span class="tmwcc-summary-value">' . esc_html( (string) $value ) . '</span>';
         echo '<span class="tmwcc-summary-label">' . esc_html( $label ) . '</span>';
+        if ( $sub !== '' ) {
+            echo '<span class="tmwcc-summary-sub">' . esc_html( $sub ) . '</span>';
+        }
         echo $card_url !== '' ? '</a>' : '</div>';
     }
 
@@ -1195,6 +1232,7 @@ class CommandCenter {
 }
 .tmwcc-summary-value { font-size: 24px; font-weight: 700; color: #1f2937; }
 .tmwcc-summary-label { font-size: 12px; color: #6b7280; }
+.tmwcc-summary-sub { display:block; margin-top:6px; font-size:11px; color:#4b5563; line-height:1.35; }
 .tmwcc-table-wrap { overflow-x: auto; }
 .tmwcc-opportunity-table th { white-space: nowrap; }
 .tmwcc-status-badge {

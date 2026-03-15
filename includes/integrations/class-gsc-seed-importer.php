@@ -168,6 +168,16 @@ class GSCSeedImporter {
             'min_impressions'       => self::MIN_IMPRESSIONS,
         ] );
 
+        /**
+         * Fires after seed import completes so downstream keyword discovery layers
+         * can optionally run expansion automation.
+         */
+        do_action( 'tmwseo_seed_import_completed', [
+            'source' => 'gsc',
+            'imported' => $inserted_count,
+            'checked' => $checked,
+        ] );
+
         return [
             'imported'           => $inserted_count,
             'duplicates_skipped' => $duplicates,

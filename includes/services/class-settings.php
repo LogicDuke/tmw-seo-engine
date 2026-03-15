@@ -105,6 +105,8 @@ class Settings {
             'google_ads_client_secret'  => '',
             'google_ads_refresh_token'  => '',
             'google_ads_customer_id'    => '',
+            // MCC / Manager account ID — required when developer token belongs to a manager account.
+            'google_ads_login_customer_id' => '',
 
             // Google Trends
             'google_trends_enabled'  => 0,

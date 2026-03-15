@@ -197,19 +197,29 @@ class SeedRegistryAdminPage {
         echo '</table>';
 
         echo '<h3 style="margin-top:24px">' . esc_html__( 'Seeds by source', 'tmwseo' ) . '</h3>';
-        echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Source', 'tmwseo' ) . '</th><th>' . esc_html__( 'Count', 'tmwseo' ) . '</th><th>' . esc_html__( 'Trusted?', 'tmwseo' ) . '</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Source', 'tmwseo' ) . '</th><th>' . esc_html__( 'Count', 'tmwseo' ) . '</th><th>' . esc_html__( 'Trusted?', 'tmwseo' ) . '</th><th>' . esc_html__( 'Note', 'tmwseo' ) . '</th></tr></thead><tbody>';
         foreach ( (array) $diag['seed_sources'] as $source => $count ) {
             $trusted = SeedRegistry::is_trusted_source( $source )
                 ? '<span style="color:#2ecc71;font-weight:bold">✓ trusted</span>'
                 : '<span style="color:#e74c3c;font-weight:bold">✗ NOT trusted (legacy rows)</span>';
+            $note = '';
+            if ( $source === 'csv_import' ) {
+                $note = '<small style="color:#6b7280;">Legacy alias for approved_import. These are CSV-imported rows from older plugin versions.</small>';
+            } elseif ( $source === 'approved_import' ) {
+                $note = '<small style="color:#6b7280;">Current CSV/API import source. Cleanup available via CSV Manager → DB Import History.</small>';
+            }
             printf(
-                '<tr><td>%s</td><td>%d</td><td>%s</td></tr>',
+                '<tr><td><code>%s</code></td><td>%d</td><td>%s</td><td>%s</td></tr>',
                 esc_html( $source ),
                 (int) $count,
-                $trusted
+                $trusted,
+                wp_kses_post( $note )
             );
         }
         echo '</tbody></table>';
+
+        // ── Import batches breakdown ───────────────────────────────────────
+        self::render_import_batches_section();
 
         if ( ! empty( $diag['preview_queue'] ) ) {
             echo '<h3 style="margin-top:24px">' . esc_html__( 'Preview Queue Summary', 'tmwseo' ) . '</h3>';
@@ -230,6 +240,72 @@ class SeedRegistryAdminPage {
         echo '&nbsp;<input type="submit" class="button button-primary" value="' . esc_attr__( 'Add Seed', 'tmwseo' ) . '">';
         echo '<p class="description">' . esc_html__( 'Only add clean root phrases here. Generated or expanded phrases belong in the preview queue.', 'tmwseo' ) . '</p>';
         echo '</form>';
+    }
+
+    /**
+     * Render a breakdown of import batches for imported seeds (approved_import + csv_import).
+     */
+    private static function render_import_batches_section(): void {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'tmwseo_seeds';
+        $table_exists = ( (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
+        if ( ! $table_exists ) {
+            return;
+        }
+
+        $batches = $wpdb->get_results(
+            "SELECT
+                COALESCE(import_batch_id, '') AS batch_id,
+                COALESCE(import_source_label, '') AS source_label,
+                source,
+                COUNT(*) AS row_count,
+                MIN(created_at) AS earliest,
+                MAX(created_at) AS latest
+             FROM {$table}
+             WHERE source IN ('approved_import','csv_import')
+             GROUP BY COALESCE(import_batch_id, ''), COALESCE(import_source_label, ''), source
+             ORDER BY latest DESC",
+            ARRAY_A
+        );
+
+        $import_total = 0;
+        if ( is_array( $batches ) ) {
+            foreach ( $batches as $b ) {
+                $import_total += (int) $b['row_count'];
+            }
+        }
+
+        echo '<h3 style="margin-top:24px">' . esc_html__( 'Imported Seed Batches', 'tmwseo' ) . '</h3>';
+        echo '<p class="description">' . esc_html( sprintf( __( '%d total imported seeds (approved_import + csv_import). Use CSV Manager → DB Import History for batch deletion.', 'tmwseo' ), $import_total ) ) . '</p>';
+
+        if ( empty( $batches ) ) {
+            echo '<p>' . esc_html__( 'No imported seed batches found.', 'tmwseo' ) . '</p>';
+            return;
+        }
+
+        echo '<table class="widefat striped"><thead><tr>';
+        foreach ( [ 'Batch ID', 'Source Label', 'Source Type', 'Rows', 'Date Range' ] as $h ) {
+            echo '<th>' . esc_html( $h ) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+
+        foreach ( $batches as $b ) {
+            $bid = (string) $b['batch_id'];
+            echo '<tr>';
+            echo '<td>' . ( $bid !== '' ? '<code>' . esc_html( $bid ) . '</code>' : '<em>legacy (no batch ID)</em>' ) . '</td>';
+            echo '<td>' . esc_html( (string) $b['source_label'] ?: '—' ) . '</td>';
+            echo '<td><code>' . esc_html( (string) $b['source'] ) . '</code></td>';
+            echo '<td><strong>' . (int) $b['row_count'] . '</strong></td>';
+            echo '<td><small>' . esc_html( (string) $b['earliest'] ) . ' — ' . esc_html( (string) $b['latest'] ) . '</small></td>';
+            echo '</tr>';
+        }
+
+        echo '</tbody></table>';
+
+        // Link to CSV Manager for cleanup
+        $csv_url = admin_url( 'admin.php?page=tmwseo-csv-manager' );
+        echo '<p style="margin-top:8px;"><a href="' . esc_url( $csv_url ) . '" class="button button-small">' . esc_html__( 'Go to CSV Manager for batch cleanup →', 'tmwseo' ) . '</a></p>';
     }
 
     // -------------------------------------------------------------------------
