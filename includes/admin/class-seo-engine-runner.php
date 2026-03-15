@@ -2,7 +2,6 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Logs;
-use TMWSEO\Engine\JobWorker;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -22,21 +21,21 @@ class SEOEngineRunner {
             check_admin_referer('tmw_seo_run_cycle');
         }
 
-        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle triggered via legacy action (SEOEngineRunner)');
+        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle triggered via legacy action (SEOEngineRunner); delegating to unified sync workflow');
 
-        JobWorker::enqueue_job('keyword_discovery', [
+        \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::run_cycle([
+            'payload' => [
+                'trigger' => 'manual_keyword_cycle',
+                'user_id' => get_current_user_id(),
+            ],
+            'source' => 'manual_admin',
+        ]);
+
+        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle: synchronous unified workflow completed via legacy action', [
+            'source'  => 'manual_admin',
             'trigger' => 'manual_keyword_cycle',
             'user_id' => get_current_user_id(),
         ]);
-        JobWorker::enqueue_job('cluster_generation', [
-            'trigger' => 'manual_keyword_cycle',
-            'user_id' => get_current_user_id(),
-        ]);
-
-        // Deterministic execution: process immediately instead of relying on killed cron.
-        for ($i = 0; $i < 3; $i++) {
-            JobWorker::process_next_job();
-        }
 
         $redirect_url = wp_get_referer();
         if (!is_string($redirect_url) || $redirect_url === '') {

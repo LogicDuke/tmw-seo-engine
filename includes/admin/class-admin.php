@@ -163,6 +163,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-topic-maps',
             self::MENU_SLUG . '_page_tmwseo-topic-authority',
             self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
+            self::MENU_SLUG . '_page_tmwseo-staging-ops',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -1053,6 +1054,7 @@ class Admin {
             'tmwseo-csv-manager',
             'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
+            'tmwseo-staging-ops',
             'tmwseo-debug-dashboard',
             'tmw-seo-debug',
         ];
@@ -1553,27 +1555,18 @@ class Admin {
 
         Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle triggered by user ' . get_current_user_id());
 
-        $job_id_1 = JobWorker::enqueue_job('keyword_discovery', [
-            'trigger' => 'manual_keyword_cycle',
-            'user_id' => get_current_user_id(),
-        ]);
-        $job_id_2 = JobWorker::enqueue_job('cluster_generation', [
-            'trigger' => 'manual_keyword_cycle',
-            'user_id' => get_current_user_id(),
+        \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::run_cycle([
+            'payload' => [
+                'trigger' => 'manual_keyword_cycle',
+                'user_id' => get_current_user_id(),
+            ],
+            'source' => 'manual_admin',
         ]);
 
-        // Deterministic execution: immediately process the queued jobs instead of
-        // relying on tmwseo_worker_tick which is killed by manual_control_mode.
-        // This processes up to 2 jobs (the ones we just enqueued).
-        $processed = 0;
-        for ($i = 0; $i < 3; $i++) {
-            JobWorker::process_next_job();
-            $processed++;
-        }
-
-        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle: enqueued + processed', [
-            'job_ids'   => [$job_id_1, $job_id_2],
-            'processed' => $processed,
+        Logs::info('keyword_engine', '[TMW-SEO] Manual keyword cycle: synchronous unified workflow completed', [
+            'source'  => 'manual_admin',
+            'trigger' => 'manual_keyword_cycle',
+            'user_id' => get_current_user_id(),
         ]);
 
         $redirect_url = admin_url('admin.php?page=tmwseo-keywords&tmwseo_notice=seo_engine_cycle_executed');

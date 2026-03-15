@@ -27,6 +27,11 @@ class KeywordEngine {
             return;
         }
 
+        self::update_cycle_metrics([
+            'last_stop_reason' => '',
+            'last_stop_reason_at' => 0,
+        ]);
+
         $payload = $job['payload'] ?? [];
         if (!is_array($payload)) $payload = [];
         $mode = (string)($payload['mode'] ?? 'full');
@@ -126,11 +131,24 @@ class KeywordEngine {
 
         try {
             if ($mode !== 'import_only') {
-                        $seed_bundle = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 300));
-                        $seeds = $seed_bundle['seeds'];
-                        $cycle_seeds = $seeds;
-                        $entities = (array) ($seed_bundle['entities'] ?? []);
-                        $seed_report = $seed_bundle['counts'];
+                        $orchestrated = (array) ($job['orchestrated_discovery'] ?? []);
+                        $orchestrated_seeds = array_values(array_filter(array_map('strval', (array) ($orchestrated['seeds'] ?? []))));
+                        $orchestrated_entities = (array) ($orchestrated['entities'] ?? []);
+
+                        if (!empty($orchestrated_seeds)) {
+                            $seeds = $orchestrated_seeds;
+                            $cycle_seeds = $orchestrated_seeds;
+                            $entities = $orchestrated_entities;
+                            $seed_report['orchestrated_seeds'] = count($orchestrated_seeds);
+                            $seed_report['total_seeds'] = count($orchestrated_seeds);
+                            $seed_report['total_entities'] = count($entities);
+                        } else {
+                            $seed_bundle = self::collect_seeds((int) Settings::get('keyword_seeds_per_run', 300));
+                            $seeds = $seed_bundle['seeds'];
+                            $cycle_seeds = $seeds;
+                            $entities = (array) ($seed_bundle['entities'] ?? []);
+                            $seed_report = $seed_bundle['counts'];
+                        }
                         $max_seeds_per_run = (int) Settings::get('keyword_seed_batch_limit', 300);
                         $max_seeds_per_run = min(300, $max_seeds_per_run);
                         $adaptive = get_option('tmw_engine_adaptive_state', []);
@@ -713,18 +731,10 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         } else {
             Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment skipped: not configured');
             Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — integration not configured or disabled');
-            self::record_stop_reason('google_ads_not_configured');
         }
 
         // 4) Incremental clustering and projection materialization from dirty queue.
-        self::enqueue_dirty_keywords();
-        DirtyQueue::process_batches(80, 40, 20);
-        $graph_stats = QueryExpansionGraph::generate_topic_clusters();
-        Logs::info('keywords', '[TMW-GRAPH] Graph metrics persisted', $graph_stats);
-
-        // 5) Suggestion-first workflow: queue suggested pages only (no auto-creation).
-        self::store_suggested_pages_from_clusters($pages_per_day);
-        self::store_topic_suggestions($pages_per_day);
+        self::run_cluster_projection_steps($pages_per_day);
 
         Logs::info('keywords', 'Keyword cycle completed');
         $summary_report = [
@@ -737,6 +747,35 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         Logs::info('keywords', '[TMW-KW] Discovery report', $summary_report);
         self::log_classification_counts();
 
+    }
+
+    public static function run_cluster_projection_job(array $job = []): void {
+        $pages_per_day = (int) Settings::get('keyword_pages_per_day', 3);
+
+        QueryExpansionGraph::create_table();
+
+        Logs::info('keywords', 'Cluster/projection job started', [
+            'job_id' => $job['id'] ?? null,
+            'source' => $job['source'] ?? null,
+        ]);
+
+        self::run_cluster_projection_steps($pages_per_day);
+
+        Logs::info('keywords', 'Cluster/projection job completed', [
+            'job_id' => $job['id'] ?? null,
+            'source' => $job['source'] ?? null,
+        ]);
+    }
+
+    private static function run_cluster_projection_steps(int $pages_per_day): void {
+        self::enqueue_dirty_keywords();
+        DirtyQueue::process_batches(80, 40, 20);
+        $graph_stats = QueryExpansionGraph::generate_topic_clusters();
+        Logs::info('keywords', '[TMW-GRAPH] Graph metrics persisted', $graph_stats);
+
+        // Suggestion-first workflow: queue suggested pages only (no auto-creation).
+        self::store_suggested_pages_from_clusters($pages_per_day);
+        self::store_topic_suggestions($pages_per_day);
     }
 
 
