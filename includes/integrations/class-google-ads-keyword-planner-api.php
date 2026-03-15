@@ -275,7 +275,11 @@ class GoogleAdsKeywordPlannerApi {
             $diagnostic_message = '';
             if ( $http_code === 404 ) {
                 $error_reason = 'google_ads_http_404_pending_or_unavailable';
-                $diagnostic_message = 'Google Ads Keyword Planner request failed. Credentials may be valid, but API access may still be pending approval.';
+                $diagnostic_message = sprintf(
+                    'Google Ads Keyword Planner request failed (API %s, login-customer-id %s). Credentials may be valid, but API access may still be pending approval.',
+                    self::ADS_API_VERSION,
+                    $login_customer_id !== '' ? 'set' : 'not set'
+                );
                 Logs::warn( 'google-ads', $diagnostic_message, array_merge( $diag, [
                     'http_code' => $http_code,
                     'body' => substr( $raw_body, 0, 500 ),
