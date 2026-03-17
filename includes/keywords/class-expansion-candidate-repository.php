@@ -39,6 +39,16 @@ class ExpansionCandidateRepository {
     // Sources that are considered real-signal (lighter review burden)
     private const FAST_TRACK_SOURCES = [ 'gsc' ];
 
+    /**
+     * Maximum pending+fast_track candidates before new insertions are silently blocked.
+     * Prevents review queue from growing faster than operators can process.
+     * Architecture v5.1: reduced from 200 to 50 for weekly-safe operator load.
+     */
+    private const REVIEW_QUEUE_CAP = 50;
+
+    /** Cached pending count (per-request) to avoid repeated COUNT queries. */
+    private static ?int $pending_count_cache = null;
+
     // -------------------------------------------------------------------------
     // Table helper
     // -------------------------------------------------------------------------
@@ -155,6 +165,20 @@ class ExpansionCandidateRepository {
 
         // Also skip phrases that are already trusted roots
         if ( SeedRegistry::seed_exists( $normalised ) ) {
+            return false;
+        }
+
+        // ── Architecture v5.0: Review queue cap enforcement ───────
+        // Block new candidates when pending+fast_track queue exceeds cap.
+        // This prevents generators from flooding the queue faster than
+        // operators can review. Excess phrases are simply not added;
+        // generators can retry next cycle.
+        if ( self::is_queue_full() ) {
+            Logs::info( 'keywords', '[TMW-PREVIEW] Candidate insert blocked — review queue at cap', [
+                'phrase'    => $normalised,
+                'source'    => $source,
+                'queue_cap' => self::REVIEW_QUEUE_CAP,
+            ] );
             return false;
         }
 
@@ -323,6 +347,7 @@ class ExpansionCandidateRepository {
             'reviewed_by' => $reviewed_by,
         ] );
 
+        self::reset_queue_cache();
         return true;
     }
 
@@ -350,6 +375,7 @@ class ExpansionCandidateRepository {
             [ '%d' ]
         );
 
+        self::reset_queue_cache();
         return $updated !== false;
     }
 
@@ -371,6 +397,7 @@ class ExpansionCandidateRepository {
             [ '%d' ]
         );
 
+        self::reset_queue_cache();
         return $updated !== false;
     }
 
@@ -506,6 +533,56 @@ class ExpansionCandidateRepository {
     }
 
     /**
+     * Check whether the review queue (pending + fast_track) has reached its cap.
+     *
+     * v5.2: Counts the COMBINED actionable queue across both tables:
+     *   - generator track: pending+fast_track in this table
+     *   - discovery track: queued_for_review in tmw_keyword_candidates
+     * The cap is 50 TOTAL, not 50 per track.
+     *
+     * Uses a per-request cache to avoid repeated COUNT queries during batch inserts.
+     *
+     * @return bool True if combined queue is full.
+     */
+    public static function is_queue_full(): bool {
+        if ( self::$pending_count_cache !== null ) {
+            return self::$pending_count_cache >= self::REVIEW_QUEUE_CAP;
+        }
+
+        global $wpdb;
+        $table = self::table();
+
+        // Generator track count
+        $gen_count = 0;
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
+            $gen_count = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$table} WHERE status IN ('pending','fast_track')"
+            );
+        }
+
+        // Discovery track count
+        $disc_count = 0;
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $cand_table ) ) === $cand_table ) {
+            $disc_count = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$cand_table} WHERE status = 'queued_for_review'"
+            );
+        }
+
+        $combined = $gen_count + $disc_count;
+        self::$pending_count_cache = $combined;
+        return $combined >= self::REVIEW_QUEUE_CAP;
+    }
+
+    /**
+     * Reset the per-request pending count cache.
+     * Called after review actions that change queue size.
+     */
+    public static function reset_queue_cache(): void {
+        self::$pending_count_cache = null;
+    }
+
+    /**
      * Get all rows belonging to a batch.
      *
      * @param string $batch_id
@@ -620,7 +697,16 @@ class ExpansionCandidateRepository {
             return true;
         }
 
-        $preferred_status = isset( $column_index['status'] ) ? 'new' : null;
+        // ── v5.2: Generator approval = final keyword approval.
+        // When an operator approves a generator-track candidate, the keyword
+        // enters the working pipeline as 'approved' directly. No second
+        // human review is required. The operator already reviewed this
+        // phrase in the Command Center generator track.
+        //
+        // Legacy behavior was 'new', which caused a confusing cycle:
+        //   approved by operator → inserted as 'new' → scored → queued_for_review → re-reviewed
+        // That double-review is now eliminated.
+        $preferred_status = isset( $column_index['status'] ) ? 'approved' : null;
         $candidate_values = [
             'keyword'         => $phrase,
             'canonical'       => $canonical,
@@ -634,7 +720,7 @@ class ExpansionCandidateRepository {
             'difficulty'      => null,
             'opportunity'     => null,
             'sources'         => wp_json_encode( [ sanitize_key( $source ) ] ),
-            'notes'           => 'Promoted from expansion candidate #' . (int) ( $row['id'] ?? 0 ),
+            'notes'           => 'Promoted from expansion candidate #' . (int) ( $row['id'] ?? 0 ) . ' | generator_approval_final',
             'needs_recluster' => 1,
             'needs_rescore'   => 1,
             'updated_at'      => current_time( 'mysql' ),

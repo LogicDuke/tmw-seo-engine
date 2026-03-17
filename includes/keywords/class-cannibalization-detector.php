@@ -13,6 +13,7 @@
 namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Keywords\OwnershipEnforcer;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -156,6 +157,32 @@ class CannibalizationDetector {
      * @return array<int, array{keyword:string, conflicting_post_id:int, conflicting_post_type:string, severity:string}>
      */
     public static function check_post( int $post_id ): array {
+        return self::check_post_retrospective( $post_id );
+    }
+
+    /**
+     * Preventive ownership check — called BEFORE assignment.
+     *
+     * Architecture v5.0: delegates to OwnershipEnforcer for the real logic.
+     * This method is kept on CannibalizationDetector for backward compatibility.
+     *
+     * @return array{allowed:bool, reason:string, conflicts:array}
+     */
+    public static function check_before_assignment( string $keyword, int $target_post_id, string $role = 'primary' ): array {
+        if ( class_exists( OwnershipEnforcer::class ) ) {
+            return OwnershipEnforcer::check_assignment( $keyword, $target_post_id, $role );
+        }
+
+        // Fallback: basic conflict check if OwnershipEnforcer is unavailable
+        return [ 'allowed' => true, 'reason' => 'enforcer_unavailable_fallback', 'conflicts' => [] ];
+    }
+
+    /**
+     * Check a specific post for conflicts against existing assignments (retrospective).
+     *
+     * @return array<int, array{keyword:string, conflicting_post_id:int, conflicting_post_type:string, severity:string}>
+     */
+    public static function check_post_retrospective( int $post_id ): array {
         $post = get_post( $post_id );
         if ( ! $post instanceof \WP_Post ) {
             return [];

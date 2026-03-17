@@ -123,6 +123,22 @@ class OpportunityUI {
         }
 
         update_post_meta($post_id, '_tmwseo_generated', 1);
+
+        // ── v5.1: Ownership enforcement before keyword assignment ──
+        if ( class_exists( '\\TMWSEO\\Engine\\Keywords\\OwnershipEnforcer' ) ) {
+            $own_check = \TMWSEO\Engine\Keywords\OwnershipEnforcer::enforce_assignment( $keyword, (int) $post_id, 'primary' );
+            if ( ! $own_check['allowed'] ) {
+                Logs::warn( 'opportunities', '[TMW-OPP] Ownership conflict — keyword not assigned', [
+                    'post_id' => $post_id,
+                    'keyword' => $keyword,
+                    'reason'  => $own_check['reason'],
+                ] );
+                // Still create the page but WITHOUT the keyword assignment
+                update_post_meta( $post_id, '_tmwseo_ownership_blocked', $own_check['reason'] );
+                return;
+            }
+        }
+
         update_post_meta($post_id, '_tmwseo_keyword', $keyword);
         update_post_meta($post_id, '_tmwseo_cluster_id', $cluster_id);
 

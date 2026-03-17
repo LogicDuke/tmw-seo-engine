@@ -7,6 +7,7 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
+use TMWSEO\Engine\Content\ContentGenerationGate;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -118,6 +119,25 @@ class ContentEngine {
      */
     public static function build_preview_only_content_assist(\WP_Post $post, array $keyword_pack = []): array {
         $post_id = (int) $post->ID;
+
+        // ── Architecture v5.0: Content Generation Gate ────────────
+        // Block content generation if prerequisites are not met or system is paused.
+        if ( class_exists( ContentGenerationGate::class ) ) {
+            $gate = ContentGenerationGate::evaluate( $post_id );
+            if ( ! $gate['allowed'] ) {
+                Logs::info( 'content', '[TMW-CONTENT] Generation blocked by ContentGenerationGate', [
+                    'post_id' => $post_id,
+                    'reasons' => $gate['reasons'],
+                ] );
+                return [
+                    'ok'      => false,
+                    'blocked' => true,
+                    'reasons' => $gate['reasons'],
+                    'post_id' => $post_id,
+                ];
+            }
+        }
+
         $dry_run = (int) Settings::get('tmwseo_dry_run_mode', 0) === 1;
         $strategy = ( $dry_run || !OpenAI::is_configured() ) ? 'template' : 'openai';
         $context = self::infer_context($post);
@@ -480,6 +500,14 @@ class ContentEngine {
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
         if ($post_id <= 0) {
             Logs::warn('content', 'optimize_post missing entity_id');
+            return;
+        }
+
+        // ── Architecture v5.0: Content Generation Gate ────────────
+        if ( class_exists( ContentGenerationGate::class ) && ! ContentGenerationGate::is_allowed( $post_id ) ) {
+            Logs::info( 'content', '[TMW-CONTENT] Optimization blocked by ContentGenerationGate', [
+                'post_id' => $post_id,
+            ] );
             return;
         }
 

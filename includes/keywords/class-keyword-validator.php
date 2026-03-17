@@ -121,17 +121,44 @@ class KeywordValidator {
     private static function passes_niche_context_check(string $keyword): bool {
         $entities = self::load_niche_entities();
 
-        foreach (['models', 'tags', 'categories'] as $group) {
+        // ── Architecture v5.0: tightened niche context ────────────
+        // Model names are always on-niche — if keyword contains a model name, it passes.
+        foreach ($entities['models'] as $entity) {
+            if (self::contains_term($keyword, $entity)) {
+                return true;
+            }
+        }
+
+        // For tags and categories, the keyword must ALSO contain at least one
+        // cam/adult anchor term. This prevents "blonde jokes" from passing just
+        // because "blonde" is a tag. The keyword must be like "blonde cam girl"
+        // or "blonde webcam" to pass.
+        $has_entity_match = false;
+        foreach (['tags', 'categories'] as $group) {
             foreach ($entities[$group] as $entity) {
                 if (self::contains_term($keyword, $entity)) {
-                    return true;
+                    $has_entity_match = true;
+                    break 2;
                 }
             }
         }
 
-        foreach (self::$niche_exception_terms as $term) {
-            if (self::contains_term($keyword, $term)) {
-                return false;
+        if ($has_entity_match) {
+            // Must also contain a cam/adult anchor term
+            foreach (self::$anchor_terms as $anchor) {
+                if (self::contains_term($keyword, $anchor)) {
+                    return true;
+                }
+            }
+            // Entity matched but no anchor term = not niche-relevant enough
+            return false;
+        }
+
+        // No entity match at all — check if keyword contains an anchor term directly
+        // (covers queries like "best adult cam sites" without entity reference)
+        foreach (self::$anchor_terms as $anchor) {
+            if (self::contains_term($keyword, $anchor)) {
+                return true;
             }
         }
 

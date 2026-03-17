@@ -174,6 +174,9 @@ class TagQualityEngine {
     /**
      * Promote qualified tags to seed registry (preview layer).
      *
+     * Architecture v5.0: batch size is capped to prevent review queue overload.
+     * Default maximum: 15 tags per batch (configurable via filter).
+     *
      * @return int Number of tags promoted.
      */
     public static function promote_qualified_tags(): int {
@@ -184,16 +187,20 @@ class TagQualityEngine {
             return 0;
         }
 
-        $qualified = $wpdb->get_results(
+        // Architecture v5.0: cap batch size to prevent review queue overload
+        $max_batch = (int) apply_filters( 'tmwseo_tag_promotion_batch_size', 15 );
+        $max_batch = max( 1, min( 50, $max_batch ) );
+
+        $qualified = $wpdb->get_results( $wpdb->prepare(
             "SELECT term_id, tag_name FROM $table
              WHERE status = 'qualified'
                AND promoted_at IS NULL
                AND is_blocked = 0
                AND is_generic = 0
              ORDER BY quality_score DESC
-             LIMIT 50",
-            ARRAY_A
-        );
+             LIMIT %d",
+            $max_batch
+        ), ARRAY_A );
 
         if ( ! is_array( $qualified ) || empty( $qualified ) ) {
             return 0;

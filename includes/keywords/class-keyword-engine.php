@@ -429,7 +429,7 @@ class KeywordEngine {
                                     $wpdb->insert($cand_table, [
                                         'keyword'       => $kw,
                                         'canonical'     => $canonical,
-                                        'status'        => 'new',
+                                        'status'        => 'discovered',
                                         'intent'        => $intent,
                                         'intent_type'   => (string) ($classification['intent_type'] ?? 'generic'),
                                         'entity_type'   => $resolved_entity_type,
@@ -576,8 +576,10 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         }
 
         // 3) KD refresh for candidates missing difficulty
+        // ── v5.1: query includes all pre-review states (discovered, scored, queued_for_review)
+        //    plus approved for backward compat with items that were approved before v5.1.
         $to_score = $wpdb->get_col($wpdb->prepare(
-            "SELECT keyword FROM {$cand_table} WHERE (difficulty IS NULL OR difficulty=0) AND status IN ('new','approved') ORDER BY updated_at DESC LIMIT %d",
+            "SELECT keyword FROM {$cand_table} WHERE (difficulty IS NULL OR difficulty=0) AND status IN ('discovered','scored','queued_for_review','approved','new') ORDER BY updated_at DESC LIMIT %d",
             $kd_limit
         ));
 
@@ -614,14 +616,17 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                         : (int) ($cached['search_volume'] ?? 0);
                     $intent = isset($kw_map[$kw]['intent']) ? (string) $kw_map[$kw]['intent'] : 'mixed';
 
-                    $status = ($kd > $max_kd) ? 'rejected' : 'approved';
+                    // ── v5.1: KD scoring no longer auto-approves.
+                    // Keywords that pass KD threshold move to 'scored', not 'approved'.
+                    // Only human review in the Command Center moves them to 'approved'.
+                    $status = ($kd > $max_kd) ? 'rejected' : 'scored';
                     $opp = KDFilter::opportunity_score($kd, $vol, $intent);
 
                     $wpdb->update($cand_table, [
                         'difficulty' => $kd,
                         'opportunity' => $opp,
                         'status' => $status,
-                        'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : null,
+                        'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : 'scored:awaiting_review',
                         'updated_at' => current_time('mysql'),
                     ], ['keyword' => $kw]);
 
@@ -661,15 +666,16 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                         $vol = isset($kw_map[$kw]['volume']) ? (int)$kw_map[$kw]['volume'] : 0;
                         $intent = isset($kw_map[$kw]['intent']) ? (string)$kw_map[$kw]['intent'] : 'mixed';
 
-                        // Auto reject too hard keywords early
-                        $status = ($kd > $max_kd) ? 'rejected' : 'approved';
+                        // ── v5.1: auto-reject high-KD, but do NOT auto-approve.
+                        // 'scored' means ready for human review queue.
+                        $status = ($kd > $max_kd) ? 'rejected' : 'scored';
                         $opp = KDFilter::opportunity_score((float)$kd, $vol, $intent);
 
                         $wpdb->update($cand_table, [
                             'difficulty' => (float)$kd,
                             'opportunity' => $opp,
                             'status' => $status,
-                            'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : null,
+                            'notes' => ($kd > $max_kd) ? 'auto_reject:kD' : 'scored:awaiting_review',
                             'needs_recluster' => 1,
                             'needs_rescore' => 1,
                             'metrics_updated_at' => current_time('mysql'),
@@ -719,7 +725,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment enabled');
             $gkp_candidates = $wpdb->get_col( $wpdb->prepare(
                 "SELECT keyword FROM {$cand_table}
-                 WHERE status IN ('new','approved')
+                 WHERE status IN ('discovered','scored','queued_for_review','approved','new')
                    AND (volume IS NULL OR volume = 0)
                    AND (sources NOT LIKE %s)
                  ORDER BY updated_at DESC
@@ -775,7 +781,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 ]);
             } else {
                 Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — no eligible candidates', [
-                    'eligible_statuses' => ['new', 'approved'],
+                    'eligible_statuses' => ['discovered', 'scored', 'queued_for_review', 'approved'],
                     'requires_missing_volume' => true,
                     'already_enriched_source_marker' => 'google_keyword_planner',
                 ]);
@@ -785,7 +791,20 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — integration not configured or disabled');
         }
 
-        // 4) Incremental clustering and projection materialization from dirty queue.
+        // 4) ── v5.1: Promote scored keywords into the review queue ─────────
+        // This is the lifecycle bridge: scored items are promoted to
+        // 'queued_for_review' up to a cap of 50 actionable items.
+        // Only items in 'queued_for_review' appear in the Command Center
+        // review queue. This ensures human review is the choke point
+        // between discovery and assignment.
+        $promoted = self::promote_scored_to_review_queue();
+        Logs::info('keywords', '[TMW-KW] Review queue promotion', [
+            'promoted_to_queue' => $promoted,
+        ]);
+
+        // 5) Incremental clustering and projection materialization from dirty queue.
+        // Note: clustering still operates on 'approved' items only — items that
+        // have passed human review.
         self::run_cluster_projection_steps($pages_per_day);
 
         Logs::info('keywords', 'Keyword cycle completed');
@@ -875,6 +894,102 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ]);
     }
 
+    // ─── v5.1: Review Queue Promotion ─────────────────────────────────────
+
+    /**
+     * Maximum number of keywords in the actionable review queue at once.
+     * This is the COMBINED hard cap across BOTH tracks:
+     *   - tmw_keyword_candidates WHERE status = 'queued_for_review'
+     *   - tmw_seed_expansion_candidates WHERE status IN ('pending','fast_track')
+     *
+     * v5.2: This is ONE queue of 50 total, not 50 per track.
+     */
+    private const REVIEW_QUEUE_CAP = 50;
+
+    /**
+     * Promote top-scored keywords from 'scored' to 'queued_for_review'.
+     *
+     * v5.2: Respects a COMBINED cap of 50 across both the discovery queue
+     * (queued_for_review in tmw_keyword_candidates) and the generator queue
+     * (pending+fast_track in tmw_seed_expansion_candidates). If the generator
+     * track already has 30 items, only 20 discovery items can be queued.
+     *
+     * @return int Number of items promoted in this run.
+     */
+    public static function promote_scored_to_review_queue(): int {
+        global $wpdb;
+
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $cand_table ) ) !== $cand_table ) {
+            return 0;
+        }
+
+        // Count current discovery-track queue
+        $discovery_queue = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$cand_table} WHERE status = 'queued_for_review'"
+        );
+
+        // Count current generator-track queue (pending + fast_track)
+        $generator_queue = 0;
+        if ( class_exists( ExpansionCandidateRepository::class ) ) {
+            $gen_counts = ExpansionCandidateRepository::count_by_status();
+            $generator_queue = (int) ( $gen_counts['pending'] ?? 0 ) + (int) ( $gen_counts['fast_track'] ?? 0 );
+        }
+
+        $combined_queue = $discovery_queue + $generator_queue;
+        $available_slots = max( 0, self::REVIEW_QUEUE_CAP - $combined_queue );
+
+        if ( $available_slots <= 0 ) {
+            Logs::info( 'keywords', '[TMW-KW] Combined review queue full, no promotions', [
+                'discovery_queue' => $discovery_queue,
+                'generator_queue' => $generator_queue,
+                'combined'        => $combined_queue,
+                'cap'             => self::REVIEW_QUEUE_CAP,
+            ] );
+            return 0;
+        }
+
+        // Select top-scoring 'scored' items to promote
+        $to_promote = $wpdb->get_col( $wpdb->prepare(
+            "SELECT id FROM {$cand_table}
+             WHERE status = 'scored'
+               AND volume > 0
+               AND difficulty IS NOT NULL
+               AND opportunity IS NOT NULL
+             ORDER BY opportunity DESC, volume DESC
+             LIMIT %d",
+            $available_slots
+        ) );
+
+        if ( empty( $to_promote ) ) {
+            return 0;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $to_promote ), '%d' ) );
+        $affected = (int) $wpdb->query( $wpdb->prepare(
+            "UPDATE {$cand_table}
+             SET status = 'queued_for_review',
+                 notes = CONCAT(IFNULL(notes,''), ' | promoted_to_queue:" . current_time( 'mysql' ) . "'),
+                 updated_at = %s
+             WHERE id IN ({$placeholders})",
+            current_time( 'mysql' ),
+            ...$to_promote
+        ) );
+
+        if ( $affected > 0 ) {
+            Logs::info( 'keywords', '[TMW-KW] Promoted scored keywords to review queue', [
+                'promoted'        => $affected,
+                'available_slots' => $available_slots,
+                'discovery_queue' => $discovery_queue + $affected,
+                'generator_queue' => $generator_queue,
+                'combined_after'  => $combined_queue + $affected,
+            ] );
+        }
+
+        return $affected;
+    }
+
     /**
      * Fetch keyword ideas for $seed via the multi-provider aggregator.
      *
@@ -910,21 +1025,19 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
     }
 
     private static function collect_seeds(int $limit): array {
-        $static_seeds = [
-            'adult webcam chat',
-            'live cam girls',
-            'webcam chat rooms',
-            'adult video chat',
-            'cam to cam chat',
-            'random adult chat',
-            'private cam show',
-            'live adult chat',
-        ];
+        // ── Architecture v5.0: Static seeds are NO LONGER re-registered here.
+        //    The hardcoded static seed array has been removed. Static curated
+        //    seeds are now installed ONCE via the Architecture Reset process
+        //    (ArchitectureReset::execute_reset()) or the Starter Pack setup.
+        //    This eliminates the "zombie seed" problem where purged seeds
+        //    silently returned every cycle.
+        //
+        //    If you need to add root seeds, use the Command Center → Add Manual Seed,
+        //    or run the Architecture Reset from the Health panel.
 
         $source_counts = [
-            'base_seeds'       => count($static_seeds),
+            'base_seeds'       => 0,
             'static_seeds'     => 0,
-            // Generated phrase methods no longer write to seeds; they write to preview layer via their own cron.
             'model_seeds'      => 0,
             'tag_seeds'        => 0,
             'video_seeds'      => 0,
@@ -933,19 +1046,6 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             'trend_seeds'      => 0,
             'total_seeds'      => 0,
         ];
-
-        // Static curated roots are trusted — write directly to registry.
-        // The admin Reset & Starter Pack panel can block re-registration to
-        // prevent purged static_curated seeds from coming back.
-        if ( (int) get_option( 'tmwseo_block_static_curated', 0 ) === 1 ) {
-            Logs::info( 'keywords', '[TMW-KW] Static curated seed re-registration blocked by admin setting (tmwseo_block_static_curated=1)' );
-        } else {
-            foreach ($static_seeds as $seed) {
-                if (SeedRegistry::register_trusted_seed($seed, 'static_curated', 'system', 0)) {
-                    $source_counts['static_seeds']++;
-                }
-            }
-        }
 
         TopicEntityLayer::ensure_default_entities();
 

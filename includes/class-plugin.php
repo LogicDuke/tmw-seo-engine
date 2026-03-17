@@ -62,6 +62,14 @@ require_once TMWSEO_ENGINE_PATH . 'includes/content/class-audit-trail.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-mapper.php'; // Patch 2
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-cannibalization-detector.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-tag-quality-engine.php';
+// Architecture v5.0: ownership enforcement, content generation gate, architecture reset
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-ownership-enforcer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-architecture-reset.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-term-lifecycle.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-generation-gate.php';
+// Architecture v5.0: consolidated operator screens
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-command-center.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-content-review-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-video-seo-metabox.php'; // Patch 2
 // Automated image ALT / title / caption / description
 require_once TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-generator.php';
@@ -510,6 +518,9 @@ class Plugin {
             Admin::init();
             \TMWSEO\Engine\Admin\CommandCenter::init();
             \TMWSEO\Engine\Admin\SeedRegistryAdminPage::init(); // 4.3.0
+            // Architecture v5.0: consolidated operator screens
+            \TMWSEO\Engine\Admin\KeywordCommandCenter::init();
+            \TMWSEO\Engine\Admin\ContentReviewPage::init();
             \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
