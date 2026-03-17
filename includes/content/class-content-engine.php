@@ -22,8 +22,11 @@ class ContentEngine {
      */
     private const PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE = true;
 
-    // Autopilot-style target: enough depth for RankMath without bloating pages.
-    private const MODEL_MIN_WORDS = 800;
+    // Audit fix 4.4.0: model page content floor for AI retry loop.
+    // This is NOT a universal target — actual scoring uses page-type-aware
+    // ranges in QualityScoreEngine::word_count_ranges().
+    // No 1501-word assumption exists anywhere in the engine.
+    private const MODEL_MIN_WORDS = 500;
     private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
     private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
 
@@ -151,6 +154,9 @@ class ContentEngine {
             $quality = QualityScoreEngine::evaluate($generated_content, [
                 'primary_keyword' => $focus_kw,
                 'secondary_keywords' => $secondary_keywords,
+                'page_type' => $context,
+                'post_type' => (string) $post->post_type,
+                'post_id'   => $post_id,
                 'entities' => array_values(array_filter(array_unique(array_merge(
                     [$focus_kw, (string) $post->post_title],
                     !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
@@ -177,7 +183,7 @@ class ContentEngine {
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
         $model = Settings::openai_model_for_quality();
         $is_model_page = ($post->post_type === 'model');
-        $length_hint = ($context === 'keyword_page' || $context === 'model' || $context === 'category_page') ? '800-1000 words' : '250-400 words';
+        $length_hint = ($context === 'keyword_page' || $context === 'model' || $context === 'category_page') ? '500-800 words' : '150-350 words';
 
         $system = [
             'role' => 'system',
@@ -278,6 +284,9 @@ class ContentEngine {
         $quality = QualityScoreEngine::evaluate($html, [
             'primary_keyword' => $generated_focus_kw,
             'secondary_keywords' => $secondary_keywords,
+            'page_type' => $context,
+            'post_type' => (string) $post->post_type,
+            'post_id'   => $post_id,
             'entities' => array_values(array_filter(array_unique(array_merge(
                 [$generated_focus_kw, (string) $post->post_title],
                 !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
@@ -392,12 +401,24 @@ class ContentEngine {
 
     /** @return array<string,string> */
     private static function build_video_page_template_preview(\WP_Post $post, string $focus_kw): array {
+        // Audit fix 4.4.0: use VideoContentArchitecture instead of placeholder skeleton.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\VideoContentArchitecture')) {
+            $preview = \TMWSEO\Engine\Content\VideoContentArchitecture::build_preview($post);
+            return [
+                'seo_title'        => (string) ($preview['seo_title'] ?? ''),
+                'meta_description' => (string) ($preview['meta_description'] ?? ''),
+                'content_html'     => (string) ($preview['content_html'] ?? ''),
+                'outline'          => (string) ($preview['outline'] ?? ''),
+            ];
+        }
+
+        // Legacy fallback (should not be reached).
         $topic = $focus_kw !== '' ? $focus_kw : (string) $post->post_title;
         return [
             'seo_title' => TitleFixer::shorten($topic . ' Video Guide: What to Watch For', 70),
             'meta_description' => TitleFixer::shorten('A practical preview guide for ' . $topic . ' with viewing tips, feature highlights, and safety guidance before you choose a platform.', 160),
-            'content_html' => '<h1>' . esc_html($topic) . ' Video Guide</h1><p>This preview is designed for video-intent readers seeking practical context before they watch.</p><h2>What This Video Topic Covers</h2><p>Summarize what visitors can expect.</p><h2>How to Evaluate the Experience</h2><p>Share quality and usability checks.</p><h2>FAQ</h2><h3>Is this topic beginner-friendly?</h3><p>Yes, explain terms clearly and avoid assumptions.</p>',
-            'outline' => "- {$topic} Video Guide\n- What This Video Topic Covers\n- How to Evaluate the Experience\n- FAQ",
+            'content_html' => '<h1>' . esc_html($topic) . ' Video Guide</h1><p>This preview is designed for video-intent readers seeking practical context before they watch.</p>',
+            'outline' => "- {$topic} Video Guide",
         ];
     }
 
@@ -544,8 +565,10 @@ class ContentEngine {
             if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
             if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
             if ($focus_kw !== '') {
-                // If focus keyword meta was set above as a list, keep it.
-                if (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
+                // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
+                if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
+                    RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
+                } elseif (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
                     update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
                 }
                 update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
@@ -585,7 +608,7 @@ class ContentEngine {
 
         $model = Settings::openai_model_for_quality();
 
-        $length_hint = ($context === 'keyword_page' || $context === 'model' || $context === 'category_page') ? '800-1000 words' : '250-400 words';
+        $length_hint = ($context === 'keyword_page' || $context === 'model' || $context === 'category_page') ? '500-800 words' : '150-350 words';
 
         $system = [
             'role' => 'system',
@@ -685,8 +708,10 @@ class ContentEngine {
         if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
         if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
         if ($focus_kw !== '') {
-            // Preserve any comma-separated keyword pack we stored earlier.
-            if (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
+            // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
+            if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
+                RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
+            } elseif (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
                 update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
             }
             update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);

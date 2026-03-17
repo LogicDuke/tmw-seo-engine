@@ -50,6 +50,15 @@ if (!function_exists('tmwseo_engine_run_migrations')) {
         if (class_exists('TMW_Intelligence_DB_Migration', false) && method_exists('TMW_Intelligence_DB_Migration', 'maybe_migrate')) {
             TMW_Intelligence_DB_Migration::maybe_migrate();
         }
+
+        $seed_roi_migration_file = TMWSEO_ENGINE_PATH . 'includes/migrations/class-seed-roi-migration.php';
+        if (!class_exists('TMW_Seed_ROI_Migration', false) && file_exists($seed_roi_migration_file)) {
+            require_once $seed_roi_migration_file;
+        }
+
+        if (class_exists('TMW_Seed_ROI_Migration', false) && method_exists('TMW_Seed_ROI_Migration', 'maybe_migrate')) {
+            TMW_Seed_ROI_Migration::maybe_migrate();
+        }
     }
 }
 

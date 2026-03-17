@@ -54,6 +54,15 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-scheduler.php
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-rollback.php';
 // Content uniqueness / similarity checker
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-uniqueness-checker.php';
+// Audit-fix classes (4.4.0)
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-index-readiness-gate.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-video-title-rewriter.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-video-content-architecture.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-audit-trail.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-mapper.php'; // Patch 2
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-cannibalization-detector.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-tag-quality-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-video-seo-metabox.php'; // Patch 2
 // Automated image ALT / title / caption / description
 require_once TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-generator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-hooks.php';
@@ -112,6 +121,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-idea-provider
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dataforseo-keyword-idea-provider.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-trends-idea-provider.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-keyword-planner-idea-provider.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-autosuggest-idea-provider.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-idea-aggregator.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
@@ -328,6 +338,14 @@ class Plugin {
 
         self::$did_init = true;
 
+        // ── Deferred rewrite flush (set during activate()) ─────────────────
+        // Runs on 'init' at priority 99 to ensure ALL CPTs, taxonomies, and
+        // rewrite rules from WordPress core, the active theme, other plugins,
+        // AND this plugin have been registered before flushing.
+        if ( get_option( 'tmwseo_needs_rewrite_flush' ) ) {
+            add_action( 'init', [ __CLASS__, 'do_deferred_rewrite_flush' ], 99 );
+        }
+
         $manual = self::is_manual_control_mode();
 
         // Safety first: ensure no scheduled tasks remain when manual mode is enabled.
@@ -440,8 +458,14 @@ class Plugin {
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
         \TMWSEO\Engine\Platform\AffiliateLinkBuilder::init();
 
-        // Internal linking on model pages.
+        // Internal linking on model pages (now also video pages — audit fix 4.4.0).
         \TMW_Internal_Link_Engine::init();
+
+        // ── Audit-fix 4.4.0: readiness gates, tag quality, fingerprints ──────
+        \TMWSEO\Engine\Content\IndexReadinessGate::init();
+
+        // ── Patch 2 (4.4.1): video SEO admin metabox ────────────────────────
+        \TMWSEO\Engine\Admin\VideoSeoMetabox::init();
         \TMW_Model_Similarity_Engine::init();
         \TMW_Intent_Engine::init();
 
@@ -506,6 +530,24 @@ class Plugin {
         }
     }
 
+    /**
+     * One-shot deferred rewrite flush.
+     *
+     * Hooked to 'init' at priority 99 (after all CPTs, taxonomies, and rewrite
+     * rules from core, themes, other plugins, AND this plugin are registered).
+     * Consumes the flag set by activate() and flushes exactly once.
+     */
+    public static function do_deferred_rewrite_flush(): void {
+        if ( ! get_option( 'tmwseo_needs_rewrite_flush' ) ) {
+            return;
+        }
+
+        delete_option( 'tmwseo_needs_rewrite_flush' );
+        flush_rewrite_rules();
+
+        Logs::info( 'core', '[TMW-SEO] Deferred rewrite flush completed after activation' );
+    }
+
     public static function activate(): void {
         if (function_exists('tmwseo_engine_run_migrations')) {
             tmwseo_engine_run_migrations();
@@ -547,8 +589,17 @@ class Plugin {
         }
 
         Migration::maybe_migrate_legacy(true);
-        \TMWSEO\Engine\Platform\AffiliateLinkBuilder::register_rewrite_rule();
-        flush_rewrite_rules();
+
+        // Schedule a deferred rewrite flush instead of flushing now.
+        // During activation, the 'init' hook has not yet fired, so WordPress core,
+        // the active theme, and other plugins have not registered their CPTs,
+        // taxonomies, or rewrite rules yet. Flushing here produces an incomplete
+        // rule set that causes front-end 404s on pages, posts, and category archives.
+        //
+        // The flag is consumed on the next full page load (admin or front-end) by
+        // the 'init' handler registered below, at which point ALL rewrite providers
+        // are loaded and the flush captures the complete rule set.
+        update_option( 'tmwseo_needs_rewrite_flush', 1, true );
 
         Logs::info('core', 'Activated ' . TMWSEO_ENGINE_VERSION);
     }

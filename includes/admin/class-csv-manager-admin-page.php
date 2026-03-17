@@ -120,21 +120,50 @@ class CSVManagerAdminPage {
             return;
         }
 
+        // Check whether provenance columns exist (added in 4.3.0 migration).
+        $columns = $wpdb->get_results( "SHOW COLUMNS FROM {$seeds_table}", ARRAY_A );
+        $col_names = is_array( $columns ) ? array_column( $columns, 'Field' ) : [];
+        $has_provenance = in_array( 'import_batch_id', $col_names, true );
+
         // Batched imports (have import_batch_id)
-        $batches = $wpdb->get_results(
-            "SELECT
-                COALESCE(import_batch_id, '') AS batch_id,
-                COALESCE(import_source_label, '') AS source_label,
-                source,
-                COUNT(*) AS row_count,
-                MIN(created_at) AS earliest,
-                MAX(created_at) AS latest
-             FROM {$seeds_table}
-             WHERE source IN ('approved_import','csv_import')
-             GROUP BY COALESCE(import_batch_id, ''), COALESCE(import_source_label, ''), source
-             ORDER BY latest DESC",
-            ARRAY_A
-        );
+        if ( $has_provenance ) {
+            $batches = $wpdb->get_results(
+                "SELECT
+                    COALESCE(import_batch_id, '') AS batch_id,
+                    COALESCE(import_source_label, '') AS source_label,
+                    source,
+                    COUNT(*) AS row_count,
+                    MIN(created_at) AS earliest,
+                    MAX(created_at) AS latest
+                 FROM {$seeds_table}
+                 WHERE source IN ('approved_import','csv_import')
+                 GROUP BY COALESCE(import_batch_id, ''), COALESCE(import_source_label, ''), source
+                 ORDER BY latest DESC",
+                ARRAY_A
+            );
+        } else {
+            // Fallback: provenance columns missing (pre-4.3.0 schema).
+            $batches = $wpdb->get_results(
+                "SELECT
+                    '' AS batch_id,
+                    '' AS source_label,
+                    source,
+                    COUNT(*) AS row_count,
+                    MIN(created_at) AS earliest,
+                    MAX(created_at) AS latest
+                 FROM {$seeds_table}
+                 WHERE source IN ('approved_import','csv_import')
+                 GROUP BY source
+                 ORDER BY latest DESC",
+                ARRAY_A
+            );
+
+            if ( ! empty( $batches ) ) {
+                echo '<div class="notice notice-warning" style="margin:12px 0;"><p><strong>' . esc_html__( 'Schema note:', 'tmwseo' ) . '</strong> '
+                    . esc_html__( 'Provenance columns (import_batch_id, import_source_label) are missing. Deactivate and reactivate the plugin to run the 4.3.0 migration, or these rows will display without batch detail.', 'tmwseo' )
+                    . '</p></div>';
+            }
+        }
 
         if (empty($batches)) {
             echo '<p>' . esc_html__('No imported seeds found in the database (no rows with source=approved_import or csv_import).', 'tmwseo') . '</p>';
@@ -234,19 +263,27 @@ class CSVManagerAdminPage {
         $where = "source = %s";
         $params = [$source];
 
-        if ($batch_id !== '') {
-            $where .= " AND import_batch_id = %s";
-            $params[] = $batch_id;
-        } else {
-            $where .= " AND (import_batch_id IS NULL OR import_batch_id = '')";
-        }
+        // Check if provenance columns exist before referencing them.
+        $columns = $wpdb->get_results( "SHOW COLUMNS FROM {$table}", ARRAY_A );
+        $col_names = is_array( $columns ) ? array_column( $columns, 'Field' ) : [];
+        $has_provenance = in_array( 'import_batch_id', $col_names, true );
 
-        if ($source_label !== '') {
-            $where .= " AND import_source_label = %s";
-            $params[] = $source_label;
-        } else {
-            $where .= " AND (import_source_label IS NULL OR import_source_label = '')";
+        if ( $has_provenance ) {
+            if ($batch_id !== '') {
+                $where .= " AND import_batch_id = %s";
+                $params[] = $batch_id;
+            } else {
+                $where .= " AND (import_batch_id IS NULL OR import_batch_id = '')";
+            }
+
+            if ($source_label !== '') {
+                $where .= " AND import_source_label = %s";
+                $params[] = $source_label;
+            } else {
+                $where .= " AND (import_source_label IS NULL OR import_source_label = '')";
+            }
         }
+        // If provenance columns don't exist, we delete all rows matching the source only.
 
         $deleted = (int) $wpdb->query($wpdb->prepare(
             "DELETE FROM {$table} WHERE {$where}",

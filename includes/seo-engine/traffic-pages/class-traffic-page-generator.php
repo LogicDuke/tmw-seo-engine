@@ -22,6 +22,8 @@ class TrafficPageGenerator {
         add_action('wp_head', [__CLASS__, 'render_schema']);
         add_filter('cron_schedules', [__CLASS__, 'ensure_weekly_schedule']);
         add_filter('post_type_link', [__CLASS__, 'filter_post_type_link'], 10, 2);
+        // Safe rootless URL resolution — replaces the old catch-all add_rewrite_rule.
+        add_filter('request', [__CLASS__, 'resolve_rootless_traffic_page']);
     }
 
     public static function activate(): void {
@@ -47,7 +49,12 @@ class TrafficPageGenerator {
             'menu_icon' => 'dashicons-chart-area',
         ]);
 
-        add_rewrite_rule('([^/]+)/?$', 'index.php?post_type=' . self::CPT . '&name=$matches[1]', 'top');
+        // NOTE: The previous catch-all add_rewrite_rule('([^/]+)/?$', ..., 'top')
+        // has been removed. It matched ANY single-segment URL before WordPress's own
+        // rules, causing 404s on pages, posts, and category archives whose slugs did
+        // not correspond to a traffic page.
+        // Rootless traffic-page URL resolution is now handled safely by the 'request'
+        // filter in resolve_rootless_traffic_page().
     }
 
 
@@ -57,6 +64,59 @@ class TrafficPageGenerator {
         }
 
         return home_url('/' . $post->post_name . '/');
+    }
+
+    /**
+     * Resolve rootless traffic-page URLs safely via the 'request' filter.
+     *
+     * WordPress's rewrite rules will parse a single-segment URL like /best-webcams/
+     * as pagename=best-webcams (via the built-in page catch-all). This filter checks
+     * whether a published traffic page exists with that slug and, if so, rewrites the
+     * query to target the CPT. Unlike the previous add_rewrite_rule('([^/]+)/?$',
+     * ..., 'top') approach, this ONLY fires when a traffic page actually exists — it
+     * never intercepts pages, posts, categories, or any other content.
+     *
+     * @param array<string,mixed> $query_vars Parsed query variables from WP_Rewrite.
+     * @return array<string,mixed>
+     */
+    public static function resolve_rootless_traffic_page( array $query_vars ): array {
+        // Already targeting a specific post type — don't interfere.
+        if ( isset( $query_vars['post_type'] ) ) {
+            return $query_vars;
+        }
+
+        // Extract the slug from single-segment URL resolution.
+        // 'pagename' is set by WordPress's page catch-all rule for hierarchical URLs.
+        // 'name' is set by the post catch-all rule (e.g., with /%postname%/ permalinks).
+        $slug = '';
+        if ( ! empty( $query_vars['pagename'] ) && strpos( $query_vars['pagename'], '/' ) === false ) {
+            $slug = $query_vars['pagename'];
+        } elseif ( ! empty( $query_vars['name'] ) ) {
+            $slug = $query_vars['name'];
+        }
+
+        $slug = sanitize_title( $slug );
+        if ( $slug === '' ) {
+            return $query_vars;
+        }
+
+        // Check if a published traffic page exists with this exact slug.
+        global $wpdb;
+        $found = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_name = %s AND post_type = %s AND post_status = 'publish' LIMIT 1",
+            $slug,
+            self::CPT
+        ) );
+
+        if ( $found <= 0 ) {
+            return $query_vars;
+        }
+
+        // Traffic page exists — rewrite the query to target it.
+        return [
+            'post_type' => self::CPT,
+            'name'      => $slug,
+        ];
     }
 
     public static function ensure_weekly_schedule(array $schedules): array {

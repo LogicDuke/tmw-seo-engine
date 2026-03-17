@@ -20,9 +20,11 @@ class QualityScoreEngine {
 
         $site_host = (string) wp_parse_url(home_url('/'), PHP_URL_HOST);
 
+        $page_type = (string) ($context['page_type'] ?? ($context['post_type'] ?? 'model'));
+
         $semantic_coverage = self::score_semantic_keyword_coverage($text, $primary_keyword, $secondary_keywords);
         $heading_structure = self::score_heading_structure($html);
-        $word_count_score = self::score_word_count($word_count);
+        $word_count_score = self::score_word_count_for_type($word_count, $page_type, $context);
         $entity_coverage = self::score_entity_coverage($text, $entities);
         $internal_links = self::score_internal_links($html, $site_host);
         $readability = self::score_readability($text);
@@ -144,25 +146,93 @@ class QualityScoreEngine {
         return max(0.0, min(1.0, $score));
     }
 
-    private static function score_word_count(int $word_count): float {
+    /**
+     * Page-type-aware word count scoring.
+     *
+     * Targets (audit-aligned):
+     *   model  — sweet spot 500–1000; penalise below 300 and above 1200
+     *   video  — sweet spot 150–400;  penalise below 80  and above 600
+     *   category_page — sweet spot 400–800
+     *   default — sweet spot 300–1000
+     *
+     * No fixed 1501-word minimum anywhere. Word count targets are conditional
+     * on page type, not arbitrary padding goals.
+     */
+    private static function score_word_count_for_type(int $word_count, string $page_type, array $context = []): float {
         if ($word_count <= 0) {
             return 0.0;
         }
 
-        if ($word_count < 300) {
-            return $word_count / 300;
-        }
+        $ranges = self::word_count_ranges($page_type, $context);
+        $floor   = $ranges['floor'];   // ramp-up starts here
+        $sweet_low  = $ranges['sweet_low'];
+        $sweet_high = $ranges['sweet_high'];
+        $ceiling = $ranges['ceiling']; // penalty starts here
 
-        if ($word_count <= 1400) {
+        if ($word_count < $floor) {
+            return max(0.05, $word_count / max(1, $floor));
+        }
+        if ($word_count < $sweet_low) {
+            return 0.7 + 0.3 * (($word_count - $floor) / max(1, $sweet_low - $floor));
+        }
+        if ($word_count <= $sweet_high) {
             return 1.0;
         }
-
-        if ($word_count >= 2200) {
-            return 0.7;
+        if ($word_count >= $ceiling) {
+            return 0.65;
         }
+        $over = $word_count - $sweet_high;
+        return max(0.65, 1.0 - ($over / max(1, $ceiling - $sweet_high)) * 0.35);
+    }
 
-        $over = $word_count - 1400;
-        return max(0.7, 1.0 - ($over / 800) * 0.3);
+    /**
+     * Return word-count ranges per page type.
+     *
+     * @return array{floor:int, sweet_low:int, sweet_high:int, ceiling:int}
+     */
+    public static function word_count_ranges(string $page_type, array $context = []): array {
+        $has_rich_data = !empty($context['platform_count']) && (int) $context['platform_count'] >= 2;
+
+        switch ($page_type) {
+            case 'model':
+                return [
+                    'floor'      => 200,
+                    'sweet_low'  => $has_rich_data ? 600 : 400,
+                    'sweet_high' => $has_rich_data ? 1000 : 800,
+                    'ceiling'    => 1400,
+                ];
+            case 'video':
+            case 'video_or_post':
+                return [
+                    'floor'      => 60,
+                    'sweet_low'  => 120,
+                    'sweet_high' => 400,
+                    'ceiling'    => 650,
+                ];
+            case 'category_page':
+            case 'tmw_category_page':
+                return [
+                    'floor'      => 200,
+                    'sweet_low'  => 400,
+                    'sweet_high' => 800,
+                    'ceiling'    => 1200,
+                ];
+            default:
+                return [
+                    'floor'      => 150,
+                    'sweet_low'  => 300,
+                    'sweet_high' => 1000,
+                    'ceiling'    => 1600,
+                ];
+        }
+    }
+
+    /**
+     * Legacy fallback kept for any external callers.
+     * @deprecated Use score_word_count_for_type() with page_type context.
+     */
+    private static function score_word_count(int $word_count): float {
+        return self::score_word_count_for_type($word_count, 'model');
     }
 
     private static function score_entity_coverage(string $text, array $entities): float {

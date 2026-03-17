@@ -121,9 +121,13 @@ class ModelKeywordPack {
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
-        // pick top 4, preferring those with name; allow at most one non-name fallback.
-        $additional = self::pick_top($additional_pool, 4, $primary, ($is_model_page && !$allow_generic_tag_queries) ? 1 : 4);
-        $additional = self::ensure_name_in_additional($additional, $primary, $platform_slugs, $top_tags);
+        // Dynamic additional keyword count: min 2, max 6.
+        // Richer data (more tags, platforms, DFSEO results) → more keywords.
+        $additional_target = self::dynamic_additional_count($additional_pool, $platform_slugs, $safe_tags);
+
+        // pick top N, preferring those with name; allow at most one non-name fallback.
+        $additional = self::pick_top($additional_pool, $additional_target, $primary, ($is_model_page && !$allow_generic_tag_queries) ? 1 : $additional_target);
+        $additional = self::ensure_name_in_additional($additional, $primary, $platform_slugs, $top_tags, $additional_target);
         self::debug_assert_additional_contains_name($additional, $primary);
 
         $longtail_pool = [];
@@ -149,10 +153,15 @@ class ModelKeywordPack {
 
         $longtail = self::pick_top($longtail_pool, 8, $primary, ($is_model_page && !$allow_generic_tag_queries) ? 1 : 8);
 
+        // Patch 2.1: compute keyword confidence from real scoring data.
+        // Confidence = how well the selected additional keywords scored.
+        $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
+
         return [
             'primary' => $primary,
             'additional' => $additional,
             'longtail' => $longtail,
+            'confidence' => $confidence,
             'sources' => [
                 'platforms' => $platform_slugs,
                 'tags' => $top_tags,
@@ -160,6 +169,103 @@ class ModelKeywordPack {
                 'keyword_pack_dirs' => $categories,
             ],
         ];
+    }
+
+    /**
+     * Determine how many additional keywords to assign based on data richness.
+     *
+     * Replaces the old hardcoded "always 4" rule.
+     *
+     * Minimum: 2 (even thin models get at least 2 compound keywords).
+     * Maximum: 6 (rich models with many tags/platforms/DFSEO results).
+     *
+     * @param array<string,int> $pool     Scored keyword pool.
+     * @param string[]          $platforms Active platform slugs.
+     * @param string[]          $tags      Safe tag slugs.
+     * @return int
+     */
+    private static function dynamic_additional_count(array $pool, array $platforms, array $tags): int {
+        $quality_threshold = 30; // minimum score to count as a viable candidate
+        $viable = 0;
+        foreach ($pool as $score) {
+            if ((int) $score >= $quality_threshold) {
+                $viable++;
+            }
+        }
+
+        // Base count from viable pool size.
+        if ($viable >= 12) {
+            $count = 6;
+        } elseif ($viable >= 8) {
+            $count = 5;
+        } elseif ($viable >= 5) {
+            $count = 4;
+        } elseif ($viable >= 3) {
+            $count = 3;
+        } else {
+            $count = 2;
+        }
+
+        // Bonus for multi-platform models.
+        if (count($platforms) >= 3) {
+            $count = min(6, $count + 1);
+        }
+
+        // Bonus for tag-rich models.
+        if (count($tags) >= 6) {
+            $count = min(6, $count + 1);
+        }
+
+        return max(2, min(6, $count));
+    }
+
+    /**
+     * Compute keyword confidence from real scoring data.
+     *
+     * Patch 2.1: confidence reflects how strong the keyword assignment actually is.
+     * NOT a placeholder — derived from: selected keyword scores, data source richness,
+     * platform count, tag count.
+     *
+     * Scale: 0–100 (float).
+     *
+     * @param string[]          $selected   Chosen additional keywords.
+     * @param array<string,int> $pool       Full scored keyword pool.
+     * @param string[]          $platforms  Active platform slugs.
+     * @param string[]          $tags       Safe tag slugs.
+     * @param bool              $has_dfseo  Whether DataForSEO was available.
+     * @return float
+     */
+    private static function compute_confidence(array $selected, array $pool, array $platforms, array $tags, bool $has_dfseo): float {
+        if (empty($selected)) {
+            return 10.0; // bare minimum — we have a primary keyword but nothing else
+        }
+
+        // Average score of selected keywords (max possible ~80 from KeywordLibrary::score).
+        $scores = [];
+        $pool_lower = [];
+        foreach ($pool as $kw => $score) {
+            $pool_lower[strtolower((string) $kw)] = (int) $score;
+        }
+        foreach ($selected as $kw) {
+            $key = strtolower((string) $kw);
+            $scores[] = $pool_lower[$key] ?? 0;
+        }
+
+        $avg_score = count($scores) > 0 ? array_sum($scores) / count($scores) : 0;
+
+        // Normalize avg_score from 0–80 range to 0–50 contribution.
+        $score_component = min(50.0, ($avg_score / 80.0) * 50.0);
+
+        // Data richness bonuses.
+        $richness = 0.0;
+        if ($has_dfseo)              $richness += 15.0; // real demand data available
+        if (count($platforms) >= 1)  $richness += 10.0;
+        if (count($platforms) >= 3)  $richness += 5.0;
+        if (count($tags) >= 3)       $richness += 10.0;
+        if (count($tags) >= 6)       $richness += 5.0;
+        if (count($selected) >= 3)   $richness += 5.0;
+
+        return round(max(5.0, min(100.0, $score_component + $richness)), 2);
     }
 
     /** @param string[] $tags @return string[] */
@@ -331,14 +437,16 @@ class ModelKeywordPack {
      * @param string[] $additional
      * @param string[] $platforms
      * @param string[] $tags
+     * @param int      $target_count Dynamic target count (2–6).
      * @return string[]
      */
-    private static function ensure_name_in_additional(array $additional, string $name, array $platforms, array $tags): array {
+    private static function ensure_name_in_additional(array $additional, string $name, array $platforms, array $tags, int $target_count = 4): array {
+        $target_count = max(2, min(6, $target_count));
         $safe = self::dedupe_keywords($additional);
 
         $fallbacks = self::fallback_additional($name, $platforms, $tags);
 
-        for ($i = 0; $i < 4; $i++) {
+        for ($i = 0; $i < $target_count; $i++) {
             $kw = $safe[$i] ?? '';
             if ($kw !== '' && self::keyword_contains_name($kw, $name)) {
                 continue;
@@ -363,7 +471,7 @@ class ModelKeywordPack {
         }
 
         $safe = array_values(array_filter($safe, 'strlen'));
-        while (count($safe) < 4) {
+        while (count($safe) < $target_count) {
             $next = $fallbacks[count($safe)] ?? ($name . ' live cam');
             $next = self::normalize_keyword($next);
             if ($next === '') $next = $name . ' live cam';
@@ -374,7 +482,7 @@ class ModelKeywordPack {
             }
         }
 
-        return array_slice($safe, 0, 4);
+        return array_slice($safe, 0, $target_count);
     }
 
     private static function is_tag_only_query(string $keyword, string $name, array $tags): bool {
@@ -480,8 +588,8 @@ class ModelKeywordPack {
             return;
         }
 
-        for ($i = 0; $i < 4; $i++) {
-            $kw = (string)($additional[$i] ?? '');
+        foreach ($additional as $i => $kw) {
+            $kw = (string) $kw;
             if ($kw === '' || !self::keyword_contains_name($kw, $name)) {
                 Logs::info('keywords', '[TMW-KEYWORDS] Additional keyword missing model name', [
                     'index' => $i,

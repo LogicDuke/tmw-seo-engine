@@ -97,8 +97,8 @@ class TemplateContent {
 
         $content_parts = [];
 
-        // H1
-        $content_parts[] = '<h1>' . esc_html($name) . ' Live Chat</h1>';
+        // H1: bare model name — audit fix: no forced suffix.
+        $content_parts[] = '<h1>' . esc_html($name) . '</h1>';
 
         // Intro
         $content_parts[] = '<p>' . esc_html($intro) . '</p>';
@@ -116,14 +116,9 @@ class TemplateContent {
         $content_parts[] = '<h2>About ' . esc_html($name) . '</h2>';
         $content_parts[] = '<p>' . esc_html($bio) . '</p>';
 
-        // Features section
-        $content_parts[] = '<h2>' . esc_html($name) . ' Live Chat Features</h2>';
-        $content_parts[] = '<ul>'
-            . '<li><strong>Real-time interaction:</strong> A friendly chat flow that keeps the room engaging.</li>'
-            . '<li><strong>HD streaming:</strong> Clear video and audio so moments feel smooth.</li>'
-            . '<li><strong>Custom requests:</strong> Options to tailor your session while staying within platform rules.</li>'
-            . '<li><strong>Privacy controls:</strong> Tips to keep personal info protected.</li>'
-            . '</ul>';
+        // Features section — audit fix: tag-aware, not repeated static bullets.
+        $content_parts[] = '<h2>' . esc_html($name) . ' on ' . esc_html($primary_platform_label) . '</h2>';
+        $content_parts[] = self::render_varied_features($name, $tags, $primary_platform_label, $seed);
 
         // Keyword coverage block (extra focuses)
         if (!empty($extra)) {
@@ -183,19 +178,17 @@ class TemplateContent {
 
         $content = implode("\n\n", $content_parts);
 
-        // Ensure length ~700+ words by padding with a short safe paragraph.
+        // Audit fix: removed repeated filler paragraph that created detectable patterns.
+        // Only add one unique closing paragraph if content is very short.
         $wc = str_word_count(strip_tags($content));
-        if ($wc < 700) {
-            $pad = '<p>Tip: If you’re new, start with a short hello and follow the room etiquette. Staying respectful and keeping personal details private makes every ' . esc_html($name) . ' live chat session smoother.</p>';
-            while ($wc < 720) {
-                $content .= "\n\n" . $pad;
-                $wc = str_word_count(strip_tags($content));
-            }
+        if ($wc < 400) {
+            $content .= "\n\n" . '<p>Browse ' . esc_html($name) . '\'s latest videos, explore the tags on this page, and use the official links to connect directly.</p>';
         }
 
-        $seo_title = $name . ' Live Chat - Connect Now';
+        // Audit fix: SEO title uses entity-name-first pattern, not forced suffix.
+        $seo_title = $name . ' — Live Cam Profile';
         if ($primary_platform_label !== '' && $primary_platform_label !== 'live webcam') {
-            $seo_title = $name . ' Live Chat on ' . $primary_platform_label . ' - Connect Now';
+            $seo_title = $name . ' on ' . $primary_platform_label . ' — Live Cam Profile';
         }
 
         $meta_description = 'Join ' . $name . "'s live chat for a real-time experience. Find trusted links, features, privacy tips, and FAQs to get started.";
@@ -418,6 +411,51 @@ class TemplateContent {
         }
 
         return '<h3>What is a webcam model?</h3><p><a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="nofollow noopener">Read this informational overview on Wikipedia</a>.</p>';
+    }
+
+    /**
+     * Generate tag-aware feature descriptions instead of a static repeated list.
+     *
+     * Audit fix: every model page previously had the identical 4-bullet feature
+     * list, creating a detectable template pattern. This method selects features
+     * based on the model's actual tags, making each page more unique.
+     */
+    private static function render_varied_features(string $name, array $tags, string $platform, string $seed): string {
+        $tag_phrases = array_map(fn($t) => str_replace('-', ' ', (string)$t), array_slice($tags, 0, 6));
+        $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
+
+        // Feature pool — each model page picks a subset based on seed + tags.
+        $pool = [
+            '<li><strong>Live interaction:</strong> ' . esc_html($name) . ' responds to chat in real time, creating a personal feel.</li>',
+            '<li><strong>HD video quality:</strong> Streams on ' . esc_html($platform) . ' are delivered in high definition with stable audio.</li>',
+            '<li><strong>Privacy-first browsing:</strong> Platform controls let you watch without sharing personal details.</li>',
+            '<li><strong>Mobile-friendly:</strong> Join ' . esc_html($name) . '\'s room from any device with a modern browser.</li>',
+            '<li><strong>Notification alerts:</strong> Follow ' . esc_html($name) . ' on ' . esc_html($platform) . ' to get pinged when a new session starts.</li>',
+            '<li><strong>Schedule flexibility:</strong> Sessions rotate, so check back regularly for updated times.</li>',
+            '<li><strong>Respectful community:</strong> Moderation keeps the chat positive and on-topic.</li>',
+            '<li><strong>Interactive features:</strong> Polls, tip-triggered actions, and two-way conversation keep sessions engaging.</li>',
+        ];
+
+        // Add tag-specific features.
+        foreach (array_slice($tag_phrases, 0, 2) as $tag) {
+            $pool[] = '<li><strong>' . esc_html(ucfirst($tag)) . ' content:</strong> Fans of ' . esc_html($tag) . ' will find ' . esc_html($name) . '\'s shows match that style.</li>';
+        }
+
+        // Deterministic selection based on seed (same model = same features).
+        $hash = abs(crc32($seed));
+        $selected = [];
+        $count = min(5, count($pool));
+        $indices = [];
+        for ($i = 0; $i < $count; $i++) {
+            $idx = ($hash + $i * 3) % count($pool);
+            while (in_array($idx, $indices, true)) {
+                $idx = ($idx + 1) % count($pool);
+            }
+            $indices[] = $idx;
+            $selected[] = $pool[$idx];
+        }
+
+        return '<ul>' . implode("\n", $selected) . '</ul>';
     }
 
 }

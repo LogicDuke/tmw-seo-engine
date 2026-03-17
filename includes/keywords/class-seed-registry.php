@@ -260,16 +260,52 @@ class SeedRegistry {
         $table = self::table_name();
         $cap   = min( 300, max( 1, $limit ) );
 
-        $rows = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT id, seed, source, seed_type, priority, entity_type, entity_id, created_at, last_used
-                 FROM {$table}
-                 ORDER BY priority ASC, COALESCE(last_used,'1970-01-01 00:00:00') ASC, id ASC
-                 LIMIT %d",
-                $cap
-            ),
-            ARRAY_A
-        );
+        // ── Phase 2: ROI-aware seed selection.
+        //    1. Skip seeds in active cooldown (cooldown_until > NOW).
+        //    2. Skip auto-retired seeds (consecutive_zero_yield >= 5) unless manual.
+        //    3. Prefer never-expanded seeds first.
+        //    4. Then prefer high-ROI seeds.
+        //    5. Then longest-resting seeds.
+        //
+        //    The new columns are added by the seed-roi-columns migration.
+        //    If the columns don't exist yet (pre-migration), fall back to the
+        //    original query gracefully.
+        $has_roi_columns = self::has_roi_columns();
+
+        if ( $has_roi_columns ) {
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT id, seed, source, seed_type, priority, entity_type, entity_id, created_at, last_used,
+                            last_expanded_at, expansion_count, net_new_yielded, duplicates_returned,
+                            estimated_spend_usd, roi_score, consecutive_zero_yield, cooldown_until
+                     FROM {$table}
+                     WHERE ( cooldown_until IS NULL OR cooldown_until <= %s )
+                       AND ( consecutive_zero_yield < 5 OR source = 'manual' )
+                     ORDER BY
+                        CASE WHEN last_expanded_at IS NULL THEN 0 ELSE 1 END ASC,
+                        roi_score DESC,
+                        COALESCE(last_expanded_at, '1970-01-01 00:00:00') ASC,
+                        priority ASC,
+                        id ASC
+                     LIMIT %d",
+                    current_time( 'mysql' ),
+                    $cap
+                ),
+                ARRAY_A
+            );
+        } else {
+            // Pre-migration fallback: original query.
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT id, seed, source, seed_type, priority, entity_type, entity_id, created_at, last_used
+                     FROM {$table}
+                     ORDER BY priority ASC, COALESCE(last_used,'1970-01-01 00:00:00') ASC, id ASC
+                     LIMIT %d",
+                    $cap
+                ),
+                ARRAY_A
+            );
+        }
 
         return is_array( $rows ) ? $rows : [];
     }
@@ -330,6 +366,7 @@ class SeedRegistry {
             'registered_total'           => (int) ( $report['registered_total'] ?? 0 ),
             'trusted_sources'            => self::TRUSTED_DIRECT_SOURCES,
             'preview_queue'              => $preview_counts,
+            'discovery_enabled'          => (bool) get_option( 'tmw_discovery_enabled', 1 ),
         ];
     }
 
@@ -406,6 +443,293 @@ class SeedRegistry {
         self::increment_counter( 'registered_total', 1 );
 
         return true;
+    }
+
+    // -----------------------------------------------------------------------
+    // Seed ROI tracking (Phase 2)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Record the outcome of expanding a seed. Updates ROI columns and
+     * sets the cooldown_until timestamp.
+     *
+     * @param string $seed_phrase Normalized seed phrase (not ID — the engine
+     *                            works with phrases, not registry row IDs).
+     * @param array  $result      Keys: net_new (int), duplicates (int),
+     *                            provider (string), estimated_cost (float).
+     */
+    public static function record_expansion_result( string $seed_phrase, array $result ): void {
+        global $wpdb;
+
+        if ( ! self::has_roi_columns() ) {
+            return; // Migration hasn't run yet — silently skip.
+        }
+
+        $normalised = self::normalize_seed( $seed_phrase );
+        if ( $normalised === '' ) {
+            return;
+        }
+
+        $table    = self::table_name();
+        $hash     = md5( $normalised );
+        $net_new  = max( 0, (int) ( $result['net_new'] ?? 0 ) );
+        $dupes    = max( 0, (int) ( $result['duplicates'] ?? 0 ) );
+        $provider = sanitize_key( (string) ( $result['provider'] ?? 'unknown' ) );
+        $cost     = max( 0.0, (float) ( $result['estimated_cost'] ?? 0.0 ) );
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare( "SELECT id, expansion_count, net_new_yielded, duplicates_returned, estimated_spend_usd, consecutive_zero_yield FROM {$table} WHERE hash = %s LIMIT 1", $hash ),
+            ARRAY_A
+        );
+
+        if ( ! is_array( $row ) ) {
+            return; // Seed not in registry.
+        }
+
+        $expansion_count       = (int) ( $row['expansion_count'] ?? 0 ) + 1;
+        $total_net_new         = (int) ( $row['net_new_yielded'] ?? 0 ) + $net_new;
+        $total_dupes           = (int) ( $row['duplicates_returned'] ?? 0 ) + $dupes;
+        $total_spend           = (float) ( $row['estimated_spend_usd'] ?? 0 ) + $cost;
+        $consecutive_zero      = $net_new > 0 ? 0 : ( (int) ( $row['consecutive_zero_yield'] ?? 0 ) + 1 );
+
+        // ROI score: ratio of net-new keywords to total expansions (0–100 scale).
+        $roi_score = $expansion_count > 0 ? round( ( $total_net_new / $expansion_count ) * 10, 2 ) : 0;
+
+        // Cooldown: base 30 days, escalating with consecutive zero-yield runs.
+        $base_cooldown_days = (int) \TMWSEO\Engine\Services\Settings::get( 'seed_expansion_cooldown_days', 30 );
+        if ( $consecutive_zero >= 5 ) {
+            $cooldown_days = $base_cooldown_days * 6; // ~180 days — effectively retired
+        } elseif ( $consecutive_zero >= 3 ) {
+            $cooldown_days = $base_cooldown_days * 3;
+        } elseif ( $consecutive_zero >= 1 ) {
+            $cooldown_days = $base_cooldown_days * 2;
+        } else {
+            $cooldown_days = $base_cooldown_days;
+        }
+
+        $cooldown_until = gmdate( 'Y-m-d H:i:s', time() + ( DAY_IN_SECONDS * $cooldown_days ) );
+
+        $wpdb->update(
+            $table,
+            [
+                'last_expanded_at'       => current_time( 'mysql' ),
+                'expansion_count'        => $expansion_count,
+                'net_new_yielded'        => $total_net_new,
+                'duplicates_returned'    => $total_dupes,
+                'estimated_spend_usd'    => round( $total_spend, 4 ),
+                'last_provider'          => $provider,
+                'cooldown_until'         => $cooldown_until,
+                'roi_score'              => $roi_score,
+                'consecutive_zero_yield' => $consecutive_zero,
+            ],
+            [ 'hash' => $hash ],
+            [ '%s', '%d', '%d', '%d', '%f', '%s', '%s', '%f', '%d' ],
+            [ '%s' ]
+        );
+    }
+
+    /**
+     * Hard-retire seeds that have proven unproductive.
+     * Sets cooldown_until to 180 days for any seed with
+     * consecutive_zero_yield >= $threshold.
+     *
+     * @return int Number of seeds retired.
+     */
+    public static function retire_exhausted_seeds( int $threshold = 5 ): int {
+        global $wpdb;
+
+        if ( ! self::has_roi_columns() ) {
+            return 0;
+        }
+
+        $table  = self::table_name();
+        $far    = gmdate( 'Y-m-d H:i:s', time() + ( DAY_IN_SECONDS * 180 ) );
+
+        $affected = (int) $wpdb->query( $wpdb->prepare(
+            "UPDATE {$table}
+             SET cooldown_until = %s
+             WHERE consecutive_zero_yield >= %d
+               AND source != 'manual'
+               AND ( cooldown_until IS NULL OR cooldown_until < %s )",
+            $far,
+            max( 1, $threshold ),
+            $far
+        ) );
+
+        if ( $affected > 0 ) {
+            Logs::info( 'keywords', '[TMW-SEED] Auto-retired exhausted seeds', [
+                'retired'   => $affected,
+                'threshold' => $threshold,
+            ] );
+        }
+
+        return $affected;
+    }
+
+    /**
+     * Check whether the ROI tracking columns exist on the seeds table.
+     * Result is cached per-request to avoid repeated SHOW COLUMNS queries.
+     */
+    private static function has_roi_columns(): bool {
+        static $result = null;
+        if ( $result !== null ) {
+            return $result;
+        }
+
+        global $wpdb;
+        $table  = self::table_name();
+        $column = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'roi_score' LIMIT 1",
+            $table
+        ) );
+
+        $result = ( $column === 'roi_score' );
+        return $result;
+    }
+
+    // -----------------------------------------------------------------------
+    // Seed Reset & Starter Pack (admin panel)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Delete all seeds matching the given source types.
+     *
+     * Used by the Reset & Starter Pack admin panel. This is a destructive,
+     * irreversible operation — the admin page must enforce confirmation UX.
+     *
+     * @param string[] $sources  e.g. ['csv_import', 'approved_import', 'static_curated']
+     * @return int  Number of rows deleted.
+     */
+    public static function purge_by_sources( array $sources ): int {
+        global $wpdb;
+
+        $table = self::table_name();
+        $clean = array_values( array_unique( array_filter( array_map( 'sanitize_key', $sources ) ) ) );
+
+        if ( empty( $clean ) ) {
+            return 0;
+        }
+
+        // Safety: only allow purging known source types.
+        $allowed = [ 'csv_import', 'approved_import', 'static_curated', 'static', 'manual', 'model_root' ];
+        $clean   = array_values( array_intersect( $clean, $allowed ) );
+
+        if ( empty( $clean ) ) {
+            Logs::warn( 'seed_reset', '[TMW-SEED] purge_by_sources called with no valid sources', [
+                'requested' => $sources,
+            ] );
+            return 0;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $clean ), '%s' ) );
+
+        $deleted = (int) $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$table} WHERE source IN ({$placeholders})",
+                ...$clean
+            )
+        );
+
+        Logs::info( 'seed_reset', '[TMW-SEED] Purge by sources completed', [
+            'sources' => $clean,
+            'deleted' => $deleted,
+            'user'    => get_current_user_id(),
+        ] );
+
+        return $deleted;
+    }
+
+    /**
+     * Returns the recommended starter seed pack.
+     *
+     * These are small, clean, commercial-intent root phrases for an adult
+     * webcam site. Registered as source=manual with starter pack provenance.
+     *
+     * @return string[]
+     */
+    public static function get_starter_pack(): array {
+        return [
+            'adult cam',
+            'adult cams',
+            'adult web cam',
+            'adult live cam',
+            'live adult cam',
+            'adult sex cam',
+            'adult sex cams',
+            'adult cam site',
+            'adult cam sites',
+            'live cam adult',
+        ];
+    }
+
+    /**
+     * Tag starter pack seeds with provenance metadata (batch ID + label).
+     *
+     * Called after register_many() to add import provenance. This is a
+     * post-insert UPDATE because register_many() doesn't accept batch params.
+     * Only works if provenance columns exist. Silent no-op otherwise.
+     *
+     * @param string[] $seeds  The starter pack phrases (normalized internally).
+     */
+    public static function tag_starter_pack_provenance( array $seeds ): void {
+        global $wpdb;
+
+        $table = self::table_name();
+
+        // Check provenance columns exist (added in 4.3.0 migration).
+        $col = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'import_batch_id' LIMIT 1",
+            $table
+        ) );
+
+        if ( $col !== 'import_batch_id' ) {
+            return;
+        }
+
+        foreach ( $seeds as $seed ) {
+            $normalised = self::normalize_seed( $seed );
+            if ( $normalised === '' ) {
+                continue;
+            }
+            $hash = md5( $normalised );
+            $wpdb->update(
+                $table,
+                [
+                    'import_batch_id'     => 'starter_pack_v1',
+                    'import_source_label' => 'Recommended Starter Pack v1',
+                ],
+                [ 'hash' => $hash ],
+                [ '%s', '%s' ],
+                [ '%s' ]
+            );
+        }
+    }
+
+    /**
+     * Returns live seed counts grouped by source type.
+     *
+     * Used by the Reset tab to show exactly what will be deleted.
+     *
+     * @return array<string, int>  e.g. ['manual' => 12, 'csv_import' => 847]
+     */
+    public static function get_source_counts(): array {
+        global $wpdb;
+
+        $table = self::table_name();
+        $rows  = $wpdb->get_results(
+            "SELECT source, COUNT(*) AS cnt FROM {$table} GROUP BY source ORDER BY cnt DESC",
+            ARRAY_A
+        );
+
+        $counts = [];
+        if ( is_array( $rows ) ) {
+            foreach ( $rows as $row ) {
+                $counts[ (string) $row['source'] ] = (int) $row['cnt'];
+            }
+        }
+
+        return $counts;
     }
 
     // -----------------------------------------------------------------------

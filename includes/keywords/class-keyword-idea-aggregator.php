@@ -46,6 +46,7 @@ class KeywordIdeaAggregator {
         'dataforseo',
         'google_keyword_planner',
         'google_trends',
+        'google_autosuggest',
     ];
 
     /** @var KeywordIdeaProviderInterface[] */
@@ -55,10 +56,13 @@ class KeywordIdeaAggregator {
         // Providers are registered here in priority order.
         // The aggregator always loads DataForSEO first (established primary provider).
         // Google KP and Trends are additive and gated by their own is_available() checks.
+        // Google Autosuggest is free and always available — replaces the removed
+        // discover_from_seeds() double-dip path.
         $this->providers = [
             new DataForSEOKeywordIdeaProvider(),
             new GoogleKeywordPlannerIdeaProvider(),
             new GoogleTrendsIdeaProvider(),
+            new GoogleAutosuggestIdeaProvider(),
         ];
     }
 

@@ -224,6 +224,30 @@ class ModelOptimizer {
                 echo '<p><small><strong>Excluded for safety:</strong> ' . esc_html(implode(', ', array_slice($blocked, 0, 12))) . '</small></p>';
             }
         }
+
+        // Patch 2: Cannibalization warnings in model review flow.
+        if (class_exists('\\TMWSEO\\Engine\\Keywords\\CannibalizationDetector')) {
+            $conflicts = \TMWSEO\Engine\Keywords\CannibalizationDetector::check_post($post->ID);
+            if (!empty($conflicts)) {
+                echo '<div class="notice notice-warning inline" style="margin-top:10px"><p><strong>Cannibalization:</strong> ' . count($conflicts) . ' keyword conflict(s):</p><ul>';
+                foreach (array_slice($conflicts, 0, 5) as $c) {
+                    echo '<li>' . esc_html($c['keyword']) . ' — ' . esc_html($c['conflicting_post_type']) . ' #' . (int)$c['conflicting_post_id'] . ' (' . esc_html($c['severity']) . ')</li>';
+                }
+                echo '</ul></div>';
+            }
+        }
+
+        // Patch 2: Readiness display.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\IndexReadinessGate')) {
+            $readiness = \TMWSEO\Engine\Content\IndexReadinessGate::evaluate_post($post->ID);
+            echo '<p style="margin-top:8px"><strong>Readiness:</strong> ';
+            if ($readiness['ready']) {
+                echo '<span style="color:green">READY</span>';
+            } else {
+                echo '<span style="color:red">NOT READY</span> — ' . esc_html(implode('; ', array_slice($readiness['reasons'], 0, 3)));
+            }
+            echo '</p>';
+        }
     }
 
     public static function handle_generate(): void {
@@ -298,16 +322,52 @@ class ModelOptimizer {
             if ($rankmath_title !== '') update_post_meta($post_id, 'rank_math_title', $rankmath_title);
             if ($rm_desc !== '') update_post_meta($post_id, 'rank_math_description', $rm_desc);
             if ($rm_kw !== '') {
-                update_post_meta($post_id, 'rank_math_focus_keyword', $rm_kw);
+                // Patch 2: use RankMathMapper for centralized focus + 4 extras cap.
+                $model_pack = \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::get_pack_with_legacy_fallback($post_id);
+                if (empty($model_pack) || empty($model_pack['primary'])) {
+                    $model_pack = [
+                        'primary' => $rm_kw,
+                        'additional' => [
+                            $rm_kw . ' webcam',
+                            $rm_kw . ' live',
+                            $rm_kw . ' cam',
+                            $rm_kw . ' stream',
+                        ],
+                    ];
+                }
+                if (class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
+                    \TMWSEO\Engine\Content\RankMathMapper::sync_to_rank_math($post_id, $model_pack, true);
+                } else {
+                    update_post_meta($post_id, 'rank_math_focus_keyword', $rm_kw);
+                }
 
-                $secondary_keywords = [
-                    $rm_kw . ' webcam',
-                    $rm_kw . ' live',
-                    $rm_kw . ' cam',
-                    $rm_kw . ' stream',
-                ];
-                update_post_meta($post_id, 'rank_math_secondary_keywords', implode(',', $secondary_keywords));
+                // Patch 2.1: persist confidence from stored pack or compute a basic one.
+                $pack_confidence = (float) ($model_pack['confidence'] ?? 0);
+                if ($pack_confidence <= 0) {
+                    // Derive confidence from what we know: model name exists + we have keywords.
+                    $pack_confidence = 40.0; // base: model name is the focus keyword
+                    if (count($model_pack['additional'] ?? []) >= 2) $pack_confidence += 15.0;
+                    if (count($model_pack['additional'] ?? []) >= 4) $pack_confidence += 10.0;
+                    if (!empty($model_pack['sources']['dfseo']))     $pack_confidence += 15.0;
+                    if (count($model_pack['sources']['platforms'] ?? []) >= 1) $pack_confidence += 10.0;
+                    if (count($model_pack['sources']['tags'] ?? []) >= 3)      $pack_confidence += 10.0;
+                    $pack_confidence = min(100.0, $pack_confidence);
+                }
+                update_post_meta($post_id, '_tmwseo_keyword_confidence', round($pack_confidence, 2));
             }
+        }
+
+        // Patch 2: run cannibalization check and persist via AuditTrail.
+        if (class_exists('\\TMWSEO\\Engine\\Keywords\\CannibalizationDetector')) {
+            $conflicts = \TMWSEO\Engine\Keywords\CannibalizationDetector::check_post($post_id);
+            if (class_exists('\\TMWSEO\\Engine\\Content\\AuditTrail')) {
+                \TMWSEO\Engine\Content\AuditTrail::persist_cannibalization($post_id, $conflicts);
+            }
+        }
+
+        // Patch 2: evaluate readiness gates after apply.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\IndexReadinessGate')) {
+            \TMWSEO\Engine\Content\IndexReadinessGate::evaluate_post($post_id);
         }
 
         if ($apply_wp_title && $seo_title !== '') {

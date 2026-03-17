@@ -1012,6 +1012,82 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         // 4.3.0 — Preview layer for generated phrases.
         dbDelta($sql_expansion_candidates);
 
+        // ── Audit-fix tables (tag quality, content fingerprints, cannibalization) ──
+        $content_fingerprints = $wpdb->prefix . 'tmw_content_fingerprints';
+        $tag_quality          = $wpdb->prefix . 'tmw_tag_quality';
+        $cannibalization      = $wpdb->prefix . 'tmw_cannibalization_flags';
+        $video_title_candidates = $wpdb->prefix . 'tmw_video_title_candidates';
+
+        $sql_content_fingerprints = "CREATE TABLE $content_fingerprints (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            post_id BIGINT UNSIGNED NOT NULL,
+            post_type VARCHAR(30) NOT NULL DEFAULT '',
+            fingerprint_hash CHAR(32) NOT NULL DEFAULT '',
+            shingle_count INT NOT NULL DEFAULT 0,
+            max_similarity FLOAT NOT NULL DEFAULT 0,
+            most_similar_post_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY post_id (post_id),
+            KEY post_type_hash (post_type, fingerprint_hash),
+            KEY max_similarity (max_similarity)
+        ) $charset_collate;";
+
+        $sql_tag_quality = "CREATE TABLE $tag_quality (
+            term_id BIGINT UNSIGNED NOT NULL,
+            tag_name VARCHAR(200) NOT NULL DEFAULT '',
+            post_count INT NOT NULL DEFAULT 0,
+            quality_score FLOAT NULL DEFAULT NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'unscored',
+            category_overlap TINYINT(1) NOT NULL DEFAULT 0,
+            is_blocked TINYINT(1) NOT NULL DEFAULT 0,
+            is_generic TINYINT(1) NOT NULL DEFAULT 0,
+            demand_score FLOAT NULL DEFAULT NULL,
+            promoted_at DATETIME NULL DEFAULT NULL,
+            scored_at DATETIME NULL DEFAULT NULL,
+            PRIMARY KEY (term_id),
+            KEY status_score (status, quality_score),
+            KEY is_blocked (is_blocked)
+        ) $charset_collate;";
+
+        $sql_cannibalization = "CREATE TABLE $cannibalization (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            keyword_text VARCHAR(255) NOT NULL,
+            keyword_hash CHAR(32) NOT NULL,
+            page_a_id BIGINT UNSIGNED NOT NULL,
+            page_a_type VARCHAR(30) NOT NULL DEFAULT '',
+            page_b_id BIGINT UNSIGNED NOT NULL,
+            page_b_type VARCHAR(30) NOT NULL DEFAULT '',
+            severity VARCHAR(20) NOT NULL DEFAULT 'warning',
+            resolved TINYINT(1) NOT NULL DEFAULT 0,
+            detected_at DATETIME NOT NULL,
+            resolved_at DATETIME NULL DEFAULT NULL,
+            PRIMARY KEY (id),
+            KEY keyword_hash (keyword_hash),
+            KEY page_a (page_a_id),
+            KEY page_b (page_b_id),
+            KEY severity_resolved (severity, resolved)
+        ) $charset_collate;";
+
+        $sql_video_title_candidates = "CREATE TABLE $video_title_candidates (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            post_id BIGINT UNSIGNED NOT NULL,
+            candidate_title VARCHAR(255) NOT NULL DEFAULT '',
+            score FLOAT NOT NULL DEFAULT 0,
+            source VARCHAR(60) NOT NULL DEFAULT 'template',
+            is_selected TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY post_id_score (post_id, score),
+            KEY is_selected (post_id, is_selected)
+        ) $charset_collate;";
+
+        dbDelta($sql_content_fingerprints);
+        dbDelta($sql_tag_quality);
+        dbDelta($sql_cannibalization);
+        dbDelta($sql_video_title_candidates);
+
         self::seed_keyword_blacklist();
 
         \TMW\SEO\Lighthouse\Schema::create_or_update_tables();

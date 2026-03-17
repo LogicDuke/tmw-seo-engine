@@ -1310,6 +1310,12 @@ class AssistedDraftEnrichmentService {
         update_post_meta((int) $post->ID, 'tmw_keyword_pack', $keyword_pack);
         update_post_meta((int) $post->ID, '_tmwseo_keyword_pack', wp_json_encode($keyword_pack));
 
+        // Patch 2.1: persist keyword confidence from real scoring data.
+        $confidence = (float) ($keyword_pack['confidence'] ?? 0);
+        if ($confidence > 0) {
+            update_post_meta((int) $post->ID, '_tmwseo_keyword_confidence', $confidence);
+        }
+
         if ($run_clustering) {
             $cluster_engine = new ClusterEngine();
             $cluster_engine->build_for_post((int) $post->ID);
@@ -1322,22 +1328,26 @@ class AssistedDraftEnrichmentService {
      * @param array<string,mixed> $keyword_pack
      */
     public static function enrich_rank_math_keywords(\WP_Post $post, array $keyword_pack): void {
-        if ($post->post_type !== 'model') {
-            return;
+        // Patch 2: centralized Rank Math mapping via RankMathMapper.
+        // Internal engine keeps dynamic 2–6 additional + longtails.
+        // Rank Math always receives: 1 focus + up to 4 extras.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
+            \TMWSEO\Engine\Content\RankMathMapper::sync_to_rank_math((int) $post->ID, $keyword_pack, true);
+        } else {
+            // Legacy fallback (should not be reached after Patch 2).
+            $primary = trim((string) ($keyword_pack['primary'] ?? ''));
+            $additional = !empty($keyword_pack['additional']) && is_array($keyword_pack['additional'])
+                ? array_slice($keyword_pack['additional'], 0, 4)
+                : [];
+
+            $focus_list = array_merge([$primary], $additional);
+            $focus_list = array_values(array_unique(array_filter(array_map('trim', array_map('strval', $focus_list)), 'strlen')));
+            if (!empty($focus_list)) {
+                update_post_meta((int) $post->ID, 'rank_math_focus_keyword', implode(',', $focus_list));
+            }
         }
 
-        $primary = trim((string) ($keyword_pack['primary'] ?? ''));
-        $additional = !empty($keyword_pack['additional']) && is_array($keyword_pack['additional'])
-            ? array_slice($keyword_pack['additional'], 0, 4)
-            : [];
-
-        $focus_list = array_merge([$primary], $additional);
-        $focus_list = array_values(array_unique(array_filter(array_map('trim', array_map('strval', $focus_list)), 'strlen')));
-        if (!empty($focus_list)) {
-            update_post_meta((int) $post->ID, 'rank_math_focus_keyword', implode(',', $focus_list));
-        }
-
-        self::update_model_secondary_keywords_for_post($post, $primary);
+        self::update_model_secondary_keywords_for_post($post, trim((string) ($keyword_pack['primary'] ?? '')));
     }
 
     public static function normalize_focus_keyword_for_post(\WP_Post $post, string $focus_kw): string {
@@ -1388,6 +1398,19 @@ class AssistedDraftEnrichmentService {
         update_post_meta($post_id, '_tmwseo_quality_warning', !empty($quality['warning']) ? '1' : '0');
         update_post_meta($post_id, '_tmwseo_quality_score_data', wp_json_encode($quality));
 
+        // Patch 2: wire AuditTrail persistence.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\AuditTrail')) {
+            $uniqueness_pct = (float) ($quality['breakdown']['uniqueness'] ?? 0);
+            \TMWSEO\Engine\Content\AuditTrail::persist_quality($post_id, $quality, $uniqueness_pct);
+            \TMWSEO\Engine\Content\AuditTrail::persist_keyword_pack($post_id, $keyword_pack);
+            \TMWSEO\Engine\Content\AuditTrail::persist_fingerprint($post_id, $content_html, (string) $post->post_type);
+        }
+
+        // Patch 2: evaluate readiness gates after scoring.
+        if (class_exists('\\TMWSEO\\Engine\\Content\\IndexReadinessGate')) {
+            \TMWSEO\Engine\Content\IndexReadinessGate::evaluate_post($post_id);
+        }
+
         Logs::info('content', '[TMW-QUALITY] Draft evaluated', [
             'post_id' => $post_id,
             'score' => (int) ($quality['score'] ?? 0),
@@ -1426,6 +1449,9 @@ class AssistedDraftEnrichmentService {
             'primary_keyword' => $focus_kw,
             'secondary_keywords' => $secondary_keywords,
             'entities' => array_values(array_unique(array_filter($entities))),
+            'page_type' => (string) $post->post_type,
+            'post_type' => (string) $post->post_type,
+            'post_id'   => (int) $post->ID,
         ];
     }
 }

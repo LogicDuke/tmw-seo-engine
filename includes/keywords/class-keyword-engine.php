@@ -43,9 +43,12 @@ class KeywordEngine {
         //   - Google KP and Google Trends run independently when DataForSEO is absent.
         // KD refresh calls DataForSEO::bulk_keyword_difficulty() which returns ok=>false
         // gracefully when credentials are missing or budget is exceeded.
+        // DataForSEO status is informational only — the cycle continues via
+        // other providers.  Do NOT call record_stop_reason() here: it would
+        // pollute last_stop_reason with a non-terminal condition that later
+        // branches may never overwrite (the cause of the stale-no_seeds bug).
         if ( ! DataForSEO::is_configured() ) {
             Logs::info( 'keywords', '[TMW-KW] DataForSEO not configured — discovery will use Google KP / Google Trends only; KD refresh skipped.' );
-            self::record_stop_reason('dataforseo_not_configured');
         } elseif ( DataForSEO::is_over_budget() ) {
             $budget = DataForSEO::get_monthly_budget_stats();
             Logs::warn( 'keywords', '[TMW-KW] DataForSEO monthly budget exceeded — discovery continues via other providers; KD refresh skipped.', [
@@ -53,11 +56,6 @@ class KeywordEngine {
                 'spent_usd'     => $budget['spent_usd'] ?? 0,
                 'remaining_usd' => $budget['remaining_usd'] ?? 0,
             ] );
-            self::record_stop_reason('dataforseo_over_budget', [
-                'budget_usd' => $budget['budget_usd'] ?? 0,
-                'spent_usd' => $budget['spent_usd'] ?? 0,
-                'remaining_usd' => $budget['remaining_usd'] ?? 0,
-            ]);
         }
 
         $job_started = microtime(true);
@@ -189,7 +187,18 @@ class KeywordEngine {
                         Logs::info('keywords', 'Seeds', ['count' => count($seeds), 'seeds' => array_slice($seeds, 0, 10)]);
 
                         if (empty($seeds)) {
-                            self::record_stop_reason('no_seeds');
+                            $registry_diag = SeedRegistry::diagnostics();
+                            Logs::warn('keywords', '[TMW-KW] Seed list empty at expansion entry — diagnosing', [
+                                'registry_total_seeds'   => (int) ($registry_diag['total_seeds'] ?? 0),
+                                'registry_sources'       => $registry_diag['seed_sources'] ?? [],
+                                'orchestrated_count'     => count($orchestrated_seeds ?? []),
+                                'collect_seeds_fallback' => empty($orchestrated_seeds),
+                                'discovery_enabled'      => (bool) ($registry_diag['discovery_enabled'] ?? false),
+                            ]);
+                            self::record_stop_reason('no_seeds', [
+                                'registry_total'    => (int) ($registry_diag['total_seeds'] ?? 0),
+                                'discovery_enabled' => (bool) ($registry_diag['discovery_enabled'] ?? false),
+                            ]);
                         }
                         $failures = 0;
                         $max_failures = 3;
@@ -197,6 +206,10 @@ class KeywordEngine {
                         $secondary_expansions = 0;
                         $expanded_seeds = [];
                         $queue = [];
+                        $seeds_skipped_cooldown = 0;
+                        $seeds_expanded_count = 0;
+                        $duplicates_total = 0;
+                        $cycle_spend_estimate = 0.0;
 
                         foreach ($seeds as $seed) {
                             $normalized_seed = KeywordValidator::normalize((string) $seed);
@@ -240,7 +253,13 @@ class KeywordEngine {
                                 continue;
                             }
 
-                            if ($depth > 0 && QueryExpansionGraph::was_expanded_recently($seed, 30)) {
+                            // ── Phase 1 fix: all seeds (including root depth=0) respect
+                            //    the 30-day expansion cooldown. Previously only depth>0
+                            //    seeds were gated, so root seeds were re-expanded every
+                            //    cycle — the #1 cause of DataForSEO waste.
+                            $cooldown_days = (int) Settings::get('seed_expansion_cooldown_days', 30);
+                            if (QueryExpansionGraph::was_expanded_recently($seed, $cooldown_days)) {
+                                $seeds_skipped_cooldown = ($seeds_skipped_cooldown ?? 0) + 1;
                                 continue;
                             }
 
@@ -271,7 +290,10 @@ class KeywordEngine {
                             }
 
                             QueryExpansionGraph::mark_expanded($seed);
+                            $seeds_expanded_count++;
                             $failures = 0;
+                            $seed_net_new = 0;
+                            $seed_dupes = 0;
 
                             $items = (array) ($res['items'] ?? []);
                             $discovered_total += count($items);
@@ -375,6 +397,8 @@ class KeywordEngine {
             
                                 $existing = $existing_map[$kw] ?? null;
                                 if ($existing) {
+                                    $seed_dupes++;
+                                    $duplicates_total++;
                                     // update sources + provenance
                                     $vol_src = (string) ( $it['_tmw_volume_source'] ?? 'dataforseo' );
                                     $cpc_src = (string) ( $it['_tmw_cpc_source']    ?? $vol_src );
@@ -427,6 +451,7 @@ class KeywordEngine {
                                     ]);
             
                                     $inserted++;
+                                    $seed_net_new++;
                                     DiscoveryGovernor::increment('keywords_discovered', 1);
                                 }
 
@@ -480,7 +505,19 @@ class KeywordEngine {
                                 'nodes_created' => count($lookup_keywords),
                                 'relationships_created' => $relationships_created,
                                 'secondary_expansions' => $secondary_expansions,
+                                'seed_net_new' => $seed_net_new,
+                                'seed_dupes' => $seed_dupes,
                             ]);
+
+                            // ── Phase 2: record per-seed expansion metrics for ROI tracking
+                            if ($depth === 0) {
+                                SeedRegistry::record_expansion_result($seed, [
+                                    'net_new'        => $seed_net_new,
+                                    'duplicates'     => $seed_dupes,
+                                    'provider'       => 'aggregator',
+                                    'estimated_cost' => 0.01,
+                                ]);
+                            }
 
                             usleep(250000);
                         }
@@ -492,33 +529,48 @@ class KeywordEngine {
             $runtime = round(microtime(true) - $job_started, 2);
 
             Logs::info('keywords', 'Cycle metrics', [
-                'runtime_seconds' => $runtime,
-                'inserted' => $inserted ?? 0,
-                'failures' => $failures ?? 0,
+                'runtime_seconds'        => $runtime,
+                'inserted'               => $inserted ?? 0,
+                'failures'               => $failures ?? 0,
+                'seeds_expanded'         => $seeds_expanded_count ?? 0,
+                'seeds_skipped_cooldown' => $seeds_skipped_cooldown ?? 0,
+                'duplicates_total'       => $duplicates_total ?? 0,
             ]);
 
             self::update_cycle_metrics([
-                'last_run' => time(),
-                'runtime_seconds' => $runtime,
-                'inserted' => $inserted ?? 0,
-                'failures' => $failures ?? 0,
+                'last_run'               => time(),
+                'runtime_seconds'        => $runtime,
+                'inserted'               => $inserted ?? 0,
+                'failures'               => $failures ?? 0,
+                'seeds_expanded'         => $seeds_expanded_count ?? 0,
+                'seeds_skipped_cooldown' => $seeds_skipped_cooldown ?? 0,
+                'duplicates_total'       => $duplicates_total ?? 0,
             ]);
+
+            // Auto-retire seeds that have proven unproductive.
+            SeedRegistry::retire_exhausted_seeds(5);
 
             delete_transient($lock_key);
         }
 
 Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
 
+        // ── Phase 1 fix: the previous KeywordDiscoveryService::discover_from_seeds()
+        //    call here was a SECOND paid expansion of the same seeds in the same cycle.
+        //    Google Autosuggest is now integrated into the aggregator (free provider),
+        //    so nothing is lost. We still update last_discovery_run for admin visibility.
         if ($mode !== 'import_only') {
-            $discovery_result = KeywordDiscoveryService::discover_from_seeds($cycle_seeds, 100);
-            $discovery_inserted = (int) ($discovery_result['inserted'] ?? 0);
-            self::update_cycle_metrics(['last_discovery_run' => time()]);
+            self::update_cycle_metrics([
+                'last_discovery_run'     => time(),
+                'seeds_expanded'         => $seeds_expanded_count ?? 0,
+                'seeds_skipped_cooldown' => $seeds_skipped_cooldown ?? 0,
+                'duplicates_total'       => $duplicates_total ?? 0,
+            ]);
 
-            if ($discovery_inserted <= 0) {
-                $reason = (string) ($discovery_result['reason'] ?? 'discovery_inserted_zero_provider_empty');
-                self::record_stop_reason($reason, [
-                    'providers' => (array) ($discovery_result['providers'] ?? []),
-                    'counts' => (array) ($discovery_result['counts'] ?? []),
+            if (($inserted ?? 0) > 0) {
+                self::update_cycle_metrics([
+                    'last_stop_reason'    => '',
+                    'last_stop_reason_at' => 0,
                 ]);
             }
         }
@@ -883,9 +935,15 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ];
 
         // Static curated roots are trusted — write directly to registry.
-        foreach ($static_seeds as $seed) {
-            if (SeedRegistry::register_trusted_seed($seed, 'static_curated', 'system', 0)) {
-                $source_counts['static_seeds']++;
+        // The admin Reset & Starter Pack panel can block re-registration to
+        // prevent purged static_curated seeds from coming back.
+        if ( (int) get_option( 'tmwseo_block_static_curated', 0 ) === 1 ) {
+            Logs::info( 'keywords', '[TMW-KW] Static curated seed re-registration blocked by admin setting (tmwseo_block_static_curated=1)' );
+        } else {
+            foreach ($static_seeds as $seed) {
+                if (SeedRegistry::register_trusted_seed($seed, 'static_curated', 'system', 0)) {
+                    $source_counts['static_seeds']++;
+                }
             }
         }
 
