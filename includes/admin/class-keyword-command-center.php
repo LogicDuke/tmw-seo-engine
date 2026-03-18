@@ -134,15 +134,17 @@ class KeywordCommandCenter {
             case 'clean_rebuild_zero':
                 $confirmation = sanitize_text_field( wp_unslash( $_POST['clean_rebuild_confirm'] ?? '' ) );
                 if ( $confirmation !== 'CLEAN-REBUILD-ZERO' ) {
-                    set_transient( 'tmwseo_clean_rebuild_result', [
-                        'success' => false,
-                        'errors'  => [ 'confirmation_mismatch' ],
-                    ], 300 );
+                    set_transient( 'tmwseo_clean_rebuild_result', StagingCleanRebuild::record_preflight_failure( get_current_user_id(), [ 'confirmation_mismatch' ] ), 300 );
                     $msg = 'clean_rebuild_zero_invalid_confirm';
                 } else {
                     set_transient( 'tmwseo_clean_rebuild_result', StagingCleanRebuild::execute( get_current_user_id() ), 300 );
                 }
                 $tab = 'health';
+                break;
+            case 'clear_clean_rebuild_history':
+                StagingCleanRebuild::clear_last_result();
+                $tab = 'health';
+                $msg = 'clean_rebuild_history_cleared';
                 break;
             case 'resume':
                 ContentGenerationGate::resume_all();
@@ -216,6 +218,8 @@ class KeywordCommandCenter {
 
         if ( $msg === 'clean_rebuild_zero_invalid_confirm' ) {
             echo '<div class="notice notice-warning is-dismissible"><p>Clean Rebuild from Zero was blocked. Type <code>CLEAN-REBUILD-ZERO</code> exactly to continue.</p></div>';
+        } elseif ( $msg === 'clean_rebuild_history_cleared' ) {
+            echo '<div class="notice notice-success is-dismissible"><p>Last Clean Rebuild Run history was cleared.</p></div>';
         } elseif ( $msg !== '' && ! in_array( $msg, [ 'clean_rebuild_zero' ], true ) ) {
             echo '<div class="notice notice-success is-dismissible"><p>Done: <code>' . esc_html( $msg ) . '</code></p></div>';
         }
@@ -562,6 +566,8 @@ class KeywordCommandCenter {
         echo '</div>';
         echo '</form>';
 
+        self::render_last_clean_rebuild_panel();
+
         // -- Lifecycle reference --
         echo '<h3 style="margin-top:25px;">Lifecycle Reference</h3>';
         echo '<div style="background:#f8f9fa;border:1px solid #dee2e6;padding:12px 15px;border-radius:4px;font-size:13px;">';
@@ -571,6 +577,184 @@ class KeywordCommandCenter {
         echo '<strong>Approved</strong> = assignable to a page. <strong>Scored/Parked</strong> = deferred, promoted when space opens. <strong>Rejected</strong> = terminal.<br>';
         echo '<strong>Only approved + assigned keywords can trigger content generation.</strong>';
         echo '</div>';
+    }
+
+
+    private static function render_last_clean_rebuild_panel(): void {
+        $result = StagingCleanRebuild::get_last_result();
+
+        echo '<div style="margin-top:18px;padding:14px;background:#fff;border:1px solid #dcdcde;border-radius:6px;max-width:980px;">';
+        echo '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">';
+        echo '<div><h3 style="margin:0 0 4px;">Last Clean Rebuild Run</h3>';
+        echo '<p style="margin:0;color:#646970;">Most recent staging reset-and-prime execution for debugging/review preparation.</p></div>';
+        echo '<div>' . self::render_clean_rebuild_status_badge( $result ) . '</div>';
+        echo '</div>';
+
+        if ( empty( $result ) ) {
+            echo '<p style="margin:12px 0 0;color:#646970;">No clean rebuild has been recorded yet.</p>';
+            echo '</div>';
+            return;
+        }
+
+        $timestamp     = self::clean_rebuild_admin_time( (string) ( $result['timestamp'] ?? '' ), (string) ( $result['timestamp_gmt'] ?? '' ) );
+        $user_label    = trim( (string) ( $result['user_label'] ?? '' ) );
+        $error_messages = array_values( array_filter( array_map( 'strval', (array) ( $result['errors'] ?? [] ) ) ) );
+        $summary_rows  = [
+            'Legacy new → discovered migrated' => self::clean_rebuild_int( $result, 'legacy_new_migrated' ),
+            'Generator rows archived'          => self::clean_rebuild_int( $result, 'generator_archived' ),
+            'queued_for_review rows parked'    => self::clean_rebuild_int( $result, 'discovery_parked' ),
+            'Pending manual cycle jobs deleted'=> self::clean_rebuild_int( $result, 'manual_jobs_deleted' ),
+            'First clean cycle run'            => self::clean_rebuild_bool_label( $result['cycle_triggered'] ?? false ),
+            'Content generation paused afterward' => self::clean_rebuild_bool_label( $result['content_generation_paused'] ?? false ),
+        ];
+
+        echo '<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px 18px;">';
+        echo '<div><strong>Ran at:</strong> ' . esc_html( $timestamp ) . '</div>';
+        echo '<div><strong>Triggered by:</strong> ' . esc_html( $user_label !== '' ? $user_label : 'Unknown' ) . '</div>';
+        echo '<div><strong>Status:</strong> ' . esc_html( ! empty( $result['success'] ) ? 'Success' : 'Failed' ) . '</div>';
+        echo '</div>';
+
+        echo '<table class="widefat striped" style="margin-top:12px;max-width:780px;"><tbody>';
+        foreach ( $summary_rows as $label => $value ) {
+            echo '<tr><th style="width:340px;">' . esc_html( $label ) . '</th><td>' . esc_html( (string) $value ) . '</td></tr>';
+        }
+        echo '</tbody></table>';
+
+        $before = is_array( $result['before'] ?? null ) ? $result['before'] : [];
+        $after  = is_array( $result['after'] ?? null ) ? $result['after'] : [];
+        $count_rows = [
+            'Working keywords total'          => [ self::clean_rebuild_count( $before, [ 'working_keywords' ] ), self::clean_rebuild_count( $after, [ 'working_keywords' ] ) ],
+            'Queued for review'               => [ self::clean_rebuild_count( $before, [ 'discovery', 'queued_for_review' ] ), self::clean_rebuild_count( $after, [ 'discovery', 'queued_for_review' ] ) ],
+            'Approved'                        => [ self::clean_rebuild_count( $before, [ 'discovery', 'approved' ] ), self::clean_rebuild_count( $after, [ 'discovery', 'approved' ] ) ],
+            'Assigned pages / post meta count'=> [ self::clean_rebuild_count( $before, [ 'assigned_pages' ] ), self::clean_rebuild_count( $after, [ 'assigned_pages' ] ) ],
+            'Trusted seeds total'             => [ self::clean_rebuild_count( $before, [ 'seed_totals', 'total_seeds' ] ), self::clean_rebuild_count( $after, [ 'seed_totals', 'total_seeds' ] ) ],
+            'Seed expansion candidates total' => [ self::clean_rebuild_count( $before, [ 'generator', 'total' ] ), self::clean_rebuild_count( $after, [ 'generator', 'total' ] ) ],
+            'Raw keyword rows total'          => [ self::clean_rebuild_count( $before, [ 'raw_keywords' ] ), self::clean_rebuild_count( $after, [ 'raw_keywords' ] ) ],
+        ];
+
+        echo '<h4 style="margin:16px 0 8px;">Counts snapshot</h4>';
+        echo '<table class="widefat striped" style="max-width:780px;"><thead><tr><th>Metric</th><th style="width:120px;">Before</th><th style="width:120px;">After</th></tr></thead><tbody>';
+        foreach ( $count_rows as $label => $pair ) {
+            echo '<tr><th>' . esc_html( $label ) . '</th><td>' . esc_html( (string) $pair[0] ) . '</td><td>' . esc_html( (string) $pair[1] ) . '</td></tr>';
+        }
+        echo '</tbody></table>';
+
+        $reset = is_array( $result['reset'] ?? null ) ? $result['reset'] : [];
+        $reset_rows = [
+            'Model roots restored'    => self::clean_rebuild_int( $reset, 'model_roots_restored' ),
+            'Manual seeds restored'   => self::clean_rebuild_int( $reset, 'manual_seeds_restored' ),
+            'Starter pack registered' => self::clean_rebuild_reset_bool_or_count( $reset, 'starter_pack_registered' ),
+            'Archived tables created' => self::clean_rebuild_archived_tables_label( $reset ),
+        ];
+
+        echo '<h4 style="margin:16px 0 8px;">Reset details</h4>';
+        echo '<ul style="margin:0 0 0 18px;">';
+        foreach ( $reset_rows as $label => $value ) {
+            echo '<li><strong>' . esc_html( $label ) . ':</strong> ' . esc_html( (string) $value ) . '</li>';
+        }
+        echo '</ul>';
+
+        if ( ! empty( $error_messages ) ) {
+            echo '<div class="notice notice-error inline" style="margin:14px 0 0;padding:8px 12px;">';
+            echo '<p style="margin:0 0 6px;"><strong>Errors</strong></p><ul style="margin:0 0 0 18px;">';
+            foreach ( $error_messages as $message ) {
+                echo '<li>' . esc_html( $message ) . '</li>';
+            }
+            echo '</ul></div>';
+        }
+
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:12px;">';
+        wp_nonce_field( 'tmwseo_cc_nonce' );
+        echo '<input type="hidden" name="action" value="tmwseo_command_center_action">';
+        echo '<button type="submit" name="cc_action" value="clear_clean_rebuild_history" class="button button-secondary">Clear last run record</button>';
+        echo '</form>';
+
+        echo '</div>';
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private static function render_clean_rebuild_status_badge( array $result ): string {
+        if ( empty( $result ) ) {
+            return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#f0f0f1;color:#50575e;font-weight:600;">No Data</span>';
+        }
+
+        if ( ! empty( $result['success'] ) ) {
+            return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;">Success</span>';
+        }
+
+        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;">Failed</span>';
+    }
+
+    private static function clean_rebuild_admin_time( string $local_mysql, string $gmt_mysql ): string {
+        if ( $local_mysql !== '' ) {
+            $timestamp = strtotime( $local_mysql );
+            if ( $timestamp ) {
+                return wp_date( 'Y-m-d H:i', $timestamp );
+            }
+            return $local_mysql;
+        }
+
+        if ( $gmt_mysql !== '' ) {
+            $timestamp = strtotime( $gmt_mysql . ' UTC' );
+            if ( $timestamp ) {
+                return wp_date( 'Y-m-d H:i', $timestamp );
+            }
+            return $gmt_mysql;
+        }
+
+        return 'Unknown';
+    }
+
+    /**
+     * @param array<string,mixed> $source
+     */
+    private static function clean_rebuild_int( array $source, string $key ): int {
+        return (int) ( $source[ $key ] ?? 0 );
+    }
+
+    private static function clean_rebuild_bool_label( $value ): string {
+        return ! empty( $value ) ? 'Yes' : 'No';
+    }
+
+    /**
+     * @param array<string,mixed> $source
+     * @param array<int,string> $path
+     */
+    private static function clean_rebuild_count( array $source, array $path ): int {
+        $value = $source;
+        foreach ( $path as $segment ) {
+            if ( ! is_array( $value ) || ! array_key_exists( $segment, $value ) ) {
+                return 0;
+            }
+            $value = $value[ $segment ];
+        }
+
+        return (int) $value;
+    }
+
+    /**
+     * @param array<string,mixed> $reset
+     */
+    private static function clean_rebuild_reset_bool_or_count( array $reset, string $key ): string {
+        $value = $reset[ $key ] ?? 0;
+        if ( is_bool( $value ) ) {
+            return $value ? 'Yes' : 'No';
+        }
+
+        $count = (int) $value;
+        return $count > 0 ? 'Yes (' . $count . ')' : 'No';
+    }
+
+    /**
+     * @param array<string,mixed> $reset
+     */
+    private static function clean_rebuild_archived_tables_label( array $reset ): string {
+        $tables = is_array( $reset['archived_tables'] ?? null ) ? $reset['archived_tables'] : [];
+        $count  = count( $tables );
+
+        return $count > 0 ? 'Yes (' . $count . ')' : 'No';
     }
 
     private static function hr( string $label, $value, string $s = '' ): void {

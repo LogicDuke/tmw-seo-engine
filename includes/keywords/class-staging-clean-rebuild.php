@@ -22,6 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class StagingCleanRebuild {
 
     private const STAGING_FLAGS_OPTION = 'tmwseo_staging_flags';
+    private const LAST_RESULT_OPTION   = 'tmwseo_last_clean_rebuild_result';
 
     /**
      * Run the staging-only clean rebuild sequence.
@@ -32,21 +33,22 @@ class StagingCleanRebuild {
         global $wpdb;
 
         $result = [
-            'success'              => false,
-            'errors'               => [],
-            'legacy_new_migrated'  => 0,
-            'generator_archived'   => 0,
-            'discovery_parked'     => 0,
-            'manual_jobs_deleted'  => 0,
-            'reset'                => [],
-            'cycle_triggered'      => false,
-            'before'               => self::capture_counts(),
-            'after'                => [],
+            'success'                   => false,
+            'errors'                    => [],
+            'legacy_new_migrated'       => 0,
+            'generator_archived'        => 0,
+            'discovery_parked'          => 0,
+            'manual_jobs_deleted'       => 0,
+            'reset'                     => [],
+            'cycle_triggered'           => false,
+            'content_generation_paused' => false,
+            'before'                    => self::capture_counts(),
+            'after'                     => [],
         ];
 
         if ( ! current_user_can( 'manage_options' ) ) {
             $result['errors'][] = 'insufficient_permissions';
-            return $result;
+            return self::finalize_result( $result, $user_id );
         }
 
         if ( ! TrustPolicy::is_manual_only() ) {
@@ -54,7 +56,7 @@ class StagingCleanRebuild {
             Logs::warn( 'keywords', '[TMW-CLEAN-REBUILD] Aborted: manual-only trust policy not active', [
                 'user_id' => $user_id,
             ] );
-            return $result;
+            return self::finalize_result( $result, $user_id );
         }
 
         $now_mysql = current_time( 'mysql' );
@@ -82,9 +84,9 @@ class StagingCleanRebuild {
                 "DELETE FROM {$jobs_table} WHERE status = 'pending' AND payload_json LIKE '%manual_keyword_cycle%'"
             );
             Logs::info( 'keywords', '[TMW-CLEAN-REBUILD] Pending manual keyword cycle jobs deleted', [
-                'user_id'  => $user_id,
-                'deleted'  => $result['manual_jobs_deleted'],
-                'table'    => $jobs_table,
+                'user_id' => $user_id,
+                'deleted' => $result['manual_jobs_deleted'],
+                'table'   => $jobs_table,
             ] );
         } else {
             Logs::info( 'keywords', '[TMW-CLEAN-REBUILD] Jobs table not present; skipping manual job cleanup', [
@@ -157,9 +159,10 @@ class StagingCleanRebuild {
                 $result['errors'] = array_merge( $result['errors'], array_map( 'strval', $result['reset']['errors'] ) );
             }
             ContentGenerationGate::pause_all();
-            $result['after'] = self::capture_counts();
+            $result['content_generation_paused'] = ContentGenerationGate::is_paused();
+            $result['after']                     = self::capture_counts();
             Logs::error( 'keywords', '[TMW-CLEAN-REBUILD] Aborted after reset failure', $result );
-            return $result;
+            return self::finalize_result( $result, $user_id );
         }
 
         try {
@@ -179,12 +182,13 @@ class StagingCleanRebuild {
         } catch ( \Throwable $throwable ) {
             $result['errors'][] = 'manual_cycle_failed:' . $throwable->getMessage();
             ContentGenerationGate::pause_all();
-            $result['after'] = self::capture_counts();
+            $result['content_generation_paused'] = ContentGenerationGate::is_paused();
+            $result['after']                     = self::capture_counts();
             Logs::error( 'keywords', '[TMW-CLEAN-REBUILD] Manual clean discovery cycle failed', [
                 'user_id' => $user_id,
                 'message' => $throwable->getMessage(),
             ] );
-            return $result;
+            return self::finalize_result( $result, $user_id );
         }
 
         ContentGenerationGate::pause_all();
@@ -192,15 +196,97 @@ class StagingCleanRebuild {
             'user_id' => $user_id,
         ] );
 
-        $result['after'] = self::capture_counts();
-        $result['success'] = true;
+        $result['content_generation_paused'] = ContentGenerationGate::is_paused();
+        $result['after']                     = self::capture_counts();
+        $result['success']                   = true;
 
         Logs::info( 'keywords', '[TMW-CLEAN-REBUILD] Staging clean rebuild from zero completed', [
             'user_id' => $user_id,
             'after'   => $result['after'],
         ] );
 
+        return self::finalize_result( $result, $user_id );
+    }
+
+    /**
+     * Persist a compact failed attempt before the main orchestrator runs.
+     *
+     * @param array<int,string> $errors
+     * @param array<string,mixed> $extra
+     * @return array<string,mixed>
+     */
+    public static function record_preflight_failure( int $user_id, array $errors, array $extra = [] ): array {
+        $result = array_merge( [
+            'success'                   => false,
+            'errors'                    => array_values( array_map( 'strval', $errors ) ),
+            'legacy_new_migrated'       => 0,
+            'generator_archived'        => 0,
+            'discovery_parked'          => 0,
+            'manual_jobs_deleted'       => 0,
+            'reset'                     => [],
+            'cycle_triggered'           => false,
+            'content_generation_paused' => ContentGenerationGate::is_paused(),
+            'before'                    => [],
+            'after'                     => [],
+        ], $extra );
+
+        return self::finalize_result( $result, $user_id );
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     * @return array<string,mixed>
+     */
+    private static function finalize_result( array $result, int $user_id ): array {
+        $result['content_generation_paused'] = ! empty( $result['content_generation_paused'] ) || ContentGenerationGate::is_paused();
+        self::persist_last_result( $result, $user_id );
+
         return $result;
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private static function persist_last_result( array $result, int $user_id ): void {
+        $user_label = '';
+        $user       = $user_id > 0 ? get_userdata( $user_id ) : false;
+
+        if ( $user instanceof \WP_User ) {
+            $user_label = (string) ( $user->display_name ?: $user->user_email ?: $user->user_login );
+        }
+
+        $payload = [
+            'timestamp'                 => current_time( 'mysql' ),
+            'timestamp_gmt'             => gmdate( 'Y-m-d H:i:s' ),
+            'user_id'                   => $user_id,
+            'user_label'                => $user_label,
+            'success'                   => ! empty( $result['success'] ),
+            'errors'                    => array_values( array_map( 'strval', (array) ( $result['errors'] ?? [] ) ) ),
+            'legacy_new_migrated'       => (int) ( $result['legacy_new_migrated'] ?? 0 ),
+            'generator_archived'        => (int) ( $result['generator_archived'] ?? 0 ),
+            'discovery_parked'          => (int) ( $result['discovery_parked'] ?? 0 ),
+            'manual_jobs_deleted'       => (int) ( $result['manual_jobs_deleted'] ?? 0 ),
+            'reset'                     => is_array( $result['reset'] ?? null ) ? $result['reset'] : [],
+            'cycle_triggered'           => ! empty( $result['cycle_triggered'] ),
+            'content_generation_paused' => ! empty( $result['content_generation_paused'] ),
+            'before'                    => is_array( $result['before'] ?? null ) ? $result['before'] : [],
+            'after'                     => is_array( $result['after'] ?? null ) ? $result['after'] : [],
+        ];
+
+        update_option( self::LAST_RESULT_OPTION, $payload, false );
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public static function get_last_result(): array {
+        $stored = get_option( self::LAST_RESULT_OPTION, [] );
+
+        return is_array( $stored ) ? $stored : [];
+    }
+
+    public static function clear_last_result(): void {
+        delete_option( self::LAST_RESULT_OPTION );
     }
 
     /**
@@ -210,12 +296,15 @@ class StagingCleanRebuild {
         global $wpdb;
 
         $counts = [
-            'staging_flags'        => get_option( self::STAGING_FLAGS_OPTION, [] ),
-            'content_paused'       => ContentGenerationGate::is_paused(),
-            'manual_jobs_pending'  => 0,
-            'generator'            => [],
-            'discovery'            => [],
-            'seed_totals'          => [],
+            'staging_flags'       => get_option( self::STAGING_FLAGS_OPTION, [] ),
+            'content_paused'      => ContentGenerationGate::is_paused(),
+            'manual_jobs_pending' => 0,
+            'generator'           => [],
+            'discovery'           => [],
+            'seed_totals'         => [],
+            'working_keywords'    => 0,
+            'assigned_pages'      => 0,
+            'raw_keywords'        => 0,
         ];
 
         $jobs_table = $wpdb->prefix . 'tmwseo_jobs';
@@ -227,6 +316,7 @@ class StagingCleanRebuild {
 
         $generator_table = $wpdb->prefix . 'tmw_seed_expansion_candidates';
         if ( self::table_exists( $generator_table ) ) {
+            $counts['generator']['total'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$generator_table}" );
             $rows = $wpdb->get_results( "SELECT status, COUNT(*) AS cnt FROM {$generator_table} GROUP BY status", ARRAY_A );
             if ( is_array( $rows ) ) {
                 foreach ( $rows as $row ) {
@@ -237,6 +327,7 @@ class StagingCleanRebuild {
 
         $candidate_table = $wpdb->prefix . 'tmw_keyword_candidates';
         if ( self::table_exists( $candidate_table ) ) {
+            $counts['working_keywords'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$candidate_table}" );
             $rows = $wpdb->get_results( "SELECT status, COUNT(*) AS cnt FROM {$candidate_table} GROUP BY status", ARRAY_A );
             if ( is_array( $rows ) ) {
                 foreach ( $rows as $row ) {
@@ -244,6 +335,16 @@ class StagingCleanRebuild {
                 }
             }
         }
+
+        $raw_table = $wpdb->prefix . 'tmw_keyword_raw';
+        if ( self::table_exists( $raw_table ) ) {
+            $counts['raw_keywords'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$raw_table}" );
+        }
+
+        $counts['assigned_pages'] = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = %s",
+            '_tmwseo_keyword'
+        ) );
 
         $counts['seed_totals'] = SeedRegistry::diagnostics();
 
