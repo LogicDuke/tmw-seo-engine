@@ -60,6 +60,9 @@ require_once TMWSEO_ENGINE_PATH . 'includes/content/class-video-title-rewriter.p
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-video-content-architecture.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-audit-trail.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-mapper.php'; // Patch 2
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-reader.php'; // 4.5.0 — RM read layer
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-checklist.php'; // 4.5.0 — RM checklist
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-rank-math-helper-panel.php'; // 4.5.0 — RM helper panel
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-cannibalization-detector.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-tag-quality-engine.php';
 // Architecture v5.0: ownership enforcement, content generation gate, architecture reset
@@ -522,6 +525,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\KeywordCommandCenter::init();
             \TMWSEO\Engine\Admin\ContentReviewPage::init();
             \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
+            \TMWSEO\Engine\Admin\RankMathHelperPanel::init(); // 4.5.0
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
             \TMWSEO\Engine\Opportunities\OpportunityUI::init();
