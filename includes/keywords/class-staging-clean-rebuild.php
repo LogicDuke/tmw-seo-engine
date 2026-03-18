@@ -23,6 +23,7 @@ class StagingCleanRebuild {
 
     private const STAGING_FLAGS_OPTION = 'tmwseo_staging_flags';
     private const LAST_RESULT_OPTION   = 'tmwseo_last_clean_rebuild_result';
+    private const HISTORY_OPTION       = 'tmwseo_clean_rebuild_history';
 
     /**
      * Run the staging-only clean rebuild sequence.
@@ -274,6 +275,7 @@ class StagingCleanRebuild {
         ];
 
         update_option( self::LAST_RESULT_OPTION, $payload, false );
+        self::persist_history( $payload );
     }
 
     /**
@@ -285,8 +287,45 @@ class StagingCleanRebuild {
         return is_array( $stored ) ? $stored : [];
     }
 
+    /**
+     * History is stored oldest-first so index 0 is the previous run and the last index is the latest run.
+     *
+     * @param array<string,mixed> $result
+     */
+    private static function persist_history( array $result ): void {
+        $history = get_option( self::HISTORY_OPTION, [] );
+        $history = is_array( $history ) ? array_values( array_filter( $history, 'is_array' ) ) : [];
+        $history[] = $result;
+
+        usort( $history, static function ( $left, $right ): int {
+            $left_time  = strtotime( (string) ( $left['timestamp_gmt'] ?? $left['timestamp'] ?? '' ) . ' UTC' ) ?: 0;
+            $right_time = strtotime( (string) ( $right['timestamp_gmt'] ?? $right['timestamp'] ?? '' ) . ' UTC' ) ?: 0;
+
+            return $left_time <=> $right_time;
+        } );
+
+        if ( count( $history ) > 2 ) {
+            $history = array_slice( $history, -2 );
+        }
+
+        update_option( self::HISTORY_OPTION, array_values( $history ), false );
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    public static function get_history(): array {
+        $history = get_option( self::HISTORY_OPTION, [] );
+        if ( ! is_array( $history ) ) {
+            return [];
+        }
+
+        return array_values( array_filter( $history, 'is_array' ) );
+    }
+
     public static function clear_last_result(): void {
         delete_option( self::LAST_RESULT_OPTION );
+        delete_option( self::HISTORY_OPTION );
     }
 
     /**

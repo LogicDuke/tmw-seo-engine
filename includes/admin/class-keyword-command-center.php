@@ -146,6 +146,12 @@ class KeywordCommandCenter {
                 $tab = 'health';
                 $msg = 'clean_rebuild_history_cleared';
                 break;
+            case 'download_clean_rebuild_json':
+                self::download_clean_rebuild_json();
+                break;
+            case 'download_clean_rebuild_comparison':
+                self::download_clean_rebuild_comparison_json();
+                break;
             case 'resume':
                 ContentGenerationGate::resume_all();
                 $tab = 'health';
@@ -220,6 +226,10 @@ class KeywordCommandCenter {
             echo '<div class="notice notice-warning is-dismissible"><p>Clean Rebuild from Zero was blocked. Type <code>CLEAN-REBUILD-ZERO</code> exactly to continue.</p></div>';
         } elseif ( $msg === 'clean_rebuild_history_cleared' ) {
             echo '<div class="notice notice-success is-dismissible"><p>Last Clean Rebuild Run history was cleared.</p></div>';
+        } elseif ( $msg === 'clean_rebuild_export_empty' ) {
+            echo '<div class="notice notice-warning is-dismissible"><p>No last clean rebuild snapshot is available to download.</p></div>';
+        } elseif ( $msg === 'clean_rebuild_compare_export_empty' ) {
+            echo '<div class="notice notice-warning is-dismissible"><p>Two clean rebuild runs are required before comparison JSON can be downloaded.</p></div>';
         } elseif ( $msg !== '' && ! in_array( $msg, [ 'clean_rebuild_zero' ], true ) ) {
             echo '<div class="notice notice-success is-dismissible"><p>Done: <code>' . esc_html( $msg ) . '</code></p></div>';
         }
@@ -567,6 +577,7 @@ class KeywordCommandCenter {
         echo '</form>';
 
         self::render_last_clean_rebuild_panel();
+        self::render_clean_rebuild_comparison_panel();
 
         // -- Lifecycle reference --
         echo '<h3 style="margin-top:25px;">Lifecycle Reference</h3>';
@@ -579,6 +590,65 @@ class KeywordCommandCenter {
         echo '</div>';
     }
 
+
+    private static function render_clean_rebuild_comparison_panel(): void {
+        $history = StagingCleanRebuild::get_history();
+
+        echo '<div style="margin-top:18px;padding:14px;background:#fff;border:1px solid #dcdcde;border-radius:6px;max-width:980px;">';
+        echo '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">';
+        echo '<div><h3 style="margin:0 0 4px;">Compare Last Two Clean Rebuild Runs</h3>';
+        echo '<p style="margin:0;color:#646970;">Quick delta view between the most recent and previous staging rebuild runs.</p></div>';
+
+        if ( count( $history ) >= 2 ) {
+            $previous   = is_array( $history[ count( $history ) - 2 ] ?? null ) ? $history[ count( $history ) - 2 ] : [];
+            $latest     = is_array( $history[ count( $history ) - 1 ] ?? null ) ? $history[ count( $history ) - 1 ] : [];
+            $comparison = self::build_clean_rebuild_comparison( $previous, $latest );
+
+            echo '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+            echo self::render_clean_rebuild_status_badge( $comparison['latest'], 'Latest ' );
+            echo self::render_clean_rebuild_status_badge( $comparison['previous'], 'Previous ' );
+            echo '</div></div>';
+
+            echo '<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 18px;">';
+            echo '<div><strong>Previous:</strong><br>' . esc_html( self::describe_clean_rebuild_run( $comparison['previous'] ) ) . '</div>';
+            echo '<div><strong>Latest:</strong><br>' . esc_html( self::describe_clean_rebuild_run( $comparison['latest'] ) ) . '</div>';
+            echo '</div>';
+
+            echo '<div style="margin-top:12px;padding:10px 12px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;">';
+            echo '<strong>Summary:</strong> ' . esc_html( (string) ( $comparison['summary'] ?? '' ) );
+            echo '</div>';
+
+            echo '<table class="widefat striped" style="margin-top:12px;max-width:860px;">';
+            echo '<thead><tr><th>Metric</th><th style="width:120px;">Previous</th><th style="width:120px;">Latest</th><th style="width:120px;">Delta</th></tr></thead><tbody>';
+            foreach ( $comparison['rows'] as $row ) {
+                echo '<tr>';
+                echo '<th>' . esc_html( (string) $row['label'] ) . '</th>';
+                echo '<td>' . esc_html( (string) $row['previous_display'] ) . '</td>';
+                echo '<td>' . esc_html( (string) $row['latest_display'] ) . '</td>';
+                echo '<td>' . esc_html( (string) $row['delta_display'] ) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+
+            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+            wp_nonce_field( 'tmwseo_cc_nonce' );
+            echo '<input type="hidden" name="action" value="tmwseo_command_center_action">';
+            echo '<button type="submit" name="cc_action" value="download_clean_rebuild_comparison" class="button button-secondary">Download Comparison JSON</button>';
+            echo '</form>';
+            echo '</div>';
+            return;
+        }
+
+        echo '</div>';
+
+        if ( empty( $history ) ) {
+            echo '<p style="margin:12px 0 0;color:#646970;">No clean rebuild history is available yet.</p>';
+        } else {
+            echo '<p style="margin:12px 0 0;color:#646970;">Only one clean rebuild run is available. Run another rebuild to compare.</p>';
+        }
+
+        echo '</div>';
+    }
 
     private static function render_last_clean_rebuild_panel(): void {
         $result = StagingCleanRebuild::get_last_result();
@@ -663,10 +733,11 @@ class KeywordCommandCenter {
             echo '</ul></div>';
         }
 
-        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:12px;">';
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
         wp_nonce_field( 'tmwseo_cc_nonce' );
         echo '<input type="hidden" name="action" value="tmwseo_command_center_action">';
-        echo '<button type="submit" name="cc_action" value="clear_clean_rebuild_history" class="button button-secondary">Clear last run record</button>';
+        echo '<button type="submit" name="cc_action" value="download_clean_rebuild_json" class="button button-secondary">Download Last Run JSON</button>';
+        echo '<button type="submit" name="cc_action" value="clear_clean_rebuild_history" class="button button-secondary">Clear last run + compare history</button>';
         echo '</form>';
 
         echo '</div>';
@@ -675,16 +746,19 @@ class KeywordCommandCenter {
     /**
      * @param array<string,mixed> $result
      */
-    private static function render_clean_rebuild_status_badge( array $result ): string {
+    private static function render_clean_rebuild_status_badge( array $result, string $label_prefix = '' ): string {
+        $label_prefix = trim( $label_prefix );
+        $label_prefix = '' !== $label_prefix ? $label_prefix . ' ' : '';
+
         if ( empty( $result ) ) {
-            return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#f0f0f1;color:#50575e;font-weight:600;">No Data</span>';
+            return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#f0f0f1;color:#50575e;font-weight:600;">' . esc_html( $label_prefix . 'No Data' ) . '</span>';
         }
 
         if ( ! empty( $result['success'] ) ) {
-            return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;">Success</span>';
+            return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;">' . esc_html( $label_prefix . 'Success' ) . '</span>';
         }
 
-        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;">Failed</span>';
+        return '<span style="display:inline-block;padding:4px 10px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;">' . esc_html( $label_prefix . 'Failed' ) . '</span>';
     }
 
     private static function clean_rebuild_admin_time( string $local_mysql, string $gmt_mysql ): string {
@@ -714,8 +788,8 @@ class KeywordCommandCenter {
         return (int) ( $source[ $key ] ?? 0 );
     }
 
-    private static function clean_rebuild_bool_label( $value ): string {
-        return ! empty( $value ) ? 'Yes' : 'No';
+    private static function clean_rebuild_bool_label( $value, string $true_label = 'Yes', string $false_label = 'No' ): string {
+        return ! empty( $value ) ? $true_label : $false_label;
     }
 
     /**
@@ -755,6 +829,224 @@ class KeywordCommandCenter {
         $count  = count( $tables );
 
         return $count > 0 ? 'Yes (' . $count . ')' : 'No';
+    }
+
+
+    /**
+     * @param array<string,mixed> $previous
+     * @param array<string,mixed> $latest
+     * @return array<string,mixed>
+     */
+    private static function build_clean_rebuild_comparison( array $previous, array $latest ): array {
+        $previous = self::normalize_clean_rebuild_result( $previous );
+        $latest   = self::normalize_clean_rebuild_result( $latest );
+
+        $metric_map = [
+            'queued_for_review' => [ 'label' => 'Queued for review', 'path' => [ 'after', 'discovery', 'queued_for_review' ] ],
+            'approved' => [ 'label' => 'Approved', 'path' => [ 'after', 'discovery', 'approved' ] ],
+            'trusted_seeds_total' => [ 'label' => 'Trusted seeds', 'path' => [ 'after', 'seed_totals', 'total_seeds' ] ],
+            'seed_expansion_candidates_total' => [ 'label' => 'Expansion candidates', 'path' => [ 'after', 'generator', 'total' ] ],
+            'raw_keyword_rows_total' => [ 'label' => 'Raw keyword rows', 'path' => [ 'after', 'raw_keywords' ] ],
+            'assigned_pages_count' => [ 'label' => 'Assigned pages', 'path' => [ 'after', 'assigned_pages' ] ],
+            'total_working_keywords' => [ 'label' => 'Working keywords total', 'path' => [ 'after', 'working_keywords' ] ],
+            'discovered' => [ 'label' => 'Discovered', 'path' => [ 'after', 'discovery', 'discovered' ] ],
+            'scored' => [ 'label' => 'Scored', 'path' => [ 'after', 'discovery', 'scored' ] ],
+            'legacy_new_migrated' => [ 'label' => 'Legacy rows migrated', 'path' => [ 'legacy_new_migrated' ] ],
+            'generator_archived' => [ 'label' => 'Generator rows archived', 'path' => [ 'generator_archived' ] ],
+            'discovery_parked' => [ 'label' => 'Review rows parked', 'path' => [ 'discovery_parked' ] ],
+            'manual_jobs_deleted' => [ 'label' => 'Manual jobs deleted', 'path' => [ 'manual_jobs_deleted' ] ],
+        ];
+
+        $deltas = [];
+        $rows   = [];
+
+        foreach ( $metric_map as $key => $config ) {
+            $previous_value = self::clean_rebuild_count( $previous, $config['path'] );
+            $latest_value   = self::clean_rebuild_count( $latest, $config['path'] );
+            $delta          = $latest_value - $previous_value;
+            $deltas[ $key ] = [
+                'label' => $config['label'],
+                'previous' => $previous_value,
+                'latest' => $latest_value,
+                'delta' => $delta,
+            ];
+            $rows[] = [
+                'label' => $config['label'],
+                'previous_display' => $previous_value,
+                'latest_display' => $latest_value,
+                'delta_display' => self::format_clean_rebuild_delta( $delta ),
+            ];
+        }
+
+        $metadata_rows = [
+            [
+                'label' => 'Ran at',
+                'previous_display' => self::clean_rebuild_admin_time( (string) $previous['timestamp'], (string) $previous['timestamp_gmt'] ),
+                'latest_display' => self::clean_rebuild_admin_time( (string) $latest['timestamp'], (string) $latest['timestamp_gmt'] ),
+                'delta_display' => '—',
+            ],
+            [
+                'label' => 'Triggered by',
+                'previous_display' => (string) ( $previous['user_label'] !== '' ? $previous['user_label'] : 'Unknown' ),
+                'latest_display' => (string) ( $latest['user_label'] !== '' ? $latest['user_label'] : 'Unknown' ),
+                'delta_display' => '—',
+            ],
+            [
+                'label' => 'Status',
+                'previous_display' => self::clean_rebuild_bool_label( $previous['success'], 'Success', 'Failed' ),
+                'latest_display' => self::clean_rebuild_bool_label( $latest['success'], 'Success', 'Failed' ),
+                'delta_display' => '—',
+            ],
+            [
+                'label' => 'Cycle triggered',
+                'previous_display' => self::clean_rebuild_bool_label( $previous['cycle_triggered'] ),
+                'latest_display' => self::clean_rebuild_bool_label( $latest['cycle_triggered'] ),
+                'delta_display' => '—',
+            ],
+            [
+                'label' => 'Content generation paused',
+                'previous_display' => self::clean_rebuild_bool_label( $previous['content_generation_paused'] ),
+                'latest_display' => self::clean_rebuild_bool_label( $latest['content_generation_paused'] ),
+                'delta_display' => '—',
+            ],
+        ];
+
+        $rows = array_merge( $metadata_rows, $rows );
+
+        return [
+            'previous' => $previous,
+            'latest' => $latest,
+            'deltas' => $deltas,
+            'rows' => $rows,
+            'summary' => self::build_clean_rebuild_comparison_summary( $previous, $latest, $deltas ),
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     * @return array<string,mixed>
+     */
+    private static function normalize_clean_rebuild_result( array $result ): array {
+        return [
+            'timestamp' => (string) ( $result['timestamp'] ?? '' ),
+            'timestamp_gmt' => (string) ( $result['timestamp_gmt'] ?? '' ),
+            'user_id' => (int) ( $result['user_id'] ?? 0 ),
+            'user_label' => (string) ( $result['user_label'] ?? '' ),
+            'success' => ! empty( $result['success'] ),
+            'errors' => array_values( array_map( 'strval', (array) ( $result['errors'] ?? [] ) ) ),
+            'legacy_new_migrated' => (int) ( $result['legacy_new_migrated'] ?? 0 ),
+            'generator_archived' => (int) ( $result['generator_archived'] ?? 0 ),
+            'discovery_parked' => (int) ( $result['discovery_parked'] ?? 0 ),
+            'manual_jobs_deleted' => (int) ( $result['manual_jobs_deleted'] ?? 0 ),
+            'cycle_triggered' => ! empty( $result['cycle_triggered'] ),
+            'content_generation_paused' => ! empty( $result['content_generation_paused'] ),
+            'before' => is_array( $result['before'] ?? null ) ? $result['before'] : [],
+            'after' => is_array( $result['after'] ?? null ) ? $result['after'] : [],
+            'reset' => is_array( $result['reset'] ?? null ) ? $result['reset'] : [],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $previous
+     * @param array<string,mixed> $latest
+     * @param array<string,array<string,mixed>> $deltas
+     */
+    private static function build_clean_rebuild_comparison_summary( array $previous, array $latest, array $deltas ): string {
+        if ( empty( $latest['success'] ) ) {
+            return 'Latest run failed; comparison is limited.';
+        }
+
+        $queued_delta = (int) ( $deltas['queued_for_review']['delta'] ?? 0 );
+        $assigned_delta = (int) ( $deltas['assigned_pages_count']['delta'] ?? 0 );
+        $trusted_delta = (int) ( $deltas['trusted_seeds_total']['delta'] ?? 0 );
+
+        if ( $queued_delta < 0 && 0 === $assigned_delta ) {
+            return sprintf( 'Latest run reduced queued review noise by %d while preserving assigned pages.', abs( $queued_delta ) );
+        }
+
+        if ( $queued_delta > 0 ) {
+            return sprintf( 'Latest run increased queued review rows by %d; inspect seed quality and review flow.', $queued_delta );
+        }
+
+        if ( $trusted_delta > 0 && $queued_delta <= 0 ) {
+            return 'Latest run expanded trusted seed coverage without increasing review noise.';
+        }
+
+        return 'Latest and previous runs are broadly similar; inspect detailed counts below.';
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private static function describe_clean_rebuild_run( array $result ): string {
+        $timestamp = self::clean_rebuild_admin_time( (string) ( $result['timestamp'] ?? '' ), (string) ( $result['timestamp_gmt'] ?? '' ) );
+        $user_label = trim( (string) ( $result['user_label'] ?? '' ) );
+
+        return $timestamp . ' by ' . ( $user_label !== '' ? $user_label : 'Unknown' );
+    }
+
+    private static function format_clean_rebuild_delta( int $delta ): string {
+        if ( $delta > 0 ) {
+            return '+' . $delta;
+        }
+
+        if ( $delta < 0 ) {
+            return (string) $delta;
+        }
+
+        return '0';
+    }
+
+    private static function download_clean_rebuild_json(): void {
+        $result = StagingCleanRebuild::get_last_result();
+        if ( empty( $result ) ) {
+            wp_safe_redirect( add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => 'health', 'msg' => 'clean_rebuild_export_empty' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        self::send_clean_rebuild_json_download( 'clean-rebuild-last-run', [
+            'meta' => [
+                'export_generated_at' => gmdate( 'c' ),
+                'site_url' => site_url(),
+                'exporter' => 'clean_rebuild_last_run_v1',
+            ],
+            'run' => self::normalize_clean_rebuild_result( $result ),
+        ] );
+    }
+
+    private static function download_clean_rebuild_comparison_json(): void {
+        $history = StagingCleanRebuild::get_history();
+        if ( count( $history ) < 2 ) {
+            wp_safe_redirect( add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => 'health', 'msg' => 'clean_rebuild_compare_export_empty' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        $previous = is_array( $history[ count( $history ) - 2 ] ?? null ) ? $history[ count( $history ) - 2 ] : [];
+        $latest   = is_array( $history[ count( $history ) - 1 ] ?? null ) ? $history[ count( $history ) - 1 ] : [];
+        $comparison = self::build_clean_rebuild_comparison( $previous, $latest );
+
+        self::send_clean_rebuild_json_download( 'clean-rebuild-comparison', [
+            'meta' => [
+                'export_generated_at' => gmdate( 'c' ),
+                'site_url' => site_url(),
+                'exporter' => 'clean_rebuild_compare_v1',
+            ],
+            'previous' => $comparison['previous'],
+            'latest' => $comparison['latest'],
+            'deltas' => $comparison['deltas'],
+            'summary' => $comparison['summary'],
+        ] );
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private static function send_clean_rebuild_json_download( string $slug, array $payload ): void {
+        nocache_headers();
+        header( 'Content-Type: application/json; charset=' . get_option( 'blog_charset' ) );
+        header( 'Content-Disposition: attachment; filename=' . sanitize_file_name( $slug . '-' . gmdate( 'Ymd-His' ) . '.json' ) );
+        echo wp_json_encode( $payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+        exit;
     }
 
     private static function hr( string $label, $value, string $s = '' ): void {
