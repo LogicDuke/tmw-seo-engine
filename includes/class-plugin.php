@@ -68,6 +68,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-tag-quality-engine.ph
 // Architecture v5.0: ownership enforcement, content generation gate, architecture reset
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-ownership-enforcer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-architecture-reset.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-staging-clean-rebuild.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-term-lifecycle.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-generation-gate.php';
 // Architecture v5.0: consolidated operator screens

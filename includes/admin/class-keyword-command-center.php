@@ -24,7 +24,9 @@ use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
 use TMWSEO\Engine\Keywords\OwnershipEnforcer;
 use TMWSEO\Engine\Keywords\ArchitectureReset;
+use TMWSEO\Engine\Keywords\StagingCleanRebuild;
 use TMWSEO\Engine\Content\ContentGenerationGate;
+use TMWSEO\Engine\Services\TrustPolicy;
 use TMWSEO\Engine\Logs;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -64,6 +66,7 @@ class KeywordCommandCenter {
 
         $action = sanitize_key( $_POST['cc_action'] ?? '' );
         $tab    = 'review';
+        $msg    = $action;
 
         switch ( $action ) {
 
@@ -128,6 +131,19 @@ class KeywordCommandCenter {
                 set_transient( 'tmwseo_reset_result', ArchitectureReset::execute_reset(), 300 );
                 $tab = 'health';
                 break;
+            case 'clean_rebuild_zero':
+                $confirmation = sanitize_text_field( wp_unslash( $_POST['clean_rebuild_confirm'] ?? '' ) );
+                if ( $confirmation !== 'CLEAN-REBUILD-ZERO' ) {
+                    set_transient( 'tmwseo_clean_rebuild_result', [
+                        'success' => false,
+                        'errors'  => [ 'confirmation_mismatch' ],
+                    ], 300 );
+                    $msg = 'clean_rebuild_zero_invalid_confirm';
+                } else {
+                    set_transient( 'tmwseo_clean_rebuild_result', StagingCleanRebuild::execute( get_current_user_id() ), 300 );
+                }
+                $tab = 'health';
+                break;
             case 'resume':
                 ContentGenerationGate::resume_all();
                 $tab = 'health';
@@ -139,7 +155,7 @@ class KeywordCommandCenter {
                 break;
         }
 
-        wp_safe_redirect( add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => $tab, 'msg' => $action ], admin_url( 'admin.php' ) ) );
+        wp_safe_redirect( add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => $tab, 'msg' => $msg ], admin_url( 'admin.php' ) ) );
         exit;
     }
 
@@ -198,7 +214,11 @@ class KeywordCommandCenter {
         }
         echo '</nav>';
 
-        if ( $msg !== '' ) { echo '<div class="notice notice-success is-dismissible"><p>Done: <code>' . esc_html( $msg ) . '</code></p></div>'; }
+        if ( $msg === 'clean_rebuild_zero_invalid_confirm' ) {
+            echo '<div class="notice notice-warning is-dismissible"><p>Clean Rebuild from Zero was blocked. Type <code>CLEAN-REBUILD-ZERO</code> exactly to continue.</p></div>';
+        } elseif ( $msg !== '' && ! in_array( $msg, [ 'clean_rebuild_zero' ], true ) ) {
+            echo '<div class="notice notice-success is-dismissible"><p>Done: <code>' . esc_html( $msg ) . '</code></p></div>';
+        }
 
         echo '<div style="margin-top:15px;">';
         match ( $tab ) {
@@ -428,6 +448,8 @@ class KeywordCommandCenter {
         $is_paused   = ContentGenerationGate::is_paused();
         $metrics     = (array) get_option( 'tmw_keyword_engine_metrics', [] );
         $reset_result = get_transient( 'tmwseo_reset_result' );
+        $clean_rebuild_result = get_transient( 'tmwseo_clean_rebuild_result' );
+        $manual_mode = TrustPolicy::is_manual_only();
 
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
         $lc = [];
@@ -439,6 +461,28 @@ class KeywordCommandCenter {
         if ( $reset_result ) {
             delete_transient( 'tmwseo_reset_result' );
             echo '<div class="notice notice-info"><p><strong>Reset done.</strong> Seeds: ' . esc_html( $reset_result['model_roots_restored'] ?? 0 ) . ' model roots, ' . esc_html( $reset_result['manual_seeds_restored'] ?? 0 ) . ' manual, ' . esc_html( $reset_result['starter_pack_registered'] ?? 0 ) . ' starter.</p></div>';
+        }
+
+        if ( $clean_rebuild_result ) {
+            delete_transient( 'tmwseo_clean_rebuild_result' );
+
+            if ( ! empty( $clean_rebuild_result['success'] ) ) {
+                $reset = is_array( $clean_rebuild_result['reset'] ?? null ) ? $clean_rebuild_result['reset'] : [];
+                echo '<div class="notice notice-warning"><p><strong>Clean Rebuild from Zero complete.</strong> ';
+                echo 'Legacy migrated: <strong>' . esc_html( (string) ( $clean_rebuild_result['legacy_new_migrated'] ?? 0 ) ) . '</strong>; ';
+                echo 'generator archived: <strong>' . esc_html( (string) ( $clean_rebuild_result['generator_archived'] ?? 0 ) ) . '</strong>; ';
+                echo 'queued parked: <strong>' . esc_html( (string) ( $clean_rebuild_result['discovery_parked'] ?? 0 ) ) . '</strong>; ';
+                echo 'manual jobs deleted: <strong>' . esc_html( (string) ( $clean_rebuild_result['manual_jobs_deleted'] ?? 0 ) ) . '</strong>; ';
+                echo 'model roots restored: <strong>' . esc_html( (string) ( $reset['model_roots_restored'] ?? 0 ) ) . '</strong>; ';
+                echo 'manual seeds restored: <strong>' . esc_html( (string) ( $reset['manual_seeds_restored'] ?? 0 ) ) . '</strong>; ';
+                echo 'starter pack registered: <strong>' . esc_html( (string) ( $reset['starter_pack_registered'] ?? 0 ) ) . '</strong>; ';
+                echo 'first clean cycle: <strong>' . ( ! empty( $clean_rebuild_result['cycle_triggered'] ) ? 'ran' : 'not run' ) . '</strong>. ';
+                echo 'Content generation remains paused for manual review.</p></div>';
+            } else {
+                $errors = (array) ( $clean_rebuild_result['errors'] ?? [] );
+                $message = empty( $errors ) ? 'Clean rebuild failed.' : 'Clean rebuild aborted: ' . implode( ', ', array_map( 'esc_html', array_map( 'strval', $errors ) ) ) . '.';
+                echo '<div class="notice notice-error"><p><strong>Clean Rebuild from Zero did not run.</strong> ' . $message . '</p></div>';
+            }
         }
 
         echo '<h2>System Health</h2>';
@@ -492,6 +536,29 @@ class KeywordCommandCenter {
         echo '<div style="margin-bottom:12px;padding:10px;background:#fff;border:1px solid #dc3545;">';
         echo '<strong>Architecture Reset</strong> <small>(archives tables, rebuilds clean)</small><br>';
         echo '<button type="submit" name="cc_action" value="reset" class="button" style="margin-top:5px;color:#dc3545;" onclick="return confirm(\'Archive and rebuild?\');">Execute Reset</button>';
+        echo '</div>';
+
+        echo '<div style="margin-bottom:12px;padding:12px;background:#fff5f5;border:1px solid #b91c1c;border-radius:6px;">';
+        echo '<strong>Clean Rebuild from Zero</strong> <small>(staging/debug only)</small><br>';
+        echo '<p style="margin:8px 0 6px;color:#7f1d1d;">Staging-only helper. Quiet background jobs, migrate legacy rows, archive old review noise, rebuild trusted seed infrastructure, run one clean discovery cycle, then leave the system paused for human review.</p>';
+        echo '<p style="margin:0 0 8px;color:#7f1d1d;"><strong>This does NOT approve, assign, or generate content.</strong> Review remains manual.</p>';
+        echo '<p style="margin:0 0 8px;color:#444;">Archives old seed infrastructure, restores trusted roots, migrates legacy rows, runs one clean discovery cycle, and leaves the system paused for review.</p>';
+        echo '<p style="margin:0 0 8px;"><label for="tmwseo-clean-rebuild-confirm"><strong>Type <code>CLEAN-REBUILD-ZERO</code> to confirm:</strong></label><br>';
+        echo '<input type="text" id="tmwseo-clean-rebuild-confirm" name="clean_rebuild_confirm" value="" placeholder="CLEAN-REBUILD-ZERO" style="margin-top:6px;width:280px;max-width:100%;"></p>';
+        echo '<p style="margin:0 0 8px;color:' . ( $manual_mode ? '#166534' : '#b91c1c' ) . ';"><strong>Manual-control-safe context:</strong> ' . ( $manual_mode ? 'TrustPolicy manual-only mode is active.' : 'TrustPolicy manual-only mode is NOT active. Execution will be blocked.' ) . '</p>';
+        echo '<button
+            type="submit"
+            name="cc_action"
+            value="clean_rebuild_zero"
+            class="button"
+            style="margin-top:8px;background:#b91c1c;border-color:#991b1b;color:#fff;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;min-height:36px;font-weight:600;border-radius:4px;"
+            onmouseover="this.style.background=\'#991b1b\';this.style.borderColor=\'#7f1d1d\';"
+            onmouseout="this.style.background=\'#b91c1c\';this.style.borderColor=\'#991b1b\';"
+            onclick="return confirm(\'This will run the full staging clean rebuild sequence. Continue?\');"
+        >';
+        echo '<span class="dashicons dashicons-warning" aria-hidden="true" style="font-size:16px;line-height:1;"></span>';
+        echo '<span>Clean Rebuild from Zero</span>';
+        echo '</button>';
         echo '</div>';
         echo '</form>';
 
