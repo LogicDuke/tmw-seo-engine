@@ -144,6 +144,7 @@ class Admin {
             'toplevel_page_' . self::MENU_SLUG,
             self::MENU_SLUG . '_page_tmwseo-suggestions',
             self::MENU_SLUG . '_page_tmwseo-command-center',
+            self::MENU_SLUG . '_page_tmwseo-command-center-legacy',
             self::MENU_SLUG . '_page_tmwseo-content-briefs',
             self::MENU_SLUG . '_page_tmwseo-competitor-domains',
             self::MENU_SLUG . '_page_tmwseo-content-gap',
@@ -957,6 +958,22 @@ class Admin {
         );
 
         // ── Workflow ───────────────────────────────────────────────────────
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('Keyword Command Center', 'tmwseo'),
+            __('Command Center', 'tmwseo'),
+            'manage_options',
+            'tmwseo-command-center',
+            ['\\TMWSEO\\Engine\\Admin\\KeywordCommandCenter', 'render_page']
+        );
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('Command Center (Legacy)', 'tmwseo'),
+            __('Command Center (Legacy)', 'tmwseo'),
+            'manage_options',
+            'tmwseo-command-center-legacy',
+            ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_command_center_legacy']
+        );
         add_submenu_page(self::MENU_SLUG, __('Suggestions', 'tmwseo'),    __('Suggestions', 'tmwseo'),    'manage_options', 'tmwseo-suggestions',    ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_suggestions']);
         add_submenu_page(self::MENU_SLUG, __('Content Briefs', 'tmwseo'), __('Content Briefs', 'tmwseo'), 'manage_options', 'tmwseo-content-briefs', ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_briefs']);
 
@@ -1000,7 +1017,6 @@ class Admin {
         add_submenu_page(null, __('Import', 'tmwseo'),           __('Import', 'tmwseo'),           'manage_options', 'tmwseo-import',      [__CLASS__, 'render_import']);
 
         // Legacy V2 slugs → server-side redirect to canonical pages (no JS bounces)
-        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-command-center',   ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render']); // keep old slug working
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-engine-v2',        [__CLASS__, 'legacy_redirect_command_center']);
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-pagespeed',        [__CLASS__, 'render_pagespeed_redirect']);
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-cfg',              [__CLASS__, 'render_settings_redirect']);
@@ -1030,6 +1046,8 @@ class Admin {
         // Desired visible order (slug → keep).
         $desired_order = [
             self::MENU_SLUG,              // Command Center (top entry)
+            'tmwseo-command-center',
+            'tmwseo-command-center-legacy',
             'tmwseo-suggestions',
             'tmwseo-content-briefs',
             'tmwseo-keywords',

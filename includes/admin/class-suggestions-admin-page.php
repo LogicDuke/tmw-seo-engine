@@ -106,6 +106,11 @@ class SuggestionsAdminPage {
         ( new self() )->render_competitor_domains_page();
     }
 
+    /** Static wrapper for the legacy widget-style Command Center page. */
+    public static function render_static_command_center_legacy(): void {
+        ( new self() )->render_command_center_page();
+    }
+
     public function render_command_center_page(): void {
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
@@ -118,6 +123,7 @@ class SuggestionsAdminPage {
         echo '<div class="wrap tmwseo-command-center">';
         echo '<h1>' . esc_html__('TMW SEO Engine → Command Center', 'tmwseo') . '</h1>';
         echo '<p>' . esc_html__('A high-level SEO snapshot to surface opportunities quickly. Data is cached for fast loading.', 'tmwseo') . '</p>';
+        echo '<p style="margin-top:-4px;color:#6b7280;font-size:13px;">' . esc_html__('Legacy snapshot dashboard — retained for backward compatibility.', 'tmwseo') . '</p>';
         echo '<div class="tmwseo-command-grid">';
 
         foreach ($metrics as $metric) {
