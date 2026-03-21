@@ -9,6 +9,10 @@ class Settings {
         return [
             // Safety
             'safe_mode' => 1,
+            // Model Discovery Scraper — OFF by default.
+            // Enabling this runs hourly scrapes of external cam platforms.
+            // Only enable after reviewing the Terms of Service of each platform.
+            'model_discovery_enabled' => 0,
 
             // Phase 1 policy
             // Manual Control Mode disables all cron + automatic post optimizations.
@@ -47,6 +51,9 @@ class Settings {
             'tmwseo_dataforseo_budget_usd' => 50.0,
 
             // Keyword engine (adaptive defaults)
+            // Keyword review queue cap (default 200; was hard-coded 50)
+            'keyword_review_queue_cap' => 200,
+
             'keyword_seeds_per_run' => 5,
             'keyword_suggestions_limit' => 200,
             'keyword_new_limit' => 300,

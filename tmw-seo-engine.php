@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v4.2 — Real GSC, AI Router (OpenAI+Claude), SERP data, Ranking Probability Orchestrator, JSON-LD Schema, Orphan Detector, CSV Export, Competitor Monitor.
- * Version: 4.3.0
+ * Description: Intelligence Core v4.6.1 — Stabilized: kill switches, hardened bootstrap, configurable queue cap, DataForSEO SERP model research. Includes GSC, AI Router, SERP, Ranking Probability, JSON-LD Schema, Orphan Detector, CSV Export, Competitor Monitor.
+ * Version: 4.6.1
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '4.3.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '4.6.1');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 

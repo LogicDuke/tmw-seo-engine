@@ -14,9 +14,60 @@ if (!defined('ABSPATH')) { exit; }
 class KeywordEngine {
 
     public static function init(): void {
-        // No hooks yet (cron drives the cycle job).
+        // Register admin notice for queue-full condition.
+        if ( is_admin() ) {
+            add_action( 'admin_notices', [ __CLASS__, 'maybe_show_queue_full_notice' ] );
+        }
     }
 
+    /**
+     * Show a persistent admin notice when the keyword review queue is full.
+     * This makes the "engine runs but nothing progresses" problem visible to operators.
+     */
+    public static function maybe_show_queue_full_notice(): void {
+        $since = (int) get_option( 'tmwseo_kw_queue_full_since', 0 );
+        if ( $since <= 0 ) {
+            return;
+        }
+
+        // Only show on TMW SEO Engine admin pages.
+        $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+        if ( $screen && strpos( (string) $screen->id, 'tmwseo' ) === false ) {
+            return;
+        }
+
+        $minutes_full = (int) round( ( time() - $since ) / 60 );
+        $queue_url    = esc_url( admin_url( 'admin.php?page=tmwseo-keyword-command-center' ) );
+        $cap          = self::get_review_queue_cap();
+
+        echo '<div class="notice notice-warning is-dismissible">';
+        echo '<p><strong>' . esc_html__( '⚠ Keyword Review Queue Full', 'tmwseo' ) . '</strong> — ';
+        echo esc_html( sprintf(
+            /* translators: 1: minutes queue has been full, 2: cap number */
+            __( 'The keyword discovery pipeline has been running but results are being discarded because the review queue is at capacity (%2$d items) for the past %1$d min.', 'tmwseo' ),
+            $minutes_full,
+            $cap
+        ) );
+        echo ' <a href="' . $queue_url . '">' . esc_html__( 'Review &amp; approve keywords →', 'tmwseo' ) . '</a></p>';
+        echo '</div>';
+    }
+
+    /**
+     * Main keyword cycle job — called by the job queue worker.
+     *
+     * PHASES:
+     *   Phase 1 — Seed collection + discovery expansion (DataForSEO / Google KP / Trends)
+     *   Phase 2 — (reserved: was secondary expansion, now inline)
+     *   Phase 3 — KD refresh for candidates missing difficulty scores
+     *   Phase 3b — Google Keyword Planner volume enrichment pass
+     *   Phase 4 — Promote scored keywords into the human review queue
+     *   Phase 5 — Incremental clustering + page suggestion projection
+     *
+     * Each phase is clearly labelled inline. Phases 3–5 are delegated to
+     * self::phase_kd_refresh(), self::phase_gkp_enrichment(), and
+     * self::phase_review_promotion() + self::run_cluster_projection_steps()
+     * to keep this method navigable.
+     */
     public static function run_cycle_job(array $job): void {
         global $wpdb;
 
@@ -575,6 +626,49 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             }
         }
 
+        // ── Phase 3: KD Refresh ───────────────────────────────────────────────
+        self::phase_kd_refresh( $kd_limit, $max_kd );
+
+        // ── Phase 3b: Google Keyword Planner Volume Enrichment ────────────────
+        self::phase_gkp_enrichment();
+
+        // ── Phase 4: Promote Scored Keywords → Review Queue ───────────────────
+        $promoted = self::promote_scored_to_review_queue();
+        Logs::info('keywords', '[TMW-KW] Review queue promotion', [
+            'promoted_to_queue' => $promoted,
+        ]);
+
+        // ── Phase 5: Incremental Clustering + Page Suggestion Projection ──────
+        self::run_cluster_projection_steps($pages_per_day);
+
+        Logs::info('keywords', 'Keyword cycle completed');
+        $summary_report = [
+            'seeds_generated' => (int) ($seed_report['total_seeds'] ?? 0),
+            'keywords_discovered' => (int) $discovered_total,
+            'keywords_accepted' => (int) $accepted_total,
+            'seed_breakdown' => $seed_report,
+        ];
+        update_option('tmw_keyword_last_discovery_report', $summary_report, false);
+        Logs::info('keywords', '[TMW-KW] Discovery report', $summary_report);
+        self::log_classification_counts();
+
+    }
+
+    /**
+     * Phase 3 — KD refresh for candidates missing difficulty scores.
+     *
+     * Fetches keyword difficulty from DataForSEO (or uses recent cache) for any
+     * keyword that has status='discovered'|'scored'|'queued_for_review'|'approved'
+     * but no difficulty value yet. High-KD keywords are auto-rejected; the rest
+     * move to 'scored' status for human review.
+     *
+     * @param int   $kd_limit Max keywords to refresh per cycle.
+     * @param float $max_kd   Auto-reject threshold (KD > max_kd → rejected).
+     */
+    private static function phase_kd_refresh( int $kd_limit, float $max_kd ): void {
+        global $wpdb;
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+
         // 3) KD refresh for candidates missing difficulty
         // ── v5.1: query includes all pre-review states (discovered, scored, queued_for_review)
         //    plus approved for backward compat with items that were approved before v5.1.
@@ -715,6 +809,18 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 Logs::info('keywords', '[TMW-KW] KD refresh skipped — all keywords recently checked');
             }
         }
+    }
+
+    /**
+     * Phase 3b — Google Keyword Planner volume enrichment.
+     *
+     * Runs only when Google Ads Keyword Planner is configured. Fills in
+     * volume + CPC for candidates that DataForSEO left null. Additive:
+     * never overwrites existing non-null DataForSEO volume.
+     */
+    private static function phase_gkp_enrichment(): void {
+        global $wpdb;
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
 
         // 3b) Google Keyword Planner enrichment pass — volume + CPC.
         // Only runs when Google Ads Keyword Planner is configured and enabled.
@@ -790,35 +896,8 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             Logs::info('keywords', '[TMW-SEO-AUTO] Google Ads enrichment skipped: not configured');
             Logs::info('keywords', '[TMW-KW] Google Keyword Planner enrichment skipped — integration not configured or disabled');
         }
-
-        // 4) ── v5.1: Promote scored keywords into the review queue ─────────
-        // This is the lifecycle bridge: scored items are promoted to
-        // 'queued_for_review' up to a cap of 50 actionable items.
-        // Only items in 'queued_for_review' appear in the Command Center
-        // review queue. This ensures human review is the choke point
-        // between discovery and assignment.
-        $promoted = self::promote_scored_to_review_queue();
-        Logs::info('keywords', '[TMW-KW] Review queue promotion', [
-            'promoted_to_queue' => $promoted,
-        ]);
-
-        // 5) Incremental clustering and projection materialization from dirty queue.
-        // Note: clustering still operates on 'approved' items only — items that
-        // have passed human review.
-        self::run_cluster_projection_steps($pages_per_day);
-
-        Logs::info('keywords', 'Keyword cycle completed');
-        $summary_report = [
-            'seeds_generated' => (int) ($seed_report['total_seeds'] ?? 0),
-            'keywords_discovered' => (int) $discovered_total,
-            'keywords_accepted' => (int) $accepted_total,
-            'seed_breakdown' => $seed_report,
-        ];
-        update_option('tmw_keyword_last_discovery_report', $summary_report, false);
-        Logs::info('keywords', '[TMW-KW] Discovery report', $summary_report);
-        self::log_classification_counts();
-
     }
+
 
     public static function run_cluster_projection_job(array $job = []): void {
         $pages_per_day = (int) Settings::get('keyword_pages_per_day', 3);
@@ -904,7 +983,20 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
      *
      * v5.2: This is ONE queue of 50 total, not 50 per track.
      */
-    private const REVIEW_QUEUE_CAP = 50;
+    /**
+     * Maximum combined items in the review queue (discovery + generator tracks).
+     *
+     * Default: 200 — large enough to not stall a normal operation.
+     * Configurable via Settings: keyword_review_queue_cap.
+     *
+     * Operators can lower this if they want a smaller manual review batch size.
+     * Raising it above 500 is not recommended — the Command Center table
+     * becomes unwieldy and review quality drops.
+     */
+    private static function get_review_queue_cap(): int {
+        $cap = (int) Settings::get( 'keyword_review_queue_cap', 200 );
+        return max( 20, min( 1000, $cap ) ); // hard bounds: 20–1000
+    }
 
     /**
      * Promote top-scored keywords from 'scored' to 'queued_for_review'.
@@ -938,16 +1030,35 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         }
 
         $combined_queue = $discovery_queue + $generator_queue;
-        $available_slots = max( 0, self::REVIEW_QUEUE_CAP - $combined_queue );
+        $available_slots = max( 0, self::get_review_queue_cap() - $combined_queue );
+
+        $cap = self::get_review_queue_cap();
 
         if ( $available_slots <= 0 ) {
-            Logs::info( 'keywords', '[TMW-KW] Combined review queue full, no promotions', [
+            Logs::warn( 'keywords', '[TMW-KW] ⚠ Review queue FULL — keyword pipeline is running but results are being discarded.', [
                 'discovery_queue' => $discovery_queue,
                 'generator_queue' => $generator_queue,
                 'combined'        => $combined_queue,
-                'cap'             => self::REVIEW_QUEUE_CAP,
+                'cap'             => $cap,
+                'action_needed'   => 'Review and approve or reject keywords in Command Center → Keyword Review Queue',
             ] );
+            // Persist a visible flag so the admin notice hook can surface it.
+            update_option( 'tmwseo_kw_queue_full_since', time(), false );
             return 0;
+        }
+
+        // Near-capacity warning (> 80% full)
+        if ( $combined_queue >= (int) round( $cap * 0.8 ) ) {
+            Logs::warn( 'keywords', '[TMW-KW] Review queue near capacity', [
+                'fill_pct'        => round( ( $combined_queue / max( 1, $cap ) ) * 100 ) . '%',
+                'discovery_queue' => $discovery_queue,
+                'generator_queue' => $generator_queue,
+                'combined'        => $combined_queue,
+                'cap'             => $cap,
+            ] );
+        } else {
+            // Clear the full-since flag if queue has room again.
+            delete_option( 'tmwseo_kw_queue_full_since' );
         }
 
         // Select top-scoring 'scored' items to promote

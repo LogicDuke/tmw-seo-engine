@@ -5,231 +5,255 @@ use TMWSEO\Engine\Services\Settings;
 
 if (!defined('ABSPATH')) { exit; }
 
-require_once TMWSEO_ENGINE_PATH . 'includes/db/class-schema.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/db/class-logs.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/db/class-jobs.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/class-discovery-governor.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-list-table-pagination.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-keywords-table.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-clusters-table.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-opportunities-table.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-seed-registry-table.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-seed-registry-admin-page.php'; // 4.3.0
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-serp-analyzer-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-link-graph-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-topic-maps-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-discovery-control-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-operations-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-seo-engine-runner.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/topic-authority-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/autopilot/class-seo-autopilot.php';
 
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-topic-authority-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-semantic-coverage-engine.php';
+/**
+ * Safe file loader — prevents a single missing file from fatalling the entire wp-admin.
+ *
+ * On failure: logs a warning via error_log and continues. The class that was meant
+ * to be loaded will simply not exist; callers that check class_exists() will skip it.
+ * This is far better than a PHP fatal that blanks wp-admin.
+ *
+ * @param string $file Absolute path to the PHP file.
+ */
+function tmwseo_safe_require( string $file ): void {
+    if ( file_exists( $file ) ) {
+        require_once $file;
+    } else {
+        error_log( '[TMW SEO Engine] Missing file (non-fatal): ' . $file );
+    }
+}
+
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/db/class-schema.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/db/class-logs.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/db/class-jobs.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/class-discovery-governor.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cron/class-cron.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/engine/class-smart-queue.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/worker/class-worker.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-list-table-pagination.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-keywords-table.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-clusters-table.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-opportunities-table.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/tables/class-seed-registry-table.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-command-center.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-seed-registry-admin-page.php' ); // 4.3.0
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-editor-ai-metabox.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-validation-helper.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-serp-analyzer-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-link-graph-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-topic-maps-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-discovery-control-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-graph-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-ai-content-brief-generator-admin.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-autopilot-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-staging-operations-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-seo-engine-runner.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/topic-authority-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/migration/class-migration.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/migration/class-autopilot-migration-registry.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/autopilot/class-seo-autopilot.php' );
+
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-settings.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-topic-authority-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-semantic-coverage-engine.php' );
 
 // ── Autopilot integration: new classes ────────────────────────────────────────
 // Keyword usage deduplication (anti-cannibalization)
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-usage.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-usage.php' );
 // Curated keyword library (30 niche CSV categories)
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-curated-keyword-library.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-curated-keyword-library.php' );
 // Background keyword data maintenance crons (data-only, respects manual mode)
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-scheduler.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-scheduler.php' );
 // Rollback (snapshot + restore pre-generation state)
-require_once TMWSEO_ENGINE_PATH . 'includes/model/class-rollback.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-rollback.php' );
 // Content uniqueness / similarity checker
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-uniqueness-checker.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-uniqueness-checker.php' );
 // Audit-fix classes (4.4.0)
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-index-readiness-gate.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-video-title-rewriter.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-video-content-architecture.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-audit-trail.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-mapper.php'; // Patch 2
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-cannibalization-detector.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-tag-quality-engine.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-index-readiness-gate.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-video-title-rewriter.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-video-content-architecture.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-audit-trail.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-mapper.php' ); // Patch 2
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-reader.php' ); // 4.5.0 — RM read layer
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-rank-math-checklist.php' ); // 4.5.0 — RM checklist
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-rank-math-helper-panel.php' ); // 4.5.0 — RM helper panel
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-cannibalization-detector.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-tag-quality-engine.php' );
 // Architecture v5.0: ownership enforcement, content generation gate, architecture reset
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-ownership-enforcer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-architecture-reset.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-term-lifecycle.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-generation-gate.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-ownership-enforcer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-architecture-reset.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-staging-clean-rebuild.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-term-lifecycle.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-content-generation-gate.php' );
 // Architecture v5.0: consolidated operator screens
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-command-center.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-content-review-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-video-seo-metabox.php'; // Patch 2
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-keyword-command-center.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-content-review-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-video-seo-metabox.php' ); // Patch 2
 // Automated image ALT / title / caption / description
-require_once TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-generator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-hooks.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-generator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-hooks.php' );
 // WP-CLI commands
 if (defined('WP_CLI') && WP_CLI) {
-    require_once TMWSEO_ENGINE_PATH . 'includes/cli/class-cli.php';
+    tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cli/class-cli.php' );
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── v4.2: New integrations, AI, Schema, Export, Competitor Monitor ────────────
 // AI Router (OpenAI primary + Anthropic Claude fallback + token/budget tracking)
-require_once TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php' );
 // Real Google Search Console API (replaces fake rand() data)
-require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-seed-importer.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-seed-importer.php' );
 // Google Indexing API (pings Google on publish)
-require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-indexing-api.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-indexing-api.php' );
 // Ranking Probability Orchestrator (assembles full ranking signal set)
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-orchestrator.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-orchestrator.php' );
 // JSON-LD Schema Generator (Person, VideoObject, FAQPage)
-require_once TMWSEO_ENGINE_PATH . 'includes/schema/class-schema-generator.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/schema/class-schema-generator.php' );
 // Orphan Page Detector (zero inbound internal links)
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-orphan-page-detector.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-internal-link-opportunities.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-orphan-page-detector.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-internal-link-opportunities.php' );
 // CSV Exporter
-require_once TMWSEO_ENGINE_PATH . 'includes/export/class-csv-exporter.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/export/class-csv-exporter.php' );
 // Competitor Monitor (weekly domain authority + keyword threat detection)
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/competitor-monitor/class-competitor-monitor.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/competitor-monitor/class-competitor-monitor.php' );
 // Admin Dashboard v2
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-dashboard-v2.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-dashboard-v2.php' );
 // ─────────────────────────────────────────────────────────────────────────────
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-trust-policy.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-title-fixer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-openai.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-google-trends.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-ads-keyword-planner-api.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/services/class-rank-tracker.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-discovery-governor.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-topical-relevance-filter.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-topic-entity-layer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-recursive-keyword-expansion-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-expansion-candidate-repository.php'; // 4.3.0
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-discovery-service.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dirty-queue.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-content-keyword-miner.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-competitor-mining-service.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-discovery-orchestrator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-idea-provider-interface.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-dataforseo-keyword-idea-provider.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-trends-idea-provider.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-keyword-planner-idea-provider.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-autosuggest-idea-provider.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-idea-aggregator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-trust-policy.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-title-fixer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-openai.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-google-trends.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/integrations/class-google-ads-keyword-planner-api.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-pagespeed.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/services/class-rank-tracker.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-validator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-kd-filter.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-query-expansion-graph.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-discovery-governor.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-topical-relevance-filter.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-topic-entity-layer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-recursive-keyword-expansion-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-expansion-candidate-repository.php' ); // 4.3.0
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-discovery-service.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-seed-registry.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-dirty-queue.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-content-keyword-miner.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-competitor-mining-service.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-discovery-orchestrator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-idea-provider-interface.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-dataforseo-keyword-idea-provider.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-trends-idea-provider.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-keyword-planner-idea-provider.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-google-autosuggest-idea-provider.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-idea-aggregator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-unified-keyword-workflow-service.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.php' );
 
-require_once TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php' );
 
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-assisted-draft-enrichment-service.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-quality-score-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-registry.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-optimizer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-discovery-worker.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-intelligence.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-content-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-assisted-draft-enrichment-service.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-quality-score-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-registry.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-model-optimizer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-model-discovery-worker.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-model-intelligence.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-model-helper.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-model-serp-research-provider.php' ); // 4.6.1 — DataForSEO SERP provider // 4.6.0 — Model Research enrichment workflow
 
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-expander.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-filter.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intent.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-classifier.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-model-discovery-trigger.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/expansion/class-keyword-expansion-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-database.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-entity-combination-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-tag-modifier-expander.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-normalizer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-expander.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-filter.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intent.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-classifier.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-model-discovery-trigger.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-scorer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-pack-builder.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-intelligence.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/expansion/class-keyword-expansion-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-keyword-database.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-entity-combination-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/class-tag-modifier-expander.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-keyword-normalizer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-builder.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/clustering/class-cluster-engine.php' );
 
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-graph.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-related-models.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-opportunity-scanner.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-similarity-database.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-similarity-calculator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-cluster-builder.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-similarity-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-template.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-analyzer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-section-builder.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-map.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-page-generator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-authority-mapper.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-graph.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-related-models.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/internal-links/class-link-opportunity-scanner.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-similarity-database.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-similarity-calculator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-cluster-builder.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/model-similarity/class-model-similarity-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-template.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-analyzer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-section-builder.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/search-intent/class-intent-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-map.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-page-generator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/topic-authority/class-topic-authority-mapper.php' );
 
 
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-database.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-scorer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-forecast-ui.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-feedback-discovery.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-service.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-admin.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/traffic-pages/class-traffic-page-generator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-suggestion-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-suggestion-module.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-improvement-analyzer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-storage.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-materializer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-topical-authority-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-serp-weakness-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-competitor-gap-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-content-brief-generator.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-suggestions-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-logger.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-panels.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-api-monitor.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-dashboard.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-database.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-scorer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-keyword-gap.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-opportunity-ui.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-forecast-ui.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-traffic-feedback-discovery.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-service.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/content-gap/class-content-gap-admin.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/traffic-pages/class-traffic-page-generator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-suggestion-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-suggestion-module.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/suggestions/class-content-improvement-analyzer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-storage.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-intelligence-materializer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-topical-authority-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-serp-weakness-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-ranking-probability-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-competitor-gap-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/intelligence/class-content-brief-generator.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-suggestions-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-logger.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-panels.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-api-monitor.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/debug/class-debug-dashboard.php' );
 
 // Cluster & Lighthouse modules (manual triggers only in Phase 1).
-require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-linking-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-advisor.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-cluster-importer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/compat/class-tmw-main-class.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-schema.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-targets.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-collector-psi.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-normalizer.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-worker.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-advisor.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-dashboard.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-bootstrap.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-repository.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-service.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-linking-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-scoring-engine.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-advisor.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/cluster/class-cluster-link-injector.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/admin/class-cluster-admin-page.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-cluster-importer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/compat/class-tmw-main-class.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-schema.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-targets.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-collector-psi.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-normalizer.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-worker.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-advisor.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-dashboard.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/lighthouse/class-lh-bootstrap.php' );
 
 // Intelligence Core (Phase 1)
-require_once TMWSEO_ENGINE_PATH . 'includes/intelligence/class-intelligence-runner.php';
-require_once TMWSEO_ENGINE_PATH . 'includes/intelligence/class-intelligence-admin.php';
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/intelligence/class-intelligence-runner.php' );
+tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/intelligence/class-intelligence-admin.php' );
 
 class Plugin {
     private static $did_init = false;
@@ -448,7 +472,7 @@ class Plugin {
         // Phase 1 / Phase A: analysis-only, so we do NOT auto-hook ContentEngine.
         // Legacy publish-trigger autopilot is additionally hard-fenced inside ContentEngine.
         if (!$manual) {
-            Logs::warn('core', '[TMW-SEO-AUTO] Manual mode disabled by policy override; ContentEngine init remains Phase A fenced');
+            Logs::info('core', '[TMW-SEO-AUTO] Manual mode policy is OFF (non-default). ContentEngine::init() called. '                . 'The publish-autopilot hook inside ContentEngine is still hard-fenced via PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE '                . 'and will NOT auto-publish content. Only shortcode registration and safety fence logging are active.');
             \TMWSEO\Engine\Content\ContentEngine::init();
         }
 
@@ -522,8 +546,10 @@ class Plugin {
             \TMWSEO\Engine\Admin\KeywordCommandCenter::init();
             \TMWSEO\Engine\Admin\ContentReviewPage::init();
             \TMWSEO\Engine\Admin\Editor_AI_Metabox::init();
+            \TMWSEO\Engine\Admin\RankMathHelperPanel::init(); // 4.5.0
             \TMWSEO\Engine\Intelligence\IntelligenceAdmin::init();
             \TMWSEO\Engine\Model\ModelOptimizer::init();
+            \TMWSEO\Engine\Admin\ModelHelper::init(); // 4.6.0 — Model Research enrichment workflow
             \TMWSEO\Engine\Opportunities\OpportunityUI::init();
             \TMWSEO\Engine\Opportunities\TrafficForecastUI::init();
             \TMWSEO\Engine\Suggestions\SuggestionsAdminPage::init();

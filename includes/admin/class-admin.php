@@ -144,6 +144,7 @@ class Admin {
             'toplevel_page_' . self::MENU_SLUG,
             self::MENU_SLUG . '_page_tmwseo-suggestions',
             self::MENU_SLUG . '_page_tmwseo-command-center',
+            self::MENU_SLUG . '_page_tmwseo-command-center-legacy',
             self::MENU_SLUG . '_page_tmwseo-content-briefs',
             self::MENU_SLUG . '_page_tmwseo-competitor-domains',
             self::MENU_SLUG . '_page_tmwseo-content-gap',
@@ -854,6 +855,10 @@ class Admin {
             'enable_model_auto_keyword_discovery' => !empty($input['enable_model_auto_keyword_discovery']) ? 1 : 0,
 
             // Keyword engine
+            // 4.6.1: Configurable review queue cap and model discovery toggle
+            'keyword_review_queue_cap' => max(20, min(1000, (int)($input['keyword_review_queue_cap'] ?? $existing['keyword_review_queue_cap'] ?? 200))),
+            'model_discovery_enabled'  => !empty($input['model_discovery_enabled']) ? 1 : 0,
+
             'keyword_min_volume'     => max(0, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30)),
             'keyword_max_kd'         => max(0, (int)($input['keyword_max_kd'] ?? $existing['keyword_max_kd'] ?? 60)),
             'keyword_new_limit'      => max(0, (int)($input['keyword_new_limit'] ?? $existing['keyword_new_limit'] ?? 300)),
@@ -957,6 +962,22 @@ class Admin {
         );
 
         // ── Workflow ───────────────────────────────────────────────────────
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('Keyword Command Center', 'tmwseo'),
+            __('Command Center', 'tmwseo'),
+            'manage_options',
+            'tmwseo-command-center',
+            ['\\TMWSEO\\Engine\\Admin\\KeywordCommandCenter', 'render_page']
+        );
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('Command Center (Legacy)', 'tmwseo'),
+            __('Command Center (Legacy)', 'tmwseo'),
+            'manage_options',
+            'tmwseo-command-center-legacy',
+            ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_command_center_legacy']
+        );
         add_submenu_page(self::MENU_SLUG, __('Suggestions', 'tmwseo'),    __('Suggestions', 'tmwseo'),    'manage_options', 'tmwseo-suggestions',    ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_suggestions']);
         add_submenu_page(self::MENU_SLUG, __('Content Briefs', 'tmwseo'), __('Content Briefs', 'tmwseo'), 'manage_options', 'tmwseo-content-briefs', ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_briefs']);
 
@@ -1000,7 +1021,6 @@ class Admin {
         add_submenu_page(null, __('Import', 'tmwseo'),           __('Import', 'tmwseo'),           'manage_options', 'tmwseo-import',      [__CLASS__, 'render_import']);
 
         // Legacy V2 slugs → server-side redirect to canonical pages (no JS bounces)
-        add_submenu_page(null, '', '', 'manage_options', 'tmwseo-command-center',   ['\\TMWSEO\\Engine\\Admin\\CommandCenter', 'render']); // keep old slug working
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-engine-v2',        [__CLASS__, 'legacy_redirect_command_center']);
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-pagespeed',        [__CLASS__, 'render_pagespeed_redirect']);
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-cfg',              [__CLASS__, 'render_settings_redirect']);
@@ -1030,6 +1050,8 @@ class Admin {
         // Desired visible order (slug → keep).
         $desired_order = [
             self::MENU_SLUG,              // Command Center (top entry)
+            'tmwseo-command-center',
+            'tmwseo-command-center-legacy',
             'tmwseo-suggestions',
             'tmwseo-content-briefs',
             'tmwseo-keywords',
@@ -1047,6 +1069,7 @@ class Admin {
             'tmwseo-content-gap',
             'tmwseo-ranking-probability',
             'tmwseo-models',
+            'tmwseo-model-optimizer',   // legacy hidden alias → redirects to tmwseo-models
             'tmwseo-reports',
             'tmwseo-connections',
             'tmwseo-settings',
@@ -2115,9 +2138,36 @@ class Admin {
         \TMWSEO\Engine\Admin\CommandCenter::render();
     }
 
+    /**
+     * Models page renderer — the canonical landing page for the Models sidebar item.
+     *
+     * Delegates to ModelHelper::render_page(), which provides:
+     *   • Aggregate stats bar (total / researched / needs-SEO counts)
+     *   • Searchable, paginated table of all model posts
+     *   • Research status badge + confidence per row
+     *   • "Research" row button (runs the enrichment pipeline)
+     *   • "Open SEO Optimizer" row button (links to the ModelOptimizer metabox)
+     *   • "Research Selected" bulk action
+     *
+     * Absolute fallback (class missing): renders a minimal valid page.
+     */
     public static function render_models_redirect(): void {
-        wp_safe_redirect(admin_url('edit.php?post_type=model'));
-        exit;
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'tmwseo' ) );
+        }
+
+        if ( class_exists( '\\TMWSEO\\Engine\\Admin\\ModelHelper' ) ) {
+            \TMWSEO\Engine\Admin\ModelHelper::render_page();
+            return;
+        }
+
+        // ── Absolute fallback ─────────────────────────────────────────────
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__( 'Models', 'tmwseo' ) . '</h1>';
+        echo '<p class="description">' . esc_html__( 'The Model Helper could not be loaded.', 'tmwseo' ) . '</p>';
+        echo '<p><a class="button button-primary" href="' . esc_url( admin_url( 'edit.php?post_type=model' ) ) . '">'
+            . esc_html__( 'Open Model List', 'tmwseo' ) . '</a></p>';
+        echo '</div>';
     }
 
     public static function render_tools(): void {
@@ -3503,6 +3553,25 @@ private static function header(string $title): void {
         echo '<table class="form-table"><tr><th>' . esc_html__('Safe Mode', 'tmwseo') . '</th><td>';
         echo '<label><input type="checkbox" name="tmwseo_engine_settings[safe_mode]" value="1" ' . checked($safe_mode, true, false) . '> ' . esc_html__('Enable safe mode', 'tmwseo') . '</label>';
         echo '<p class="description">' . esc_html__('When ON: blocks Google Indexing API pings, OpenAI/AI calls, and PageSpeed cycles. Recommended until you are satisfied with your setup. Turn OFF to allow AI-powered features and indexing submissions.', 'tmwseo') . '</p>';
+        echo '</td></tr></table>';
+
+        // ── Model Discovery Scraper ───────────────────────────────────────
+        $model_discovery = (bool) \TMWSEO\Engine\Services\Settings::get('model_discovery_enabled', 0);
+        echo '<h2>' . esc_html__('Model Discovery Scraper', 'tmwseo') . '</h2>';
+        echo '<table class="form-table"><tr><th>' . esc_html__('Enable scraper', 'tmwseo') . '</th><td>';
+        echo '<label><input type="checkbox" name="tmwseo_engine_settings[model_discovery_enabled]" value="1" ' . checked($model_discovery, true, false) . '> ';
+        echo esc_html__('Enable hourly model discovery from cam platforms', 'tmwseo') . '</label>';
+        echo '<p class="description" style="color:#8a1a1a;">';
+        echo '<strong>' . esc_html__('⚠ Default: OFF.', 'tmwseo') . '</strong> ';
+        echo esc_html__('When enabled, the worker scrapes external platforms (Chaturbate, Stripchat, etc.) hourly to discover new model names. Only enable after reviewing each platform's Terms of Service. Consider using the Models → Research workflow instead, which uses DataForSEO SERP data — no direct scraping required.', 'tmwseo');
+        echo '</p>';
+        echo '</td></tr>';
+
+        // ── Keyword Review Queue Cap ──────────────────────────────────────
+        $kw_queue_cap = (int) \TMWSEO\Engine\Services\Settings::get('keyword_review_queue_cap', 200);
+        echo '<tr><th>' . esc_html__('Review Queue Cap', 'tmwseo') . '</th><td>';
+        echo '<input type="number" name="tmwseo_engine_settings[keyword_review_queue_cap]" value="' . (int)$kw_queue_cap . '" class="small-text" min="20" max="1000" step="10">';
+        echo '<p class="description">' . esc_html__('Maximum combined items in the keyword review queue (discovery + generator tracks). Default: 200. Lower for smaller batches; raise if reviews are frequent. Hard bounds: 20–1000.', 'tmwseo') . '</p>';
         echo '</td></tr></table>';
 
         // ── AI Provider / Router ──────────────────────────────────────────

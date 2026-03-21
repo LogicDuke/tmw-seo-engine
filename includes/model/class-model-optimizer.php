@@ -63,13 +63,31 @@ class ModelOptimizer {
 
 
     public static function register_menu(): void {
+        // Keep the old slug registered as a hidden redirect alias so any bookmarks
+        // or Tools → Advanced links that still reference tmwseo-model-optimizer
+        // land on the canonical Models page (tmwseo-models) rather than a 404.
         add_submenu_page(
-            null,
-            __('Model Optimizer', 'tmwseo'),
-            __('Model Optimizer', 'tmwseo'),
+            null,                                           // hidden — not in sidebar
+            __( 'Model Helper', 'tmwseo' ),
+            __( 'Model Helper', 'tmwseo' ),
             'edit_posts',
             'tmwseo-model-optimizer',
-            [__CLASS__, 'render_admin_page']
+            static function (): void {
+                if ( headers_sent() ) {
+                    // HTML already started — render a minimal forwarding page.
+                    echo '<div class="wrap">';
+                    echo '<h1>' . esc_html__( 'Model Helper', 'tmwseo' ) . '</h1>';
+                    echo '<p>' . esc_html__( 'Redirecting to the canonical Models page…', 'tmwseo' ) . '</p>';
+                    $url = esc_url( admin_url( 'admin.php?page=tmwseo-models' ) );
+                    echo '<p><a class="button button-primary" href="' . $url . '">'
+                        . esc_html__( 'Go to Models', 'tmwseo' ) . '</a></p>';
+                    echo '<script>window.location.href=' . wp_json_encode( admin_url( 'admin.php?page=tmwseo-models' ) ) . ';</script>';
+                    echo '</div>';
+                    return;
+                }
+                wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-models' ) );
+                exit;
+            }
         );
     }
 

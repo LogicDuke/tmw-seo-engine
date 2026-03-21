@@ -48,6 +48,18 @@ class ModelDiscoveryWorker {
     }
 
     public static function run(): void {
+        // ── Kill switch (default OFF — must be explicitly enabled) ────────────
+        // Model discovery scrapes external platforms. This is opt-in only.
+        // Enable via: TMW SEO Engine → Settings → Enable Model Discovery Scraper.
+        if ( ! (bool) \TMWSEO\Engine\Services\Settings::get( 'model_discovery_enabled', 0 ) ) {
+            \TMWSEO\Engine\Logs::info(
+                'model_discovery',
+                '[TMW] ModelDiscoveryWorker skipped — disabled by default. '                . 'Enable via Settings → Enable Model Discovery Scraper.'
+            );
+            return;
+        }
+
+        // ── DiscoveryGovernor gate ────────────────────────────────────────────
         global $wpdb;
 
         if (!DiscoveryGovernor::is_discovery_allowed()) {
