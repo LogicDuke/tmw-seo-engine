@@ -3563,7 +3563,7 @@ private static function header(string $title): void {
         echo esc_html__('Enable hourly model discovery from cam platforms', 'tmwseo') . '</label>';
         echo '<p class="description" style="color:#8a1a1a;">';
         echo '<strong>' . esc_html__('⚠ Default: OFF.', 'tmwseo') . '</strong> ';
-        echo esc_html__('When enabled, the worker scrapes external platforms (Chaturbate, Stripchat, etc.) hourly to discover new model names. Only enable after reviewing each platform's Terms of Service. Consider using the Models → Research workflow instead, which uses DataForSEO SERP data — no direct scraping required.', 'tmwseo');
+        echo esc_html__('When enabled, the worker scrapes external platforms (Chaturbate, Stripchat, etc.) hourly to discover new model names. Only enable after reviewing each platform\'s Terms of Service. Consider using the Models → Research workflow instead, which uses DataForSEO SERP data — no direct scraping required.', 'tmwseo');
         echo '</p>';
         echo '</td></tr>';
 
