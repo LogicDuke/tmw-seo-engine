@@ -46,6 +46,13 @@ class JobWorker {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
 
+        // BUG-10 NOTE: This transient lock has a 55-second TTL. Jobs that call
+        // DataForSEO (30s HTTP timeout) or OpenAI (60s timeout) can consume most
+        // of that window. If a job times out without reaching the `finally` block,
+        // the lock stays held for up to 55 seconds, stalling the next job pickup.
+        // This is acceptable for now — the `finally` block below deletes the lock
+        // on all clean exit paths. A future improvement would be a DB-backed lock
+        // with an explicit release on watchdog heartbeat.
         if (get_transient('tmwseo_job_worker_lock')) {
             return;
         }

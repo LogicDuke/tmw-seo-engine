@@ -146,17 +146,44 @@ class DiscoveryGovernor {
         global $wpdb;
 
         $amount = max(1, $amount);
-        if (!self::can_increment($metric, $amount)) {
-            return false;
-        }
 
         $table = self::table_name();
+
+        // FIX BUG-08: Use a single atomic UPDATE that both checks the limit and increments.
+        // The previous can_increment() + increment() pattern was a check-then-act race:
+        // two concurrent processes could both pass can_increment() before either wrote,
+        // allowing the limit to be exceeded by the number of concurrent threads.
+        // Now the UPDATE only succeeds if current_value + amount <= limit_value,
+        // and we check affected rows to know if the increment was allowed.
         $updated = $wpdb->query($wpdb->prepare(
-            "UPDATE {$table} SET current_value = current_value + %d WHERE metric = %s",
+            "UPDATE {$table}
+             SET current_value = current_value + %d
+             WHERE metric = %s
+               AND (current_value + %d) <= limit_value",
             $amount,
-            $metric
+            $metric,
+            $amount
         ));
 
-        return $updated !== false;
+        if ($updated === false || (int) $updated === 0) {
+            // Either DB error or limit would be exceeded — check which
+            $row = self::get_metric_row($metric);
+            if (!empty($row)) {
+                $current = (int) ($row['current_value'] ?? 0);
+                $limit   = (int) ($row['limit_value'] ?? 0);
+                if (($current + $amount) > $limit) {
+                    Logs::warn('discovery_governor', sprintf('Discovery governor blocked increment: %s limit reached.', str_replace('_', ' ', $metric)), [
+                        'metric'             => $metric,
+                        'current_value'      => $current,
+                        'limit_value'        => $limit,
+                        'requested_increment' => $amount,
+                    ]);
+                    return false;
+                }
+            }
+            return $updated !== false;
+        }
+
+        return true;
     }
 }

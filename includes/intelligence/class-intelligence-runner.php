@@ -380,7 +380,11 @@ class KeywordIntelligenceRunner {
             'https://www.google.com/complete/search',
         ];
         $backoff_ms = [300, 900, 1800];
-        $user_agent = 'Mozilla/5.0 (compatible; TMWSEO-Engine/4.1; +' . home_url('/') . ')';
+        // FIX BUG-14: Removed home_url() from User-Agent. The previous string
+        // 'TMWSEO-Engine/4.1; +{site_url}' broadcast the live site URL to Google's
+        // autocomplete infrastructure on every keyword discovery call, which could
+        // associate automated crawl patterns with the site domain.
+        $user_agent = 'Mozilla/5.0 (compatible; TMWSEOBot/4.6; SEO research tool)';
         $out        = [];
 
         foreach ($endpoints as $base_url) {
@@ -432,64 +436,78 @@ class KeywordIntelligenceRunner {
     }
 
     private static function fetch_bing_suggest(string $query): array {
-        $url = 'https://api.bing.com/osjson.aspx?query=' . rawurlencode($query);
+        $query = trim($query);
+        if ($query === '') {
+            return [];
+        }
+        // FIX BUG-14: Added transient cache — was missing, causing unthrottled Bing requests.
+        $cache_key = 'tmwseo_bing_suggest_' . md5(strtolower($query));
+        $cached    = get_transient($cache_key);
+        if ($cached !== false && is_array($cached)) {
+            return $cached;
+        }
+        $url  = 'https://api.bing.com/osjson.aspx?query=' . rawurlencode($query);
         $resp = wp_remote_get($url, [
             'timeout' => 12,
             'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (compatible; TMWSEO/4.0; +https://example.com)',
-                'Accept' => 'application/json',
+                // FIX BUG-14: Neutral user-agent — does not broadcast site URL
+                'User-Agent' => 'Mozilla/5.0 (compatible; TMWSEOBot/4.6; SEO research tool)',
+                'Accept'     => 'application/json',
             ],
         ]);
-
         if (is_wp_error($resp)) {
             return [];
         }
-
         $body = (string) wp_remote_retrieve_body($resp);
         $json = json_decode($body, true);
         if (!is_array($json) || !isset($json[1]) || !is_array($json[1])) {
             return [];
         }
-
         $out = [];
         foreach ($json[1] as $s) {
             $s = trim((string)$s);
             if ($s !== '') $out[] = $s;
         }
-
-        return array_values(array_unique($out));
+        $out = array_values(array_unique($out));
+        set_transient($cache_key, $out, HOUR_IN_SECONDS);
+        return $out;
     }
 
     private static function fetch_reddit_titles(string $query, int $limit = 10): array {
+        $query = trim($query);
+        if ($query === '') {
+            return [];
+        }
         $limit = max(1, min(25, $limit));
-        $url = 'https://www.reddit.com/search.json?q=' . rawurlencode($query) . '&limit=' . $limit . '&sort=relevance&t=all';
-
+        // FIX BUG-14: Added transient cache — was missing, causing unthrottled Reddit requests.
+        $cache_key = 'tmwseo_reddit_' . md5(strtolower($query) . '_' . $limit);
+        $cached    = get_transient($cache_key);
+        if ($cached !== false && is_array($cached)) {
+            return $cached;
+        }
+        $url  = 'https://www.reddit.com/search.json?q=' . rawurlencode($query) . '&limit=' . $limit . '&sort=relevance&t=all';
         $resp = wp_remote_get($url, [
             'timeout' => 15,
             'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (compatible; TMWSEO/4.0; +https://example.com)',
-                'Accept' => 'application/json',
+                // FIX BUG-14: Neutral user-agent
+                'User-Agent' => 'Mozilla/5.0 (compatible; TMWSEOBot/4.6; SEO research tool)',
+                'Accept'     => 'application/json',
             ],
         ]);
-
         if (is_wp_error($resp)) {
             return [];
         }
-
         $code = (int) wp_remote_retrieve_response_code($resp);
         if ($code < 200 || $code >= 300) {
             return [];
         }
-
         $body = (string) wp_remote_retrieve_body($resp);
         $json = json_decode($body, true);
         if (!is_array($json)) {
             return [];
         }
-
         $children = $json['data']['children'] ?? [];
         if (!is_array($children)) $children = [];
-
         $out = [];
         foreach ($children as $child) {
             if (!is_array($child) || !isset($child['data']) || !is_array($child['data'])) continue;
@@ -498,8 +516,9 @@ class KeywordIntelligenceRunner {
                 $out[] = $title;
             }
         }
-
-        return array_values(array_unique($out));
+        $out = array_values(array_unique($out));
+        set_transient($cache_key, $out, HOUR_IN_SECONDS);
+        return $out;
     }
 
     private static function fetch_serper_suggestions(string $api_key, string $query): array {

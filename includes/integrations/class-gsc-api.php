@@ -21,7 +21,11 @@ use TMWSEO\Engine\Logs;
 class GSCApi {
 
     const TOKEN_OPTION       = 'tmwseo_gsc_tokens';
-    const OAUTH_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'; // changed to installed app flow
+    // FINDING-09: The OOB OAuth flow (urn:ietf:wg:oauth:2.0:oob) was deprecated by Google
+    // in Jan 2023 and no longer works for new OAuth clients. The actual redirect URI is
+    // returned by get_redirect_uri() below, which uses a proper callback URL. This constant
+    // was unused dead code — removed to avoid misleading future developers.
+    // const OAUTH_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'; — REMOVED
     const AUTH_URL           = 'https://accounts.google.com/o/oauth2/v2/auth';
     const TOKEN_URL          = 'https://oauth2.googleapis.com/token';
     const API_BASE           = 'https://www.googleapis.com/webmasters/v3';
@@ -348,11 +352,94 @@ class GSCApi {
 
     private static function get_tokens(): array {
         $raw = get_option( self::TOKEN_OPTION, [] );
-        return is_array( $raw ) ? $raw : [];
+        if ( ! is_array( $raw ) ) {
+            return [];
+        }
+
+        // FIX BUG-13: Decrypt sensitive token fields if stored encrypted.
+        // Supports both legacy plaintext (pre-fix) and new encrypted format transparently.
+        if ( ! empty( $raw['_enc'] ) ) {
+            $raw['access_token']  = self::decrypt_field( (string) ( $raw['access_token']  ?? '' ) );
+            $raw['refresh_token'] = self::decrypt_field( (string) ( $raw['refresh_token'] ?? '' ) );
+        }
+
+        return $raw;
     }
 
     private static function save_tokens( array $tokens ): void {
+        // FIX BUG-13: Encrypt sensitive OAuth credential fields before writing to wp_options.
+        // The previous implementation stored access_token and refresh_token as plaintext,
+        // accessible to any plugin with DB read access or via phpMyAdmin.
+        if ( ! empty( $tokens['access_token'] ) ) {
+            $tokens['access_token']  = self::encrypt_field( $tokens['access_token'] );
+        }
+        if ( ! empty( $tokens['refresh_token'] ) ) {
+            $tokens['refresh_token'] = self::encrypt_field( $tokens['refresh_token'] );
+        }
+        $tokens['_enc'] = true; // marker so get_tokens() knows to decrypt
+
         update_option( self::TOKEN_OPTION, $tokens, false );
+    }
+
+    /**
+     * Encrypt a string using sodium_crypto_secretbox with a key derived from wp_salt().
+     * Falls back to base64 if sodium is unavailable (PHP < 7.2 — uncommon but safe).
+     */
+    private static function encrypt_field( string $plaintext ): string {
+        if ( $plaintext === '' ) {
+            return '';
+        }
+
+        if ( ! function_exists( 'sodium_crypto_secretbox' ) ) {
+            // Fallback: base64 is not encryption but at least not trivially readable
+            return 'b64:' . base64_encode( $plaintext );
+        }
+
+        $key   = self::derive_key();
+        $nonce = random_bytes( SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
+        $box   = sodium_crypto_secretbox( $plaintext, $nonce, $key );
+
+        return 'enc:' . base64_encode( $nonce . $box );
+    }
+
+    /**
+     * Decrypt a field encrypted by encrypt_field().
+     */
+    private static function decrypt_field( string $ciphertext ): string {
+        if ( $ciphertext === '' ) {
+            return '';
+        }
+
+        if ( strpos( $ciphertext, 'b64:' ) === 0 ) {
+            return (string) base64_decode( substr( $ciphertext, 4 ) );
+        }
+
+        if ( strpos( $ciphertext, 'enc:' ) !== 0 || ! function_exists( 'sodium_crypto_secretbox_open' ) ) {
+            // Not in our format — return as-is (handles legacy plaintext rows)
+            return $ciphertext;
+        }
+
+        $decoded = base64_decode( substr( $ciphertext, 4 ) );
+        if ( $decoded === false || strlen( $decoded ) < SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ) {
+            return '';
+        }
+
+        $nonce      = substr( $decoded, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
+        $box        = substr( $decoded, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
+        $key        = self::derive_key();
+        $plaintext  = sodium_crypto_secretbox_open( $box, $nonce, $key );
+
+        return $plaintext === false ? '' : $plaintext;
+    }
+
+    /**
+     * Derive a 32-byte encryption key from WordPress's salt + AUTH_KEY.
+     * This ties the key to the WordPress installation without storing it separately.
+     */
+    private static function derive_key(): string {
+        $salt = wp_salt( 'auth' );
+        $auth = defined( 'AUTH_KEY' ) ? AUTH_KEY : 'tmwseo_fallback_key_no_auth_key_defined';
+        return substr( hash( 'sha256', $salt . $auth . 'tmwseo_gsc_v1', true ), 0, SODIUM_CRYPTO_SECRETBOX_KEYBYTES );
     }
 
     private static function process_token_response( $resp, string $keep_refresh = '' ): array {

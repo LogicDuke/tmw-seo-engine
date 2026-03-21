@@ -181,9 +181,9 @@ class KeywordScheduler {
     public static function prune_stale_keywords(): void {
         global $wpdb;
 
-        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $cand_table  = $wpdb->prefix . 'tmw_keyword_candidates';
         $usage_table = $wpdb->prefix . 'tmwseo_keyword_usage';
-        $cutoff = gmdate( 'Y-m-d H:i:s', time() - ( 180 * DAY_IN_SECONDS ) );
+        $cutoff_180  = gmdate( 'Y-m-d H:i:s', time() - ( 180 * DAY_IN_SECONDS ) );
 
         $sql = "DELETE c FROM {$cand_table} c
                 INNER JOIN {$usage_table} u ON u.keyword_text = c.keyword
@@ -191,12 +191,36 @@ class KeywordScheduler {
                   AND u.last_used_at IS NOT NULL
                   AND u.last_used_at <= %s";
 
-        $deleted = (int) $wpdb->query( $wpdb->prepare( $sql, $cutoff ) );
+        $deleted = (int) $wpdb->query( $wpdb->prepare( $sql, $cutoff_180 ) );
 
         \TMWSEO\Engine\Logs::debug( 'keywords', '[TMW-KW-PRUNE] Weekly keyword pruning complete', [
             'deleted' => $deleted,
-            'cutoff' => $cutoff,
+            'cutoff'  => $cutoff_180,
         ] );
+
+        // FIX BUG-16: Prune terminal-state rows from tmw_expansion_candidates.
+        // Previously rejected/archived rows accumulated indefinitely — the REVIEW_QUEUE_CAP
+        // only gates new insertions, not terminal rows. On a site running weekly discovery
+        // for a year, this table would accumulate tens of thousands of unread dead rows
+        // participating in every COUNT(*) queue-full check.
+        // Prune rows older than 90 days that are in terminal states (rejected/archived).
+        $exp_table  = $wpdb->prefix . 'tmw_expansion_candidates';
+        $cutoff_90  = gmdate( 'Y-m-d H:i:s', time() - ( 90 * DAY_IN_SECONDS ) );
+
+        $table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $exp_table ) );
+        if ( $table_exists === $exp_table ) {
+            $exp_deleted = (int) $wpdb->query( $wpdb->prepare(
+                "DELETE FROM {$exp_table}
+                 WHERE status IN ('rejected', 'archived')
+                   AND created_at <= %s",
+                $cutoff_90
+            ) );
+
+            \TMWSEO\Engine\Logs::debug( 'keywords', '[TMW-KW-PRUNE] Expansion candidate pruning complete', [
+                'deleted' => $exp_deleted,
+                'cutoff'  => $cutoff_90,
+            ] );
+        }
     }
 
     // ── Internal helpers ───────────────────────────────────────────────────

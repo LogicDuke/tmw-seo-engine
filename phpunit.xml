@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    bootstrap="tests/bootstrap/wordpress-stubs.php"
+    colors="true"
+    displayDetailsOnTestsThatTriggerWarnings="true"
+>
+    <testsuites>
+        <testsuite name="TMW SEO Engine Unit Tests">
+            <directory>tests</directory>
+            <exclude>tests/bootstrap</exclude>
+            <exclude>tests/results</exclude>
+        </testsuite>
+    </testsuites>
+
+    <source>
+        <include>
+            <directory suffix=".php">includes</directory>
+        </include>
+    </source>
+</phpunit>

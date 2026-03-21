@@ -47,6 +47,41 @@ class CuratedKeywordLibrary {
         return array_map( 'basename', $dirs );
     }
 
+    /**
+     * FINDING-12: Returns only categories that have at least one non-empty CSV.
+     * Most bundled categories shipped as 8-byte stubs (empty headers only).
+     * Callers using this avoid silently getting zero keyword results.
+     *
+     * @return array{ slug: string, keywords: int }[]
+     */
+    public static function populated_categories(): array {
+        $result = [];
+        foreach ( self::categories() as $category ) {
+            $count = count( self::load_all_for_category( $category ) );
+            if ( $count > 0 ) {
+                $result[] = [ 'slug' => $category, 'keywords' => $count ];
+            }
+        }
+        usort( $result, static fn( $a, $b ) => $b['keywords'] <=> $a['keywords'] );
+        return $result;
+    }
+
+    /**
+     * FINDING-12: Returns category slugs with empty/stub CSVs.
+     * Useful for surfacing admin notices about unpopulated categories.
+     *
+     * @return string[]
+     */
+    public static function empty_categories(): array {
+        $empty = [];
+        foreach ( self::categories() as $category ) {
+            if ( count( self::load_all_for_category( $category ) ) === 0 ) {
+                $empty[] = $category;
+            }
+        }
+        return $empty;
+    }
+
     // ── CSV reading ────────────────────────────────────────────────────────
 
     /**
@@ -216,3 +251,4 @@ class CuratedKeywordLibrary {
         return array_values( array_unique( array_filter( $keywords, 'strlen' ) ) );
     }
 }
+

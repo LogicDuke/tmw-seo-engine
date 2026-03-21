@@ -461,19 +461,51 @@ class RankingProbabilityOrchestrator {
             'no_found_rows'  => true,
         ] );
 
+        if ( empty( $post_ids ) ) {
+            update_option( 'tmwseo_rpo_last_run', current_time( 'mysql' ), false );
+            return [ 'ok' => true, 'processed' => 0, 'errors' => 0 ];
+        }
+
+        // FIX BUG-12: Pre-fetch ALL focus keywords in one query, then do a SINGLE
+        // bulk DataForSEO KD request for all unique keywords instead of one API call
+        // per post. Old behaviour: up to 200 × $0.02 = $4.00 per click + timeout risk.
+        // New behaviour: 1 × $0.02 = $0.02 per full run regardless of post count.
+        $all_keywords = [];
+        foreach ( $post_ids as $post_id ) {
+            $kw = trim( (string) get_post_meta( (int) $post_id, 'rank_math_focus_keyword', true ) );
+            if ( $kw !== '' ) {
+                $all_keywords[ (int) $post_id ] = strtolower( $kw );
+            }
+        }
+
+        // Prime the transient cache with a single bulk request for all unique keywords
+        if ( ! empty( $all_keywords ) && DataForSEO::is_configured() && ! DataForSEO::is_over_budget() ) {
+            $unique_keywords = array_values( array_unique( array_values( $all_keywords ) ) );
+            // DataForSEO supports up to 1000 keywords per bulk request
+            foreach ( array_chunk( $unique_keywords, 1000 ) as $chunk ) {
+                $bulk_result = DataForSEO::bulk_keyword_difficulty( $chunk );
+                if ( ! empty( $bulk_result['ok'] ) && ! empty( $bulk_result['map'] ) ) {
+                    foreach ( $bulk_result['map'] as $kw => $kd ) {
+                        $cache_key = 'tmwseo_kd_' . md5( strtolower( (string) $kw ) );
+                        set_transient( $cache_key, $kd, DAY_IN_SECONDS );
+                    }
+                }
+            }
+        }
+
         $processed = 0;
         $errors    = 0;
 
         foreach ( $post_ids as $post_id ) {
             try {
-                // Clear cached result so fresh signals are computed
+                // Clear cached RPO result so fresh signals are computed,
+                // but the KD transient we just primed is intentionally kept.
                 $focus_keyword = (string) get_post_meta( (int) $post_id, 'rank_math_focus_keyword', true );
                 delete_transient( 'tmwseo_rpo_' . $post_id . '_' . md5( $focus_keyword ) );
 
                 $result = self::run_for_post( (int) $post_id );
                 if ( ! empty( $result['ok'] ) ) {
                     $processed++;
-                    // Also store in the intelligence table if available
                     self::store_intelligence_record( (int) $post_id, $result );
                 } else {
                     $errors++;

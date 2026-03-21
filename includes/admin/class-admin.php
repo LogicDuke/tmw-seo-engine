@@ -859,11 +859,11 @@ class Admin {
             'keyword_review_queue_cap' => max(20, min(1000, (int)($input['keyword_review_queue_cap'] ?? $existing['keyword_review_queue_cap'] ?? 200))),
             'model_discovery_enabled'  => !empty($input['model_discovery_enabled']) ? 1 : 0,
 
-            'keyword_min_volume'     => max(0, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30)),
-            'keyword_max_kd'         => max(0, (int)($input['keyword_max_kd'] ?? $existing['keyword_max_kd'] ?? 60)),
-            'keyword_new_limit'      => max(0, (int)($input['keyword_new_limit'] ?? $existing['keyword_new_limit'] ?? 300)),
-            'keyword_kd_batch_limit' => max(0, (int)($input['keyword_kd_batch_limit'] ?? $existing['keyword_kd_batch_limit'] ?? 300)),
-            'keyword_pages_per_day'  => max(0, (int)($input['keyword_pages_per_day'] ?? $existing['keyword_pages_per_day'] ?? 3)),
+            'keyword_min_volume'     => max(0, min(100000, (int)($input['keyword_min_volume'] ?? $existing['keyword_min_volume'] ?? 30))),
+            'keyword_max_kd'         => max(0, min(100,    (int)($input['keyword_max_kd'] ?? $existing['keyword_max_kd'] ?? 60))),
+            'keyword_new_limit'      => max(1, min(5000,   (int)($input['keyword_new_limit'] ?? $existing['keyword_new_limit'] ?? 300))),
+            'keyword_kd_batch_limit' => max(1, min(1000,   (int)($input['keyword_kd_batch_limit'] ?? $existing['keyword_kd_batch_limit'] ?? 300))),
+            'keyword_pages_per_day'  => max(1, min(100,    (int)($input['keyword_pages_per_day'] ?? $existing['keyword_pages_per_day'] ?? 3))),
             'keyword_negative_filters' => sanitize_textarea_field((string)($input['keyword_negative_filters'] ?? $existing['keyword_negative_filters'] ?? "video chat\nrandom chat\nomegle\nchatroulette\nchat room\nchatroom\nstranger chat\ntalk to strangers")),
             'max_keywords_per_run'   => max(1, (int)($input['max_keywords_per_run'] ?? $existing['max_keywords_per_run'] ?? 500)),
             'max_keywords_per_day'   => max(1, (int)($input['max_keywords_per_day'] ?? $existing['max_keywords_per_day'] ?? 5000)),
@@ -1146,7 +1146,24 @@ class Admin {
 
     public static function render_ranking_probability(): void {
         if (!current_user_can('manage_options')) {
-            wp_die('Unauthorized');
+            wp_die(esc_html__('Unauthorized', 'tmwseo'));
+        }
+
+        // FIX BUG-04: POST handling MUST come before any HTML output.
+        // Previously wp_safe_redirect() was called after page_header() had already
+        // echoed HTML, causing headers-already-sent failures and silent no-ops.
+        if (isset($_POST['tmwseo_run_ranking_probability']) && check_admin_referer('tmwseo_run_ranking_probability')) {
+            if (class_exists('\\TMWSEO\\Engine\\Intelligence\\RankingProbabilityOrchestrator')) {
+                try {
+                    \TMWSEO\Engine\Intelligence\RankingProbabilityOrchestrator::run_all();
+                    wp_safe_redirect(admin_url('admin.php?page=tmwseo-ranking-probability&tmw_ran=1'));
+                    exit;
+                } catch (\Throwable $e) {
+                    // Redirect with error flag so the page can surface it
+                    wp_safe_redirect(admin_url('admin.php?page=tmwseo-ranking-probability&tmw_error=1'));
+                    exit;
+                }
+            }
         }
 
         global $wpdb;
@@ -1165,23 +1182,11 @@ class Admin {
                 'ranking_probability'
             ), ARRAY_A) ?: [];
 
-            // Most recent computation timestamp
-            $last_run = (string) $wpdb->get_var(
-                "SELECT MAX(computed_at) FROM {$intel_table} WHERE signal_type = 'ranking_probability'"
-            );
-        }
-
-        // Handle "Run Now" POST
-        if (isset($_POST['tmwseo_run_ranking_probability']) && check_admin_referer('tmwseo_run_ranking_probability')) {
-            if (class_exists('\\TMWSEO\\Engine\\Intelligence\\RankingProbabilityOrchestrator')) {
-                try {
-                    \TMWSEO\Engine\Intelligence\RankingProbabilityOrchestrator::run_all();
-                    wp_safe_redirect(admin_url('admin.php?page=tmwseo-ranking-probability&tmw_ran=1'));
-                    exit;
-                } catch (\Throwable $e) {
-                    // fall through to show page with error
-                }
-            }
+            // Most recent computation timestamp — use prepare for consistency
+            $last_run = (string) $wpdb->get_var($wpdb->prepare(
+                "SELECT MAX(computed_at) FROM {$intel_table} WHERE signal_type = %s",
+                'ranking_probability'
+            ));
         }
 
         // ── Page shell ───────────────────────────────────────────────────────
@@ -1210,9 +1215,12 @@ class Admin {
         echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-tools')) . '" class="button" style="margin-left:auto;">' . esc_html__('← Back to Tools', 'tmwseo') . '</a>';
         echo '</div>';
 
-        // ── Success notice ───────────────────────────────────────────────────
+        // ── Success / error notices ───────────────────────────────────────────
         if (isset($_GET['tmw_ran'])) {
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Ranking probability scan completed. Scores updated below.', 'tmwseo') . '</p></div>';
+        }
+        if (isset($_GET['tmw_error'])) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('Ranking probability scan encountered an error. Check the debug log for details.', 'tmwseo') . '</p></div>';
         }
 
         // ── Results ──────────────────────────────────────────────────────────
@@ -3563,7 +3571,7 @@ private static function header(string $title): void {
         echo esc_html__('Enable hourly model discovery from cam platforms', 'tmwseo') . '</label>';
         echo '<p class="description" style="color:#8a1a1a;">';
         echo '<strong>' . esc_html__('⚠ Default: OFF.', 'tmwseo') . '</strong> ';
-        echo esc_html__('When enabled, the worker scrapes external platforms (Chaturbate, Stripchat, etc.) hourly to discover new model names. Only enable after reviewing each platform's Terms of Service. Consider using the Models → Research workflow instead, which uses DataForSEO SERP data — no direct scraping required.', 'tmwseo');
+        echo esc_html__('When enabled, the worker scrapes external platforms (Chaturbate, Stripchat, etc.) hourly to discover new model names. Only enable after reviewing each platform\'s Terms of Service. Consider using the Models → Research workflow instead, which uses DataForSEO SERP data — no direct scraping required.', 'tmwseo');
         echo '</p>';
         echo '</td></tr>';
 

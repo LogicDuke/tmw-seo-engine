@@ -216,11 +216,14 @@ class AIRouter {
     }
 
     private static function record_tokens( string $provider, string $model, int $in, int $out ): void {
+        global $wpdb;
+
         $total     = $in + $out;
         $cost_rate = self::COST_PER_1K[ $model ] ?? 0.002;
         $cost      = ( $total / 1000 ) * $cost_rate;
 
-        // Token log
+        // Token log — append-only array, non-critical, get/update is acceptable here
+        // since token history is informational (not a billing gate).
         $token_key  = 'tmwseo_ai_tokens_' . date( 'Y_m' );
         $token_data = (array) get_option( $token_key, [] );
         $token_data[] = [
@@ -237,9 +240,16 @@ class AIRouter {
         }
         update_option( $token_key, $token_data, false );
 
-        // Running spend
+        // FIX BUG-09: Running spend uses atomic SQL INSERT ... ON DUPLICATE KEY UPDATE.
+        // The previous get_option/update_option pattern had a race condition where two
+        // concurrent AI calls could both read the same spend value and lose one write,
+        // causing spend to be under-reported and the budget cap to not fire correctly.
         $spend_key = 'tmwseo_ai_spend_' . date( 'Y_m' );
-        $spend     = (float) get_option( $spend_key, 0.0 );
-        update_option( $spend_key, round( $spend + $cost, 6 ), false );
+        $wpdb->query( $wpdb->prepare(
+            "INSERT INTO {$wpdb->options} (option_name, option_value, autoload)
+             VALUES (%s, %f, 'no')
+             ON DUPLICATE KEY UPDATE option_value = option_value + %f",
+            $spend_key, $cost, $cost
+        ) );
     }
 }

@@ -97,20 +97,8 @@ class DataForSEO {
         $started_at = microtime(true);
         $resp = wp_remote_post($url, $args);
 
-        if (!is_wp_error($resp) && (int) wp_remote_retrieve_response_code($resp) === 401) {
-            $args['headers'] = [
-                'Content-Type' => 'application/json',
-                'Accept'       => 'application/json',
-            ];
-            $args['body'] = wp_json_encode($post_array);
-            $args['sslverify'] = true;
-            $args['timeout'] = 30;
-            $args['redirection'] = 0;
-            $args['headers']['Authorization'] = $auth_header;
-
-            $started_at = microtime(true);
-        $resp = wp_remote_post($url, $args);
-        }
+        // FIX BUG-01: Removed broken 401 retry block. A 401 means bad credentials —
+        // re-sending identical credentials provides no recovery and wastes one API credit.
 
         if (is_wp_error($resp)) {
             DebugLogger::log_errors([
@@ -194,6 +182,8 @@ class DataForSEO {
     }
 
     private static function record_request_cost(string $path, array $json): void {
+        global $wpdb;
+
         $month = gmdate('Y_m');
         $spend_key = 'tmwseo_dataforseo_spend_' . $month;
         $calls_key = 'tmwseo_dataforseo_calls_' . $month;
@@ -203,11 +193,24 @@ class DataForSEO {
             $cost = self::FALLBACK_COST_PER_REQUEST[$path] ?? 0.01;
         }
 
-        $spent = (float) get_option($spend_key, 0.0);
-        $calls = (int) get_option($calls_key, 0);
+        // FIX BUG-02: Use atomic SQL INSERT ... ON DUPLICATE KEY UPDATE instead of
+        // get_option/update_option. The old pattern had a race condition under concurrent
+        // requests: two processes could both read the same spend value, both add cost,
+        // and one write would be silently discarded — causing spend to be under-reported
+        // and the budget cap to not fire correctly.
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$wpdb->options} (option_name, option_value, autoload)
+             VALUES (%s, %f, 'no')
+             ON DUPLICATE KEY UPDATE option_value = option_value + %f",
+            $spend_key, $cost, $cost
+        ));
 
-        update_option($spend_key, round($spent + $cost, 6), false);
-        update_option($calls_key, $calls + 1, false);
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$wpdb->options} (option_name, option_value, autoload)
+             VALUES (%s, 1, 'no')
+             ON DUPLICATE KEY UPDATE option_value = option_value + 1",
+            $calls_key
+        ));
     }
 
     private static function extract_response_cost(array $json): float {

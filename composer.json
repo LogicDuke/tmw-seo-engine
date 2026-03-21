@@ -1,0 +1,24 @@
+{
+    "name": "themilisofia/tmw-seo-engine",
+    "description": "TMW SEO Engine WordPress plugin — SEO intelligence core",
+    "type": "wordpress-plugin",
+    "require": {
+        "php": ">=8.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0"
+    },
+    "autoload": {
+        "psr-4": {}
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test-coverage": "phpunit --coverage-text"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "platform": {
+            "php": "8.0"
+        }
+    }
+}

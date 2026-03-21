@@ -611,7 +611,10 @@ class ModelHelper {
 
     /** @param array<string,string> $actions */
     public static function register_bulk_action( array $actions ): array {
-        $actions['tmwseo_research_selected'] = __( 'Research Selected', 'tmwseo' );
+        // BUG-03: Label clarified — "Flag for Research" is honest about what this does.
+        // There is no background processor polling for 'queued' models. This marks
+        // them for operator attention; research runs when triggered manually.
+        $actions['tmwseo_research_selected'] = __( 'Flag for Research (manual trigger)', 'tmwseo' );
         return $actions;
     }
 
@@ -648,8 +651,8 @@ class ModelHelper {
 
         echo '<div class="notice notice-success is-dismissible"><p>';
         echo esc_html(
-            /* translators: %d: number of models queued for research */
-            sprintf( _n( '%d model queued for research.', '%d models queued for research.', $count, 'tmwseo' ), $count )
+            /* translators: %d: number of models flagged for research */
+            sprintf( _n( '%d model flagged for research. Open each model and click "Run Research Now" to execute.', '%d models flagged for research. Open each model and click "Run Research Now" to execute.', $count, 'tmwseo' ), $count )
         );
         echo '</p></div>';
     }
@@ -672,7 +675,7 @@ class ModelHelper {
 
         self::queue_research( $post_id );
         wp_send_json_success( [
-            'message' => __( 'Model queued for research.', 'tmwseo' ),
+            'message' => __( 'Model flagged for research. Click "Run Research Now" on the model page to execute.', 'tmwseo' ),
             'status'  => 'queued',
         ] );
     }
@@ -776,6 +779,19 @@ class ModelHelper {
     // ── Research engine ───────────────────────────────────────────────────
 
     /** Mark a model as queued (non-blocking). Actual run is synchronous via admin-post. */
+    /**
+     * Mark a model post for manual research review.
+     *
+     * BUG-03 NOTE: This does NOT queue work to a background processor.
+     * Setting status to 'queued' is a UI marker only — no cron or background
+     * job polls for 'queued' records. Research is triggered by:
+     *   1. Clicking "Run Research Now" on the individual model page, OR
+     *   2. Using the Bulk Research action on the Models admin page.
+     *
+     * A future improvement would add a ModelDiscoveryWorker step that picks
+     * up one 'queued' model per hourly run and processes it asynchronously.
+     * Until then, this status means "flagged for operator attention".
+     */
     public static function queue_research( int $post_id ): void {
         update_post_meta( $post_id, self::META_STATUS, 'queued' );
     }
