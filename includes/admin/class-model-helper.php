@@ -27,42 +27,9 @@
  */
 namespace TMWSEO\Engine\Admin;
 
+use TMWSEO\Engine\Model\ModelResearchProvider;
+
 if ( ! defined( 'ABSPATH' ) ) { exit; }
-
-// ── Provider contract ─────────────────────────────────────────────────────────
-
-/**
- * Every research provider must implement this interface.
- * A provider's lookup() method must be side-effect-free: it collects candidate
- * data and returns it. The pipeline decides whether/how to persist it.
- */
-interface ModelResearchProvider {
-    /** Unique machine-readable identifier, e.g. 'dataforseo_serp'. */
-    public function provider_name(): string;
-
-    /**
-     * Look up data for a single model post.
-     *
-     * @param int    $post_id    WordPress post ID of the model.
-     * @param string $model_name Display name / title of the model.
-     *
-     * @return array{
-     *   status: string,          // 'ok' | 'no_provider' | 'error' | 'partial'
-     *   message?: string,        // human-readable description
-     *   display_name?: string,
-     *   aliases?: string[],
-     *   bio?: string,
-     *   platform_names?: string[],
-     *   social_urls?: string[],
-     *   country?: string,
-     *   language?: string,
-     *   source_urls?: string[],
-     *   confidence?: int,        // 0-100
-     *   notes?: string,
-     * }
-     */
-    public function lookup( int $post_id, string $model_name ): array;
-}
 
 // ── Stub provider — shipped as the default ────────────────────────────────────
 
