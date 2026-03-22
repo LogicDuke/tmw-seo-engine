@@ -103,6 +103,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
             self::MENU_SLUG . '_page_tmwseo-staging-ops',
             self::MENU_SLUG . '_page_tmwseo-serp-gaps',
+            self::MENU_SLUG . '_page_tmwseo-search-intelligence',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -925,15 +926,21 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
         add_submenu_page(self::MENU_SLUG, __('Traffic Forecast', 'tmwseo'),   __('Traffic Forecast', 'tmwseo'),   'manage_options', 'tmwseo-traffic-forecast',   ['\\TMWSEO\\Engine\\Opportunities\\TrafficForecastUI', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Internal Link Opportunities', 'tmwseo'), __('Internal Link Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-internal-links', ['\\TMWSEO\\Engine\\InternalLinks\\InternalLinkOpportunities', 'render_admin_page']);
-        add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'), __('SERP Analyzer', 'tmwseo'), 'manage_options', 'tmwseo-serp-analyzer', ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
+
+        // ── Search Intelligence group ──────────────────────────────────────
+        // Hub: lightweight overview page with cards linking to each tool.
+        // New slug only; all four tool slugs below are unchanged.
+        add_submenu_page(self::MENU_SLUG, __('Search Intelligence', 'tmwseo'), __('&#x1F50D; Search Intelligence', 'tmwseo'), 'manage_options', 'tmwseo-search-intelligence', [__CLASS__, 'render_search_intelligence_hub']);
+        add_submenu_page(self::MENU_SLUG, __('SERP Analyzer', 'tmwseo'),      __('&rsaquo; SERP Analyzer', 'tmwseo'),      'manage_options', 'tmwseo-serp-analyzer',      ['\TMWSEO\Engine\Admin\SerpAnalyzerAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('SERP Keyword Gaps', 'tmwseo'),  __('&rsaquo; SERP Keyword Gaps', 'tmwseo'),  'manage_options', 'tmwseo-serp-gaps',          ['\\TMWSEO\\Engine\\Admin\\SerpGapAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Content Gap', 'tmwseo'),        __('&rsaquo; Content Gap', 'tmwseo'),        'manage_options', 'tmwseo-content-gap',        ['\\TMWSEO\\Engine\\ContentGap\\ContentGapAdmin', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'), __('&rsaquo; Competitor Domains', 'tmwseo'), 'manage_options', 'tmwseo-competitor-domains', ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
+
         add_submenu_page(self::MENU_SLUG, __('Link Graph', 'tmwseo'), __('Link Graph', 'tmwseo'), 'manage_options', 'tmwseo-link-graph', ['\TMWSEO\Engine\Admin\LinkGraphAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Topic Maps', 'tmwseo'), __('Topic Maps', 'tmwseo'), 'manage_options', 'tmwseo-topic-maps', ['\TMWSEO\Engine\Admin\TopicMapsAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Topic Authority', 'tmwseo'), __('Topic Authority', 'tmwseo'), 'manage_options', 'tmwseo-topic-authority', [__CLASS__, 'render_topic_authority']);
         add_submenu_page(self::MENU_SLUG, __('Keyword Graph', 'tmwseo'), __('Keyword Graph', 'tmwseo'), 'manage_options', 'tmwseo-keyword-graph', ['\TMWSEO\Engine\Admin\KeywordGraphAdminPage', 'render']);
         add_submenu_page(self::MENU_SLUG, __('Discovery Control', 'tmwseo'), __('Discovery Control', 'tmwseo'), 'manage_options', 'tmwseo-discovery-control', ['\TMWSEO\Engine\Admin\DiscoveryControlAdminPage', 'render_page']);
-        add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
-        add_submenu_page(self::MENU_SLUG, __('Content Gap', 'tmwseo'), __('Content Gap', 'tmwseo'), 'manage_options', 'tmwseo-content-gap', ['\\TMWSEO\\Engine\\ContentGap\\ContentGapAdmin', 'render_page']);
-        add_submenu_page(self::MENU_SLUG, __('SERP Keyword Gaps', 'tmwseo'), __('SERP Keyword Gaps', 'tmwseo'), 'manage_options', 'tmwseo-serp-gaps', ['\\TMWSEO\\Engine\\Admin\\SerpGapAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Mining', 'tmwseo'), __('Competitor Mining', 'tmwseo'), 'manage_options', 'tmwseo-competitor-mining', [__CLASS__, 'render_competitor_mining']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 
@@ -1074,6 +1081,63 @@ class Admin {
     }
 
     // ── Ranking Probability page ───────────────────────────────────────────
+
+    // ── Search Intelligence hub ───────────────────────────────────────────
+    // Lightweight overview page. Renders cards linking to the four tools.
+    // No logic, no state, no duplicate rendering — pure navigation aid.
+    public static function render_search_intelligence_hub(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Unauthorized' );
+        }
+
+        $tools = [
+            [
+                'slug'  => 'tmwseo-serp-analyzer',
+                'icon'  => '📊',
+                'title' => __( 'SERP Analyzer', 'tmwseo' ),
+                'desc'  => __( 'Reverse-engineer a live SERP. See what ranks, why it ranks, and what a competitor page does well.', 'tmwseo' ),
+            ],
+            [
+                'slug'  => 'tmwseo-serp-gaps',
+                'icon'  => '🎯',
+                'title' => __( 'SERP Keyword Gaps', 'tmwseo' ),
+                'desc'  => __( 'Find queries where ranking pages only partially satisfy the search — revealing exact-match and modifier opportunities.', 'tmwseo' ),
+            ],
+            [
+                'slug'  => 'tmwseo-content-gap',
+                'icon'  => '🏴',
+                'title' => __( 'Content Gap', 'tmwseo' ),
+                'desc'  => __( 'Identify keywords competitors rank for that your site does not yet target.', 'tmwseo' ),
+            ],
+            [
+                'slug'  => 'tmwseo-competitor-domains',
+                'icon'  => '🔭',
+                'title' => __( 'Competitor Domains', 'tmwseo' ),
+                'desc'  => __( 'Manage tracked competitor domains used for gap analysis and threat detection.', 'tmwseo' ),
+            ],
+        ];
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__( 'Search Intelligence', 'tmwseo' ) . '</h1>';
+        echo '<p class="description">' . esc_html__( 'Four tools for analysing SERPs, finding keyword gaps, and tracking what competitors rank for.', 'tmwseo' ) . '</p>';
+        echo '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-top:24px;">';
+
+        foreach ( $tools as $tool ) {
+            $url = esc_url( admin_url( 'admin.php?page=' . $tool['slug'] ) );
+            echo '<a href="' . $url . '" style="text-decoration:none;flex:1;min-width:220px;max-width:340px;">';
+            echo '<div class="tmwseo-card" style="padding:22px 24px;height:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:4px;background:#fff;transition:box-shadow .15s;"';
+            echo ' onmouseover="this.style.boxShadow=\'0 2px 8px rgba(0,0,0,.12)\'"';
+            echo ' onmouseout="this.style.boxShadow=\'none\'">';
+            echo '<div style="font-size:32px;margin-bottom:10px;">' . esc_html( $tool['icon'] ) . '</div>';
+            echo '<h3 style="margin:0 0 8px;font-size:15px;color:#1d2327;">' . esc_html( $tool['title'] ) . '</h3>';
+            echo '<p style="margin:0;color:#555;font-size:13px;line-height:1.5;">' . esc_html( $tool['desc'] ) . '</p>';
+            echo '</div>';
+            echo '</a>';
+        }
+
+        echo '</div>';
+        echo '</div>';
+    }
 
     public static function render_topic_authority(): void {
         if (!current_user_can('manage_options')) {
