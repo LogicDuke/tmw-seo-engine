@@ -340,6 +340,7 @@ class Plugin {
             \TMWSEO\Engine\ContentGap\ContentGapAdmin::init();
             \TMWSEO\Engine\Expansion\KeywordExpansionEngine::init();
             \TMWSEO\Engine\Admin\StagingOperationsPage::init(); // 4.4.0
+            \TMWSEO\Engine\Admin\SerpGapAdminPage::init(); // 4.6.3
         }
     }
 
@@ -373,6 +374,11 @@ class Plugin {
 
         // ── Keyword usage tables (anti-cannibalization) ────────────────────
         \TMWSEO\Engine\Keywords\KeywordUsage::install();
+
+        // ── SERP Keyword Gaps table (4.6.3) ────────────────────────────────
+        if (class_exists('TMWSEO\\Engine\\SerpGaps\\SerpGapStorage')) {
+            \TMWSEO\Engine\SerpGaps\SerpGapStorage::maybe_create_table();
+        }
 
         // Phase 1 default: manual-only => do NOT schedule content-writing cron.
         if (!self::is_manual_control_mode()) {

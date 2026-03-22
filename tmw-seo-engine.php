@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v4.6.2 — Security & stability patch: atomic API budget tracking (DataForSEO + AI Router), GSC token encryption, ModelDiscovery draft-only publishing, bulk KD batching, DiscoveryGovernor race fix, Expansion candidate pruning, Bing/Reddit caching, POST-before-output fix, dead WorkerCron removed.
- * Version: 4.6.2
+ * Description: Intelligence Core v4.6.3 — Security & stability patch: atomic API budget tracking (DataForSEO + AI Router), GSC token encryption, ModelDiscovery draft-only publishing, bulk KD batching, DiscoveryGovernor race fix, Expansion candidate pruning, Bing/Reddit caching, POST-before-output fix, dead WorkerCron removed.
+ * Version: 4.6.3
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '4.6.2');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '4.6.3');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 
@@ -58,6 +58,16 @@ if (!function_exists('tmwseo_engine_run_migrations')) {
 
         if (class_exists('TMW_Seed_ROI_Migration', false) && method_exists('TMW_Seed_ROI_Migration', 'maybe_migrate')) {
             TMW_Seed_ROI_Migration::maybe_migrate();
+        }
+
+        // SERP Keyword Gaps schema (4.6.3)
+        $serp_gap_migration_file = TMWSEO_ENGINE_PATH . 'includes/migrations/class-serp-gap-migration.php';
+        if (!class_exists('TMW_Serp_Gap_Migration', false) && file_exists($serp_gap_migration_file)) {
+            require_once $serp_gap_migration_file;
+        }
+
+        if (class_exists('TMW_Serp_Gap_Migration', false) && method_exists('TMW_Serp_Gap_Migration', 'maybe_migrate')) {
+            TMW_Serp_Gap_Migration::maybe_migrate();
         }
     }
 }

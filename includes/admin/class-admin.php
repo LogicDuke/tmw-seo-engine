@@ -102,6 +102,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-topic-authority',
             self::MENU_SLUG . '_page_tmwseo-debug-dashboard',
             self::MENU_SLUG . '_page_tmwseo-staging-ops',
+            self::MENU_SLUG . '_page_tmwseo-serp-gaps',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -932,6 +933,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Discovery Control', 'tmwseo'), __('Discovery Control', 'tmwseo'), 'manage_options', 'tmwseo-discovery-control', ['\TMWSEO\Engine\Admin\DiscoveryControlAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Domains', 'tmwseo'),  __('Competitor Domains', 'tmwseo'),  'manage_options', 'tmwseo-competitor-domains',  ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_competitor_domains']);
         add_submenu_page(self::MENU_SLUG, __('Content Gap', 'tmwseo'), __('Content Gap', 'tmwseo'), 'manage_options', 'tmwseo-content-gap', ['\\TMWSEO\\Engine\\ContentGap\\ContentGapAdmin', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('SERP Keyword Gaps', 'tmwseo'), __('SERP Keyword Gaps', 'tmwseo'), 'manage_options', 'tmwseo-serp-gaps', ['\\TMWSEO\\Engine\\Admin\\SerpGapAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Competitor Mining', 'tmwseo'), __('Competitor Mining', 'tmwseo'), 'manage_options', 'tmwseo-competitor-mining', [__CLASS__, 'render_competitor_mining']);
         add_submenu_page(self::MENU_SLUG, __('Ranking Probability', 'tmwseo'), __('Ranking Probability', 'tmwseo'), 'manage_options', 'tmwseo-ranking-probability', [__CLASS__, 'render_ranking_probability']);
 

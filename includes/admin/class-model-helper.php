@@ -27,42 +27,9 @@
  */
 namespace TMWSEO\Engine\Admin;
 
+use TMWSEO\Engine\Model\ModelResearchProvider;
+
 if ( ! defined( 'ABSPATH' ) ) { exit; }
-
-// ── Provider contract ─────────────────────────────────────────────────────────
-
-/**
- * Every research provider must implement this interface.
- * A provider's lookup() method must be side-effect-free: it collects candidate
- * data and returns it. The pipeline decides whether/how to persist it.
- */
-interface ModelResearchProvider {
-    /** Unique machine-readable identifier, e.g. 'dataforseo_serp'. */
-    public function provider_name(): string;
-
-    /**
-     * Look up data for a single model post.
-     *
-     * @param int    $post_id    WordPress post ID of the model.
-     * @param string $model_name Display name / title of the model.
-     *
-     * @return array{
-     *   status: string,          // 'ok' | 'no_provider' | 'error' | 'partial'
-     *   message?: string,        // human-readable description
-     *   display_name?: string,
-     *   aliases?: string[],
-     *   bio?: string,
-     *   platform_names?: string[],
-     *   social_urls?: string[],
-     *   country?: string,
-     *   language?: string,
-     *   source_urls?: string[],
-     *   confidence?: int,        // 0-100
-     *   notes?: string,
-     * }
-     */
-    public function lookup( int $post_id, string $model_name ): array;
-}
 
 // ── Stub provider — shipped as the default ────────────────────────────────────
 
@@ -228,9 +195,6 @@ class ModelHelper {
     // ── Bootstrap ─────────────────────────────────────────────────────────
 
     public static function init(): void {
-        // ── Submenu: Models dashboard ─────────────────────────────────────────
-        add_action( 'admin_menu', [ __CLASS__, 'register_admin_menu' ], 25 );
-
         add_action( 'add_meta_boxes', [ __CLASS__, 'register_metabox' ] );
         add_action( 'save_post_model', [ __CLASS__, 'save_metabox' ], 10, 2 );
 
@@ -267,22 +231,7 @@ class ModelHelper {
         }
     }
 
-    // ── Admin menu ────────────────────────────────────────────────────────
-
-    /**
-     * Register the Models submenu page under the TMW SEO Engine top-level menu.
-     * Slug: tmwseo-models
-     */
-    public static function register_admin_menu(): void {
-        add_submenu_page(
-            'tmwseo-engine',                        // parent slug
-            __( 'Models', 'tmwseo' ),               // page title
-            __( 'Models', 'tmwseo' ),               // menu label
-            'edit_posts',                           // capability (editors+)
-            'tmwseo-models',                        // menu slug
-            [ __CLASS__, 'render_page' ]            // render callback
-        );
-    }
+    // ── Admin page rendering is registered centrally in Admin::menu() ─────
 
     // ── Metabox: registration ─────────────────────────────────────────────
 

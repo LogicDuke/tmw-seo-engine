@@ -41,7 +41,6 @@
 
 namespace TMWSEO\Engine\Model;
 
-use TMWSEO\Engine\Admin\ModelResearchProvider;
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Logs;

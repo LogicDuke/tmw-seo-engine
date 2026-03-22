@@ -163,6 +163,7 @@ class Loader {
 
     private static function load_models(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/model/';
+        tmwseo_safe_require( $p . 'class-model-research-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-rollback.php' );
         tmwseo_safe_require( $p . 'class-model-optimizer.php' );
         tmwseo_safe_require( $p . 'class-model-discovery-worker.php' );
@@ -257,6 +258,11 @@ class Loader {
         tmwseo_safe_require( $p . 'intelligence/class-competitor-gap-engine.php' );
         tmwseo_safe_require( $p . 'intelligence/class-content-brief-generator.php' );
 
+        // SERP Keyword Gaps (4.6.3)
+        tmwseo_safe_require( $p . 'serp-gaps/class-serp-gap-storage.php' );
+        tmwseo_safe_require( $p . 'serp-gaps/class-serp-gap-scorer.php' );
+        tmwseo_safe_require( $p . 'serp-gaps/class-serp-gap-engine.php' );
+
         // Competitor monitor
         tmwseo_safe_require( $p . 'competitor-monitor/class-competitor-monitor.php' );
 
@@ -330,6 +336,9 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-helper.php' );
         tmwseo_safe_require( $p . 'class-admin-dashboard-v2.php' );
         tmwseo_safe_require( $p . 'class-cluster-admin-page.php' );
+
+        // SERP Keyword Gaps admin page (4.6.3)
+        tmwseo_safe_require( $p . 'class-serp-gap-admin-page.php' );
 
         // Suggestions admin (large — handlers extracted to trait v5.1.1)
         tmwseo_safe_require( $p . 'class-suggestions-form-handlers-trait.php' );
