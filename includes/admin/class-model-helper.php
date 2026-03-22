@@ -195,9 +195,6 @@ class ModelHelper {
     // ── Bootstrap ─────────────────────────────────────────────────────────
 
     public static function init(): void {
-        // ── Submenu: Models dashboard ─────────────────────────────────────────
-        add_action( 'admin_menu', [ __CLASS__, 'register_admin_menu' ], 25 );
-
         add_action( 'add_meta_boxes', [ __CLASS__, 'register_metabox' ] );
         add_action( 'save_post_model', [ __CLASS__, 'save_metabox' ], 10, 2 );
 
@@ -234,22 +231,7 @@ class ModelHelper {
         }
     }
 
-    // ── Admin menu ────────────────────────────────────────────────────────
-
-    /**
-     * Register the Models submenu page under the TMW SEO Engine top-level menu.
-     * Slug: tmwseo-models
-     */
-    public static function register_admin_menu(): void {
-        add_submenu_page(
-            'tmwseo-engine',                        // parent slug
-            __( 'Models', 'tmwseo' ),               // page title
-            __( 'Models', 'tmwseo' ),               // menu label
-            'edit_posts',                           // capability (editors+)
-            'tmwseo-models',                        // menu slug
-            [ __CLASS__, 'render_page' ]            // render callback
-        );
-    }
+    // ── Admin page rendering is registered centrally in Admin::menu() ─────
 
     // ── Metabox: registration ─────────────────────────────────────────────
 

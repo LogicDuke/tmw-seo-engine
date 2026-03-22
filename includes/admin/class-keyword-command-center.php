@@ -41,19 +41,7 @@ class KeywordCommandCenter {
     private const QUEUE_CAP = 50;
 
     public static function init(): void {
-        add_action( 'admin_menu', [ __CLASS__, 'register_menu' ] );
         add_action( 'admin_post_tmwseo_command_center_action', [ __CLASS__, 'handle_action' ] );
-    }
-
-    public static function register_menu(): void {
-        add_submenu_page(
-            'tmwseo-engine',
-            'Command Center',
-            'Command Center',
-            'manage_options',
-            self::PAGE_SLUG,
-            [ __CLASS__, 'render_page' ]
-        );
     }
 
     // === Action Handler =====================================================
