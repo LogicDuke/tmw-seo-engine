@@ -62,9 +62,10 @@ class StagingOperationsPage {
             ],
             'model_discovery_worker'  => [
                 'label'       => 'ModelDiscoveryWorker',
-                'description' => 'Hourly model/page/category discovery crawl.',
+                'description' => 'Hourly model/page/category discovery crawl. Scrapes external cam platforms (Chaturbate, Stripchat, etc.). Review each platform\'s ToS before enabling. Consider the Models → Research SERP workflow instead — no scraping required.',
                 'class'       => '\\TMWSEO\\Engine\\Model\\ModelDiscoveryWorker',
                 'hooks'       => [ 'tmwseo_model_discovery_tick' ],
+                'risky'       => true, // OFF by default; requires explicit operator opt-in
             ],
             'competitor_monitor'      => [
                 'label'       => 'CompetitorMonitor',
@@ -123,10 +124,15 @@ class StagingOperationsPage {
         if ( ! is_array( $saved ) ) {
             $saved = [];
         }
-        // Default: everything enabled (i.e. normal production behavior).
+
+        // Default: everything enabled (normal production behavior),
+        // EXCEPT model_discovery_worker which is OFF by default because it
+        // scrapes external platforms and requires explicit operator opt-in.
+        $risky_off_by_default = [ 'model_discovery_worker' ];
+
         $defaults = [ 'master_disable_background' => 0 ];
         foreach ( array_keys( self::switchable_components() ) as $key ) {
-            $defaults[ $key ] = 1; // 1 = enabled
+            $defaults[ $key ] = in_array( $key, $risky_off_by_default, true ) ? 0 : 1;
         }
         return array_merge( $defaults, $saved );
     }
@@ -368,15 +374,20 @@ class StagingOperationsPage {
                 $mutates = 'Yes — creates model/page/category';
             }
 
+            $label_html = '<strong>' . esc_html( $meta['label'] ) . '</strong>';
+            if ( ! empty( $meta['risky'] ) ) {
+                $label_html .= ' <span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:3px;padding:1px 6px;font-size:11px;font-weight:600;vertical-align:middle;">⚠ Risky — OFF by default</span>';
+            }
+
             $rows[] = [
-                '<strong>' . esc_html( $meta['label'] ) . '</strong>',
+                $label_html,
                 '<small>' . esc_html( $meta['class'] ) . '</small>',
                 $status,
                 implode( '<br>', $hook_strs ),
                 $mutates,
                 '<code>staging_flags[' . esc_html( $key ) . ']</code>',
                 $next_run_str,
-                $meta['description'],
+                esc_html( $meta['description'] ),
             ];
         }
 
@@ -468,14 +479,19 @@ class StagingOperationsPage {
         echo '</tr>';
 
         foreach ( self::switchable_components() as $key => $meta ) {
-            $is_on = ! empty( $flags[ $key ] );
-            echo '<tr>';
+            $is_on    = ! empty( $flags[ $key ] );
+            $row_style = ! empty( $meta['risky'] ) ? ' style="background:#fff7ed;"' : '';
+            echo '<tr' . $row_style . '>';
             printf(
                 '<td><input type="checkbox" name="flag_%s" value="1" %s></td>',
                 esc_attr( $key ),
                 checked( $is_on, true, false )
             );
-            echo '<td><strong>' . esc_html( $meta['label'] ) . '</strong></td>';
+            $label = esc_html( $meta['label'] );
+            if ( ! empty( $meta['risky'] ) ) {
+                $label .= ' <span style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:3px;padding:1px 5px;font-size:11px;font-weight:600;">⚠ Risky — OFF by default</span>';
+            }
+            echo '<td><strong>' . $label . '</strong></td>';
             echo '<td>' . esc_html( $meta['description'] ) . '</td>';
             echo '</tr>';
         }

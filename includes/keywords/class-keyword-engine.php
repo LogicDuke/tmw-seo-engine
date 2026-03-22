@@ -111,23 +111,56 @@ class KeywordEngine {
 
         $job_started = microtime(true);
 
-        $lock_key = 'tmw_dfseo_keyword_lock';
+        $lock_key        = 'tmw_keyword_cycle_lock'; // stored directly in wp_options (not transients)
+        $lock_ttl        = 10 * MINUTE_IN_SECONDS;
+        $lock_acquired   = false;
 
-        $lock_time = get_transient($lock_key);
+        // ── Atomic lock acquisition ────────────────────────────────────────
+        // Strategy: INSERT IGNORE for first acquisition, then CAS-UPDATE for
+        // stale-lock takeover. A single DB round-trip per path prevents the
+        // TOCTOU race of get-then-set that transients suffer from.
+        global $wpdb;
+        $now = time();
 
-        if ($lock_time) {
-            if ((time() - (int)$lock_time) > (10 * MINUTE_IN_SECONDS)) {
-                // Stale lock detected — auto release
-                delete_transient($lock_key);
-                Logs::warn('keywords', 'Stale lock detected and released');
-            } else {
-                Logs::warn('keywords', 'Seed processing skipped due to active lock');
-                self::record_stop_reason('active_lock', ['lock_key' => $lock_key]);
-                return;
+        $existing_lock = $wpdb->get_var( $wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+            $lock_key
+        ) );
+
+        if ( $existing_lock === null ) {
+            // No lock row — attempt INSERT IGNORE (atomic).
+            $inserted = (int) $wpdb->query( $wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+                $lock_key, (string) $now
+            ) );
+            $lock_acquired = ( $inserted > 0 );
+        } elseif ( ( $now - (int) $existing_lock ) > $lock_ttl ) {
+            // Stale lock — CAS-UPDATE: only succeeds if the value we read is
+            // still the current value (another process hasn't already taken it).
+            $updated = (int) $wpdb->query( $wpdb->prepare(
+                "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+                (string) $now, $lock_key, (string) $existing_lock
+            ) );
+            if ( $updated > 0 ) {
+                Logs::warn( 'keywords', '[TMW-KW] Stale keyword cycle lock taken over (CAS)', [
+                    'stale_age_seconds' => $now - (int) $existing_lock,
+                ] );
+                $lock_acquired = true;
             }
         }
 
-        set_transient($lock_key, time(), 10 * MINUTE_IN_SECONDS);
+        if ( ! $lock_acquired ) {
+            $lock_age = $existing_lock !== null ? ( $now - (int) $existing_lock ) : 0;
+            Logs::warn( 'keywords', '[TMW-KW] Keyword cycle skipped — lock held by another process', [
+                'lock_age_seconds' => $lock_age,
+                'lock_ttl_seconds' => $lock_ttl,
+            ] );
+            self::record_stop_reason( 'active_lock', [
+                'lock_age_seconds' => $lock_age,
+                'lock_key'         => $lock_key,
+            ] );
+            return;
+        }
 
         $breaker = get_option('tmw_keyword_engine_breaker', []);
 
@@ -321,16 +354,25 @@ class KeywordEngine {
                                 Logs::warn('keywords', 'DataForSEO keyword_suggestions/related_keywords failed', ['seed' => $seed, 'error' => $res['error'] ?? '']);
 
                                 if (($res['error'] ?? '') === 'dataforseo_budget_exceeded') {
-                                    Logs::warn('keywords', 'Discovery halted because DataForSEO API budget is exhausted', ['seed' => $seed]);
+                                    Logs::warn('keywords', '[TMW-KW] Discovery halted — DataForSEO API budget exhausted', ['seed' => $seed]);
+                                    self::record_stop_reason('dataforseo_budget_exceeded', ['seed' => $seed]);
                                     break;
                                 }
 
                                 if ($failures >= $max_failures) {
-                                    Logs::error('keywords', 'Circuit breaker triggered');
+                                    Logs::error('keywords', '[TMW-KW] Circuit breaker triggered — too many consecutive DataForSEO failures', [
+                                        'failure_count' => $failures,
+                                        'seed'          => $seed,
+                                    ]);
 
                                     update_option('tmw_keyword_engine_breaker', [
                                         'last_triggered' => time(),
                                         'failure_count'  => $failures,
+                                    ]);
+
+                                    self::record_stop_reason('circuit_breaker_triggered', [
+                                        'failure_count' => $failures,
+                                        'seed'          => $seed,
                                     ]);
 
                                     break;
@@ -450,12 +492,17 @@ class KeywordEngine {
                                 if ($existing) {
                                     $seed_dupes++;
                                     $duplicates_total++;
-                                    // update sources + provenance
-                                    $vol_src = (string) ( $it['_tmw_volume_source'] ?? 'dataforseo' );
-                                    $cpc_src = (string) ( $it['_tmw_cpc_source']    ?? $vol_src );
+                                    // update sources + provenance (capped to prevent unbounded growth)
+                                    $vol_src      = (string) ( $it['_tmw_volume_source'] ?? 'dataforseo' );
+                                    $cpc_src      = (string) ( $it['_tmw_cpc_source']    ?? $vol_src );
+                                    $existing_src = (string) $wpdb->get_var( $wpdb->prepare(
+                                        "SELECT sources FROM {$cand_table} WHERE id = %d",
+                                        (int) $existing
+                                    ) );
+                                    $capped_sources = self::cap_sources_string( $existing_src, $vol_src . ':' . $seed );
                                     $wpdb->query($wpdb->prepare(
-                                        "UPDATE {$cand_table} SET sources = CONCAT(IFNULL(sources,''), %s), volume_source=%s, cpc_source=%s, intent_type=%s, entity_type=%s, entity_id=%d, needs_recluster=1, needs_rescore=1, updated_at=%s WHERE id=%d",
-                                        "\n" . $vol_src . ':' . $seed,
+                                        "UPDATE {$cand_table} SET sources = %s, volume_source=%s, cpc_source=%s, intent_type=%s, entity_type=%s, entity_id=%d, needs_recluster=1, needs_rescore=1, updated_at=%s WHERE id=%d",
+                                        $capped_sources,
                                         $vol_src,
                                         $cpc_src,
                                         (string) ($classification['intent_type'] ?? 'generic'),
@@ -601,7 +648,8 @@ class KeywordEngine {
             // Auto-retire seeds that have proven unproductive.
             SeedRegistry::retire_exhausted_seeds(5);
 
-            delete_transient($lock_key);
+            // Release the DB-level lock.
+            $wpdb->delete( $wpdb->options, [ 'option_name' => $lock_key ], [ '%s' ] );
         }
 
 Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
@@ -866,15 +914,17 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     ) );
                     $opp = \TMWSEO\Engine\Keywords\KDFilter::opportunity_score( $existing_kd ?: $gkp_kd, $gkp_vol, $intent_val );
 
+                    $gkp_existing_src = (string) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT sources FROM {$cand_table} WHERE keyword = %s LIMIT 1", $kw
+                    ) );
+
                     $wpdb->update( $cand_table, [
                         'volume'        => $gkp_vol,
                         'cpc'           => $gkp_cpc,
                         'opportunity'   => $opp,
                         'volume_source' => 'google_keyword_planner',
                         'cpc_source'    => 'google_keyword_planner',
-                        'sources'       => $wpdb->get_var( $wpdb->prepare(
-                            "SELECT CONCAT(IFNULL(sources,''), '\ngoogle_keyword_planner:enrichment') FROM {$cand_table} WHERE keyword = %s LIMIT 1", $kw
-                        ) ),
+                        'sources'       => self::cap_sources_string( $gkp_existing_src, 'google_keyword_planner:enrichment' ),
                         'needs_rescore'   => 1,
                         'needs_recluster' => 1,
                         'updated_at'      => current_time('mysql'),
@@ -940,6 +990,32 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         }
 
         update_option('tmw_keyword_engine_metrics', $metrics, false);
+    }
+
+    /**
+     * Append a new source entry to the sources string, capped at $max_bytes.
+     *
+     * The `sources` TEXT column stores one "provider:seed" token per line.
+     * Without a cap, high-traffic keywords accumulate thousands of lines over
+     * many cycles, blowing up row size and making LIKE queries slow.
+     *
+     * Strategy: keep the TAIL (most recent entries). Older provenance is less
+     * useful operationally. We find a clean newline boundary so we never cut
+     * mid-token.
+     *
+     * @param string $existing  Current column value (may be null/empty).
+     * @param string $new_entry The token to append, e.g. "dataforseo:webcam".
+     * @param int    $max_bytes Hard cap in bytes (default 1500).
+     */
+    private static function cap_sources_string( string $existing, string $new_entry, int $max_bytes = 1500 ): string {
+        $combined = ltrim( $existing . "\n" . $new_entry, "\n" );
+        if ( strlen( $combined ) <= $max_bytes ) {
+            return $combined;
+        }
+        // Keep the most-recent tail. Find a clean \n boundary to avoid cutting mid-token.
+        $tail = substr( $combined, -$max_bytes );
+        $nl   = strpos( $tail, "\n" );
+        return $nl !== false ? substr( $tail, $nl + 1 ) : $tail;
     }
 
     private static function record_stop_reason(string $reason, array $context = []): void {

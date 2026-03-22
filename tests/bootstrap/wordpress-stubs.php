@@ -145,6 +145,7 @@ if ( ! isset( $GLOBALS['wpdb'] ) ) {
         public function query( string $sql ): int|false   { $this->queries[] = $sql; return 1; }
         public function insert( string $t, array $d, array $f = [] ): int|false { $this->queries[] = $t; $this->insert_id++; return 1; }
         public function update( string $t, array $d, array $w, array $df = [], array $wf = [] ): int|false { return 1; }
+        public function delete( string $t, array $w, array $wf = [] ): int|false { $this->queries[] = 'DELETE:' . $t; return 1; }
         public function get_var( string $sql ): mixed     { return null; }
         public function get_row( string $sql, string $o = 'OBJECT' ): mixed { return null; }
         public function get_results( string $sql, string $o = 'OBJECT' ): array { return []; }
@@ -183,3 +184,51 @@ require_once TMWSEO_ENGINE_PATH . 'includes/services/class-dataforseo.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/ai/class-ai-router.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/class-discovery-governor.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
+
+// ── Additional WP function stubs needed by Admin::sanitize_settings ─────────
+if (!function_exists('esc_url_raw'))          { function esc_url_raw(string $url): string { return filter_var($url, FILTER_SANITIZE_URL) ?: ''; } }
+if (!function_exists('sanitize_textarea_field')) { function sanitize_textarea_field(string $str): string { return trim(strip_tags($str)); } }
+if (!function_exists('number_format_i18n'))   { function number_format_i18n(float $n, int $d = 0): string { return number_format($n, $d); } }
+if (!function_exists('admin_url'))            { function admin_url(string $path = ''): string { return 'http://example.com/wp-admin/' . ltrim($path, '/'); } }
+if (!function_exists('get_current_user_id'))  { function get_current_user_id(): int { return 1; } }
+if (!function_exists('get_post_type'))        { function get_post_type($post = null) { return 'post'; } }
+if (!function_exists('wp_get_referer'))       { function wp_get_referer() { return false; } }
+if (!function_exists('wp_safe_redirect'))     { function wp_safe_redirect(string $l, int $s = 302): bool { return true; } }
+if (!function_exists('wp_redirect'))          { function wp_redirect(string $l, int $s = 302): bool { return true; } }
+if (!function_exists('add_query_arg'))        { function add_query_arg(...$args): string { return ''; } }
+if (!function_exists('wp_die'))               { function wp_die($msg = '', $title = '', $args = []): void { throw new \RuntimeException(is_string($msg) ? $msg : 'wp_die'); } }
+if (!function_exists('wp_send_json_success')) { function wp_send_json_success($data = null, int $s = 200): void {} }
+if (!function_exists('wp_send_json_error'))   { function wp_send_json_error($data = null, int $s = 200): void {} }
+if (!function_exists('current_user_can'))     { function current_user_can(string $cap, ...$args): bool { return true; } }
+if (!function_exists('check_admin_referer'))  { function check_admin_referer($action = -1, string $qa = '_wpnonce'): int { return 1; } }
+if (!function_exists('wp_verify_nonce'))      { function wp_verify_nonce($nonce, $action = -1) { return 1; } }
+if (!function_exists('wp_create_nonce'))      { function wp_create_nonce($action = -1): string { return 'test_nonce'; } }
+if (!function_exists('checked'))              { function checked($c, $cur = true, bool $echo = true): string { return $c == $cur ? 'checked' : ''; } }
+if (!function_exists('selected'))             { function selected($s, $cur = true, bool $echo = true): string { return $s == $cur ? 'selected' : ''; } }
+if (!function_exists('disabled'))             { function disabled($d, $cur = true, bool $echo = true): string { return $d == $cur ? 'disabled' : ''; } }
+if (!function_exists('get_post'))             { function get_post($post = null): ?object { return null; } }
+if (!function_exists('get_the_title'))        { function get_the_title($post = null): string { return ''; } }
+if (!function_exists('get_post_meta'))        { function get_post_meta(int $id, string $k = '', bool $s = false) { return $s ? '' : []; } }
+if (!function_exists('update_post_meta'))     { function update_post_meta(int $id, string $k, $v, $p = ''): bool { return true; } }
+if (!function_exists('delete_post_meta'))     { function delete_post_meta(int $id, string $k, $v = ''): bool { return true; } }
+if (!function_exists('get_posts'))            { function get_posts(array $args = []): array { return []; } }
+if (!function_exists('get_terms'))            { function get_terms(array $args = []) { return []; } }
+if (!function_exists('get_permalink'))        { function get_permalink($post = 0) { return false; } }
+if (!function_exists('wp_insert_post'))       { function wp_insert_post(array $p, bool $e = false): int { return 0; } }
+if (!function_exists('wp_unique_filename'))   { function wp_unique_filename(string $d, string $f): string { return $f; } }
+if (!function_exists('sanitize_file_name'))   { function sanitize_file_name(string $f): string { return preg_replace('/[^a-zA-Z0-9._-]/', '-', $f); } }
+if (!function_exists('get_current_screen'))   { function get_current_screen(): ?object { return null; } }
+if (!function_exists('do_settings_sections')) { function do_settings_sections(string $p): void {} }
+if (!function_exists('settings_fields'))      { function settings_fields(string $g): void {} }
+if (!function_exists('submit_button'))        { function submit_button(string $t = null): void {} }
+if (!function_exists('wp_remote_post'))       { function wp_remote_post(string $url, array $args = []): array { return []; } }
+if (!function_exists('wp_date'))              { function wp_date(string $fmt, int $ts = null): string { return gmdate($fmt, $ts); } }
+if (!function_exists('wp_unslash'))           { function wp_unslash($v) { return is_string($v) ? stripslashes($v) : $v; } }
+if (!function_exists('wp_kses_post'))         { function wp_kses_post(string $s): string { return strip_tags($s, '<a><strong><em><p>'); } }
+
+// ── v5.1.1: New handler classes (required for Admin class to load) ─────────────
+// Admin class has `use` statements for these; PHP needs them resolvable at parse time.
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ajax-handlers.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-form-handlers.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';

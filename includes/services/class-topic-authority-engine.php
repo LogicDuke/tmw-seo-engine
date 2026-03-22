@@ -1,4 +1,23 @@
 <?php
+/**
+ * Topic Authority Engine (Services layer)
+ *
+ * @deprecated 5.1.1 There are three topic-authority related classes in this codebase.
+ *   This one (Services\TopicAuthorityEngine) builds a cluster-level authority map and
+ *   is called by Admin::render_topic_authority() for the Topic Authority admin page.
+ *
+ * The other two serve DIFFERENT purposes and are NOT duplicates:
+ *   - TMW_Topic_Engine  (seo-engine/topic-authority/) — per-model topic clustering, called
+ *                        from Plugin::init() to register model-page topic hooks.
+ *   - TMWSEO\Engine\Intelligence\TopicalAuthorityEngine  (seo-engine/intelligence/) — ranking
+ *                        probability signal provider, used by IntelligenceMaterializer.
+ *
+ * This class is the canonical implementation for the "Topic Authority" admin page.
+ * It is NOT deprecated for removal — the @deprecated tag here means:
+ *   "don't add more code here; prefer the intelligence layer for new features."
+ *
+ * @see TMWSEO\Engine\Admin::render_topic_authority()
+ */
 namespace TMWSEO\Engine\Services;
 
 if (!defined('ABSPATH')) { exit; }
