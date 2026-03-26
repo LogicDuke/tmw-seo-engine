@@ -341,6 +341,7 @@ class Plugin {
             \TMWSEO\Engine\Expansion\KeywordExpansionEngine::init();
             \TMWSEO\Engine\Admin\StagingOperationsPage::init(); // 4.4.0
             \TMWSEO\Engine\Admin\SerpGapAdminPage::init(); // 4.6.3
+            \TMWSEO\Engine\Admin\CategoryFormulaAdminPage::init(); // 5.2.0
         }
     }
 

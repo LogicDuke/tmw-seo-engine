@@ -1106,7 +1106,100 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         }
         self::seed_topic_entities();
 
+        // 5.2.0 — Category Formula Engine tables.
+        self::create_category_formula_tables();
+
         update_option('tmwseo_engine_db_version', TMWSEO_ENGINE_VERSION);
+    }
+
+    /**
+     * Create / update the Category Formula Engine tables (5.2.0).
+     * Safe to call repeatedly — uses dbDelta.
+     */
+    private static function create_category_formula_tables(): void {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset_collate = $wpdb->get_charset_collate();
+
+        $signal_groups = $wpdb->prefix . 'tmw_seo_signal_groups';
+        $signal_group_terms = $wpdb->prefix . 'tmw_seo_signal_group_terms';
+        $category_formulas = $wpdb->prefix . 'tmw_seo_category_formulas';
+        $formula_conditions = $wpdb->prefix . 'tmw_seo_category_formula_conditions';
+        $assignment_logs = $wpdb->prefix . 'tmw_seo_category_assignment_logs';
+
+        dbDelta( "CREATE TABLE {$signal_groups} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            group_key VARCHAR(100) NOT NULL,
+            label VARCHAR(190) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY group_key (group_key)
+        ) {$charset_collate};" );
+
+        dbDelta( "CREATE TABLE {$signal_group_terms} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            group_id BIGINT UNSIGNED NOT NULL,
+            taxonomy VARCHAR(64) NOT NULL DEFAULT 'post_tag',
+            term_id BIGINT UNSIGNED NOT NULL,
+            term_slug VARCHAR(200) NOT NULL DEFAULT '',
+            term_name VARCHAR(190) NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY group_id (group_id),
+            KEY taxonomy_term_id (taxonomy(32), term_id)
+        ) {$charset_collate};" );
+
+        dbDelta( "CREATE TABLE {$category_formulas} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            formula_key VARCHAR(100) NOT NULL,
+            label VARCHAR(190) NOT NULL,
+            target_taxonomy VARCHAR(64) NOT NULL DEFAULT 'category',
+            target_term_id BIGINT UNSIGNED NOT NULL,
+            source_taxonomy VARCHAR(64) NOT NULL DEFAULT 'post_tag',
+            post_type VARCHAR(64) NOT NULL DEFAULT 'post',
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            notes TEXT NULL,
+            last_dry_run_at DATETIME NULL,
+            last_dry_run_matched INT NOT NULL DEFAULT 0,
+            last_dry_run_missing INT NOT NULL DEFAULT 0,
+            last_backfill_at DATETIME NULL,
+            last_backfill_changed INT NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY formula_key (formula_key)
+        ) {$charset_collate};" );
+
+        dbDelta( "CREATE TABLE {$formula_conditions} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            formula_id BIGINT UNSIGNED NOT NULL,
+            condition_type VARCHAR(32) NOT NULL DEFAULT 'required_group',
+            group_id BIGINT UNSIGNED NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY formula_id (formula_id),
+            KEY condition_type (condition_type)
+        ) {$charset_collate};" );
+
+        dbDelta( "CREATE TABLE {$assignment_logs} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            formula_id BIGINT UNSIGNED NOT NULL,
+            post_id BIGINT UNSIGNED NOT NULL,
+            action VARCHAR(50) NOT NULL,
+            result VARCHAR(20) NOT NULL,
+            before_term_ids LONGTEXT NULL,
+            after_term_ids LONGTEXT NULL,
+            message TEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY formula_id (formula_id),
+            KEY post_id (post_id),
+            KEY created_at (created_at)
+        ) {$charset_collate};" );
     }
 
 

@@ -263,6 +263,13 @@ class Loader {
         tmwseo_safe_require( $p . 'serp-gaps/class-serp-gap-scorer.php' );
         tmwseo_safe_require( $p . 'serp-gaps/class-serp-gap-engine.php' );
 
+        // Category Formulas (5.2.0)
+        tmwseo_safe_require( $p . 'category-formulas/class-sensitive-tag-policy.php' );
+        tmwseo_safe_require( $p . 'category-formulas/class-signal-group-repository.php' );
+        tmwseo_safe_require( $p . 'category-formulas/class-category-formula-repository.php' );
+        tmwseo_safe_require( $p . 'category-formulas/class-category-formula-engine.php' );
+        tmwseo_safe_require( $p . 'category-formulas/class-category-backfill-runner.php' );
+
         // Competitor monitor
         tmwseo_safe_require( $p . 'competitor-monitor/class-competitor-monitor.php' );
 
@@ -339,6 +346,9 @@ class Loader {
 
         // SERP Keyword Gaps admin page (4.6.3)
         tmwseo_safe_require( $p . 'class-serp-gap-admin-page.php' );
+
+        // Category Formula Engine admin page (5.2.0)
+        tmwseo_safe_require( $p . 'class-category-formula-admin-page.php' );
 
         // Suggestions admin (large — handlers extracted to trait v5.1.1)
         tmwseo_safe_require( $p . 'class-suggestions-form-handlers-trait.php' );
