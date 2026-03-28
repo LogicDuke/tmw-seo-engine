@@ -320,6 +320,7 @@ class Loader {
         // Core admin + page classes
         tmwseo_safe_require( $p . 'class-admin.php' );
         tmwseo_safe_require( $p . 'class-command-center.php' );
+        tmwseo_safe_require( $p . 'class-keyword-data-repository.php' );
         tmwseo_safe_require( $p . 'class-seed-registry-admin-page.php' );
         tmwseo_safe_require( $p . 'class-editor-ai-metabox.php' );
         tmwseo_safe_require( $p . 'class-staging-validation-helper.php' );

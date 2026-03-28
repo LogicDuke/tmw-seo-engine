@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v4.6.3 — Security & stability patch: atomic API budget tracking (DataForSEO + AI Router), GSC token encryption, ModelDiscovery draft-only publishing, bulk KD batching, DiscoveryGovernor race fix, Expansion candidate pruning, Bing/Reddit caching, POST-before-output fix, dead WorkerCron removed.
- * Version: 4.6.3
+ * Description: Intelligence Core v4.6.3 + Keyword Data Explorer v2 — Security & stability patch: atomic API budget tracking (DataForSEO + AI Router), GSC token encryption, ModelDiscovery draft-only publishing, bulk KD batching, DiscoveryGovernor race fix, Expansion candidate pruning, Bing/Reddit caching, POST-before-output fix, dead WorkerCron removed.
+ * Version: 4.6.3-explorer-v2
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */

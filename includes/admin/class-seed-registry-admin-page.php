@@ -27,7 +27,11 @@ class SeedRegistryAdminPage {
 
     public static function init(): void {
         add_action( 'admin_menu', [ __CLASS__, 'register_menu' ] );
-        add_action( 'admin_post_tmwseo_seed_registry_action', [ __CLASS__, 'handle_post_action' ] );
+        add_action( 'admin_post_tmwseo_seed_registry_action',    [ __CLASS__, 'handle_post_action' ] );
+        add_action( 'admin_post_tmwseo_trusted_seeds_export',    [ __CLASS__, 'handle_trusted_seeds_export' ] );
+        add_action( 'admin_post_tmwseo_candidates_export',       [ __CLASS__, 'handle_candidates_export' ] );
+        add_action( 'admin_post_tmwseo_trusted_seed_delete',     [ __CLASS__, 'handle_trusted_seed_delete' ] );
+        add_action( 'admin_post_tmwseo_ts_bulk_action',           [ __CLASS__, 'handle_trusted_seeds_bulk_action' ] );
     }
 
     public static function register_menu(): void {
@@ -236,13 +240,28 @@ class SeedRegistryAdminPage {
                 . '</p></div>';
         }
 
-        // Tab nav
+        // Trusted Seeds Explorer notices (single-delete + bulk)
+        $ts_notice = sanitize_key( $_GET['tmwseo_notice'] ?? '' );
+        if ( $ts_notice === 'seed_deleted' ) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Seed deleted.', 'tmwseo' ) . '</p></div>';
+        } elseif ( $ts_notice === 'seed_not_found' ) {
+            echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'Seed not found (may have already been deleted).', 'tmwseo' ) . '</p></div>';
+        } elseif ( $ts_notice === 'bulk_deleted' ) {
+            $n = (int) ( $_GET['deleted_count'] ?? 0 );
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( sprintf( __( '%d seed(s) deleted.', 'tmwseo' ), $n ) ) . '</p></div>';
+        } elseif ( $ts_notice === 'bulk_nothing' ) {
+            echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'No seeds were selected.', 'tmwseo' ) . '</p></div>';
+        }
+
+                // Tab nav
         $tabs = [
-            'registry' => __( 'Registry', 'tmwseo' ),
-            'preview'  => __( 'Expansion Preview', 'tmwseo' ),
-            'history'  => __( 'Import History', 'tmwseo' ),
-            'builders' => __( 'Auto Builders', 'tmwseo' ),
-            'reset'    => __( 'Reset & Starter Pack', 'tmwseo' ),
+            'trusted_seeds' => __( '🌱 Trusted Seeds', 'tmwseo' ),
+            'candidates'    => __( '🔍 Candidates', 'tmwseo' ),
+            'registry'      => __( '📊 Overview', 'tmwseo' ),
+            'preview'       => __( 'Expansion Preview', 'tmwseo' ),
+            'history'       => __( 'Import History', 'tmwseo' ),
+            'builders'      => __( 'Auto Builders', 'tmwseo' ),
+            'reset'         => __( 'Reset & Starter Pack', 'tmwseo' ),
         ];
 
         echo '<nav class="nav-tab-wrapper">';
@@ -260,6 +279,12 @@ class SeedRegistryAdminPage {
         echo '<div style="margin-top:16px;">';
 
         switch ( $tab ) {
+            case 'trusted_seeds':
+                self::render_tab_trusted_seeds();
+                break;
+            case 'candidates':
+                self::render_tab_candidates();
+                break;
             case 'preview':
                 self::render_tab_preview();
                 break;
@@ -857,4 +882,821 @@ function tmwseoPurgeConfirm() {
             . '</p>';
         echo '</div>';
     }
+
+
+    // -------------------------------------------------------------------------
+    // Action handlers: Trusted Seeds + Candidates exports/delete (v5.3)
+    // -------------------------------------------------------------------------
+
+    public static function handle_trusted_seeds_export(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
+        check_admin_referer( 'tmwseo_trusted_seeds_export' );
+
+        $filters = [
+            'search'       => sanitize_text_field( (string) ( $_GET['ts_search']  ?? '' ) ),
+            'source'       => sanitize_key( (string)         ( $_GET['ts_source']  ?? '' ) ),
+            'seed_type'    => sanitize_text_field( (string) ( $_GET['ts_stype']   ?? '' ) ),
+            'entity_type'  => sanitize_key( (string)         ( $_GET['ts_etype']   ?? '' ) ),
+            'batch_id'     => sanitize_text_field( (string) ( $_GET['ts_batch']   ?? '' ) ),
+            'source_label' => sanitize_text_field( (string) ( $_GET['ts_slabel']  ?? '' ) ),
+        ];
+
+        $rows     = \TMWSEO\Engine\Admin\KeywordDataRepository::get_trusted_seeds_for_export( $filters );
+        $filename = 'trusted-seeds-export-' . gmdate( 'YmdHis' ) . '.csv';
+        \TMWSEO\Engine\Admin\KeywordDataRepository::stream_csv_download( $rows, $filename );
+    }
+
+    public static function handle_candidates_export(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
+        check_admin_referer( 'tmwseo_candidates_export' );
+
+        $filters = [
+            'search'   => sanitize_text_field( (string) ( $_GET['cand_search'] ?? '' ) ),
+            'source'   => sanitize_key( (string)         ( $_GET['cand_source'] ?? '' ) ),
+            'status'   => sanitize_key( (string)         ( $_GET['cand_status'] ?? '' ) ),
+            'batch_id' => sanitize_text_field( (string) ( $_GET['cand_batch']  ?? '' ) ),
+        ];
+
+        $rows     = \TMWSEO\Engine\Admin\KeywordDataRepository::get_candidates_for_export( $filters );
+        $filename = 'candidates-export-' . gmdate( 'YmdHis' ) . '.csv';
+        \TMWSEO\Engine\Admin\KeywordDataRepository::stream_csv_download( $rows, $filename );
+    }
+
+    public static function handle_trusted_seed_delete(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
+        $seed_id = (int) ( $_GET['seed_id'] ?? 0 );
+        if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( (string) wp_unslash( $_GET['_wpnonce'] ), 'tmwseo_trusted_seed_delete_' . $seed_id ) ) {
+            wp_die( __( 'Invalid nonce', 'tmwseo' ) );
+        }
+        if ( $seed_id <= 0 ) { wp_die( 'Invalid seed ID.' ); }
+
+        $deleted = \TMWSEO\Engine\Admin\KeywordDataRepository::delete_seed_by_id( $seed_id );
+
+        \TMWSEO\Engine\Logs::info( 'seed_registry', 'Trusted seed deleted via explorer', [
+            'seed_id' => $seed_id,
+            'deleted' => $deleted,
+            'user'    => get_current_user_id(),
+        ] );
+
+        $redirect = add_query_arg(
+            [ 'page' => self::PAGE_SLUG, 'tab' => 'trusted_seeds', 'tmwseo_notice' => $deleted ? 'seed_deleted' : 'seed_not_found' ],
+            admin_url( 'admin.php' )
+        );
+        wp_safe_redirect( $redirect );
+        exit;
+    }
+
+    /**
+     * Handle bulk actions on the Trusted Seeds Explorer table.
+     *
+     * Dispatches to delete or export based on POSTed ts_bulk_action value.
+     * Shared nonce: tmwseo_ts_bulk_nonce.
+     * IDs come from ts_ids[] (array of int, POST).
+     */
+    public static function handle_trusted_seeds_bulk_action(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Unauthorized' );
+        }
+        check_admin_referer( 'tmwseo_ts_bulk_nonce' );
+
+        // Accept either the top or bottom bulk-action select (bottom select syncs
+        // to the top via JS; fall back to the bottom value if JS was disabled).
+        $bulk_action = sanitize_key( (string) ( $_POST['ts_bulk_action'] ?? '' ) );
+        if ( $bulk_action === '' ) {
+            $bulk_action = sanitize_key( (string) ( $_POST['ts_bulk_action_bottom'] ?? '' ) );
+        }
+        $raw_ids     = isset( $_POST['ts_ids'] ) && is_array( $_POST['ts_ids'] )
+            ? $_POST['ts_ids']
+            : [];
+        $ids = array_values( array_filter( array_map( 'intval', $raw_ids ), fn( $id ) => $id > 0 ) );
+
+        // Return URL (fallback to Trusted Seeds tab).
+        // Always strip ts_view so we land back on the list, never a detail panel.
+        $return_url = wp_validate_redirect(
+            wp_unslash( (string) ( $_POST['ts_return_url'] ?? '' ) ),
+            add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => 'trusted_seeds' ], admin_url( 'admin.php' ) )
+        );
+        $return_url = remove_query_arg( 'ts_view', $return_url );
+
+        if ( empty( $ids ) ) {
+            wp_safe_redirect( add_query_arg( 'tmwseo_notice', 'bulk_nothing', $return_url ) );
+            exit;
+        }
+
+        if ( $bulk_action === 'delete' ) {
+            $deleted = \TMWSEO\Engine\Admin\KeywordDataRepository::delete_seeds_by_ids( $ids );
+
+            \TMWSEO\Engine\Logs::info( 'seed_registry', 'Trusted seeds bulk deleted via explorer', [
+                'ids'     => $ids,
+                'deleted' => $deleted,
+                'user'    => get_current_user_id(),
+            ] );
+
+            wp_safe_redirect( add_query_arg(
+                [ 'tmwseo_notice' => 'bulk_deleted', 'deleted_count' => $deleted ],
+                $return_url
+            ) );
+            exit;
+
+        } elseif ( $bulk_action === 'export' ) {
+            $rows     = \TMWSEO\Engine\Admin\KeywordDataRepository::get_seeds_by_ids( $ids );
+            $filename = 'trusted-seeds-selection-' . count( $ids ) . '-' . gmdate( 'YmdHis' ) . '.csv';
+            \TMWSEO\Engine\Admin\KeywordDataRepository::stream_csv_download( $rows, $filename );
+            // stream_csv_download calls exit — execution stops here.
+
+        } else {
+            // Unknown action — redirect back without change
+            wp_safe_redirect( $return_url );
+            exit;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Tab: Trusted Seeds Explorer (v5.3.1 — operator control pass)
+    // -------------------------------------------------------------------------
+
+    private static function render_tab_trusted_seeds(): void {
+        $repo = \TMWSEO\Engine\Admin\KeywordDataRepository::class;
+
+        if ( ! $repo::seeds_table_exists() ) {
+            echo '<div class="notice notice-warning"><p>' . esc_html__( 'tmwseo_seeds table not found. Activate the plugin to create it.', 'tmwseo' ) . '</p></div>';
+            return;
+        }
+
+        // ── Route: detail panel view ──────────────────────────────────────────
+        $ts_view = max( 0, (int) ( $_GET['ts_view'] ?? 0 ) );
+        if ( $ts_view > 0 ) {
+            self::render_trusted_seed_detail( $ts_view );
+            // Still fall through to render the table below the panel.
+        }
+
+        echo '<h2>' . esc_html__( 'Trusted Seeds Explorer', 'tmwseo' ) . '</h2>';
+        echo '<p class="description">' . esc_html__( 'Full visual table of every row in tmwseo_seeds. Filter, sort, export, or delete individual seeds.', 'tmwseo' ) . '</p>';
+
+        if ( ! $repo::has_provenance_columns() ) {
+            echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>' . esc_html__( 'Schema note:', 'tmwseo' ) . '</strong> ' . esc_html__( 'Provenance columns (import_batch_id, import_source_label) are missing — deactivate and reactivate the plugin to run the 4.3.0 migration.', 'tmwseo' ) . '</p></div>';
+        }
+
+        $base_url     = add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => 'trusted_seeds' ], admin_url( 'admin.php' ) );
+        $search       = sanitize_text_field( (string) ( $_GET['ts_search']  ?? '' ) );
+        $f_source     = sanitize_key( (string)        ( $_GET['ts_source']  ?? '' ) );
+        $f_seed_type  = sanitize_text_field( (string) ( $_GET['ts_stype']   ?? '' ) );
+        $f_etype      = sanitize_key( (string)        ( $_GET['ts_etype']   ?? '' ) );
+        $f_batch      = sanitize_text_field( (string) ( $_GET['ts_batch']   ?? '' ) );
+        $f_slabel     = sanitize_text_field( (string) ( $_GET['ts_slabel']  ?? '' ) );
+        $orderby      = sanitize_key( (string)        ( $_GET['ts_orderby'] ?? 'created_at' ) );
+        $order        = strtoupper( sanitize_key( (string) ( $_GET['ts_order'] ?? 'DESC' ) ) ) === 'ASC' ? 'ASC' : 'DESC';
+        $per_page     = 50;
+        $current_page = max( 1, (int) ( $_GET['ts_paged'] ?? 1 ) );
+        $offset       = ( $current_page - 1 ) * $per_page;
+
+        $filters = [
+            'search'       => $search,
+            'source'       => $f_source,
+            'seed_type'    => $f_seed_type,
+            'entity_type'  => $f_etype,
+            'batch_id'     => $f_batch,
+            'source_label' => $f_slabel,
+        ];
+
+        // ── Filter bar (GET form — keeps URL clean) ───────────────────────────
+        echo '<form method="get" action="' . esc_url( admin_url( 'admin.php' ) ) . '" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+        echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '">';
+        echo '<input type="hidden" name="tab" value="trusted_seeds">';
+        echo '<input type="search" name="ts_search" value="' . esc_attr( $search ) . '" placeholder="' . esc_attr__( 'Search seed phrase\xe2\x80\xa6', 'tmwseo' ) . '" style="width:220px;">';
+
+        echo '<select name="ts_source"><option value="">' . esc_html__( 'All sources', 'tmwseo' ) . '</option>';
+        foreach ( $repo::TRUSTED_SOURCES as $src ) {
+            echo '<option value="' . esc_attr( $src ) . '"' . selected( $f_source, $src, false ) . '>' . esc_html( $src ) . '</option>';
+        }
+        echo '</select>';
+
+        $seed_types = $repo::distinct_seed_types();
+        if ( ! empty( $seed_types ) ) {
+            echo '<select name="ts_stype"><option value="">' . esc_html__( 'All seed types', 'tmwseo' ) . '</option>';
+            foreach ( $seed_types as $st ) {
+                echo '<option value="' . esc_attr( $st ) . '"' . selected( $f_seed_type, $st, false ) . '>' . esc_html( $st ) . '</option>';
+            }
+            echo '</select>';
+        }
+
+        $entity_types = $repo::distinct_entity_types();
+        if ( ! empty( $entity_types ) ) {
+            echo '<select name="ts_etype"><option value="">' . esc_html__( 'All entity types', 'tmwseo' ) . '</option>';
+            foreach ( $entity_types as $et ) {
+                echo '<option value="' . esc_attr( $et ) . '"' . selected( $f_etype, $et, false ) . '>' . esc_html( $et ) . '</option>';
+            }
+            echo '</select>';
+        }
+
+        if ( $repo::has_provenance_columns() ) {
+            $batch_ids = $repo::distinct_import_batch_ids();
+            if ( ! empty( $batch_ids ) ) {
+                echo '<select name="ts_batch"><option value="">' . esc_html__( 'All batch IDs', 'tmwseo' ) . '</option>';
+                echo '<option value="__none__"' . selected( $f_batch, '__none__', false ) . '>' . esc_html__( '(no batch ID)', 'tmwseo' ) . '</option>';
+                foreach ( $batch_ids as $bid ) {
+                    echo '<option value="' . esc_attr( $bid ) . '"' . selected( $f_batch, $bid, false ) . '>' . esc_html( $bid ) . '</option>';
+                }
+                echo '</select>';
+            }
+            $source_labels = $repo::distinct_import_source_labels();
+            if ( ! empty( $source_labels ) ) {
+                echo '<select name="ts_slabel"><option value="">' . esc_html__( 'All source labels', 'tmwseo' ) . '</option>';
+                foreach ( $source_labels as $sl ) {
+                    echo '<option value="' . esc_attr( $sl ) . '"' . selected( $f_slabel, $sl, false ) . '>' . esc_html( $sl ) . '</option>';
+                }
+                echo '</select>';
+            }
+        }
+
+        echo '<button type="submit" class="button">' . esc_html__( 'Filter', 'tmwseo' ) . '</button>';
+        if ( array_filter( $filters ) ) {
+            echo '<a href="' . esc_url( $base_url ) . '" class="button">' . esc_html__( 'Clear', 'tmwseo' ) . '</a>';
+        }
+        echo '</form>';
+
+        // ── Counts + filtered export ──────────────────────────────────────────
+        $total_rows   = $repo::count_trusted_seeds( $filters );
+        $total_pages  = (int) ceil( $total_rows / $per_page );
+        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
+        $showing_to   = min( $offset + $per_page, $total_rows );
+
+        $filter_export_url = wp_nonce_url(
+            add_query_arg( array_merge(
+                [ 'action' => 'tmwseo_trusted_seeds_export' ],
+                array_filter( [
+                    'ts_search'  => $search,
+                    'ts_source'  => $f_source,
+                    'ts_stype'   => $f_seed_type,
+                    'ts_etype'   => $f_etype,
+                    'ts_batch'   => $f_batch,
+                    'ts_slabel'  => $f_slabel,
+                ] )
+            ), admin_url( 'admin-post.php' ) ),
+            'tmwseo_trusted_seeds_export'
+        );
+
+        echo '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">';
+        echo '<p style="margin:0;color:#6b7280;font-size:13px;">';
+        echo esc_html( sprintf( __( 'Showing %1$d\xe2\x80\x93%2$d of %3$d trusted seeds', 'tmwseo' ), $showing_from, $showing_to, $total_rows ) );
+        echo '</p>';
+        echo '<a class="button" href="' . esc_url( $filter_export_url ) . '">';
+        echo esc_html( sprintf( __( 'Export all %d filtered rows', 'tmwseo' ), $total_rows ) );
+        echo '</a>';
+        echo '</div>';
+
+        if ( $total_rows === 0 ) {
+            echo '<p>' . esc_html__( 'No seeds match the current filters.', 'tmwseo' ) . '</p>';
+            return;
+        }
+
+        // ── Fetch current page ────────────────────────────────────────────────
+        $rows = $repo::get_trusted_seeds( $filters, $orderby, $order, $per_page, $offset );
+
+        // ── Sortable column link helper ───────────────────────────────────────
+        $sort_col = static function( string $col, string $label ) use ( $base_url, $orderby, $order, $filters ): string {
+            $next_order = ( $orderby === $col && $order === 'ASC' ) ? 'DESC' : 'ASC';
+            $url        = add_query_arg( array_merge( $filters, [ 'ts_orderby' => $col, 'ts_order' => $next_order ] ), $base_url );
+            $arrow      = $orderby === $col ? ( $order === 'ASC' ? ' \xe2\x96\xb2' : ' \xe2\x96\xbc' ) : '';
+            return '<a href="' . esc_url( $url ) . '" style="color:inherit;text-decoration:none;white-space:nowrap;">'
+                . esc_html( $label . $arrow ) . '</a>';
+        };
+
+        // Preserve all current filter+sort+page params for the bulk form's redirect-back URL
+        $return_url = add_query_arg( array_merge(
+            $filters,
+            array_filter( [
+                'ts_orderby' => $orderby !== 'created_at' ? $orderby : '',
+                'ts_order'   => $order   !== 'DESC'       ? $order   : '',
+                'ts_paged'   => $current_page > 1         ? (string) $current_page : '',
+            ] )
+        ), $base_url );
+
+        // ── Bulk action POST form wrapping the table ───────────────────────────
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" id="tmwseo-ts-bulk-form">';
+        echo '<input type="hidden" name="action" value="tmwseo_ts_bulk_action">';
+        echo '<input type="hidden" name="ts_return_url" value="' . esc_attr( $return_url ) . '">';
+        wp_nonce_field( 'tmwseo_ts_bulk_nonce' );
+
+        // ── Bulk action bar ───────────────────────────────────────────────────
+        echo '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">';
+        echo '<select name="ts_bulk_action" id="tmwseo-ts-bulk-select">';
+        echo '<option value="">' . esc_html__( 'Bulk actions', 'tmwseo' ) . '</option>';
+        echo '<option value="delete">' . esc_html__( 'Delete selected', 'tmwseo' ) . '</option>';
+        echo '<option value="export">' . esc_html__( 'Export selected as CSV', 'tmwseo' ) . '</option>';
+        echo '</select>';
+        echo '<button type="submit" class="button" onclick="return tmwseoBulkConfirm();">'
+            . esc_html__( 'Apply', 'tmwseo' ) . '</button>';
+        echo '<span id="tmwseo-ts-selected-count" style="color:#6b7280;font-size:13px;"></span>';
+        echo '</div>';
+
+        // ── Table ─────────────────────────────────────────────────────────────
+        echo '<div style="overflow-x:auto;">';
+        echo '<table class="widefat striped" style="font-size:12px;min-width:1640px;">';
+        echo '<thead><tr style="white-space:nowrap;">';
+
+        // Checkbox select-all
+        echo '<th style="width:32px;padding:6px 8px;">'
+            . '<input type="checkbox" id="tmwseo-ts-check-all" title="' . esc_attr__( 'Select all on this page', 'tmwseo' ) . '">'
+            . '</th>';
+
+        $all_cols = [
+            'id'                    => 'ID',
+            'seed'                  => 'Seed Phrase',
+            'source'                => 'Source',
+            'seed_type'             => 'Seed Type',
+            'priority'              => 'Priority',
+            'entity_type'           => 'Entity Type',
+            'entity_id'             => 'Entity ID',
+            'created_at'            => 'Created',
+            'last_used'             => 'Last Used',
+            'last_expanded_at'      => 'Last Expanded',
+            'expansion_count'       => 'Exp. Count',
+            'net_new_yielded'       => 'Net New',
+            'duplicates_returned'   => 'Dups',
+            'estimated_spend_usd'   => 'Spend USD',
+            'last_provider'         => 'Provider',
+            'cooldown_until'        => 'Cooldown',
+            'roi_score'             => 'ROI',
+            'consecutive_zero_yield'=> 'Zero Streak',
+            'import_batch_id'       => 'Batch ID',
+            'import_source_label'   => 'Source Label',
+        ];
+        foreach ( $all_cols as $col => $label ) {
+            if ( in_array( $col, [ 'import_batch_id', 'import_source_label' ], true )
+                && ! $repo::has_provenance_columns() ) {
+                continue;
+            }
+            echo '<th>' . $sort_col( $col, $label ) . '</th>';
+        }
+        echo '<th>' . esc_html__( 'Actions', 'tmwseo' ) . '</th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ( $rows as $r ) {
+            $seed_id = (int) ( $r['id'] ?? 0 );
+
+            // Per-row delete (existing GET link with its own nonce — unchanged)
+            $del_url = wp_nonce_url(
+                add_query_arg(
+                    [ 'action' => 'tmwseo_trusted_seed_delete', 'seed_id' => $seed_id ],
+                    admin_url( 'admin-post.php' )
+                ),
+                'tmwseo_trusted_seed_delete_' . $seed_id
+            );
+
+            // Per-row detail link (GET, no nonce needed — read-only)
+            $detail_url = add_query_arg(
+                array_merge( $filters, [
+                    'ts_orderby' => $orderby,
+                    'ts_order'   => $order,
+                    'ts_paged'   => $current_page,
+                    'ts_view'    => $seed_id,
+                ] ),
+                $base_url
+            );
+
+            echo '<tr>';
+
+            // Checkbox
+            echo '<td style="padding:6px 8px;">'
+                . '<input type="checkbox" name="ts_ids[]" value="' . esc_attr( (string) $seed_id ) . '" class="tmwseo-ts-row-cb">'
+                . '</td>';
+
+            echo '<td>' . $seed_id . '</td>';
+            echo '<td><strong>' . esc_html( (string) ( $r['seed'] ?? '' ) ) . '</strong></td>';
+            echo '<td><code>' . esc_html( (string) ( $r['source'] ?? '' ) ) . '</code></td>';
+            echo '<td>' . esc_html( (string) ( $r['seed_type'] ?? '' ) ?: '-' ) . '</td>';
+            echo '<td>' . (int) ( $r['priority'] ?? 0 ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $r['entity_type'] ?? '' ) ?: '-' ) . '</td>';
+            echo '<td>' . (int) ( $r['entity_id'] ?? 0 ) . '</td>';
+            echo '<td style="white-space:nowrap;">' . esc_html( (string) ( $r['created_at']       ?? '' ) ?: '-' ) . '</td>';
+            echo '<td style="white-space:nowrap;">' . esc_html( (string) ( $r['last_used']         ?? '' ) ?: '-' ) . '</td>';
+            echo '<td style="white-space:nowrap;">' . esc_html( (string) ( $r['last_expanded_at']  ?? '' ) ?: '-' ) . '</td>';
+            echo '<td>' . (int) ( $r['expansion_count']         ?? 0 ) . '</td>';
+            echo '<td>' . (int) ( $r['net_new_yielded']         ?? 0 ) . '</td>';
+            echo '<td>' . (int) ( $r['duplicates_returned']     ?? 0 ) . '</td>';
+            $spend = $r['estimated_spend_usd'] ?? null;
+            echo '<td>' . ( $spend !== null ? '$' . number_format( (float) $spend, 4 ) : '-' ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $r['last_provider']  ?? '' ) ?: '-' ) . '</td>';
+            echo '<td style="white-space:nowrap;">' . esc_html( (string) ( $r['cooldown_until']    ?? '' ) ?: '-' ) . '</td>';
+            $roi = $r['roi_score'] ?? null;
+            echo '<td>' . ( $roi !== null ? number_format( (float) $roi, 2 ) : '-' ) . '</td>';
+            echo '<td>' . (int) ( $r['consecutive_zero_yield'] ?? 0 ) . '</td>';
+            if ( $repo::has_provenance_columns() ) {
+                $bval = (string) ( $r['import_batch_id'] ?? '' );
+                echo '<td style="font-size:11px;">' . ( $bval !== '' ? '<code>' . esc_html( $bval ) . '</code>' : '<em>-</em>' ) . '</td>';
+                echo '<td style="font-size:11px;">' . esc_html( (string) ( $r['import_source_label'] ?? '' ) ?: '-' ) . '</td>';
+            }
+
+            // Actions column: View details + Delete
+            echo '<td style="white-space:nowrap;display:flex;gap:4px;">';
+            echo '<a class="button button-small" href="' . esc_url( $detail_url ) . '">'
+                . esc_html__( 'Details', 'tmwseo' ) . '</a>';
+            echo '<a class="button button-small" style="color:#b91c1c;" href="' . esc_url( $del_url ) . '"'
+                . ' onclick="return confirm(\'' . esc_js( __( 'Permanently delete this seed?', 'tmwseo' ) ) . '\');">'
+                . esc_html__( 'Delete', 'tmwseo' ) . '</a>';
+            echo '</td>';
+
+            echo '</tr>';
+        }
+
+        echo '</tbody></table>';
+        echo '</div>';
+
+        // Duplicate bulk bar below table for convenience
+        echo '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">';
+        echo '<select name="ts_bulk_action_bottom">';
+        echo '<option value="">' . esc_html__( 'Bulk actions', 'tmwseo' ) . '</option>';
+        echo '<option value="delete">' . esc_html__( 'Delete selected', 'tmwseo' ) . '</option>';
+        echo '<option value="export">' . esc_html__( 'Export selected as CSV', 'tmwseo' ) . '</option>';
+        echo '</select>';
+        echo '<button type="submit" class="button" onclick="return tmwseoBulkConfirmBottom();">'
+            . esc_html__( 'Apply', 'tmwseo' ) . '</button>';
+        echo '</div>';
+
+        echo '</form>'; // end bulk form
+
+        // ── Inline JS ─────────────────────────────────────────────────────────
+        ?>
+        <script>
+        (function(){
+            var form      = document.getElementById('tmwseo-ts-bulk-form');
+            var checkAll  = document.getElementById('tmwseo-ts-check-all');
+            var countSpan = document.getElementById('tmwseo-ts-selected-count');
+
+            function updateCount() {
+                var checked = form.querySelectorAll('.tmwseo-ts-row-cb:checked').length;
+                countSpan.textContent = checked > 0 ? checked + ' selected' : '';
+            }
+
+            checkAll.addEventListener('change', function() {
+                form.querySelectorAll('.tmwseo-ts-row-cb').forEach(function(cb) {
+                    cb.checked = checkAll.checked;
+                });
+                updateCount();
+            });
+
+            form.addEventListener('change', function(e) {
+                if (e.target.classList.contains('tmwseo-ts-row-cb')) {
+                    var all  = form.querySelectorAll('.tmwseo-ts-row-cb').length;
+                    var chkd = form.querySelectorAll('.tmwseo-ts-row-cb:checked').length;
+                    checkAll.indeterminate = chkd > 0 && chkd < all;
+                    checkAll.checked       = chkd === all;
+                    updateCount();
+                }
+            });
+
+            // Sync bottom select to top select before submit
+            var topSelect    = document.querySelector('[name="ts_bulk_action"]');
+            var bottomSelect = document.querySelector('[name="ts_bulk_action_bottom"]');
+            if (bottomSelect) {
+                bottomSelect.addEventListener('change', function() {
+                    topSelect.value = bottomSelect.value;
+                });
+            }
+        })();
+
+        function tmwseoBulkConfirm() {
+            return _tmwseoBulkApply();
+        }
+        function tmwseoBulkConfirmBottom() {
+            var bottomSelect = document.querySelector('[name="ts_bulk_action_bottom"]');
+            var topSelect    = document.querySelector('[name="ts_bulk_action"]');
+            if (bottomSelect) { topSelect.value = bottomSelect.value; }
+            return _tmwseoBulkApply();
+        }
+        function _tmwseoBulkApply() {
+            var form   = document.getElementById('tmwseo-ts-bulk-form');
+            var action = form.querySelector('[name="ts_bulk_action"]').value;
+            var ids    = Array.from(form.querySelectorAll('.tmwseo-ts-row-cb:checked'));
+            if (!action) {
+                alert('<?php echo esc_js( __( 'Please choose a bulk action first.', 'tmwseo' ) ); ?>');
+                return false;
+            }
+            if (ids.length === 0) {
+                alert('<?php echo esc_js( __( 'No seeds selected.', 'tmwseo' ) ); ?>');
+                return false;
+            }
+            if (action === 'delete') {
+                return confirm('<?php echo esc_js( __( 'Permanently delete the selected seeds? This cannot be undone.', 'tmwseo' ) ); ?>');
+            }
+            return true; // export: no confirmation needed
+        }
+        </script>
+        <?php
+
+        // ── Pagination (outside the form — GET links) ─────────────────────────
+        if ( $total_pages > 1 ) {
+            $page_args = array_merge( $filters, [ 'ts_orderby' => $orderby, 'ts_order' => $order ] );
+            echo '<div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;">';
+            $range = range( max( 1, $current_page - 4 ), min( $total_pages, $current_page + 4 ) );
+            if ( ! in_array( 1, $range, true ) ) {
+                echo '<a href="' . esc_url( add_query_arg( array_merge( $page_args, [ 'ts_paged' => 1 ] ), $base_url ) ) . '" class="button button-small">1</a>';
+                if ( $range[0] > 2 ) {
+                    echo '<span style="line-height:2;">\xe2\x80\xa6</span>';
+                }
+            }
+            foreach ( $range as $p ) {
+                $style = ( $p === $current_page ) ? 'font-weight:700;' : '';
+                echo '<a href="' . esc_url( add_query_arg( array_merge( $page_args, [ 'ts_paged' => $p ] ), $base_url ) ) . '" class="button button-small" style="' . esc_attr( $style ) . '">' . (int) $p . '</a>';
+            }
+            if ( ! in_array( $total_pages, $range, true ) ) {
+                if ( end( $range ) < $total_pages - 1 ) {
+                    echo '<span style="line-height:2;">\xe2\x80\xa6</span>';
+                }
+                echo '<a href="' . esc_url( add_query_arg( array_merge( $page_args, [ 'ts_paged' => $total_pages ] ), $base_url ) ) . '" class="button button-small">' . (int) $total_pages . '</a>';
+            }
+            echo '</div>';
+        }
+
+        echo '<p style="color:#6b7280;font-size:12px;margin-top:8px;">'
+            . esc_html__( 'Delete actions are permanent and cannot be undone. Exported seeds can be re-imported via CSV Manager.', 'tmwseo' )
+            . '</p>';
+    }
+
+    // -------------------------------------------------------------------------
+    // Trusted Seed Detail Panel (v5.3.1)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Render a full-detail panel for a single trusted seed row.
+     * Called from render_tab_trusted_seeds() when ?ts_view=N is present.
+     * The main table still renders below after this returns.
+     */
+    private static function render_trusted_seed_detail( int $seed_id ): void {
+        $repo = \TMWSEO\Engine\Admin\KeywordDataRepository::class;
+        $row  = $repo::get_seed_by_id( $seed_id );
+
+        $back_args = array_filter( [
+            'page'       => self::PAGE_SLUG,
+            'tab'        => 'trusted_seeds',
+            'ts_search'  => sanitize_text_field( (string) ( $_GET['ts_search']  ?? '' ) ),
+            'ts_source'  => sanitize_key( (string)         ( $_GET['ts_source']  ?? '' ) ),
+            'ts_stype'   => sanitize_text_field( (string) ( $_GET['ts_stype']   ?? '' ) ),
+            'ts_etype'   => sanitize_key( (string)         ( $_GET['ts_etype']   ?? '' ) ),
+            'ts_batch'   => sanitize_text_field( (string) ( $_GET['ts_batch']   ?? '' ) ),
+            'ts_slabel'  => sanitize_text_field( (string) ( $_GET['ts_slabel']  ?? '' ) ),
+            'ts_orderby' => sanitize_key( (string)         ( $_GET['ts_orderby'] ?? '' ) ),
+            'ts_order'   => sanitize_key( (string)         ( $_GET['ts_order']   ?? '' ) ),
+            'ts_paged'   => (string) max( 1, (int) ( $_GET['ts_paged'] ?? 1 ) ),
+        ] );
+        // Remove defaults so URL stays clean
+        if ( ( $back_args['ts_orderby'] ?? '' ) === 'created_at' ) { unset( $back_args['ts_orderby'] ); }
+        if ( ( $back_args['ts_order']   ?? '' ) === 'DESC'        ) { unset( $back_args['ts_order'] ); }
+        if ( ( $back_args['ts_paged']   ?? '' ) === '1'           ) { unset( $back_args['ts_paged'] ); }
+
+        $back_url = add_query_arg( $back_args, admin_url( 'admin.php' ) );
+
+        echo '<div style="background:#fff;border:1px solid #c3c4c7;border-left:4px solid #2271b1;border-radius:0 4px 4px 0;padding:16px 20px;margin-bottom:20px;">';
+        echo '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+        echo '<h3 style="margin:0;font-size:15px;">';
+
+        if ( ! $row ) {
+            echo esc_html__( 'Seed not found', 'tmwseo' );
+            echo '</h3>';
+            echo '<a href="' . esc_url( $back_url ) . '" class="button">' . esc_html__( '← Back to list', 'tmwseo' ) . '</a>';
+            echo '</div>';
+            echo '<p>' . esc_html__( 'Seed ID #', 'tmwseo' ) . (int) $seed_id . ' ' . esc_html__( 'was not found. It may have been deleted.', 'tmwseo' ) . '</p>';
+            echo '</div>';
+            return;
+        }
+
+        echo esc_html__( 'Seed Detail', 'tmwseo' ) . ' &mdash; <strong>' . esc_html( (string) ( $row['seed'] ?? '' ) ) . '</strong> <span style="color:#6b7280;font-size:12px;">(ID ' . (int) $row['id'] . ')</span>';
+        echo '</h3>';
+        echo '<a href="' . esc_url( $back_url ) . '" class="button">' . esc_html__( '← Back to list', 'tmwseo' ) . '</a>';
+        echo '</div>';
+
+        // ── Two-column field grid ─────────────────────────────────────────────
+        $field_groups = [
+            'Identity' => [
+                'id'           => [ 'ID',          'integer' ],
+                'seed'         => [ 'Seed Phrase',  'text' ],
+                'source'       => [ 'Source',       'code' ],
+                'seed_type'    => [ 'Seed Type',    'text' ],
+                'priority'     => [ 'Priority',     'integer' ],
+                'entity_type'  => [ 'Entity Type',  'text' ],
+                'entity_id'    => [ 'Entity ID',    'integer' ],
+                'created_at'   => [ 'Created',      'datetime' ],
+            ],
+            'Activity & Performance' => [
+                'last_used'             => [ 'Last Used',          'datetime' ],
+                'last_expanded_at'      => [ 'Last Expanded',      'datetime' ],
+                'last_provider'         => [ 'Last Provider',      'text' ],
+                'expansion_count'       => [ 'Expansion Count',    'integer' ],
+                'net_new_yielded'       => [ 'Net New Yielded',    'integer' ],
+                'duplicates_returned'   => [ 'Duplicates Returned','integer' ],
+                'estimated_spend_usd'   => [ 'Estimated Spend USD','money' ],
+                'roi_score'             => [ 'ROI Score',          'decimal' ],
+                'consecutive_zero_yield'=> [ 'Consec. Zero Yield', 'integer' ],
+                'cooldown_until'        => [ 'Cooldown Until',     'datetime' ],
+            ],
+            'Import Provenance' => [
+                'import_batch_id'     => [ 'Import Batch ID',    'code' ],
+                'import_source_label' => [ 'Import Source Label','text' ],
+            ],
+        ];
+
+        $has_prov = $repo::has_provenance_columns();
+
+        foreach ( $field_groups as $group_label => $fields ) {
+            if ( $group_label === 'Import Provenance' && ! $has_prov ) {
+                continue;
+            }
+            echo '<h4 style="margin:16px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;">' . esc_html( $group_label ) . '</h4>';
+            echo '<dl style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin:0;">';
+
+            foreach ( $fields as $field => $meta ) {
+                [ $label, $type ] = $meta;
+                $raw_val = $row[ $field ] ?? null;
+
+                // Format value
+                if ( $raw_val === null || $raw_val === '' ) {
+                    $display = '<span style="color:#9ca3af;">—</span>';
+                } elseif ( $type === 'code' ) {
+                    $display = '<code>' . esc_html( (string) $raw_val ) . '</code>';
+                } elseif ( $type === 'integer' ) {
+                    $display = '<strong>' . number_format( (int) $raw_val ) . '</strong>';
+                } elseif ( $type === 'decimal' ) {
+                    $display = number_format( (float) $raw_val, 4 );
+                } elseif ( $type === 'money' ) {
+                    $display = '<strong>$' . number_format( (float) $raw_val, 4 ) . '</strong>';
+                } elseif ( $type === 'datetime' ) {
+                    $display = '<span style="font-variant-numeric:tabular-nums;">' . esc_html( (string) $raw_val ) . '</span>';
+                } else {
+                    $display = esc_html( (string) $raw_val );
+                }
+
+                echo '<div style="padding:5px 0;border-bottom:1px solid #f0f0f0;">';
+                echo '<dt style="font-size:11px;color:#6b7280;margin-bottom:2px;">' . esc_html( $label ) . '</dt>';
+                echo '<dd style="margin:0;font-size:13px;">' . wp_kses_post( $display ) . '</dd>';
+                echo '</div>';
+            }
+
+            echo '</dl>';
+        }
+
+        // ── Action buttons ────────────────────────────────────────────────────
+        $del_url = wp_nonce_url(
+            add_query_arg(
+                [ 'action' => 'tmwseo_trusted_seed_delete', 'seed_id' => (int) $row['id'] ],
+                admin_url( 'admin-post.php' )
+            ),
+            'tmwseo_trusted_seed_delete_' . (int) $row['id']
+        );
+
+        echo '<div style="margin-top:16px;display:flex;gap:8px;">';
+        echo '<a class="button" href="' . esc_url( $back_url ) . '">' . esc_html__( '← Back to list', 'tmwseo' ) . '</a>';
+        echo '<a class="button" style="color:#b91c1c;border-color:#fca5a5;" href="' . esc_url( $del_url ) . '"'
+            . ' onclick="return confirm(\'' . esc_js( sprintf( __( 'Permanently delete seed "%s"? This cannot be undone.', 'tmwseo' ), (string) ( $row['seed'] ?? '' ) ) ) . '\');">'
+            . esc_html__( 'Delete this seed', 'tmwseo' ) . '</a>';
+        echo '</div>';
+
+        echo '</div>'; // end detail panel
+    }
+
+
+    // -------------------------------------------------------------------------
+    // Tab: Expansion Candidates Explorer (v5.3)
+    // -------------------------------------------------------------------------
+
+    private static function render_tab_candidates(): void {
+        $repo = \TMWSEO\Engine\Admin\KeywordDataRepository::class;
+
+        if ( ! $repo::candidates_table_exists() ) {
+            echo '<div class="notice notice-warning"><p>' . esc_html__( 'tmw_seed_expansion_candidates table not found.', 'tmwseo' ) . '</p></div>';
+            return;
+        }
+
+        echo '<h2>' . esc_html__( 'Expansion Candidates Explorer', 'tmwseo' ) . '</h2>';
+        echo '<p class="description">' . esc_html__( 'Read-only view of all rows in tmw_seed_expansion_candidates. Use the Expansion Preview tab for approve/reject actions.', 'tmwseo' ) . '</p>';
+
+        $base_url     = add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => 'candidates' ], admin_url( 'admin.php' ) );
+        $search       = sanitize_text_field( (string) ( $_GET['cand_search'] ?? '' ) );
+        $f_source     = sanitize_key( (string)        ( $_GET['cand_source'] ?? '' ) );
+        $f_status     = sanitize_key( (string)        ( $_GET['cand_status'] ?? '' ) );
+        $f_batch      = sanitize_text_field( (string) ( $_GET['cand_batch']  ?? '' ) );
+        $orderby      = sanitize_key( (string)        ( $_GET['cand_ob']     ?? 'created_at' ) );
+        $order        = strtoupper( sanitize_key( (string) ( $_GET['cand_ord'] ?? 'DESC' ) ) ) === 'ASC' ? 'ASC' : 'DESC';
+        $per_page     = 50;
+        $current_page = max( 1, (int) ( $_GET['cand_paged'] ?? 1 ) );
+        $offset       = ( $current_page - 1 ) * $per_page;
+
+        $filters = [ 'search' => $search, 'source' => $f_source, 'status' => $f_status, 'batch_id' => $f_batch ];
+
+        echo '<form method="get" action="' . esc_url( admin_url( 'admin.php' ) ) . '" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+        echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '">';
+        echo '<input type="hidden" name="tab" value="candidates">';
+        echo '<input type="search" name="cand_search" value="' . esc_attr( $search ) . '" placeholder="Search phrase..." style="width:220px;">';
+
+        $sources = $repo::distinct_candidate_sources();
+        if ( ! empty( $sources ) ) {
+            echo '<select name="cand_source"><option value="">All sources</option>';
+            foreach ( $sources as $src ) { echo '<option value="' . esc_attr( $src ) . '"' . selected( $f_source, $src, false ) . '>' . esc_html( $src ) . '</option>'; }
+            echo '</select>';
+        }
+
+        echo '<select name="cand_status"><option value="">All statuses</option>';
+        foreach ( [ 'pending', 'fast_track', 'approved', 'rejected', 'archived' ] as $st ) {
+            echo '<option value="' . esc_attr( $st ) . '"' . selected( $f_status, $st, false ) . '>' . esc_html( $st ) . '</option>';
+        }
+        echo '</select>';
+
+        $batch_ids = $repo::distinct_candidate_batch_ids();
+        if ( ! empty( $batch_ids ) ) {
+            echo '<select name="cand_batch"><option value="">All batches</option><option value="__none__"' . selected( $f_batch, '__none__', false ) . '>(no batch)</option>';
+            foreach ( $batch_ids as $bid ) { echo '<option value="' . esc_attr( $bid ) . '"' . selected( $f_batch, $bid, false ) . '>' . esc_html( $bid ) . '</option>'; }
+            echo '</select>';
+        }
+
+        echo '<button type="submit" class="button">Filter</button>';
+        if ( array_filter( $filters ) ) { echo '<a href="' . esc_url( $base_url ) . '" class="button">Clear</a>'; }
+        echo '</form>';
+
+        // Status count badges
+        $status_counts = ExpansionCandidateRepository::count_by_status();
+        $status_colors = [ 'pending' => [ '#fef3c7','#92400e' ], 'fast_track' => [ '#ede9fe','#5b21b6' ], 'approved' => [ '#dcfce7','#15803d' ], 'rejected' => [ '#fee2e2','#991b1b' ], 'archived' => [ '#f1f5f9','#475569' ] ];
+        echo '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">';
+        foreach ( $status_counts as $st => $cnt ) {
+            [ $bg, $fg ] = $status_colors[ $st ] ?? [ '#f1f5f9','#374151' ];
+            echo '<a href="' . esc_url( add_query_arg( [ 'cand_status' => $st ], $base_url ) ) . '" style="background:' . esc_attr( $bg ) . ';color:' . esc_attr( $fg ) . ';border:1px solid currentColor;border-radius:4px;padding:4px 10px;font-size:12px;font-weight:600;text-decoration:none;">' . esc_html( $st ) . ' <strong>' . (int) $cnt . '</strong></a>';
+        }
+        echo '</div>';
+
+        $total_rows  = $repo::count_candidates( $filters );
+        $total_pages = (int) ceil( $total_rows / $per_page );
+        $showing_from = $total_rows > 0 ? $offset + 1 : 0;
+        $showing_to   = min( $offset + $per_page, $total_rows );
+
+        $export_url = wp_nonce_url( add_query_arg( array_merge(
+            [ 'action' => 'tmwseo_candidates_export' ],
+            array_filter( [ 'cand_search' => $search, 'cand_source' => $f_source, 'cand_status' => $f_status, 'cand_batch' => $f_batch ] )
+        ), admin_url( 'admin-post.php' ) ), 'tmwseo_candidates_export' );
+        $preview_url = add_query_arg( [ 'page' => self::PAGE_SLUG, 'tab' => 'preview' ], admin_url( 'admin.php' ) );
+
+        echo '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">';
+        echo '<p style="margin:0;color:#6b7280;font-size:13px;">' . esc_html( sprintf( 'Showing %1$d-%2$d of %3$d candidates', $showing_from, $showing_to, $total_rows ) ) . '</p>';
+        echo '<div style="display:flex;gap:6px;">';
+        echo '<a class="button" href="' . esc_url( $export_url ) . '">Export ' . (int) $total_rows . ' rows as CSV</a>';
+        echo '<a class="button" href="' . esc_url( $preview_url ) . '">Approve / Reject in Preview tab</a>';
+        echo '</div></div>';
+
+        if ( $total_rows === 0 ) { return; }
+
+        $rows = $repo::get_candidates( $filters, $orderby, $order, $per_page, $offset );
+
+        $sort_col = static function( string $col, string $label ) use ( $base_url, $orderby, $order, $filters ): string {
+            $no = ( $orderby === $col && $order === 'ASC' ) ? 'DESC' : 'ASC';
+            $url = add_query_arg( array_merge( $filters, [ 'cand_ob' => $col, 'cand_ord' => $no ] ), $base_url );
+            $arrow = $orderby === $col ? ( $order === 'ASC' ? ' ^' : ' v' ) : '';
+            return '<a href="' . esc_url( $url ) . '" style="color:inherit;text-decoration:none;">' . esc_html( $label . $arrow ) . '</a>';
+        };
+        $sbadge = static function( string $status ): string {
+            $map = [ 'pending' => 'background:#fef3c7;color:#92400e;', 'fast_track' => 'background:#ede9fe;color:#5b21b6;', 'approved' => 'background:#dcfce7;color:#15803d;', 'rejected' => 'background:#fee2e2;color:#991b1b;', 'archived' => 'background:#f1f5f9;color:#475569;' ];
+            $style = $map[$status] ?? 'background:#f1f5f9;color:#374151;';
+            return '<span style="' . esc_attr( $style ) . 'border-radius:3px;padding:2px 6px;font-size:11px;font-weight:700;">' . esc_html( $status ) . '</span>';
+        };
+
+        echo '<div style="overflow-x:auto;"><table class="widefat striped" style="font-size:12px;min-width:1400px;"><thead><tr style="white-space:nowrap;">';
+        $ccols = [ 'id' => 'ID', 'phrase' => 'Phrase', 'source' => 'Source', 'generation_rule' => 'Gen. Rule', 'entity_type' => 'Entity Type', 'entity_id' => 'Entity ID', 'batch_id' => 'Batch ID', 'status' => 'Status', 'quality_score' => 'Quality', 'duplicate_flag' => 'Dup?', 'intent_guess' => 'Intent', 'created_at' => 'Created', 'reviewed_at' => 'Reviewed At', 'reviewed_by' => 'Reviewed By', 'rejection_reason' => 'Rejection Reason' ];
+        foreach ( $ccols as $col => $label ) { echo '<th>' . $sort_col( $col, $label ) . '</th>'; }
+        echo '</tr></thead><tbody>';
+
+        foreach ( $rows as $r ) {
+            echo '<tr>';
+            echo '<td>' . (int) ( $r['id'] ?? 0 ) . '</td>';
+            echo '<td><strong>' . esc_html( (string) ( $r['phrase'] ?? '' ) ) . '</strong></td>';
+            echo '<td><code>' . esc_html( (string) ( $r['source'] ?? '' ) ) . '</code></td>';
+            echo '<td style="font-size:11px;color:#6b7280;">' . esc_html( (string) ( $r['generation_rule'] ?? '' ) ?: '-' ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $r['entity_type'] ?? '-' ) ) . '</td>';
+            echo '<td>' . (int) ( $r['entity_id'] ?? 0 ) . '</td>';
+            echo '<td style="font-size:11px;"><code>' . esc_html( (string) ( $r['batch_id'] ?? '' ) ?: '-' ) . '</code></td>';
+            echo '<td>' . $sbadge( (string) ( $r['status'] ?? 'pending' ) ) . '</td>';
+            $qs = $r['quality_score'] ?? null;
+            echo '<td>' . ( $qs !== null ? number_format( (float) $qs, 1 ) : '-' ) . '</td>';
+            echo '<td>' . ( (int) ( $r['duplicate_flag'] ?? 0 ) ? '<span style="color:#dc2626;">Yes</span>' : 'No' ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $r['intent_guess'] ?? '' ) ?: '-' ) . '</td>';
+            echo '<td style="white-space:nowrap;">' . esc_html( (string) ( $r['created_at'] ?? '-' ) ) . '</td>';
+            echo '<td style="white-space:nowrap;">' . esc_html( (string) ( $r['reviewed_at'] ?? '' ) ?: '-' ) . '</td>';
+            echo '<td>' . (int) ( $r['reviewed_by'] ?? 0 ) . '</td>';
+            echo '<td style="max-width:200px;word-break:break-word;font-size:11px;color:#6b7280;">' . esc_html( (string) ( $r['rejection_reason'] ?? '' ) ?: '-' ) . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table></div>';
+
+        // Pagination
+        if ( $total_pages > 1 ) {
+            $page_args = array_merge( $filters, [ 'cand_ob' => $orderby, 'cand_ord' => $order ] );
+            echo '<div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;">';
+            $range = range( max( 1, $current_page - 4 ), min( $total_pages, $current_page + 4 ) );
+            if ( ! in_array( 1, $range, true ) ) { echo '<a href="' . esc_url( add_query_arg( array_merge( $page_args, [ 'cand_paged' => 1 ] ), $base_url ) ) . '" class="button button-small">1</a>'; }
+            foreach ( $range as $p ) {
+                $style = ( $p === $current_page ) ? 'font-weight:700;' : '';
+                echo '<a href="' . esc_url( add_query_arg( array_merge( $page_args, [ 'cand_paged' => $p ] ), $base_url ) ) . '" class="button button-small" style="' . esc_attr( $style ) . '">' . (int) $p . '</a>';
+            }
+            if ( ! in_array( $total_pages, $range, true ) ) { echo '<a href="' . esc_url( add_query_arg( array_merge( $page_args, [ 'cand_paged' => $total_pages ] ), $base_url ) ) . '" class="button button-small">' . (int) $total_pages . '</a>'; }
+            echo '</div>';
+        }
+        echo '<p style="color:#6b7280;font-size:12px;margin-top:8px;">Candidates are read-only in this view. Use the Expansion Preview tab to approve, reject, or archive rows.</p>';
+    }
+
 }
