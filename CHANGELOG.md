@@ -65,6 +65,34 @@
 
 ---
 
+## 4.6.3 — Admin Navigation Pass + Keyword Data Explorer v2 (2026-03)
+
+### Admin UX: Internal Navigation Audit (navigation-only, no data logic changed)
+
+- **`includes/admin/class-tmwseo-routes.php`** — NEW: centralised admin URL helper (`TMWSEORoutes`) replacing scattered `add_query_arg()` strings; covers Seed Registry tabs, CSV Manager tabs, Keywords tabs, Opportunities, Reports, Connections, Link Graph, Generated Pages, Autopilot, and WP post edit/view helpers with graceful null fallback
+- **`includes/admin/class-csv-manager-admin-page.php`** — Summary bar cards converted from plain `<div>` blocks to keyboard-accessible `<a>` elements with correct filtered destinations; **Imported Seeds** card now uses `__imported__` preset (covers both `approved_import` + `csv_import`); **Candidates Pending** card links to Preview "Needs Review" view (pending + fast_track combined); all card counts now exactly match their click destination
+- **`includes/admin/class-keyword-data-repository.php`** — `build_seeds_where()` extended with `__imported__` source preset that expands to `source IN ('approved_import','csv_import')`; single-source filtering unchanged; `ts_source=__imported__` available in the Trusted Seeds Explorer dropdown
+- **`includes/admin/class-seed-registry-admin-page.php`** — Overview tab: total seeds count, per-source counts, and preview queue status counts are now clickable drill-down links; imported seed batch rows gain **View Seeds**, **Export**, and **Delete** actions linking into CSV Manager; stale "CSV Manager → DB Import History" copy replaced with live links; `ts_source` filter dropdown gains "Imported seeds (approved_import + csv_import)" combined preset
+- **`includes/admin/class-admin-dashboard-v2.php`** — `kpi_card()` extended with optional `$href` parameter (backward-compatible); anchor-variant cards gain focus ring CSS; 33 KPI cards across Overview, Keywords, Clusters, Graph, Competitors, Models, Reports/AI, and Diagnostics sections now link to their backing record views
+- **`includes/admin/class-link-graph-admin-page.php`** — Most linked page, orphan pages, source page, and target page now render with `✏ Edit` / `↗ View` links built from `get_edit_post_link()` / `get_permalink()`; graceful fallback to plain text if post no longer exists; `build_payload()` carries post IDs through metrics array
+- **`includes/admin/class-autopilot-admin-page.php`** — Keyword count, cluster count, suggestions count, and orphan count are now clickable links to their respective pages; "View All Opportunities" and "View All Clusters" buttons added
+
+### Version Discipline
+
+- **`tests/ActivationTest.php`** — version assertions updated from `4.6.2` to `4.6.3`
+- **`tests/bootstrap/wordpress-stubs.php`** — `TMWSEO_ENGINE_VERSION` stub updated from `4.6.2` to `4.6.3`
+
+### Repo Hygiene
+
+- **`README.md`** — NEW: root README with capabilities, install, dev setup, architecture overview, safety guidance, screenshots placeholder
+- **`SECURITY.md`** — NEW: vulnerability reporting policy, staging safety, credentials guidance
+- **`LICENSE-DECISION.md`** — NEW: license decision required before public distribution (no license was previously committed)
+- **`.github/workflows/ci.yml`** — NEW: GitHub Actions CI (PHP 8.1/8.2 matrix, Composer install, syntax lint, PHPUnit)
+- **`CONTRIBUTING.md`** — NEW: branching, commit style, version-consistency checklist, code style, secrets rules
+- **`.github/dependabot.yml`** — NEW: weekly Composer + Actions dependency updates
+
+---
+
 ## 4.6.2 — Security & Stability Patch (2026-03-21)
 
 ### CRITICAL SECURITY FIXES
