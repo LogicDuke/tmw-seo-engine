@@ -2,6 +2,7 @@
     "name": "themilisofia/tmw-seo-engine",
     "description": "TMW SEO Engine WordPress plugin — SEO intelligence core",
     "type": "wordpress-plugin",
+    "license": "proprietary",
     "require": {
         "php": ">=8.0"
     },
@@ -16,9 +17,6 @@
         "test-coverage": "phpunit --coverage-text"
     },
     "config": {
-        "optimize-autoloader": true,
-        "platform": {
-            "php": "8.0"
-        }
+        "optimize-autoloader": true
     }
 }
