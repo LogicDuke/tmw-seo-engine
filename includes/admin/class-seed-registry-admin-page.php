@@ -16,6 +16,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
+use TMWSEO\Engine\Admin\TMWSEORoutes;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -322,29 +323,72 @@ class SeedRegistryAdminPage {
                 . '</p></div>';
         }
 
+        // Shared card CSS
+        echo '<style>
+.tmw-ov-link-cell { color:inherit; text-decoration:none; display:block; }
+.tmw-ov-link-cell:hover, .tmw-ov-link-cell:focus { text-decoration:underline; color:#2271b1; }
+.tmw-ov-link-cell:focus { outline:2px solid #2271b1; outline-offset:1px; }
+.tmw-src-badge { display:inline-block;border-radius:3px;font-size:11px;font-weight:700;padding:2px 7px; }
+</style>';
+
         echo '<h2>' . esc_html__( 'Trusted Root Seeds', 'tmwseo' ) . '</h2>';
         echo '<table class="widefat striped">';
-        echo '<tr><th>' . esc_html__( 'Total trusted seeds', 'tmwseo' ) . '</th><td><strong>' . (int) $diag['total_seeds'] . '</strong></td></tr>';
-        echo '<tr><th>' . esc_html__( 'Discovery enabled', 'tmwseo' ) . '</th><td>' . ( $gov_enabled ? '<span style="color:#2ecc71;font-weight:bold">✓ Yes</span>' : '<span style="color:#e74c3c;font-weight:bold">✗ DISABLED — seeds will not be used</span>' ) . '</td></tr>';
-        echo '<tr><th>' . esc_html__( 'Used this discovery cycle', 'tmwseo' ) . '</th><td>' . (int) $diag['seeds_used_this_cycle'] . '</td></tr>';
-        echo '<tr><th>' . esc_html__( 'Duplicates prevented (lifetime)', 'tmwseo' ) . '</th><td>' . (int) $diag['duplicate_prevention_count'] . '</td></tr>';
+
+        // Total trusted seeds — link to trusted_seeds tab
+        echo '<tr><th>' . esc_html__( 'Total trusted seeds', 'tmwseo' ) . '</th>';
+        echo '<td><a href="' . TMWSEORoutes::trusted_seeds() . '" class="tmw-ov-link-cell">'
+            . '<strong>' . (int) $diag['total_seeds'] . '</strong>'
+            . ' <small style="color:#6b7280;">→ View all</small></a></td></tr>';
+
+        echo '<tr><th>' . esc_html__( 'Discovery enabled', 'tmwseo' ) . '</th><td>'
+            . ( $gov_enabled
+                ? '<span style="color:#2ecc71;font-weight:bold">✓ Yes</span>'
+                : '<span style="color:#e74c3c;font-weight:bold">✗ DISABLED — seeds will not be used</span>' )
+            . '</td></tr>';
+
+        // Used this discovery cycle — plain informational, no destination page
+        echo '<tr><th>' . esc_html__( 'Used this discovery cycle', 'tmwseo' ) . '</th>'
+            . '<td>' . (int) $diag['seeds_used_this_cycle'] . '</td></tr>';
+
+        // Duplicates prevented — plain informational
+        echo '<tr><th>' . esc_html__( 'Duplicates prevented (lifetime)', 'tmwseo' ) . '</th>'
+            . '<td>' . (int) $diag['duplicate_prevention_count'] . '</td></tr>';
+
         echo '</table>';
 
+        // ── Seeds by source — link each count to the filtered trusted seeds tab ─
         echo '<h3 style="margin-top:24px">' . esc_html__( 'Seeds by source', 'tmwseo' ) . '</h3>';
-        echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Source', 'tmwseo' ) . '</th><th>' . esc_html__( 'Count', 'tmwseo' ) . '</th><th>' . esc_html__( 'Trusted?', 'tmwseo' ) . '</th><th>' . esc_html__( 'Note', 'tmwseo' ) . '</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr>'
+            . '<th>' . esc_html__( 'Source', 'tmwseo' ) . '</th>'
+            . '<th>' . esc_html__( 'Count', 'tmwseo' ) . '</th>'
+            . '<th>' . esc_html__( 'Trusted?', 'tmwseo' ) . '</th>'
+            . '<th>' . esc_html__( 'Note', 'tmwseo' ) . '</th>'
+            . '</tr></thead><tbody>';
+
         foreach ( (array) $diag['seed_sources'] as $source => $count ) {
             $trusted = SeedRegistry::is_trusted_source( $source )
                 ? '<span style="color:#2ecc71;font-weight:bold">✓ trusted</span>'
                 : '<span style="color:#e74c3c;font-weight:bold">✗ NOT trusted (legacy rows)</span>';
+
+            // Stale copy removed; updated to reference Linked Seeds explorer
             $note = '';
             if ( $source === 'csv_import' ) {
-                $note = '<small style="color:#6b7280;">Legacy alias for approved_import. These are CSV-imported rows from older plugin versions.</small>';
+                $note = '<small style="color:#6b7280;">Legacy alias for approved_import. CSV-imported rows from older plugin versions.</small>';
             } elseif ( $source === 'approved_import' ) {
-                $note = '<small style="color:#6b7280;">Current CSV/API import source. Cleanup available via CSV Manager → DB Import History.</small>';
+                $csv_link = TMWSEORoutes::csv_linked_seeds( '', '', 'approved_import' );
+                $note = '<small style="color:#6b7280;">Current CSV/API import source. '
+                    . '<a href="' . $csv_link . '">Browse in Linked Seeds explorer →</a></small>';
             }
+
+            // Count cell links to trusted seeds tab filtered by this source
+            $count_url = TMWSEORoutes::trusted_seeds( $source );
+
             printf(
-                '<tr><td><code>%s</code></td><td>%d</td><td>%s</td><td>%s</td></tr>',
+                '<tr><td><code>%s</code></td>'
+                . '<td><a href="%s" style="font-weight:700;color:#1e40af;text-decoration:none;" title="View seeds from this source">%d →</a></td>'
+                . '<td>%s</td><td>%s</td></tr>',
                 esc_html( $source ),
+                esc_url( $count_url ),
                 (int) $count,
                 $trusted,
                 wp_kses_post( $note )
@@ -352,14 +396,28 @@ class SeedRegistryAdminPage {
         }
         echo '</tbody></table>';
 
-        // ── Import batches breakdown ───────────────────────────────────────
+        // ── Import batches breakdown ─────────────────────────────────────
         self::render_import_batches_section();
 
+        // ── Preview Queue Summary — link each status row to preview tab ──
         if ( ! empty( $diag['preview_queue'] ) ) {
             echo '<h3 style="margin-top:24px">' . esc_html__( 'Preview Queue Summary', 'tmwseo' ) . '</h3>';
-            echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Status', 'tmwseo' ) . '</th><th>' . esc_html__( 'Count', 'tmwseo' ) . '</th></tr></thead><tbody>';
+            echo '<table class="widefat striped"><thead><tr>'
+                . '<th>' . esc_html__( 'Status', 'tmwseo' ) . '</th>'
+                . '<th>' . esc_html__( 'Count', 'tmwseo' ) . '</th>'
+                . '<th>' . esc_html__( 'Action', 'tmwseo' ) . '</th>'
+                . '</tr></thead><tbody>';
             foreach ( $diag['preview_queue'] as $status => $count ) {
-                printf( '<tr><td>%s</td><td>%d</td></tr>', esc_html( $status ), (int) $count );
+                $preview_url = TMWSEORoutes::preview_queue( $status );
+                printf(
+                    '<tr><td>%s</td>'
+                    . '<td><strong>%d</strong></td>'
+                    . '<td><a href="%s" class="button button-small">Review %s →</a></td></tr>',
+                    esc_html( $status ),
+                    (int) $count,
+                    esc_url( $preview_url ),
+                    esc_html( $status )
+                );
             }
             echo '</tbody></table>';
         }
@@ -378,6 +436,7 @@ class SeedRegistryAdminPage {
 
     /**
      * Render a breakdown of import batches for imported seeds (approved_import + csv_import).
+     * Each row now has View Seeds, Export, and Delete actions linking into CSV Manager.
      */
     private static function render_import_batches_section(): void {
         global $wpdb;
@@ -389,8 +448,8 @@ class SeedRegistryAdminPage {
         }
 
         // Check whether provenance columns exist (added in 4.3.0 migration).
-        $columns = $wpdb->get_results( "SHOW COLUMNS FROM {$table}", ARRAY_A );
-        $col_names = is_array( $columns ) ? array_column( $columns, 'Field' ) : [];
+        $columns    = $wpdb->get_results( "SHOW COLUMNS FROM {$table}", ARRAY_A );
+        $col_names  = is_array( $columns ) ? array_column( $columns, 'Field' ) : [];
         $has_provenance = in_array( 'import_batch_id', $col_names, true );
 
         if ( $has_provenance ) {
@@ -433,7 +492,24 @@ class SeedRegistryAdminPage {
         }
 
         echo '<h3 style="margin-top:24px">' . esc_html__( 'Imported Seed Batches', 'tmwseo' ) . '</h3>';
-        echo '<p class="description">' . esc_html( sprintf( __( '%d total imported seeds (approved_import + csv_import). Use CSV Manager → DB Import History for batch deletion.', 'tmwseo' ), $import_total ) ) . '</p>';
+
+        // Updated description — no stale "DB Import History" copy
+        echo '<p class="description">'
+            . esc_html( sprintf(
+                __( '%d total imported seeds (approved_import + csv_import).', 'tmwseo' ),
+                $import_total
+            ) )
+            . ' <a href="' . TMWSEORoutes::csv_packs() . '">'
+            . esc_html__( 'Manage packs in CSV Manager →', 'tmwseo' )
+            . '</a>'
+            . '</p>';
+
+        if ( ! $has_provenance ) {
+            echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>'
+                . '<strong>' . esc_html__( 'Schema note:', 'tmwseo' ) . '</strong> '
+                . esc_html__( 'Provenance columns (import_batch_id, import_source_label) are missing — deactivate and reactivate the plugin to run the 4.3.0 migration. Batch-level actions are unavailable until then; source-level grouping is shown instead.', 'tmwseo' )
+                . '</p></div>';
+        }
 
         if ( empty( $batches ) ) {
             echo '<p>' . esc_html__( 'No imported seed batches found.', 'tmwseo' ) . '</p>';
@@ -441,27 +517,76 @@ class SeedRegistryAdminPage {
         }
 
         echo '<table class="widefat striped"><thead><tr>';
-        foreach ( [ 'Batch ID', 'Source Label', 'Source Type', 'Rows', 'Date Range' ] as $h ) {
+        foreach ( [ 'Batch ID', 'Source Label', 'Source Type', 'Rows', 'Date Range', 'Actions' ] as $h ) {
             echo '<th>' . esc_html( $h ) . '</th>';
         }
         echo '</tr></thead><tbody>';
 
         foreach ( $batches as $b ) {
-            $bid = (string) $b['batch_id'];
+            $bid          = (string) $b['batch_id'];
+            $source_label = (string) $b['source_label'];
+            $source       = (string) $b['source'];
+            $row_count    = (int) $b['row_count'];
+
+            // Build action URLs (all lead into CSV Manager)
+            $view_url = TMWSEORoutes::csv_linked_seeds( $bid, $source_label, $source );
+            $export_url = wp_nonce_url(
+                add_query_arg( [
+                    'action'       => 'tmw_csv_linked_seeds_export',
+                    'batch_id'     => rawurlencode( $bid ),
+                    'source_label' => rawurlencode( $source_label ),
+                    'source'       => rawurlencode( $source ),
+                ], admin_url( 'admin-post.php' ) ),
+                'tmw_linked_seeds_export'
+            );
+            $delete_url = wp_nonce_url(
+                add_query_arg( [
+                    'action'       => 'tmw_csv_linked_seeds_delete_all',
+                    'batch_id'     => rawurlencode( $bid ),
+                    'source_label' => rawurlencode( $source_label ),
+                    'source'       => rawurlencode( $source ),
+                ], admin_url( 'admin-post.php' ) ),
+                'tmw_linked_seeds_delete_all'
+            );
+
             echo '<tr>';
-            echo '<td>' . ( $bid !== '' ? '<code>' . esc_html( $bid ) . '</code>' : '<em>legacy (no batch ID)</em>' ) . '</td>';
-            echo '<td>' . esc_html( (string) $b['source_label'] ?: '—' ) . '</td>';
-            echo '<td><code>' . esc_html( (string) $b['source'] ) . '</code></td>';
-            echo '<td><strong>' . (int) $b['row_count'] . '</strong></td>';
+            echo '<td>' . ( $bid !== '' ? '<code>' . esc_html( $bid ) . '</code>' : '<em style="color:#9ca3af;">legacy (no batch ID)</em>' ) . '</td>';
+            echo '<td>' . esc_html( $source_label ?: '—' ) . '</td>';
+            echo '<td><code>' . esc_html( $source ) . '</code></td>';
+            echo '<td><strong>' . $row_count . '</strong></td>';
             echo '<td><small>' . esc_html( (string) $b['earliest'] ) . ' — ' . esc_html( (string) $b['latest'] ) . '</small></td>';
+
+            // Actions cell
+            echo '<td><div style="display:flex;gap:4px;flex-wrap:wrap;">';
+            echo '<a class="button button-small" style="background:#dbeafe;color:#1e40af;border-color:#93c5fd;" href="' . esc_url( $view_url ) . '">'
+                . esc_html( sprintf( __( 'View %d Seeds', 'tmwseo' ), $row_count ) ) . '</a>';
+
+            if ( in_array( $source, [ 'approved_import', 'csv_import' ], true ) ) {
+                echo '<a class="button button-small" href="' . esc_url( $export_url ) . '">'
+                    . esc_html__( 'Export', 'tmwseo' ) . '</a>';
+
+                if ( $row_count > 0 ) {
+                    echo '<a class="button button-small" style="color:#b91c1c;border-color:#fca5a5;" href="' . esc_url( $delete_url ) . '"'
+                        . ' onclick="return confirm(\'' . esc_js( sprintf(
+                            __( 'Delete all %d seed rows in this batch? This cannot be undone.', 'tmwseo' ),
+                            $row_count
+                        ) ) . '\');">'
+                        . esc_html__( 'Delete', 'tmwseo' ) . '</a>';
+                }
+            }
+
+            echo '</div></td>';
             echo '</tr>';
         }
 
         echo '</tbody></table>';
 
-        // Link to CSV Manager for cleanup
-        $csv_url = admin_url( 'admin.php?page=tmwseo-csv-manager' );
-        echo '<p style="margin-top:8px;"><a href="' . esc_url( $csv_url ) . '" class="button button-small">' . esc_html__( 'Go to CSV Manager for batch cleanup →', 'tmwseo' ) . '</a></p>';
+        // Link to CSV Manager packs tab for full pack management
+        echo '<p style="margin-top:8px;">'
+            . '<a href="' . TMWSEORoutes::csv_packs() . '" class="button button-small">'
+            . esc_html__( 'Manage in CSV Manager →', 'tmwseo' )
+            . '</a>'
+            . '</p>';
     }
 
     // -------------------------------------------------------------------------
@@ -1066,6 +1191,8 @@ function tmwseoPurgeConfirm() {
         echo '<input type="search" name="ts_search" value="' . esc_attr( $search ) . '" placeholder="' . esc_attr__( 'Search seed phrase\xe2\x80\xa6', 'tmwseo' ) . '" style="width:220px;">';
 
         echo '<select name="ts_source"><option value="">' . esc_html__( 'All sources', 'tmwseo' ) . '</option>';
+        echo '<option value="__imported__"' . selected( $f_source, '__imported__', false ) . '>'
+            . esc_html__( 'Imported seeds (approved_import + csv_import)', 'tmwseo' ) . '</option>';
         foreach ( $repo::TRUSTED_SOURCES as $src ) {
             echo '<option value="' . esc_attr( $src ) . '"' . selected( $f_source, $src, false ) . '>' . esc_html( $src ) . '</option>';
         }

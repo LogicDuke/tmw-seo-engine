@@ -307,6 +307,7 @@ class Loader {
     private static function load_admin(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/admin/';
         tmwseo_safe_require( $p . 'class-admin-ui.php' );
+        tmwseo_safe_require( $p . 'class-tmwseo-routes.php' );  // admin route map — must load before page files
         tmwseo_safe_require( $p . 'class-list-table-pagination.php' );
         tmwseo_safe_require( $p . 'tables/class-keywords-table.php' );
         tmwseo_safe_require( $p . 'tables/class-clusters-table.php' );

@@ -353,7 +353,15 @@ class KeywordDataRepository {
         }
 
         $source = sanitize_key( (string) ( $filters['source'] ?? '' ) );
-        if ( $source !== '' && in_array( $source, self::TRUSTED_SOURCES, true ) ) {
+        if ( $source === '__imported__' ) {
+            // Special preset: matches both import source values exactly as counted by summary_counts()
+            // phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+            $placeholders = implode( ',', array_fill( 0, count( self::IMPORT_SOURCES ), '%s' ) );
+            $parts[]  = "source IN ({$placeholders})";
+            foreach ( self::IMPORT_SOURCES as $isrc ) {
+                $params[] = $isrc;
+            }
+        } elseif ( $source !== '' && in_array( $source, self::TRUSTED_SOURCES, true ) ) {
             $parts[]  = 'source = %s';
             $params[] = $source;
         }

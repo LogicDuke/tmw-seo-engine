@@ -149,9 +149,17 @@ class LinkGraphAdminPage {
         return [
             'suggestions' => $suggestions,
             'metrics' => [
-                'most_linked' => $most_linked_id > 0 ? ($post_map[$most_linked_id]['title'] ?? '') : '',
-                'orphan_pages' => array_values(array_map(static fn($id) => $post_map[$id]['title'] ?? ('#' . $id), array_slice($orphan_ids, 0, 10))),
-                'avg_link_depth' => !empty($depth_map) ? round(array_sum($depth_map) / max(1, count($depth_map)), 2) : 0,
+                'most_linked_id'  => $most_linked_id,
+                'most_linked'     => $most_linked_id > 0 ? ($post_map[$most_linked_id]['title'] ?? '') : '',
+                // Orphan pages: array of ['id' => int, 'title' => string]
+                'orphan_pages'    => array_values(array_map(
+                    static fn($id) => [
+                        'id'    => $id,
+                        'title' => $post_map[$id]['title'] ?? ('#' . $id),
+                    ],
+                    array_slice($orphan_ids, 0, 10)
+                )),
+                'avg_link_depth'  => !empty($depth_map) ? round(array_sum($depth_map) / max(1, count($depth_map)), 2) : 0,
             ],
         ];
     }
@@ -207,31 +215,116 @@ class LinkGraphAdminPage {
     }
 
     private static function render_graph_results(array $payload): void {
-        $metrics = (array) ($payload['metrics'] ?? []);
+        $metrics     = (array) ($payload['metrics'] ?? []);
         $suggestions = (array) ($payload['suggestions'] ?? []);
 
         if (isset($_GET['inserted'])) {
             echo '<div class="notice notice-success"><p>Inserted ' . esc_html((string) ((int) $_GET['inserted'])) . ' manual link suggestions.</p></div>';
         }
 
+        // ── Graph Metrics ─────────────────────────────────────────────────────
         echo '<div class="tmwseo-card" style="max-width:1200px;margin-top:16px;">';
         echo '<h2>Graph Metrics</h2>';
-        echo '<p><strong>Most linked page:</strong> ' . esc_html((string) ($metrics['most_linked'] ?? 'n/a')) . '</p>';
-        echo '<p><strong>Orphan pages:</strong> ' . esc_html(implode(' | ', (array) ($metrics['orphan_pages'] ?? []))) . '</p>';
+
+        // Most linked page — link to edit screen if post exists
+        $most_linked_id    = (int) ($metrics['most_linked_id'] ?? 0);
+        $most_linked_title = (string) ($metrics['most_linked'] ?? 'n/a');
+        if ($most_linked_id > 0) {
+            $edit_url  = get_edit_post_link($most_linked_id);
+            $view_url  = get_permalink($most_linked_id);
+            $post_link = '';
+            if ($edit_url) {
+                $post_link .= ' <a href="' . esc_url($edit_url) . '" title="Edit this post">✏ Edit</a>';
+            }
+            if ($view_url) {
+                $post_link .= ' <a href="' . esc_url($view_url) . '" target="_blank" rel="noopener" title="View this post">↗ View</a>';
+            }
+            echo '<p><strong>Most linked page:</strong> '
+                . esc_html($most_linked_title)
+                . wp_kses_post($post_link)
+                . '</p>';
+        } else {
+            echo '<p><strong>Most linked page:</strong> ' . esc_html($most_linked_title) . '</p>';
+        }
+
+        // Orphan pages — link each to its edit screen
+        $orphan_items = (array) ($metrics['orphan_pages'] ?? []);
+        if (!empty($orphan_items)) {
+            echo '<p><strong>Orphan pages (' . count($orphan_items) . '):</strong></p>';
+            echo '<ul style="margin:4px 0 10px 20px;list-style:disc;">';
+            foreach ($orphan_items as $item) {
+                // Support both old string format and new ['id','title'] format
+                if (is_array($item)) {
+                    $oid   = (int) ($item['id'] ?? 0);
+                    $otitle = (string) ($item['title'] ?? '');
+                } else {
+                    $oid   = 0;
+                    $otitle = (string) $item;
+                }
+                echo '<li>';
+                echo esc_html($otitle);
+                if ($oid > 0) {
+                    $oedit = get_edit_post_link($oid);
+                    $oview = get_permalink($oid);
+                    if ($oedit) {
+                        echo ' <a href="' . esc_url($oedit) . '" style="font-size:12px;" title="Edit orphan page">✏ Edit</a>';
+                    }
+                    if ($oview) {
+                        echo ' <a href="' . esc_url($oview) . '" target="_blank" rel="noopener" style="font-size:12px;" title="View orphan page">↗ View</a>';
+                    }
+                }
+                echo '</li>';
+            }
+            echo '</ul>';
+        } else {
+            echo '<p><strong>Orphan pages:</strong> None found ✓</p>';
+        }
+
         echo '<p><strong>Average link depth:</strong> ' . esc_html((string) ($metrics['avg_link_depth'] ?? 0)) . '</p>';
         echo '</div>';
 
+        // ── Internal Link Suggestions ─────────────────────────────────────────
         echo '<div class="tmwseo-card" style="max-width:1200px;margin-top:16px;">';
         echo '<h2>Internal Link Suggestions</h2>';
-        echo '<table class="widefat striped"><thead><tr><th>Source Page</th><th>Suggested Anchor</th><th>Target Page</th><th>Relevance Score</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr>'
+            . '<th>Source Page</th>'
+            . '<th>Suggested Anchor</th>'
+            . '<th>Target Page</th>'
+            . '<th>Relevance Score</th>'
+            . '</tr></thead><tbody>';
+
         foreach ($suggestions as $row) {
+            $src_id    = (int) ($row['source_id'] ?? 0);
+            $tgt_id    = (int) ($row['target_id'] ?? 0);
+            $src_title = (string) ($row['source_title'] ?? '');
+            $tgt_title = (string) ($row['target_title'] ?? '');
+
+            // Source cell — edit link where available
+            $src_edit = $src_id > 0 ? get_edit_post_link($src_id) : null;
+            $src_cell = esc_html($src_title);
+            if ($src_edit) {
+                $src_cell .= ' <a href="' . esc_url($src_edit) . '" style="font-size:11px;white-space:nowrap;" title="Edit source post">✏</a>';
+            }
+
+            // Target cell — edit + view links where available
+            $tgt_edit = $tgt_id > 0 ? get_edit_post_link($tgt_id) : null;
+            $tgt_view = $tgt_id > 0 ? (get_permalink($tgt_id) ?: null) : null;
+            $tgt_cell = esc_html($tgt_title);
+            if ($tgt_edit) {
+                $tgt_cell .= ' <a href="' . esc_url($tgt_edit) . '" style="font-size:11px;white-space:nowrap;" title="Edit target post">✏</a>';
+            }
+            if ($tgt_view) {
+                $tgt_cell .= ' <a href="' . esc_url($tgt_view) . '" target="_blank" rel="noopener" style="font-size:11px;white-space:nowrap;" title="View target post">↗</a>';
+            }
+
             echo '<tr>';
-            echo '<td>' . esc_html((string) ($row['source_title'] ?? '')) . '</td>';
+            echo '<td>' . wp_kses_post($src_cell) . '</td>';
             echo '<td>' . esc_html((string) ($row['anchor'] ?? '')) . '</td>';
-            echo '<td>' . esc_html((string) ($row['target_title'] ?? '')) . '</td>';
+            echo '<td>' . wp_kses_post($tgt_cell) . '</td>';
             echo '<td>' . esc_html((string) ($row['score'] ?? '')) . '</td>';
             echo '</tr>';
         }
+
         echo '</tbody></table>';
 
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:12px;">';

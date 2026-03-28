@@ -42,8 +42,26 @@ class AutopilotAdminPage {
     }
 
     private static function render_keyword_opportunities(array $discovery): void {
+        $new_kw_count  = (int) ($discovery['new_keywords'] ?? 0);
+        $kw_page_url   = admin_url('admin.php?page=tmwseo-keywords&tab=pipeline');
+        $opp_page_url  = admin_url('admin.php?page=tmwseo-opportunities');
+
         echo '<h2>' . esc_html__('Keyword Opportunities', 'tmwseo') . '</h2>';
-        echo '<p>' . esc_html(sprintf('New keywords discovered: %d', (int) ($discovery['new_keywords'] ?? 0))) . '</p>';
+
+        // Count links to the keywords pipeline
+        echo '<p>';
+        if ($new_kw_count > 0) {
+            echo '<a href="' . esc_url($kw_page_url) . '" style="font-weight:700;color:#1e40af;">'
+                . esc_html(sprintf('New keywords discovered: %d →', $new_kw_count))
+                . '</a>';
+        } else {
+            echo esc_html(sprintf('New keywords discovered: %d', $new_kw_count));
+        }
+        echo ' &nbsp;';
+        echo '<a href="' . esc_url($opp_page_url) . '" class="button button-small">'
+            . esc_html__('View All Opportunities →', 'tmwseo') . '</a>';
+        echo '</p>';
+
         echo '<table class="widefat striped"><thead><tr><th>Keyword</th><th>Volume</th><th>KD</th><th>Opportunity</th></tr></thead><tbody>';
 
         $rows = (array) ($discovery['top_opportunities'] ?? []);
@@ -52,7 +70,9 @@ class AutopilotAdminPage {
         } else {
             foreach ($rows as $row) {
                 echo '<tr>';
-                echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
+                // Keyword cell — link into opportunities page if possible
+                echo '<td><a href="' . esc_url($opp_page_url) . '" style="color:inherit;">'
+                    . esc_html((string) ($row['keyword'] ?? '')) . '</a></td>';
                 echo '<td>' . esc_html(number_format_i18n((int) ($row['volume'] ?? 0))) . '</td>';
                 echo '<td>' . esc_html((string) ($row['difficulty'] ?? '0')) . '</td>';
                 echo '<td>' . esc_html((string) ($row['opportunity'] ?? '0')) . '</td>';
@@ -63,7 +83,11 @@ class AutopilotAdminPage {
     }
 
     private static function render_cluster_opportunities(array $clusters): void {
+        $cluster_url = admin_url('admin.php?page=tmwseo-keywords&tab=clusters');
+
         echo '<h2 style="margin-top:24px;">' . esc_html__('Cluster Opportunities', 'tmwseo') . '</h2>';
+        echo '<p><a href="' . esc_url($cluster_url) . '" class="button button-small">'
+            . esc_html__('View All Clusters →', 'tmwseo') . '</a></p>';
         echo '<table class="widefat striped"><thead><tr><th>Cluster Name</th><th>Type</th><th>Volume</th><th>Avg KD</th><th>Opportunity</th><th>Suggested Page Type</th></tr></thead><tbody>';
 
         $rows = (array) ($clusters['top_clusters'] ?? []);
@@ -72,7 +96,8 @@ class AutopilotAdminPage {
         } else {
             foreach ($rows as $row) {
                 echo '<tr>';
-                echo '<td>' . esc_html((string) ($row['cluster_name'] ?? '')) . '</td>';
+                echo '<td><a href="' . esc_url($cluster_url) . '" style="color:inherit;">'
+                    . esc_html((string) ($row['cluster_name'] ?? '')) . '</a></td>';
                 echo '<td>' . esc_html(ucfirst((string) ($row['type'] ?? 'informational'))) . '</td>';
                 echo '<td>' . esc_html(number_format_i18n((int) ($row['total_volume'] ?? 0))) . '</td>';
                 echo '<td>' . esc_html((string) ($row['avg_keyword_difficulty'] ?? '0')) . '</td>';
@@ -141,10 +166,34 @@ class AutopilotAdminPage {
     }
 
     private static function render_internal_link_suggestions(array $internal): void {
+        $suggestions_count = (int) ($internal['suggestions'] ?? 0);
+        $orphans_count     = (int) ($internal['orphans'] ?? 0);
+        $scanned_count     = (int) ($internal['scanned_pages'] ?? 0);
+        $link_url          = admin_url('admin.php?page=tmwseo-internal-links');
+        $reports_url       = admin_url('admin.php?page=tmwseo-reports&tab=orphans');
+
         echo '<h2 style="margin-top:24px;">' . esc_html__('Internal Link Suggestions', 'tmwseo') . '</h2>';
-        echo '<p>' . esc_html(sprintf('Suggestions: %d | Orphan pages: %d | Scanned pages: %d', (int) ($internal['suggestions'] ?? 0), (int) ($internal['orphans'] ?? 0), (int) ($internal['scanned_pages'] ?? 0))) . '</p>';
+        echo '<p>';
+        // Suggestions count links to internal link opportunities page
+        if ($suggestions_count > 0) {
+            echo '<a href="' . esc_url($link_url) . '" style="font-weight:700;">'
+                . esc_html(sprintf('Suggestions: %d', $suggestions_count)) . '</a>';
+        } else {
+            echo esc_html(sprintf('Suggestions: %d', $suggestions_count));
+        }
+        echo ' | ';
+        // Orphan count links to reports orphans tab
+        if ($orphans_count > 0) {
+            echo '<a href="' . esc_url($reports_url) . '" style="font-weight:700;color:#b45309;">'
+                . esc_html(sprintf('Orphan pages: %d', $orphans_count)) . '</a>';
+        } else {
+            echo esc_html(sprintf('Orphan pages: %d', $orphans_count));
+        }
+        echo ' | ' . esc_html(sprintf('Scanned pages: %d', $scanned_count));
+        echo '</p>';
+
         echo '<p><em>' . esc_html((string) ($internal['note'] ?? 'User approval is required before insertion.')) . '</em></p>';
-        echo '<p><a class="button" href="' . esc_url(admin_url('admin.php?page=tmwseo-internal-links')) . '">' . esc_html__('Review Link Suggestions', 'tmwseo') . '</a></p>';
+        echo '<p><a class="button" href="' . esc_url($link_url) . '">' . esc_html__('Review Link Suggestions', 'tmwseo') . '</a></p>';
     }
 
     private static function render_gsc_alerts(array $gsc): void {

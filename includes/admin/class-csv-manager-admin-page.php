@@ -5,6 +5,7 @@
  */
 namespace TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Admin;
+use TMWSEO\Engine\Admin\TMWSEORoutes;
 if (!defined('ABSPATH')) { exit; }
 
 class CSVManagerAdminPage {
@@ -53,21 +54,85 @@ class CSVManagerAdminPage {
     // ── Summary bar ──────────────────────────────────────────────────────────
     private static function render_summary_bar(): void {
         $counts = KeywordDataRepository::summary_counts();
+
+        // Each card: label, value, color, optional warn flag, destination URL, title attr
         $items = [
-            ['label' => __('Trusted Seeds', 'tmwseo'),       'value' => $counts['total_seeds'],       'color' => '#1e40af'],
-            ['label' => __('Imported Seeds', 'tmwseo'),       'value' => $counts['imported_seeds'],    'color' => '#065f46'],
-            ['label' => __('Import Packs (files)', 'tmwseo'), 'value' => $counts['import_packs'],      'color' => '#6b21a8'],
-            ['label' => __('Orphaned DB Packs', 'tmwseo'),    'value' => $counts['orphaned_db_packs'], 'color' => '#92400e', 'warn' => $counts['orphaned_db_packs'] > 0],
-            ['label' => __('Candidates Pending', 'tmwseo'),   'value' => $counts['candidates_pending'],'color' => '#b45309'],
+            [
+                'label' => __('Trusted Seeds', 'tmwseo'),
+                'value' => $counts['total_seeds'],
+                'color' => '#1e40af',
+                'href'  => TMWSEORoutes::trusted_seeds(),
+                'title' => __('View all trusted seeds in the Seed Registry', 'tmwseo'),
+            ],
+            [
+                // Count = approved_import + csv_import (both IMPORT_SOURCES).
+                // Destination uses the __imported__ preset which expands to
+                // source IN ('approved_import','csv_import') — row count matches exactly.
+                'label' => __('Imported Seeds', 'tmwseo'),
+                'value' => $counts['imported_seeds'],
+                'color' => '#065f46',
+                'href'  => TMWSEORoutes::imported_seeds(),
+                'title' => __('View all imported seeds (approved_import + csv_import) in Seed Registry', 'tmwseo'),
+            ],
+            [
+                'label' => __('Import Packs (files)', 'tmwseo'),
+                'value' => $counts['import_packs'],
+                'color' => '#6b21a8',
+                'href'  => TMWSEORoutes::csv_packs(),
+                'title' => __('View all import pack files in CSV Manager', 'tmwseo'),
+            ],
+            [
+                'label' => __('Orphaned DB Packs', 'tmwseo'),
+                'value' => $counts['orphaned_db_packs'],
+                'color' => '#92400e',
+                'warn'  => $counts['orphaned_db_packs'] > 0,
+                'href'  => TMWSEORoutes::csv_packs( 'db_only' ),
+                'title' => __('View DB-only (orphaned) packs in CSV Manager', 'tmwseo'),
+            ],
+            [
+                // Count = pending + fast_track (both "needs review" statuses).
+                // Destination = Preview tab with no status filter = "Needs Review" view,
+                // which shows exactly pending + fast_track combined.
+                'label' => __('Candidates Pending', 'tmwseo'),
+                'value' => $counts['candidates_pending'],
+                'color' => '#b45309',
+                'href'  => TMWSEORoutes::preview_queue( '' ),
+                'title' => __('Review pending + fast_track candidates in Expansion Preview', 'tmwseo'),
+            ],
         ];
-        echo '<div style="display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 16px;font-size:13px;">';
-        foreach ($items as $item) {
-            $bg   = !empty($item['warn']) ? '#fef3c7' : '#f8fafc';
-            $bord = !empty($item['warn']) ? '#f59e0b' : '#e2e8f0';
-            echo '<div style="background:' . esc_attr($bg) . ';border:1px solid ' . esc_attr($bord) . ';border-radius:6px;padding:10px 16px;min-width:130px;text-align:center;">';
-            echo '<div style="font-size:22px;font-weight:700;color:' . esc_attr($item['color']) . ';">' . (int)$item['value'] . '</div>';
-            echo '<div style="color:#6b7280;margin-top:2px;">' . esc_html($item['label']) . '</div>';
-            echo '</div>';
+
+        // One shared CSS block for the clickable cards
+        echo '<style>
+.tmw-summary-card {
+    display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+    border-radius:6px;padding:10px 16px;min-width:130px;text-align:center;
+    text-decoration:none;cursor:pointer;transition:box-shadow .15s,transform .1s;
+    border-width:1px;border-style:solid;
+}
+.tmw-summary-card:hover,.tmw-summary-card:focus {
+    box-shadow:0 2px 8px rgba(0,0,0,.14);transform:translateY(-1px);text-decoration:none;
+}
+.tmw-summary-card:focus { outline:2px solid #2271b1;outline-offset:2px; }
+</style>';
+
+        echo '<div style="display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 16px;font-size:13px;" role="list">';
+        foreach ( $items as $item ) {
+            $bg   = ! empty( $item['warn'] ) ? '#fef3c7' : '#f8fafc';
+            $bord = ! empty( $item['warn'] ) ? '#f59e0b' : '#e2e8f0';
+            printf(
+                '<a href="%s" class="tmw-summary-card" title="%s" role="listitem"'
+                . ' style="background:%s;border-color:%s;">'
+                . '<span style="font-size:22px;font-weight:700;color:%s;">%d</span>'
+                . '<span style="color:#6b7280;margin-top:2px;">%s</span>'
+                . '</a>',
+                esc_url( $item['href'] ),
+                esc_attr( $item['title'] ),
+                esc_attr( $bg ),
+                esc_attr( $bord ),
+                esc_attr( $item['color'] ),
+                (int) $item['value'],
+                esc_html( $item['label'] )
+            );
         }
         echo '</div>';
     }

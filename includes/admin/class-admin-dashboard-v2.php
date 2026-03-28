@@ -34,6 +34,7 @@ use TMWSEO\Engine\Export\CSVExporter;
 use TMWSEO\Engine\Db\Jobs;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Services\RankTracker;
+use TMWSEO\Engine\Admin\TMWSEORoutes;
 
 class AdminDashboardV2 {
 
@@ -140,10 +141,10 @@ class AdminDashboardV2 {
 
         <!-- KPI Row -->
         <div class="td-grid td-grid-4 mb-6">
-            <?php self::kpi_card( $health . '%', 'SEO Health Score', $health_color, '↑ Site-wide average' ); ?>
-            <?php self::kpi_card( number_format( $total ), 'Tracked Posts', 'neutral', $optimized . ' optimised' ); ?>
-            <?php self::kpi_card( number_format( $cand_count ), 'Keyword Candidates', 'neutral', $raw_count . ' raw collected' ); ?>
-            <?php self::kpi_card( number_format( $opp_count ), 'Opportunities', 'success', 'Ready to act on' ); ?>
+            <?php self::kpi_card( $health . '%', 'SEO Health Score', $health_color, '↑ Site-wide average', admin_url( 'admin.php?page=' . self::PAGE_REPORTS ) ); ?>
+            <?php self::kpi_card( number_format( $total ), 'Tracked Posts', 'neutral', $optimized . ' optimised', admin_url( 'admin.php?page=' . self::PAGE_REPORTS . '&tab=content' ) ); ?>
+            <?php self::kpi_card( number_format( $cand_count ), 'Keyword Candidates', 'neutral', $raw_count . ' raw collected', TMWSEORoutes::keywords( 'pipeline' ) ); ?>
+            <?php self::kpi_card( number_format( $opp_count ), 'Opportunities', 'success', 'Ready to act on', TMWSEORoutes::opportunities() ); ?>
         </div>
 
         <!-- Alerts -->
@@ -292,10 +293,10 @@ class AdminDashboardV2 {
         if ( $tab === 'pipeline' ) :
             ?>
             <div class="td-grid td-grid-4 mb-6">
-                <?php self::kpi_card( number_format( $raw_count ),  'Raw Keywords',       'neutral',  'Collected from all sources' ); ?>
-                <?php self::kpi_card( number_format( $cand_count ), 'Candidates',         'neutral',  'Passed volume / KD filters' ); ?>
-                <?php self::kpi_card( number_format( $approved_count ), 'Approved',       'success',  'Ready to build pages from' ); ?>
-                <?php self::kpi_card( number_format( $cluster_count ), 'Clusters',        'neutral',  $new_clusters . ' new' ); ?>
+                <?php self::kpi_card( number_format( $raw_count ),  'Raw Keywords',       'neutral',  'Collected from all sources', TMWSEORoutes::keywords( 'pipeline' ) ); ?>
+                <?php self::kpi_card( number_format( $cand_count ), 'Candidates',         'neutral',  'Passed volume / KD filters', TMWSEORoutes::keywords( 'pipeline' ) ); ?>
+                <?php self::kpi_card( number_format( $approved_count ), 'Approved',       'success',  'Ready to build pages from', TMWSEORoutes::keywords( 'pipeline' ) ); ?>
+                <?php self::kpi_card( number_format( $cluster_count ), 'Clusters',        'neutral',  $new_clusters . ' new', TMWSEORoutes::keywords( 'clusters' ) ); ?>
             </div>
 
             <div class="td-card mb-4">
@@ -361,9 +362,9 @@ class AdminDashboardV2 {
             );
             ?>
             <div class="td-grid td-grid-3 mb-6">
-                <?php self::kpi_card( number_format( $cluster_count ), 'Total Clusters',    'neutral', 'Keyword topic groups' ); ?>
-                <?php self::kpi_card( number_format( $new_clusters ),  'New Clusters',      'success', 'Ready to act on' ); ?>
-                <?php self::kpi_card( number_format( $opp_count ),     'Opportunities',     'success', 'From competitor gap analysis' ); ?>
+                <?php self::kpi_card( number_format( $cluster_count ), 'Total Clusters',    'neutral', 'Keyword topic groups', TMWSEORoutes::keywords( 'clusters' ) ); ?>
+                <?php self::kpi_card( number_format( $new_clusters ),  'New Clusters',      'success', 'Ready to act on', TMWSEORoutes::keywords( 'clusters' ) ); ?>
+                <?php self::kpi_card( number_format( $opp_count ),     'Opportunities',     'success', 'From competitor gap analysis', TMWSEORoutes::opportunities() ); ?>
             </div>
             <?php
             self::table(
@@ -391,9 +392,9 @@ class AdminDashboardV2 {
             );
             ?>
             <div class="td-grid td-grid-3 mb-6">
-                <?php self::kpi_card( number_format( count( $graph_clusters ) ), 'Top Clusters', 'neutral', 'Graph-based topic clusters' ); ?>
-                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates WHERE graph_cluster_size > 0" ) ), 'Clustered Keywords', 'success', 'Keywords with graph cluster assignment' ); ?>
-                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT MAX(node_degree) FROM {$wpdb->prefix}tmw_keyword_candidates" ) ), 'Max Node Degree', 'neutral', 'Highest relationship count' ); ?>
+                <?php self::kpi_card( number_format( count( $graph_clusters ) ), 'Top Clusters', 'neutral', 'Graph-based topic clusters', TMWSEORoutes::keywords( 'graph' ) ); ?>
+                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}tmw_keyword_candidates WHERE graph_cluster_size > 0" ) ), 'Clustered Keywords', 'success', 'Keywords with graph cluster assignment', TMWSEORoutes::keywords( 'graph' ) ); ?>
+                <?php self::kpi_card( number_format( (int) $wpdb->get_var( "SELECT MAX(node_degree) FROM {$wpdb->prefix}tmw_keyword_candidates" ) ), 'Max Node Degree', 'neutral', 'Highest relationship count', TMWSEORoutes::keywords( 'graph' ) ); ?>
             </div>
             <?php
             self::table(
@@ -560,9 +561,9 @@ class AdminDashboardV2 {
         ?>
 
         <div class="td-grid td-grid-3 mb-6">
-            <?php self::kpi_card( count( $threats ), 'Keyword Threats', count( $threats ) > 0 ? 'warning' : 'success', 'Competitors beating you in top 20' ); ?>
-            <?php self::kpi_card( count( $intersection ), 'Shared Keywords', 'neutral', 'Keywords 2+ competitors share' ); ?>
-            <?php self::kpi_card( count( $competitors ), 'Monitored Competitors', 'neutral', 'Configure in Settings' ); ?>
+            <?php self::kpi_card( count( $threats ), 'Keyword Threats', count( $threats ) > 0 ? 'warning' : 'success', 'Competitors beating you in top 20', admin_url( 'admin.php?page=' . self::PAGE_COMPETITORS ) ); ?>
+            <?php self::kpi_card( count( $intersection ), 'Shared Keywords', 'neutral', 'Keywords 2+ competitors share', admin_url( 'admin.php?page=' . self::PAGE_COMPETITORS ) ); ?>
+            <?php self::kpi_card( count( $competitors ), 'Monitored Competitors', 'neutral', 'Configure in Settings', admin_url( 'admin.php?page=' . self::PAGE_SETTINGS ) ); ?>
         </div>
 
         <!-- Controls -->
@@ -749,12 +750,12 @@ class AdminDashboardV2 {
 
                 // KPI row
                 echo '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px;">';
-                self::kpi_card( (string) $total,      'Total Model Pages', 'neutral',  'All statuses' );
-                self::kpi_card( (string) $pub,        'Published Models',  $pub > 0 ? 'success' : 'neutral', 'Live' );
-                self::kpi_card( (string) $high_opp,   'High Opportunity',  $high_opp > 0 ? 'success' : 'neutral', '≥65% ranking prob' );
-                self::kpi_card( $avg_ready . '%',     'Avg Readiness',     $avg_ready >= 70 ? 'success' : ( $avg_ready >= 40 ? 'warning' : 'danger' ), 'Across all models' );
-                self::kpi_card( (string) $miss_kw,    'Missing Keyword',   $miss_kw > 0 ? 'danger' : 'success', 'No focus keyword set' );
-                self::kpi_card( (string) $miss_plat,  'No Platform Data',  $miss_plat > 0 ? 'warning' : 'success', 'No platform linked' );
+                self::kpi_card( (string) $total,      'Total Model Pages', 'neutral',  'All statuses', TMWSEORoutes::generated_pages() );
+                self::kpi_card( (string) $pub,        'Published Models',  $pub > 0 ? 'success' : 'neutral', 'Live', TMWSEORoutes::generated_pages() );
+                self::kpi_card( (string) $high_opp,   'High Opportunity',  $high_opp > 0 ? 'success' : 'neutral', '≥65% ranking prob', TMWSEORoutes::opportunities() );
+                self::kpi_card( $avg_ready . '%',     'Avg Readiness',     $avg_ready >= 70 ? 'success' : ( $avg_ready >= 40 ? 'warning' : 'danger' ), 'Across all models', TMWSEORoutes::generated_pages() );
+                self::kpi_card( (string) $miss_kw,    'Missing Keyword',   $miss_kw > 0 ? 'danger' : 'success', 'No focus keyword set', TMWSEORoutes::generated_pages() );
+                self::kpi_card( (string) $miss_plat,  'No Platform Data',  $miss_plat > 0 ? 'warning' : 'success', 'No platform linked', TMWSEORoutes::generated_pages() );
                 echo '</div>';
 
                 // Issues summary
@@ -924,9 +925,9 @@ class AdminDashboardV2 {
             $month  = $stats['month'];
             ?>
             <div class="td-grid td-grid-3 mb-6">
-                <?php self::kpi_card( '$' . number_format( $spend, 2 ), 'Spent ' . $month, $stats['over_budget'] ? 'danger' : 'success', 'Budget: $' . $budget ); ?>
-                <?php self::kpi_card( number_format( count( $tokens ) ), 'API Calls', 'neutral', 'This month' ); ?>
-                <?php self::kpi_card( $stats['remaining'] !== null ? '$' . number_format( (float) $stats['remaining'], 2 ) : '∞', 'Remaining', 'neutral', 'Until monthly cap' ); ?>
+                <?php self::kpi_card( '$' . number_format( $spend, 2 ), 'Spent ' . $month, $stats['over_budget'] ? 'danger' : 'success', 'Budget: $' . $budget, admin_url( 'admin.php?page=' . self::PAGE_REPORTS . '&tab=ai' ) ); ?>
+                <?php self::kpi_card( number_format( count( $tokens ) ), 'API Calls', 'neutral', 'This month', admin_url( 'admin.php?page=' . self::PAGE_REPORTS . '&tab=ai' ) ); ?>
+                <?php self::kpi_card( $stats['remaining'] !== null ? '$' . number_format( (float) $stats['remaining'], 2 ) : '∞', 'Remaining', 'neutral', 'Until monthly cap', admin_url( 'admin.php?page=' . self::PAGE_REPORTS . '&tab=ai' ) ); ?>
             </div>
             <div style="margin-bottom:16px;">
                 <?php echo CSVExporter::button( 'ai_token_log', '📥 Export Token Log CSV' ); ?>
@@ -1271,14 +1272,14 @@ class AdminDashboardV2 {
             elseif ( $failures > 2 )                      { $health = 'Degraded'; $hcol = 'warning'; }
             ?>
             <div class="td-grid td-grid-3 mb-6">
-                <?php self::kpi_card( $health, 'Engine Status', $hcol, '' ); ?>
-                <?php self::kpi_card( $lock_active ? 'Yes' : 'No', 'Lock Active', $lock_active ? 'warning' : 'success', '' ); ?>
-                <?php self::kpi_card( (string) $failures, 'Failure Count', $failures > 2 ? 'danger' : 'success', '' ); ?>
+                <?php self::kpi_card( $health, 'Engine Status', $hcol, '', admin_url( 'admin.php?page=' . self::PAGE_DIAGNOSTICS ) ); ?>
+                <?php self::kpi_card( $lock_active ? 'Yes' : 'No', 'Lock Active', $lock_active ? 'warning' : 'success', '', admin_url( 'admin.php?page=' . self::PAGE_DIAGNOSTICS ) ); ?>
+                <?php self::kpi_card( (string) $failures, 'Failure Count', $failures > 2 ? 'danger' : 'success', '', admin_url( 'admin.php?page=' . self::PAGE_DIAGNOSTICS ) ); ?>
             </div>
             <div class="td-grid td-grid-3 mb-6">
-                <?php self::kpi_card( '$' . number_format( $dfseo_cap, 2 ), 'Monthly API Budget', 'neutral', 'DataForSEO' ); ?>
-                <?php self::kpi_card( '$' . number_format( $dfseo_spent, 2 ), 'Spent', ! empty( $dfseo_budget['over_budget'] ) ? 'danger' : 'success', 'DataForSEO' ); ?>
-                <?php self::kpi_card( $dfseo_remaining !== null ? '$' . number_format( (float) $dfseo_remaining, 2 ) : '∞', 'Remaining', 'neutral', 'Current month' ); ?>
+                <?php self::kpi_card( '$' . number_format( $dfseo_cap, 2 ), 'Monthly API Budget', 'neutral', 'DataForSEO', admin_url( 'admin.php?page=' . self::PAGE_SETTINGS ) ); ?>
+                <?php self::kpi_card( '$' . number_format( $dfseo_spent, 2 ), 'Spent', ! empty( $dfseo_budget['over_budget'] ) ? 'danger' : 'success', 'DataForSEO', admin_url( 'admin.php?page=' . self::PAGE_REPORTS . '&tab=ai' ) ); ?>
+                <?php self::kpi_card( $dfseo_remaining !== null ? '$' . number_format( (float) $dfseo_remaining, 2 ) : '∞', 'Remaining', 'neutral', 'Current month', admin_url( 'admin.php?page=' . self::PAGE_REPORTS . '&tab=ai' ) ); ?>
             </div>
             <div class="td-card mb-6">
                 <div class="td-card-header"><span class="td-card-icon">📊</span><h3 class="td-card-title">Engine Metrics</h3></div>
@@ -1310,7 +1311,7 @@ class AdminDashboardV2 {
             $counts = \TMWSEO\Engine\Db\Jobs::counts();
             ?>
             <div class="td-grid td-grid-4 mb-6">
-                <?php foreach ( $counts as $k => $v ) self::kpi_card( number_format( (int) $v ), ucfirst( $k ), 'neutral', '' ); ?>
+                <?php foreach ( $counts as $k => $v ) self::kpi_card( number_format( (int) $v ), ucfirst( $k ), 'neutral', '', admin_url( 'admin.php?page=' . self::PAGE_DIAGNOSTICS . '&tab=queue' ) ); ?>
             </div>
             <div class="td-card" style="padding:20px;">
                 <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -1380,12 +1381,36 @@ class AdminDashboardV2 {
         echo '</div>';
     }
 
-    private static function kpi_card( string $value, string $label, string $color, string $sub ): void {
-        echo '<div class="td-kpi-card td-kpi-' . esc_attr( $color ) . '">';
-        echo '<div class="td-kpi-value">' . esc_html( $value ) . '</div>';
-        echo '<div class="td-kpi-label">' . esc_html( $label ) . '</div>';
-        if ( $sub ) echo '<div class="td-kpi-sub">' . esc_html( $sub ) . '</div>';
-        echo '</div>';
+    /**
+     * Render a KPI metric card.
+     *
+     * When $href is supplied the entire card becomes a focusable anchor element,
+     * satisfying both mouse and keyboard navigation requirements.
+     *
+     * @param string      $value  Display value (e.g. "1,234" or "87%").
+     * @param string      $label  Short card label.
+     * @param string      $color  Color variant: success|warning|danger|neutral.
+     * @param string      $sub    Optional sub-text beneath the label.
+     * @param string|null $href   Optional destination URL; makes the card clickable.
+     */
+    private static function kpi_card( string $value, string $label, string $color, string $sub, ?string $href = null ): void {
+        $classes = 'td-kpi-card td-kpi-' . esc_attr( $color );
+        if ( $href ) {
+            // Render as anchor — inherits all td-kpi-card styles + clickable cursor
+            echo '<a href="' . esc_url( $href ) . '" class="' . $classes . '" '
+                . 'style="text-decoration:none;cursor:pointer;" '
+                . 'title="' . esc_attr( $label ) . '">';
+            echo '<div class="td-kpi-value">' . esc_html( $value ) . '</div>';
+            echo '<div class="td-kpi-label">' . esc_html( $label ) . '</div>';
+            if ( $sub ) echo '<div class="td-kpi-sub">' . esc_html( $sub ) . ' →</div>';
+            echo '</a>';
+        } else {
+            echo '<div class="' . $classes . '">';
+            echo '<div class="td-kpi-value">' . esc_html( $value ) . '</div>';
+            echo '<div class="td-kpi-label">' . esc_html( $label ) . '</div>';
+            if ( $sub ) echo '<div class="td-kpi-sub">' . esc_html( $sub ) . '</div>';
+            echo '</div>';
+        }
     }
 
     private static function progress_row( string $label, int $pct, string $sub ): void {
@@ -1663,6 +1688,9 @@ class AdminDashboardV2 {
 /* ── KPI cards ───────────────────────────────────────────────────────── */
 .td-kpi-card    { background:var(--td-card); border-radius:var(--td-radius); padding:22px 20px; box-shadow:var(--td-shadow); border:1.5px solid var(--td-border); transition:transform .15s,box-shadow .15s; }
 .td-kpi-card:hover { transform:translateY(-2px); box-shadow:var(--td-shadow-lg); }
+a.td-kpi-card:focus { outline:2px solid #2271b1; outline-offset:2px; }
+a.td-kpi-card .td-kpi-sub { color:var(--td-muted); }
+a.td-kpi-card:hover .td-kpi-sub { color:var(--td-primary, #2271b1); }
 .td-kpi-value   { font-size:32px; font-weight:900; letter-spacing:-1px; line-height:1; margin-bottom:4px; }
 .td-kpi-label   { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--td-muted); margin-bottom:4px; }
 .td-kpi-sub     { font-size:12px; color:var(--td-muted); }
