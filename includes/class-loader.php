@@ -103,6 +103,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-topic-entity-layer.php' );
         tmwseo_safe_require( $p . 'class-recursive-keyword-expansion-engine.php' );
         tmwseo_safe_require( $p . 'class-expansion-candidate-repository.php' );
+        tmwseo_safe_require( $p . 'class-builder-candidate-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-discovery-service.php' );
         tmwseo_safe_require( $p . 'class-seed-registry.php' );
         tmwseo_safe_require( $p . 'class-keyword-engine.php' );

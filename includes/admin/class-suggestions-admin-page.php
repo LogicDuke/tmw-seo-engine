@@ -1797,6 +1797,10 @@ class SuggestionsAdminPage {
                 return $status === 'ignored';
             }
 
+            if ($active_filter === 'implemented') {
+                return $status === 'implemented';
+            }
+
             if ($active_filter === 'draft_created') {
                 return $status === 'draft_created' || $status === 'target_bound';
             }
@@ -1923,14 +1927,14 @@ class SuggestionsAdminPage {
             AdminUI::alert(__('TEST DATA fixtures are visible in this queue. These are staging-only QA rows.', 'tmwseo'), 'info');
         }
 
-        // ── KPI row ──────────────────────────────────────────────────────────
+        // ── KPI row — each card links to the matching filtered queue ─────────
         AdminUI::kpi_row([
-            [ 'value' => $kpi_total,        'label' => __('Total Suggestions', 'tmwseo'), 'color' => 'neutral' ],
-            [ 'value' => $kpi_awaiting,     'label' => __('Awaiting Review', 'tmwseo'),   'color' => $kpi_awaiting > 0 ? 'warn' : 'neutral' ],
-            [ 'value' => $kpi_high,         'label' => __('High Priority', 'tmwseo'),   'color' => $kpi_high > 0 ? 'warn' : 'neutral' ],
-            [ 'value' => $kpi_draft,        'label' => __('Drafts Created', 'tmwseo'),  'color' => $kpi_draft > 0 ? 'ok' : 'neutral' ],
-            [ 'value' => $kpi_implemented,  'label' => __('Implemented', 'tmwseo'),     'color' => 'ok' ],
-            [ 'value' => $kpi_ignored,      'label' => __('Ignored', 'tmwseo'),         'color' => 'neutral' ],
+            [ 'value' => $kpi_total,        'label' => __('Total Suggestions', 'tmwseo'), 'color' => 'neutral',                                'url' => $this->build_suggestions_queue_url('all') ],
+            [ 'value' => $kpi_awaiting,     'label' => __('Awaiting Review', 'tmwseo'),   'color' => $kpi_awaiting > 0 ? 'warn' : 'neutral',  'url' => $this->build_suggestions_queue_url('review_not_reviewed') ],
+            [ 'value' => $kpi_high,         'label' => __('High Priority', 'tmwseo'),     'color' => $kpi_high > 0 ? 'warn' : 'neutral',      'url' => $this->build_suggestions_queue_url('high_priority') ],
+            [ 'value' => $kpi_draft,        'label' => __('Drafts Created', 'tmwseo'),    'color' => $kpi_draft > 0 ? 'ok' : 'neutral',       'url' => $this->build_suggestions_queue_url('draft_created') ],
+            [ 'value' => $kpi_implemented,  'label' => __('Implemented', 'tmwseo'),       'color' => 'ok',                                     'url' => $this->build_suggestions_queue_url('implemented') ],
+            [ 'value' => $kpi_ignored,      'label' => __('Ignored', 'tmwseo'),           'color' => 'neutral',                                'url' => $this->build_suggestions_queue_url('ignored') ],
         ]);
 
         // ── Primary filter bar ───────────────────────────────────────────────
@@ -2201,12 +2205,252 @@ class SuggestionsAdminPage {
 
         echo '</div>'; // .tmwui-cta-row
 
+        // ── Queue table CSS (scoped to .tmwseo-suggestions-page) ────────────
+        //
+        // Approach: single 2-axis scroll viewport + sticky column header.
+        //
+        //   class-admin-ui.php forces .tmwseo-suggestions-table { display:block !important }
+        //   which escapes any overflow container and strands the scrollbar at the page
+        //   bottom.  We override display → table so the table is re-contained inside
+        //   .tmwseo-queue-scroller, which carries both overflow-x:auto and overflow-y:auto
+        //   at a capped max-height.  That gives the operator a local 2-axis scroll area.
+        //
+        //   Sticky header: position:sticky + top:0 on thead th makes the header row lock
+        //   in place while body rows scroll underneath it.  This works because the sticky
+        //   element's scroll container is .tmwseo-queue-scroller (overflow:auto), not the
+        //   page viewport.
+        //
+        //   No phantom top-bar, no JS sync script required.
+        //   Mobile (<783px): table collapses to stacked labeled cards (unchanged).
+        echo '<style>
+/* ════════════════════════════════════════════════════════════════════
+   Suggestions Dashboard queue — scoped layout overrides
+   Applies only inside .tmwseo-suggestions-page; Focused Model mode
+   (.tmwseo-model-focused-wrap) is unaffected.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* 1. Suppress the shared AdminUI table-wrap own scrolling — the queue
+      scroller below takes sole control of overflow. */
+.tmwseo-suggestions-page .tmwui-table-wrap {
+    overflow: visible !important;
+    margin-bottom: 0;
+}
+
+/* 2. The single queue scroll viewport.
+      overflow:auto on both axes → horizontal + vertical scroll inside
+      the queue region, not via the whole page.
+      max-height keeps the viewport to a comfortable window slice so the
+      operator can always see the KPI/filter controls above.
+      min-height prevents the viewport from collapsing on short queues. */
+.tmwseo-queue-scroller {
+    overflow: auto;
+    max-height: calc(100vh - 260px);
+    min-height: 220px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    margin-bottom: 24px;
+}
+
+/* 3. Restore the table as a proper table element so it is contained
+      inside .tmwseo-queue-scroller.
+      table-layout:auto → browser sizes columns from content, no
+      columns collapse to zero and cause character-per-line stacking.
+      width:max-content lets the table expand past the viewport; the
+      scroller clips and scrolls it horizontally. */
+.tmwseo-suggestions-page .tmwseo-suggestions-table {
+    display: table !important;
+    table-layout: auto !important;
+    width: max-content !important;
+    min-width: 100% !important;
+    overflow: visible !important;
+    border-collapse: collapse;
+}
+.tmwseo-suggestions-page .tmwseo-suggestions-table thead {
+    display: table-header-group !important;
+}
+.tmwseo-suggestions-page .tmwseo-suggestions-table tbody {
+    display: table-row-group !important;
+}
+
+/* 4. Sticky header — the th cells lock to the top of .tmwseo-queue-scroller
+      while body rows scroll underneath.  z-index keeps the header above cell
+      content; background matches the WP admin table header so rows do not
+      bleed through while scrolling. */
+.tmwseo-suggestions-page .tmwseo-suggestions-table thead th {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 20 !important;
+    background: #f0f0f1 !important;
+    box-shadow: 0 1px 0 #c3c4c7;   /* bottom border that stays while scrolling */
+}
+
+/* 5. Column constraints — min/max guards only.  No forced pixel widths.
+      Browser auto-layout distributes space; guards prevent extremes. */
+
+/* Priority */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(1),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(1) { min-width: 80px; }
+
+/* Status */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(2),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(2) { min-width: 100px; }
+
+/* Suggestion Type */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(3),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(3) { min-width: 90px; }
+
+/* Action Target */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(4),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(4) { min-width: 100px; white-space: normal; word-break: break-word; }
+
+/* Primary Action */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(5),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(5) { min-width: 100px; white-space: normal; word-break: break-word; }
+
+/* Title */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(6),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(6) { min-width: 130px; max-width: 220px; white-space: normal; word-break: break-word; overflow-wrap: break-word; }
+
+/* Description — main text col, wrap by word never by character */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(7),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(7) { min-width: 220px; max-width: 360px; white-space: normal; word-break: break-word; overflow-wrap: break-word; }
+
+/* Est. Traffic */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(8),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(8) { min-width: 60px; text-align: right; white-space: nowrap; }
+
+/* Difficulty */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(9),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(9) { min-width: 55px; text-align: right; white-space: nowrap; }
+
+/* Source Engine */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(10),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(10) { min-width: 90px; white-space: normal; word-break: break-word; }
+
+/* Date Created */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(11),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(11) { min-width: 90px; white-space: nowrap; }
+
+/* Review Aging */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(12),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(12) { min-width: 80px; white-space: normal; }
+
+/* Actions — buttons stack vertically, column never clips them */
+.tmwseo-suggestions-page .tmwseo-suggestions-table th:nth-child(13),
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) { min-width: 160px; white-space: normal; }
+
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) .button,
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) input[type="submit"],
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) input[type="button"] {
+    display: block;
+    width: 100%;
+    margin: 0 0 5px !important;
+    text-align: center;
+    box-sizing: border-box;
+    white-space: normal;
+    font-size: 12px !important;
+}
+.tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) form {
+    display: block !important;
+    margin: 0 0 5px !important;
+}
+
+/* 6. Mobile stacked-card view — per-field labels only at this breakpoint.
+      Desktop table layout is completely untouched. */
+@media screen and (max-width: 782px) {
+    .tmwseo-queue-scroller {
+        overflow: visible;
+        max-height: none;
+        border: none;
+    }
+
+    .tmwseo-suggestions-page .tmwseo-suggestions-table,
+    .tmwseo-suggestions-page .tmwseo-suggestions-table thead,
+    .tmwseo-suggestions-page .tmwseo-suggestions-table tbody,
+    .tmwseo-suggestions-page .tmwseo-suggestions-table th,
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td,
+    .tmwseo-suggestions-page .tmwseo-suggestions-table tr {
+        display: block !important;
+        width: 100% !important;
+    }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;    /* visually hidden; screen readers still see it */
+    }
+    /* Cancel sticky on mobile — it has no effect but clean to be explicit */
+    .tmwseo-suggestions-page .tmwseo-suggestions-table thead th {
+        position: static !important;
+        box-shadow: none;
+    }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table tr {
+        border: 1px solid #c3c4c7;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        padding: 4px 0;
+        background: #fff;
+    }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td {
+        border: none;
+        border-bottom: 1px solid #f0f0f1;
+        padding: 8px 12px !important;
+        position: relative;
+        padding-left: 44% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        white-space: normal !important;
+    }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td::before {
+        position: absolute;
+        top: 8px;
+        left: 12px;
+        width: 40%;
+        white-space: nowrap;
+        font-weight: 600;
+        font-size: 11px;
+        color: #50575e;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    /* Per-column labels — mobile only */
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(1)::before  { content: "Priority"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(2)::before  { content: "Status"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(3)::before  { content: "Type"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(4)::before  { content: "Action Target"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(5)::before  { content: "Primary Action"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(6)::before  { content: "Title"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(7)::before  { content: "Description"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(8)::before  { content: "Est. Traffic"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(9)::before  { content: "Difficulty"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(10)::before { content: "Source Engine"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(11)::before { content: "Date Created"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(12)::before { content: "Review Aging"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13)::before { content: "Actions"; }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) .button,
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) input[type="submit"],
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) input[type="button"] {
+        width: auto;
+        display: inline-block;
+    }
+    .tmwseo-suggestions-page .tmwseo-suggestions-table td:nth-child(13) form {
+        display: inline-block !important;
+        margin: 0 4px 4px 0 !important;
+    }
+}
+</style>';
+
         // ── Suggestions table ────────────────────────────────────────────────
         AdminUI::section_start(
             __('Suggestion Queue', 'tmwseo'),
             __('Manual review queue with no autonomous content mutations or publishing.', 'tmwseo')
         );
+        // Single 2-axis scroll viewport.
+        //   .tmwui-table-wrap  — outer shell (overflow suppressed above, provides margin)
+        //   .tmwseo-queue-scroller — the local overflow:auto viewport; table scrolls
+        //                            both horizontally and vertically inside here.
+        //                            The sticky thead th stays visible during vertical scroll.
         echo '<div class="tmwui-table-wrap">';
+        echo '<div class="tmwseo-queue-scroller">';
         echo '<table class="widefat fixed striped tmwseo-suggestions-table"><thead><tr>';
         echo '<th>' . esc_html__('Priority', 'tmwseo') . '</th>';
         echo '<th>' . esc_html__('Status', 'tmwseo') . '</th>';
@@ -2348,7 +2592,8 @@ class SuggestionsAdminPage {
         }
 
         echo '</tbody></table>';
-        echo '</div>';
+        echo '</div>'; // .tmwseo-queue-scroller
+        echo '</div>'; // .tmwui-table-wrap
         AdminUI::section_end();
 
         // ── Workflow Guide (collapsed, below table) ──────────────────────────

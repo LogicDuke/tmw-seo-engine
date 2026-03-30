@@ -1,7 +1,38 @@
 <?php
 /**
  * Curated seed phrases for keyword expansion.
- * COMPLETE LIST - All categories must have at least 8 seeds.
+ * COMPLETE LIST — All categories must have at least 8 seeds.
+ *
+ * ============================================================
+ * ARCHITECTURE BOUNDARY — READ BEFORE EDITING
+ * ============================================================
+ *
+ * This file is NOT a trusted-root store and is NOT registered
+ * into tmwseo_seeds during starter-pack installation or reset.
+ *
+ * PURPOSE — Discovery / research seed inputs:
+ *   These phrases feed the intelligence pipeline (IntelligenceRunner,
+ *   KeywordScheduler, CuratedKeywordLibrary::get_seeds_for_tags()) as
+ *   starting queries for Google Suggest, Serper PAA, and related
+ *   keyword research. They provide zero-cost internal seed diversity
+ *   without consuming API quota.
+ *
+ * TRUSTED ROOTS (broad commercial roots only) live in:
+ *   SeedRegistry::get_starter_pack()
+ *   e.g. "adult cam", "adult cams", "live adult cam"
+ *
+ * DESCRIPTOR / NICHE pattern families (for candidate generation) live in:
+ *   data/niche-pattern-families.php
+ *   Consumed by CuratedKeywordLibrary::generate_builder_candidates()
+ *   and routed to ExpansionCandidateRepository (preview/review layer).
+ *
+ * EDITING RULES:
+ *   - Keep entries niche/category-specific (that is the intent here).
+ *   - Do NOT add broad commercial root phrases to this file —
+ *     those belong in SeedRegistry::get_starter_pack().
+ *   - Do NOT auto-register these as trusted seeds in any reset flow.
+ *
+ * @package TMWSEO\Engine\Data
  */
 
 return [
@@ -293,7 +324,6 @@ return [
         'filipina webcam',
         'thai cam girls',
         'asian petite cam',
-        'asian teen cam',
         'japanese cosplay cam',
         'korean bj cam',
         'asian livejasmin',
@@ -350,17 +380,6 @@ return [
         'hot milf cam',
         'milf livejasmin',
         'best milf cam sites',
-    ],
-
-    'teen' => [
-        '18 year old cam girls',
-        'young webcam models',
-        'teen cam shows',
-        'college cam girls',
-        'young adult webcam',
-        'barely legal cam',
-        'teen livejasmin',
-        'young cam models',
     ],
 
     'blonde' => [

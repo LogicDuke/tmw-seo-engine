@@ -1,6 +1,40 @@
 <?php
 /**
- * Category seed patterns used for automated keyword discovery.
+ * Category Seed Patterns — BUILDER / DISCOVERY LAYER ONLY
+ *
+ * ============================================================
+ * ARCHITECTURE BOUNDARY — READ BEFORE EDITING
+ * ============================================================
+ *
+ * This file is NOT a trusted-root store. It belongs to the
+ * BUILDER / DISCOVERY layer.
+ *
+ * PURPOSE:
+ *   Provides structured {seeds, modifiers, suffixes} pattern sets
+ *   per category for use by:
+ *     - KeywordScheduler::discover_new_keywords()
+ *       (seeds[] → Google Suggest queries → CSV expansion)
+ *     - IntelligenceRunner (modifiers + suffixes → Serper/research
+ *       query expansion for PAA and related discovery)
+ *     - CuratedKeywordLibrary::get_seed_patterns()
+ *
+ * TRUSTED ROOTS (broad commercial roots only) live in:
+ *   SeedRegistry::get_starter_pack()
+ *
+ * DESCRIPTOR / NICHE pattern families for candidate phrase generation:
+ *   data/niche-pattern-families.php
+ *   Consumed by CuratedKeywordLibrary::generate_builder_candidates()
+ *
+ * EDITING RULES:
+ *   - seeds[]     — 2–4 anchor phrases used as Google Suggest seeds.
+ *                   These are category-specific; they are query inputs,
+ *                   not trusted-root registrations.
+ *   - modifiers[] — prefix/context words to expand seeds.
+ *   - suffixes[]  — trailing tokens to expand seeds.
+ *   - Keep all three lists short and targeted.
+ *   - Do NOT register outputs of this file directly as trusted seeds.
+ *
+ * @package TMWSEO\Engine\Data
  */
 
 return [
@@ -414,5 +448,24 @@ return [
         'seeds'     => ['orange hair cam model', 'orange hair webcam model', 'orange hair live cam'],
         'modifiers' => ['bright', 'vivid', 'warm'],
         'suffixes'  => ['cam', 'webcam', 'live', 'show'],
+    ],
+
+    // ── Missing categories added in v5.1.0 seed-pattern pass ───────────────
+    // These existed in curated-seeds.php but had no pattern entry.
+
+    'milf' => [
+        'seeds'     => [ 'milf cam girl', 'mature webcam model', 'cougar cam show' ],
+        'modifiers' => [ 'hot', 'sexy', 'experienced', 'live' ],
+        'suffixes'  => [ 'cam', 'webcam', 'show', 'chat' ],
+    ],
+    'toys' => [
+        'seeds'     => [ 'lovense cam girl', 'interactive toy cam', 'tip controlled cam' ],
+        'modifiers' => [ 'ohmibod', 'vibrator', 'lush' ],
+        'suffixes'  => [ 'cam', 'webcam', 'show', 'live' ],
+    ],
+    'private-shows' => [
+        'seeds'     => [ 'private cam show', 'private webcam girl', 'one on one cam' ],
+        'modifiers' => [ 'exclusive', 'cam to cam', 'intimate' ],
+        'suffixes'  => [ 'cam', 'webcam', 'show', 'chat' ],
     ],
 ];

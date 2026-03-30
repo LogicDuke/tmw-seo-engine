@@ -16,6 +16,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
+use TMWSEO\Engine\Keywords\BuilderCandidateService;
 use TMWSEO\Engine\Admin\TMWSEORoutes;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -106,6 +107,65 @@ class SeedRegistryAdminPage {
                     ExpansionCandidateRepository::rollback_batch( $batch_id );
                 }
                 break;
+
+            // ── Niche Pattern Family Builder — manual preview seeding ─────────
+            // Routes builder-generated phrases to preview/candidate queue ONLY.
+            // NEVER touches tmwseo_seeds / trusted roots.
+
+            case 'run_builder_preview':
+                $raw_cat  = sanitize_title( wp_unslash( $_POST['builder_category'] ?? '' ) );
+                $limit    = max( 1, min( 100, (int) ( $_POST['builder_limit'] ?? 50 ) ) );
+
+                if ( $raw_cat === '__all__' || $raw_cat === '' ) {
+                    // Bounded all-categories run
+                    $max_cats = max( 1, min( 20, (int) ( $_POST['builder_max_categories'] ?? 5 ) ) );
+                    $builder_result = \TMWSEO\Engine\Keywords\BuilderCandidateService::run_builder_candidate_bootstrap(
+                        [],
+                        [
+                            'per_category_limit' => $limit,
+                            'max_categories'     => $max_cats,
+                        ]
+                    );
+                    $builder_mode = 'all';
+                } else {
+                    // Single category run
+                    $cat_result = \TMWSEO\Engine\Keywords\BuilderCandidateService::insert_builder_candidates_for_category(
+                        $raw_cat,
+                        $limit
+                    );
+                    $builder_result = [
+                        'categories_processed'          => ( $cat_result['error'] === '' ) ? 1 : 0,
+                        'categories_skipped_queue_full' => $cat_result['queue_was_full'] ? 1 : 0,
+                        'phrases_generated'             => $cat_result['phrases_generated'],
+                        'filtered_out_as_junk'          => $cat_result['filtered_out_as_junk'] ?? 0,
+                        'filtered_out_by_validator'     => $cat_result['filtered_out_by_validator'] ?? 0,
+                        'inserted'                      => $cat_result['inserted'],
+                        'skipped_duplicates'            => $cat_result['skipped'],
+                        'filtered_no_family'            => ( $cat_result['error'] === 'no_pattern_family' ) ? 1 : 0,
+                        'batch_ids'                     => $cat_result['batch_id'] !== '' ? [ $cat_result['batch_id'] ] : [],
+                        'queue_full_abort'              => $cat_result['queue_was_full'],
+                    ];
+                    $builder_mode = 'single';
+                }
+
+                update_option( 'tmwseo_last_builder_preview_run', [
+                    'timestamp' => current_time( 'mysql' ),
+                    'mode'      => $builder_mode,
+                    'result'    => $builder_result,
+                ], false );
+
+                $redirect_args = [
+                    'page'           => self::PAGE_SLUG,
+                    'tab'            => 'builders',
+                    'builder_result' => 'done',
+                    'inserted'       => (int) ( $builder_result['inserted'] ?? 0 ),
+                    'generated'      => (int) ( $builder_result['phrases_generated'] ?? 0 ),
+                    'processed'      => (int) ( $builder_result['categories_processed'] ?? 0 ),
+                    'filtered'       => (int) ( ( $builder_result['filtered_out_as_junk'] ?? 0 ) + ( $builder_result['filtered_out_by_validator'] ?? 0 ) ),
+                    'qfull'          => (int) ( $builder_result['queue_full_abort'] ?? false ),
+                ];
+                wp_safe_redirect( add_query_arg( $redirect_args, admin_url( 'admin.php' ) ) );
+                exit;
 
 
             case 'save_builder_switches':
@@ -781,6 +841,106 @@ class SeedRegistryAdminPage {
 
         echo '</tbody></table>';
         echo '<p><input type="submit" class="button button-primary" value="' . esc_attr__( 'Save Builder Settings', 'tmwseo' ) . '"></p>';
+        echo '</form>';
+
+        // ── Niche Pattern Family Preview ──────────────────────────────────
+        // Manual trigger only. Output goes to preview/candidate queue — never
+        // to trusted seeds. Requires operator review before any phrase is used.
+        // ──────────────────────────────────────────────────────────────────
+
+        $last_run    = get_option( 'tmwseo_last_builder_preview_run', [] );
+        $all_cats    = \TMWSEO\Engine\Keywords\CuratedKeywordLibrary::niche_pattern_categories();
+        $queue_full  = ExpansionCandidateRepository::is_queue_full();
+
+        // Result notice after a run
+        $builder_notice = '';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        if ( ( sanitize_key( $_GET['builder_result'] ?? '' ) === 'done' ) ) {
+            $inserted  = (int) ( $_GET['inserted']  ?? 0 );
+            $generated = (int) ( $_GET['generated'] ?? 0 );
+            $processed = (int) ( $_GET['processed'] ?? 0 );
+            $filtered  = (int) ( $_GET['filtered']  ?? 0 );
+            $qfull     = (int) ( $_GET['qfull']     ?? 0 );
+            $builder_notice = sprintf(
+                __( 'Run complete — %d categories, %d phrases generated, %d filtered, %d inserted to preview queue.', 'tmwseo' ),
+                $processed, $generated, $filtered, $inserted
+            );
+            if ( $qfull ) {
+                $builder_notice .= ' ' . __( 'Queue cap reached — some categories skipped.', 'tmwseo' );
+            }
+        }
+
+        echo '<hr style="margin:32px 0 24px;">';
+        echo '<h3 style="margin-top:0;">' . esc_html__( 'Niche Pattern Family Preview Generator', 'tmwseo' ) . '</h3>';
+        echo '<p class="description">'
+            . esc_html__( 'Generates candidate phrases from the static niche pattern families and queues them for review. Output goes to the Expansion Preview queue only — nothing is written to the Seed Registry.', 'tmwseo' )
+            . '</p>';
+
+        if ( $builder_notice !== '' ) {
+            echo '<div class="notice notice-success inline" style="margin:12px 0;"><p>' . esc_html( $builder_notice ) . '</p></div>';
+        }
+
+        if ( $queue_full ) {
+            echo '<div class="notice notice-warning inline" style="margin:12px 0;"><p>'
+                . esc_html__( 'Review queue is currently at capacity. Review or approve existing candidates before running the builder.', 'tmwseo' )
+                . '</p></div>';
+        }
+
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_seed_registry_nonce' );
+        echo '<input type="hidden" name="action" value="tmwseo_seed_registry_action">';
+        echo '<input type="hidden" name="tmwseo_action" value="run_builder_preview">';
+
+        echo '<table class="form-table" style="max-width:640px;"><tbody>';
+
+        // Category selector
+        echo '<tr>';
+        echo '<th scope="row"><label for="builder_category">' . esc_html__( 'Category', 'tmwseo' ) . '</label></th>';
+        echo '<td><select name="builder_category" id="builder_category" style="min-width:220px;">';
+        echo '<option value="__all__">' . esc_html__( '— All categories (bounded) —', 'tmwseo' ) . '</option>';
+        foreach ( $all_cats as $cat_slug ) {
+            printf( '<option value="%s">%s</option>', esc_attr( $cat_slug ), esc_html( $cat_slug ) );
+        }
+        echo '</select>';
+        echo '<p class="description" style="margin-top:4px;">'
+            . esc_html__( 'Pick one category or run all (bounded by Max Categories below).', 'tmwseo' )
+            . '</p></td>';
+        echo '</tr>';
+
+        // Per-category candidate limit
+        echo '<tr>';
+        echo '<th scope="row"><label for="builder_limit">' . esc_html__( 'Candidates per category', 'tmwseo' ) . '</label></th>';
+        echo '<td><input type="number" name="builder_limit" id="builder_limit" value="50" min="1" max="100" style="width:80px;">';
+        echo '<p class="description" style="margin-top:4px;">' . esc_html__( 'Max phrases generated per category (1–100).', 'tmwseo' ) . '</p></td>';
+        echo '</tr>';
+
+        // Max categories (all-categories mode only)
+        echo '<tr>';
+        echo '<th scope="row"><label for="builder_max_categories">' . esc_html__( 'Max categories (all-categories mode)', 'tmwseo' ) . '</label></th>';
+        echo '<td><input type="number" name="builder_max_categories" id="builder_max_categories" value="5" min="1" max="20" style="width:80px;">';
+        echo '<p class="description" style="margin-top:4px;">' . esc_html__( 'Only used when "All categories" is selected above (1–20).', 'tmwseo' ) . '</p></td>';
+        echo '</tr>';
+
+        echo '</tbody></table>';
+
+        $last_run_display = '';
+        if ( ! empty( $last_run['timestamp'] ) ) {
+            $r = $last_run['result'] ?? [];
+            $last_run_display = sprintf(
+                __( 'Last run: %s — %d inserted, %d skipped', 'tmwseo' ),
+                esc_html( $last_run['timestamp'] ),
+                (int) ( $r['inserted'] ?? 0 ),
+                (int) ( $r['skipped_duplicates'] ?? 0 )
+            );
+        }
+
+        echo '<p>';
+        $btn_attr = $queue_full ? ' disabled title="' . esc_attr__( 'Queue full — review existing candidates first', 'tmwseo' ) . '"' : '';
+        echo '<input type="submit" class="button button-secondary" value="' . esc_attr__( 'Run Preview Generator', 'tmwseo' ) . '"' . $btn_attr . '>';
+        if ( $last_run_display !== '' ) {
+            echo ' &nbsp; <small style="color:#666;">' . esc_html( $last_run_display ) . '</small>';
+        }
+        echo '</p>';
         echo '</form>';
     }
 

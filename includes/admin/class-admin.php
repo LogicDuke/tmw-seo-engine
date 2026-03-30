@@ -37,6 +37,7 @@ class Admin {
         add_action('admin_post_tmwseo_save_settings', [__CLASS__, 'legacy_save_settings_redirect']);
         add_action('admin_post_tmwseo_run_keyword_cycle', [__CLASS__, 'run_keyword_cycle_now']);
         add_action('admin_post_tmwseo_run_competitor_mining', [__CLASS__, 'run_competitor_mining_now']);
+        add_action('admin_post_tmwseo_run_niche_serp_mining', [__CLASS__, 'run_niche_serp_mining_now']);
         add_action('admin_post_tmwseo_run_pagespeed_cycle', [__CLASS__, 'run_pagespeed_cycle_now']);
         add_action('admin_post_tmwseo_enable_indexing', [__CLASS__, 'enable_indexing_now']);
         add_action('admin_post_tmwseo_keyword_candidate_action', [__CLASS__, 'handle_keyword_candidate_action']);
@@ -1390,6 +1391,10 @@ class Admin {
         AdminFormHandlers::run_competitor_mining_now();
     }
 
+    public static function run_niche_serp_mining_now(): void {
+        AdminFormHandlers::run_niche_serp_mining_now();
+    }
+
 
     public static function handle_keyword_candidate_action(): void {
         AdminFormHandlers::handle_keyword_candidate_action();
@@ -1526,6 +1531,35 @@ class Admin {
             $is_error_notice_override = true;
         } elseif ($notice === 'candidate_action_not_available') {
             $message = __('Candidate action skipped. This row is already in a final status for that action.', 'tmwseo');
+        } elseif ($notice === 'niche_mining_ran') {
+            $transient_key = 'tmwseo_niche_mining_result_' . get_current_user_id();
+            $result = get_transient($transient_key);
+            delete_transient($transient_key);
+            if (is_array($result) && !empty($result['ok'])) {
+                $message = sprintf(
+                    __(
+                        'Niche SERP mining complete. Phrases processed: %1$d / %2$d submitted. Domains seen: %3$d, selected: %4$d. Keyword rows mined: %5$d. Preview candidates inserted: %6$d, skipped: %7$d, filtered: %8$d. Est. cost: $%9$s.',
+                        'tmwseo'
+                    ),
+                    (int) ($result['phrases_processed']           ?? 0),
+                    (int) ($result['phrases_submitted']           ?? 0),
+                    (int) ($result['domains_seen']                ?? 0),
+                    (int) ($result['domains_selected']            ?? 0),
+                    (int) ($result['mined_keyword_rows']          ?? 0),
+                    (int) ($result['inserted_preview_candidates'] ?? 0),
+                    (int) ($result['skipped_duplicates']          ?? 0),
+                    (int) ($result['filtered_out']                ?? 0),
+                    number_format((float) ($result['estimated_cost_usd'] ?? 0), 4)
+                );
+            } elseif (is_array($result) && isset($result['error'])) {
+                $message = sprintf(
+                    __('Niche SERP mining could not run: %s', 'tmwseo'),
+                    esc_html((string) $result['error'])
+                );
+                $is_error_notice_override = true;
+            } else {
+                $message = __('Niche SERP mining run completed. Check the preview candidate queue for results.', 'tmwseo');
+            }
         }
 
         if ($message === '') {
@@ -2369,6 +2403,25 @@ class Admin {
             }
         }
         echo '</tbody></table>';
+
+        // ── Niche SERP Mining ─────────────────────────────────────────────────
+        echo '<hr style="margin:32px 0 24px;">';
+        echo '<h2>' . esc_html__('Niche SERP Mining', 'tmwseo') . '</h2>';
+        echo '<p>' . esc_html__('Submit niche descriptor phrases (one per line) to mine SERP domains and discover related niche terms. Discovered phrases go into the preview/candidate queue for human review — nothing is written to trusted seeds automatically.', 'tmwseo') . '</p>';
+        echo '<p class="description">' . esc_html__('Example phrases: live asian cams · blonde cam girls · ebony webcam models · mature cam women', 'tmwseo') . '</p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:16px 0;">';
+        wp_nonce_field('tmwseo_run_niche_serp_mining');
+        echo '<input type="hidden" name="action" value="tmwseo_run_niche_serp_mining" />';
+        echo '<p>';
+        echo '<label for="tmwseo-niche-phrases"><strong>' . esc_html__('Niche phrases (one per line):', 'tmwseo') . '</strong></label><br>';
+        echo '<textarea id="tmwseo-niche-phrases" name="niche_phrases" rows="8" cols="60" placeholder="' . esc_attr__('live asian cams', 'tmwseo') . '" style="width:100%;max-width:600px;font-family:monospace;margin-top:6px;"></textarea>';
+        echo '</p>';
+        echo '<p class="description" style="margin-bottom:12px;">';
+        echo esc_html__('Cost estimate: ~$0.08 per phrase (1 SERP call + up to 3 domain-keyword calls). Giant cam platforms are excluded from mining targets in this lane.', 'tmwseo');
+        echo ' ' . esc_html__('Discovered phrases are filtered for adult/niche relevance and origin-phrase overlap before preview. Results land in the candidate review queue — human approval is required before promotion.', 'tmwseo');
+        echo '</p>';
+        submit_button(__('Run Niche SERP Mining', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
         echo '</div>';
     }
 
@@ -2416,11 +2469,13 @@ class Admin {
         AdminUI::section_start( __('Recent Candidates', 'tmwseo') );
         $keywords_table = new KeywordsTable();
         $keywords_table->prepare_items();
+        echo '<div class="tmwui-table-wrap">';
         echo '<form method="get">';
         echo '<input type="hidden" name="page" value="tmwseo-keywords">';
         $keywords_table->search_box(__('Search Keywords / Clusters', 'tmwseo'), 'keyword-search');
         $keywords_table->display();
         echo '</form>';
+        echo '</div>'; // .tmwui-table-wrap
 
         if ($focused_candidate_id > 0) {
             echo '<script>(function(){var row=document.getElementById(' . wp_json_encode('tmw-candidate-' . $focused_candidate_id) . ');if(row){row.style.outline="2px solid #2271b1";row.style.outlineOffset="-2px";row.style.background="#f0f6fc";row.scrollIntoView({behavior:"smooth",block:"center"});}})();</script>';
@@ -2438,11 +2493,13 @@ class Admin {
         if ($cluster_service && $scoring_engine) {
             $clusters_table = new ClustersTable($cluster_service, $scoring_engine);
             $clusters_table->prepare_items();
+            echo '<div class="tmwui-table-wrap">';
             echo '<form method="get">';
             echo '<input type="hidden" name="page" value="tmwseo-keywords">';
             $clusters_table->search_box(__('Search Clusters', 'tmwseo'), 'cluster-search');
             $clusters_table->display();
             echo '</form>';
+            echo '</div>'; // .tmwui-table-wrap
         } else {
             AdminUI::empty_state( __('Cluster service unavailable.', 'tmwseo') );
         }

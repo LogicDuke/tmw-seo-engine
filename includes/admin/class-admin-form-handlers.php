@@ -20,6 +20,7 @@ use TMWSEO\Engine\Worker;
 use TMWSEO\Engine\JobWorker;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Keywords\SeedRegistry;
+use TMWSEO\Engine\Keywords\NicheSerpMiningService;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -762,5 +763,50 @@ class AdminFormHandlers {
         }
 
         return [ 'raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected ];
+    }
+
+    // ─── Niche SERP Mining ────────────────────────────────────────────────────
+
+    /**
+     * Handle the admin-triggered niche SERP mining run.
+     *
+     * Reads a textarea of niche phrases (one per line), runs the bounded
+     * SERP → domain-score → domain-keyword → preview-candidate flow, and
+     * stores the run summary in a short-lived transient for admin display.
+     *
+     * Nonce: tmwseo_run_niche_serp_mining
+     * Form field: niche_phrases (textarea, one phrase per line)
+     */
+    public static function run_niche_serp_mining_now(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
+        }
+
+        check_admin_referer( 'tmwseo_run_niche_serp_mining' );
+
+        $raw_input = isset( $_POST['niche_phrases'] )
+            ? sanitize_textarea_field( wp_unslash( (string) $_POST['niche_phrases'] ) )
+            : '';
+
+        // Split by newline; each non-empty trimmed line is one phrase.
+        $lines   = explode( "\n", str_replace( "\r\n", "\n", $raw_input ) );
+        $phrases = [];
+        foreach ( $lines as $line ) {
+            $phrase = trim( $line );
+            if ( $phrase !== '' ) {
+                $phrases[] = $phrase;
+            }
+        }
+
+        $summary = NicheSerpMiningService::run_niche_phrase_batch( $phrases );
+
+        // Store summary in a transient so the redirect target can display it.
+        $transient_key = 'tmwseo_niche_mining_result_' . get_current_user_id();
+        set_transient( $transient_key, $summary, 5 * MINUTE_IN_SECONDS );
+
+        wp_safe_redirect(
+            admin_url( 'admin.php?page=tmwseo-competitor-mining&tmwseo_notice=niche_mining_ran' )
+        );
+        exit;
     }
 }

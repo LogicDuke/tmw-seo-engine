@@ -199,6 +199,99 @@ class CuratedKeywordLibrary {
         return isset( $seeds[ $slug ] ) && is_array( $seeds[ $slug ] ) ? $seeds[ $slug ] : [];
     }
 
+    // ── Niche pattern family methods (builder layer) ────────────────────────
+
+    /**
+     * Returns all niche/descriptor pattern families (builder layer only).
+     *
+     * These are NOT trusted roots. Output from this layer must be routed to
+     * the candidate/preview layer (ExpansionCandidateRepository), never
+     * directly to SeedRegistry::register_trusted_seed().
+     *
+     * @return array{
+     *   string: array{
+     *     templates: string[],
+     *     descriptors: array<string, string[]>
+     *   }
+     * }
+     */
+    public static function get_niche_pattern_families(): array {
+        $file = rtrim( TMWSEO_ENGINE_PATH, '/' ) . '/data/niche-pattern-families.php';
+        if ( ! file_exists( $file ) ) {
+            return [];
+        }
+        $families = include $file;
+        return is_array( $families ) ? $families : [];
+    }
+
+    /**
+     * Generates candidate phrases for a category from niche pattern families.
+     *
+     * !! BUILDER-ONLY METHOD !!
+     * Output is for candidate/preview generation — NOT for direct registration
+     * as trusted seeds. Route output through:
+     *   SeedRegistry::register_candidate_phrase()
+     *   ExpansionCandidateRepository::insert_candidate()
+     *
+     * @param string $category  Category slug, e.g. 'blonde', 'asian', 'milf'.
+     * @param int    $limit     Max candidates returned (0 = no limit).
+     * @return string[]         Lowercase candidate phrases, deduplicated.
+     */
+    public static function generate_builder_candidates( string $category, int $limit = 50 ): array {
+        $slug     = sanitize_title( $category );
+        $families = self::get_niche_pattern_families();
+        $phrases  = [];
+
+        foreach ( $families as $branch ) {
+            if ( ! isset( $branch['templates'], $branch['descriptors'] ) ) {
+                continue;
+            }
+            if ( ! isset( $branch['descriptors'][ $slug ] ) ) {
+                continue;
+            }
+            $descriptors = (array) $branch['descriptors'][ $slug ];
+            $templates   = (array) $branch['templates'];
+            foreach ( $descriptors as $descriptor ) {
+                foreach ( $templates as $tpl ) {
+                    $phrase = str_replace( '[d]', (string) $descriptor, (string) $tpl );
+                    $phrase = mb_strtolower( (string) preg_replace( '/\s+/', ' ', trim( $phrase ) ), 'UTF-8' );
+                    if ( $phrase !== '' ) {
+                        $phrases[] = $phrase;
+                    }
+                }
+            }
+            // A given category-slug belongs to exactly one branch.
+            break;
+        }
+
+        $phrases = array_values( array_unique( $phrases ) );
+        if ( $limit > 0 ) {
+            $phrases = array_slice( $phrases, 0, $limit );
+        }
+        return $phrases;
+    }
+
+    /**
+     * Returns all category slugs that have a niche pattern family entry.
+     *
+     * Useful for batch jobs that need to know which categories can produce
+     * builder candidates without manually enumerating pattern families.
+     *
+     * @return string[]
+     */
+    public static function niche_pattern_categories(): array {
+        $families = self::get_niche_pattern_families();
+        $cats     = [];
+        foreach ( $families as $branch ) {
+            if ( isset( $branch['descriptors'] ) && is_array( $branch['descriptors'] ) ) {
+                foreach ( array_keys( $branch['descriptors'] ) as $cat ) {
+                    $cats[] = (string) $cat;
+                }
+            }
+        }
+        return array_values( array_unique( $cats ) );
+    }
+
     // ── Internal CSV reader ────────────────────────────────────────────────
 
     private static function read_keywords_from_csv( string $path ): array {
@@ -251,4 +344,3 @@ class CuratedKeywordLibrary {
         return array_values( array_unique( array_filter( $keywords, 'strlen' ) ) );
     }
 }
-

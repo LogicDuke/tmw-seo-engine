@@ -5,6 +5,8 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Keywords\KeywordValidator;
 use TMWSEO\Engine\Keywords\KDFilter;
+use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
+use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -112,11 +114,33 @@ class KeywordIntelligenceRunner {
         }
 
         // 4) Serper (Related searches + People Also Ask)
+        // Counters are initialized here and referenced after filtering so the
+        // accepted phrases can be routed into the preview/candidate layer.
+        $serper_paa_seen     = 0;
+        $serper_related_seen = 0;
+
         if ($use_serper) {
             foreach ($seeds as $seed) {
-                $list = self::fetch_serper_suggestions($serper_key, $seed);
-                foreach ($list as $kw) {
-                    self::add_keyword($collected, $kw, 'serper', $seed, null);
+                $fetched = self::fetch_serper_suggestions($serper_key, $seed);
+
+                $paa_raw     = $fetched['paa']     ?? [];
+                $related_raw = $fetched['related'] ?? [];
+
+                $serper_paa_seen     += count($paa_raw);
+                $serper_related_seen += count($related_raw);
+
+                foreach ($paa_raw as $raw_kw) {
+                    $kw = self::normalize_serper_phrase($raw_kw);
+                    if ($kw !== '') {
+                        self::add_keyword($collected, $kw, 'serper_paa', $seed, null);
+                    }
+                }
+
+                foreach ($related_raw as $raw_kw) {
+                    $kw = self::normalize_serper_phrase($raw_kw);
+                    if ($kw !== '') {
+                        self::add_keyword($collected, $kw, 'serper_related', $seed, null);
+                    }
                 }
             }
         }
@@ -130,6 +154,83 @@ class KeywordIntelligenceRunner {
                 continue;
             }
             $filtered[$k_norm] = $row;
+        }
+
+        // ── Route accepted Serper phrases into the preview/candidate layer ──────
+        // These are research inputs only — no write to tmwseo_seeds, no auto-approval.
+        $serper_inserted     = 0;
+        $serper_filtered_out = 0;
+        $serper_skipped      = 0;
+
+        if ($use_serper) {
+            $paa_accepted     = [];
+            $related_accepted = [];
+
+            foreach ($collected as $k_norm => $row) {
+                $sources = $row['sources'] ?? [];
+                $has_paa = in_array('serper_paa', $sources, true);
+                $has_rel = in_array('serper_related', $sources, true);
+
+                if (!$has_paa && !$has_rel) {
+                    continue;
+                }
+
+                if (!isset($filtered[$k_norm])) {
+                    // Rejected by KeywordValidator::is_relevant() — off-lane or adult-filtered.
+                    $serper_filtered_out++;
+                    continue;
+                }
+
+                $phrase = (string)($row['keyword'] ?? '');
+                if ($phrase === '') {
+                    continue;
+                }
+
+                // A phrase that appeared in both PAA and related is tagged as serper_paa
+                // (preferred provenance). skipped count from insert_batch covers dedup.
+                if ($has_paa) {
+                    $paa_accepted[] = $phrase;
+                } else {
+                    $related_accepted[] = $phrase;
+                }
+            }
+
+            $run_ts    = gmdate('Y-m-d H:i:s');
+            $prov_base = ['trigger_seeds' => $seeds, 'run_timestamp' => $run_ts];
+
+            if (!empty($paa_accepted)) {
+                $batch = ExpansionCandidateRepository::insert_batch(
+                    $paa_accepted,
+                    'serper_paa',
+                    'serper_question_expansion',
+                    'system',
+                    0,
+                    $prov_base
+                );
+                $serper_inserted += $batch['inserted'];
+                $serper_skipped  += $batch['skipped'];
+            }
+
+            if (!empty($related_accepted)) {
+                $batch = ExpansionCandidateRepository::insert_batch(
+                    $related_accepted,
+                    'serper_related',
+                    'serper_related_expansion',
+                    'system',
+                    0,
+                    $prov_base
+                );
+                $serper_inserted += $batch['inserted'];
+                $serper_skipped  += $batch['skipped'];
+            }
+
+            Logs::info('keywords', '[TMW-SERPER] PAA/related candidates routed to preview', [
+                'serper_paa_seen'             => $serper_paa_seen,
+                'serper_related_seen'         => $serper_related_seen,
+                'inserted_preview_candidates' => $serper_inserted,
+                'filtered_out'                => $serper_filtered_out,
+                'skipped_duplicates'          => $serper_skipped,
+            ]);
         }
 
         // Hard cap total keywords BEFORE expensive enrichment.
@@ -257,6 +358,13 @@ class KeywordIntelligenceRunner {
                 'reddit' => $use_reddit,
                 'serper' => $use_serper,
             ],
+            'serper_accounting' => $use_serper ? [
+                'serper_paa_seen'             => $serper_paa_seen,
+                'serper_related_seen'         => $serper_related_seen,
+                'inserted_preview_candidates' => $serper_inserted,
+                'filtered_out'                => $serper_filtered_out,
+                'skipped_duplicates'          => $serper_skipped,
+            ] : null,
         ];
 
         return [
@@ -521,11 +629,34 @@ class KeywordIntelligenceRunner {
         return $out;
     }
 
+    /**
+     * Light normalization for phrases returned by Serper PAA / related searches.
+     *
+     * Intentionally minimal:
+     * - Trims outer whitespace
+     * - Collapses internal whitespace runs to a single space
+     * - Collapses duplicate trailing punctuation (e.g. "??" → "?")
+     *
+     * Does NOT rewrite question form to keyword form; PAA questions are kept as-is
+     * so the reviewer can see original search-intent phrasing.
+     */
+    private static function normalize_serper_phrase(string $phrase): string {
+        $phrase = trim($phrase);
+        if ($phrase === '') {
+            return '';
+        }
+        // Collapse internal whitespace.
+        $phrase = (string) preg_replace('/\s+/', ' ', $phrase);
+        // Collapse duplicate trailing punctuation (e.g. "??" → "?", "!!" → "!").
+        $phrase = (string) preg_replace('/([?!.])(?:[?!.])+$/', '$1', $phrase);
+        return $phrase;
+    }
+
     private static function fetch_serper_suggestions(string $api_key, string $query): array {
         $api_key = trim($api_key);
         $query = trim($query);
         if ($api_key === '' || $query === '') {
-            return [];
+            return ['paa' => [], 'related' => []];
         }
 
         $body = [
@@ -545,26 +676,27 @@ class KeywordIntelligenceRunner {
         ]);
 
         if (is_wp_error($resp)) {
-            return [];
+            return ['paa' => [], 'related' => []];
         }
 
         $code = (int) wp_remote_retrieve_response_code($resp);
         if ($code < 200 || $code >= 300) {
-            return [];
+            return ['paa' => [], 'related' => []];
         }
 
         $json = json_decode((string) wp_remote_retrieve_body($resp), true);
         if (!is_array($json)) {
-            return [];
+            return ['paa' => [], 'related' => []];
         }
 
-        $out = [];
+        $paa     = [];
+        $related = [];
 
         if (!empty($json['relatedSearches']) && is_array($json['relatedSearches'])) {
             foreach ($json['relatedSearches'] as $item) {
                 if (!is_array($item)) continue;
                 $phrase = trim((string)($item['query'] ?? ($item['text'] ?? '')));
-                if ($phrase !== '') $out[] = $phrase;
+                if ($phrase !== '') $related[] = $phrase;
             }
         }
 
@@ -572,11 +704,14 @@ class KeywordIntelligenceRunner {
             foreach ($json['peopleAlsoAsk'] as $item) {
                 if (!is_array($item)) continue;
                 $phrase = trim((string)($item['question'] ?? ''));
-                if ($phrase !== '') $out[] = $phrase;
+                if ($phrase !== '') $paa[] = $phrase;
             }
         }
 
-        return array_values(array_unique(array_filter($out, static fn($v) => $v !== '')));
+        return [
+            'paa'     => array_values(array_unique(array_filter($paa,     static fn($v) => $v !== ''))),
+            'related' => array_values(array_unique(array_filter($related, static fn($v) => $v !== ''))),
+        ];
     }
 
     /**
