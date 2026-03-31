@@ -2001,6 +2001,37 @@ class SuggestionsAdminPage {
 
         echo '</div>'; // .tmwui-filter-bar
 
+        // ── Scan / generation action row ─────────────────────────────────────
+        // Kept visually separate from review filters so it is clear these are
+        // generator triggers, not filter choices. Order: filter bar → scan row
+        // → advanced filters (collapsed) → table. Logic / actions unchanged.
+        AdminUI::section_start(
+            __('Scan & Generate', 'tmwseo'),
+            __('Trigger a new scan or content-generation pass. Results appear in the suggestion queue below after completion. Nothing is published automatically.', 'tmwseo')
+        );
+        echo '<div class="tmwui-cta-row">';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
+        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_content_improvements');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
+        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
+        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
+        submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
+        echo '</form>';
+
+        echo '</div>'; // .tmwui-cta-row
+        AdminUI::section_end();
+
         // ── Advanced review filters (collapsed) ──────────────────────────────
         echo '<details class="tmwui-advanced">';
         echo '<summary>' . esc_html__('Advanced Review Filters', 'tmwseo') . '</summary>';
@@ -2159,51 +2190,32 @@ class SuggestionsAdminPage {
         }
         echo '</ul>';
 
-        echo '</div>'; // .tmwui-advanced-body
-        echo '</details>'; // .tmwui-advanced
-
-        // ── Scan actions ─────────────────────────────────────────────────────
-        echo '<div class="tmwui-cta-row">';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
-        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
-        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_scan_content_improvements');
-        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
-        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
-        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
-        submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        // Goal C: Legacy cleanup controls
+        // ── Legacy queue cleanup (low-frequency, non-destructive) ────────────
+        echo '<h3 style="margin:16px 0 4px;">' . esc_html__('Legacy Queue Cleanup', 'tmwseo') . '</h3>';
+        echo '<p style="margin:0 0 8px;font-size:12px;color:#6b7280;">' . esc_html__('Hide stale or ignored suggestions from the active queue. Nothing is deleted. Fully reversible via Unarchive All.', 'tmwseo') . '</p>';
+        echo '<div class="tmwui-cta-row" style="flex-wrap:wrap;gap:8px;">';
         $archived_count = count($this->get_archived_suggestion_ids());
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="border-left:3px solid #f59e0b;padding-left:10px;">';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('tmwseo_archive_stale_suggestions');
         echo '<input type="hidden" name="action" value="tmwseo_archive_stale_suggestions">';
-        echo '<p style="margin:0 0 4px;font-size:12px;color:#92400e;"><strong>' . esc_html__('Legacy Cleanup', 'tmwseo') . '</strong> — ' . esc_html__('Hides ignored + stale legacy suggestions from the queue. Nothing is deleted. Reversible.', 'tmwseo') . '</p>';
         submit_button(__('Archive Stale / Ignored Suggestions', 'tmwseo'), 'secondary small', 'submit', false);
         echo '</form>';
-
         if ($archived_count > 0) {
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
             wp_nonce_field('tmwseo_unarchive_all_suggestions');
             echo '<input type="hidden" name="action" value="tmwseo_unarchive_all_suggestions">';
-            echo '<p style="margin:0 0 4px;font-size:12px;color:#6b7280;">';
+            echo '<span style="font-size:12px;color:#6b7280;align-self:center;margin-right:4px;">';
             echo esc_html(sprintf(__('%d archived — restore with Unarchive All, or view under the "Archived (Legacy)" tab.', 'tmwseo'), $archived_count));
-            echo '</p>';
+            echo '</span>';
             submit_button(__('Unarchive All', 'tmwseo'), 'secondary small', 'submit', false);
             echo '</form>';
         }
+        echo '</div>';
 
-        echo '</div>'; // .tmwui-cta-row
+        echo '</div>'; // .tmwui-advanced-body
+        echo '</details>'; // .tmwui-advanced
+
+
 
         // ── Queue table CSS (scoped to .tmwseo-suggestions-page) ────────────
         //
