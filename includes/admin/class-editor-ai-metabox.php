@@ -271,13 +271,15 @@ class Editor_AI_Metabox {
         echo '<p class="tmwseo-mb-zone-title">' . esc_html__('Maintenance', 'tmwseo') . '</p>';
         echo '<div class="tmwseo-mb-btn-stack">';
 
-        // Refresh Keywords
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_refresh_keywords_' . $post->ID);
-        echo '<input type="hidden" name="action" value="tmwseo_refresh_keywords_now">';
-        echo '<input type="hidden" name="post_id" value="' . esc_attr((string)$post->ID) . '">';
-        echo '<button type="submit" class="button">' . esc_html__('Refresh Keywords', 'tmwseo') . '</button>';
-        echo '</form>';
+        // Refresh Keywords (AJAX button for Gutenberg metabox reliability).
+        echo '<button '
+            . 'type="button" '
+            . 'id="tmwseo-refresh-keywords-btn" '
+            . 'class="button" '
+            . 'data-post-id="' . esc_attr((string)$post->ID) . '" '
+            . 'data-nonce="' . esc_attr(wp_create_nonce('tmwseo_generate_' . $post->ID)) . '" '
+            . 'data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '"'
+            . '>' . esc_html__('Refresh Keywords', 'tmwseo') . '</button>';
 
         // Rollback (only if snapshot exists)
         if ($has_rollback) {

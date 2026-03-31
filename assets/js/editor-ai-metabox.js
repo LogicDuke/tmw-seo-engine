@@ -72,10 +72,18 @@
 
     const setup = () => {
         const generateButton = document.getElementById('tmwseo-generate-btn');
+        const refreshKeywordsButton = document.getElementById('tmwseo-refresh-keywords-btn');
 
         bindQueueButton(generateButton, {
             loadingText: 'Generating...',
             successText: 'Queued. Refresh in a few seconds.',
+        });
+
+        bindQueueButton(refreshKeywordsButton, {
+            loadingText: 'Refreshing...',
+            successText: 'Keyword refresh queued. Reload in a few seconds.',
+            insertBlockValue: '0',
+            refreshKeywordsOnly: true,
         });
     };
 
