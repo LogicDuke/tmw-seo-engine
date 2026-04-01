@@ -80,4 +80,36 @@ return [
 
     // NUMBERS for titles
     'numbers' => [3, 5, 7, 10],
+
+    // Strict subset for model-page SEO title factory (safe + deterministic use only).
+    'model_title_allowlist' => [
+        'Best',
+        'Safe',
+        'Proven',
+        'Expert',
+        'Latest',
+        'Secure',
+        'Unique',
+        'Value',
+        'Useful',
+        'New',
+    ],
+
+    // Hard blocklist for model-page title safety checks.
+    'model_title_denylist' => [
+        'Bloody',
+        'Corpse',
+        'Murder',
+        'Bomb',
+        'Nazi',
+        'Jail',
+        'Toxic',
+        'Doom',
+        'Deadly',
+        'Hoax',
+        'Scam',
+        'Trap',
+        'Victim',
+        'Brutal',
+    ],
 ];
