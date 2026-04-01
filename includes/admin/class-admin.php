@@ -8,6 +8,7 @@ use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Integrations\GSCApi;
 use TMWSEO\Engine\Intelligence\IntelligenceStorage;
 use TMWSEO\Engine\Admin\AdminUI;
+use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
@@ -714,6 +715,16 @@ class Admin {
                 'default' => [],
             ]
         );
+
+        register_setting(
+            'tmwseo_settings_group',
+            'tmwseo_platform_affiliate_settings',
+            [
+                'type' => 'array',
+                'sanitize_callback' => [__CLASS__, 'sanitize_platform_affiliate_settings'],
+                'default' => [],
+            ]
+        );
     }
 
     public static function sanitize_settings($input): array {
@@ -865,19 +876,49 @@ class Admin {
         ];
     }
 
+    public static function sanitize_platform_affiliate_settings($input): array {
+        $input = is_array($input) ? $input : [];
+        $sanitized = [];
+
+        foreach (self::get_affiliate_platform_defaults() as $platform_key => $defaults) {
+            $row = is_array($input[$platform_key] ?? null) ? $input[$platform_key] : [];
+            $sanitized[$platform_key] = [
+                'enabled' => !empty($row['enabled']) ? 1 : 0,
+                'template' => sanitize_textarea_field((string) ($row['template'] ?? '')),
+                'campaign' => sanitize_text_field((string) ($row['campaign'] ?? '')),
+                'source' => sanitize_text_field((string) ($row['source'] ?? '')),
+                'subaffid' => sanitize_text_field((string) ($row['subaffid'] ?? '')),
+                'psid' => sanitize_text_field((string) ($row['psid'] ?? '')),
+                'pstool' => sanitize_text_field((string) ($row['pstool'] ?? '')),
+                'psprogram' => sanitize_text_field((string) ($row['psprogram'] ?? '')),
+                'campaign_id' => sanitize_text_field((string) ($row['campaign_id'] ?? '')),
+                'siteid' => sanitize_text_field((string) ($row['siteid'] ?? (string) ($defaults['siteid'] ?? ''))),
+                'categoryname' => sanitize_text_field((string) ($row['categoryname'] ?? (string) ($defaults['categoryname'] ?? ''))),
+                'pagename' => sanitize_text_field((string) ($row['pagename'] ?? (string) ($defaults['pagename'] ?? ''))),
+            ];
+        }
+
+        return $sanitized;
+    }
+
     private static function get_affiliate_platform_defaults(): array {
-        return [
-            'livejasmin' => [
-                'label' => 'LiveJasmin',
-                'base_profile_url' => 'https://www.livejasmin.com/en/profile/',
-                'affiliate_link_pattern' => 'https://YOURAFFBASE/?campaign={campaign}&url={encoded_profile_url}',
-            ],
-            'stripchat' => [
-                'label' => 'Stripchat',
-                'base_profile_url' => 'https://stripchat.com/',
-                'affiliate_link_pattern' => 'https://YOURAFFBASE/?campaign={campaign}&url={encoded_profile_url}',
-            ],
-        ];
+        $defaults = [];
+        foreach (PlatformRegistry::get_platforms() as $platform) {
+            $slug = sanitize_key((string) ($platform['slug'] ?? ''));
+            if ($slug === '') {
+                continue;
+            }
+
+            $defaults[$slug] = [
+                'label' => sanitize_text_field((string) ($platform['name'] ?? ucfirst($slug))),
+                'affiliate_link_pattern' => sanitize_text_field((string) ($platform['affiliate_link_pattern'] ?? '')),
+                'siteid' => $slug === 'livejasmin' ? 'jasmin' : '',
+                'categoryname' => $slug === 'livejasmin' ? 'girl' : '',
+                'pagename' => $slug === 'livejasmin' ? 'freechat' : '',
+            ];
+        }
+
+        return $defaults;
     }
 
     public static function menu(): void {
@@ -3212,40 +3253,58 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
     public static function render_affiliates(): void {
         self::header(__('TMW SEO Engine — Affiliates', 'tmwseo'));
 
-        $opts = get_option('tmwseo_engine_settings', []);
-        $opts = is_array($opts) ? $opts : [];
-        $affiliate = is_array($opts['affiliate'] ?? null) ? $opts['affiliate'] : [];
-        $platform_settings = is_array($affiliate['platforms'] ?? null) ? $affiliate['platforms'] : [];
+        $per_platform = get_option('tmwseo_platform_affiliate_settings', []);
+        $per_platform = is_array($per_platform) ? $per_platform : [];
         $platforms = self::get_affiliate_platform_defaults();
 
         echo '<form method="post" action="options.php">';
         settings_fields('tmwseo_settings_group');
         echo '<input type="hidden" name="tmwseo_engine_settings[tmwseo_settings_section]" value="affiliate">';
+        echo '<h2>' . esc_html__('Affiliate Templates by Platform', 'tmwseo') . '</h2>';
+        echo '<p class="description">' . esc_html__('Use placeholders only. Do not paste hardcoded usernames into templates.', 'tmwseo') . '</p>';
 
         foreach ($platforms as $platform_key => $platform) {
-            $current = is_array($platform_settings[$platform_key] ?? null) ? $platform_settings[$platform_key] : [];
-            $pattern = (string)($current['affiliate_link_pattern'] ?? $platform['affiliate_link_pattern']);
+            $current = is_array($per_platform[$platform_key] ?? null) ? $per_platform[$platform_key] : [];
+            $pattern = (string) ($current['template'] ?? $platform['affiliate_link_pattern']);
             $campaign = (string)($current['campaign'] ?? '');
             $source = (string)($current['source'] ?? '');
-            $username = 'demo' . $platform_key;
-            $profile_url = rtrim((string)$platform['base_profile_url'], '/') . '/' . rawurlencode($username);
+            $subaffid = (string) ($current['subaffid'] ?? '');
+            $psid = (string) ($current['psid'] ?? '');
+            $pstool = (string) ($current['pstool'] ?? '');
+            $psprogram = (string) ($current['psprogram'] ?? '');
+            $campaign_id = (string) ($current['campaign_id'] ?? '');
+            $siteid = (string) ($current['siteid'] ?? (string) ($platform['siteid'] ?? ''));
+            $categoryname = (string) ($current['categoryname'] ?? (string) ($platform['categoryname'] ?? ''));
+            $pagename = (string) ($current['pagename'] ?? (string) ($platform['pagename'] ?? ''));
+
+            $username = 'demo_' . $platform_key;
+            $profile_url_pattern = (string) ((PlatformRegistry::get($platform_key)['profile_url_pattern'] ?? ''));
+            $profile_url = $profile_url_pattern !== '' ? str_replace('{username}', rawurlencode($username), $profile_url_pattern) : '';
 
             $preview = str_replace(
-                ['{campaign}', '{source}', '{encoded_profile_url}', '{profile_url}'],
-                [rawurlencode($campaign), rawurlencode($source), rawurlencode($profile_url), $profile_url],
+                ['{username}', '{profile_url}', '{encoded_profile_url}', '{campaign}', '{source}', '{subaffid}', '{psid}', '{pstool}', '{psprogram}', '{campaign_id}', '{siteid}', '{categoryname}', '{pagename}', '{platform}', '{siteId}', '{categoryName}', '{pageName}', '{subAffId}'],
+                [rawurlencode($username), $profile_url, rawurlencode($profile_url), rawurlencode($campaign), rawurlencode($source), rawurlencode($subaffid), rawurlencode($psid), rawurlencode($pstool), rawurlencode($psprogram), rawurlencode($campaign_id), rawurlencode($siteid), rawurlencode($categoryname), rawurlencode($pagename), rawurlencode($platform_key), rawurlencode($siteid), rawurlencode($categoryname), rawurlencode($pagename), rawurlencode($subaffid)],
                 $pattern
             );
 
             echo '<h2>' . esc_html($platform['label']) . '</h2>';
             echo '<table class="form-table">';
 
-            echo '<tr><th>Enabled</th><td><label><input type="checkbox" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][enabled]" value="1" ' . checked(!empty($current['enabled']), true, false) . '> Enable affiliate links for ' . esc_html($platform['label']) . '</label></td></tr>';
+            echo '<tr><th>Enabled</th><td><label><input type="checkbox" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][enabled]" value="1" ' . checked(!empty($current['enabled']), true, false) . '> Enable affiliate template for ' . esc_html($platform['label']) . '</label></td></tr>';
 
-            echo '<tr><th>Affiliate link pattern</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][affiliate_link_pattern]" value="' . esc_attr($pattern) . '" class="large-text code">';
-            echo '<p class="description">Supported placeholders: <code>{campaign}</code>, <code>{source}</code>, <code>{encoded_profile_url}</code>, <code>{profile_url}</code>.</p></td></tr>';
+            echo '<tr><th>Template</th><td><textarea name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][template]" rows="4" class="large-text code">' . esc_textarea($pattern) . '</textarea>';
+            echo '<p class="description">Supported placeholders: <code>{username}</code>, <code>{profile_url}</code>, <code>{encoded_profile_url}</code>, <code>{campaign}</code>, <code>{source}</code>, <code>{subaffid}</code>, <code>{psid}</code>, <code>{pstool}</code>, <code>{psprogram}</code>, <code>{campaign_id}</code>, <code>{siteid}</code>, <code>{categoryname}</code>, <code>{pagename}</code>, <code>{platform}</code>.</p></td></tr>';
 
-            echo '<tr><th>Campaign</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][campaign]" value="' . esc_attr($campaign) . '" class="regular-text"></td></tr>';
-            echo '<tr><th>Source</th><td><input type="text" name="tmwseo_engine_settings[affiliate][platforms][' . esc_attr($platform_key) . '][source]" value="' . esc_attr($source) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Campaign</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][campaign]" value="' . esc_attr($campaign) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Source</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][source]" value="' . esc_attr($source) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Sub Aff ID</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][subaffid]" value="' . esc_attr($subaffid) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>PSID</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][psid]" value="' . esc_attr($psid) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>PSTool</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][pstool]" value="' . esc_attr($pstool) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>PSProgram</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][psprogram]" value="' . esc_attr($psprogram) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Campaign ID</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][campaign_id]" value="' . esc_attr($campaign_id) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Site ID</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][siteid]" value="' . esc_attr($siteid) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Category Name</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][categoryname]" value="' . esc_attr($categoryname) . '" class="regular-text"></td></tr>';
+            echo '<tr><th>Page Name</th><td><input type="text" name="tmwseo_platform_affiliate_settings[' . esc_attr($platform_key) . '][pagename]" value="' . esc_attr($pagename) . '" class="regular-text"></td></tr>';
 
             echo '<tr><th>Preview example link</th><td><code>' . esc_html($preview) . '</code>';
             echo '<p class="description">Preview uses dummy username <code>' . esc_html($username) . '</code>.</p></td></tr>';
@@ -3253,7 +3312,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
             echo '</table>';
         }
 
-        submit_button(__('Save affiliate settings', 'tmwseo'));
+        submit_button(__('Save affiliate templates', 'tmwseo'));
         echo '</form>';
 
         self::footer();
