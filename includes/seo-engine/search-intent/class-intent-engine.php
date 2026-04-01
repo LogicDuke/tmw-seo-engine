@@ -20,13 +20,16 @@ class TMW_Intent_Engine {
     }
 
     public function inject_into_content(string $content): string {
-        if (is_admin() || !is_singular('model') || !in_the_loop() || !is_main_query()) {
+        if (is_admin() || !in_the_loop() || !is_main_query()) {
             return $content;
         }
 
-        // Model pages now include intent/internal-link sections through the generated renderer/template
-        // content. Keep legacy intent generation helpers callable, but prevent duplicate frontend
-        // the_content appends on singular model pages.
+        if (is_singular('model')) {
+            // Model pages now own intent/internal-link rendering inside generated renderer/template
+            // content. This legacy the_content appender must not duplicate frontend sections.
+            return $content;
+        }
+
         return $content;
     }
 
