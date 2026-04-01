@@ -231,4 +231,5 @@ if (!function_exists('wp_kses_post'))         { function wp_kses_post(string $s)
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ajax-handlers.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-form-handlers.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';

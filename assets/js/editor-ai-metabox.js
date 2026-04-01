@@ -49,11 +49,21 @@
                     throw new Error(message);
                 }
 
+                const successMessage = data && data.data && data.data.message
+                    ? data.data.message
+                    : (options.successText || 'Queued. Refresh in a few seconds.');
+
                 if (window.wp && wp.data) {
-                    wp.data.dispatch('core/notices').createNotice('success', options.successText || 'Queued. Refresh in a few seconds.', {
+                    wp.data.dispatch('core/notices').createNotice('success', successMessage, {
                         type: 'snackbar',
                         isDismissible: true,
                     });
+                }
+
+                if (data && data.data && data.data.reload) {
+                    window.setTimeout(() => {
+                        window.location.reload();
+                    }, 900);
                 }
             } catch (error) {
                 const message = error && error.message ? error.message : 'Request failed.';
@@ -76,14 +86,14 @@
 
         bindQueueButton(generateButton, {
             loadingText: 'Generating...',
-            successText: 'Queued. Refresh in a few seconds.',
+            successText: 'SEO generated. Reloading...',
         });
 
         bindQueueButton(refreshKeywordsButton, {
-            loadingText: 'Refreshing keywords...',
+            loadingText: 'Refreshing...',
+            successText: 'Keyword refresh queued. Reload in a few seconds.',
             insertBlockValue: '0',
             refreshKeywordsOnly: true,
-            successText: 'Keyword refresh queued. Refresh in a few seconds.',
         });
     };
 

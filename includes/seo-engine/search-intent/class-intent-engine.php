@@ -20,21 +20,17 @@ class TMW_Intent_Engine {
     }
 
     public function inject_into_content(string $content): string {
-        if (is_admin() || !is_singular('model') || !in_the_loop() || !is_main_query()) {
+        if (is_admin() || !in_the_loop() || !is_main_query()) {
             return $content;
         }
 
-        $post_id = (int) get_the_ID();
-        if ($post_id <= 0 || strpos($content, 'tmw-intent-content') !== false) {
+        if (is_singular('model')) {
+            // Model pages now own intent/internal-link rendering inside generated renderer/template
+            // content. This legacy the_content appender must not duplicate frontend sections.
             return $content;
         }
 
-        $generated = $this->generate_for_post($post_id, false);
-        if ($generated === '') {
-            return $content;
-        }
-
-        return $content . "\n" . $generated;
+        return $content;
     }
 
     public function generate_for_post(int $post_id, bool $persist_rank_math_meta = true): string {

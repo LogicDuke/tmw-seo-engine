@@ -743,9 +743,9 @@ class SeedRegistryAdminPage {
                 esc_html__( 'Approve All', 'tmwseo' )
             );
             printf(
-                '<button type="submit" class="button button-small" onclick="return confirm(\'%s\');document.getElementById(\'tmwseo_history_action\').value=\'rollback_batch\';document.getElementById(\'tmwseo_history_batch_id\').value=\'%s\';">%s</button>',
-                esc_attr__( 'Roll back this entire batch?', 'tmwseo' ),
+                '<button type="submit" class="button button-small" onclick="document.getElementById(\'tmwseo_history_action\').value=\'rollback_batch\';document.getElementById(\'tmwseo_history_batch_id\').value=\'%s\';return confirm(\'%s\');">%s</button>',
                 esc_attr( $batch_id ),
+                esc_attr__( 'Roll back this entire batch?', 'tmwseo' ),
                 esc_html__( 'Rollback', 'tmwseo' )
             );
             echo '</td>';

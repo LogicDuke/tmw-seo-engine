@@ -80,4 +80,47 @@ return [
 
     // NUMBERS for titles
     'numbers' => [3, 5, 7, 10],
+
+    // Rank Math validated (manual live sidebar testing): words confirmed to count as BOTH
+    // positive/sentiment + power words for model-page auto title generation.
+    'model_title_allowlist' => [
+        'Best',
+        'Amazing',
+        'Proven',
+        'Safe',
+        'Secure',
+        'Powerful',
+        'Trustworthy',
+        'Exclusive',
+        'Popular',
+        'Remarkable',
+    ],
+
+    // Rank Math validated (manual live sidebar testing): words currently confirmed ONLY
+    // as power words. Keep for reserve/manual experiments, but not default auto titles.
+    'model_title_reserve_power_only' => [
+        'Secret',
+        'Expert',
+        'Official',
+        'Latest',
+        'New',
+    ],
+
+    // Hard blocklist for model-page title safety checks.
+    'model_title_denylist' => [
+        'Bloody',
+        'Corpse',
+        'Murder',
+        'Bomb',
+        'Nazi',
+        'Jail',
+        'Toxic',
+        'Doom',
+        'Deadly',
+        'Hoax',
+        'Scam',
+        'Trap',
+        'Victim',
+        'Brutal',
+    ],
 ];

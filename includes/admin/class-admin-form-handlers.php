@@ -15,7 +15,7 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Logs;
-use TMWSEO\Engine\Db\Jobs;
+use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Worker;
 use TMWSEO\Engine\JobWorker;
 use TMWSEO\Engine\Services\Settings;

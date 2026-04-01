@@ -110,6 +110,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-dirty-queue.php' );
         tmwseo_safe_require( $p . 'class-content-keyword-miner.php' );
         tmwseo_safe_require( $p . 'class-competitor-mining-service.php' );
+        tmwseo_safe_require( $p . 'class-niche-serp-mining-service.php' );
         tmwseo_safe_require( $p . 'class-discovery-orchestrator.php' );
         tmwseo_safe_require( $p . 'class-keyword-idea-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-dataforseo-keyword-idea-provider.php' );
@@ -151,6 +152,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );
         tmwseo_safe_require( $p . 'class-rank-math-checklist.php' );
         tmwseo_safe_require( $p . 'class-content-generation-gate.php' );
+        tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
         tmwseo_safe_require( $p . 'class-assisted-draft-enrichment-service.php' );
         tmwseo_safe_require( $p . 'class-quality-score-engine.php' );

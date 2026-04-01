@@ -13,7 +13,9 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Logs;
-use TMWSEO\Engine\Db\Jobs;
+use TMWSEO\Engine\Jobs;
+use TMWSEO\Engine\Content\ContentEngine;
+use TMWSEO\Engine\Content\ContentGenerationGate;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -24,8 +26,9 @@ class AdminAjaxHandlers {
     /**
      * wp_ajax_tmwseo_generate_now
      *
-     * Enqueues an optimize_post job for the given post ID, then fires a
-     * non-blocking kick of the worker so the job starts within ~1 second.
+     * Explicit model Generate clicks now run inline through ContentEngine so
+     * the editor gets immediate content instead of queue-only feedback.
+     * Other flows (including Refresh Keywords) keep the existing queue path.
      */
     public static function ajax_generate_now(): void {
         $post_id = (int) ( $_POST['post_id'] ?? 0 );
@@ -58,12 +61,88 @@ class AdminAjaxHandlers {
         ] );
 
         $post_type = get_post_type( $post_id ) ?: 'post';
-        Jobs::enqueue( 'optimize_post', (string) $post_type, $post_id, [
+        $context   = 'video_or_post';
+        if ( $post_type === 'model' ) {
+            $context = 'model';
+        } elseif ( $post_type === 'tmw_category_page' ) {
+            $context = 'category_page';
+        }
+
+        $job_payload = [
             'trigger'               => 'manual',
+            'generated_via'         => 'editor_metabox',
+            'context'               => $context,
             'strategy'              => $strategy,
             'insert_block'          => $insert_block,
             'refresh_keywords_only' => $refresh_keywords_only,
-        ] );
+            'manual_model_generate' => ( $post_type === 'model' && ! $refresh_keywords_only ) ? 1 : 0,
+            'explicit_generate'     => ( $post_type === 'model' && ! $refresh_keywords_only ) ? 1 : 0,
+        ];
+
+        /**
+         * Fix path: model Generate should behave like a direct operator action,
+         * not just queue and hope the worker finishes before the user refreshes.
+         * Refresh Keywords stays queued because it is cheap and already works.
+         */
+        if ( $post_type === 'model' && ! $refresh_keywords_only ) {
+            $before_content = (string) get_post_field( 'post_content', $post_id );
+            $before_done    = (string) get_post_meta( $post_id, '_tmwseo_optimize_done', true );
+
+            try {
+                ContentEngine::run_optimize_job( [
+                    'entity_id' => $post_id,
+                    'payload'   => $job_payload,
+                ] );
+            } catch ( \Throwable $e ) {
+                Logs::error( 'admin', '[TMW-ADMIN] Inline model generation failed', [
+                    'post_id' => $post_id,
+                    'error'   => $e->getMessage(),
+                ] );
+
+                wp_send_json_error( [
+                    'message' => __( 'Generation failed. Check logs.', 'tmwseo' ),
+                ], 500 );
+            }
+
+            clean_post_cache( $post_id );
+
+            $after_content = (string) get_post_field( 'post_content', $post_id );
+            $after_done    = (string) get_post_meta( $post_id, '_tmwseo_optimize_done', true );
+            $gate_raw      = (string) get_post_meta( $post_id, ContentGenerationGate::META_GATE_RESULT, true );
+            $gate_result   = json_decode( $gate_raw, true );
+            $gate_reasons  = is_array( $gate_result ) && ! empty( $gate_result['reasons'] ) && is_array( $gate_result['reasons'] )
+                ? array_values( array_map( 'strval', $gate_result['reasons'] ) )
+                : [];
+
+            if ( $after_done === 'blocked_content_gate' ) {
+                $message = __( 'Generation blocked by content prerequisites.', 'tmwseo' );
+                if ( ! empty( $gate_reasons ) ) {
+                    $message .= ' ' . implode( ', ', $gate_reasons );
+                }
+
+                wp_send_json_error( [
+                    'message' => $message,
+                    'reasons' => $gate_reasons,
+                ], 409 );
+            }
+
+            $content_changed = trim( $after_content ) !== '' && trim( $after_content ) !== trim( $before_content );
+            $run_completed   = $after_done !== '' && $after_done !== $before_done;
+
+            if ( $content_changed || $run_completed ) {
+                wp_send_json_success( [
+                    'generated_now' => true,
+                    'reload'        => true,
+                    'message'       => __( 'SEO generated. Reloading...', 'tmwseo' ),
+                ] );
+            }
+
+            wp_send_json_error( [
+                'message' => __( 'Generation finished but no content was written. Check logs.', 'tmwseo' ),
+            ], 500 );
+        }
+
+        Jobs::enqueue( 'optimize_post', (string) $post_type, $post_id, $job_payload );
 
         Logs::info( 'admin', '[TMW-QUEUE] optimize_post queued from ajax_generate_now', [
             'post_id'               => $post_id,
@@ -79,7 +158,12 @@ class AdminAjaxHandlers {
             'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
         ] );
 
-        wp_send_json_success( [ 'queued' => true ] );
+        wp_send_json_success( [
+            'queued'  => true,
+            'message' => $refresh_keywords_only
+                ? __( 'Keyword refresh queued. Refresh in a few seconds.', 'tmwseo' )
+                : __( 'Generation queued. Refresh in a few seconds.', 'tmwseo' ),
+        ] );
     }
 
     /**

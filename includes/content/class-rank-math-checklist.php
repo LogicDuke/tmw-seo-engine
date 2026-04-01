@@ -73,6 +73,7 @@ class RankMathChecklist {
         $checks[] = self::check_content_length( $ctx );
         $checks[] = self::check_internal_links( $ctx );
         $checks[] = self::check_external_links( $ctx );
+        $checks[] = self::check_robots_state( $ctx );
         $checks[] = self::check_media_present( $ctx );
         $checks[] = self::check_title_has_number( $ctx );
         $checks[] = self::check_title_has_power_word( $ctx );
@@ -120,6 +121,8 @@ class RankMathChecklist {
         $keyword       = RankMathReader::get_primary_keyword( $post_id );
         $seo_title_raw = RankMathReader::get_seo_title( $post_id );
         $meta_desc     = RankMathReader::get_meta_description( $post_id );
+        $robots        = RankMathReader::get_robots( $post_id );
+        $is_noindex    = RankMathReader::is_noindex( $post_id );
 
         // Effective SEO title: stored override or post title.
         $seo_title = $seo_title_raw !== '' ? $seo_title_raw : trim( $post->post_title );
@@ -136,6 +139,8 @@ class RankMathChecklist {
         // Parse content for structured elements.
         $headings    = self::extract_headings( $content_raw );
         $images      = self::extract_images( $content_raw );
+        $attached_images = self::collect_attached_images( $post );
+        $analysis_images = self::merge_images( $images, $attached_images );
         $links       = self::extract_links( $content_raw );
         $paragraphs  = self::extract_paragraphs( $content_raw );
 
@@ -147,6 +152,8 @@ class RankMathChecklist {
             'seo_title'     => $seo_title,
             'seo_title_raw' => $seo_title_raw,
             'meta_desc'     => $meta_desc,
+            'robots'        => $robots,
+            'is_noindex'    => $is_noindex,
             'slug'          => $slug,
             'content_raw'   => $content_raw,
             'content_text'  => $content_text,
@@ -154,6 +161,8 @@ class RankMathChecklist {
             'word_count'    => $word_count,
             'headings'      => $headings,
             'images'        => $images,
+            'attached_images' => $attached_images,
+            'analysis_images' => $analysis_images,
             'links'         => $links,
             'paragraphs'    => $paragraphs,
         ];
@@ -301,17 +310,17 @@ class RankMathChecklist {
     }
 
     private static function check_keyword_in_image_alt( array $ctx ): array {
-        if ( $ctx['keyword'] === '' || empty( $ctx['images'] ) ) {
+        if ( $ctx['keyword'] === '' || empty( $ctx['analysis_images'] ) ) {
             return [
                 'id'       => 'keyword_in_image_alt',
                 'label'    => 'Focus keyword in image alt text',
-                'status'   => empty( $ctx['images'] ) ? self::STATUS_WARNING : self::STATUS_WARNING,
-                'fix'      => empty( $ctx['images'] ) ? 'Add images with descriptive alt text.' : 'Set a focus keyword first.',
+                'status'   => self::STATUS_WARNING,
+                'fix'      => empty( $ctx['analysis_images'] ) ? 'Add images with descriptive alt text.' : 'Set a focus keyword first.',
                 'severity' => self::SEV_RECOMMENDED,
             ];
         }
         $found = false;
-        foreach ( $ctx['images'] as $img ) {
+        foreach ( $ctx['analysis_images'] as $img ) {
             if ( self::str_contains_i( $img['alt'], $ctx['keyword'] ) ) {
                 $found = true;
                 break;
@@ -405,7 +414,7 @@ class RankMathChecklist {
     }
 
     private static function check_media_present( array $ctx ): array {
-        $has_img   = ! empty( $ctx['images'] );
+        $has_img   = ! empty( $ctx['analysis_images'] );
         $has_video = (bool) preg_match( '/<(video|iframe|embed)\b/i', $ctx['content_raw'] );
         $pass = $has_img || $has_video;
         return [
@@ -414,6 +423,28 @@ class RankMathChecklist {
             'status'   => $pass ? self::STATUS_PASS : self::STATUS_WARNING,
             'fix'      => $pass ? '' : 'Add at least one image or video to enrich the content.',
             'severity' => self::SEV_RECOMMENDED,
+        ];
+    }
+
+    private static function check_robots_state( array $ctx ): array {
+        $robots = is_array( $ctx['robots'] ?? null ) ? $ctx['robots'] : [];
+        if ( empty( $robots ) ) {
+            return [
+                'id'       => 'robots_state',
+                'label'    => 'Robots directives rely on defaults',
+                'status'   => self::STATUS_WARNING,
+                'fix'      => 'No explicit Rank Math robots directives found on this post.',
+                'severity' => self::SEV_OPTIONAL,
+            ];
+        }
+
+        $state_label = ! empty( $ctx['is_noindex'] ) ? 'Robots state: noindex detected' : 'Robots state: indexable detected';
+        return [
+            'id'       => 'robots_state',
+            'label'    => $state_label,
+            'status'   => self::STATUS_PASS,
+            'fix'      => '',
+            'severity' => self::SEV_OPTIONAL,
         ];
     }
 
@@ -645,6 +676,167 @@ class RankMathChecklist {
             }
         }
         return $images;
+    }
+
+    /**
+     * Gather image attachments connected to a post, including model-specific media fields.
+     *
+     * @return array<array{src:string, alt:string, attachment_id:int}>
+     */
+    private static function collect_attached_images( \WP_Post $post ): array {
+        $post_id = (int) $post->ID;
+        $ids     = [];
+
+        $thumbnail_id = (int) get_post_thumbnail_id( $post_id );
+        if ( $thumbnail_id > 0 ) {
+            $ids[] = $thumbnail_id;
+        }
+
+        if ( $post->post_type === 'model' ) {
+            foreach ( self::get_model_image_meta_keys() as $meta_key ) {
+                $meta_value = get_post_meta( $post_id, $meta_key, true );
+                $ids        = array_merge( $ids, self::extract_attachment_ids( $meta_value ) );
+            }
+
+            $all_meta = get_post_meta( $post_id );
+            if ( is_array( $all_meta ) ) {
+                foreach ( $all_meta as $meta_key => $values ) {
+                    $key = strtolower( (string) $meta_key );
+                    if ( ! preg_match( '/(image|banner|front|back|photo)/', $key ) ) {
+                        continue;
+                    }
+                    if ( is_array( $values ) ) {
+                        foreach ( $values as $value ) {
+                            $ids = array_merge( $ids, self::extract_attachment_ids( $value ) );
+                        }
+                    }
+                }
+            }
+        }
+
+        $ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ), fn( $id ) => $id > 0 ) ) );
+        $out = [];
+        foreach ( $ids as $attachment_id ) {
+            if ( ! wp_attachment_is_image( $attachment_id ) ) {
+                continue;
+            }
+            $src = wp_get_attachment_image_url( $attachment_id, 'full' );
+            $alt = (string) get_post_meta( $attachment_id, '_wp_attachment_image_alt', true );
+
+            $out[] = [
+                'src'           => is_string( $src ) ? $src : '',
+                'alt'           => $alt,
+                'attachment_id' => $attachment_id,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return string[]
+     */
+    private static function get_model_image_meta_keys(): array {
+        return [
+            'banner_image_id',
+            '_banner_image_id',
+            'vertical_banner_image_id',
+            '_vertical_banner_image_id',
+            'banner_focus_image_id',
+            '_banner_focus_image_id',
+            'front_image_id',
+            '_front_image_id',
+            'back_image_id',
+            '_back_image_id',
+            'model_banner_image_id',
+            '_model_banner_image_id',
+            'model_front_image_id',
+            '_model_front_image_id',
+            'model_back_image_id',
+            '_model_back_image_id',
+        ];
+    }
+
+    /**
+     * @param mixed $value
+     * @return int[]
+     */
+    private static function extract_attachment_ids( $value ): array {
+        if ( is_array( $value ) ) {
+            $out = [];
+            foreach ( $value as $item ) {
+                $out = array_merge( $out, self::extract_attachment_ids( $item ) );
+            }
+            return $out;
+        }
+
+        if ( is_numeric( $value ) ) {
+            return [ (int) $value ];
+        }
+
+        if ( ! is_string( $value ) ) {
+            return [];
+        }
+
+        $raw = trim( $value );
+        if ( $raw === '' ) {
+            return [];
+        }
+
+        if ( is_serialized( $raw ) ) {
+            $decoded = maybe_unserialize( $raw );
+            if ( $decoded !== $raw ) {
+                return self::extract_attachment_ids( $decoded );
+            }
+        }
+
+        if ( strpos( $raw, '[' ) === 0 || strpos( $raw, '{' ) === 0 ) {
+            $json = json_decode( $raw, true );
+            if ( is_array( $json ) ) {
+                return self::extract_attachment_ids( $json );
+            }
+        }
+
+        preg_match_all( '/\d+/', $raw, $matches );
+        if ( empty( $matches[0] ) ) {
+            return [];
+        }
+
+        return array_map( 'intval', $matches[0] );
+    }
+
+    /**
+     * @param array<array{src:string,alt:string,attachment_id?:int}> $inline
+     * @param array<array{src:string,alt:string,attachment_id?:int}> $attached
+     * @return array<array{src:string,alt:string,attachment_id:int}>
+     */
+    private static function merge_images( array $inline, array $attached ): array {
+        $merged = [];
+        $seen   = [];
+
+        foreach ( array_merge( $attached, $inline ) as $image ) {
+            $attachment_id = (int) ( $image['attachment_id'] ?? 0 );
+            $src           = trim( (string) ( $image['src'] ?? '' ) );
+            $alt           = trim( (string) ( $image['alt'] ?? '' ) );
+            $key           = $attachment_id > 0 ? 'id:' . $attachment_id : 'src:' . md5( $src );
+
+            if ( isset( $seen[ $key ] ) ) {
+                $idx = $seen[ $key ];
+                if ( $merged[ $idx ]['alt'] === '' && $alt !== '' ) {
+                    $merged[ $idx ]['alt'] = $alt;
+                }
+                continue;
+            }
+
+            $seen[ $key ] = count( $merged );
+            $merged[] = [
+                'src'           => $src,
+                'alt'           => $alt,
+                'attachment_id' => $attachment_id,
+            ];
+        }
+
+        return $merged;
     }
 
     /**

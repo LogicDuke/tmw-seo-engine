@@ -1560,6 +1560,16 @@ class Admin {
             } else {
                 $message = __('Niche SERP mining run completed. Check the preview candidate queue for results.', 'tmwseo');
             }
+        } elseif ($notice === 'review_handoff_exported') {
+            $message = __('Review handoff exported. The draft package has been prepared for external review. Nothing has been applied automatically and the draft remains draft-only.', 'tmwseo');
+        } elseif ($notice === 'review_handoff_export_refused') {
+            $message = __('Review handoff export was refused. This action is allowed only for explicit draft posts that have passed the review bundle safety check.', 'tmwseo');
+            $is_error_notice_override = true;
+        } elseif ($notice === 'review_signoff_updated') {
+            $message = __('Review sign-off recorded. No content was auto-applied and nothing was published automatically. The draft remains draft-only until a manual apply is performed.', 'tmwseo');
+        } elseif ($notice === 'review_signoff_refused') {
+            $message = __('Review sign-off was refused. This action is allowed only for explicit draft posts with a valid review bundle. No changes were made.', 'tmwseo');
+            $is_error_notice_override = true;
         }
 
         if ($message === '') {
