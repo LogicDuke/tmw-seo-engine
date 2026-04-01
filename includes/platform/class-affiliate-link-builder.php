@@ -45,25 +45,47 @@ class AffiliateLinkBuilder {
     }
 
     public static function build_affiliate_url($platform, $username): string {
-        $profile_url = self::build_profile_url((string) $platform, (string) $username);
+        $platform_slug = sanitize_key((string) $platform);
+        if (!PlatformRegistry::get($platform_slug)) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username((string) $username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        $profile_url = self::build_profile_url($platform_slug, $clean_username);
         if ($profile_url === '') {
             return '';
         }
 
-        $pattern = (string) Settings::get('affiliate_link_pattern', '');
-        if ($pattern === '') {
-            return $profile_url;
+        $settings = self::get_platform_affiliate_settings($platform_slug);
+        if (!empty($settings['enabled']) && !empty($settings['template'])) {
+            $built = self::build_from_template((string) $settings['template'], $platform_slug, $clean_username, $profile_url, $settings);
+            if ($built !== '') {
+                return $built;
+            }
         }
 
-        $replacements = [
-            '{username}' => rawurlencode(self::sanitize_username((string) $username)),
-            '{profile_url}' => $profile_url,
-            '{encoded_profile_url}' => rawurlencode($profile_url),
-            '{campaign}' => rawurlencode((string) Settings::get('affiliate_campaign', '')),
-            '{source}' => rawurlencode((string) Settings::get('affiliate_source', '')),
-        ];
+        $platform_data = PlatformRegistry::get($platform_slug);
+        $registry_pattern = is_array($platform_data) ? (string) ($platform_data['affiliate_link_pattern'] ?? '') : '';
+        if ($registry_pattern !== '') {
+            $built = self::build_from_template($registry_pattern, $platform_slug, $clean_username, $profile_url, []);
+            if ($built !== '') {
+                return $built;
+            }
+        }
 
-        return strtr($pattern, $replacements);
+        $legacy_pattern = (string) Settings::get('affiliate_link_pattern', '');
+        if ($legacy_pattern !== '') {
+            $built = self::build_from_template($legacy_pattern, $platform_slug, $clean_username, $profile_url, []);
+            if ($built !== '') {
+                return $built;
+            }
+        }
+
+        return $profile_url;
     }
 
     public static function go_url($platform, $username): string {
@@ -104,6 +126,15 @@ class AffiliateLinkBuilder {
             'url' => $url,
         ]);
 
+        if (!wp_http_validate_url($url)) {
+            Logs::warning('platform', '[TMW-AFF] Rejected invalid redirect URL', [
+                'platform' => $platform_slug,
+                'username' => $clean_username,
+                'url' => $url,
+            ]);
+            return;
+        }
+
         wp_redirect($url, 302);
         exit;
     }
@@ -142,5 +173,58 @@ class AffiliateLinkBuilder {
         ], [
             '%s', '%s', '%s', '%s', '%s', '%s',
         ]);
+    }
+
+    private static function get_platform_affiliate_settings(string $platform): array {
+        $all = get_option('tmwseo_platform_affiliate_settings', []);
+        if (!is_array($all)) {
+            return [];
+        }
+
+        $settings = $all[$platform] ?? [];
+        return is_array($settings) ? $settings : [];
+    }
+
+    private static function build_from_template(string $template, string $platform, string $username, string $profile_url, array $settings): string {
+        $template = trim($template);
+        if ($template === '') {
+            return '';
+        }
+
+        $campaign = (string) ($settings['campaign'] ?? Settings::get('affiliate_campaign', ''));
+        $source = (string) ($settings['source'] ?? Settings::get('affiliate_source', ''));
+        $subaffid = (string) ($settings['subaffid'] ?? '');
+        $psid = (string) ($settings['psid'] ?? '');
+        $pstool = (string) ($settings['pstool'] ?? '');
+        $psprogram = (string) ($settings['psprogram'] ?? '');
+        $campaign_id = (string) ($settings['campaign_id'] ?? '');
+        $siteid = (string) ($settings['siteid'] ?? '');
+        $categoryname = (string) ($settings['categoryname'] ?? '');
+        $pagename = (string) ($settings['pagename'] ?? '');
+
+        $replacements = [
+            '{username}' => rawurlencode($username),
+            '{profile_url}' => $profile_url,
+            '{encoded_profile_url}' => rawurlencode($profile_url),
+            '{campaign}' => rawurlencode($campaign),
+            '{source}' => rawurlencode($source),
+            '{subaffid}' => rawurlencode($subaffid),
+            '{psid}' => rawurlencode($psid),
+            '{pstool}' => rawurlencode($pstool),
+            '{psprogram}' => rawurlencode($psprogram),
+            '{campaign_id}' => rawurlencode($campaign_id),
+            '{siteid}' => rawurlencode($siteid),
+            '{categoryname}' => rawurlencode($categoryname),
+            '{pagename}' => rawurlencode($pagename),
+            '{platform}' => rawurlencode($platform),
+            '{siteId}' => rawurlencode($siteid),
+            '{categoryName}' => rawurlencode($categoryname),
+            '{pageName}' => rawurlencode($pagename),
+            '{subAffId}' => rawurlencode($subaffid),
+        ];
+
+        $url = strtr($template, $replacements);
+        $url = esc_url_raw($url);
+        return wp_http_validate_url($url) ? $url : '';
     }
 }

@@ -7,16 +7,6 @@ if (!defined('ABSPATH')) { exit; }
 
 class PlatformProfiles {
 
-    private static array $platforms = [
-        'livejasmin' => 'LiveJasmin',
-        'stripchat' => 'Stripchat',
-        'chaturbate' => 'Chaturbate',
-        'myfreecams' => 'MyFreeCams',
-        'camsoda' => 'CamSoda',
-        'bonga' => 'BongaCams',
-        'cam4' => 'Cam4',
-    ];
-
     public static function init(): void {
         add_shortcode('tmw_model_links', [__CLASS__, 'shortcode_model_links']);
 
@@ -45,7 +35,7 @@ class PlatformProfiles {
 
         echo "<p style=\"margin-top:0\">Add your model usernames on other platforms. Used for multi-platform linking.</p>";
 
-        foreach (self::$platforms as $key => $label) {
+        foreach (self::get_platform_labels() as $key => $label) {
             $val = self::get_username_with_migration($post->ID, $key);
             echo '<p><label style="font-weight:600">' . esc_html($label) . '</label><br>';
             echo '<input type="text" style="width:100%" name="tmwseo_platform_username[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="username" /></p>';
@@ -57,7 +47,7 @@ class PlatformProfiles {
         echo '<p><label style="font-weight:600">Primary platform</label><br>';
         echo '<select name="tmwseo_platform_primary" style="width:100%">';
         echo '<option value="">— none —</option>';
-        foreach (self::$platforms as $key => $label) {
+        foreach (self::get_platform_labels() as $key => $label) {
             echo '<option value="' . esc_attr($key) . '" ' . selected($primary, $key, false) . '>' . esc_html($label) . '</option>';
         }
         echo '</select></p>';
@@ -70,11 +60,11 @@ class PlatformProfiles {
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
         if (!current_user_can('edit_post', $post_id)) return;
 
-        $platforms = $_POST['tmwseo_platform_username'] ?? [];
-        if (!is_array($platforms)) $platforms = [];
+        $platform_usernames = $_POST['tmwseo_platform_username'] ?? [];
+        if (!is_array($platform_usernames)) $platform_usernames = [];
 
-        foreach (self::$platforms as $key => $label) {
-            $val = isset($platforms[$key]) ? sanitize_text_field(trim((string) wp_unslash($platforms[$key]))) : '';
+        foreach (self::get_platform_labels() as $key => $label) {
+            $val = isset($platform_usernames[$key]) ? sanitize_text_field(trim((string) wp_unslash($platform_usernames[$key]))) : '';
             update_post_meta($post_id, '_tmwseo_platform_username_' . $key, $val);
 
             if ($val === '') {
@@ -134,7 +124,7 @@ class PlatformProfiles {
             $usernames = [];
         }
 
-        foreach (self::$platforms as $key => $label) {
+        foreach (self::get_platform_labels() as $key => $label) {
             $val = isset($usernames[$key]) ? sanitize_text_field(trim((string) $usernames[$key])) : '';
             update_post_meta($post_id, '_tmwseo_platform_username_' . $key, $val);
 
@@ -160,7 +150,7 @@ class PlatformProfiles {
 
         $primary = (string) get_post_meta($model_id, '_tmwseo_platform_primary', true);
 
-        foreach (self::$platforms as $key => $label) {
+        foreach (self::get_platform_labels() as $key => $label) {
             $username = self::get_username_with_migration($model_id, $key);
             if ($username === '') continue;
 
@@ -183,7 +173,29 @@ class PlatformProfiles {
         $table = $wpdb->prefix . 'tmw_platform_profiles';
         $rows = $wpdb->get_results($wpdb->prepare("SELECT platform, profile_url, is_primary FROM {$table} WHERE model_id=%d ORDER BY is_primary DESC, platform ASC", $model_id), ARRAY_A);
         if (!is_array($rows)) return [];
-        return $rows;
+
+        $primary = (string) get_post_meta($model_id, '_tmwseo_platform_primary', true);
+        $enriched = [];
+        foreach ($rows as $row) {
+            $platform = (string) ($row['platform'] ?? '');
+            $profile_url = (string) ($row['profile_url'] ?? '');
+            if ($platform === '' || $profile_url === '') {
+                continue;
+            }
+
+            $username = self::get_username_with_migration($model_id, $platform);
+            $affiliate_url = $username !== '' ? AffiliateLinkBuilder::build_affiliate_url($platform, $username) : '';
+
+            $enriched[] = [
+                'platform' => $platform,
+                'profile_url' => $profile_url,
+                'affiliate_url' => $affiliate_url,
+                'go_url' => $username !== '' ? AffiliateLinkBuilder::go_url($platform, $username) : '',
+                'is_primary' => !empty($row['is_primary']) ? 1 : (($primary === $platform) ? 1 : 0),
+            ];
+        }
+
+        return $enriched;
     }
 
     public static function shortcode_model_links($atts): string {
@@ -196,6 +208,7 @@ class PlatformProfiles {
 
         $links = self::get_links($model_id);
         if (empty($links)) return '';
+        $labels = self::get_platform_labels();
 
         $out = '<div class="tmw-model-links">';
         $out .= '<ul>';
@@ -204,7 +217,7 @@ class PlatformProfiles {
             $url = (string)($l['profile_url'] ?? '');
             if ($platform === '' || $url === '') continue;
 
-            $label = self::$platforms[$platform] ?? ucfirst($platform);
+            $label = $labels[$platform] ?? ucfirst($platform);
             $out .= '<li><a href="' . esc_url($url) . '" rel="nofollow" target="_blank">' . esc_html($label) . '</a></li>';
         }
         $out .= '</ul></div>';
@@ -270,5 +283,19 @@ class PlatformProfiles {
         }
 
         return esc_url_raw(str_replace('{username}', rawurlencode($username), $pattern));
+    }
+
+    private static function get_platform_labels(): array {
+        $labels = [];
+        foreach (PlatformRegistry::get_platforms() as $platform) {
+            $slug = sanitize_key((string) ($platform['slug'] ?? ''));
+            $name = sanitize_text_field((string) ($platform['name'] ?? ''));
+            if ($slug === '' || $name === '') {
+                continue;
+            }
+            $labels[$slug] = $name;
+        }
+
+        return $labels;
     }
 }
