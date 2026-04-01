@@ -289,8 +289,10 @@ class ContentEngine {
         $html = trim((string) ($j['content_html'] ?? ''));
 
         if ($is_model_page) {
-            $html = ModelPageRenderer::render((string)$post->post_title, self::extract_model_renderer_payload($j));
-            $validated = self::enforce_model_content_constraints([$system, ['role' => 'user', 'content' => $user_content]], $model, 3200, $generated_focus_kw, $html, $j, (string)$post->post_title);
+            $support_payload = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+            $renderer_payload = array_merge($support_payload, self::extract_model_renderer_payload($j));
+            $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
+            $validated = self::enforce_model_content_constraints([$system, ['role' => 'user', 'content' => $user_content]], $model, 3200, $generated_focus_kw, $html, $j, (string)$post->post_title, $support_payload);
             $html = (string) ($validated['html'] ?? $html);
             $generated_focus_kw = trim((string) ($validated['focus_keyword'] ?? $generated_focus_kw));
         }
@@ -1031,8 +1033,10 @@ class ContentEngine {
         $focus_kw  = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
 
         if ($is_model_page) {
-            $html = ModelPageRenderer::render((string)$post->post_title, self::extract_model_renderer_payload($j));
-            $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html, $j, (string)$post->post_title);
+            $support_payload = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+            $renderer_payload = array_merge($support_payload, self::extract_model_renderer_payload($j));
+            $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
+            $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html, $j, (string)$post->post_title, $support_payload);
             $html = $validated['html'];
             $focus_kw = $validated['focus_keyword'];
         }
@@ -1184,7 +1188,7 @@ class ContentEngine {
     /**
      * @param array<string,mixed> $model_json
      */
-    private static function enforce_model_content_constraints(array $messages, string $model, int $max_tokens, string $focus_kw, string $html, array $model_json = [], string $model_name = ''): array {
+    private static function enforce_model_content_constraints(array $messages, string $model, int $max_tokens, string $focus_kw, string $html, array $model_json = [], string $model_name = '', array $support_payload = []): array {
         $focus_kw = trim($focus_kw);
         $attempts = 0;
 
@@ -1234,7 +1238,10 @@ class ContentEngine {
             $new_html = '';
             if (is_array($json)) {
                 $model_json = $json;
-                $new_html = ModelPageRenderer::render($model_name !== '' ? $model_name : $focus_kw, self::extract_model_renderer_payload($model_json));
+                $new_html = ModelPageRenderer::render(
+                    $model_name !== '' ? $model_name : $focus_kw,
+                    array_merge($support_payload, self::extract_model_renderer_payload($model_json))
+                );
             }
             $new_focus = isset($json['focus_keyword']) ? trim((string)$json['focus_keyword']) : '';
 
