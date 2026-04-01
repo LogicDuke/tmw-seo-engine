@@ -178,6 +178,7 @@ class ModelPageRenderer {
 
     private static function clean_text(string $text, string $name, bool $heading): string {
         $text = wp_strip_all_tags(html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $text = self::strip_unresolved_template_tokens($text);
         $text = preg_replace('/\bthis model\b/iu', $name, $text) ?: $text;
         $text = preg_replace('/\bthe profile\b/iu', $name . ' profile', $text) ?: $text;
         $text = preg_replace('/\blive webcam\b/iu', self::NEUTRAL_FALLBACK, $text) ?: $text;
@@ -196,6 +197,7 @@ class ModelPageRenderer {
 
     private static function final_cleanup(string $html, string $name): string {
         $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/isu', '', $html) ?: $html;
+        $html = self::strip_unresolved_template_tokens($html);
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
         $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
         $html = preg_replace('/\blive webcam\b/iu', self::NEUTRAL_FALLBACK, $html) ?: $html;
@@ -204,6 +206,12 @@ class ModelPageRenderer {
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
 
         return trim($html);
+    }
+
+    private static function strip_unresolved_template_tokens(string $text): string {
+        $text = preg_replace('/\{[a-z0-9_]+\}/iu', '', $text) ?: $text;
+        $text = preg_replace('/\s+([,.!?;:])/u', '$1', $text) ?: $text;
+        return preg_replace('/\s+/', ' ', trim($text)) ?: trim($text);
     }
 
     /** @param array<int,string> $blocks */

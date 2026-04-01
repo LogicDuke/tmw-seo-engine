@@ -124,9 +124,9 @@ class TemplateContent {
         $intro_slug = (!empty($active_platforms) && count($active_platforms) > 1) ? 'model-intros-multi' : 'model-intros';
         $faq_slug   = (!empty($active_platforms) && count($active_platforms) > 1) ? 'model-faqs-multi' : 'model-faqs';
 
-        $intro = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick($intro_slug, $seed), $context), $name, false);
-        $bio = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick('model-bios', $seed, 1), $context), $name, false);
-        $comparison_copy = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick('model-comparisons', $seed), $context), $name, false);
+        $intro = self::cleanup_visible_text(self::resolve_template_tokens(TemplateEngine::render(TemplateEngine::pick($intro_slug, $seed), $context), $context), $name, false);
+        $bio = self::cleanup_visible_text(self::resolve_template_tokens(TemplateEngine::render(TemplateEngine::pick('model-bios', $seed, 1), $context), $context), $name, false);
+        $comparison_copy = self::cleanup_visible_text(self::resolve_template_tokens(TemplateEngine::render(TemplateEngine::pick('model-comparisons', $seed), $context), $context), $name, false);
 
         $faqs_tpl = TemplateEngine::pick_faq($faq_slug, $seed, 5);
         $keyword_coverage_html = self::render_rankmath_keyword_coverage(array_slice($extra, 0, 6), $name);
@@ -174,7 +174,7 @@ class TemplateContent {
         }
 
         $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
-        $content = self::cleanup_model_content($content, $name);
+        $content = self::cleanup_model_content($content, $name, $context);
 
         $seo_title = self::build_default_model_seo_title($name, $primary_platform_label, (int) $post->ID);
 
@@ -305,8 +305,8 @@ class TemplateContent {
             $q = trim((string)($faq['q'] ?? ''));
             $a = trim((string)($faq['a'] ?? ''));
             if ($q === '' || $a === '') continue;
-            $q = self::cleanup_visible_text(TemplateEngine::render($q, $context), $name, true);
-            $a = self::cleanup_visible_text(TemplateEngine::render($a, $context), $name, false);
+            $q = self::cleanup_visible_text(self::resolve_template_tokens(TemplateEngine::render($q, $context), $context), $name, true);
+            $a = self::cleanup_visible_text(self::resolve_template_tokens(TemplateEngine::render($a, $context), $context), $name, false);
             if ($q === '' || $a === '') {
                 continue;
             }
@@ -804,25 +804,28 @@ class TemplateContent {
         }
 
         $density = self::keyword_density_percent($content, $focus_keyword);
-        $platform_text = self::format_platform_list($active_platforms, $active_platforms[0] ?? self::NEUTRAL_PLATFORM_FALLBACK);
-        $extra_text = self::cleanup_visible_text($extra_keywords[0] ?? ($focus_keyword . ' live chat'), $focus_keyword, false);
 
-        while ($density < 1.0) {
-            $content .= "\n\n<p>" . esc_html($focus_keyword) . ' is the core topic of this page, with extra attention on ' . esc_html($extra_text) . ' and practical tips for viewers who want to watch on ' . esc_html($platform_text) . '.</p>';
+        // Keep density naturally readable while maintaining baseline focus coverage.
+        while ($density < 0.8) {
+            $content .= "\n\n<p>Viewers can use this guide to compare verified links, room quality, and access options before joining a live show.</p>";
             $density = self::keyword_density_percent($content, $focus_keyword);
-            if ($density >= 1.0 || str_word_count(wp_strip_all_tags($content)) > 900) {
+            if ($density >= 0.8 || str_word_count(wp_strip_all_tags($content)) > 900) {
                 break;
             }
         }
 
-        if ($density > 3.2) {
+        if ($density > 2.0) {
             $seen = 0;
-            $replacement = $focus_keyword . ' profile';
+            $replacement_pool = ['the profile', 'this page', 'the performer'];
             $content = preg_replace_callback(
                 '/' . preg_quote($focus_keyword, '/') . '/iu',
-                static function (array $matches) use (&$seen, $replacement): string {
+                static function (array $matches) use (&$seen, $replacement_pool): string {
                     $seen++;
-                    return $seen > 8 ? $replacement : $matches[0];
+                    if ($seen <= 6) {
+                        return $matches[0];
+                    }
+
+                    return $replacement_pool[($seen - 7) % count($replacement_pool)];
                 },
                 $content
             ) ?: $content;
@@ -1069,14 +1072,16 @@ class TemplateContent {
         return 'More about ' . $name;
     }
 
-    private static function cleanup_model_content(string $content, string $name): string {
+    private static function cleanup_model_content(string $content, string $name, array $context = []): string {
         $content = str_replace(['this model', 'This model'], [$name, $name], $content);
         $content = str_replace(['live webcam', 'Live webcam'], [self::NEUTRAL_PLATFORM_FALLBACK, ucfirst(self::NEUTRAL_PLATFORM_FALLBACK)], $content);
+        $content = self::resolve_template_tokens($content, $context);
 
         $content = preg_replace('/&lt;\/?h[1-6]&gt;/i', '', $content) ?: $content;
         $content = preg_replace('/<h([2-6])>\s*(Why fans who like|Watch\s+.+\s+with\s+|.+\s+and the live chat experience)(.*?)<\/h\1>/iu', '<h$1>' . $name . '</h$1>', $content) ?: $content;
         $content = preg_replace('/\b(' . preg_quote($name, '/') . '\s+)(\1)+/iu', '$1', $content) ?: $content;
         $content = preg_replace('/\b(official live profile)(\s+official live profile)+\b/iu', '$1', $content) ?: $content;
+        $content = preg_replace('/\s+([,.!?;:])/u', '$1', $content) ?: $content;
 
         return $content;
     }
@@ -1095,6 +1100,37 @@ class TemplateContent {
             $text = preg_replace('/\s+[—-]\s+what to expect$/iu', '', $text) ?: $text;
             $text = trim($text, " \t\n\r\0\x0B:;-—");
         }
+
+        return $text;
+    }
+
+    /**
+     * Resolve known template tokens and remove unresolved placeholders from visible text.
+     *
+     * @param array<string,mixed> $context
+     */
+    private static function resolve_template_tokens(string $text, array $context): string {
+        $replacements = [
+            'name' => trim((string)($context['name'] ?? '')),
+            'live_brand' => trim((string)($context['live_brand'] ?? '')),
+            'platform_a' => trim((string)($context['platform_a'] ?? '')),
+            'platform_b' => trim((string)($context['platform_b'] ?? '')),
+            'site' => trim((string)($context['site'] ?? '')),
+        ];
+
+        $text = preg_replace_callback('/\{([a-z0-9_]+)\}/iu', static function (array $matches) use ($replacements): string {
+            $token = strtolower((string)($matches[1] ?? ''));
+            if ($token === '') {
+                return '';
+            }
+
+            $replacement = trim((string)($replacements[$token] ?? ''));
+            return $replacement !== '' ? $replacement : '';
+        }, $text) ?: $text;
+
+        $text = preg_replace('/\s+([,.!?;:])/u', '$1', $text) ?: $text;
+        $text = preg_replace('/\(\s*\)/u', '', $text) ?: $text;
+        $text = preg_replace('/\s+/', ' ', trim($text)) ?: trim($text);
 
         return $text;
     }
