@@ -24,17 +24,10 @@ class TMW_Intent_Engine {
             return $content;
         }
 
-        $post_id = (int) get_the_ID();
-        if ($post_id <= 0 || strpos($content, 'tmw-intent-content') !== false) {
-            return $content;
-        }
-
-        $generated = $this->generate_for_post($post_id, false);
-        if ($generated === '') {
-            return $content;
-        }
-
-        return $content . "\n" . $generated;
+        // Model pages now include intent/internal-link sections through the generated renderer/template
+        // content. Keep legacy intent generation helpers callable, but prevent duplicate frontend
+        // the_content appends on singular model pages.
+        return $content;
     }
 
     public function generate_for_post(int $post_id, bool $persist_rank_math_meta = true): string {
