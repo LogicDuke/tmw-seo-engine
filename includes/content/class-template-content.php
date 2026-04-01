@@ -18,6 +18,8 @@ if (!defined('ABSPATH')) { exit; }
  */
 class TemplateContent {
 
+    private const NEUTRAL_PLATFORM_FALLBACK = 'official live profile';
+
     /**
      * @param array{primary:string,additional:string[],longtail:string[],sources:array} $pack
      * @return array{content:string, seo_title:string, meta_description:string}
@@ -52,7 +54,7 @@ class TemplateContent {
             $primary_platform_label = $active_platforms[0];
         }
         if ($primary_platform_label === '') {
-            $primary_platform_label = 'live webcam';
+            $primary_platform_label = self::NEUTRAL_PLATFORM_FALLBACK;
         }
 
         $tags = $pack['sources']['tags'] ?? [];
@@ -73,7 +75,7 @@ class TemplateContent {
                 'watch ' . $name . ' live',
                 $name . ' cam model',
             ];
-            if ($primary_platform_label !== 'live webcam') {
+            if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
                 $extra[] = $name . ' on ' . $primary_platform_label;
             }
         }
@@ -88,7 +90,7 @@ class TemplateContent {
                 $name . ' profile links',
                 $name . ' live stream',
             ];
-            if ($primary_platform_label !== 'live webcam') {
+            if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
                 $longtail[] = $name . ' ' . $primary_platform_label . ' live';
             }
         }
@@ -115,9 +117,9 @@ class TemplateContent {
         $intro_slug = (!empty($active_platforms) && count($active_platforms) > 1) ? 'model-intros-multi' : 'model-intros';
         $faq_slug   = (!empty($active_platforms) && count($active_platforms) > 1) ? 'model-faqs-multi' : 'model-faqs';
 
-        $intro = TemplateEngine::render(TemplateEngine::pick($intro_slug, $seed), $context);
-        $bio = TemplateEngine::render(TemplateEngine::pick('model-bios', $seed, 1), $context);
-        $comparison_copy = TemplateEngine::render(TemplateEngine::pick('model-comparisons', $seed), $context);
+        $intro = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick($intro_slug, $seed), $context), $name, false);
+        $bio = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick('model-bios', $seed, 1), $context), $name, false);
+        $comparison_copy = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick('model-comparisons', $seed), $context), $name, false);
 
         $faqs_tpl = TemplateEngine::pick_faq($faq_slug, $seed, 5);
         $faqs_html = self::render_faqs($faqs_tpl, $context);
@@ -132,15 +134,18 @@ class TemplateContent {
         $external_link_html = self::render_contextual_external_link();
         $watch_cta_section_html = self::render_watch_cta_section($cta_links, $name);
 
+        $platform_heading = $primary_platform_label === self::NEUTRAL_PLATFORM_FALLBACK
+            ? 'Watch ' . $name . ' Live'
+            : 'Watch ' . $name . ' Live on ' . $primary_platform_label;
+
         $sections = [
-            '<h1>' . esc_html($name) . '</h1>',
             '<p>' . esc_html($intro) . '</p>',
-            '<h2>Watch ' . esc_html($name) . ' Live on ' . esc_html($primary_platform_label) . '</h2>',
+            '<h2>' . esc_html($platform_heading) . '</h2>',
             '<p>Fans searching for <strong>' . esc_html($name) . ' live shows</strong> usually want a fast, safe way to join a real-time room. This guide highlights official profile links, what to expect, and the best ways to enjoy a quality live chat experience.</p>',
             $primary_cta_html !== '' ? '<h2>Watch ' . esc_html($name) . ' Live</h2>' . $primary_cta_html : '',
             '<h2>About ' . esc_html($name) . '</h2><p>' . esc_html($bio) . '</p>',
             $focus_blocks_html,
-            '<h2>' . esc_html($name) . ' on ' . esc_html($primary_platform_label) . '</h2>' . self::render_varied_features($name, $tags, $primary_platform_label, $seed),
+            '<h2>' . esc_html(self::build_clean_platform_section_heading($name, $primary_platform_label)) . '</h2>' . self::render_varied_features($name, $tags, $primary_platform_label, $seed),
             $keyword_coverage_html,
             $platform_comparison_html,
             $longtail_html,
@@ -157,19 +162,20 @@ class TemplateContent {
         $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
 
         if (self::similarity_score($content, (int)$post->ID) > 70.0) {
-            $content .= "\n\n" . '<h2>Why this ' . esc_html($name) . ' profile is unique</h2><p>This profile highlights ' . esc_html($name) . ' with current platform availability, related search intent, and a curated mix of ' . esc_html($tags_text) . ' cues tailored to this page.</p>';
+            $content .= "\n\n" . '<h2>Why ' . esc_html($name) . ' stands out</h2><p>This profile highlights ' . esc_html($name) . ' with current platform availability, related search intent, and a curated mix of ' . esc_html($tags_text) . ' cues tailored to this page.</p>';
             $content = self::split_long_paragraphs($content);
         }
 
         $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
+        $content = self::cleanup_model_content($content, $name);
 
         $seo_title = $name . ' — Live Cam Profile';
-        if ($primary_platform_label !== '' && $primary_platform_label !== 'live webcam') {
+        if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $seo_title = $name . ' on ' . $primary_platform_label . ' — Live Cam Profile';
         }
 
         $meta_description = 'Join ' . $name . "'s live chat";
-        if ($primary_platform_label !== '' && $primary_platform_label !== 'live webcam') {
+        if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $meta_description .= ' on ' . $primary_platform_label;
         }
         $meta_description .= '. Find trusted links, top features, privacy tips, FAQs, and related searches to get started.';
@@ -189,20 +195,28 @@ class TemplateContent {
 
         $blocks = [];
         if ($focus1 !== '') {
-            $blocks[] = '<h2>Why fans who like ' . esc_html($focus1) . ' choose ' . esc_html($name) . '</h2>';
-            $blocks[] = '<p>Viewers interested in ' . esc_html($focus1) . ' usually want a room that feels interactive, respectful, and easy to join. ' . esc_html($name) . ' matches that intent with a more personal live-chat experience.</p>';
+            $heading = self::build_focus_heading($focus1, $name, 2, 'Why viewers choose ' . $name);
+            $body_focus = self::cleanup_visible_text($focus1, $name, false);
+            $blocks[] = '<h2>' . esc_html($heading) . '</h2>';
+            $blocks[] = '<p>Viewers interested in ' . esc_html($body_focus) . ' usually want a room that feels interactive, respectful, and easy to join. ' . esc_html($name) . ' matches that intent with a more personal live-chat experience.</p>';
         }
         if ($focus2 !== '') {
-            $blocks[] = '<h3>' . esc_html($focus2) . ' and the live chat experience</h3>';
-            $blocks[] = '<p>Expect a chat style that keeps the focus on ' . esc_html($focus2) . ' without feeling repetitive. That makes the page useful for both first-time visitors and returning fans.</p>';
+            $heading = self::build_focus_heading($focus2, $name, 3, $name . ' live chat experience');
+            $body_focus = self::cleanup_visible_text($focus2, $name, false);
+            $blocks[] = '<h3>' . esc_html($heading) . '</h3>';
+            $blocks[] = '<p>Expect a chat style that keeps the focus on ' . esc_html($body_focus) . ' without feeling repetitive. That makes the page useful for both first-time visitors and returning fans.</p>';
         }
         if ($focus3 !== '') {
-            $blocks[] = '<h3>Watch ' . esc_html($focus3) . ' with ' . esc_html($name) . '</h3>';
-            $blocks[] = '<p>Fans searching for ' . esc_html($focus3) . ' usually want a direct route to a live room and clear profile links. This guide is designed to satisfy that exact intent.</p>';
+            $heading = self::build_focus_heading($focus3, $name, 3, 'How to watch ' . $name . ' live');
+            $body_focus = self::cleanup_visible_text($focus3, $name, false);
+            $blocks[] = '<h3>' . esc_html($heading) . '</h3>';
+            $blocks[] = '<p>Fans searching for ' . esc_html($body_focus) . ' usually want a direct route to a live room and clear profile links. This guide is designed to satisfy that exact intent.</p>';
         }
         if ($focus4 !== '') {
-            $blocks[] = '<h3>' . esc_html($focus4) . ' — what to expect</h3>';
-            $blocks[] = '<p>Sessions built around ' . esc_html($focus4) . ' work best when the viewer can compare platforms quickly and choose the right room with confidence.</p>';
+            $heading = self::build_focus_heading($focus4, $name, 3, 'What to expect from ' . $name);
+            $body_focus = self::cleanup_visible_text($focus4, $name, false);
+            $blocks[] = '<h3>' . esc_html($heading) . '</h3>';
+            $blocks[] = '<p>Sessions built around ' . esc_html($body_focus) . ' work best when the viewer can compare platforms quickly and choose the right room with confidence.</p>';
         }
 
         return implode("\n", $blocks);
@@ -217,7 +231,7 @@ class TemplateContent {
         $out  = '<h2>Popular searches related to ' . esc_html($name) . '</h2>';
         $out .= '<p>People looking for ' . esc_html($name) . ' often search for these related phrases before choosing a room or platform:</p><ul>';
         foreach ($keywords as $keyword) {
-            $out .= '<li>' . esc_html($keyword) . '</li>';
+            $out .= '<li>' . esc_html(self::cleanup_visible_text($keyword, $name, false)) . '</li>';
         }
         $out .= '</ul>';
 
@@ -229,14 +243,23 @@ class TemplateContent {
      */
     private static function render_faqs(array $faqs, array $context): string {
         if (empty($faqs)) return '';
-        $out = '<h2>FAQ About ' . esc_html((string)($context['name'] ?? 'this model')) . '</h2>';
+
+        $name = trim((string)($context['name'] ?? ''));
+        if ($name === '') {
+            $name = 'the performer';
+        }
+
+        $out = '<h2>FAQ About ' . esc_html($name) . '</h2>';
         foreach ($faqs as $faq) {
             if (!is_array($faq)) continue;
             $q = trim((string)($faq['q'] ?? ''));
             $a = trim((string)($faq['a'] ?? ''));
             if ($q === '' || $a === '') continue;
-            $q = TemplateEngine::render($q, $context);
-            $a = TemplateEngine::render($a, $context);
+            $q = self::cleanup_visible_text(TemplateEngine::render($q, $context), $name, true);
+            $a = self::cleanup_visible_text(TemplateEngine::render($a, $context), $name, false);
+            if ($q === '' || $a === '') {
+                continue;
+            }
             $out .= '<h3>' . esc_html($q) . '</h3>';
             $out .= '<p>' . esc_html($a) . '</p>';
         }
@@ -244,8 +267,11 @@ class TemplateContent {
     }
 
     private static function build_platform_comparison(\WP_Post $post, string $name, array $cta_links, string $comparison_copy): string {
+        $comparison_copy = self::cleanup_visible_text($comparison_copy, $name, false);
+
         if (empty($cta_links)) {
-            return '<h2>Choosing the best place to chat</h2><p>' . esc_html($comparison_copy !== '' ? $comparison_copy : ('Use trusted profile links and compare room features before you join ' . $name . '.')) . '</p>';
+            $fallback = 'Use trusted official profile links and compare room features before you join ' . $name . '.';
+            return '<h2>Choosing the best place to chat</h2><p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>';
         }
 
         $rows = '';
@@ -268,8 +294,10 @@ class TemplateContent {
             $table = '<table><thead><tr><th>Platform</th><th>Profile</th><th>Link</th></tr></thead><tbody>' . $rows . '</tbody></table>';
         }
 
+        $fallback = 'Check where ' . $name . ' is active, compare room features, and use the official watch links below.';
+
         return '<h2>Compare ' . esc_html($name) . ' across platforms</h2>'
-            . '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : ('Check where ' . $name . ' is active, compare room features, and use the official watch links below.')) . '</p>'
+            . '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>'
             . $table;
     }
 
@@ -513,8 +541,10 @@ class TemplateContent {
 
         $out  = '<h2>Questions fans ask about ' . esc_html($name) . '</h2>';
         foreach ($items as $kw) {
-            $out .= '<h3>' . esc_html($kw) . '</h3>';
-            $out .= '<p>Visitors searching for ' . esc_html($kw) . ' usually want a direct route to current profile links, a quick understanding of the show style, and confidence that they are choosing the right live room.</p>';
+            $heading = self::build_longtail_heading($kw, $name);
+            $body_kw = self::cleanup_visible_text($kw, $name, false);
+            $out .= '<h3>' . esc_html($heading) . '</h3>';
+            $out .= '<p>Visitors searching for ' . esc_html($body_kw) . ' usually want a direct route to current profile links, a quick understanding of the show style, and confidence that they are choosing the right live room.</p>';
         }
 
         return $out;
@@ -526,10 +556,10 @@ class TemplateContent {
             return $content;
         }
 
-        $focus1 = $extra_keywords[0] ?? ($name . ' live chat');
-        $focus2 = $extra_keywords[1] ?? ($name . ' webcam');
-        $platform_text = self::format_platform_list($active_platforms, $active_platforms[0] ?? 'live webcam');
-        $longtail_hint = $longtail[0] ?? ($name . ' schedule');
+        $focus1 = self::cleanup_visible_text($extra_keywords[0] ?? ($name . ' live chat'), $name, false);
+        $focus2 = self::cleanup_visible_text($extra_keywords[1] ?? ($name . ' webcam'), $name, false);
+        $platform_text = self::format_platform_list($active_platforms, $active_platforms[0] ?? self::NEUTRAL_PLATFORM_FALLBACK);
+        $longtail_hint = self::cleanup_visible_text($longtail[0] ?? ($name . ' schedule'), $name, false);
 
         $paragraphs = [
             'Fans returning to ' . $name . ' usually do so because the page makes it easy to compare platforms, understand the live-chat style, and jump directly into the right room without unnecessary friction.',
@@ -558,8 +588,8 @@ class TemplateContent {
         }
 
         $density = self::keyword_density_percent($content, $focus_keyword);
-        $platform_text = self::format_platform_list($active_platforms, $active_platforms[0] ?? 'live webcam');
-        $extra_text = $extra_keywords[0] ?? ($focus_keyword . ' live chat');
+        $platform_text = self::format_platform_list($active_platforms, $active_platforms[0] ?? self::NEUTRAL_PLATFORM_FALLBACK);
+        $extra_text = self::cleanup_visible_text($extra_keywords[0] ?? ($focus_keyword . ' live chat'), $focus_keyword, false);
 
         while ($density < 1.0) {
             $content .= "\n\n<p>" . esc_html($focus_keyword) . ' is the core topic of this page, with extra attention on ' . esc_html($extra_text) . ' and practical tips for viewers who want to watch on ' . esc_html($platform_text) . '.</p>';
@@ -571,11 +601,12 @@ class TemplateContent {
 
         if ($density > 3.2) {
             $seen = 0;
+            $replacement = 'the profile';
             $content = preg_replace_callback(
                 '/' . preg_quote($focus_keyword, '/') . '/iu',
-                static function (array $matches) use (&$seen): string {
+                static function (array $matches) use (&$seen, $replacement): string {
                     $seen++;
-                    return $seen > 8 ? 'this model' : $matches[0];
+                    return $seen > 8 ? $replacement : $matches[0];
                 },
                 $content
             ) ?: $content;
@@ -754,5 +785,128 @@ class TemplateContent {
         }
 
         return '<ul>' . implode("\n", $selected) . '</ul>';
+    }
+
+    private static function build_clean_platform_section_heading(string $name, string $platform_label): string {
+        if ($platform_label === '' || $platform_label === self::NEUTRAL_PLATFORM_FALLBACK) {
+            return $name . ' official live profile';
+        }
+
+        return $name . ' on ' . $platform_label;
+    }
+
+    private static function build_focus_heading(string $phrase, string $name, int $level, string $fallback): string {
+        $clean = self::cleanup_visible_text($phrase, $name, true);
+        $normalized = trim(mb_strtolower($clean, 'UTF-8'));
+
+        if ($normalized === '' || !self::is_readable_heading_phrase($clean, $name)) {
+            return $fallback;
+        }
+
+        if (preg_match('/^(why fans who like|watch\s+.+\s+with\s+|.+\s+and the live chat experience|this model\b)/iu', $clean)) {
+            return $fallback;
+        }
+
+        $heading = $clean;
+        if (!preg_match('/\b' . preg_quote($name, '/') . '\b/iu', $heading)) {
+            if ($level <= 2) {
+                return 'Why viewers choose ' . $name . ' for ' . $heading;
+            }
+            return $name . ': ' . $heading;
+        }
+
+        return $heading;
+    }
+
+    private static function build_longtail_heading(string $phrase, string $name): string {
+        $clean = self::cleanup_visible_text($phrase, $name, true);
+        if (self::is_readable_heading_phrase($clean, $name)) {
+            return $clean;
+        }
+
+        if (preg_match('/schedule|times|when/iu', $phrase)) {
+            return $name . ' schedule and availability';
+        }
+        if (preg_match('/profile|links/iu', $phrase)) {
+            return $name . ' profile links and access';
+        }
+        if (preg_match('/chat/iu', $phrase)) {
+            return $name . ' live chat experience';
+        }
+        if (preg_match('/stream|live|show/iu', $phrase)) {
+            return 'How to watch ' . $name . ' live';
+        }
+
+        return 'More about ' . $name;
+    }
+
+    private static function cleanup_model_content(string $content, string $name): string {
+        $content = str_replace(['this model', 'This model'], ['this profile', 'This profile'], $content);
+        $content = str_replace(['live webcam', 'Live webcam'], [self::NEUTRAL_PLATFORM_FALLBACK, ucfirst(self::NEUTRAL_PLATFORM_FALLBACK)], $content);
+
+        $content = preg_replace('/&lt;\/?h[1-6]&gt;/i', '', $content) ?: $content;
+        $content = preg_replace('/<h([2-6])>\s*(Why fans who like|Watch\s+.+\s+with\s+|.+\s+and the live chat experience)(.*?)<\/h\1>/iu', '<h$1>' . $name . '</h$1>', $content) ?: $content;
+        $content = preg_replace('/\b(' . preg_quote($name, '/') . '\s+)(\1)+/iu', '$1', $content) ?: $content;
+        $content = preg_replace('/\b(official live profile)(\s+official live profile)+\b/iu', '$1', $content) ?: $content;
+
+        return $content;
+    }
+
+    private static function cleanup_visible_text(string $text, string $name, bool $for_heading): string {
+        $text = wp_strip_all_tags(html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $text = preg_replace('/\bthis model\b/iu', $name !== '' ? $name : 'this profile', $text) ?: $text;
+        $text = preg_replace('/\blive webcam\b/iu', self::NEUTRAL_PLATFORM_FALLBACK, $text) ?: $text;
+        $text = preg_replace('/\s+/', ' ', trim($text)) ?: trim($text);
+
+        if ($for_heading) {
+            $text = preg_replace('/^(why fans who like|watch)\s+/iu', '', $text) ?: $text;
+            $text = preg_replace('/\s+and the live chat experience$/iu', '', $text) ?: $text;
+            $text = preg_replace('/\s+with\s+' . preg_quote($name, '/') . '$/iu', '', $text) ?: $text;
+            $text = preg_replace('/\s+[—-]\s+what to expect$/iu', '', $text) ?: $text;
+            $text = trim($text, " \t\n\r\0\x0B:;-—");
+        }
+
+        return $text;
+    }
+
+    private static function is_readable_heading_phrase(string $phrase, string $name): bool {
+        $phrase = trim($phrase);
+        if ($phrase === '') {
+            return false;
+        }
+
+        if (mb_strlen($phrase, 'UTF-8') < 8 || mb_strlen($phrase, 'UTF-8') > 80) {
+            return false;
+        }
+
+        if (substr_count($phrase, '...') > 0) {
+            return false;
+        }
+
+        if (preg_match('/[<>]|&lt;|&gt;/i', $phrase)) {
+            return false;
+        }
+
+        if (preg_match('/^(why fans who like|watch\b|this model\b)/iu', $phrase)) {
+            return false;
+        }
+
+        if (preg_match('/\band the live chat experience$/iu', $phrase)) {
+            return false;
+        }
+
+        $tokens = preg_split('/\s+/', $phrase);
+        $tokens = is_array($tokens) ? array_values(array_filter($tokens, 'strlen')) : [];
+        if (count($tokens) < 2 || count($tokens) > 10) {
+            return false;
+        }
+
+        $lower = mb_strtolower($phrase, 'UTF-8');
+        $name_lower = mb_strtolower($name, 'UTF-8');
+        if ($name_lower !== '' && $lower === $name_lower) {
+            return false;
+        }
+
+        return true;
     }
 }
