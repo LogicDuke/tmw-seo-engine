@@ -54,16 +54,10 @@ class TMW_Internal_Link_Engine {
             return $content;
         }
 
-        // Audit fix: extend linking beyond model pages to video posts.
-        $supported_types = ['model', 'post'];
-        if (!in_array($post->post_type, $supported_types, true)) {
-            return $content;
-        }
-
         if ($post->post_type === 'model') {
-            // Model pages now own internal-link rendering in the generated model template/content flow.
-            // Keep this legacy engine available for helper/manual calls, but do not append duplicate
-            // frontend sections via the_content on singular model pages.
+            // Model pages now own internal-link rendering in generated renderer/template content.
+            // Keep legacy helper methods (e.g. generate_links/inject_model_links) available for
+            // non-frontend/manual use, but do not append duplicate sections via the_content.
             return $content;
         }
 
