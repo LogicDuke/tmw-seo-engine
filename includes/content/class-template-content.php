@@ -122,43 +122,39 @@ class TemplateContent {
         $comparison_copy = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick('model-comparisons', $seed), $context), $name, false);
 
         $faqs_tpl = TemplateEngine::pick_faq($faq_slug, $seed, 5);
-        $primary_cta_html = self::render_primary_watch_cta($cta_links, $name);
-        $platform_comparison_html = self::build_platform_comparison($post, $name, $cta_links, $comparison_copy);
         $keyword_coverage_html = self::render_rankmath_keyword_coverage(array_slice($extra, 0, 6), $name);
-        $related_models_html = self::render_related_models($post, $name, $tags, $active_platforms);
-        $internal_links = self::render_internal_links($post);
-        $external_link_html = self::render_contextual_external_link();
-        $watch_cta_section_html = self::render_watch_cta_section($cta_links, $name);
+        $support_payload = self::build_model_renderer_support_payload($post, array_merge($pack, [
+            'name' => $name,
+            'cta_links' => $cta_links,
+            'tags' => $tags,
+            'active_platforms' => $active_platforms,
+            'longtail' => $longtail,
+            'comparison_copy' => $comparison_copy,
+        ]));
 
-        $platform_heading = $primary_platform_label === self::NEUTRAL_PLATFORM_FALLBACK
-            ? 'Watch ' . $name . ' Live'
-            : 'Watch ' . $name . ' Live on ' . $primary_platform_label;
-
-        $renderer_payload = [
+        $renderer_payload = array_merge($support_payload, [
             'focus_keyword' => $name,
             'intro_paragraphs' => [
                 $intro,
                 'Fans searching for ' . $name . ' live shows usually want a fast, safe way to join a real-time room. This guide highlights official profile links, what to expect, and the best ways to enjoy a quality live chat experience.',
             ],
-            'watch_section_paragraphs' => [$platform_heading],
-            'watch_section_html' => self::join_html_blocks([$primary_cta_html, $watch_cta_section_html]),
+            'watch_section_paragraphs' => [
+                $primary_platform_label === self::NEUTRAL_PLATFORM_FALLBACK
+                    ? 'Use the official profile links below to access current rooms and choose where to watch ' . $name . ' live.'
+                    : 'Use the verified links below to watch ' . $name . ' on ' . $primary_platform_label . ' and compare available rooms safely.',
+            ],
             'about_section_paragraphs' => [$bio],
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name),
             'features_section_paragraphs' => [
-                self::build_clean_platform_section_heading($name, $primary_platform_label),
+                $name . ' viewers often compare platform quality, stream stability, and profile access speed before joining a room. The details below help evaluate options quickly.',
             ],
             'features_section_html' => self::join_html_blocks([
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
                 $keyword_coverage_html,
             ]),
             'comparison_section_paragraphs' => [$comparison_copy],
-            'comparison_section_html' => $platform_comparison_html,
-            'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
             'faq_items' => $faqs_tpl,
-            'related_models_html' => $related_models_html,
-            'explore_more_html' => $internal_links,
-            'external_info_html' => $external_link_html,
-        ];
+        ]);
 
         $content = ModelPageRenderer::render($name, $renderer_payload);
         $content = self::split_long_paragraphs($content);
@@ -188,6 +184,57 @@ class TemplateContent {
             'content' => wp_kses_post($content),
             'seo_title' => $seo_title,
             'meta_description' => $meta_description,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $pack
+     * @return array<string,mixed>
+     */
+    public static function build_model_renderer_support_payload(\WP_Post $post, array $pack): array {
+        $name = trim((string)($pack['name'] ?? $pack['primary'] ?? ''));
+        if ($name === '') {
+            $name = trim((string)$post->post_title);
+        }
+        if ($name === '') {
+            $name = 'Live Cam Model';
+        }
+
+        $source_links = $pack['cta_links'] ?? PlatformProfiles::get_links($post->ID);
+        $cta_links = self::build_platform_cta_links((int)$post->ID, is_array($source_links) ? $source_links : []);
+
+        $active_platforms = $pack['active_platforms'] ?? [];
+        if (!is_array($active_platforms) || empty($active_platforms)) {
+            $active_platforms = [];
+            foreach ($cta_links as $row) {
+                $label = trim((string)($row['label'] ?? ''));
+                if ($label !== '') {
+                    $active_platforms[] = $label;
+                }
+            }
+        }
+        $active_platforms = array_values(array_unique(array_filter(array_map('strval', $active_platforms), 'strlen')));
+
+        $tags = $pack['tags'] ?? ($pack['sources']['tags'] ?? []);
+        if (!is_array($tags) || empty($tags)) {
+            $tags = self::discover_model_tags($post);
+        }
+        $tags = array_values(array_filter(array_map('strval', $tags), 'strlen'));
+
+        $longtail = $pack['longtail'] ?? ($pack['longtail_keywords'] ?? []);
+        $longtail = is_array($longtail) ? $longtail : [];
+        $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
+
+        return [
+            'watch_section_html' => self::join_html_blocks([
+                self::render_primary_watch_cta($cta_links, $name),
+                self::render_watch_cta_section($cta_links, $name),
+            ]),
+            'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
+            'related_models_html' => self::render_related_models($post, $name, $tags, $active_platforms),
+            'explore_more_html' => self::render_internal_links($post),
+            'external_info_html' => self::render_contextual_external_link(),
+            'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
         ];
     }
 
