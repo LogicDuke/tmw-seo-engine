@@ -20,6 +20,7 @@ namespace TMWSEO\Engine\Content;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Keywords\OwnershipEnforcer;
+use TMWSEO\Engine\Platform\PlatformProfiles;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -57,7 +58,7 @@ class ContentGenerationGate {
         }
 
         // ── Gate 1: Must have assigned primary keyword ────────────
-        $primary_kw = trim( (string) get_post_meta( $post_id, '_tmwseo_keyword', true ) );
+        $primary_kw = self::resolve_primary_keyword( $post_id );
         $details['primary_keyword'] = $primary_kw;
         if ( $primary_kw === '' ) {
             $reasons[] = 'missing_primary_keyword';
@@ -169,16 +170,10 @@ class ContentGenerationGate {
     private static function check_model_prerequisites( int $post_id ): array {
         $reasons = [];
 
-        // Must have at least one platform profile
-        $platforms = [ 'livejasmin', 'stripchat', 'chaturbate', 'myfreecams', 'camsoda', 'bonga', 'cam4' ];
-        $has_platform = false;
-        foreach ( $platforms as $p ) {
-            if ( trim( (string) get_post_meta( $post_id, '_tmwseo_platform_username_' . $p, true ) ) !== '' ) {
-                $has_platform = true;
-                break;
-            }
-        }
-        if ( ! $has_platform ) {
+        // Must have at least one platform profile.
+        // Support both legacy per-platform username metas and the newer
+        // PlatformProfiles service so editor-side saved profiles are recognised.
+        if ( ! self::model_has_platform_profile( $post_id ) ) {
             $reasons[] = 'model_missing_platform_profile';
         }
 
@@ -189,6 +184,50 @@ class ContentGenerationGate {
         }
 
         return $reasons;
+    }
+
+    private static function resolve_primary_keyword( int $post_id ): string {
+        $primary_kw = trim( (string) get_post_meta( $post_id, '_tmwseo_keyword', true ) );
+        if ( $primary_kw !== '' ) {
+            return $primary_kw;
+        }
+
+        $rank_math_focus = trim( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
+        if ( $rank_math_focus !== '' ) {
+            $parts = array_values( array_filter( array_map( 'trim', explode( ',', $rank_math_focus ) ) ) );
+            if ( ! empty( $parts ) ) {
+                return (string) $parts[0];
+            }
+        }
+
+        return '';
+    }
+
+    private static function model_has_platform_profile( int $post_id ): bool {
+        $platforms = [ 'livejasmin', 'stripchat', 'chaturbate', 'myfreecams', 'camsoda', 'bonga', 'cam4' ];
+        foreach ( $platforms as $p ) {
+            if ( trim( (string) get_post_meta( $post_id, '_tmwseo_platform_username_' . $p, true ) ) !== '' ) {
+                return true;
+            }
+        }
+
+        if ( class_exists( PlatformProfiles::class ) && method_exists( PlatformProfiles::class, 'get_links' ) ) {
+            $links = PlatformProfiles::get_links( $post_id );
+            if ( is_array( $links ) ) {
+                foreach ( $links as $link ) {
+                    if ( ! is_array( $link ) ) {
+                        continue;
+                    }
+                    $platform = sanitize_key( (string) ( $link['platform'] ?? '' ) );
+                    $url      = trim( (string) ( $link['url'] ?? '' ) );
+                    if ( $platform !== '' || $url !== '' || ! empty( $link['is_primary'] ) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     private static function check_video_prerequisites( int $post_id ): array {
