@@ -1,5 +1,15 @@
 # TMW SEO Engine — Changelog
 
+## 5.1.2 — CI Audit: Version Drift (2026-04-01)
+
+- [TMW-CI-AUDIT][TMW-VERSION] Audited GitHub Actions run `#64` (`actions/runs/23854101679`) and confirmed both matrix jobs (`PHP 8.1 — Lint & Tests`, `PHP 8.2 — Lint & Tests`) fail with exit code `2`, while Node.js 20 deprecation notices are emitted as warnings only.
+- [TMW-CI-AUDIT][TMW-VERSION] Verified workflow matrix explicitly runs PHPUnit on PHP `8.1` and `8.2` via `composer test`.
+- [TMW-CI-AUDIT][TMW-VERSION] Verified `tests/ActivationTest.php` asserts `TMWSEO_ENGINE_VERSION === '4.6.3'` and plugin header contains `Version: 4.6.3`.
+- [TMW-CI-AUDIT][TMW-VERSION] Verified `tmw-seo-engine.php` defines `TMWSEO_ENGINE_VERSION` as `'4.6.3'` but currently declares header `Version: 4.6.3-explorer-v2`.
+- [TMW-CI-AUDIT][TMW-VERSION] Audit conclusion: root cause is plugin-header version discipline drift (header mismatch against test expectation), not PHP syntax and not `actions/checkout@v4` Node 20 warning.
+
+---
+
 ## 5.1.1 — Stabilization + Architecture Hardening (2026-03-21)
 
 ### CRITICAL: Keyword Engine Lock — Race Condition Fixed
