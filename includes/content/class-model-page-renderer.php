@@ -4,7 +4,7 @@ namespace TMWSEO\Engine\Content;
 if (!defined('ABSPATH')) { exit; }
 
 class ModelPageRenderer {
-    public const NEUTRAL_FALLBACK = 'official live profile';
+    public const NEUTRAL_FALLBACK = 'official profile links';
 
     /**
      * @param array<string,mixed> $payload
@@ -200,7 +200,7 @@ class ModelPageRenderer {
         $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
         $html = preg_replace('/\blive webcam\b/iu', self::NEUTRAL_FALLBACK, $html) ?: $html;
         $html = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $html) ?: $html;
-        $html = preg_replace('/\b(official live profile)(\s+official live profile)+\b/iu', '$1', $html) ?: $html;
+        $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
 
         return trim($html);
