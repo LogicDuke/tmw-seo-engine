@@ -61,7 +61,10 @@ class TMW_Internal_Link_Engine {
         }
 
         if ($post->post_type === 'model') {
-            return $this->inject_model_links($content, (int) $post->ID);
+            // Model pages now own internal-link rendering in the generated model template/content flow.
+            // Keep this legacy engine available for helper/manual calls, but do not append duplicate
+            // frontend sections via the_content on singular model pages.
+            return $content;
         }
 
         if ($post->post_type === 'post') {
