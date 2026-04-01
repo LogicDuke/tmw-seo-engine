@@ -213,9 +213,9 @@ class ContentEngine {
                 "Write informative, helpful content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
                 "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
-                "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, content_html.\n" .
+                "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
                 "seo_title <= 60 characters. meta_description 150-160 characters.\n" .
-                "content_html must be valid HTML (h1, h2, h3, p, ul, li).\n"
+                "Do not include h1 or raw section HTML architecture.\n"
         ];
 
         $user_content =
@@ -231,20 +231,14 @@ class ContentEngine {
             "1) SEO title that matches the page and includes the keyword naturally.\n" .
             "2) Meta description with a clear value proposition.\n" .
             "3) One focus keyword (short).\n" .
-            "4) content_html with structured headings and an FAQ section (3-5 Q&As).\n";
+            "4) Provide section paragraph arrays and faq_items (3-5 Q&As).\n";
 
         if ($is_model_page) {
             $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
-                "- Use this exact heading structure in content_html:\n" .
-                "  H1: {$focus_kw} Live Chat\n" .
-                "  Intro paragraph including the exact primary keyword: {$focus_kw}\n" .
-                "  H2: Watch {$focus_kw} Live on Webcam\n" .
-                "  H2: Why Fans Love {$focus_kw}\n" .
-                "  H2: {$focus_kw} Live Chat Features\n" .
-                "  H2: {$focus_kw} Webcam Shows\n" .
-                "  H2: FAQ About {$focus_kw}\n" .
-                "- Ensure the primary keyword appears in the H1, intro, and at least 3 H2 headings.\n" .
-                "- content_html must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Return ONLY structured JSON fields for model sections (no HTML headings):\n" .
+                "  intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
+                "- Ensure the primary keyword appears naturally in intro text and at least one section paragraph.\n" .
+                "- Combined output must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
                 "- Expand each section with descriptive paragraphs and practical details.\n" .
                 "- Keep keyword density for the exact primary keyword between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
@@ -295,7 +289,8 @@ class ContentEngine {
         $html = trim((string) ($j['content_html'] ?? ''));
 
         if ($is_model_page) {
-            $validated = self::enforce_model_content_constraints([$system, ['role' => 'user', 'content' => $user_content]], $model, 3200, $generated_focus_kw, $html);
+            $html = ModelPageRenderer::render((string)$post->post_title, self::extract_model_renderer_payload($j));
+            $validated = self::enforce_model_content_constraints([$system, ['role' => 'user', 'content' => $user_content]], $model, 3200, $generated_focus_kw, $html, $j, (string)$post->post_title);
             $html = (string) ($validated['html'] ?? $html);
             $generated_focus_kw = trim((string) ($validated['focus_keyword'] ?? $generated_focus_kw));
         }
@@ -965,9 +960,9 @@ class ContentEngine {
                 "Write informative, helpful content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
                 "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
-                "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, content_html.\n" .
+                "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
                 "seo_title <= 60 characters. meta_description 150-160 characters.\n" .
-                "content_html must be valid HTML (h1, h2, h3, p, ul, li).\n"
+                "Do not include h1 or raw section HTML architecture.\n"
         ];
 
         $user_content =
@@ -984,23 +979,17 @@ class ContentEngine {
             "1) SEO title that matches the page and includes the keyword naturally.\n" .
             "2) Meta description with a clear value proposition.\n" .
             "3) One focus keyword (short).\n" .
-            "4) content_html with structured headings and an FAQ section (3-5 Q&As).\n";
+            "4) Provide section paragraph arrays and faq_items (3-5 Q&As).\n";
 
         $is_model_page = ($post->post_type === 'model');
 
         if ($is_model_page) {
             $primary_keyword = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
             $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
-                "- Use this exact heading structure in content_html:\n" .
-                "  H1: {$primary_keyword} Live Chat\n" .
-                "  Intro paragraph including the exact primary keyword: {$primary_keyword}\n" .
-                "  H2: Watch {$primary_keyword} Live on Webcam\n" .
-                "  H2: Why Fans Love {$primary_keyword}\n" .
-                "  H2: {$primary_keyword} Live Chat Features\n" .
-                "  H2: {$primary_keyword} Webcam Shows\n" .
-                "  H2: FAQ About {$primary_keyword}\n" .
-                "- Ensure the primary keyword appears in the H1, intro, and at least 3 H2 headings.\n" .
-                "- content_html must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Return ONLY structured JSON fields for model sections (no HTML headings):\n" .
+                "  intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
+                "- Ensure the primary keyword appears naturally in intro text and at least one section paragraph.\n" .
+                "- Combined output must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
                 "- Expand each section with descriptive paragraphs and practical details.\n" .
                 "- Keep keyword density for the exact primary keyword between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n";
         }
@@ -1042,7 +1031,8 @@ class ContentEngine {
         $focus_kw  = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
 
         if ($is_model_page) {
-            $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html);
+            $html = ModelPageRenderer::render((string)$post->post_title, self::extract_model_renderer_payload($j));
+            $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html, $j, (string)$post->post_title);
             $html = $validated['html'];
             $focus_kw = $validated['focus_keyword'];
         }
@@ -1174,7 +1164,27 @@ class ContentEngine {
         return $keyword_pack;
     }
 
-    private static function enforce_model_content_constraints(array $messages, string $model, int $max_tokens, string $focus_kw, string $html): array {
+    /**
+     * @param array<string,mixed> $json
+     * @return array<string,mixed>
+     */
+    private static function extract_model_renderer_payload(array $json): array {
+        return [
+            'focus_keyword' => (string)($json['focus_keyword'] ?? ''),
+            'intro_paragraphs' => isset($json['intro_paragraphs']) && is_array($json['intro_paragraphs']) ? $json['intro_paragraphs'] : [],
+            'watch_section_paragraphs' => isset($json['watch_section_paragraphs']) && is_array($json['watch_section_paragraphs']) ? $json['watch_section_paragraphs'] : [],
+            'about_section_paragraphs' => isset($json['about_section_paragraphs']) && is_array($json['about_section_paragraphs']) ? $json['about_section_paragraphs'] : [],
+            'fans_like_section_paragraphs' => isset($json['fans_like_section_paragraphs']) && is_array($json['fans_like_section_paragraphs']) ? $json['fans_like_section_paragraphs'] : [],
+            'features_section_paragraphs' => isset($json['features_section_paragraphs']) && is_array($json['features_section_paragraphs']) ? $json['features_section_paragraphs'] : [],
+            'comparison_section_paragraphs' => isset($json['comparison_section_paragraphs']) && is_array($json['comparison_section_paragraphs']) ? $json['comparison_section_paragraphs'] : [],
+            'faq_items' => isset($json['faq_items']) && is_array($json['faq_items']) ? $json['faq_items'] : [],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $model_json
+     */
+    private static function enforce_model_content_constraints(array $messages, string $model, int $max_tokens, string $focus_kw, string $html, array $model_json = [], string $model_name = ''): array {
         $focus_kw = trim($focus_kw);
         $attempts = 0;
 
@@ -1186,7 +1196,7 @@ class ContentEngine {
                 break;
             }
 
-            $feedback = "Rewrite content_html only and return full JSON again while preserving SEO intent.\n" .
+            $feedback = "Rewrite model sections only and return full JSON again while preserving SEO intent.\n" .
                 "- Minimum words: " . self::MODEL_MIN_WORDS . " (current: {$word_count}).\n" .
                 "- Expand sections with additional descriptive paragraphs.\n" .
                 "- Keep exact focus keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "% (current: " . round($density, 2) . "%).\n" .
@@ -1197,7 +1207,13 @@ class ContentEngine {
                 'role' => 'assistant',
                 'content' => wp_json_encode([
                     'focus_keyword' => $focus_kw,
-                    'content_html' => $html,
+                    'intro_paragraphs' => $model_json['intro_paragraphs'] ?? [],
+                    'watch_section_paragraphs' => $model_json['watch_section_paragraphs'] ?? [],
+                    'about_section_paragraphs' => $model_json['about_section_paragraphs'] ?? [],
+                    'fans_like_section_paragraphs' => $model_json['fans_like_section_paragraphs'] ?? [],
+                    'features_section_paragraphs' => $model_json['features_section_paragraphs'] ?? [],
+                    'comparison_section_paragraphs' => $model_json['comparison_section_paragraphs'] ?? [],
+                    'faq_items' => $model_json['faq_items'] ?? [],
                 ]),
             ];
             $retry_messages[] = [
@@ -1215,7 +1231,11 @@ class ContentEngine {
             }
 
             $json = $retry['json'] ?? [];
-            $new_html = (isset($json['content_html']) && is_string($json['content_html'])) ? trim($json['content_html']) : '';
+            $new_html = '';
+            if (is_array($json)) {
+                $model_json = $json;
+                $new_html = ModelPageRenderer::render($model_name !== '' ? $model_name : $focus_kw, self::extract_model_renderer_payload($model_json));
+            }
             $new_focus = isset($json['focus_keyword']) ? trim((string)$json['focus_keyword']) : '';
 
             if ($new_html !== '') {
