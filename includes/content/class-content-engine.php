@@ -280,6 +280,10 @@ class ContentEngine {
 
         $j = is_array($res['json'] ?? null) ? $res['json'] : [];
         $seo_title = TitleFixer::shorten(trim((string) ($j['seo_title'] ?? '')), 60);
+        if ($is_model_page && $seo_title === '') {
+            $fallback_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
+            $seo_title = TemplateContent::build_default_model_seo_title($fallback_name);
+        }
         $meta_desc = trim((string) ($j['meta_description'] ?? ''));
         $generated_focus_kw = trim((string) ($j['focus_keyword'] ?? ''));
         if ($is_model_page && !empty($keyword_pack['primary'])) {
@@ -1024,6 +1028,10 @@ class ContentEngine {
         $html      = (isset($j['content_html']) && is_string($j['content_html'])) ? $j['content_html'] : '';
 
         $seo_title = TitleFixer::shorten(trim($seo_title), 60);
+        if ($is_model_page && $seo_title === '') {
+            $fallback_name = trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
+            $seo_title = TemplateContent::build_default_model_seo_title($fallback_name);
+        }
         $meta_desc = trim($meta_desc);
         // For model pages, focus keyword must be the model name.
         if ($is_model_page && !empty($keyword_pack['primary'])) {

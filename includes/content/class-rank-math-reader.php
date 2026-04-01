@@ -117,10 +117,24 @@ class RankMathReader {
      */
     public static function get_robots( int $post_id ): array {
         $raw = get_post_meta( $post_id, 'rank_math_robots', true );
-        if ( is_array( $raw ) && ! empty( $raw ) ) {
-            return array_values( array_filter( array_map( 'trim', array_map( 'strval', $raw ) ), 'strlen' ) );
+        $robots = self::normalize_robots_meta( $raw );
+
+        if ( empty( $robots ) ) {
+            $fallback_fields = [
+                'rank_math_robots_index',
+                'rank_math_robots_follow',
+                'rank_math_robots_advanced',
+            ];
+
+            foreach ( $fallback_fields as $meta_key ) {
+                $meta_value = get_post_meta( $post_id, $meta_key, true );
+                $robots     = array_merge( $robots, self::normalize_robots_meta( $meta_value ) );
+            }
+
+            $robots = array_values( array_unique( array_filter( array_map( 'trim', $robots ), 'strlen' ) ) );
         }
-        return [];
+
+        return $robots;
     }
 
     /**
@@ -223,5 +237,76 @@ class RankMathReader {
             return '';
         }
         return (string) \RankMath\Helper::get_settings( 'titles.pt_' . $post_type . '_description', '' );
+    }
+
+    /**
+     * Normalize Rank Math robots meta from array/string/serialized/json variants.
+     *
+     * @param mixed $raw
+     * @return string[]
+     */
+    private static function normalize_robots_meta( $raw ): array {
+        if ( is_array( $raw ) ) {
+            return self::normalize_robots_tokens( $raw );
+        }
+
+        if ( ! is_string( $raw ) ) {
+            return [];
+        }
+
+        $value = trim( $raw );
+        if ( $value === '' ) {
+            return [];
+        }
+
+        if ( is_serialized( $value ) ) {
+            $unserialized = maybe_unserialize( $value );
+            if ( is_array( $unserialized ) ) {
+                return self::normalize_robots_tokens( $unserialized );
+            }
+        }
+
+        if ( ( strpos( $value, '[' ) === 0 || strpos( $value, '{' ) === 0 ) ) {
+            $decoded = json_decode( $value, true );
+            if ( is_array( $decoded ) ) {
+                return self::normalize_robots_tokens( $decoded );
+            }
+        }
+
+        $parts = preg_split( '/[\s,|]+/', $value );
+        if ( ! is_array( $parts ) ) {
+            return [];
+        }
+
+        return self::normalize_robots_tokens( $parts );
+    }
+
+    /**
+     * @param array<int|string,mixed> $tokens
+     * @return string[]
+     */
+    private static function normalize_robots_tokens( array $tokens ): array {
+        $out = [];
+
+        foreach ( $tokens as $token ) {
+            if ( ! is_scalar( $token ) ) {
+                continue;
+            }
+
+            $value = strtolower( trim( (string) $token ) );
+            if ( $value === '' ) {
+                continue;
+            }
+
+            if ( in_array( $value, [ '1', 'yes', 'on', 'true' ], true ) ) {
+                $value = 'index';
+            } elseif ( in_array( $value, [ '0', 'no', 'off', 'false' ], true ) ) {
+                $value = 'noindex';
+            }
+
+            $out[] = $value;
+        }
+
+        return array_values( array_unique( $out ) );
     }
 }

@@ -7,6 +7,7 @@ use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Keywords\ModelKeywordPack;
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Services\TitleFixer;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -169,10 +170,7 @@ class TemplateContent {
         $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
         $content = self::cleanup_model_content($content, $name);
 
-        $seo_title = $name . ' — Live Cam Profile';
-        if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $seo_title = $name . ' on ' . $primary_platform_label . ' — Live Cam Profile';
-        }
+        $seo_title = self::build_default_model_seo_title($name, $primary_platform_label);
 
         $meta_description = 'Join ' . $name . "'s live chat";
         if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
@@ -331,7 +329,7 @@ class TemplateContent {
             $rows .= '<tr>'
                 . '<td>' . esc_html($label) . '</td>'
                 . '<td>@' . esc_html($username) . '</td>'
-                . '<td><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">Watch live</a></td>'
+                . '<td><a href="' . esc_url($url) . '" target="_blank" rel="' . esc_attr(!empty($link['is_primary']) ? 'sponsored noopener' : 'sponsored nofollow noopener') . '">Watch live</a></td>'
                 . '</tr>';
         }
 
@@ -397,7 +395,7 @@ class TemplateContent {
                 $label = 'live cam';
             }
 
-            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch ' . $name . ' on ' . $label) . '</a></p>';
+            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored noopener">' . esc_html('Watch ' . $name . ' on ' . $label) . '</a></p>';
         }
 
         return '';
@@ -555,7 +553,7 @@ class TemplateContent {
                 continue;
             }
 
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch ' . $name . ' on ' . $platform) . '</a></li>';
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="' . esc_attr(!empty($link['is_primary']) ? 'sponsored noopener' : 'sponsored nofollow noopener') . '">' . esc_html('Watch ' . $name . ' on ' . $platform) . '</a></li>';
 
             if (count($items) >= 4) {
                 break;
@@ -576,6 +574,21 @@ class TemplateContent {
         }
 
         return '<h3>What is a webcam model?</h3><p><a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="nofollow noopener">Read this informational overview on Wikipedia</a>.</p>';
+    }
+
+    public static function build_default_model_seo_title(string $name, string $primary_platform_label = ''): string {
+        $name = trim($name);
+        if ($name === '') {
+            $name = 'Live Cam Model';
+        }
+
+        $year = gmdate('Y');
+        $title = $name . ' — Verified Live Cam Profile ' . $year;
+        if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+            $title = $name . ' on ' . $primary_platform_label . ' — Verified Profile ' . $year;
+        }
+
+        return TitleFixer::shorten($title, 65);
     }
 
     /** @return string[] */
