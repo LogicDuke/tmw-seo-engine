@@ -94,6 +94,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-ranking-probability',
             self::MENU_SLUG . '_page_tmwseo-reports',
             self::MENU_SLUG . '_page_tmwseo-connections',
+            self::MENU_SLUG . '_page_tmwseo-affiliates',
             self::MENU_SLUG . '_page_tmwseo-settings',
             self::MENU_SLUG . '_page_tmwseo-tools',
             self::MENU_SLUG . '_page_tmwseo-internal-links',
@@ -995,6 +996,7 @@ class Admin {
 
         // ── System ─────────────────────────────────────────────────────────
         add_submenu_page(self::MENU_SLUG, __('Connections', 'tmwseo'), __('Connections', 'tmwseo'), 'manage_options', 'tmwseo-connections', ['\\TMWSEO\\Engine\\Admin\\AdminDashboardV2', 'page_connections']);
+        add_submenu_page(self::MENU_SLUG, __('Affiliates', 'tmwseo'),  __('Affiliates', 'tmwseo'),  'manage_options', 'tmwseo-affiliates', [__CLASS__, 'render_affiliates']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
         add_submenu_page(self::MENU_SLUG, __('CSV Manager', 'tmwseo'), __('CSV Manager', 'tmwseo'), 'manage_options', 'tmwseo-csv-manager', ['\TMWSEO\Engine\Admin\CSVManagerAdminPage', 'render_page']);
@@ -1075,6 +1077,7 @@ class Admin {
             'tmwseo-model-optimizer',   // legacy hidden alias → redirects to tmwseo-models
             'tmwseo-reports',
             'tmwseo-connections',
+            'tmwseo-affiliates',
             'tmwseo-settings',
             'tmwseo-tools',
             'tmwseo-csv-manager',
