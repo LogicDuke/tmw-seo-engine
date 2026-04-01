@@ -6,6 +6,7 @@ use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
+use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 
@@ -495,19 +496,309 @@ class ContentEngine {
         }, $items));
     }
 
+
+    private static function should_bootstrap_model_generation( \WP_Post $post, array $payload, bool $keywords_only ): bool {
+        if ( $post->post_type !== 'model' || $keywords_only ) {
+            return false;
+        }
+
+        if ( ! empty( $payload['manual_model_generate'] ) ) {
+            return true;
+        }
+
+        return sanitize_key( (string) ( $payload['trigger'] ?? '' ) ) === 'manual';
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @return array{primary:string,additional:string[],longtail:string[],sources:array<string,mixed>}
+     */
+    private static function bootstrap_model_generation_prereqs( \WP_Post $post, array $payload = [] ): array {
+        $pack = [
+            'primary'    => '',
+            'additional' => [],
+            'longtail'   => [],
+            'sources'    => [],
+        ];
+
+        if ( class_exists( AssistedDraftEnrichmentService::class )
+            && method_exists( AssistedDraftEnrichmentService::class, 'build_and_store_keyword_pack_for_post' ) ) {
+            try {
+                $generated = AssistedDraftEnrichmentService::build_and_store_keyword_pack_for_post( $post, true );
+                if ( is_array( $generated ) ) {
+                    $pack = array_merge( $pack, $generated );
+                }
+            } catch ( \Throwable $e ) {
+                Logs::warn( 'content', '[TMW-MODEL-BOOTSTRAP] Keyword pack generation failed; using starter fallback', [
+                    'post_id' => (int) $post->ID,
+                    'error'   => $e->getMessage(),
+                ] );
+            }
+        }
+
+        $pack = self::normalize_model_keyword_pack( $post, $pack, $payload );
+        self::sync_model_generation_bootstrap_meta( $post, $pack );
+
+        return $pack;
+    }
+
+    /**
+     * @param array<string,mixed> $pack
+     * @param array<string,mixed> $payload
+     * @return array{primary:string,additional:string[],longtail:string[],sources:array<string,mixed>}
+     */
+    private static function normalize_model_keyword_pack( \WP_Post $post, array $pack, array $payload = [] ): array {
+        $platforms = self::collect_model_platform_snapshot( (int) $post->ID );
+
+        $primary = trim( (string) ( $pack['primary'] ?? '' ) );
+        if ( $primary === '' ) {
+            $primary = trim( (string) get_post_meta( $post->ID, '_tmwseo_keyword', true ) );
+        }
+        if ( $primary === '' ) {
+            $rank_math_focus = trim( (string) get_post_meta( $post->ID, 'rank_math_focus_keyword', true ) );
+            if ( $rank_math_focus !== '' ) {
+                $rank_parts = array_values( array_filter( array_map( 'trim', explode( ',', $rank_math_focus ) ) ) );
+                $primary = (string) ( $rank_parts[0] ?? '' );
+            }
+        }
+        if ( $primary === '' ) {
+            $primary = trim( (string) ( $payload['keyword'] ?? '' ) );
+        }
+        if ( $primary === '' ) {
+            $primary = trim( (string) $post->post_title );
+        }
+        if ( $primary === '' ) {
+            $primary = 'Live Cam Model';
+        }
+
+        $primary = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post( $post, $primary );
+
+        $additional = is_array( $pack['additional'] ?? null ) ? $pack['additional'] : [];
+        $additional = array_values( array_filter( array_map( 'trim', $additional ), 'strlen' ) );
+        $additional = array_values( array_unique( array_merge( $additional, self::starter_model_additional_keywords( $primary, $platforms ) ) ) );
+        $additional = array_slice( $additional, 0, 8 );
+
+        $longtail = is_array( $pack['longtail'] ?? null ) ? $pack['longtail'] : [];
+        $longtail = array_values( array_filter( array_map( 'trim', $longtail ), 'strlen' ) );
+        $longtail = array_values( array_unique( array_merge( $longtail, self::starter_model_longtail_keywords( $primary, $platforms ) ) ) );
+        $longtail = array_slice( $longtail, 0, 8 );
+
+        $sources = is_array( $pack['sources'] ?? null ) ? $pack['sources'] : [];
+        if ( ! isset( $sources['tags'] ) ) {
+            $sources['tags'] = self::model_tag_names( $post );
+        }
+        $sources['bootstrap'] = 'manual_model_generate';
+        $sources['platforms'] = $platforms['slugs'];
+
+        return [
+            'primary'    => $primary,
+            'additional' => $additional,
+            'longtail'   => $longtail,
+            'sources'    => $sources,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $base_pack
+     * @param array<string,mixed> $generated_pack
+     * @param array<string,mixed> $payload
+     * @return array{primary:string,additional:string[],longtail:string[],sources:array<string,mixed>}
+     */
+    private static function merge_model_keyword_pack( array $base_pack, array $generated_pack, \WP_Post $post, array $payload = [] ): array {
+        $pack = [
+            'primary'    => trim( (string) ( $generated_pack['primary'] ?? $base_pack['primary'] ?? '' ) ),
+            'additional' => array_values( array_unique( array_merge(
+                is_array( $base_pack['additional'] ?? null ) ? $base_pack['additional'] : [],
+                is_array( $generated_pack['additional'] ?? null ) ? $generated_pack['additional'] : []
+            ) ) ),
+            'longtail'   => array_values( array_unique( array_merge(
+                is_array( $base_pack['longtail'] ?? null ) ? $base_pack['longtail'] : [],
+                is_array( $generated_pack['longtail'] ?? null ) ? $generated_pack['longtail'] : []
+            ) ) ),
+            'sources'    => array_merge(
+                is_array( $base_pack['sources'] ?? null ) ? $base_pack['sources'] : [],
+                is_array( $generated_pack['sources'] ?? null ) ? $generated_pack['sources'] : []
+            ),
+        ];
+
+        return self::normalize_model_keyword_pack( $post, $pack, $payload );
+    }
+
+    /**
+     * @param array{primary:string,additional:string[],longtail:string[],sources:array<string,mixed>} $pack
+     */
+    private static function sync_model_generation_bootstrap_meta( \WP_Post $post, array $pack ): void {
+        $post_id  = (int) $post->ID;
+        $primary  = trim( (string) ( $pack['primary'] ?? '' ) );
+        $platform = self::collect_model_platform_snapshot( $post_id );
+
+        if ( $primary !== '' ) {
+            update_post_meta( $post_id, '_tmwseo_keyword', $primary );
+        }
+
+        $confidence_raw = get_post_meta( $post_id, '_tmwseo_keyword_confidence', true );
+        if ( $confidence_raw === '' || $confidence_raw === false || (float) $confidence_raw < 10.0 ) {
+            update_post_meta( $post_id, '_tmwseo_keyword_confidence', self::starter_model_keyword_confidence( $pack, $platform ) );
+        }
+
+        if ( ! empty( $platform['primary_slug'] ) && get_post_meta( $post_id, '_tmwseo_primary_platform', true ) === '' ) {
+            update_post_meta( $post_id, '_tmwseo_primary_platform', (string) $platform['primary_slug'] );
+        }
+
+        if ( class_exists( AssistedDraftEnrichmentService::class ) && method_exists( AssistedDraftEnrichmentService::class, 'enrich_rank_math_keywords' ) ) {
+            AssistedDraftEnrichmentService::enrich_rank_math_keywords( $post, $pack );
+        }
+
+        if ( class_exists( '\TMWSEO\Engine\Content\RankMathMapper' ) ) {
+            RankMathMapper::sync_to_rank_math( $post_id, $pack, true );
+        } elseif ( $primary !== '' ) {
+            update_post_meta( $post_id, 'rank_math_focus_keyword', $primary );
+            if ( ! empty( $pack['additional'] ) ) {
+                update_post_meta( $post_id, 'rank_math_additional_keywords', implode( ', ', array_slice( $pack['additional'], 0, 8 ) ) );
+            }
+        }
+    }
+
+    /**
+     * @return array{slugs:string[],labels:string[],primary_slug:string,primary_label:string,count:int}
+     */
+    private static function collect_model_platform_snapshot( int $post_id ): array {
+        $supported = [ 'livejasmin', 'stripchat', 'chaturbate', 'myfreecams', 'camsoda', 'bonga', 'cam4' ];
+        $slugs = [];
+        $labels = [];
+        $primary_slug = '';
+        $primary_label = '';
+
+        if ( class_exists( PlatformProfiles::class ) && method_exists( PlatformProfiles::class, 'get_links' ) ) {
+            $links = PlatformProfiles::get_links( $post_id );
+            if ( is_array( $links ) ) {
+                foreach ( $links as $link ) {
+                    if ( ! is_array( $link ) ) {
+                        continue;
+                    }
+                    $platform = sanitize_key( (string) ( $link['platform'] ?? '' ) );
+                    if ( $platform === '' ) {
+                        continue;
+                    }
+                    if ( ! in_array( $platform, $slugs, true ) ) {
+                        $slugs[] = $platform;
+                        $platform_meta = class_exists( '\TMWSEO\Engine\Platform\PlatformRegistry' )
+                            ? \TMWSEO\Engine\Platform\PlatformRegistry::get( $platform )
+                            : [];
+                        $labels[] = (string) ( $platform_meta['name'] ?? ucfirst( $platform ) );
+                    }
+                    if ( empty( $primary_slug ) && ! empty( $link['is_primary'] ) ) {
+                        $primary_slug = $platform;
+                    }
+                }
+            }
+        }
+
+        foreach ( $supported as $platform ) {
+            $username = trim( (string) get_post_meta( $post_id, '_tmwseo_platform_username_' . $platform, true ) );
+            if ( $username === '' ) {
+                continue;
+            }
+            if ( ! in_array( $platform, $slugs, true ) ) {
+                $slugs[] = $platform;
+                $platform_meta = class_exists( '\TMWSEO\Engine\Platform\PlatformRegistry' )
+                    ? \TMWSEO\Engine\Platform\PlatformRegistry::get( $platform )
+                    : [];
+                $labels[] = (string) ( $platform_meta['name'] ?? ucfirst( $platform ) );
+            }
+        }
+
+        if ( $primary_slug === '' && ! empty( $slugs ) ) {
+            $primary_slug = (string) $slugs[0];
+        }
+        if ( $primary_slug !== '' ) {
+            $platform_meta = class_exists( '\TMWSEO\Engine\Platform\PlatformRegistry' )
+                ? \TMWSEO\Engine\Platform\PlatformRegistry::get( $primary_slug )
+                : [];
+            $primary_label = (string) ( $platform_meta['name'] ?? ucfirst( $primary_slug ) );
+        }
+
+        return [
+            'slugs'         => $slugs,
+            'labels'        => array_values( array_unique( array_filter( $labels ) ) ),
+            'primary_slug'  => $primary_slug,
+            'primary_label' => $primary_label,
+            'count'         => count( $slugs ),
+        ];
+    }
+
+    /** @return string[] */
+    private static function starter_model_additional_keywords( string $primary, array $platform ): array {
+        $keywords = [
+            $primary . ' live chat',
+            $primary . ' webcam',
+            'watch ' . $primary . ' live',
+            $primary . ' cam model',
+        ];
+
+        if ( ! empty( $platform['primary_label'] ) ) {
+            $keywords[] = $primary . ' on ' . (string) $platform['primary_label'];
+        }
+        foreach ( array_slice( $platform['labels'] ?? [], 0, 2 ) as $label ) {
+            $keywords[] = $primary . ' ' . $label . ' profile';
+        }
+
+        return array_values( array_unique( array_filter( array_map( 'trim', $keywords ), 'strlen' ) ) );
+    }
+
+    /** @return string[] */
+    private static function starter_model_longtail_keywords( string $primary, array $platform ): array {
+        $keywords = [
+            $primary . ' live shows',
+            $primary . ' schedule',
+            $primary . ' live stream',
+            $primary . ' profile links',
+        ];
+
+        if ( ! empty( $platform['primary_label'] ) ) {
+            $keywords[] = $primary . ' ' . (string) $platform['primary_label'] . ' live';
+        }
+
+        return array_values( array_unique( array_filter( array_map( 'trim', $keywords ), 'strlen' ) ) );
+    }
+
+    /** @return string[] */
+    private static function model_tag_names( \WP_Post $post ): array {
+        $tags = get_the_terms( $post, 'post_tag' );
+        if ( ! is_array( $tags ) ) {
+            return [];
+        }
+
+        $names = [];
+        foreach ( $tags as $tag ) {
+            if ( $tag instanceof \WP_Term ) {
+                $names[] = (string) $tag->slug;
+            }
+        }
+
+        return array_values( array_unique( array_filter( $names ) ) );
+    }
+
+    /**
+     * @param array{primary:string,additional:string[],longtail:string[],sources:array<string,mixed>} $pack
+     */
+    private static function starter_model_keyword_confidence( array $pack, array $platform ): float {
+        $score = 54.0;
+        if ( trim( (string) ( $pack['primary'] ?? '' ) ) !== '' ) {
+            $score += 8.0;
+        }
+        $score += min( 10.0, (float) count( $pack['additional'] ?? [] ) * 2.0 );
+        $score += min( 8.0, (float) count( $pack['longtail'] ?? [] ) * 1.5 );
+        $score += ! empty( $platform['count'] ) ? min( 10.0, (float) $platform['count'] * 3.0 ) : 0.0;
+
+        return min( 82.0, max( 58.0, round( $score, 1 ) ) );
+    }
+
     public static function run_optimize_job(array $job): void {
         $post_id = (int)($job['entity_id'] ?? 0);
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
         if ($post_id <= 0) {
             Logs::warn('content', 'optimize_post missing entity_id');
-            return;
-        }
-
-        // ── Architecture v5.0: Content Generation Gate ────────────
-        if ( class_exists( ContentGenerationGate::class ) && ! ContentGenerationGate::is_allowed( $post_id ) ) {
-            Logs::info( 'content', '[TMW-CONTENT] Optimization blocked by ContentGenerationGate', [
-                'post_id' => $post_id,
-            ] );
             return;
         }
 
@@ -517,18 +808,20 @@ class ContentEngine {
             return;
         }
 
-        if (Settings::is_safe_mode()) {
+        $payload = $job['payload'] ?? [];
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        $insert_block = (int)($payload['insert_block'] ?? 1) === 1;
+        $keywords_only = (int)($payload['keywords_only'] ?? 0) === 1 || (int)($payload['refresh_keywords_only'] ?? 0) === 1;
+
+        if (!$keywords_only && Settings::is_safe_mode()) {
             Logs::info('content', 'Safe mode enabled; skipping AI generation', ['post_id' => $post_id]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'skipped_safe_mode');
             return;
         }
-
-        $payload = $job['payload'] ?? [];
-        if (!is_array($payload)) $payload = [];
-
-        $insert_block = (int)($payload['insert_block'] ?? 1) === 1;
-        $keywords_only = (int)($payload['keywords_only'] ?? 0) === 1 || (int)($payload['refresh_keywords_only'] ?? 0) === 1;
 
         // Strategy precedence: explicit payload > settings.
         $strategy = sanitize_key((string)($payload['strategy'] ?? ''));
@@ -536,10 +829,19 @@ class ContentEngine {
             $strategy = ((int)$dry === 1) ? 'template' : 'openai';
         }
 
-        // Build keyword pack for models (and keep it stored for UI + prompts).
+        $is_manual_model_request = self::is_manual_model_request($post, $payload);
+
+        // Build keyword pack for models first so manual bootstrap can satisfy
+        // obvious prerequisites before the content gate blocks generation.
         $keyword_pack = [];
         if ($post->post_type === 'model') {
             $keyword_pack = AssistedDraftEnrichmentService::build_and_store_keyword_pack_for_post($post, true);
+            if (class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'hydrate_model_keyword_pack')) {
+                $keyword_pack = TemplateContent::hydrate_model_keyword_pack($post, $keyword_pack);
+            }
+            if ($is_manual_model_request) {
+                $keyword_pack = self::bootstrap_manual_model_generate($post, $keyword_pack);
+            }
             AssistedDraftEnrichmentService::enrich_rank_math_keywords($post, $keyword_pack);
         }
 
@@ -554,9 +856,27 @@ class ContentEngine {
             Logs::info('content', '[TMW-KEYWORDS] Refreshed keyword pack + RankMath fields only', [
                 'post_id' => $post_id,
                 'post_type' => $post->post_type,
+                'manual_bootstrap' => $is_manual_model_request,
             ]);
 
             return;
+        }
+
+        // ── Architecture v5.0: Content Generation Gate ────────────
+        // Preserve the gate globally, but evaluate it AFTER explicit manual
+        // model bootstrap so safe prerequisites can be satisfied first.
+        if ( class_exists( ContentGenerationGate::class ) ) {
+            $gate = ContentGenerationGate::evaluate( $post_id );
+            if ( ! $gate['allowed'] ) {
+                Logs::info( 'content', '[TMW-CONTENT] Optimization blocked by ContentGenerationGate', [
+                    'post_id' => $post_id,
+                    'reasons' => $gate['reasons'] ?? [],
+                    'manual_bootstrap' => $is_manual_model_request,
+                ] );
+                delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+                update_post_meta($post_id, '_tmwseo_optimize_done', 'blocked_content_gate');
+                return;
+            }
         }
 
         // Template generation is the default fallback (replaces the old "offline dry" placeholder).
@@ -765,6 +1085,93 @@ class ContentEngine {
         self::maybe_clear_rank_math_noindex($post);
 
         Logs::info('content', 'Optimized', ['post_id' => $post_id, 'context' => $context, 'model' => $model]);
+    }
+
+
+    private static function is_manual_model_request(\WP_Post $post, array $payload): bool {
+        if ($post->post_type !== 'model') {
+            return false;
+        }
+
+        $trigger = sanitize_key((string)($payload['trigger'] ?? ''));
+        $explicit = !empty($payload['explicit_generate']);
+
+        return $trigger === 'manual' || $explicit;
+    }
+
+    /**
+     * Manual model bootstrap for explicit Generate / Refresh clicks only.
+     *
+     * Safely hydrates missing keyword prerequisites before the content gate runs,
+     * without weakening manual-only / no-auto-publish architecture.
+     *
+     * @param array<string,mixed> $keyword_pack
+     * @return array<string,mixed>
+     */
+    private static function bootstrap_manual_model_generate(\WP_Post $post, array $keyword_pack): array {
+        if ($post->post_type !== 'model') {
+            return $keyword_pack;
+        }
+
+        if (class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'hydrate_model_keyword_pack')) {
+            $keyword_pack = TemplateContent::hydrate_model_keyword_pack($post, $keyword_pack);
+        }
+
+        $primary = trim((string)($keyword_pack['primary'] ?? ''));
+        if ($primary === '') {
+            $primary = trim((string)get_post_meta($post->ID, '_tmwseo_keyword', true));
+        }
+        if ($primary === '') {
+            $primary = trim((string)$post->post_title);
+        }
+        $primary = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $primary);
+        if ($primary !== '') {
+            $keyword_pack['primary'] = $primary;
+            update_post_meta($post->ID, '_tmwseo_keyword', $primary);
+        }
+
+        $additional = isset($keyword_pack['additional']) && is_array($keyword_pack['additional'])
+            ? array_values(array_filter(array_map('strval', $keyword_pack['additional']), 'strlen'))
+            : [];
+        $longtail = isset($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
+            ? array_values(array_filter(array_map('strval', $keyword_pack['longtail']), 'strlen'))
+            : [];
+
+        foreach (array_slice($additional, 0, 4) as $index => $keyword) {
+            $meta_key = '_tmwseo_extra_focus_' . (string)($index + 1);
+            if (trim((string)get_post_meta($post->ID, $meta_key, true)) === '') {
+                update_post_meta($post->ID, $meta_key, $keyword);
+            }
+        }
+
+        $confidence_raw = get_post_meta($post->ID, '_tmwseo_keyword_confidence', true);
+        $confidence_val = is_numeric($confidence_raw) ? (float)$confidence_raw : 0.0;
+        if ($confidence_val < 10.0) {
+            $bootstrap_confidence = (!empty($longtail) || count($additional) >= 3) ? 72.0 : 55.0;
+            update_post_meta($post->ID, '_tmwseo_keyword_confidence', $bootstrap_confidence);
+        }
+
+        if ($primary !== '') {
+            if (class_exists('\TMWSEO\Engine\Content\RankMathMapper')) {
+                RankMathMapper::sync_to_rank_math($post->ID, $keyword_pack, true);
+            } else {
+                update_post_meta($post->ID, 'rank_math_focus_keyword', $primary);
+                if (!empty($additional)) {
+                    update_post_meta($post->ID, 'rank_math_additional_keywords', implode(', ', array_slice($additional, 0, 10)));
+                }
+            }
+            AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $primary);
+        }
+
+        Logs::info('content', '[TMW-MODEL-BOOTSTRAP] Manual model prerequisites hydrated', [
+            'post_id' => (int)$post->ID,
+            'primary_keyword' => $primary,
+            'additional_keywords' => count($additional),
+            'longtail_keywords' => count($longtail),
+            'confidence' => (float) get_post_meta($post->ID, '_tmwseo_keyword_confidence', true),
+        ]);
+
+        return $keyword_pack;
     }
 
     private static function enforce_model_content_constraints(array $messages, string $model, int $max_tokens, string $focus_kw, string $html): array {
