@@ -58,11 +58,21 @@ class AdminAjaxHandlers {
         ] );
 
         $post_type = get_post_type( $post_id ) ?: 'post';
+        $context   = 'video_or_post';
+        if ( $post_type === 'model' ) {
+            $context = 'model';
+        } elseif ( $post_type === 'tmw_category_page' ) {
+            $context = 'category_page';
+        }
+
         Jobs::enqueue( 'optimize_post', (string) $post_type, $post_id, [
             'trigger'               => 'manual',
+            'generated_via'         => 'editor_metabox',
+            'context'               => $context,
             'strategy'              => $strategy,
             'insert_block'          => $insert_block,
             'refresh_keywords_only' => $refresh_keywords_only,
+            'manual_model_generate' => ( $post_type === 'model' && ! $refresh_keywords_only ) ? 1 : 0,
         ] );
 
         Logs::info( 'admin', '[TMW-QUEUE] optimize_post queued from ajax_generate_now', [
@@ -79,7 +89,12 @@ class AdminAjaxHandlers {
             'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
         ] );
 
-        wp_send_json_success( [ 'queued' => true ] );
+        wp_send_json_success( [
+            'queued'  => true,
+            'message' => $refresh_keywords_only
+                ? __( 'Keyword refresh queued. Refresh in a few seconds.', 'tmwseo' )
+                : __( 'Generation queued. Refresh in a few seconds.', 'tmwseo' ),
+        ] );
     }
 
     /**
