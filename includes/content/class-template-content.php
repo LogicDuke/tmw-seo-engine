@@ -42,8 +42,14 @@ class TemplateContent {
 
         $seed = $name . '-' . $post->ID;
 
+        PlatformProfiles::sync_to_table((int) $post->ID);
         $platform_links = PlatformProfiles::get_links($post->ID);
         $cta_links = self::build_platform_cta_links($post->ID, is_array($platform_links) ? $platform_links : []);
+        \TMWSEO\Engine\Logs::info('content', '[TMW-FIX] Synced platform rows before model CTA generation', [
+            'post_id' => (int) $post->ID,
+            'platform_rows_count' => is_array($platform_links) ? count($platform_links) : 0,
+            'cta_links_count' => count($cta_links),
+        ]);
         $active_platforms = [];
         $primary_platform_label = '';
         foreach ($cta_links as $row) {
