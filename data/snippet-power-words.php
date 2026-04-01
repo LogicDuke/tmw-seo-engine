@@ -81,17 +81,28 @@ return [
     // NUMBERS for titles
     'numbers' => [3, 5, 7, 10],
 
-    // Strict subset for model-page SEO title factory (safe + deterministic use only).
+    // Rank Math validated (manual live sidebar testing): words confirmed to count as BOTH
+    // positive/sentiment + power words for model-page auto title generation.
     'model_title_allowlist' => [
         'Best',
-        'Safe',
+        'Amazing',
         'Proven',
-        'Expert',
-        'Latest',
+        'Safe',
         'Secure',
-        'Unique',
-        'Value',
-        'Useful',
+        'Powerful',
+        'Trustworthy',
+        'Exclusive',
+        'Popular',
+        'Remarkable',
+    ],
+
+    // Rank Math validated (manual live sidebar testing): words currently confirmed ONLY
+    // as power words. Keep for reserve/manual experiments, but not default auto titles.
+    'model_title_reserve_power_only' => [
+        'Secret',
+        'Expert',
+        'Official',
+        'Latest',
         'New',
     ],
 

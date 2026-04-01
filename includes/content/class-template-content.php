@@ -20,8 +20,11 @@ if (!defined('ABSPATH')) { exit; }
 class TemplateContent {
 
     private const NEUTRAL_PLATFORM_FALLBACK = 'official live profile';
-    private const MODEL_TITLE_POWER_WORDS_FALLBACK = ['Best', 'Safe', 'Proven', 'Expert', 'Latest', 'Secure', 'Unique', 'Value', 'Useful', 'New'];
-    private const MODEL_TITLE_CONTENT_NOUNS = ['Guide', 'Profile', 'Highlights', 'Links'];
+    // Rank Math validated (manual live sidebar testing): confirmed as BOTH
+    // positive/sentiment + power words for model title auto-generation.
+    private const MODEL_TITLE_POWER_WORDS_FALLBACK = ['Best', 'Amazing', 'Proven', 'Safe', 'Secure', 'Powerful', 'Trustworthy', 'Exclusive', 'Popular', 'Remarkable'];
+    // Reserve list (power-only in manual Rank Math testing). Keep for manual use only.
+    private const MODEL_TITLE_RESERVE_POWER_ONLY_FALLBACK = ['Secret', 'Expert', 'Official', 'Latest', 'New'];
     private const MODEL_TITLE_DENYLIST_FALLBACK = ['Bloody', 'Corpse', 'Murder', 'Bomb', 'Nazi', 'Jail', 'Toxic', 'Doom', 'Deadly', 'Hoax', 'Scam', 'Trap', 'Victim', 'Brutal'];
 
     /**
@@ -589,20 +592,19 @@ class TemplateContent {
         $words = self::model_title_allow_words();
         $denied_tokens = self::model_title_deny_tokens();
         $patterns = [
-            '{name} — {power} Live Cam {noun} {year}',
-            '{name} — {power} Live Chat {noun} {year}',
-            '{name} — {power} Webcam {noun} {year}',
+            '{name} — {power} Live Cam Guide {year}',
+            '{name} — {power} Live Chat Guide {year}',
+            '{name} — {power} Webcam Guide {year}',
+            '{name} — {power} Live Cam Profile {year}',
         ];
 
         $seed = strtolower($name) . '|' . $post_id;
         $word = $words[self::stable_pick_index($seed . '|word', count($words))];
-        $noun = self::MODEL_TITLE_CONTENT_NOUNS[self::stable_pick_index($seed . '|noun', count(self::MODEL_TITLE_CONTENT_NOUNS))];
         $pattern = $patterns[self::stable_pick_index($seed . '|pattern', count($patterns))];
 
         $title = strtr($pattern, [
             '{name}' => $name,
             '{power}' => $word,
-            '{noun}' => $noun,
             '{year}' => $year,
         ]);
 
@@ -623,6 +625,36 @@ class TemplateContent {
 
         $raw = include $file;
         $list = is_array($raw['model_title_allowlist'] ?? null) ? $raw['model_title_allowlist'] : [];
+        $clean = [];
+        foreach ($list as $word) {
+            $token = trim((string) $word);
+            if ($token === '') {
+                continue;
+            }
+            if (!preg_match('/^[a-z][a-z -]*$/i', $token)) {
+                continue;
+            }
+            $clean[] = ucfirst(strtolower($token));
+        }
+
+        $clean = array_values(array_unique($clean));
+        if (empty($clean)) {
+            return $fallback;
+        }
+
+        return $clean;
+    }
+
+    /** @return string[] */
+    public static function model_title_reserve_power_only_words(): array {
+        $fallback = self::MODEL_TITLE_RESERVE_POWER_ONLY_FALLBACK;
+        $file = TMWSEO_ENGINE_PATH . 'data/snippet-power-words.php';
+        if (!is_readable($file)) {
+            return $fallback;
+        }
+
+        $raw = include $file;
+        $list = is_array($raw['model_title_reserve_power_only'] ?? null) ? $raw['model_title_reserve_power_only'] : [];
         $clean = [];
         foreach ($list as $word) {
             $token = trim((string) $word);

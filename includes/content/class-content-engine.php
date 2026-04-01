@@ -327,8 +327,15 @@ class ContentEngine {
 
         $j = is_array($res['json'] ?? null) ? $res['json'] : [];
         $seo_title = TitleFixer::shorten(trim((string) ($j['seo_title'] ?? '')), 60);
-        if ($is_model_page && $seo_title === '') {
+        if ($is_model_page) {
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
+            $is_weak_model_title = TemplateContent::is_weak_auto_model_title($seo_title, $fallback_name);
+            if ($seo_title !== '' && !$is_weak_model_title) {
+                $fallback_name = '';
+            }
+        }
+        if ($is_model_page && ($seo_title === '' || $fallback_name !== '')) {
+            $fallback_name = $fallback_name !== '' ? $fallback_name : trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
             $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
         }
         $meta_desc = trim((string) ($j['meta_description'] ?? ''));
@@ -1075,8 +1082,15 @@ class ContentEngine {
         $html      = (isset($j['content_html']) && is_string($j['content_html'])) ? $j['content_html'] : '';
 
         $seo_title = TitleFixer::shorten(trim($seo_title), 60);
-        if ($is_model_page && $seo_title === '') {
+        if ($is_model_page) {
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
+            $is_weak_model_title = TemplateContent::is_weak_auto_model_title($seo_title, $fallback_name);
+            if ($seo_title !== '' && !$is_weak_model_title) {
+                $fallback_name = '';
+            }
+        }
+        if ($is_model_page && ($seo_title === '' || $fallback_name !== '')) {
+            $fallback_name = $fallback_name !== '' ? $fallback_name : trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
             $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
         }
         $meta_desc = trim($meta_desc);
