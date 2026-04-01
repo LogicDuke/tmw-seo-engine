@@ -40,9 +40,6 @@ class ImageMetaHooks {
         if ( ! in_array( $post->post_type, self::post_types(), true ) ) {
             return;
         }
-        $thumb_id = (int) get_post_thumbnail_id( $post_id );
-        if ( $thumb_id > 0 ) {
-            Image_Meta_Generator::generate_for_featured_image( $thumb_id, $post );
-        }
+        Image_Meta_Generator::generate_for_post_images( $post );
     }
 }

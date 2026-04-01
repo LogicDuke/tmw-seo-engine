@@ -24,6 +24,29 @@ class Image_Meta_Generator {
      * @param \WP_Post  $parent_post
      */
     public static function generate_for_featured_image( int $attachment_id, \WP_Post $parent_post ): void {
+        self::generate_for_attachment( $attachment_id, $parent_post, true );
+    }
+
+    /**
+     * Generate metadata for all relevant images connected to a post.
+     */
+    public static function generate_for_post_images( \WP_Post $parent_post ): void {
+        $ids = self::get_post_image_attachment_ids( $parent_post );
+        if ( empty( $ids ) ) {
+            return;
+        }
+
+        foreach ( $ids as $index => $attachment_id ) {
+            self::generate_for_attachment( $attachment_id, $parent_post, $index === 0 );
+        }
+    }
+
+    /**
+     * @param int      $attachment_id
+     * @param \WP_Post $parent_post
+     * @param bool     $is_primary
+     */
+    private static function generate_for_attachment( int $attachment_id, \WP_Post $parent_post, bool $is_primary = false ): void {
         // Only real image attachments
         $attachment = get_post( $attachment_id );
         if (
@@ -47,7 +70,7 @@ class Image_Meta_Generator {
             return;
         }
 
-        $meta   = self::build_meta_text( $attachment, $parent_post );
+        $meta   = self::build_meta_text( $attachment, $parent_post, $is_primary );
         $update = [ 'ID' => $attachment_id ];
 
         if ( empty( $current_title ) && ! empty( $meta['title'] ) ) {
@@ -81,7 +104,7 @@ class Image_Meta_Generator {
      *
      * @return array{alt:string,title:string,caption:string,description:string}
      */
-    private static function build_meta_text( \WP_Post $attachment, \WP_Post $parent_post ): array {
+    private static function build_meta_text( \WP_Post $attachment, \WP_Post $parent_post, bool $is_primary ): array {
         $site_name  = get_bloginfo( 'name' );
         $post_title = trim( strip_tags( $parent_post->post_title ) );
         $file_title = preg_replace( '/\.[^.]+$/', '', (string) $attachment->post_name );
@@ -91,7 +114,8 @@ class Image_Meta_Generator {
         $is_model = ( $parent_post->post_type === 'model' );
 
         if ( $is_model ) {
-            $alt         = sprintf( '%s — live webcam model profile photo', $base );
+            $alt_subject = $is_primary && $post_title !== '' ? $post_title : $base;
+            $alt         = sprintf( '%s — verified live webcam model profile photo', $alt_subject );
             $title       = sprintf( '%s | Live Cam Model | %s', $base, $site_name );
             $caption     = sprintf( 'Profile photo of %s, live webcam model on %s', $base, $site_name );
             $description = sprintf(
@@ -127,5 +151,110 @@ class Image_Meta_Generator {
     private static function is_video_post( \WP_Post $post ): bool {
         $video_types = [ 'video', 'tmw_video', 'livejasmin_video' ];
         return in_array( $post->post_type, $video_types, true );
+    }
+
+    /**
+     * @return int[]
+     */
+    private static function get_post_image_attachment_ids( \WP_Post $post ): array {
+        $post_id = (int) $post->ID;
+        $ids     = [];
+
+        $thumbnail_id = (int) get_post_thumbnail_id( $post_id );
+        if ( $thumbnail_id > 0 ) {
+            $ids[] = $thumbnail_id;
+        }
+
+        if ( $post->post_type === 'model' ) {
+            $meta_keys = [
+                'banner_image_id',
+                '_banner_image_id',
+                'vertical_banner_image_id',
+                '_vertical_banner_image_id',
+                'banner_focus_image_id',
+                '_banner_focus_image_id',
+                'front_image_id',
+                '_front_image_id',
+                'back_image_id',
+                '_back_image_id',
+                'model_banner_image_id',
+                '_model_banner_image_id',
+                'model_front_image_id',
+                '_model_front_image_id',
+                'model_back_image_id',
+                '_model_back_image_id',
+            ];
+
+            foreach ( $meta_keys as $meta_key ) {
+                $ids = array_merge( $ids, self::extract_attachment_ids( get_post_meta( $post_id, $meta_key, true ) ) );
+            }
+
+            $all_meta = get_post_meta( $post_id );
+            if ( is_array( $all_meta ) ) {
+                foreach ( $all_meta as $meta_key => $values ) {
+                    $key = strtolower( (string) $meta_key );
+                    if ( ! preg_match( '/(image|banner|front|back|photo)/', $key ) ) {
+                        continue;
+                    }
+                    if ( is_array( $values ) ) {
+                        foreach ( $values as $value ) {
+                            $ids = array_merge( $ids, self::extract_attachment_ids( $value ) );
+                        }
+                    }
+                }
+            }
+        }
+
+        $ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ), static fn( $id ) => $id > 0 ) ) );
+
+        return array_values( array_filter( $ids, 'wp_attachment_is_image' ) );
+    }
+
+    /**
+     * @param mixed $value
+     * @return int[]
+     */
+    private static function extract_attachment_ids( $value ): array {
+        if ( is_array( $value ) ) {
+            $out = [];
+            foreach ( $value as $item ) {
+                $out = array_merge( $out, self::extract_attachment_ids( $item ) );
+            }
+            return $out;
+        }
+
+        if ( is_numeric( $value ) ) {
+            return [ (int) $value ];
+        }
+
+        if ( ! is_string( $value ) ) {
+            return [];
+        }
+
+        $raw = trim( $value );
+        if ( $raw === '' ) {
+            return [];
+        }
+
+        if ( is_serialized( $raw ) ) {
+            $decoded = maybe_unserialize( $raw );
+            if ( $decoded !== $raw ) {
+                return self::extract_attachment_ids( $decoded );
+            }
+        }
+
+        if ( strpos( $raw, '[' ) === 0 || strpos( $raw, '{' ) === 0 ) {
+            $json = json_decode( $raw, true );
+            if ( is_array( $json ) ) {
+                return self::extract_attachment_ids( $json );
+            }
+        }
+
+        preg_match_all( '/\d+/', $raw, $matches );
+        if ( empty( $matches[0] ) ) {
+            return [];
+        }
+
+        return array_map( 'intval', $matches[0] );
     }
 }
