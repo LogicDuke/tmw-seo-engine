@@ -191,14 +191,24 @@ class ContentEngine {
         }
 
         $dry_run = (int) Settings::get('tmwseo_dry_run_mode', 0) === 1;
-        // Respect an explicit strategy passed via keyword_pack['strategy'] or fall back to auto-detect.
+        // Respect an explicit strategy passed via keyword_pack['strategy'].
+        // Keep renderer architecture canonical: unsupported/misconfigured choices
+        // fall back cleanly instead of changing output shape.
         $requested_strategy = sanitize_key((string)($keyword_pack['strategy'] ?? ''));
-        if ($requested_strategy === 'claude' && Anthropic::is_configured()) {
-            $strategy = 'claude';
+        if (!in_array($requested_strategy, ['template', 'openai', 'claude'], true)) {
+            $requested_strategy = '';
+        }
+
+        if ($requested_strategy === 'claude') {
+            $strategy = Anthropic::is_configured() ? 'claude' : (OpenAI::is_configured() && !$dry_run ? 'openai' : 'template');
+        } elseif ($requested_strategy === 'template') {
+            $strategy = 'template';
+        } elseif ($requested_strategy === 'openai') {
+            $strategy = (OpenAI::is_configured() && !$dry_run) ? 'openai' : 'template';
         } elseif ($dry_run || !OpenAI::is_configured()) {
             $strategy = 'template';
         } else {
-            $strategy = $requested_strategy === 'openai' ? 'openai' : 'openai';
+            $strategy = 'openai';
         }
         $context = self::infer_context($post);
         $focus_kw = '';

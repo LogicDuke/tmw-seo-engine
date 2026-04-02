@@ -59,6 +59,7 @@ class Editor_AI_Metabox {
         $longtail   = is_array($pack['longtail'] ?? null) ? array_values(array_filter(array_map('strval', $pack['longtail']))) : [];
 
         $has_openai = class_exists('TMWSEO\\Engine\\Services\\OpenAI') && \TMWSEO\Engine\Services\OpenAI::is_configured();
+        $has_claude = class_exists('TMWSEO\\Engine\\Services\\Anthropic') && \TMWSEO\Engine\Services\Anthropic::is_configured();
 
         $quality_score = (int) get_post_meta($post->ID, '_tmwseo_quality_score', true);
         $quality_warning = (string) get_post_meta($post->ID, '_tmwseo_quality_warning', true) === '1';
@@ -245,6 +246,11 @@ class Editor_AI_Metabox {
             echo '<option value="openai" selected>' . esc_html__('OpenAI (if configured)', 'tmwseo') . '</option>';
         } else {
             echo '<option value="openai">' . esc_html__('OpenAI (not configured)', 'tmwseo') . '</option>';
+        }
+        if ($has_claude) {
+            echo '<option value="claude">' . esc_html__('Claude (Anthropic)', 'tmwseo') . '</option>';
+        } else {
+            echo '<option value="claude">' . esc_html__('Claude (Anthropic, not configured)', 'tmwseo') . '</option>';
         }
         echo '</select>';
         echo '</div>';

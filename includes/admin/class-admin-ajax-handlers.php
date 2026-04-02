@@ -46,7 +46,7 @@ class AdminAjaxHandlers {
         }
 
         $strategy = sanitize_key( (string) ( $_POST['strategy'] ?? '' ) );
-        if ( ! in_array( $strategy, [ 'template', 'openai' ], true ) ) {
+        if ( ! in_array( $strategy, [ 'template', 'openai', 'claude' ], true ) ) {
             $strategy = 'openai';
         }
 
