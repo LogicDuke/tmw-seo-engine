@@ -318,6 +318,9 @@ class ContentEngine {
                 'error'   => $claude_result['error'] ?? 'unknown',
             ]);
         }
+        // BUG-FIX: $clean_title was undefined here — must derive it from post_title
+        // before building $clean_title_short for the OpenAI system prompt.
+        $clean_title       = TitleFixer::fix((string) $post->post_title);
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
         $model = Settings::openai_model_for_quality();
         $is_model_page = ($post->post_type === 'model');
@@ -394,6 +397,8 @@ class ContentEngine {
                 "- Provide an informative explainer structure with H1, 3-4 H2 sections, and FAQ.\n";
         }
 
+        // ── TEMPORARY DEBUG: capture any leaked PHP output that would corrupt JSON ──
+        ob_start();
         $res = OpenAI::chat_json([
             $system,
             ['role' => 'user', 'content' => $user_content],
@@ -401,6 +406,15 @@ class ContentEngine {
             'temperature' => 0.6,
             'max_tokens' => $is_model_page ? 4096 : 2200,
         ]);
+        $leaked_preview = ob_get_clean();
+        if ( $leaked_preview !== '' && $leaked_preview !== false ) {
+            Logs::warn( 'content', '[TMW-DEBUG] Leaked PHP output detected during OpenAI preview generation', [
+                'post_id'        => $post_id,
+                'output_length'  => strlen( (string) $leaked_preview ),
+                'output_snippet' => substr( (string) $leaked_preview, 0, 300 ),
+            ] );
+        }
+        // ── END TEMPORARY DEBUG ───────────────────────────────────────────────
 
         if (!$res['ok']) {
             return [
@@ -419,6 +433,14 @@ class ContentEngine {
             // to satisfy all Rank Math title requirements.
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
             $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
+            // ── TEMPORARY DEBUG ──────────────────────────────────────────────
+            Logs::info( 'content', '[TMW-DEBUG] Canonical model SEO title applied (OpenAI preview)', [
+                'post_id'         => $post_id,
+                'provider_title'  => trim( (string) ( $j['seo_title'] ?? '' ) ),
+                'canonical_title' => $seo_title,
+                'fallback_name'   => $fallback_name,
+            ] );
+            // ── END TEMPORARY DEBUG ──────────────────────────────────────────
         }
         $meta_desc = trim((string) ($j['meta_description'] ?? ''));
         $generated_focus_kw = trim((string) ($j['focus_keyword'] ?? ''));
@@ -1220,10 +1242,21 @@ class ContentEngine {
         if ($debug) { error_log('TMW run_optimize_job GENERATING CONTENT'); }
         $max_tokens = $is_model_page ? 4096 : 2200;
 
+        // ── TEMPORARY DEBUG: capture leaked PHP output that corrupts AJAX JSON ──
+        ob_start();
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.6,
             'max_tokens' => $max_tokens,
         ]);
+        $leaked_job = ob_get_clean();
+        if ( $leaked_job !== '' && $leaked_job !== false ) {
+            Logs::warn( 'content', '[TMW-DEBUG] Leaked PHP output during run_optimize_job OpenAI call', [
+                'post_id'        => $post_id,
+                'output_length'  => strlen( (string) $leaked_job ),
+                'output_snippet' => substr( (string) $leaked_job, 0, 300 ),
+            ] );
+        }
+        // ── END TEMPORARY DEBUG ───────────────────────────────────────────────
 
         if (!$res['ok']) {
             Logs::error('content', 'OpenAI generation failed', ['post_id' => $post_id, 'error' => $res['error'] ?? '']);
@@ -1244,6 +1277,14 @@ class ContentEngine {
             // Provider titles may miss a required number or sentiment word.
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
             $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
+            // ── TEMPORARY DEBUG ──────────────────────────────────────────────
+            Logs::info( 'content', '[TMW-DEBUG] Canonical model SEO title applied (run_optimize_job)', [
+                'post_id'         => $post_id,
+                'provider_title'  => trim( $seo_title ),
+                'canonical_title' => $seo_title,
+                'fallback_name'   => $fallback_name,
+            ] );
+            // ── END TEMPORARY DEBUG ──────────────────────────────────────────
         }
         $meta_desc = trim($meta_desc);
         // For model pages, focus keyword must be the model name.
@@ -1446,10 +1487,21 @@ class ContentEngine {
                 'content' => $feedback,
             ];
 
+            // ── TEMPORARY DEBUG: buffer retry call for leaked-output detection ──
+            ob_start();
             $retry = OpenAI::chat_json($retry_messages, $model, [
                 'temperature' => 0.5,
                 'max_tokens' => $max_tokens,
             ]);
+            $leaked_retry = ob_get_clean();
+            if ($leaked_retry !== '' && $leaked_retry !== false) {
+                Logs::warn('content', '[TMW-DEBUG] Leaked PHP output during OpenAI retry (enforce_model_content_constraints)', [
+                    'attempt'        => $attempts + 1,
+                    'output_length'  => strlen((string) $leaked_retry),
+                    'output_snippet' => substr((string) $leaked_retry, 0, 300),
+                ]);
+            }
+            // ── END TEMPORARY DEBUG ───────────────────────────────────────────
 
             if (!$retry['ok']) {
                 break;
