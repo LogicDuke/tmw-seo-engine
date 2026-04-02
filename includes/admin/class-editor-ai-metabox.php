@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
+use TMWSEO\Engine\Services\Settings;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -60,7 +61,7 @@ class Editor_AI_Metabox {
 
         $has_openai = class_exists('TMWSEO\Engine\Services\OpenAI') && \TMWSEO\Engine\Services\OpenAI::is_configured();
         $has_claude = class_exists('TMWSEO\Engine\Services\Anthropic') && \TMWSEO\Engine\Services\Anthropic::is_configured();
-        $ai_primary = trim((string) Settings::get('tmwseo_ai_primary', 'openai'));
+        $ai_primary = class_exists(Settings::class) ? trim((string) Settings::get('tmwseo_ai_primary', 'openai')) : 'openai';
 
         $quality_score = (int) get_post_meta($post->ID, '_tmwseo_quality_score', true);
         $quality_warning = (string) get_post_meta($post->ID, '_tmwseo_quality_warning', true) === '1';
