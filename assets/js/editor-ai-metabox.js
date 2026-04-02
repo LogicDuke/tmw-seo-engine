@@ -48,8 +48,21 @@
                 try {
                     data = rawText ? JSON.parse(rawText) : null;
                 } catch (parseError) {
-                    const snippet = rawText ? rawText.replace(/\s+/g, ' ').slice(0, 180) : '';
-                    throw new Error(snippet || 'Server returned non-JSON output. Check plugin logs.');
+                    // Server returned HTML or PHP output instead of JSON.
+                    // This is usually a PHP notice/warning bleeding before the response.
+                    // The ob_start() wrapper in the AJAX handler should prevent this,
+                    // but surface a clear message if it still happens.
+                    let errMsg = 'Server returned non-JSON output. Check the PHP error log.';
+                    if (rawText) {
+                        const flat = rawText.replace(/\s+/g, ' ').trim();
+                        const looksLikePhp = /Warning:|Notice:|Fatal error:|Parse error:|<(?!a[ >])/i.test(flat);
+                        if (looksLikePhp) {
+                            errMsg = 'PHP error during generation — check debug log. Snippet: ' + flat.slice(0, 120);
+                        } else {
+                            errMsg = flat.slice(0, 180) || errMsg;
+                        }
+                    }
+                    throw new Error(errMsg);
                 }
                 if (!response.ok || !data || !data.success) {
                     const message = data && data.data && data.data.message ? data.data.message : 'Request failed.';

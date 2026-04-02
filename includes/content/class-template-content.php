@@ -273,14 +273,31 @@ class TemplateContent {
         $longtail = is_array($longtail) ? $longtail : [];
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
 
+        // Build guaranteed external link block once; inject into both the watch
+        // section (primary anchor) and the explore-more section (secondary anchor)
+        // so Rank Math can detect outbound links regardless of which section
+        // the tool happens to scan first.
+        $guaranteed_outbound = self::render_guaranteed_external_platform_links($cta_links, $name);
+
+        // Fallback: if no links could be built (no usernames at all), produce a
+        // Wikipedia informational link so outbound-link count is never zero.
+        if ($guaranteed_outbound === '') {
+            $guaranteed_outbound = '<p>For background on live-cam performers, see <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this overview</a>.</p>';
+        }
+
         return [
             'watch_section_html' => self::join_html_blocks([
                 self::render_primary_watch_cta($cta_links, $name),
                 self::render_watch_cta_section($cta_links, $name),
+                // Guaranteed external links injected early in the Watch section
+                // so Rank Math always finds at least one real outbound href.
+                $guaranteed_outbound,
             ]),
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
             'related_models_html' => self::render_related_models($post, $name, $tags, $active_platforms),
             'explore_more_html' => self::render_internal_links($post),
+            // Also keep it in external_info_html for the Explore More section
+            // (belt-and-suspenders: two anchor points in the rendered HTML).
             'external_info_html' => self::render_preferred_external_platform_links($cta_links, $name),
             'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
         ];
@@ -677,6 +694,10 @@ class TemplateContent {
      * Keep /go/ tracked CTAs intact elsewhere; this block is only for visible
      * outbound links in rendered content.
      *
+     * Never returns empty when valid platform usernames exist — falls back to
+     * direct PlatformRegistry profile URL pattern if AffiliateLinkBuilder returns
+     * nothing (e.g. affiliate settings not configured for the platform).
+     *
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
     private static function render_preferred_external_platform_links(array $links, string $name): string {
@@ -706,10 +727,28 @@ class TemplateContent {
                 continue;
             }
 
+            // Layer 1: affiliate URL (may wrap with partner tracking).
             $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
+
+            // Layer 2: bare profile URL via AffiliateLinkBuilder.
             if ($external_url === '') {
                 $external_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
             }
+
+            // Layer 3: direct PlatformRegistry pattern — bypasses all affiliate
+            // settings so this always produces a real external URL when the
+            // platform is registered, regardless of admin configuration state.
+            if ($external_url === '') {
+                $platform_data = PlatformRegistry::get($platform);
+                $pattern = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
+                if ($pattern !== '') {
+                    $candidate = str_replace('{username}', rawurlencode($username), $pattern);
+                    if (wp_http_validate_url($candidate)) {
+                        $external_url = $candidate;
+                    }
+                }
+            }
+
             if ($external_url === '') {
                 continue;
             }
@@ -729,29 +768,97 @@ class TemplateContent {
     }
 
     /**
+     * Build a guaranteed visible outbound link block using platform usernames.
+     *
+     * This is a last-resort guarantee layer: it constructs profile URLs directly
+     * from PlatformRegistry patterns, bypassing all affiliate settings. Called
+     * separately from render_preferred_external_platform_links() so that even if
+     * the Explore More section is empty, at least one detectable external link
+     * exists in the Watch section HTML.
+     *
+     * Returns empty string only when no platform username exists at all.
+     *
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     */
+    private static function render_guaranteed_external_platform_links(array $links, string $name): string {
+        if (empty($links)) {
+            return '';
+        }
+
+        $priority = ['livejasmin' => 0, 'stripchat' => 1];
+        usort($links, static function (array $a, array $b) use ($priority): int {
+            $ap = sanitize_key((string)($a['platform'] ?? ''));
+            $bp = sanitize_key((string)($b['platform'] ?? ''));
+            $ai = $priority[$ap] ?? 50;
+            $bi = $priority[$bp] ?? 50;
+            if ($ai === $bi) {
+                return (!empty($b['is_primary']) <=> !empty($a['is_primary']));
+            }
+            return $ai <=> $bi;
+        });
+
+        $items = [];
+        $seen = [];
+        foreach ($links as $link) {
+            $platform = sanitize_key((string)($link['platform'] ?? ''));
+            $username = trim((string)($link['username'] ?? ''));
+            $label = trim((string)($link['label'] ?? ''));
+            if ($platform === '' || $username === '' || $label === '' || isset($seen[$platform])) {
+                continue;
+            }
+
+            // Always try the registry pattern directly — no affiliate intermediary.
+            $platform_data = PlatformRegistry::get($platform);
+            $pattern = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
+            $external_url = '';
+            if ($pattern !== '') {
+                $candidate = str_replace('{username}', rawurlencode($username), $pattern);
+                if (wp_http_validate_url($candidate)) {
+                    $external_url = $candidate;
+                }
+            }
+
+            // Fallback: let AffiliateLinkBuilder try (handles custom affiliate templates).
+            if ($external_url === '') {
+                $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
+            }
+
+            if ($external_url === '') {
+                continue;
+            }
+
+            $items[] = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile for ' . $name) . '</a></li>';
+            $seen[$platform] = true;
+            if (count($items) >= 2) {
+                break;
+            }
+        }
+
+        if (empty($items)) {
+            return '';
+        }
+
+        return '<p>View the official platform profiles for ' . esc_html($name) . ' before choosing a watch link:</p><ul>' . implode('', $items) . '</ul>';
+    }
+
+    /**
      * Ensure at least one real outbound link is visible for SEO tools
      * while keeping affiliate /go/ CTA links intact.
+     *
+     * Note: Wikipedia fallback removed — when real platform usernames exist
+     * we always output a real external link. Wikipedia fallback would produce
+     * a generic nofollow link Rank Math cannot attribute to this model.
      *
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
     private static function render_detectable_outbound_platform_link(array $links, string $name): string {
-        foreach ($links as $link) {
-            $platform = sanitize_key((string) ($link['platform'] ?? ''));
-            $username = trim((string) ($link['username'] ?? ''));
-            $label = trim((string) ($link['label'] ?? ''));
-            if ($platform === '' || $username === '' || $label === '') {
-                continue;
-            }
-
-            $profile_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
-            if ($profile_url === '') {
-                continue;
-            }
-
-            return '<p>Need direct platform details first? Visit <a href="' . esc_url($profile_url) . '" target="_blank" rel="noopener">' . esc_html($label . ' profile for ' . $name) . '</a> before choosing a watch link.</p>';
+        // Use the guaranteed builder rather than AffiliateLinkBuilder only.
+        $block = self::render_guaranteed_external_platform_links($links, $name);
+        if ($block !== '') {
+            return $block;
         }
-
-        return '<p>Need direct platform details first? Visit <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this webcam-model overview</a> for neutral background information.</p>';
+        // Only fall back to Wikipedia when no platform username exists at all.
+        return '<p>For background on live-cam performers, see <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this overview</a>.</p>';
     }
 
     public static function build_default_model_seo_title(string $name, string $primary_platform_label = '', int $post_id = 0): string {
@@ -885,9 +992,10 @@ class TemplateContent {
         if ($name !== '') {
             $normalized = preg_replace('/\b' . preg_quote(strtolower(trim($name)), '/') . '\b/u', '', $normalized) ?: $normalized;
         }
-        $normalized = preg_replace('/\b(19|20)\d{2}\b/', '', $normalized) ?: $normalized;
-        $normalized = trim(preg_replace('/\s+/', ' ', $normalized) ?: $normalized);
+        $normalized_no_year = preg_replace('/\b(19|20)\d{2}\b/', '', $normalized) ?: $normalized;
+        $normalized_no_year = trim(preg_replace('/\s+/', ' ', $normalized_no_year) ?: $normalized_no_year);
 
+        // ── Legacy exact-match patterns (kept for back-compat) ───────────────
         $legacy_patterns = [
             '— live cam profile',
             '- live cam profile',
@@ -897,7 +1005,31 @@ class TemplateContent {
             '- live cam model profile & schedule',
         ];
 
-        return in_array($normalized, $legacy_patterns, true);
+        if (in_array($normalized_no_year, $legacy_patterns, true)) {
+            return true;
+        }
+
+        // ── Structural requirements — title is weak if EITHER is missing ─────
+
+        // Requirement 1: must contain a 4-digit year or a standalone number.
+        $has_number = (bool) preg_match('/\b(?:19|20)\d{2}\b|\b\d+\b/', $clean);
+
+        // Requirement 2: must contain at least one power / sentiment word from
+        // the canonical allow-list (same list used by build_default_model_seo_title).
+        $power_words = self::model_title_allow_words();
+        $has_power_word = false;
+        foreach ($power_words as $word) {
+            if (str_contains($normalized, strtolower($word))) {
+                $has_power_word = true;
+                break;
+            }
+        }
+
+        if (!$has_number || !$has_power_word) {
+            return true;
+        }
+
+        return false;
     }
 
     private static function stable_pick_index(string $seed, int $count): int {

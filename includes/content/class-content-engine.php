@@ -279,7 +279,10 @@ class ContentEngine {
                 $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
                 $html = wp_kses_post(trim($html));
 
-                $seo_title = TitleFixer::shorten((string)($claude_result['seo_title'] ?? ''), 65);
+                // Always use canonical builder for model pages — provider titles
+                // may miss a number or sentiment word required by Rank Math.
+                $fallback_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
+                $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
                 $meta_desc = (string)($claude_result['meta_description'] ?? '');
                 $generated_focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post(
                     $post,
@@ -410,14 +413,11 @@ class ContentEngine {
         $j = is_array($res['json'] ?? null) ? $res['json'] : [];
         $seo_title = TitleFixer::shorten(trim((string) ($j['seo_title'] ?? '')), 60);
         if ($is_model_page) {
+            // Always replace with the canonical builder for model pages — provider
+            // titles may satisfy the length limit but miss a required number or
+            // sentiment word. The canonical builder is deterministic and guaranteed
+            // to satisfy all Rank Math title requirements.
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
-            $is_weak_model_title = TemplateContent::is_weak_auto_model_title($seo_title, $fallback_name);
-            if ($seo_title !== '' && !$is_weak_model_title) {
-                $fallback_name = '';
-            }
-        }
-        if ($is_model_page && ($seo_title === '' || $fallback_name !== '')) {
-            $fallback_name = $fallback_name !== '' ? $fallback_name : trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
             $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
         }
         $meta_desc = trim((string) ($j['meta_description'] ?? ''));
@@ -1031,7 +1031,10 @@ class ContentEngine {
                 $renderer_payload = array_merge($support_payload, $claude_result['payload']);
                 $generated_content = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
                 $generated_content = wp_kses_post($generated_content);
-                $seo_title = TitleFixer::shorten((string)($claude_result['seo_title'] ?? ''), 70);
+                // Always use canonical builder for model pages — provider titles
+                // may miss a required number or sentiment word for Rank Math.
+                $canon_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
+                $seo_title = TemplateContent::build_default_model_seo_title($canon_name, '', $post_id);
                 $meta_desc = TitleFixer::shorten((string)($claude_result['meta_description'] ?? ''), 160);
 
                 $final_content = $insert_block
@@ -1237,14 +1240,9 @@ class ContentEngine {
 
         $seo_title = TitleFixer::shorten(trim($seo_title), 60);
         if ($is_model_page) {
+            // Always replace with the canonical builder for model pages.
+            // Provider titles may miss a required number or sentiment word.
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
-            $is_weak_model_title = TemplateContent::is_weak_auto_model_title($seo_title, $fallback_name);
-            if ($seo_title !== '' && !$is_weak_model_title) {
-                $fallback_name = '';
-            }
-        }
-        if ($is_model_page && ($seo_title === '' || $fallback_name !== '')) {
-            $fallback_name = $fallback_name !== '' ? $fallback_name : trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
             $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
         }
         $meta_desc = trim($meta_desc);

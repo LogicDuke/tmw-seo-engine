@@ -94,20 +94,40 @@ class AdminAjaxHandlers {
             $before_content = (string) get_post_field( 'post_content', $post_id );
             $before_done    = (string) get_post_meta( $post_id, '_tmwseo_optimize_done', true );
 
+            // Capture PHP notices/warnings that would otherwise leak before the
+            // JSON response body and cause "Unexpected token '<'" parse errors in JS.
+            ob_start();
+            $generation_threw = false;
             try {
                 ContentEngine::run_optimize_job( [
                     'entity_id' => $post_id,
                     'payload'   => $job_payload,
                 ] );
             } catch ( \Throwable $e ) {
+                $generation_threw = true;
+                $leaked = (string) ob_get_clean();
+                if ( $leaked !== '' ) {
+                    Logs::warning( 'admin', '[TMW-ADMIN] PHP output leaked during generation (exception path)', [
+                        'post_id' => $post_id,
+                        'snippet' => substr( $leaked, 0, 500 ),
+                    ] );
+                }
                 Logs::error( 'admin', '[TMW-ADMIN] Inline model generation failed', [
                     'post_id' => $post_id,
                     'error'   => $e->getMessage(),
                 ] );
-
                 wp_send_json_error( [
                     'message' => __( 'Generation failed. Check logs.', 'tmwseo' ),
                 ], 500 );
+            }
+            if ( ! $generation_threw ) {
+                $leaked_output = (string) ob_get_clean();
+                if ( $leaked_output !== '' ) {
+                    Logs::warning( 'admin', '[TMW-ADMIN] PHP output leaked during generation (pre-JSON)', [
+                        'post_id' => $post_id,
+                        'snippet' => substr( $leaked_output, 0, 500 ),
+                    ] );
+                }
             }
 
             clean_post_cache( $post_id );
