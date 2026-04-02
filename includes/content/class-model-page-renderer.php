@@ -4,7 +4,7 @@ namespace TMWSEO\Engine\Content;
 if (!defined('ABSPATH')) { exit; }
 
 class ModelPageRenderer {
-    public const NEUTRAL_FALLBACK = 'official live profile';
+    public const NEUTRAL_FALLBACK = 'official profile links';
 
     /**
      * @param array<string,mixed> $payload
@@ -72,13 +72,9 @@ class ModelPageRenderer {
     }
 
     private static function heading_with_focus(string $base, string $focus_keyword, string $name): string {
-        $needle = trim($focus_keyword);
-        if ($needle === '') {
-            return $base;
-        }
-        if (!preg_match('/\b' . preg_quote($needle, '/') . '\b/iu', $base)) {
-            return $base . ' for ' . $name;
-        }
+        // Do not append "for {name}" to the heading — it inflates exact-name density
+        // and makes the Features section heading look machine-generated.
+        // The section heading "Features and Platform Experience" is already descriptive.
         return $base;
     }
 
@@ -180,7 +176,6 @@ class ModelPageRenderer {
         $text = wp_strip_all_tags(html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $text = preg_replace('/\bthis model\b/iu', $name, $text) ?: $text;
         $text = preg_replace('/\bthe profile\b/iu', $name . ' profile', $text) ?: $text;
-        $text = preg_replace('/\blive webcam\b/iu', self::NEUTRAL_FALLBACK, $text) ?: $text;
         $text = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $text) ?: $text;
         $text = preg_replace('/\s+/', ' ', trim($text)) ?: trim($text);
 
@@ -198,9 +193,8 @@ class ModelPageRenderer {
         $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/isu', '', $html) ?: $html;
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
         $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
-        $html = preg_replace('/\blive webcam\b/iu', self::NEUTRAL_FALLBACK, $html) ?: $html;
         $html = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $html) ?: $html;
-        $html = preg_replace('/\b(official live profile)(\s+official live profile)+\b/iu', '$1', $html) ?: $html;
+        $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
 
         return trim($html);

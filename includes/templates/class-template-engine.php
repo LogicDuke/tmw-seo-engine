@@ -7,14 +7,43 @@ if (!defined('ABSPATH')) { exit; }
  * Lightweight deterministic template engine.
  *
  * Loads PHP template arrays from /templates/*.php and renders placeholders like {name}.
+ *
+ * Template cache version: bump TEMPLATE_VERSION whenever template files change so
+ * the transient cache is automatically invalidated on the next page load after deploy.
  */
 class TemplateEngine {
 
     private const CACHE_KEY_PREFIX = 'tmwseo_engine_tpl_';
 
+    /**
+     * Increment this string whenever any file in /templates/ is changed.
+     * The version is appended to every transient key, forcing a cache miss
+     * on the next load after a deploy — no manual cache flush required.
+     */
+    private const TEMPLATE_VERSION = 'v2.1';
+
+    /**
+     * Flush all template transients. Call after plugin updates or bulk regeneration.
+     * Safe to call multiple times; idempotent.
+     */
+    public static function flush_cache(): void {
+        global $wpdb;
+        $like = $wpdb->esc_like( '_transient_' . self::CACHE_KEY_PREFIX ) . '%';
+        $wpdb->query( $wpdb->prepare(
+            "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+            $like
+        ) );
+        $like_timeout = $wpdb->esc_like( '_transient_timeout_' . self::CACHE_KEY_PREFIX ) . '%';
+        $wpdb->query( $wpdb->prepare(
+            "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+            $like_timeout
+        ) );
+    }
+
     public static function load(string $slug): array {
         $slug = str_replace(['..', '/'], '', $slug);
-        $transient = self::CACHE_KEY_PREFIX . $slug;
+        // Version suffix ensures a new transient key after every template change.
+        $transient = self::CACHE_KEY_PREFIX . self::TEMPLATE_VERSION . '_' . $slug;
 
         $cached = get_transient($transient);
         if (is_array($cached) && !empty($cached)) {

@@ -72,6 +72,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-settings.php' );
         tmwseo_safe_require( $p . 'class-trust-policy.php' );
         tmwseo_safe_require( $p . 'class-openai.php' );
+        tmwseo_safe_require( $p . 'class-anthropic.php' );
         tmwseo_safe_require( $p . 'class-dataforseo.php' );
         tmwseo_safe_require( $p . 'class-google-trends.php' );
         tmwseo_safe_require( $p . 'class-pagespeed.php' );
@@ -157,6 +158,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-assisted-draft-enrichment-service.php' );
         tmwseo_safe_require( $p . 'class-quality-score-engine.php' );
         tmwseo_safe_require( $p . 'class-template-content.php' );
+        tmwseo_safe_require( $p . 'class-claude-content.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-generator.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-hooks.php' );

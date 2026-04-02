@@ -183,10 +183,25 @@ if (!function_exists('tmw_get_csv_directory')) {
 
 // Core activation/deactivation.
 register_activation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'activate']);
+register_activation_hook(__FILE__, function () {
+    // Flush template transients on (re-)activation so new template files take effect immediately.
+    if (class_exists('TMWSEO\\Engine\\Templates\\TemplateEngine')) {
+        \TMWSEO\Engine\Templates\TemplateEngine::flush_cache();
+    }
+});
 register_deactivation_hook(__FILE__, ['TMWSEO\\Engine\\Plugin', 'deactivate']);
 
 // Canonical runtime bootstrap.
 add_action('plugins_loaded', function () {
     tmwseo_engine_run_migrations();
     \TMWSEO\Engine\Plugin::init();
+
+    // Flush template cache when plugin version changes (handles manual file-drop upgrades).
+    $version_option = 'tmwseo_engine_tpl_flushed_version';
+    if ((string) get_option($version_option, '') !== TMWSEO_ENGINE_VERSION) {
+        if (class_exists('TMWSEO\\Engine\\Templates\\TemplateEngine')) {
+            \TMWSEO\Engine\Templates\TemplateEngine::flush_cache();
+        }
+        update_option($version_option, TMWSEO_ENGINE_VERSION, false);
+    }
 });

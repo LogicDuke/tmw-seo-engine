@@ -6,9 +6,11 @@ use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
+use TMWSEO\Engine\Services\Anthropic;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 use TMWSEO\Engine\Content\ContentGenerationGate;
+use TMWSEO\Engine\Content\ClaudeContent;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -25,10 +27,12 @@ class ContentEngine {
     private const PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE = true;
 
     // Audit fix 4.4.0: model page content floor for AI retry loop.
+    // Model page word count contract — all generation paths must respect this.
+    // Hard floor: 800 words (fail/retry gate).
+    // Preferred target: 1200–1501 words (what pad_model_content and LLM prompts aim for).
     // This is NOT a universal target — actual scoring uses page-type-aware
     // ranges in QualityScoreEngine::word_count_ranges().
-    // No 1501-word assumption exists anywhere in the engine.
-    private const MODEL_MIN_WORDS = 500;
+    private const MODEL_MIN_WORDS = 800;
     private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
     private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
 
@@ -187,7 +191,15 @@ class ContentEngine {
         }
 
         $dry_run = (int) Settings::get('tmwseo_dry_run_mode', 0) === 1;
-        $strategy = ( $dry_run || !OpenAI::is_configured() ) ? 'template' : 'openai';
+        // Respect an explicit strategy passed via keyword_pack['strategy'] or fall back to auto-detect.
+        $requested_strategy = sanitize_key((string)($keyword_pack['strategy'] ?? ''));
+        if ($requested_strategy === 'claude' && Anthropic::is_configured()) {
+            $strategy = 'claude';
+        } elseif ($dry_run || !OpenAI::is_configured()) {
+            $strategy = 'template';
+        } else {
+            $strategy = $requested_strategy === 'openai' ? 'openai' : 'openai';
+        }
         $context = self::infer_context($post);
         $focus_kw = '';
 
@@ -247,22 +259,75 @@ class ContentEngine {
             ];
         }
 
-        $clean_title = TitleFixer::fix((string) $post->post_title);
+        // ── Claude (Anthropic) preview strategy ─────────────────────────────
+        if ($strategy === 'claude' && $post->post_type === 'model') {
+            $claude_result = ClaudeContent::build_model($post, $keyword_pack);
+            if ($claude_result['ok']) {
+                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+                $renderer_payload = array_merge($support_payload, $claude_result['payload']);
+                $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
+                $html = wp_kses_post(trim($html));
+
+                $seo_title = TitleFixer::shorten((string)($claude_result['seo_title'] ?? ''), 65);
+                $meta_desc = (string)($claude_result['meta_description'] ?? '');
+                $generated_focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post(
+                    $post,
+                    (string)($claude_result['focus_keyword'] ?? $focus_kw)
+                );
+
+                $quality = QualityScoreEngine::evaluate($html, [
+                    'primary_keyword'    => $generated_focus_kw,
+                    'secondary_keywords' => $secondary_keywords,
+                    'page_type'          => $context,
+                    'post_type'          => (string)$post->post_type,
+                    'post_id'            => $post_id,
+                    'entities'           => array_values(array_filter(array_unique([$generated_focus_kw, (string)$post->post_title]))),
+                ]);
+
+                return [
+                    'strategy'             => 'claude',
+                    'template_type'        => $template_type,
+                    'seo_title'            => $seo_title,
+                    'meta_description'     => $meta_desc,
+                    'focus_keyword'        => $generated_focus_kw,
+                    'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
+                    'content_html'         => $html,
+                    'outline'              => self::extract_outline_from_html($html),
+                    'quality_summary'      => $quality,
+                    'generated_at'         => current_time('mysql'),
+                ];
+            }
+
+            // Claude failed in preview — fall through to OpenAI.
+            Logs::warn('content', '[TMW-CLAUDE] Claude preview failed, falling back to openai', [
+                'post_id' => $post_id,
+                'error'   => $claude_result['error'] ?? 'unknown',
+            ]);
+        }
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
         $model = Settings::openai_model_for_quality();
         $is_model_page = ($post->post_type === 'model');
-        $length_hint = ($context === 'keyword_page' || $context === 'model' || $context === 'category_page') ? '500-800 words' : '150-350 words';
+        $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '1200-1501 words' : '150-350 words');
 
         $system = [
             'role' => 'system',
             'content' =>
-                "You are an SEO copywriter for top-models.webcam.\n" .
-                "Write informative, helpful content about adult webcam / live video chat.\n" .
+                "You are a professional SEO copywriter for top-models.webcam.\n" .
+                "Write informative, human-readable content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
                 "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
                 "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
-                "seo_title <= 60 characters. meta_description 150-160 characters.\n" .
-                "Do not include h1 or raw section HTML architecture.\n"
+                "seo_title <= 65 characters. meta_description 145-160 characters.\n" .
+                "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
+                "PROSE QUALITY RULES (non-negotiable):\n" .
+                "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
+                "- Replace excess name mentions with natural pronouns (she/her) or 'the performer'.\n" .
+                "- Do not begin more than one paragraph across ALL sections with 'Viewers interested in'.\n" .
+                "- Do not begin more than one paragraph across ALL sections with 'People looking up'.\n" .
+                "- faq_items answers must be 2-3 complete sentences each — not single fragments.\n" .
+                "- Vary sentence length and opener across sections.\n" .
+                "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
+                "- Use 'official profile links' at most once across the entire output.\n"
         ];
 
         $user_content =
@@ -282,12 +347,18 @@ class ContentEngine {
 
         if ($is_model_page) {
             $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
-                "- Return ONLY structured JSON fields for model sections (no HTML headings):\n" .
-                "  intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
-                "- Ensure the primary keyword appears naturally in intro text and at least one section paragraph.\n" .
-                "- Combined output must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Expand each section with descriptive paragraphs and practical details.\n" .
-                "- Keep keyword density for the exact primary keyword between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n";
+                "- Return ONLY structured JSON fields — no HTML headings, no raw HTML in values:\n" .
+                "  intro_paragraphs (2-3 items), watch_section_paragraphs (1-2 items), about_section_paragraphs (2-3 items),\n" .
+                "  fans_like_section_paragraphs (2-3 items), features_section_paragraphs (2-3 items),\n" .
+                "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
+                "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
+                "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Preferred target: 1200–1501 words — expand each section generously to reach this.\n" .
+                "- Each section must contain at least 80 words.\n" .
+                "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
+                "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
+                "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
             $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
                 "- Purpose: help users compare and choose options within this category intent.\n" .
@@ -314,7 +385,7 @@ class ContentEngine {
             ['role' => 'user', 'content' => $user_content],
         ], $model, [
             'temperature' => 0.6,
-            'max_tokens' => $is_model_page ? 3200 : 2200,
+            'max_tokens' => $is_model_page ? 4096 : 2200,
         ]);
 
         if (!$res['ok']) {
@@ -934,6 +1005,63 @@ class ContentEngine {
             }
         }
 
+        // ── Claude (Anthropic) strategy ──────────────────────────────────────
+        if ($strategy === 'claude' && $post->post_type === 'model' && Anthropic::is_configured()) {
+            $focus_kw = !empty($keyword_pack['primary'])
+                ? (string)$keyword_pack['primary']
+                : trim((string)get_post_meta($post_id, '_tmwseo_keyword', true));
+            if ($focus_kw === '') $focus_kw = trim((string)$post->post_title);
+            $focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
+
+            $claude_result = ClaudeContent::build_model($post, $keyword_pack);
+
+            if ($claude_result['ok']) {
+                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+                $renderer_payload = array_merge($support_payload, $claude_result['payload']);
+                $generated_content = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
+                $generated_content = wp_kses_post($generated_content);
+                $seo_title = TitleFixer::shorten((string)($claude_result['seo_title'] ?? ''), 70);
+                $meta_desc = TitleFixer::shorten((string)($claude_result['meta_description'] ?? ''), 160);
+
+                $final_content = $insert_block
+                    ? self::upsert_ai_block((string)$post->post_content, $generated_content)
+                    : $generated_content;
+
+                AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
+
+                wp_update_post(['ID' => $post_id, 'post_content' => $final_content]);
+
+                if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+                if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
+                if ($focus_kw !== '') {
+                    if (!empty($keyword_pack) && class_exists('\\TMWSEO\\Engine\\Content\\RankMathMapper')) {
+                        RankMathMapper::sync_to_rank_math($post_id, $keyword_pack, true);
+                    } elseif (!get_post_meta($post_id, 'rank_math_focus_keyword', true)) {
+                        update_post_meta($post_id, 'rank_math_focus_keyword', $focus_kw);
+                    }
+                    update_post_meta($post_id, '_tmwseo_keyword', $focus_kw);
+                    AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
+                }
+
+                self::maybe_clear_rank_math_noindex($post);
+                delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+                update_post_meta($post_id, '_tmwseo_optimize_done', 'claude');
+
+                Logs::info('content', '[TMW-CLAUDE] Claude content generated', [
+                    'post_id'  => $post_id,
+                    'strategy' => 'claude',
+                ]);
+                return;
+            }
+
+            // Claude failed — log it and fall through to OpenAI or template.
+            Logs::warn('content', '[TMW-CLAUDE] Claude generation failed, falling back', [
+                'post_id' => $post_id,
+                'error'   => $claude_result['error'] ?? 'unknown',
+            ]);
+            $strategy = OpenAI::is_configured() ? 'openai' : 'template';
+        }
+
         // Template generation is the default fallback (replaces the old "offline dry" placeholder).
         if ($strategy === 'template' || !OpenAI::is_configured()) {
             $focus_kw = '';
@@ -1011,18 +1139,27 @@ class ContentEngine {
 
         $model = Settings::openai_model_for_quality();
 
-        $length_hint = ($context === 'keyword_page' || $context === 'model' || $context === 'category_page') ? '500-800 words' : '150-350 words';
+        $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '1200-1501 words' : '150-350 words');
 
         $system = [
             'role' => 'system',
             'content' =>
-                "You are an SEO copywriter for top-models.webcam.\n" .
-                "Write informative, helpful content about adult webcam / live video chat.\n" .
+                "You are a professional SEO copywriter for top-models.webcam.\n" .
+                "Write informative, human-readable content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
                 "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
                 "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
-                "seo_title <= 60 characters. meta_description 150-160 characters.\n" .
-                "Do not include h1 or raw section HTML architecture.\n"
+                "seo_title <= 65 characters. meta_description 145-160 characters.\n" .
+                "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
+                "PROSE QUALITY RULES (non-negotiable):\n" .
+                "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
+                "- Replace excess name mentions with natural pronouns (she/her) or 'the performer'.\n" .
+                "- Do not begin more than one paragraph across ALL sections with 'Viewers interested in'.\n" .
+                "- Do not begin more than one paragraph across ALL sections with 'People looking up'.\n" .
+                "- faq_items answers must be 2-3 complete sentences each — not single fragments.\n" .
+                "- Vary sentence length and opener across sections.\n" .
+                "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
+                "- Use 'official profile links' at most once across the entire output.\n"
         ];
 
         $user_content =
@@ -1046,12 +1183,18 @@ class ContentEngine {
         if ($is_model_page) {
             $primary_keyword = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
             $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
-                "- Return ONLY structured JSON fields for model sections (no HTML headings):\n" .
-                "  intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
-                "- Ensure the primary keyword appears naturally in intro text and at least one section paragraph.\n" .
-                "- Combined output must contain at least " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Expand each section with descriptive paragraphs and practical details.\n" .
-                "- Keep keyword density for the exact primary keyword between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n";
+                "- Return ONLY structured JSON fields — no HTML headings, no raw HTML in values:\n" .
+                "  intro_paragraphs (2-3 items), watch_section_paragraphs (1-2 items), about_section_paragraphs (2-3 items),\n" .
+                "  fans_like_section_paragraphs (2-3 items), features_section_paragraphs (2-3 items),\n" .
+                "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
+                "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
+                "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Preferred target: 1200–1501 words — expand each section generously to reach this.\n" .
+                "- Each section must contain at least 80 words.\n" .
+                "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
+                "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
+                "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         }
 
         $user = [
@@ -1061,7 +1204,7 @@ class ContentEngine {
 
         $debug = (bool) Settings::get('debug_mode', false);
         if ($debug) { error_log('TMW run_optimize_job GENERATING CONTENT'); }
-        $max_tokens = $is_model_page ? 3200 : 2200;
+        $max_tokens = $is_model_page ? 4096 : 2200;
 
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.6,
