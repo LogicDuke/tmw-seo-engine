@@ -336,7 +336,6 @@ class ContentEngine {
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers interested in'.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'People looking up'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each — not single fragments.\n" .
-                "- FAQ questions should be direct and concise; avoid repeating the full model name in every question when the context is already clear.\n" .
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
@@ -370,8 +369,7 @@ class ContentEngine {
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
                 "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
-                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n" .
-                "- Keep FAQ wording clear and direct. Use the model name only when it adds clarity.\n";
+                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
             $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
                 "- Purpose: help users compare and choose options within this category intent.\n" .
@@ -428,10 +426,6 @@ class ContentEngine {
             $generated_focus_kw = (string) $keyword_pack['primary'];
         }
         $generated_focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $generated_focus_kw !== '' ? $generated_focus_kw : $focus_kw);
-        if ($is_model_page) {
-            $title_name = trim((string)($keyword_pack['primary'] ?? $generated_focus_kw ?: $focus_kw ?: $post->post_title));
-            $seo_title = TemplateContent::build_default_model_seo_title($title_name, '', $post_id);
-        }
         $html = trim((string) ($j['content_html'] ?? ''));
 
         if ($is_model_page) {
@@ -1174,7 +1168,6 @@ class ContentEngine {
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers interested in'.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'People looking up'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each — not single fragments.\n" .
-                "- FAQ questions should be direct and concise; avoid repeating the full model name in every question when the context is already clear.\n" .
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
@@ -1212,8 +1205,7 @@ class ContentEngine {
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
                 "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
-                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n" .
-                "- Keep FAQ wording clear and direct. Use the model name only when it adds clarity.\n";
+                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         }
 
         $user = [
@@ -1262,10 +1254,6 @@ class ContentEngine {
         }
         $focus_kw  = trim($focus_kw);
         $focus_kw  = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
-        if ($is_model_page) {
-            $title_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $keyword ?: $post->post_title));
-            $seo_title = TemplateContent::build_default_model_seo_title($title_name, '', $post_id);
-        }
 
         if ($is_model_page) {
             $support_payload = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);

@@ -43,7 +43,14 @@
                     body: formData.toString(),
                 });
 
-                const data = await response.json();
+                const rawText = await response.text();
+                let data = null;
+                try {
+                    data = rawText ? JSON.parse(rawText) : null;
+                } catch (parseError) {
+                    const snippet = rawText ? rawText.replace(/\s+/g, ' ').slice(0, 180) : '';
+                    throw new Error(snippet || 'Server returned non-JSON output. Check plugin logs.');
+                }
                 if (!response.ok || !data || !data.success) {
                     const message = data && data.data && data.data.message ? data.data.message : 'Request failed.';
                     throw new Error(message);

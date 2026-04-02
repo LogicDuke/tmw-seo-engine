@@ -23,17 +23,17 @@ class ModelPageRenderer {
             $sections[] = $intro;
         }
 
-        $watch = self::render_section('Watch Live', $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
+        $watch = self::render_section('Watch ' . $name . ' Live', $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
         if ($watch !== '') {
             $sections[] = $watch;
         }
 
-        $about = self::render_section('About the Performer', $payload['about_section_paragraphs'] ?? [], $name, $payload['about_section_html'] ?? '');
+        $about = self::render_section('About ' . $name, $payload['about_section_paragraphs'] ?? [], $name, $payload['about_section_html'] ?? '');
         if ($about !== '') {
             $sections[] = $about;
         }
 
-        $fans_like = self::render_section('What Fans Like', $payload['fans_like_section_paragraphs'] ?? [], $name, $payload['fans_like_section_html'] ?? '');
+        $fans_like = self::render_section('What Fans Like About ' . $name, $payload['fans_like_section_paragraphs'] ?? [], $name, $payload['fans_like_section_html'] ?? '');
         if ($fans_like !== '') {
             $sections[] = $fans_like;
         }
@@ -49,7 +49,7 @@ class ModelPageRenderer {
             $sections[] = $compare;
         }
 
-        $questions = self::render_questions('Questions and FAQ', $payload['questions_section_paragraphs'] ?? [], $payload['faq_items'] ?? [], $name);
+        $questions = self::render_questions('Questions About ' . $name, $payload['questions_section_paragraphs'] ?? [], $payload['faq_items'] ?? [], $name);
         if ($questions !== '') {
             $sections[] = $questions;
         }
@@ -123,16 +123,11 @@ class ModelPageRenderer {
         }
 
         if (is_array($faq_items)) {
-            $faq_heading_added = false;
             foreach ($faq_items as $item) {
                 if (!is_array($item)) continue;
                 $q = self::clean_text((string)($item['q'] ?? ''), $name, true);
                 $a = self::clean_text((string)($item['a'] ?? ''), $name, false);
                 if ($q === '' || $a === '') continue;
-                if (!$faq_heading_added) {
-                    $parts[] = '<h3>Frequently Asked Questions</h3>';
-                    $faq_heading_added = true;
-                }
                 $parts[] = '<h3>' . esc_html($q) . '</h3>';
                 $parts[] = '<p>' . esc_html($a) . '</p>';
             }
