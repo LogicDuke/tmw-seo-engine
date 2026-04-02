@@ -122,10 +122,7 @@ class ClaudeContent {
 		}
 
 		// ── SEO title + meta description ─────────────────────────── //
-		$seo_title = TitleFixer::shorten( trim( (string) ( $j['seo_title'] ?? '' ) ), 65 );
-		if ( $seo_title === '' || TemplateContent::is_weak_auto_model_title( $seo_title, $name ) ) {
-			$seo_title = TemplateContent::build_default_model_seo_title( $name, $primary_platform, (int) $post->ID );
-		}
+		$seo_title = TemplateContent::build_default_model_seo_title( $name, $primary_platform, (int) $post->ID );
 
 		$meta_desc = trim( (string) ( $j['meta_description'] ?? '' ) );
 		if ( $meta_desc === '' ) {
@@ -201,8 +198,9 @@ GENERATION CONTRACT — every response must satisfy all of these:
    mobile access, notification alerts. Be specific about {primary_platform}.
 7. comparison_section_paragraphs: 1–2 paragraphs comparing why fans prefer this performer
    over browsing generic feeds. Do NOT invent platform names not supplied.
-8. faq_items: exactly 4 Q&A objects. Questions must be natural English questions a real
-   fan would ask. Answers must be complete sentences (2–3 sentences each).
+8. faq_items: exactly 4 Q&A objects. Questions must be natural, direct English questions a real
+   fan would ask. Avoid repeating the full model name in every question unless it adds clarity.
+   Answers must be complete sentences (2–3 sentences each).
 
 KEYWORD DENSITY RULES
 • Use the exact model name between {min_density}% and {max_density}% of the total word count.

@@ -281,10 +281,7 @@ class TemplateContent {
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
             'related_models_html' => self::render_related_models($post, $name, $tags, $active_platforms),
             'explore_more_html' => self::render_internal_links($post),
-            'external_info_html' => self::join_html_blocks([
-                self::render_detectable_outbound_platform_link($cta_links, $name),
-                self::render_contextual_external_link(),
-            ]),
+            'external_info_html' => self::render_visible_affiliate_links($cta_links, $name),
             'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
         ];
     }
@@ -667,22 +664,32 @@ class TemplateContent {
     }
 
     private static function render_contextual_external_link(): string {
-        $enabled = (bool) Settings::get('include_external_info_link', 0);
-        if (!$enabled) {
-            return '';
-        }
-
-        return '<h3>What is a webcam model?</h3><p><a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">Read this informational overview on Wikipedia</a>.</p>';
+        return '';
     }
 
     /**
-     * Ensure at least one real outbound link is visible for SEO tools
-     * while keeping affiliate /go/ CTA links intact.
+     * Render 1-2 real external affiliate/profile links so Rank Math sees outbound links
+     * while the tracked /go/ CTA links remain intact in the watch/comparison sections.
      *
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
-    private static function render_detectable_outbound_platform_link(array $links, string $name): string {
-        foreach ($links as $link) {
+    private static function render_visible_affiliate_links(array $links, string $name): string {
+        if (empty($links)) {
+            return '';
+        }
+
+        $priority = ['livejasmin' => 0, 'stripchat' => 1];
+        usort($links, static function (array $a, array $b) use ($priority): int {
+            $pa = $priority[sanitize_key((string)($a['platform'] ?? ''))] ?? 50;
+            $pb = $priority[sanitize_key((string)($b['platform'] ?? ''))] ?? 50;
+            if ($pa === $pb) {
+                return (!empty($b['is_primary']) ? 1 : 0) <=> (!empty($a['is_primary']) ? 1 : 0);
+            }
+            return $pa <=> $pb;
+        });
+
+        $items = [];
+        foreach (array_slice($links, 0, 2) as $link) {
             $platform = sanitize_key((string) ($link['platform'] ?? ''));
             $username = trim((string) ($link['username'] ?? ''));
             $label = trim((string) ($link['label'] ?? ''));
@@ -690,15 +697,31 @@ class TemplateContent {
                 continue;
             }
 
-            $profile_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
-            if ($profile_url === '') {
+            $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
+            if ($external_url === '') {
+                $external_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
+            }
+            if ($external_url === '') {
                 continue;
             }
 
-            return '<p>Need direct platform details first? Visit <a href="' . esc_url($profile_url) . '" target="_blank" rel="noopener">' . esc_html($label . ' profile for ' . $name) . '</a> before choosing a watch link.</p>';
+            $items[] = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="sponsored noopener">' . esc_html($label . ' profile for ' . $name) . '</a></li>';
         }
 
-        return '<p>Need direct platform details first? Visit <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this webcam-model overview</a> for neutral background information.</p>';
+        if (empty($items)) {
+            return '';
+        }
+
+        return '<h3>Verified platform profiles</h3><p>Prefer direct platform pages first? Use these external affiliate/profile links before choosing one of the tracked watch links above.</p><ul>' . implode('', $items) . '</ul>';
+    }
+
+    /**
+     * Backward-compatibility shim for older callers.
+     *
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     */
+    private static function render_detectable_outbound_platform_link(array $links, string $name): string {
+        return self::render_visible_affiliate_links($links, $name);
     }
 
     public static function build_default_model_seo_title(string $name, string $primary_platform_label = '', int $post_id = 0): string {
@@ -874,7 +897,7 @@ class TemplateContent {
     private static function build_longtail_paragraphs(array $longtail_keywords, string $name): array {
         $items = array_slice(
             array_values(array_unique(array_filter(array_map('trim', $longtail_keywords), 'strlen'))),
-            0, 4
+            0, 2
         );
 
         // Four structurally distinct paragraph patterns — each addresses a different

@@ -453,8 +453,14 @@ class AdminFormHandlers {
         }
 
         $strategy = sanitize_key( (string) ( $req['strategy'] ?? '' ) );
-        if ( ! in_array( $strategy, [ 'template', 'openai' ], true ) ) {
-            $strategy = 'openai';
+        if ( ! in_array( $strategy, [ 'template', 'openai', 'claude' ], true ) ) {
+            if ( class_exists( '\TMWSEO\Engine\Services\OpenAI' ) && \TMWSEO\Engine\Services\OpenAI::is_configured() ) {
+                $strategy = 'openai';
+            } elseif ( class_exists( '\TMWSEO\Engine\Services\Anthropic' ) && \TMWSEO\Engine\Services\Anthropic::is_configured() ) {
+                $strategy = 'claude';
+            } else {
+                $strategy = 'template';
+            }
         }
 
         $insert_block = ! empty( $req['insert_block'] ) ? 1 : 0;

@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
+use TMWSEO\Engine\Services\Settings;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -59,6 +60,8 @@ class Editor_AI_Metabox {
         $longtail   = is_array($pack['longtail'] ?? null) ? array_values(array_filter(array_map('strval', $pack['longtail']))) : [];
 
         $has_openai = class_exists('TMWSEO\\Engine\\Services\\OpenAI') && \TMWSEO\Engine\Services\OpenAI::is_configured();
+        $has_claude = class_exists('TMWSEO\\Engine\\Services\\Anthropic') && \TMWSEO\Engine\Services\Anthropic::is_configured();
+        $ai_primary = trim((string) Settings::get('tmwseo_ai_primary', 'openai'));
 
         $quality_score = (int) get_post_meta($post->ID, '_tmwseo_quality_score', true);
         $quality_warning = (string) get_post_meta($post->ID, '_tmwseo_quality_warning', true) === '1';
@@ -237,14 +240,26 @@ class Editor_AI_Metabox {
         echo '<div class="tmwseo-mb-zone">';
         echo '<p class="tmwseo-mb-zone-title">' . esc_html__('Generate', 'tmwseo') . '</p>';
 
+        $default_strategy = 'template';
+        if ($has_claude && (!$has_openai || $ai_primary === 'anthropic')) {
+            $default_strategy = 'claude';
+        } elseif ($has_openai) {
+            $default_strategy = 'openai';
+        }
+
         echo '<div class="tmwseo-mb-field">';
         echo '<label for="tmwseo-generate-strategy">' . esc_html__('Strategy', 'tmwseo') . '</label>';
         echo '<select id="tmwseo-generate-strategy" style="width:100%">';
-        echo '<option value="template">' . esc_html__('Template', 'tmwseo') . '</option>';
+        echo '<option value="template" ' . selected($default_strategy, 'template', false) . '>' . esc_html__('Template', 'tmwseo') . '</option>';
         if ($has_openai) {
-            echo '<option value="openai" selected>' . esc_html__('OpenAI (if configured)', 'tmwseo') . '</option>';
+            echo '<option value="openai" ' . selected($default_strategy, 'openai', false) . '>' . esc_html__('OpenAI (if configured)', 'tmwseo') . '</option>';
         } else {
             echo '<option value="openai">' . esc_html__('OpenAI (not configured)', 'tmwseo') . '</option>';
+        }
+        if ($has_claude) {
+            echo '<option value="claude" ' . selected($default_strategy, 'claude', false) . '>' . esc_html__('Claude (Anthropic)', 'tmwseo') . '</option>';
+        } else {
+            echo '<option value="claude">' . esc_html__('Claude (not configured)', 'tmwseo') . '</option>';
         }
         echo '</select>';
         echo '</div>';
