@@ -248,8 +248,57 @@ class TemplateContent {
             $name = 'Live Cam Model';
         }
 
-        $source_links = $pack['cta_links'] ?? PlatformProfiles::get_links($post->ID);
-        $cta_links = self::build_platform_cta_links((int)$post->ID, is_array($source_links) ? $source_links : []);
+        // When cta_links are not pre-built (OpenAI/Claude paths), sync the
+        // platform table first so get_links() returns up-to-date rows.
+        if (isset($pack['cta_links'])) {
+            $source_links = $pack['cta_links'];
+        } else {
+            PlatformProfiles::sync_to_table((int) $post->ID);
+            $source_links = PlatformProfiles::get_links($post->ID);
+        }
+
+        // ── TEMPORARY DEBUG INSTRUMENTATION (remove after validation) ────────
+        $debug_post_id   = (int) $post->ID;
+        $debug_raw_links = is_array($source_links) ? $source_links : [];
+
+        // Log raw platform rows from PlatformProfiles table.
+        \TMWSEO\Engine\Logs::info('content', '[TMW-DEBUG] support_payload: raw platform links', [
+            'post_id'       => $debug_post_id,
+            'platform_rows' => $debug_raw_links,
+        ]);
+
+        // Log each known platform's meta username BEFORE cta_links build.
+        $debug_meta_usernames = [];
+        foreach (self::KNOWN_PLATFORM_SLUGS as $dbg_slug) {
+            $dbg_meta_user = trim((string) get_post_meta($debug_post_id, '_tmwseo_platform_username_' . $dbg_slug, true));
+            $debug_meta_usernames[$dbg_slug] = $dbg_meta_user !== '' ? $dbg_meta_user : '(empty)';
+        }
+        \TMWSEO\Engine\Logs::info('content', '[TMW-DEBUG] support_payload: meta usernames per platform', [
+            'post_id'        => $debug_post_id,
+            'meta_usernames' => $debug_meta_usernames,
+        ]);
+
+        $cta_links = self::build_platform_cta_links($debug_post_id, $debug_raw_links);
+
+        // Log each resolved platform row with affiliate + profile URLs.
+        foreach ($cta_links as $dbg) {
+            $dbg_plat = sanitize_key((string) ($dbg['platform'] ?? ''));
+            $dbg_user = trim((string) ($dbg['username'] ?? ''));
+            \TMWSEO\Engine\Logs::info('content', '[TMW-DEBUG] platform row resolved', [
+                'post_id'       => $debug_post_id,
+                'platform'      => $dbg_plat,
+                'username'      => $dbg_user,
+                'go_url'        => (string) ($dbg['go_url'] ?? ''),
+                'affiliate_url' => $dbg_user !== '' ? AffiliateLinkBuilder::build_affiliate_url($dbg_plat, $dbg_user) : '(no username)',
+                'profile_url'   => $dbg_user !== '' ? AffiliateLinkBuilder::build_profile_url($dbg_plat, $dbg_user) : '(no username)',
+            ]);
+        }
+        \TMWSEO\Engine\Logs::info('content', '[TMW-DEBUG] cta_links after build_platform_cta_links', [
+            'post_id'   => $debug_post_id,
+            'cta_count' => count($cta_links),
+            'platforms' => array_column($cta_links, 'platform'),
+        ]);
+        // ── END TEMPORARY DEBUG ──────────────────────────────────────────────
 
         $active_platforms = $pack['active_platforms'] ?? [];
         if (!is_array($active_platforms) || empty($active_platforms)) {
@@ -278,27 +327,48 @@ class TemplateContent {
         // so Rank Math can detect outbound links regardless of which section
         // the tool happens to scan first.
         $guaranteed_outbound = self::render_guaranteed_external_platform_links($cta_links, $name);
+        $wikipedia_fallback_used = false;
 
-        // Fallback: if no links could be built (no usernames at all), produce a
-        // Wikipedia informational link so outbound-link count is never zero.
-        if ($guaranteed_outbound === '') {
-            $guaranteed_outbound = '<p>For background on live-cam performers, see <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this overview</a>.</p>';
+        // Fallback to Wikipedia ONLY when cta_links is empty — meaning no
+        // platform username exists in either the profiles table or post meta
+        // (build_platform_cta_links already tried both). If cta_links has
+        // entries but render_guaranteed returned '' (URL resolution edge case),
+        // do NOT substitute Wikipedia — that would put a generic webcam-model
+        // link on a page that has real performer usernames.
+        if ($guaranteed_outbound === '' && empty($cta_links)) {
+            $guaranteed_outbound   = '<p>For background on live-cam performers, see <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this overview</a>.</p>';
+            $wikipedia_fallback_used = true;
         }
 
+        // ── TEMPORARY DEBUG ──────────────────────────────────────────────────
+        \TMWSEO\Engine\Logs::info( 'content', '[TMW-DEBUG] guaranteed_outbound result', [
+            'post_id'            => (int) $post->ID,
+            'wikipedia_used'     => $wikipedia_fallback_used,
+            'outbound_html_len'  => strlen( $guaranteed_outbound ),
+        ] );
+
+        $watch_html    = self::join_html_blocks( [
+            self::render_primary_watch_cta( $cta_links, $name ),
+            self::render_watch_cta_section( $cta_links, $name ),
+            $guaranteed_outbound,
+        ] );
+        $ext_info_html = self::render_preferred_external_platform_links( $cta_links, $name );
+
+        \TMWSEO\Engine\Logs::info( 'content', '[TMW-DEBUG] final rendered HTML blocks', [
+            'post_id'            => (int) $post->ID,
+            'watch_section_html' => $watch_html,
+            'external_info_html' => $ext_info_html,
+        ] );
+        // ── END TEMPORARY DEBUG ──────────────────────────────────────────────
+
         return [
-            'watch_section_html' => self::join_html_blocks([
-                self::render_primary_watch_cta($cta_links, $name),
-                self::render_watch_cta_section($cta_links, $name),
-                // Guaranteed external links injected early in the Watch section
-                // so Rank Math always finds at least one real outbound href.
-                $guaranteed_outbound,
-            ]),
+            'watch_section_html' => $watch_html,
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
             'related_models_html' => self::render_related_models($post, $name, $tags, $active_platforms),
             'explore_more_html' => self::render_internal_links($post),
             // Also keep it in external_info_html for the Explore More section
             // (belt-and-suspenders: two anchor points in the rendered HTML).
-            'external_info_html' => self::render_preferred_external_platform_links($cta_links, $name),
+            'external_info_html' => $ext_info_html,
             'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
         ];
     }
@@ -535,18 +605,38 @@ class TemplateContent {
      * @param array<int,array{platform?:string,is_primary?:string|int,username?:string,url?:string}> $links
      * @return array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}>
      */
+    /**
+     * Canonical list of platforms we read username meta for.
+     * Used by build_platform_cta_links() and the Wikipedia-fallback guard.
+     */
+    private const KNOWN_PLATFORM_SLUGS = [
+        'livejasmin', 'stripchat', 'chaturbate',
+        'myfreecams', 'camsoda', 'bonga', 'cam4',
+    ];
+
+    /**
+     * Build CTA link rows from a platform-profile source array.
+     *
+     * v3 fix: when the PlatformProfiles table returns zero rows (not yet synced
+     * or table empty), fall back to reading username meta directly so that
+     * cta_links is never empty when valid usernames exist in post meta.
+     *
+     * @param array<int,array{platform?:string,is_primary?:string|int,username?:string,url?:string}> $links
+     * @return array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}>
+     */
     private static function build_platform_cta_links(int $post_id, array $links): array {
-        $out = [];
+        $out  = [];
+        $seen = [];
 
         foreach ($links as $link) {
-            $platform = sanitize_key((string)($link['platform'] ?? ''));
-            if ($platform === '') {
+            $platform = sanitize_key((string) ($link['platform'] ?? ''));
+            if ($platform === '' || isset($seen[$platform])) {
                 continue;
             }
 
-            $username = trim((string)get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
+            $username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
             if ($username === '') {
-                $username = trim((string)($link['username'] ?? ''));
+                $username = trim((string) ($link['username'] ?? ''));
             }
             if ($username === '') {
                 continue;
@@ -554,22 +644,55 @@ class TemplateContent {
 
             $go_url = AffiliateLinkBuilder::go_url($platform, $username);
             if ($go_url === '') {
-                $go_url = trim((string)($link['url'] ?? ''));
+                $go_url = trim((string) ($link['url'] ?? ''));
             }
             if ($go_url === '') {
                 continue;
             }
 
             $platform_data = PlatformRegistry::get($platform);
-            $label = (string)($platform_data['name'] ?? ucfirst($platform));
+            $label         = (string) ($platform_data['name'] ?? ucfirst($platform));
 
-            $out[] = [
-                'platform' => $platform,
-                'label' => $label,
-                'go_url' => $go_url,
-                'is_primary' => !empty($link['is_primary']),
-                'username' => $username,
+            $out[]          = [
+                'platform'   => $platform,
+                'label'      => $label,
+                'go_url'     => $go_url,
+                'is_primary' => ! empty($link['is_primary']),
+                'username'   => $username,
             ];
+            $seen[$platform] = true;
+        }
+
+        // ── Meta-only fallback ──────────────────────────────────────────────
+        // PlatformProfiles table returned zero rows (sync not yet run / table
+        // empty). Build CTA rows directly from the saved username meta keys so
+        // that outbound link rendering is never blocked by table state.
+        if (empty($out)) {
+            $meta_first = true;
+            foreach (self::KNOWN_PLATFORM_SLUGS as $meta_platform) {
+                if (isset($seen[$meta_platform])) {
+                    continue;
+                }
+                $meta_username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $meta_platform, true));
+                if ($meta_username === '') {
+                    continue;
+                }
+                $meta_go_url = AffiliateLinkBuilder::go_url($meta_platform, $meta_username);
+                if ($meta_go_url === '') {
+                    continue;
+                }
+                $meta_pdata = PlatformRegistry::get($meta_platform);
+                $meta_label = (string) ($meta_pdata['name'] ?? ucfirst($meta_platform));
+                $out[] = [
+                    'platform'   => $meta_platform,
+                    'label'      => $meta_label,
+                    'go_url'     => $meta_go_url,
+                    'is_primary' => $meta_first,
+                    'username'   => $meta_username,
+                ];
+                $seen[$meta_platform] = true;
+                $meta_first           = false;
+            }
         }
 
         return $out;
@@ -780,6 +903,18 @@ class TemplateContent {
      *
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
+    /**
+     * Build a guaranteed visible outbound link block using platform usernames.
+     *
+     * v3 URL resolution order (corrected):
+     *   1. AffiliateLinkBuilder::build_affiliate_url()  — uses configured partner template
+     *   2. AffiliateLinkBuilder::build_profile_url()    — bare profile URL via AffiliateLinkBuilder
+     *   3. PlatformRegistry profile_url_pattern direct  — last-resort, always produces a real URL
+     *
+     * Returns empty string ONLY when no platform username exists at all.
+     *
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     */
     private static function render_guaranteed_external_platform_links(array $links, string $name): string {
         if (empty($links)) {
             return '';
@@ -787,48 +922,64 @@ class TemplateContent {
 
         $priority = ['livejasmin' => 0, 'stripchat' => 1];
         usort($links, static function (array $a, array $b) use ($priority): int {
-            $ap = sanitize_key((string)($a['platform'] ?? ''));
-            $bp = sanitize_key((string)($b['platform'] ?? ''));
+            $ap = sanitize_key((string) ($a['platform'] ?? ''));
+            $bp = sanitize_key((string) ($b['platform'] ?? ''));
             $ai = $priority[$ap] ?? 50;
             $bi = $priority[$bp] ?? 50;
             if ($ai === $bi) {
-                return (!empty($b['is_primary']) <=> !empty($a['is_primary']));
+                return (! empty($b['is_primary']) <=> ! empty($a['is_primary']));
             }
             return $ai <=> $bi;
         });
 
         $items = [];
-        $seen = [];
+        $seen  = [];
         foreach ($links as $link) {
-            $platform = sanitize_key((string)($link['platform'] ?? ''));
-            $username = trim((string)($link['username'] ?? ''));
-            $label = trim((string)($link['label'] ?? ''));
+            $platform = sanitize_key((string) ($link['platform'] ?? ''));
+            $username = trim((string) ($link['username'] ?? ''));
+            $label    = trim((string) ($link['label'] ?? ''));
             if ($platform === '' || $username === '' || $label === '' || isset($seen[$platform])) {
                 continue;
             }
 
-            // Always try the registry pattern directly — no affiliate intermediary.
-            $platform_data = PlatformRegistry::get($platform);
-            $pattern = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
-            $external_url = '';
-            if ($pattern !== '') {
-                $candidate = str_replace('{username}', rawurlencode($username), $pattern);
-                if (wp_http_validate_url($candidate)) {
-                    $external_url = $candidate;
+            // ── URL resolution: affiliate first, profile second, registry last ──
+            // Layer 1: affiliate URL — uses partner tracking template if configured.
+            $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
+
+            // Layer 2: bare profile URL via AffiliateLinkBuilder.
+            if ($external_url === '') {
+                $external_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
+            }
+
+            // Layer 3: direct PlatformRegistry pattern — bypasses affiliate settings;
+            // always produces a real external URL when the platform is registered.
+            if ($external_url === '') {
+                $platform_data = PlatformRegistry::get($platform);
+                $pattern       = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
+                if ($pattern !== '') {
+                    $candidate = str_replace('{username}', rawurlencode($username), $pattern);
+                    if (wp_http_validate_url($candidate)) {
+                        $external_url = $candidate;
+                    }
                 }
             }
 
-            // Fallback: let AffiliateLinkBuilder try (handles custom affiliate templates).
-            if ($external_url === '') {
-                $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
-            }
+            // ── TEMPORARY DEBUG: per-platform resolution result ───────────────
+            \TMWSEO\Engine\Logs::info('content', '[TMW-DEBUG] render_guaranteed: platform URL resolved', [
+                'platform'     => $platform,
+                'username'     => $username,
+                'affiliate_url'=> AffiliateLinkBuilder::build_affiliate_url($platform, $username),
+                'profile_url'  => AffiliateLinkBuilder::build_profile_url($platform, $username),
+                'chosen_url'   => $external_url,
+            ]);
+            // ── END TEMPORARY DEBUG ───────────────────────────────────────────
 
             if ($external_url === '') {
                 continue;
             }
 
-            $items[] = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile for ' . $name) . '</a></li>';
-            $seen[$platform] = true;
+            $items[]          = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile for ' . $name) . '</a></li>';
+            $seen[$platform]  = true;
             if (count($items) >= 2) {
                 break;
             }
