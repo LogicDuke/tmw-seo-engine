@@ -318,6 +318,9 @@ class ContentEngine {
                 'error'   => $claude_result['error'] ?? 'unknown',
             ]);
         }
+        // BUG-FIX: $clean_title was undefined here — must derive it from post_title
+        // before building $clean_title_short for the OpenAI system prompt.
+        $clean_title       = TitleFixer::fix((string) $post->post_title);
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
         $model = Settings::openai_model_for_quality();
         $is_model_page = ($post->post_type === 'model');
@@ -335,11 +338,12 @@ class ContentEngine {
                 "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
                 "PROSE QUALITY RULES (non-negotiable):\n" .
                 "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
-                "- Replace excess name mentions with natural pronouns (she/her) or 'the performer'.\n" .
-                "- Do not begin more than one paragraph across ALL sections with 'Viewers interested in'.\n" .
-                "- Do not begin more than one paragraph across ALL sections with 'People looking up'.\n" .
-                "- faq_items answers must be 2-3 complete sentences each — not single fragments.\n" .
+                "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
+                "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
+                "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
                 "- Vary sentence length and opener across sections.\n" .
+                "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
+                "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
         ];
@@ -372,6 +376,8 @@ class ContentEngine {
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
                 "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
+                "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
             $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
@@ -393,7 +399,6 @@ class ContentEngine {
             $user_content .= "\nGENERIC POST TEMPLATE (required):\n" .
                 "- Provide an informative explainer structure with H1, 3-4 H2 sections, and FAQ.\n";
         }
-
         $res = OpenAI::chat_json([
             $system,
             ['role' => 'user', 'content' => $user_content],
@@ -866,34 +871,43 @@ class ContentEngine {
 
     /** @return string[] */
     private static function starter_model_additional_keywords( string $primary, array $platform ): array {
-        $keywords = [
-            $primary . ' live chat',
-            $primary . ' webcam',
-            'watch ' . $primary . ' live',
-            $primary . ' cam model',
-        ];
+        $primary_label = trim( (string) ( $platform['primary_label'] ?? '' ) );
+        $labels = array_values( array_filter( array_map( 'trim', (array) ( $platform['labels'] ?? [] ) ), 'strlen' ) );
+        $secondary_label = $labels[1] ?? '';
 
-        if ( ! empty( $platform['primary_label'] ) ) {
-            $keywords[] = $primary . ' on ' . (string) $platform['primary_label'];
+        $keywords = [];
+        if ( $primary_label !== '' ) {
+            $keywords[] = $primary_label . ' schedule';
         }
-        foreach ( array_slice( $platform['labels'] ?? [], 0, 2 ) as $label ) {
-            $keywords[] = $primary . ' ' . $label . ' profile';
+        if ( $secondary_label !== '' ) {
+            $keywords[] = $secondary_label . ' profile';
+        } elseif ( $primary_label !== '' ) {
+            $keywords[] = $primary_label . ' profile';
         }
 
-        return array_values( array_unique( array_filter( array_map( 'trim', $keywords ), 'strlen' ) ) );
+        $keywords[] = 'verified profile links';
+        $keywords[] = 'private live chat';
+        $keywords[] = 'HD live stream';
+        $keywords[] = 'real-time chat features';
+
+        return array_slice( array_values( array_unique( array_filter( array_map( 'trim', $keywords ), 'strlen' ) ) ), 0, 4 );
     }
 
     /** @return string[] */
     private static function starter_model_longtail_keywords( string $primary, array $platform ): array {
+        $primary_label = trim( (string) ( $platform['primary_label'] ?? '' ) );
         $keywords = [
-            $primary . ' live shows',
-            $primary . ' schedule',
-            $primary . ' live stream',
-            $primary . ' profile links',
+            'how to watch live webcam shows',
+            'live show schedule',
+            'private live chat tips',
+            'HD live stream experience',
+            'real-time chat features',
+            'how to join a live session',
         ];
 
-        if ( ! empty( $platform['primary_label'] ) ) {
-            $keywords[] = $primary . ' ' . (string) $platform['primary_label'] . ' live';
+        if ( $primary_label !== '' ) {
+            $keywords[] = $primary_label . ' live show schedule';
+            $keywords[] = $primary_label . ' profile guide';
         }
 
         return array_values( array_unique( array_filter( array_map( 'trim', $keywords ), 'strlen' ) ) );
@@ -1167,11 +1181,12 @@ class ContentEngine {
                 "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
                 "PROSE QUALITY RULES (non-negotiable):\n" .
                 "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
-                "- Replace excess name mentions with natural pronouns (she/her) or 'the performer'.\n" .
-                "- Do not begin more than one paragraph across ALL sections with 'Viewers interested in'.\n" .
-                "- Do not begin more than one paragraph across ALL sections with 'People looking up'.\n" .
-                "- faq_items answers must be 2-3 complete sentences each — not single fragments.\n" .
+                "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
+                "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
+                "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
                 "- Vary sentence length and opener across sections.\n" .
+                "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
+                "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
         ];
@@ -1208,6 +1223,8 @@ class ContentEngine {
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
                 "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
+                "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         }
 
@@ -1219,7 +1236,6 @@ class ContentEngine {
         $debug = (bool) Settings::get('debug_mode', false);
         if ($debug) { error_log('TMW run_optimize_job GENERATING CONTENT'); }
         $max_tokens = $is_model_page ? 4096 : 2200;
-
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.6,
             'max_tokens' => $max_tokens,
@@ -1445,7 +1461,6 @@ class ContentEngine {
                 'role' => 'user',
                 'content' => $feedback,
             ];
-
             $retry = OpenAI::chat_json($retry_messages, $model, [
                 'temperature' => 0.5,
                 'max_tokens' => $max_tokens,

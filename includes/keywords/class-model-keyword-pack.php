@@ -121,14 +121,24 @@ class ModelKeywordPack {
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
-        // Dynamic additional keyword count: min 2, max 6.
-        // Richer data (more tags, platforms, DFSEO results) → more keywords.
-        $additional_target = self::dynamic_additional_count($additional_pool, $platform_slugs, $safe_tags);
+        // Model pages always expose exactly 4 additional keywords, and every one
+        // of them must stay name-free so Rank Math chips do not repeat the exact
+        // model name or push density over the safe range later on.
+        $additional_target = $is_model_page
+            ? 4
+            : self::dynamic_additional_count($additional_pool, $platform_slugs, $safe_tags);
 
-        // pick top N, preferring those with name; allow at most one non-name fallback.
-        $additional = self::pick_top($additional_pool, $additional_target, $primary, ($is_model_page && !$allow_generic_tag_queries) ? 1 : $additional_target);
-        $additional = self::ensure_name_in_additional($additional, $primary, $platform_slugs, $top_tags, $additional_target);
-        self::debug_assert_additional_contains_name($additional, $primary);
+        if ($is_model_page) {
+            $additional = self::pick_name_free_top(
+                $additional_pool,
+                $additional_target,
+                $primary,
+                self::fallback_additional($primary, $platform_slugs, $top_tags)
+            );
+            self::debug_assert_model_additional_keywords($additional, $primary);
+        } else {
+            $additional = self::pick_top($additional_pool, $additional_target, $primary, $additional_target);
+        }
 
         $longtail_pool = [];
         foreach ($fallback_longtail as $kw) {
@@ -151,7 +161,16 @@ class ModelKeywordPack {
             $longtail_pool[$kw] = max($longtail_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
-        $longtail = self::pick_top($longtail_pool, 8, $primary, ($is_model_page && !$allow_generic_tag_queries) ? 1 : 8);
+        if ($is_model_page) {
+            $longtail = self::pick_name_free_top(
+                $longtail_pool,
+                8,
+                $primary,
+                self::fallback_longtail($primary, $platform_slugs, $top_tags)
+            );
+        } else {
+            $longtail = self::pick_top($longtail_pool, 8, $primary, 8);
+        }
 
         // Patch 2.1: compute keyword confidence from real scoring data.
         // Confidence = how well the selected additional keywords scored.
@@ -362,60 +381,67 @@ class ModelKeywordPack {
 
     /** @return string[] */
     private static function fallback_additional(string $name, array $platforms, array $tags): array {
-        $name = trim($name);
-        $p1 = $platforms[0] ?? '';
+        $labels = array_values(array_filter(array_map([self::class, 'platform_keyword_label'], $platforms), 'strlen'));
+        $primary_platform = $labels[0] ?? '';
+        $secondary_platform = $labels[1] ?? '';
 
-        $out = [
-            $name . ' live chat',
-            $name . ' webcam',
-            $name . ' live',
-            'watch ' . $name . ' live',
-        ];
-
-        if ($p1 !== '') {
-            $out[] = $name . ' on ' . $p1;
-            $out[] = 'watch ' . $name . ' on ' . $p1;
+        $out = [];
+        if ($primary_platform !== '') {
+            $out[] = $primary_platform . ' schedule';
+        }
+        if ($secondary_platform !== '') {
+            $out[] = $secondary_platform . ' profile';
+        } elseif ($primary_platform !== '') {
+            $out[] = $primary_platform . ' profile';
         }
 
-        foreach (array_slice($tags, 0, 2) as $t) {
-            $t = str_replace('-', ' ', $t);
-            $out[] = $name . ' ' . $t . ' cam';
+        $out[] = 'verified profile links';
+        $out[] = 'private live chat';
+        $out[] = 'HD live stream';
+        $out[] = 'real-time chat features';
+        $out[] = 'live webcam chat tips';
+        $out[] = 'live show schedule';
+
+        foreach (array_slice($tags, 0, 1) as $tag) {
+            $tag_phrase = trim(str_replace('-', ' ', (string) $tag));
+            if ($tag_phrase !== '') {
+                $out[] = $tag_phrase . ' live shows';
+            }
         }
 
-        return array_values(array_unique(array_filter(array_map('trim', $out), 'strlen')));
+        return self::dedupe_keywords($out);
     }
 
     /** @return string[] */
     private static function fallback_longtail(string $name, array $platforms, array $tags): array {
-        $name = trim($name);
-        $p1 = $platforms[0] ?? '';
+        $labels = array_values(array_filter(array_map([self::class, 'platform_keyword_label'], $platforms), 'strlen'));
+        $primary_platform = $labels[0] ?? '';
+        $secondary_platform = $labels[1] ?? '';
 
         $out = [
-            'how to chat with ' . $name . ' live',
-            'where to watch ' . $name . ' live',
-            $name . ' live webcam chat tips',
-            'is ' . $name . ' online now',
+            'how to watch live webcam shows',
+            'live show schedule',
+            'private live chat tips',
+            'HD live stream experience',
+            'real-time chat features',
+            'how to join a live session',
         ];
 
-        if ($p1 !== '') {
-            $out[] = 'where to watch ' . $name . ' on ' . $p1;
-            $out[] = $name . ' official ' . $p1 . ' profile';
+        if ($primary_platform !== '') {
+            $out[] = $primary_platform . ' live show schedule';
+            $out[] = $primary_platform . ' profile guide';
+        }
+        if ($secondary_platform !== '') {
+            $out[] = $secondary_platform . ' profile guide';
         }
 
-        foreach (array_slice($tags, 0, 2) as $t) {
-            $t = str_replace('-', ' ', $t);
-            if ($t === '') continue;
-            // Strict model+tag longtails for top tags.
-            $out[] = $name . ' ' . $t . ' live cam';
-            $out[] = 'watch ' . $name . ' ' . $t . ' webcam';
-            $out[] = $name . ' ' . $t . ' live chat';
-            $out[] = $name . ' ' . $t . ' cam show';
-            $out[] = $name . ' ' . $t . ' stream';
-
-            if ($p1 !== '') {
-                $out[] = $name . ' ' . $t . ' ' . $p1 . ' live';
-                $out[] = 'watch ' . $name . ' on ' . $p1;
+        foreach (array_slice($tags, 0, 2) as $tag) {
+            $tag_phrase = trim(str_replace('-', ' ', (string) $tag));
+            if ($tag_phrase === '') {
+                continue;
             }
+            $out[] = $tag_phrase . ' live show ideas';
+            $out[] = $tag_phrase . ' chat style';
         }
 
         return self::dedupe_keywords($out);
@@ -434,55 +460,34 @@ class ModelKeywordPack {
     }
 
     /**
-     * @param string[] $additional
-     * @param string[] $platforms
-     * @param string[] $tags
-     * @param int      $target_count Dynamic target count (2–6).
+     * @param array<string,int> $pool
+     * @param string[]          $fallbacks
      * @return string[]
      */
-    private static function ensure_name_in_additional(array $additional, string $name, array $platforms, array $tags, int $target_count = 4): array {
-        $target_count = max(2, min(6, $target_count));
-        $safe = self::dedupe_keywords($additional);
-
-        $fallbacks = self::fallback_additional($name, $platforms, $tags);
-
-        for ($i = 0; $i < $target_count; $i++) {
-            $kw = $safe[$i] ?? '';
-            if ($kw !== '' && self::keyword_contains_name($kw, $name)) {
+    private static function pick_name_free_top(array $pool, int $count, string $name, array $fallbacks): array {
+        $filtered = [];
+        foreach ($pool as $kw => $score) {
+            $kw = self::normalize_keyword((string) $kw);
+            if ($kw === '' || self::keyword_contains_name($kw, $name)) {
                 continue;
             }
-
-            $replacement = $fallbacks[$i] ?? ($name . ' live cam');
-            $replacement = self::normalize_keyword($replacement);
-            if ($replacement === '') {
-                $replacement = $name . ' live cam';
-            }
-
-            if ($kw !== '' && $kw === $replacement) {
-                continue;
-            }
-
-            $existing_idx = array_search($replacement, $safe, true);
-            if ($existing_idx !== false) {
-                array_splice($safe, (int)$existing_idx, 1);
-            }
-
-            $safe[$i] = $replacement;
+            $filtered[$kw] = max((int) ($filtered[$kw] ?? 0), (int) $score);
         }
 
-        $safe = array_values(array_filter($safe, 'strlen'));
-        while (count($safe) < $target_count) {
-            $next = $fallbacks[count($safe)] ?? ($name . ' live cam');
-            $next = self::normalize_keyword($next);
-            if ($next === '') $next = $name . ' live cam';
-            if (!in_array($next, $safe, true)) {
-                $safe[] = $next;
-            } else {
+        $picked = self::pick_top($filtered, $count, '', $count);
+        $ordered = [];
+        foreach (array_merge($picked, $fallbacks) as $kw) {
+            $clean = self::normalize_keyword((string) $kw);
+            if ($clean === '' || self::keyword_contains_name($clean, $name) || in_array($clean, $ordered, true)) {
+                continue;
+            }
+            $ordered[] = $clean;
+            if (count($ordered) >= $count) {
                 break;
             }
         }
 
-        return array_slice($safe, 0, $target_count);
+        return array_slice($ordered, 0, $count);
     }
 
     private static function is_tag_only_query(string $keyword, string $name, array $tags): bool {
@@ -498,6 +503,25 @@ class ModelKeywordPack {
         }
 
         return false;
+    }
+
+    private static function platform_keyword_label(string $platform): string {
+        $platform = sanitize_key($platform);
+        $map = [
+            'livejasmin' => 'LiveJasmin',
+            'stripchat' => 'Stripchat',
+            'myfreecams' => 'MyFreeCams',
+            'camsoda' => 'CamSoda',
+            'cam4' => 'CAM4',
+            'chaturbate' => 'Chaturbate',
+            'bonga' => 'Bonga',
+        ];
+        if (isset($map[$platform])) {
+            return $map[$platform];
+        }
+
+        $platform = trim(str_replace(['-', '_'], ' ', $platform));
+        return $platform !== '' ? ucwords($platform) : '';
     }
 
     /**
@@ -583,15 +607,15 @@ class ModelKeywordPack {
     }
 
     /** @param string[] $additional */
-    private static function debug_assert_additional_contains_name(array $additional, string $name): void {
+    private static function debug_assert_model_additional_keywords(array $additional, string $name): void {
         if (!(defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)) {
             return;
         }
 
         foreach ($additional as $i => $kw) {
             $kw = (string) $kw;
-            if ($kw === '' || !self::keyword_contains_name($kw, $name)) {
-                Logs::info('keywords', '[TMW-KEYWORDS] Additional keyword missing model name', [
+            if ($kw !== '' && self::keyword_contains_name($kw, $name)) {
+                Logs::warn('keywords', '[TMW-KEYWORDS] Model additional keyword still contains exact name', [
                     'index' => $i,
                     'keyword' => $kw,
                     'name' => $name,

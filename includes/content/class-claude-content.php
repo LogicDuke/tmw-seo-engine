@@ -173,8 +173,7 @@ ROLE AND TONE
 • Write informative, helpful, human-readable content for a model's profile page.
 • Keep the tone warm, friendly, and non-explicit. No graphic sexual descriptions.
 • Write in third-person editorial prose. Vary sentence length. Avoid repetition.
-• Treat the model name as a real person — use pronouns naturally instead of
-  repeating the name in every sentence.
+• Keep the model name natural and readable. Do not force pronouns as a density trick, and never rewrite usernames or literal keyword phrases.
 
 STRICT OUTPUT RULES
 • Return ONLY a single valid JSON object. No markdown fences, no commentary.
@@ -196,7 +195,7 @@ GENERATION CONTRACT — every response must satisfy all of these:
 3. watch_section_paragraphs: 1–2 paragraphs about how to find/join live shows.
 4. about_section_paragraphs: 2–3 paragraphs. Describe style, personality, community feel.
 5. fans_like_section_paragraphs: 2–3 paragraphs covering what makes the model stand out
-   — do NOT use the phrase "Viewers interested in" more than once.
+   — avoid repeated openers like "Viewers who", "People looking up", or "Searches for/around".
 6. features_section_paragraphs: 2–3 paragraphs. Cover HD quality, interaction, privacy,
    mobile access, notification alerts. Be specific about {primary_platform}.
 7. comparison_section_paragraphs: 1–2 paragraphs comparing why fans prefer this performer
@@ -207,7 +206,9 @@ GENERATION CONTRACT — every response must satisfy all of these:
 KEYWORD DENSITY RULES
 • Use the exact model name between {min_density}% and {max_density}% of the total word count.
 • Do NOT repeat the exact model name more than twice in any single paragraph.
-• Replace excess name mentions with natural pronouns (she/her) or "the performer".
+• Keep the exact model name natural; do not force pronouns as a density fix.
+• Avoid signposting such as "This guide covers", "Here's what to know", or "Let's dive in".
+• Avoid brochure phrasing, vague importance claims, and formulaic contrasts like "it's not just X, it's Y".
 • Do NOT use these fallback phrases more than once each across the entire output:
   "official profile links", "trusted room links", "official live profile".
 
@@ -235,7 +236,8 @@ SYSTEM
 			. "• Hard minimum: " . self::MODEL_MIN_WORDS . " words across all prose sections.\n"
 			. "• Preferred target: " . self::MODEL_PREFERRED_MIN . "–" . self::MODEL_PREFERRED_MAX . " words. Expand each section generously to reach this range.\n"
 			. "• Each individual section must contain at least 80 words.\n"
-			. "• Do NOT pad with repetitive filler — use descriptive, editorial sentences that add real value.\n"
+			. "• Do NOT pad with repetitive filler — use concrete observations about pace, chat style, scheduling, privacy, and room features.\n"
+			. "• Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n"
 			. "\n"
 			. "Write the profile page content now. Return only the JSON object.\n";
 
@@ -250,7 +252,7 @@ SYSTEM
 			. "Current word count: {$wc} (hard minimum: " . self::MODEL_MIN_WORDS . "; preferred target: " . self::MODEL_PREFERRED_MIN . "–" . self::MODEL_PREFERRED_MAX . ").\n"
 			. "Current keyword density: " . round( $density, 2 ) . "% "
 			. "(target: " . self::MODEL_MIN_KW_DENSITY . "–" . self::MODEL_MAX_KW_DENSITY . "%).\n"
-			. "Please expand each section with additional descriptive sentences until the preferred target is reached.\n"
+			. "Please expand each section with additional direct, concrete sentences until the preferred target is reached. Avoid signposting, brochure copy, and mechanical keyword repetition.\n"
 			. "Return the full corrected JSON object only.";
 	}
 
@@ -363,33 +365,49 @@ SYSTEM
 
 	/** @return string[] */
 	private static function resolve_additional( array $pack, string $name ): array {
-		$extra = is_array( $pack['additional'] ?? null ) ? $pack['additional'] : [];
-		$extra = array_values( array_filter( array_map( 'trim', $extra ), 'strlen' ) );
-		if ( empty( $extra ) ) {
-			$extra = [
-				$name . ' live chat',
-				$name . ' webcam',
-				'watch ' . $name . ' live',
-				$name . ' cam model',
-			];
-		}
-		return array_slice( array_values( array_unique( $extra ) ), 0, 8 );
-	}
+        $extra = is_array( $pack['additional'] ?? null ) ? $pack['additional'] : [];
+        $extra = array_values( array_filter( array_map( 'trim', $extra ), 'strlen' ) );
+        $filtered = [];
+        foreach ( $extra as $keyword ) {
+            if ( $name !== '' && mb_stripos( $keyword, $name, 0, 'UTF-8' ) !== false ) {
+                continue;
+            }
+            $filtered[] = $keyword;
+        }
+        if ( empty( $filtered ) ) {
+            $filtered = [
+                'live show schedule',
+                'verified profile links',
+                'private live chat',
+                'HD live stream',
+            ];
+        }
+        return array_slice( array_values( array_unique( $filtered ) ), 0, 4 );
+    }
 
 	/** @return string[] */
 	private static function resolve_longtail( array $pack, string $name ): array {
-		$lt = is_array( $pack['longtail'] ?? null ) ? $pack['longtail'] : [];
-		$lt = array_values( array_filter( array_map( 'trim', $lt ), 'strlen' ) );
-		if ( empty( $lt ) ) {
-			$lt = [
-				$name . ' live shows',
-				$name . ' schedule',
-				$name . ' profile links',
-				$name . ' live stream',
-			];
-		}
-		return array_slice( array_values( array_unique( $lt ) ), 0, 8 );
-	}
+        $lt = is_array( $pack['longtail'] ?? null ) ? $pack['longtail'] : [];
+        $lt = array_values( array_filter( array_map( 'trim', $lt ), 'strlen' ) );
+        $filtered = [];
+        foreach ( $lt as $keyword ) {
+            if ( $name !== '' && mb_stripos( $keyword, $name, 0, 'UTF-8' ) !== false ) {
+                continue;
+            }
+            $filtered[] = $keyword;
+        }
+        if ( empty( $filtered ) ) {
+            $filtered = [
+                'how to watch live webcam shows',
+                'live show schedule',
+                'private live chat tips',
+                'HD live stream experience',
+                'real-time chat features',
+                'how to join a live session',
+            ];
+        }
+        return array_slice( array_values( array_unique( $filtered ) ), 0, 8 );
+    }
 
 	/** @return string[] */
 	private static function extract_platform_labels( array $links ): array {

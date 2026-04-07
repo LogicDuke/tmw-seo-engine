@@ -1367,10 +1367,10 @@ class AssistedDraftEnrichmentService {
         if ($primary_keyword === '') return [];
 
         return [
-            $primary_keyword . ' webcam',
-            $primary_keyword . ' live',
-            $primary_keyword . ' cam',
-            $primary_keyword . ' stream',
+            'live show schedule',
+            'verified profile links',
+            'private live chat',
+            'HD live stream',
         ];
     }
 

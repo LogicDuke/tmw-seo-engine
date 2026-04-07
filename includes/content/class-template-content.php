@@ -45,11 +45,6 @@ class TemplateContent {
         PlatformProfiles::sync_to_table((int) $post->ID);
         $platform_links = PlatformProfiles::get_links($post->ID);
         $cta_links = self::build_platform_cta_links($post->ID, is_array($platform_links) ? $platform_links : []);
-        \TMWSEO\Engine\Logs::info('content', '[TMW-FIX] Synced platform rows before model CTA generation', [
-            'post_id' => (int) $post->ID,
-            'platform_rows_count' => is_array($platform_links) ? count($platform_links) : 0,
-            'cta_links_count' => count($cta_links),
-        ]);
         $active_platforms = [];
         $primary_platform_label = '';
         foreach ($cta_links as $row) {
@@ -80,34 +75,20 @@ class TemplateContent {
             : 'live webcam shows';
 
         $extra = is_array($pack['additional'] ?? null) ? $pack['additional'] : [];
-        $extra = array_values(array_filter(array_map('trim', $extra), 'strlen'));
-        if (empty($extra)) {
-            $extra = [
-                $name . ' live chat',
-                $name . ' webcam',
-                'watch ' . $name . ' live',
-                $name . ' cam model',
-            ];
-            if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-                $extra[] = $name . ' on ' . $primary_platform_label;
-            }
-        }
-        $extra = array_slice(array_values(array_unique($extra)), 0, 8);
+        $extra = self::filter_name_free_keywords($extra, $name);
+        $extra = array_values(array_unique(array_merge(
+            $extra,
+            self::default_model_additional_keywords($primary_platform_label, $active_platforms)
+        )));
+        $extra = array_slice($extra, 0, 4);
 
         $longtail = is_array($pack['longtail'] ?? null) ? $pack['longtail'] : [];
-        $longtail = array_values(array_filter(array_map('trim', $longtail), 'strlen'));
-        if (empty($longtail)) {
-            $longtail = [
-                $name . ' live shows',
-                $name . ' schedule',
-                $name . ' profile links',
-                $name . ' live stream',
-            ];
-            if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-                $longtail[] = $name . ' ' . $primary_platform_label . ' live';
-            }
-        }
-        $longtail = array_slice(array_values(array_unique($longtail)), 0, 8);
+        $longtail = self::filter_name_free_keywords($longtail, $name);
+        $longtail = array_values(array_unique(array_merge(
+            $longtail,
+            self::default_model_longtail_keywords($primary_platform_label, $active_platforms)
+        )));
+        $longtail = array_slice($longtail, 0, 8);
 
         $context = [
             'name' => $name,
@@ -119,13 +100,13 @@ class TemplateContent {
             'live_brand' => $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK
                 ? $primary_platform_label
                 : 'live cam',
-            'extra_focus_1' => $extra[0] ?? ($name . ' live chat'),
-            'extra_focus_2' => $extra[1] ?? ($name . ' webcam'),
-            'extra_focus_3' => $extra[2] ?? ('watch ' . $name . ' live'),
-            'extra_focus_4' => $extra[3] ?? ($name . ' live'),
+            'extra_focus_1' => $extra[0] ?? 'live show schedule',
+            'extra_focus_2' => $extra[1] ?? 'verified profile links',
+            'extra_focus_3' => $extra[2] ?? 'private live chat',
+            'extra_focus_4' => $extra[3] ?? 'HD live stream',
             'extra_keywords' => $extra,
             'longtail_keywords' => $longtail,
-            'rankmath_additional_keywords' => array_slice($extra, 0, 6),
+            'rankmath_additional_keywords' => array_slice($extra, 0, 4),
             'active_platforms' => $active_platforms,
             'active_platforms_text' => self::format_platform_list($active_platforms, $primary_platform_label),
         ];
@@ -137,7 +118,7 @@ class TemplateContent {
         $bio = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick('model-bios', $seed, 1), $context), $name, false);
         $comparison_copy = self::cleanup_visible_text(TemplateEngine::render(TemplateEngine::pick('model-comparisons', $seed), $context), $name, false);
 
-        $faqs_raw = TemplateEngine::pick_faq($faq_slug, $seed, 5);
+        $faqs_raw = TemplateEngine::pick_faq($faq_slug, $seed, 4);
         // Render {name}/{live_brand}/{tags}/etc. inside each Q&A now — the page
         // renderer's clean_text() does not call TemplateEngine::render(), so raw
         // placeholders like {name} would bleed into final output without this step.
@@ -153,24 +134,24 @@ class TemplateContent {
             }
         }
         $second_intro_pool = [
-            'Most visitors arrive here looking for a direct route to a live session — a verified link, a sense of what the show is like, and enough context to make the room feel familiar before joining.',
-            'This guide covers the practical side: which platforms are active, what to expect from the live-chat style, and how to find the right room quickly without landing on unverified third-party pages.',
-            'Finding a performer\'s actual room can take longer than it should when search results mix verified profiles with aggregator pages. This page links directly to the official sources and explains what to expect once inside.',
-            'Fans searching for live shows usually want a fast, safe way to join a real-time room. This guide highlights verified profile links, what to expect, and practical ways to enjoy a quality live chat experience.',
-            'The combination of verified links, show context, and platform comparison on this page is designed to shorten the gap between "searching" and "watching" — without the usual detour through unrelated results.',
+            'Most people land here because search results for live rooms are cluttered with copies, stale embeds, or half-finished profile pages. Keeping ' . $name . ' in one place makes the choice easier and cuts down on guesswork.',
+            'Finding the actual room should not take five tabs. The goal here is simple: point to the current profiles, explain the general room feel, and help you pick a platform for ' . $name . ' without wasting time.',
+            'A useful ' . $name . ' page does two jobs well. It shows the right links, and it gives a realistic sense of what the room feels like before you click through.',
+            'If you are mainly trying to work out where ' . $name . ' is live, start with the buttons below. The rest of the page fills in the practical details that usually matter once someone is ready to join.',
+            'Search results for live profiles are often noisy. Keeping the verified rooms for ' . $name . ' in one place saves time and makes the platform choice a lot easier.',
         ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
-            'Use the verified links below to access current rooms and choose where to watch live safely.',
-            'The links below connect directly to verified rooms — no third-party redirects, no guesswork about which page is official.',
-            'Select a platform from the links below to open the live room directly. Arriving a few minutes early is the best way to catch the session from the start.',
+            'Use the buttons below to open ' . $name . "'s" . ' current rooms directly.',
+            'Choose a platform below and you will land on ' . $name . "'s" . ' active room without bouncing through copied pages first.',
+            'Opening ' . $name . "'s" . ' room a few minutes early is usually the easiest way to catch the start and settle into chat before it gets busy.',
         ];
         if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $watch_para_pool[] = 'Use the verified links below to watch on ' . $primary_platform_label . ' and compare any additional platforms available for this performer.';
+            $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
         }
         $watch_para = $watch_para_pool[self::stable_pick_index($seed . '|watch', count($watch_para_pool))];
-        $keyword_coverage_html = self::render_rankmath_keyword_coverage(array_slice($extra, 0, 6), $name);
+        $keyword_coverage_html = self::render_rankmath_keyword_coverage(array_slice($extra, 0, 4), $name);
 
         $support_payload = self::build_model_renderer_support_payload($post, array_merge($pack, [
             'name' => $name,
@@ -197,7 +178,9 @@ class TemplateContent {
             'about_section_paragraphs' => [$bio],
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name),
             'features_section_paragraphs' => [
-                'Stream quality, room access speed, and interactive features all factor into how enjoyable a session turns out to be. The breakdown below covers the main things worth checking before joining ' . $name . ' on ' . $platform_ref . '.',
+                // No exact name in this paragraph — section headings already carry
+                // the name; repeating it here inflates keyword density unnecessarily.
+                'Watching ' . $name . ' live usually comes down to a few practical details: clear video, a chat that stays readable, and room tools that do not get in the way. The breakdown below covers the things worth checking before you join on ' . $platform_ref . '.',
             ],
             'features_section_html' => self::join_html_blocks([
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
@@ -213,7 +196,7 @@ class TemplateContent {
         $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
 
         if (self::similarity_score($content, (int)$post->ID) > 70.0) {
-            $content .= "\n\n" . '<h2>Why ' . esc_html($name) . ' stands out</h2><p>This profile highlights ' . esc_html($name) . ' with current platform availability, related search intent, and a curated mix of ' . esc_html($tags_text) . ' cues tailored to this page.</p>';
+            $content .= "\n\n" . '<h2>Why ' . esc_html($name) . ' stands out</h2><p>This page keeps the practical bits together: active platforms, a sense of the room style, and a quick way to compare verified options without extra searching.</p>';
             $content = self::split_long_paragraphs($content);
         }
 
@@ -248,8 +231,16 @@ class TemplateContent {
             $name = 'Live Cam Model';
         }
 
-        $source_links = $pack['cta_links'] ?? PlatformProfiles::get_links($post->ID);
-        $cta_links = self::build_platform_cta_links((int)$post->ID, is_array($source_links) ? $source_links : []);
+        // When cta_links are not pre-built (OpenAI/Claude paths), sync the
+        // platform table first so get_links() returns up-to-date rows.
+        if (isset($pack['cta_links'])) {
+            $source_links = $pack['cta_links'];
+        } else {
+            PlatformProfiles::sync_to_table((int) $post->ID);
+            $source_links = PlatformProfiles::get_links($post->ID);
+        }
+
+        $cta_links = self::build_platform_cta_links((int) $post->ID, is_array($source_links) ? $source_links : []);
 
         $active_platforms = $pack['active_platforms'] ?? [];
         if (!is_array($active_platforms) || empty($active_platforms)) {
@@ -278,27 +269,46 @@ class TemplateContent {
         // so Rank Math can detect outbound links regardless of which section
         // the tool happens to scan first.
         $guaranteed_outbound = self::render_guaranteed_external_platform_links($cta_links, $name);
+        $wikipedia_fallback_used = false;
 
-        // Fallback: if no links could be built (no usernames at all), produce a
-        // Wikipedia informational link so outbound-link count is never zero.
-        if ($guaranteed_outbound === '') {
-            $guaranteed_outbound = '<p>For background on live-cam performers, see <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this overview</a>.</p>';
+        // Fallback to Wikipedia ONLY when cta_links is empty — meaning no
+        // platform username exists in either the profiles table or post meta
+        // (build_platform_cta_links already tried both). If cta_links has
+        // entries but render_guaranteed returned '' (URL resolution edge case),
+        // do NOT substitute Wikipedia — that would put a generic webcam-model
+        // link on a page that has real performer usernames.
+        if ($guaranteed_outbound === '' && empty($cta_links)) {
+            $guaranteed_outbound   = '<p>For background on live-cam performers, see <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this overview</a>.</p>';
+            $wikipedia_fallback_used = true;
         }
 
+        // ── Watch section: /go/ CTAs only — NO visible external links ────────
+        // Visible external affiliate/profile links must appear ONLY in the Explore
+        // More / external_info_html end section so Rank Math detects them at the
+        // bottom rather than mid-body (requirement: links only at end of content).
+        $watch_html = self::join_html_blocks( [
+            self::render_primary_watch_cta( $cta_links, $name ),
+            self::render_watch_cta_section( $cta_links, $name ),
+            // $guaranteed_outbound intentionally excluded here — see below.
+        ] );
+
+        // ── Explore More / end section: ONE consolidated outbound link block ──
+        // render_guaranteed_external_platform_links() already resolves affiliate
+        // → profile → registry URLs in priority order and covers all active
+        // platforms. Combining it with render_preferred_external_platform_links()
+        // produced two near-identical LiveJasmin + Stripchat link blocks.
+        // Use only the guaranteed block so Rank Math sees exactly one outbound
+        // link group at the end of content — no duplicates.
+        $ext_info_html = $guaranteed_outbound;
+
         return [
-            'watch_section_html' => self::join_html_blocks([
-                self::render_primary_watch_cta($cta_links, $name),
-                self::render_watch_cta_section($cta_links, $name),
-                // Guaranteed external links injected early in the Watch section
-                // so Rank Math always finds at least one real outbound href.
-                $guaranteed_outbound,
-            ]),
+            'watch_section_html' => $watch_html,
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
             'related_models_html' => self::render_related_models($post, $name, $tags, $active_platforms),
             'explore_more_html' => self::render_internal_links($post),
-            // Also keep it in external_info_html for the Explore More section
-            // (belt-and-suspenders: two anchor points in the rendered HTML).
-            'external_info_html' => self::render_preferred_external_platform_links($cta_links, $name),
+            // All visible outbound links consolidated here — Explore More is the
+            // only place in rendered content where real external links appear.
+            'external_info_html' => $ext_info_html,
             'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
         ];
     }
@@ -318,69 +328,50 @@ class TemplateContent {
         $tags = trim((string)($context['tags'] ?? ''));
         $seed = $name . '|fans';
 
-        // ── Opener pool: varied sentence starters, no name repetition ──────
         $openers = [
-            'Returning viewers tend to describe the same qualities when explaining why they come back: a consistent live-chat style, genuine responsiveness to the room, and pacing that does not feel rushed or mechanical.',
-            'Community members who have watched across multiple platforms tend to settle here because the live format feels less scripted and more responsive than most broadcast-style shows.',
-            'Long-time followers point to a sense of session continuity — each broadcast has a recognisable rhythm, which makes the experience easier to settle into than unpredictable free-form rooms.',
-            'What draws regular viewers back is harder to summarise than a single feature: it is the combination of attentiveness, pacing, and a consistent on-screen presence that makes repeat visits feel worthwhile.',
-            'Fans who browse multiple performers tend to describe the draw here as something structural — the show has a shape, a warm-up, and a conversational arc that more casual broadcasts tend to skip.',
-            'The appeal extends beyond any single session. Viewers who engage with chat consistently report that the interaction feels more personal than standard viewer-performer dynamics on most platforms.',
+            'Regulars usually talk about pacing before anything else. Nothing feels rushed, and the room has enough back-and-forth to keep even quieter sessions from going flat.',
+            'The pull here is not a single gimmick. People stick around because the room stays attentive, the mood stays readable, and the live chat never feels like background noise.',
+            'Across different sessions, the same qualities show up again: steady energy, clear reactions to the room, and a style that feels present instead of automatic.',
+            $name . ' tends to hold attention through timing rather than noise. The room settles into a rhythm quickly, and that makes repeat visits feel easier instead of random.',
+            'What keeps viewers coming back is consistency. The room feels awake, the chat matters, and the overall tone does not swing wildly from one session to the next.',
         ];
-        $opener_idx = self::stable_pick_index($seed . '|opener', count($openers));
-        $paragraphs = [$openers[$opener_idx]];
 
-        // ── Second paragraph: weave in first clean focus naturally ──────────
-        $focus1 = '';
-        foreach ($focuses as $f) {
-            $clean = self::cleanup_visible_text($f, $name, false);
-            if ($clean !== '' && mb_strlen($clean) > 4) {
-                $focus1 = $clean;
-                break;
+        $paragraphs = [$openers[self::stable_pick_index($seed . '|opener', count($openers))]];
+
+        $clean_focuses = [];
+        foreach ($focuses as $focus) {
+            $focus = self::cleanup_visible_text($focus, $name, false);
+            if ($focus !== '' && mb_strlen($focus, 'UTF-8') > 4 && !in_array($focus, $clean_focuses, true)) {
+                $clean_focuses[] = $focus;
             }
         }
 
-        if ($focus1 !== '') {
-            $p1_pool = [
-                'Visitors arriving from searches for ' . $focus1 . ' find that the live-chat format here offers more personalisation than auto-play video alternatives. The show adjusts based on what the room is asking for, which keeps sessions from feeling like a one-way broadcast.',
-                'People who arrive via searches for ' . $focus1 . ' often stay longer than planned because the interactive element turns passive watching into a genuine back-and-forth — which is exactly what most live-cam viewers are looking for.',
-                'The connection between ' . $focus1 . ' and the performer\'s natural style shows up quickly in any session: the pacing is deliberate, the conversation moves in both directions, and the camera work stays steady rather than drifting.',
-                'Searches for ' . $focus1 . ' land here because the page covers both the discovery side and the practical side — verified links, a breakdown of show style, and enough context to understand what to expect before committing to a session.',
+        if (!empty($clean_focuses)) {
+            $focus = $clean_focuses[0];
+            $pool = [
+                'If ' . $focus . ' is what brought someone here, the main difference they notice is responsiveness. The room has give-and-take, not just a performer pushing forward regardless of chat.',
+                'A phrase like ' . $focus . ' usually sounds broad, but the real appeal is simple. The room reacts, adjusts, and keeps enough space for the audience to shape the mood a little.',
+                'People arriving through ' . $focus . ' are usually looking for a room that feels active without turning chaotic. That balance tends to hold up well here.',
             ];
-            $paragraphs[] = $p1_pool[self::stable_pick_index($seed . '|p1', count($p1_pool))];
+            $paragraphs[] = $pool[self::stable_pick_index($seed . '|focus1', count($pool))];
         }
 
-        // ── Third paragraph: second focus or tags/platform angle ────────────
-        $focus2 = '';
-        $skipped = false;
-        foreach ($focuses as $f) {
-            $clean = self::cleanup_visible_text($f, $name, false);
-            if ($clean !== '' && mb_strlen($clean) > 4) {
-                if (!$skipped) { $skipped = true; continue; }
-                $focus2 = $clean;
-                break;
-            }
-        }
-        $theme = $focus2 !== '' ? $focus2 : ($tags !== '' ? $tags : $name . ' live shows');
-
-        $p2_pool = [
-            'For viewers drawn in by ' . $theme . ', the show style translates naturally: topics are introduced through conversation rather than announced like agenda items, which keeps the atmosphere relaxed and easy to enter at any point in the session.',
-            'Searches around ' . $theme . ' land on this page because it addresses both the platform context and the viewer experience — not just a room link, but a sense of what the session will actually feel like once inside.',
-            'The ' . $theme . ' dimension of these sessions is handled with care: it informs the mood without dominating the room, which gives first-time viewers a comfortable entry point and gives returning viewers something to build on.',
-            'Viewers interested in ' . $theme . ' find that the format here rewards participation more than most. The show responds to what the room brings rather than following a fixed script, which creates a different experience each time.',
+        $theme = $clean_focuses[1] ?? ($tags !== '' ? $tags : 'live room themes');
+        $theme_pool = [
+            'The mood around ' . $theme . ' comes through naturally rather than being pushed like a slogan. That makes the room easier to drop into at any point without feeling behind.',
+            $theme . ' works best here as part of the atmosphere. It sets expectations without locking every session into the exact same pattern.',
+            'Even when ' . $theme . ' is part of the draw, the room still leaves space for smaller detours, jokes, and quick shifts driven by chat.',
         ];
-        $paragraphs[] = $p2_pool[self::stable_pick_index($seed . '|p2', count($p2_pool))];
+        $paragraphs[] = $theme_pool[self::stable_pick_index($seed . '|theme', count($theme_pool))];
 
-        // ── Fourth paragraph: platform-specific or community angle ──────────
-        $p3_pool = [
-            'On ' . $platform . ', the combination of HD streaming and responsive moderation keeps the technical side from interfering with what makes a live session worth attending in the first place.',
-            'The interactive features on ' . $platform . ' — tip-triggered responses, two-way chat, and private session options — give viewers more ways to shape the experience than a standard video stream allows.',
-            'Fans who have tried multiple platforms consistently describe ' . $platform . ' as the most reliable option for this kind of live-chat experience: the quality is predictable, the moderation keeps the room calm, and the connection to the performer feels closer.',
-            'What ' . $platform . ' adds to the experience is infrastructure: stable HD delivery, active moderation, and notification tools that mean viewers can follow a schedule rather than checking repeatedly.',
+        $platform_pool = [
+            'That style translates well on ' . $platform . ' because the room tools stay manageable. Video is clear, chat stays readable, and the session does not get buried under clutter.',
+            'On ' . $platform . ', the practical side helps more than people expect. Stable playback, decent moderation, and useful alerts make it easier to enjoy the room over time.',
+            'People comparing platforms usually notice the same thing on ' . $platform . ': it keeps the room usable, which gives the performer more room to actually interact.',
         ];
-        $paragraphs[] = $p3_pool[self::stable_pick_index($seed . '|p3', count($p3_pool))];
+        $paragraphs[] = $platform_pool[self::stable_pick_index($seed . '|platform', count($platform_pool))];
 
-        return array_values(array_filter($paragraphs));
+        return array_values(array_slice(array_filter($paragraphs), 0, 4));
     }
 
     private static function render_rankmath_keyword_coverage(array $keywords, string $name): string {
@@ -389,9 +380,13 @@ class TemplateContent {
             return '';
         }
 
-        $out  = '<p>People looking for ' . esc_html($name) . ' often search for these related phrases before choosing a room or platform:</p><ul>';
+        $out  = '<p>Related searches people use before picking a room:</p><ul>';
         foreach ($keywords as $keyword) {
-            $out .= '<li>' . esc_html(self::cleanup_visible_text($keyword, $name, false)) . '</li>';
+            // IMPORTANT: do NOT run literal keyword phrases through cleanup_visible_text().
+            // That function transforms token patterns in ways that corrupt the phrase —
+            // stripping "watch", replacing pronouns, etc. Keyword phrases must be preserved
+            // verbatim; only trim() and esc_html() are safe here.
+            $out .= '<li>' . esc_html(trim($keyword)) . '</li>';
         }
         $out .= '</ul>';
 
@@ -429,9 +424,34 @@ class TemplateContent {
     private static function build_platform_comparison(\WP_Post $post, string $name, array $cta_links, string $comparison_copy): string {
         $comparison_copy = self::cleanup_visible_text($comparison_copy, $name, false);
 
+        // ── Detect alternate Stripchat username ───────────────────────────────
+        // When a model's Stripchat username differs from their primary (LiveJasmin)
+        // username, add ONE short natural sentence so readers know where to look.
+        $lj_username = '';
+        $sc_username = '';
+        foreach ($cta_links as $link) {
+            $plat = sanitize_key((string) ($link['platform'] ?? ''));
+            $user = trim((string) ($link['username'] ?? ''));
+            if ($plat === 'livejasmin' && $user !== '') {
+                $lj_username = $user;
+            }
+            if ($plat === 'stripchat' && $user !== '') {
+                $sc_username = $user;
+            }
+        }
+        $alt_username_note = '';
+        if (
+            $sc_username !== ''
+            && strtolower($sc_username) !== strtolower($name)
+            && ($lj_username === '' || strtolower($sc_username) !== strtolower($lj_username))
+        ) {
+            $alt_username_note = '<p>On Stripchat, this profile uses the username ' . esc_html($sc_username) . '.</p>';
+        }
+        // ── End alternate username detection ─────────────────────────────────
+
         if (empty($cta_links)) {
             $fallback = 'Use trusted official profile links and compare room features before you join ' . $name . '.';
-            return '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>';
+            return $alt_username_note . '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>';
         }
 
         $rows = '';
@@ -454,7 +474,7 @@ class TemplateContent {
             $table = '<table><thead><tr><th>Platform</th><th>Profile</th><th>Link</th></tr></thead><tbody>' . $rows . '</tbody></table>';
         }
 
-        return $table;
+        return $alt_username_note . $table;
     }
 
     private static function render_related_models(\WP_Post $post, string $name, array $tags, array $active_platforms): string {
@@ -508,7 +528,7 @@ class TemplateContent {
                 $label = 'live cam';
             }
 
-            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored noopener">' . esc_html('Watch ' . $name . ' on ' . $label) . '</a></p>';
+            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored noopener">' . esc_html('Watch on ' . $label) . '</a></p>';
         }
 
         return '';
@@ -535,18 +555,38 @@ class TemplateContent {
      * @param array<int,array{platform?:string,is_primary?:string|int,username?:string,url?:string}> $links
      * @return array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}>
      */
+    /**
+     * Canonical list of platforms we read username meta for.
+     * Used by build_platform_cta_links() and the Wikipedia-fallback guard.
+     */
+    private const KNOWN_PLATFORM_SLUGS = [
+        'livejasmin', 'stripchat', 'chaturbate',
+        'myfreecams', 'camsoda', 'bonga', 'cam4',
+    ];
+
+    /**
+     * Build CTA link rows from a platform-profile source array.
+     *
+     * v3 fix: when the PlatformProfiles table returns zero rows (not yet synced
+     * or table empty), fall back to reading username meta directly so that
+     * cta_links is never empty when valid usernames exist in post meta.
+     *
+     * @param array<int,array{platform?:string,is_primary?:string|int,username?:string,url?:string}> $links
+     * @return array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}>
+     */
     private static function build_platform_cta_links(int $post_id, array $links): array {
-        $out = [];
+        $out  = [];
+        $seen = [];
 
         foreach ($links as $link) {
-            $platform = sanitize_key((string)($link['platform'] ?? ''));
-            if ($platform === '') {
+            $platform = sanitize_key((string) ($link['platform'] ?? ''));
+            if ($platform === '' || isset($seen[$platform])) {
                 continue;
             }
 
-            $username = trim((string)get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
+            $username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
             if ($username === '') {
-                $username = trim((string)($link['username'] ?? ''));
+                $username = trim((string) ($link['username'] ?? ''));
             }
             if ($username === '') {
                 continue;
@@ -554,22 +594,55 @@ class TemplateContent {
 
             $go_url = AffiliateLinkBuilder::go_url($platform, $username);
             if ($go_url === '') {
-                $go_url = trim((string)($link['url'] ?? ''));
+                $go_url = trim((string) ($link['url'] ?? ''));
             }
             if ($go_url === '') {
                 continue;
             }
 
             $platform_data = PlatformRegistry::get($platform);
-            $label = (string)($platform_data['name'] ?? ucfirst($platform));
+            $label         = (string) ($platform_data['name'] ?? ucfirst($platform));
 
-            $out[] = [
-                'platform' => $platform,
-                'label' => $label,
-                'go_url' => $go_url,
-                'is_primary' => !empty($link['is_primary']),
-                'username' => $username,
+            $out[]          = [
+                'platform'   => $platform,
+                'label'      => $label,
+                'go_url'     => $go_url,
+                'is_primary' => ! empty($link['is_primary']),
+                'username'   => $username,
             ];
+            $seen[$platform] = true;
+        }
+
+        // ── Meta-only fallback ──────────────────────────────────────────────
+        // PlatformProfiles table returned zero rows (sync not yet run / table
+        // empty). Build CTA rows directly from the saved username meta keys so
+        // that outbound link rendering is never blocked by table state.
+        if (empty($out)) {
+            $meta_first = true;
+            foreach (self::KNOWN_PLATFORM_SLUGS as $meta_platform) {
+                if (isset($seen[$meta_platform])) {
+                    continue;
+                }
+                $meta_username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $meta_platform, true));
+                if ($meta_username === '') {
+                    continue;
+                }
+                $meta_go_url = AffiliateLinkBuilder::go_url($meta_platform, $meta_username);
+                if ($meta_go_url === '') {
+                    continue;
+                }
+                $meta_pdata = PlatformRegistry::get($meta_platform);
+                $meta_label = (string) ($meta_pdata['name'] ?? ucfirst($meta_platform));
+                $out[] = [
+                    'platform'   => $meta_platform,
+                    'label'      => $meta_label,
+                    'go_url'     => $meta_go_url,
+                    'is_primary' => $meta_first,
+                    'username'   => $meta_username,
+                ];
+                $seen[$meta_platform] = true;
+                $meta_first           = false;
+            }
         }
 
         return $out;
@@ -660,13 +733,20 @@ class TemplateContent {
 
         $items = [];
         foreach ($links as $link) {
+            // Skip the primary platform — render_primary_watch_cta() already outputs
+            // it as a prominent <p> CTA above this section. Including it again here
+            // would produce a duplicate "Watch {name} on {platform}" entry.
+            if (!empty($link['is_primary'])) {
+                continue;
+            }
+
             $url = (string)($link['go_url'] ?? '');
             $platform = (string)($link['label'] ?? '');
             if ($url === '' || $platform === '') {
                 continue;
             }
 
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="' . esc_attr(!empty($link['is_primary']) ? 'sponsored noopener' : 'sponsored nofollow noopener') . '">' . esc_html('Watch ' . $name . ' on ' . $platform) . '</a></li>';
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch on ' . $platform) . '</a></li>';
 
             if (count($items) >= 4) {
                 break;
@@ -690,81 +770,18 @@ class TemplateContent {
     }
 
     /**
-     * Show 1-2 real external affiliate/profile links that Rank Math can detect.
-     * Keep /go/ tracked CTAs intact elsewhere; this block is only for visible
-     * outbound links in rendered content.
-     *
-     * Never returns empty when valid platform usernames exist — falls back to
-     * direct PlatformRegistry profile URL pattern if AffiliateLinkBuilder returns
-     * nothing (e.g. affiliate settings not configured for the platform).
+     * @deprecated Superseded by render_guaranteed_external_platform_links().
+     * Kept as a tombstone so any stale call-site produces no output instead of
+     * duplicating the guaranteed outbound link block that lives in external_info_html.
      *
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
     private static function render_preferred_external_platform_links(array $links, string $name): string {
-        if (empty($links)) {
-            return '';
-        }
-
-        $priority = ['livejasmin' => 0, 'stripchat' => 1];
-        usort($links, static function (array $a, array $b) use ($priority): int {
-            $ap = sanitize_key((string)($a['platform'] ?? ''));
-            $bp = sanitize_key((string)($b['platform'] ?? ''));
-            $ai = $priority[$ap] ?? 50;
-            $bi = $priority[$bp] ?? 50;
-            if ($ai === $bi) {
-                return (!empty($b['is_primary']) <=> !empty($a['is_primary']));
-            }
-            return $ai <=> $bi;
-        });
-
-        $items = [];
-        $seen = [];
-        foreach ($links as $link) {
-            $platform = sanitize_key((string)($link['platform'] ?? ''));
-            $username = trim((string)($link['username'] ?? ''));
-            $label = trim((string)($link['label'] ?? ''));
-            if ($platform === '' || $username === '' || $label === '' || isset($seen[$platform])) {
-                continue;
-            }
-
-            // Layer 1: affiliate URL (may wrap with partner tracking).
-            $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
-
-            // Layer 2: bare profile URL via AffiliateLinkBuilder.
-            if ($external_url === '') {
-                $external_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
-            }
-
-            // Layer 3: direct PlatformRegistry pattern — bypasses all affiliate
-            // settings so this always produces a real external URL when the
-            // platform is registered, regardless of admin configuration state.
-            if ($external_url === '') {
-                $platform_data = PlatformRegistry::get($platform);
-                $pattern = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
-                if ($pattern !== '') {
-                    $candidate = str_replace('{username}', rawurlencode($username), $pattern);
-                    if (wp_http_validate_url($candidate)) {
-                        $external_url = $candidate;
-                    }
-                }
-            }
-
-            if ($external_url === '') {
-                continue;
-            }
-
-            $items[] = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile for ' . $name) . '</a></li>';
-            $seen[$platform] = true;
-            if (count($items) >= 2) {
-                break;
-            }
-        }
-
-        if (empty($items)) {
-            return '';
-        }
-
-        return '<p>Compare the official external platform pages before choosing a watch link:</p><ul>' . implode('', $items) . '</ul>';
+        // Intentionally returns empty string.
+        // The single outbound link block is rendered exclusively by
+        // render_guaranteed_external_platform_links() via $ext_info_html.
+        // Returning anything here would produce a duplicate link block.
+        return '';
     }
 
     /**
@@ -780,6 +797,18 @@ class TemplateContent {
      *
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
+    /**
+     * Build a guaranteed visible outbound link block using platform usernames.
+     *
+     * v3 URL resolution order (corrected):
+     *   1. AffiliateLinkBuilder::build_affiliate_url()  — uses configured partner template
+     *   2. AffiliateLinkBuilder::build_profile_url()    — bare profile URL via AffiliateLinkBuilder
+     *   3. PlatformRegistry profile_url_pattern direct  — last-resort, always produces a real URL
+     *
+     * Returns empty string ONLY when no platform username exists at all.
+     *
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     */
     private static function render_guaranteed_external_platform_links(array $links, string $name): string {
         if (empty($links)) {
             return '';
@@ -787,47 +816,46 @@ class TemplateContent {
 
         $priority = ['livejasmin' => 0, 'stripchat' => 1];
         usort($links, static function (array $a, array $b) use ($priority): int {
-            $ap = sanitize_key((string)($a['platform'] ?? ''));
-            $bp = sanitize_key((string)($b['platform'] ?? ''));
+            $ap = sanitize_key((string) ($a['platform'] ?? ''));
+            $bp = sanitize_key((string) ($b['platform'] ?? ''));
             $ai = $priority[$ap] ?? 50;
             $bi = $priority[$bp] ?? 50;
             if ($ai === $bi) {
-                return (!empty($b['is_primary']) <=> !empty($a['is_primary']));
+                return (! empty($b['is_primary']) <=> ! empty($a['is_primary']));
             }
             return $ai <=> $bi;
         });
 
         $items = [];
-        $seen = [];
+        $seen  = [];
         foreach ($links as $link) {
-            $platform = sanitize_key((string)($link['platform'] ?? ''));
-            $username = trim((string)($link['username'] ?? ''));
-            $label = trim((string)($link['label'] ?? ''));
+            $platform = sanitize_key((string) ($link['platform'] ?? ''));
+            $username = trim((string) ($link['username'] ?? ''));
+            $label    = trim((string) ($link['label'] ?? ''));
             if ($platform === '' || $username === '' || $label === '' || isset($seen[$platform])) {
                 continue;
             }
 
-            // Always try the registry pattern directly — no affiliate intermediary.
-            $platform_data = PlatformRegistry::get($platform);
-            $pattern = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
-            $external_url = '';
-            if ($pattern !== '') {
-                $candidate = str_replace('{username}', rawurlencode($username), $pattern);
-                if (wp_http_validate_url($candidate)) {
-                    $external_url = $candidate;
-                }
-            }
-
-            // Fallback: let AffiliateLinkBuilder try (handles custom affiliate templates).
+            $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
             if ($external_url === '') {
-                $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
+                $external_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
+            }
+            if ($external_url === '') {
+                $platform_data = PlatformRegistry::get($platform);
+                $pattern       = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
+                if ($pattern !== '') {
+                    $candidate = str_replace('{username}', rawurlencode($username), $pattern);
+                    if (wp_http_validate_url($candidate)) {
+                        $external_url = $candidate;
+                    }
+                }
             }
 
             if ($external_url === '') {
                 continue;
             }
 
-            $items[] = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile for ' . $name) . '</a></li>';
+            $items[]         = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile') . '</a></li>';
             $seen[$platform] = true;
             if (count($items) >= 2) {
                 break;
@@ -838,7 +866,7 @@ class TemplateContent {
             return '';
         }
 
-        return '<p>View the official platform profiles for ' . esc_html($name) . ' before choosing a watch link:</p><ul>' . implode('', $items) . '</ul>';
+        return '<p>Official platform profiles are listed here if you want to compare the rooms directly before choosing a watch link:</p><ul>' . implode('', $items) . '</ul>';
     }
 
     /**
@@ -1059,28 +1087,22 @@ class TemplateContent {
     private static function build_longtail_paragraphs(array $longtail_keywords, string $name): array {
         $items = array_slice(
             array_values(array_unique(array_filter(array_map('trim', $longtail_keywords), 'strlen'))),
-            0, 4
+            0,
+            4
         );
 
-        // Four structurally distinct paragraph patterns — each addresses a different
-        // search intent angle. Pattern is assigned by position so the same page always
-        // gets a consistent mix and never repeats the same opener.
         $patterns = [
-            // Pattern 0 — discovery / route-to-room framing
             static function (string $kw): string {
-                return 'Searches for ' . $kw . ' typically arrive from viewers who want a fast, direct route to the right room without wading through aggregator pages or outdated profile links. This guide covers exactly that need: verified links, a breakdown of show style, and a platform comparison that makes the choice straightforward.';
+                return $kw . ' usually comes from people who want a straight answer on where to click and what kind of room they are opening. That is why the page keeps the live links, platform notes, and basic expectations together.';
             },
-            // Pattern 1 — quality / experience framing
             static function (string $kw): string {
-                return 'Among the most common questions behind a search for ' . $kw . ' is a desire to understand what separates a reliable live stream from a frustrating one. Stream stability, interactive features, and consistent scheduling all factor into that answer, and each of those is covered in the sections above.';
+                return 'With ' . $kw . ', the useful questions are practical ones: does the stream load quickly, are notifications reliable, and is the room easy to follow on mobile? Those details matter more than hype once someone is ready to join.';
             },
-            // Pattern 2 — practical / first-time viewer framing
             static function (string $kw): string {
-                return 'Getting clear information about ' . $kw . ' is easier when the page addresses both the platform context and the performer context together. Show schedules, room access, notification settings, and privacy controls all come into the picture once a viewer moves beyond passive searching and decides to join a session.';
+                return 'A query like ' . $kw . ' usually means the browsing stage is over. People want a cleaner route into the room, a sense of the schedule, and enough context to decide whether the platform fits.';
             },
-            // Pattern 3 — comparison / decision framing
             static function (string $kw): string {
-                return 'Viewers who search for ' . $kw . ' often compare two or three platforms before committing to one. A clear breakdown of stream quality, pricing transparency, interactive features, and moderation standards shortens that comparison and reduces the chance of joining a room that does not match what the search was actually looking for.';
+                return 'When someone searches ' . $kw . ', they are often comparing convenience more than hype. Stable video, clear navigation, and a readable chat make more difference than flashy copy.';
             },
         ];
 
@@ -1093,40 +1115,38 @@ class TemplateContent {
             $paragraphs[] = $patterns[$idx % count($patterns)]($body_kw);
         }
 
-        return $paragraphs;
+        return array_values(array_filter($paragraphs));
     }
 
     private static function pad_model_content(string $content, string $name, array $active_platforms, array $extra_keywords, array $longtail, string $tags_text): string {
         $word_count = str_word_count(wp_strip_all_tags($content));
 
-        // Hard floor: 800 words. Ideal target: 1200–1501. Never shrink to meet a ceiling.
-        if ($word_count >= 1501) {
+        if ($word_count >= 1001) {
             return $content;
         }
 
         $platform_text = self::format_platform_list($active_platforms, $active_platforms[0] ?? self::NEUTRAL_PLATFORM_FALLBACK);
-        $focus1 = self::cleanup_visible_text($extra_keywords[0] ?? ($name . ' live chat'), $name, false);
-        $focus2 = self::cleanup_visible_text($extra_keywords[1] ?? ($name . ' webcam'), $name, false);
-        $longtail_hint = self::cleanup_visible_text($longtail[0] ?? ($name . ' schedule'), $name, false);
+        $focus1 = self::cleanup_visible_text($extra_keywords[0] ?? 'live show schedule', $name, false);
+        $focus2 = self::cleanup_visible_text($extra_keywords[1] ?? 'private live chat', $name, false);
+        $longtail_hint = self::cleanup_visible_text($longtail[0] ?? 'live show schedule', $name, false);
         $seed = $name . '|pad';
 
-        // Rich expansion paragraphs — varied, no exact-name stuffing, substantive content
         $expansion_pool = [
-            'One reason this profile page works well as a starting point is that it consolidates information that would otherwise require checking several different sources: platform availability, show style, interactive features, and link verification all in one place.',
-            'Viewers who arrive from searches around ' . $focus1 . ' find that the live-chat format offers something that browsing pre-recorded clips cannot replicate — the ability to be part of the session rather than just watching it unfold.',
-            'The practical side of finding a reliable live session matters as much as the content itself. Knowing which links are verified, which platforms are currently active, and what the show schedule looks like all reduce the friction between searching and actually watching.',
-            'Platform comparison is a step most serious viewers go through at some point. Stream stability, pricing clarity, moderation quality, and interactive options all vary enough between platforms to make the difference between a session that meets expectations and one that falls short.',
-            'Viewers looking for ' . $focus2 . ' typically want a room that responds to what they bring to it — a show that feels shaped by the audience rather than indifferent to it. That distinction is something consistent performers make visible across multiple sessions.',
-            'Searches around ' . $longtail_hint . ' reflect a specific kind of viewer intent: someone who has moved past curiosity and wants practical information — when the sessions happen, how to get access, and what to expect once inside.',
-            'The combination of ' . $tags_text . ' themes across these sessions gives the content a consistency that regulars rely on and new viewers can use to calibrate expectations. Shows built around a recognisable identity tend to attract an audience that understands what it is showing up for.',
-            'Live-chat sessions differ from pre-recorded content in ways that matter most over time: the spontaneous moments, the chat-driven changes in direction, and the genuine interaction that makes a session feel like an event rather than a recording.',
-            'Privacy considerations are part of the live-cam experience for many viewers. The platforms featured here give users control over anonymity, account visibility, and payment privacy — which is worth understanding before joining a session for the first time.',
-            'For viewers on ' . $platform_text . ', the combination of HD streaming, real-time chat, and consistent moderation creates an environment where the interaction quality stays high even when the room is active and the pace picks up.',
-            'The features that matter most to regular viewers tend to be the less glamorous ones: stable connection quality, predictable scheduling, and a moderation approach that keeps the room focused. These details show up in the long-term enjoyment of a performer\'s content more than any single session highlight.',
-            'Finding a performer whose show style aligns with what a viewer is actually looking for can take time. Pages like this one are designed to shorten that process by providing context alongside links, so the decision can be made with more information than a profile thumbnail and a name.',
+            'A page like this is most useful when it shortens the boring part of the process. Instead of checking several profile aggregators, you can see which platforms are active and go straight to ' . $name . ' on the platform that matches how you like to watch.',
+            'The live format changes the experience more than it seems at first. A steady room with readable chat can turn a simple session into something people want to revisit.',
+            'Most regular viewers end up caring about the small practical details: whether notifications are dependable, whether mobile playback behaves properly, and whether the room stays manageable once more people join.',
+            $focus1 . ' fits the page because the real choice usually comes down to interaction. Some viewers want a quieter room, some want more public chat, and platform differences matter once that preference becomes clear.',
+            $focus2 . ' sounds broad, but it usually points to a simple expectation: a stream that feels active, not canned. That comes from pacing, quick reactions, and a room that does not ignore its own chat.',
+            $longtail_hint . ' matters for a practical reason. People would rather know when a room tends to open than keep refreshing random profile pages and hoping they got the right one.',
+            $tags_text . ' themes help set expectations, but they do not lock every session into the same pattern. The better rooms leave space for mood changes and small detours.',
+            'Privacy settings are not glamorous, but they matter. Good platforms make it easy to watch with a little distance, control account visibility, and keep payments separate from the rest of daily browsing.',
+            'The best parts of live chat are usually the unscripted ones: a quick reply, a running joke, a shift in pace because the room steered it there.',
+            'Comparing platforms is worth a minute or two, especially if you care about stream stability or private-room tools. Those differences do not sound exciting, but they shape the whole experience.',
+            'HD video is nice, but it is not the only thing people notice. Clean audio, fast room loading, and moderation that keeps the chat readable do just as much for the overall feel.',
+            'When the room has a clear rhythm, new viewers settle in faster. That is part of why consistent performers build repeat audiences even when plenty of other profiles are available.',
+            'For viewers moving between ' . $platform_text . ', the comparison usually comes down to room feel. One platform may feel quieter, another may feel busier, and having both listed saves time.',
         ];
 
-        // Shuffle the pool deterministically per-model so padding varies across pages
         $pool_size  = count($expansion_pool);
         $pool_order = range(0, $pool_size - 1);
         usort($pool_order, static function (int $a, int $b) use ($seed, $pool_size): int {
@@ -1137,13 +1157,15 @@ class TemplateContent {
 
         foreach ($pool_order as $idx) {
             $current_wc = str_word_count(wp_strip_all_tags($content));
-            if ($current_wc >= 1501) {
+            if ($current_wc >= 1001) {
                 break;
             }
-            $content .= "\n\n<p>" . esc_html($expansion_pool[$idx]) . '</p>';
+            $content .= "
+
+<p>" . esc_html($expansion_pool[$idx]) . '</p>';
         }
 
-        return $content;
+        return self::split_long_paragraphs($content);
     }
 
     private static function balance_focus_density(string $content, string $focus_keyword, array $active_platforms, array $extra_keywords): string {
@@ -1154,48 +1176,28 @@ class TemplateContent {
 
         $density = self::keyword_density_percent($content, $focus_keyword);
 
-        // ── Low density: add a single natural anchor paragraph ────────────
-        // Only do this once — the while-loop approach was generating repetitive
-        // "X remains the core topic" padding that hurt prose quality.
-        if ($density < 1.0) {
-            $platform_text = self::format_platform_list($active_platforms, $active_platforms[0] ?? self::NEUTRAL_PLATFORM_FALLBACK);
-            $extra_text    = self::cleanup_visible_text($extra_keywords[0] ?? ($focus_keyword . ' live chat'), $focus_keyword, false);
+        if ($density < 1.15) {
             $anchor_pool = [
-                $focus_keyword . ' is the central topic of this page, with verified links, a platform comparison, and guidance on what to expect from a live session.',
-                'This profile covers ' . $focus_keyword . ' across all available platforms, focusing on stream quality, interactive features, and the fastest route to a verified live room.',
-                'Viewers searching for ' . $focus_keyword . ' will find everything needed here: current platform links, a breakdown of the show style, and answers to the most common questions about joining a session.',
+                'Anyone landing here for ' . $focus_keyword . ' will find the essentials in one place. Keeping ' . $focus_keyword . ' tied to the current room links saves time and cuts down on guesswork.',
+                'This page keeps ' . $focus_keyword . ' easy to follow with live links, room notes, and scheduling cues. It also makes ' . $focus_keyword . ' easier to compare across the active platforms without extra searching.',
+                'If ' . $focus_keyword . ' is the reason you are here, the page is built to save time. The active profiles for ' . $focus_keyword . ' are listed first, with enough context to choose a room confidently.',
             ];
             $anchor = $anchor_pool[self::stable_pick_index($focus_keyword . '|anchor', count($anchor_pool))];
-            $content .= "\n\n<p>" . esc_html($anchor) . '</p>';
-            $density  = self::keyword_density_percent($content, $focus_keyword);
+            $content .= "
+
+<p>" . esc_html($anchor) . '</p>';
         }
 
-        // ── High density: substitute excess occurrences intelligently ──────
-        // Instead of keeping only 6 (which over-corrects to ~0.4%), calculate
-        // the precise keep-count that hits 1.5% (middle of the 1-2% target range).
-        if ($density > 2.2) {
-            $word_count_plain = str_word_count(wp_strip_all_tags($content));
-            // Target: 1.5% density. Calculate how many exact occurrences that is.
-            $target_keep = (int) round(($word_count_plain * 1.5) / 100);
-            $target_keep = max(8, $target_keep); // always keep at least 8 exact uses
+        if (self::keyword_density_percent($content, $focus_keyword) < 1.0) {
+            $content .= "
 
-            $seen = 0;
-            $fallbacks = ['she', 'this performer', 'the model', 'her'];
-            $content = preg_replace_callback(
-                '/(<h[2-6][^>]*>.*?<\/h[2-6]>)|' . preg_quote($focus_keyword, '/') . '/isu',
-                static function (array $matches) use (&$seen, $fallbacks, $focus_keyword, $target_keep): string {
-                    // Heading tags are never modified — pass through unchanged.
-                    if (!empty($matches[1])) {
-                        return $matches[1];
-                    }
-                    $seen++;
-                    if ($seen <= $target_keep) {
-                        return $focus_keyword;
-                    }
-                    return $fallbacks[($seen - $target_keep - 1) % count($fallbacks)];
-                },
-                $content
-            ) ?: $content;
+<p>" . esc_html('For quick reference, ' . $focus_keyword . ' is listed with the current platform usernames so the right room is easier to find.') . '</p>';
+        }
+
+        if (self::keyword_density_percent($content, $focus_keyword) < 1.3) {
+            $content .= "
+
+<p>" . esc_html('People usually open a page like this to find ' . $focus_keyword . ' quickly and compare the active rooms without guesswork. Keeping ' . $focus_keyword . ' tied to verified profiles makes ' . $focus_keyword . ' easier to follow across platforms.') . '</p>';
         }
 
         return $content;
@@ -1281,7 +1283,12 @@ class TemplateContent {
 
     private static function split_long_paragraphs(string $html, int $max_chars = 320): string {
         return preg_replace_callback('/<p>(.*?)<\/p>/s', static function (array $matches) use ($max_chars): string {
-            $text = trim(wp_strip_all_tags($matches[1]));
+            $raw = (string) ($matches[1] ?? '');
+            if (preg_match('/<[^>]+>/', $raw)) {
+                return $matches[0];
+            }
+
+            $text = trim(wp_strip_all_tags($raw));
             if ($text === '' || mb_strlen($text) <= $max_chars) {
                 return '<p>' . esc_html($text) . '</p>';
             }
@@ -1348,6 +1355,86 @@ class TemplateContent {
         return implode(', ', $platforms) . ' and ' . $last;
     }
 
+
+    /** @return string[] */
+    private static function filter_name_free_keywords(array $keywords, string $name): array {
+        $name = trim($name);
+        $out = [];
+        foreach ($keywords as $keyword) {
+            $keyword = trim((string) $keyword);
+            if ($keyword === '') {
+                continue;
+            }
+            if ($name !== '' && mb_stripos($keyword, $name, 0, 'UTF-8') !== false) {
+                continue;
+            }
+            $out[] = $keyword;
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    /** @return string[] */
+    private static function default_model_additional_keywords(string $primary_platform_label, array $active_platforms): array {
+        $platforms = array_values(array_unique(array_filter(array_map('trim', $active_platforms), 'strlen')));
+        $keywords = [];
+
+        if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+            $keywords[] = $primary_platform_label . ' schedule';
+        }
+
+        $secondary_platform = '';
+        foreach ($platforms as $platform) {
+            if ($platform !== '' && $platform !== $primary_platform_label) {
+                $secondary_platform = $platform;
+                break;
+            }
+        }
+
+        if ($secondary_platform !== '') {
+            $keywords[] = $secondary_platform . ' profile';
+        } elseif ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+            $keywords[] = $primary_platform_label . ' profile';
+        }
+
+        $keywords[] = 'verified profile links';
+        $keywords[] = 'private live chat';
+        $keywords[] = 'HD live stream';
+        $keywords[] = 'real-time chat features';
+        $keywords[] = 'live webcam chat tips';
+        $keywords[] = 'live show schedule';
+
+        return array_values(array_unique(array_filter(array_map('trim', $keywords), 'strlen')));
+    }
+
+    /** @return string[] */
+    private static function default_model_longtail_keywords(string $primary_platform_label, array $active_platforms): array {
+        $platforms = array_values(array_unique(array_filter(array_map('trim', $active_platforms), 'strlen')));
+        $keywords = [
+            'how to watch live webcam shows',
+            'live show schedule',
+            'private live chat tips',
+            'HD live stream experience',
+            'real-time chat features',
+            'how to join a live session',
+        ];
+
+        if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+            $keywords[] = $primary_platform_label . ' live show schedule';
+            $keywords[] = $primary_platform_label . ' profile guide';
+        }
+
+        foreach ($platforms as $platform) {
+            if ($platform === '' || $platform === $primary_platform_label) {
+                continue;
+            }
+            $keywords[] = $platform . ' profile guide';
+            break;
+        }
+
+        return array_values(array_unique(array_filter(array_map('trim', $keywords), 'strlen')));
+    }
+
     /**
      * Generate tag-aware feature descriptions instead of a static repeated list.
      */
@@ -1359,15 +1446,15 @@ class TemplateContent {
             '<li><strong>Live interaction:</strong> ' . esc_html($name) . ' responds to chat in real time, creating a personal feel.</li>',
             '<li><strong>HD video quality:</strong> Streams on ' . esc_html($platform) . ' are delivered in high definition with stable audio.</li>',
             '<li><strong>Privacy-first browsing:</strong> Platform controls let you watch without sharing personal details.</li>',
-            '<li><strong>Mobile-friendly:</strong> Join ' . esc_html($name) . '\'s room from any device with a modern browser.</li>',
-            '<li><strong>Notification alerts:</strong> Follow ' . esc_html($name) . ' on ' . esc_html($platform) . ' to get pinged when a new session starts.</li>',
+            '<li><strong>Mobile-friendly:</strong> Join the live room from any device with a modern browser.</li>',
+            '<li><strong>Notification alerts:</strong> Enable follow alerts on ' . esc_html($platform) . ' to get pinged when a new session starts.</li>',
             '<li><strong>Schedule flexibility:</strong> Sessions rotate, so check back regularly for updated times.</li>',
             '<li><strong>Respectful community:</strong> Moderation keeps the chat positive and on-topic.</li>',
             '<li><strong>Interactive features:</strong> Polls, tip-triggered actions, and two-way conversation keep sessions engaging.</li>',
         ];
 
         foreach (array_slice($tag_phrases, 0, 2) as $tag) {
-            $pool[] = '<li><strong>' . esc_html(ucfirst($tag)) . ' content:</strong> Fans of ' . esc_html($tag) . ' will find ' . esc_html($name) . '\'s shows match that style.</li>';
+            $pool[] = '<li><strong>' . esc_html(ucfirst($tag)) . ' content:</strong> Fans of ' . esc_html($tag) . ' will find sessions here match that style.</li>';
         }
 
         $hash = abs(crc32($seed));
@@ -1473,7 +1560,10 @@ class TemplateContent {
         }
 
         $content = preg_replace('/\bofficial live profile\b/iu', self::stable_fallback_variant($name . '|ofp'), $content) ?: $content;
-        $content = preg_replace('/\bVisitors searching for\b/iu', 'People looking up', $content) ?: $content;
+        $content = str_replace('This guide covers the practical side:', 'This page focuses on the practical side:', $content);
+        $content = str_replace('This guide covers exactly that need:', 'That is why the page keeps the basics together:', $content);
+        $content = str_replace('The appeal extends beyond any single session.', 'There is more here than one good session.', $content);
+        $content = preg_replace('/\bVisitors searching for\b/iu', 'People coming for', $content) ?: $content;
 
         // Remove doubled words/phrases at word boundaries (e.g. "the the", "platform platform").
         $content = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $content) ?: $content;
