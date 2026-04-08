@@ -839,6 +839,7 @@ class AssistedDraftEnrichmentService {
                 'outline_ready' => !empty($available_preview_fields['outline']),
                 'content_preview_ready' => !empty($available_preview_fields['content_html']),
             ],
+            'humanizer_advisory' => self::get_humanizer_advisory_for_post( $post_id ),
         ];
     }
 
@@ -914,6 +915,7 @@ class AssistedDraftEnrichmentService {
                 'outline_ready' => !empty($available_preview_fields['outline']),
                 'content_preview_ready' => !empty($available_preview_fields['content_html']),
             ],
+            'humanizer_advisory' => self::get_humanizer_advisory_for_post( $post_id ),
         ];
     }
 
@@ -1032,6 +1034,31 @@ class AssistedDraftEnrichmentService {
             $export_lines[] = '- Missing items before human review/apply: ' . $missing_summary;
         }
 
+        // ── Humanizer advisory section (advisory-only, injected when signals present) ──
+        $humanizer_advisory = self::get_humanizer_advisory_for_post( $post_id );
+        if ( ! empty( $humanizer_advisory['warning'] ) ) {
+            $export_lines[] = '';
+            $export_lines[] = '### Humanizer Advisory';
+            $export_lines[] = '- ' . ( $humanizer_advisory['signal_summary'] !== '' ? $humanizer_advisory['signal_summary'] : 'AI writing signals detected.' );
+            foreach ( $humanizer_advisory['flagged_phrases'] as $fp ) {
+                $phrase = (string) ( $fp['phrase'] ?? '' );
+                $count  = (int)    ( $fp['count']  ?? 0 );
+                $type   = (string) ( $fp['type']   ?? '' );
+                $export_lines[] = '  - "' . $phrase . '" ×' . $count . ' (' . $type . ')';
+            }
+            if ( $humanizer_advisory['em_dash_count'] >= 3 ) {
+                $export_lines[] = '- Em dashes: ' . $humanizer_advisory['em_dash_count'];
+            }
+            if ( ! empty( $humanizer_advisory['repeated_openers'] ) ) {
+                $opener_labels = array_map(
+                    static fn( $o ) => '"' . ( $o['opener'] ?? '' ) . '" ×' . (int) ( $o['count'] ?? 0 ),
+                    $humanizer_advisory['repeated_openers']
+                );
+                $export_lines[] = '- Repeated openers: ' . implode( ', ', $opener_labels );
+            }
+            $export_lines[] = '- Advisory only — does not affect readiness score, preset, or publish gate.';
+        }
+
         $export_text = implode("\n", $export_lines);
         $summary_hash = md5($export_text);
         $exported_at = current_time('mysql');
@@ -1083,6 +1110,7 @@ class AssistedDraftEnrichmentService {
             'format' => $safe_format,
             'summary_hash' => $summary_hash,
             'export_text' => $export_text,
+            'humanizer_advisory' => $humanizer_advisory,
         ];
     }
 
@@ -1452,6 +1480,51 @@ class AssistedDraftEnrichmentService {
             'page_type' => (string) $post->post_type,
             'post_type' => (string) $post->post_type,
             'post_id'   => (int) $post->ID,
+        ];
+    }
+
+    // ── Humanizer advisory ─────────────────────────────────────────────────
+
+    /**
+     * Reads the persisted quality data blob for a post and returns a compact
+     * humanizer advisory derived from humanizer_diagnostics.
+     *
+     * Advisory-only: never affects scoring, workflow state, presets, or gating.
+     * Returns an empty advisory when no data is stored or the key is absent
+     * (i.e. posts enriched before the humanizer patch was deployed).
+     *
+     * @return array{signal_summary:string, warning:bool, flagged_phrases:array<int,array<string,mixed>>, repeated_openers:array<int,array<string,mixed>>, em_dash_count:int}
+     */
+    private static function get_humanizer_advisory_for_post( int $post_id ): array {
+        $empty = [
+            'signal_summary'   => '',
+            'warning'          => false,
+            'flagged_phrases'  => [],
+            'repeated_openers' => [],
+            'em_dash_count'    => 0,
+        ];
+
+        $raw = (string) get_post_meta( $post_id, '_tmwseo_quality_score_data', true );
+        if ( $raw === '' ) {
+            return $empty;
+        }
+
+        $data = json_decode( $raw, true );
+        if ( ! is_array( $data ) || ! is_array( $data['humanizer_diagnostics'] ?? null ) ) {
+            return $empty;
+        }
+
+        $hd = $data['humanizer_diagnostics'];
+
+        // Cap at 5 phrases so advisory stays concise in review output.
+        $flagged = is_array( $hd['flagged_phrases'] ?? null ) ? array_slice( $hd['flagged_phrases'], 0, 5 ) : [];
+
+        return [
+            'signal_summary'   => (string)  ( $hd['signal_summary']   ?? '' ),
+            'warning'          => ! empty( $hd['warning'] ),
+            'flagged_phrases'  => $flagged,
+            'repeated_openers' => is_array( $hd['repeated_openers'] ?? null ) ? $hd['repeated_openers'] : [],
+            'em_dash_count'    => (int)     ( $hd['em_dash_count']    ?? 0 ),
         ];
     }
 }
