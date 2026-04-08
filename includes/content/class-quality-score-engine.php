@@ -65,6 +65,9 @@ class QualityScoreEngine {
 
         $score = (int) round(max(1, min(100, $raw_score)));
 
+        // ── Humanizer diagnostics (additive, score-neutral) ───────────────
+        $humanizer_diagnostics = self::detect_humanizer_signals( $text );
+
         return [
             'score' => $score,
             'warning' => $score < 70,
@@ -80,6 +83,7 @@ class QualityScoreEngine {
             ],
             'uniqueness_verdict' => $uniqueness_verdict,
             'word_count' => $word_count,
+            'humanizer_diagnostics' => $humanizer_diagnostics,
         ];
     }
 
@@ -333,5 +337,160 @@ class QualityScoreEngine {
     private static function count_words(string $text): int {
         preg_match_all('/\b[\p{L}\p{N}\']+\b/u', $text, $matches);
         return isset($matches[0]) && is_array($matches[0]) ? count($matches[0]) : 0;
+    }
+
+    // ── Humanizer diagnostics ──────────────────────────────────────────────
+
+    /**
+     * Detects AI-writing signals in plain text.
+     *
+     * Returns structured diagnostics only. Does not affect scoring.
+     * Derived from the humanizer skill pack (patterns 5, 7, 14, and opener repetition).
+     *
+     * @return array{
+     *   flagged_phrases: array<int,array{phrase:string,count:int,type:string}>,
+     *   repeated_openers: array<int,array{opener:string,count:int}>,
+     *   em_dash_count: int,
+     *   filler_hits: int,
+     *   vague_attribution_hits: int,
+     *   signal_summary: string,
+     *   warning: bool
+     * }
+     */
+    private static function detect_humanizer_signals( string $text ): array {
+
+        if ( $text === '' ) {
+            return [
+                'flagged_phrases'        => [],
+                'repeated_openers'       => [],
+                'em_dash_count'          => 0,
+                'filler_hits'            => 0,
+                'vague_attribution_hits' => 0,
+                'signal_summary'         => 'No content to analyze.',
+                'warning'                => false,
+            ];
+        }
+
+        // ── 1. Filler / high-frequency AI vocabulary (humanizer pattern 7) ─
+        //    Word-boundary match, case-insensitive. Each stem catches the base
+        //    form; plural/gerund variants are handled by the \b boundary.
+        $filler_words = [
+            'additionally',
+            'pivotal',
+            'vibrant',
+            'delve',
+            'delves',
+            'delving',
+            'tapestry',
+            'showcasing',
+            'showcase',
+        ];
+
+        $flagged_phrases = [];
+        $filler_hits     = 0;
+
+        foreach ( $filler_words as $word ) {
+            $n = preg_match_all( '/\b' . preg_quote( $word, '/' ) . '\b/iu', $text );
+            $n = ( $n !== false ) ? (int) $n : 0;
+            if ( $n > 0 ) {
+                $flagged_phrases[] = [ 'phrase' => $word, 'count' => $n, 'type' => 'filler' ];
+                $filler_hits      += $n;
+            }
+        }
+
+        // ── 2. Vague attribution phrases (humanizer pattern 5) ────────────
+        //    Substring match on lowercased text. These are multi-word phrases
+        //    so word-boundary regex adds no value.
+        $vague_phrases = [
+            'experts say',
+            'experts argue',
+            'many users say',
+            'it is important to note',
+            "in today's digital landscape",
+            'in the digital landscape',
+            'industry reports',
+        ];
+
+        $lower                  = mb_strtolower( $text, 'UTF-8' );
+        $vague_attribution_hits = 0;
+
+        foreach ( $vague_phrases as $phrase ) {
+            $n = substr_count( $lower, mb_strtolower( $phrase, 'UTF-8' ) );
+            if ( $n > 0 ) {
+                $flagged_phrases[]       = [ 'phrase' => $phrase, 'count' => $n, 'type' => 'vague_attribution' ];
+                $vague_attribution_hits += $n;
+            }
+        }
+
+        // ── 3. Em dash count (humanizer pattern 14) ───────────────────────
+        //    U+2014 (—). 1–2 can be intentional; 3+ is the signal threshold.
+        $em_dash_count = substr_count( $text, "\u{2014}" );
+
+        // ── 4. Repeated paragraph openers ────────────────────────────────
+        //    Split on line breaks; take the first word of each paragraph.
+        //    Skip trivially common openers (articles, prepositions) that
+        //    are not meaningful AI repetition signals.
+        $skip_openers = [
+            'the', 'a', 'an', 'it', 'this', 'that',
+            'in', 'on', 'at', 'to', 'of', 'and', 'but', 'or',
+        ];
+
+        $paragraphs = preg_split( '/\n+/', $text );
+        $paragraphs = array_values( array_filter(
+            array_map( 'trim', is_array( $paragraphs ) ? $paragraphs : [] )
+        ) );
+
+        $opener_tally = [];
+        foreach ( $paragraphs as $para ) {
+            if ( preg_match( '/^(\w+)/u', $para, $m ) ) {
+                $opener = mb_strtolower( $m[1], 'UTF-8' );
+                if ( ! in_array( $opener, $skip_openers, true ) ) {
+                    $opener_tally[ $opener ] = ( $opener_tally[ $opener ] ?? 0 ) + 1;
+                }
+            }
+        }
+
+        $repeated_openers = [];
+        foreach ( $opener_tally as $opener => $count ) {
+            if ( $count >= 3 ) {
+                $repeated_openers[] = [ 'opener' => $opener, 'count' => $count ];
+            }
+        }
+        usort( $repeated_openers, static fn( $a, $b ) => $b['count'] - $a['count'] );
+
+        // ── 5. Aggregate warning and summary ──────────────────────────────
+        $has_warning =
+            $filler_hits > 0 ||
+            $vague_attribution_hits > 0 ||
+            $em_dash_count >= 3 ||
+            ! empty( $repeated_openers );
+
+        $summary_parts = [];
+        if ( $filler_hits > 0 ) {
+            $summary_parts[] = "{$filler_hits} filler phrase(s)";
+        }
+        if ( $vague_attribution_hits > 0 ) {
+            $summary_parts[] = "{$vague_attribution_hits} vague attribution(s)";
+        }
+        if ( $em_dash_count >= 3 ) {
+            $summary_parts[] = "{$em_dash_count} em dash(es)";
+        }
+        if ( ! empty( $repeated_openers ) ) {
+            $summary_parts[] = count( $repeated_openers ) . ' repeated opener(s)';
+        }
+
+        $signal_summary = empty( $summary_parts )
+            ? 'No AI signals detected.'
+            : 'Signals detected: ' . implode( ', ', $summary_parts ) . '.';
+
+        return [
+            'flagged_phrases'        => $flagged_phrases,
+            'repeated_openers'       => $repeated_openers,
+            'em_dash_count'          => $em_dash_count,
+            'filler_hits'            => $filler_hits,
+            'vague_attribution_hits' => $vague_attribution_hits,
+            'signal_summary'         => $signal_summary,
+            'warning'                => $has_warning,
+        ];
     }
 }
