@@ -1,5 +1,10 @@
 # TMW SEO Engine — Changelog
 
+## Unreleased
+
+### Bug Fix
+- **`includes/admin/class-admin.php`** — Removed one stray inline `margin-top:8px;` style from the Keywords admin hint paragraph so the page relies on existing WordPress/Admin UI spacing instead of one-off inline presentation.
+
 ## 5.1.2 — CI Audit: Version Drift (2026-04-01)
 
 - [TMW-CI-AUDIT][TMW-VERSION] Audited GitHub Actions run `#64` (`actions/runs/23854101679`) and confirmed both matrix jobs (`PHP 8.1 — Lint & Tests`, `PHP 8.2 — Lint & Tests`) fail with exit code `2`, while Node.js 20 deprecation notices are emitted as warnings only.
