@@ -66,6 +66,14 @@ class Editor_AI_Metabox {
         $quality_score = (int) get_post_meta($post->ID, '_tmwseo_quality_score', true);
         $quality_warning = (string) get_post_meta($post->ID, '_tmwseo_quality_warning', true) === '1';
 
+        // Humanizer diagnostics — read from the full quality data blob stored by persist_quality_score().
+        // Null when the post has not been enriched yet; panel is suppressed in that case.
+        $quality_data_raw = (string) get_post_meta($post->ID, '_tmwseo_quality_score_data', true);
+        $quality_data     = $quality_data_raw !== '' ? json_decode($quality_data_raw, true) : [];
+        $humanizer        = is_array($quality_data['humanizer_diagnostics'] ?? null)
+            ? $quality_data['humanizer_diagnostics']
+            : null;
+
         // ── Scoped metabox CSS ────────────────────────────────────────────────
         echo '<style>
 .tmwseo-mb { font-size: 13px; }
@@ -216,6 +224,14 @@ class Editor_AI_Metabox {
     margin-bottom: 8px;
 }
 .tmwseo-mb-review-actions .button { margin: 0 !important; text-align: center; }
+/* Humanizer diagnostics panel */
+.tmwseo-mb-humanizer { border-radius:4px; padding:7px 10px; margin-bottom:12px; font-size:12px; line-height:1.45; }
+.tmwseo-mb-humanizer-ok   { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
+.tmwseo-mb-humanizer-warn { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+.tmwseo-mb-humanizer strong { display:block; margin-bottom:4px; font-size:12px; }
+.tmwseo-mb-humanizer ul { margin:4px 0 0 14px; padding:0; }
+.tmwseo-mb-humanizer li { margin-bottom:2px; }
+.tmwseo-mb-humanizer p  { margin:3px 0 0; }
 </style>';
 
         echo '<div class="tmwseo-mb">';
@@ -232,6 +248,44 @@ class Editor_AI_Metabox {
                 echo esc_html__('This draft may need improvement before publishing.', 'tmwseo');
             } else {
                 echo esc_html__('Draft quality looks good. Publishing is still your decision.', 'tmwseo');
+            }
+            echo '</div>';
+        }
+
+        // ── Zone 2b: Humanizer diagnostics (read-only, shown only after enrichment) ──
+        if ( $humanizer !== null ) {
+            $h_warn    = ! empty( $humanizer['warning'] );
+            $h_class   = $h_warn ? 'tmwseo-mb-humanizer-warn' : 'tmwseo-mb-humanizer-ok';
+            $summary   = (string) ( $humanizer['signal_summary'] ?? '' );
+            $flagged   = is_array( $humanizer['flagged_phrases'] ?? null )    ? $humanizer['flagged_phrases']    : [];
+            $openers   = is_array( $humanizer['repeated_openers'] ?? null )   ? $humanizer['repeated_openers']   : [];
+            $em_dashes = (int) ( $humanizer['em_dash_count'] ?? 0 );
+
+            echo '<div class="tmwseo-mb-humanizer ' . esc_attr( $h_class ) . '">';
+            echo '<strong>' . esc_html__( 'Humanizer Signals', 'tmwseo' ) . '</strong>';
+            echo esc_html( $summary );
+
+            if ( $h_warn ) {
+                if ( ! empty( $flagged ) ) {
+                    echo '<ul>';
+                    foreach ( $flagged as $fp ) {
+                        $phrase = (string) ( $fp['phrase'] ?? '' );
+                        $count  = (int)    ( $fp['count']  ?? 0 );
+                        $type   = (string) ( $fp['type']   ?? '' );
+                        echo '<li>' . esc_html( '"' . $phrase . '" ×' . $count . ' (' . $type . ')' ) . '</li>';
+                    }
+                    echo '</ul>';
+                }
+                if ( $em_dashes >= 3 ) {
+                    echo '<p>' . esc_html( sprintf( __( 'Em dashes: %d', 'tmwseo' ), $em_dashes ) ) . '</p>';
+                }
+                if ( ! empty( $openers ) ) {
+                    $opener_labels = array_map(
+                        static fn( $o ) => '"' . ( $o['opener'] ?? '' ) . '" ×' . (int) ( $o['count'] ?? 0 ),
+                        $openers
+                    );
+                    echo '<p>' . esc_html( __( 'Repeated openers: ', 'tmwseo' ) . implode( ', ', $opener_labels ) ) . '</p>';
+                }
             }
             echo '</div>';
         }
