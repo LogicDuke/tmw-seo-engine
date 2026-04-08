@@ -58,7 +58,7 @@ class VideoSeoMetabox {
 
         $post_id = (int) $post->ID;
 
-        // ── Title rewriting section ──────────────────────────────────────
+        // -- Title rewriting section ------------------------------------------
         echo '<h3>Title Rewriting</h3>';
         $is_rewritten = ! VideoTitleRewriter::is_original_title( $post_id );
         $original     = (string) get_post_meta( $post_id, VideoTitleRewriter::META_ORIGINAL, true );
@@ -97,7 +97,7 @@ class VideoSeoMetabox {
         );
         echo '<p><a class="button" href="' . esc_url( $gen_url ) . '">Generate Title Candidates</a></p>';
 
-        // ── Keyword pack & content preview ───────────────────────────────
+        // -- Keyword pack & content preview -----------------------------------
         echo '<hr><h3>Keyword Pack & Content Preview</h3>';
         $pack_json = (string) get_post_meta( $post_id, '_tmwseo_keyword_pack_json', true );
         if ( $pack_json !== '' ) {
@@ -130,7 +130,63 @@ class VideoSeoMetabox {
             echo '<p><a class="button button-primary" href="' . esc_url( $apply_preview_url ) . '">Apply Content Preview</a></p>';
         }
 
-        // ── Cannibalization warnings ─────────────────────────────────────
+        // -- Humanizer Signals advisory (read-only, advisory only) -----------
+        if ( $has_preview ) {
+            $hd_raw  = (string) get_post_meta( $post_id, '_tmwseo_quality_score_data', true );
+            $hd_data = $hd_raw !== '' ? json_decode( $hd_raw, true ) : null;
+            $hd      = is_array( $hd_data ) && is_array( $hd_data['humanizer_diagnostics'] ?? null )
+                ? $hd_data['humanizer_diagnostics']
+                : null;
+
+            if ( $hd !== null ) {
+                echo '<div style="margin-top:8px;padding:8px 10px;border-radius:3px;border:1px solid '
+                    . ( $hd['warning'] ? '#f59e0b' : '#d1d5db' )
+                    . ';background:'
+                    . ( $hd['warning'] ? '#fffbeb' : '#f9fafb' )
+                    . '">';
+                echo '<strong style="font-size:12px;color:'
+                    . ( $hd['warning'] ? '#92400e' : '#6b7280' )
+                    . '">&#128270; Humanizer Signals</strong>';
+
+                if ( ! $hd['warning'] ) {
+                    echo '<span style="margin-left:8px;font-size:12px;color:#6b7280">&#10003; No AI-writing signals detected</span>';
+                } else {
+                    $summary = (string) ( $hd['signal_summary'] ?? '' );
+                    if ( $summary !== '' ) {
+                        echo '<p style="margin:4px 0 6px;font-size:12px;color:#92400e">' . esc_html( $summary ) . '</p>';
+                    }
+                    if ( ! empty( $hd['flagged_phrases'] ) ) {
+                        echo '<ul style="margin:0;padding-left:16px;font-size:12px;color:#78350f">';
+                        foreach ( array_slice( (array) $hd['flagged_phrases'], 0, 5 ) as $fp ) {
+                            $phrase = (string) ( $fp['phrase'] ?? '' );
+                            $count  = (int)    ( $fp['count']  ?? 0 );
+                            $type   = (string) ( $fp['type']   ?? '' );
+                            echo '<li>' . esc_html( '"' . $phrase . '" x' . $count . ' (' . $type . ')' ) . '</li>';
+                        }
+                        echo '</ul>';
+                    }
+
+                    if ( ! empty( $hd['repeated_openers'] ) ) {
+                        $opener_labels = array_map(
+                            static fn( $o ) => '"' . ( $o['opener'] ?? '' ) . '" x' . (int) ( $o['count'] ?? 0 ),
+                            (array) $hd['repeated_openers']
+                        );
+                        echo '<p style="margin:4px 0 0;font-size:12px;color:#92400e">'
+                            . esc_html( 'Repeated openers: ' . implode( ', ', $opener_labels ) )
+                            . '</p>';
+                    }
+
+                    if ( isset( $hd['em_dash_count'] ) && (int) $hd['em_dash_count'] >= 3 ) {
+                        echo '<p style="margin:4px 0 0;font-size:12px;color:#92400e">'
+                            . esc_html( 'Em dashes: ' . (int) $hd['em_dash_count'] )
+                            . '</p>';
+                    }
+                }
+                echo '</div>';
+            }
+        }
+
+        // -- Cannibalization warnings -----------------------------------------
         echo '<hr><h3>Cannibalization Check</h3>';
         if ( class_exists( '\\TMWSEO\\Engine\\Keywords\\CannibalizationDetector' ) ) {
             $conflicts = CannibalizationDetector::check_post( $post_id );
@@ -152,7 +208,7 @@ class VideoSeoMetabox {
             }
         }
 
-        // ── Readiness evaluation ─────────────────────────────────────────
+        // -- Readiness evaluation ---------------------------------------------
         echo '<hr><h3>Index Readiness</h3>';
         if ( class_exists( '\\TMWSEO\\Engine\\Content\\IndexReadinessGate' ) ) {
             $readiness = IndexReadinessGate::evaluate_post( $post_id );
@@ -167,14 +223,14 @@ class VideoSeoMetabox {
             }
         }
 
-        // ── Notices from prior actions ────────────────────────────────────
+        // -- Notices from prior actions ----------------------------------------
         if ( isset( $_GET['tmwseo_video_notice'] ) ) {
             $notice = sanitize_text_field( (string) $_GET['tmwseo_video_notice'] );
             echo '<div class="notice notice-success inline"><p>' . esc_html( $notice ) . '</p></div>';
         }
     }
 
-    // ── Handlers ──────────────────────────────────────────────────────────
+    // -- Handlers ----------------------------------------------------------
 
     public static function handle_generate_titles(): void {
         $post_id = (int) ( $_GET['post_id'] ?? 0 );
@@ -262,6 +318,8 @@ class VideoSeoMetabox {
         );
 
         AuditTrail::persist_quality( $post_id, $quality, (float) ( $quality['breakdown']['uniqueness'] ?? 0 ) );
+        // Persist full quality blob (includes humanizer_diagnostics) for metabox display.
+        update_post_meta( $post_id, '_tmwseo_quality_score_data', wp_json_encode( $quality ) );
         AuditTrail::persist_fingerprint( $post_id, (string) ( $preview['content_html'] ?? '' ), 'post' );
 
         // Cannibalization check.
