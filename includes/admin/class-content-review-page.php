@@ -170,6 +170,13 @@ class ContentReviewPage {
                 $gate_reasons = implode( ', ', (array) $gate_log['reasons'] );
             }
 
+            // Humanizer advisory — read from persisted quality blob (advisory-only, never affects score or gates).
+            $hd_raw  = (string) get_post_meta( $pid, '_tmwseo_quality_score_data', true );
+            $hd_data = $hd_raw !== '' ? json_decode( $hd_raw, true ) : null;
+            $hd      = is_array( $hd_data ) && is_array( $hd_data['humanizer_diagnostics'] ?? null )
+                ? $hd_data['humanizer_diagnostics']
+                : null;
+
             echo '<tr>';
             echo '<td><a href="' . esc_url( get_edit_post_link( $pid ) ) . '">' . esc_html( get_the_title( $pid ) ) . '</a>';
             if ( $approval !== '' ) {
@@ -178,7 +185,20 @@ class ContentReviewPage {
             echo '</td>';
             echo '<td>' . esc_html( $post->post_type ) . '</td>';
             echo '<td>' . esc_html( $primary_kw ) . '</td>';
-            echo '<td>' . esc_html( $quality ?: '-' ) . '</td>';
+            echo '<td>' . esc_html( $quality ?: '-' );
+            if ( $hd !== null ) {
+                if ( ! empty( $hd['warning'] ) ) {
+                    $summary = (string) ( $hd['signal_summary'] ?? '' );
+                    // Truncate to keep the cell compact; full detail is in the metabox.
+                    if ( mb_strlen( $summary, 'UTF-8' ) > 60 ) {
+                        $summary = mb_substr( $summary, 0, 57, 'UTF-8' ) . '…';
+                    }
+                    echo '<br><small style="color:#92400e;line-height:1.4;">&#9888; ' . esc_html( $summary ) . '</small>';
+                } else {
+                    echo '<br><small style="color:#6b7280;line-height:1.4;">&#10003; No AI signals</small>';
+                }
+            }
+            echo '</td>';
             echo '<td>' . esc_html( $unique ? round( $unique ) : '-' ) . '</td>';
             echo '<td>' . esc_html( $confidence ? round( $confidence ) : '-' ) . '</td>';
             echo '<td>' . $ready_display;
