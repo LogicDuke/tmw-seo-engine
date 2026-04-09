@@ -15,6 +15,7 @@ namespace TMWSEO\Engine\Schema;
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Logs;
 
 class SchemaGenerator {
 
@@ -35,6 +36,8 @@ class SchemaGenerator {
 
         $schemas = self::build_schemas( $post );
         if ( empty( $schemas ) ) return;
+
+        self::lint_schemas( $schemas, $post_id );
 
         foreach ( $schemas as $schema ) {
             echo '<script type="application/ld+json">' . wp_json_encode( $schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT ) . '</script>' . "\n";
@@ -256,4 +259,35 @@ class SchemaGenerator {
         }
         return '';
     }
+
+    // ── Schema lint ────────────────────────────────────────────────────────
+    // Info/warn only. Never blocks output. Never modifies schema payloads.
+
+    /**
+     * Checks emitted schemas for deprecated @type values. Advisory only —
+     * does not alter schema output or block rendering.
+     *
+     * @param array<int,array<string,mixed>> $schemas
+     */
+    private static function lint_schemas( array $schemas, int $post_id ): void {
+        $deprecated_types = [
+            'HowTo'               => 'Removed from Google rich results (Sep 2023).',
+            'SpecialAnnouncement' => 'Removed from Google rich results (Oct 2022).',
+            'ClaimReview'         => 'Removed from Google rich results (Sep 2023).',
+            'CourseInfo'          => 'Removed from Google rich results (Sep 2023).',
+            'EstimatedSalary'     => 'Removed from Google rich results (Sep 2023).',
+            'LearningVideo'       => 'Removed from Google rich results (Sep 2023).',
+            'VehicleListing'      => 'Removed from Google rich results (Sep 2023).',
+            'Dataset'             => 'Removed from Google rich results (Sep 2023).',
+            'PracticeProblem'     => 'Removed from Google rich results (Sep 2023).',
+        ];
+
+        foreach ( $schemas as $schema ) {
+            $type = (string) ( $schema['@type'] ?? '' );
+            if ( isset( $deprecated_types[ $type ] ) ) {
+                Logs::warn( 'schema_lint', "Deprecated schema type '{$type}': " . $deprecated_types[ $type ], [ 'post_id' => $post_id ] );
+            }
+        }
+    }
+
 }
