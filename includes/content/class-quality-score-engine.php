@@ -384,6 +384,27 @@ class QualityScoreEngine {
             'tapestry',
             'showcasing',
             'showcase',
+            'align with',
+            'crucial',
+            'emphasizing',
+            'enhance',
+            'enhances',
+            'enhanced',
+            'fostering',
+            'garner',
+            'garners',
+            'garnered',
+            'highlight',
+            'highlights',
+            'highlighted',
+            'interplay',
+            'intricate',
+            'intricacies',
+            'landscape',
+            'underscore',
+            'underscores',
+            'underscored',
+            'valuable',
         ];
 
         $flagged_phrases = [];
@@ -409,6 +430,10 @@ class QualityScoreEngine {
             "in today's digital landscape",
             'in the digital landscape',
             'industry reports',
+            'observers cite',
+            'some argue',
+            'critics argue',
+            'several sources',
         ];
 
         $lower                  = mb_strtolower( $text, 'UTF-8' );
@@ -422,11 +447,97 @@ class QualityScoreEngine {
             }
         }
 
-        // ── 3. Em dash count (humanizer pattern 14) ───────────────────────
+        // ── 3a. Copula-avoidance constructs ──────────────────────────────
+        //    Replaces "is/are" with dynamic-sounding verbs; a common AI pattern.
+        //    Advisory only — no counter in return value.
+        $copula_phrases = [
+            'serves as',
+            'stands as',
+            'boasts',
+            'features',
+            'represents',
+            'marks',
+        ];
+
+        foreach ( $copula_phrases as $phrase ) {
+            $n = preg_match_all( '/\b' . preg_quote( $phrase, '/' ) . '\b/iu', $text );
+            $n = ( $n !== false ) ? (int) $n : 0;
+            if ( $n > 0 ) {
+                $flagged_phrases[] = [ 'phrase' => $phrase, 'count' => $n, 'type' => 'copula_avoidance' ];
+            }
+        }
+
+        // ── 3b. Persuasive authority tropes ──────────────────────────────
+        //    Framing language that implies a deeper truth is being revealed.
+        $authority_tropes = [
+            'at its core',
+            'what really matters',
+            'the real question is',
+            'fundamentally',
+            'the deeper issue',
+        ];
+
+        foreach ( $authority_tropes as $phrase ) {
+            $n = substr_count( $lower, mb_strtolower( $phrase, 'UTF-8' ) );
+            if ( $n > 0 ) {
+                $flagged_phrases[] = [ 'phrase' => $phrase, 'count' => $n, 'type' => 'persuasive_authority' ];
+            }
+        }
+
+        // ── 3c. Generic positive conclusions ─────────────────────────────
+        //    Boilerplate closing sentiments common in AI-generated content.
+        $positive_conclusions = [
+            'the future looks bright',
+            'exciting times ahead',
+            'a major step in the right direction',
+        ];
+
+        foreach ( $positive_conclusions as $phrase ) {
+            $n = substr_count( $lower, mb_strtolower( $phrase, 'UTF-8' ) );
+            if ( $n > 0 ) {
+                $flagged_phrases[] = [ 'phrase' => $phrase, 'count' => $n, 'type' => 'positive_conclusion' ];
+            }
+        }
+
+        // ── 3d. Negative parallelisms ─────────────────────────────────────
+        //    "Not just X, it's Y" and "Not merely X, it's Y" constructs.
+        //    Handles straight (') and curly (\x{2019}) apostrophes.
+        $parallelism_patterns = [
+            "not just … it's"   => '/\bnot just\b[^.!?]{1,80}it[\'\x{2019}]s\b/iu',
+            "not merely … it's" => '/\bnot merely\b[^.!?]{1,80}it[\'\x{2019}]s\b/iu',
+        ];
+
+        foreach ( $parallelism_patterns as $label => $pattern ) {
+            $n = preg_match_all( $pattern, $text );
+            $n = ( $n !== false ) ? (int) $n : 0;
+            if ( $n > 0 ) {
+                $flagged_phrases[] = [ 'phrase' => $label, 'count' => $n, 'type' => 'negative_parallelism' ];
+            }
+        }
+
+        // ── 3e. Signposting phrases ───────────────────────────────────────
+        //    Transitional padding common in AI drafts.
+        //    Straight and curly apostrophes handled via character class.
+        $signposting_patterns = [
+            "here's what you need to know" => '/\bhere[\'\x{2019}]s what you need to know\b/iu',
+            'without further ado'           => '/\bwithout further ado\b/iu',
+            "let's explore"                 => '/\blet[\'\x{2019}]s explore\b/iu',
+            "let's break down"              => '/\blet[\'\x{2019}]s break down\b/iu',
+        ];
+
+        foreach ( $signposting_patterns as $label => $pattern ) {
+            $n = preg_match_all( $pattern, $text );
+            $n = ( $n !== false ) ? (int) $n : 0;
+            if ( $n > 0 ) {
+                $flagged_phrases[] = [ 'phrase' => $label, 'count' => $n, 'type' => 'signposting' ];
+            }
+        }
+
+        // ── 4. Em dash count (humanizer pattern 14) ───────────────────────
         //    U+2014 (—). 1–2 can be intentional; 3+ is the signal threshold.
         $em_dash_count = substr_count( $text, "\u{2014}" );
 
-        // ── 4. Repeated paragraph openers ────────────────────────────────
+        // ── 5. Repeated paragraph openers ────────────────────────────────
         //    Split on line breaks; take the first word of each paragraph.
         //    Skip trivially common openers (articles, prepositions) that
         //    are not meaningful AI repetition signals.
@@ -458,7 +569,7 @@ class QualityScoreEngine {
         }
         usort( $repeated_openers, static fn( $a, $b ) => $b['count'] - $a['count'] );
 
-        // ── 5. Aggregate warning and summary ──────────────────────────────
+        // ── 6. Aggregate warning and summary ──────────────────────────────
         $has_warning =
             $filler_hits > 0 ||
             $vague_attribution_hits > 0 ||
