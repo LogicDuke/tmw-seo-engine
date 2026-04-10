@@ -58,8 +58,6 @@ class SeedRegistryTable extends \WP_List_Table {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_seed_expansion_candidates';
 
-        $this->process_bulk_action();
-
         $this->_column_headers = [$this->get_columns(), [], $this->get_sortable_columns()];
 
         $allowed_orderby = ['phrase', 'created_at', 'status'];
@@ -112,31 +110,5 @@ class SeedRegistryTable extends \WP_List_Table {
             'per_page'    => $per_page,
             'total_pages' => (int) ceil($total_items / $per_page),
         ]);
-    }
-
-    protected function process_bulk_action(): void {
-        $action = $this->current_action();
-        if (!$action || !in_array($action, ['approve_candidate', 'reject_candidate'], true)) {
-            return;
-        }
-
-        check_admin_referer('bulk-' . $this->_args['plural']);
-
-        $raw_ids = [];
-        if (isset($_POST['candidate_ids'])) {
-            $raw_ids = (array) wp_unslash($_POST['candidate_ids']);
-        } elseif (isset($_GET['candidate_ids'])) {
-            $raw_ids = (array) wp_unslash($_GET['candidate_ids']);
-        }
-
-        $ids = array_values(array_filter(array_map('absint', $raw_ids)));
-
-        foreach ($ids as $id) {
-            if ($action === 'approve_candidate') {
-                \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::approve_candidate($id, get_current_user_id());
-            } else {
-                \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::reject_candidate($id, '', get_current_user_id());
-            }
-        }
     }
 }
