@@ -122,8 +122,14 @@ class SeedRegistryTable extends \WP_List_Table {
 
         check_admin_referer('bulk-' . $this->_args['plural']);
 
-        $ids = isset($_POST['candidate_ids']) ? (array) $_POST['candidate_ids'] : [];
-        $ids = array_values(array_filter(array_map('absint', $ids)));
+        $raw_ids = [];
+        if (isset($_POST['candidate_ids'])) {
+            $raw_ids = (array) wp_unslash($_POST['candidate_ids']);
+        } elseif (isset($_GET['candidate_ids'])) {
+            $raw_ids = (array) wp_unslash($_GET['candidate_ids']);
+        }
+
+        $ids = array_values(array_filter(array_map('absint', $raw_ids)));
 
         foreach ($ids as $id) {
             if ($action === 'approve_candidate') {
