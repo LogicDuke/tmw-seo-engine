@@ -384,18 +384,7 @@ class SeedRegistryAdminPage {
 
         check_admin_referer( 'bulk-seed_candidates' );
 
-        $action = sanitize_key( $_POST['action'] ?? '' );
-        if ( $action === '' || $action === '-1' ) {
-            $action = sanitize_key( $_POST['action2'] ?? '' );
-        }
-
-        if ( $action === '' || $action === '-1' ) {
-            $action = sanitize_key( $_GET['action'] ?? '' );
-        }
-
-        if ( $action === '' || $action === '-1' ) {
-            $action = sanitize_key( $_GET['action2'] ?? '' );
-        }
+        $action = sanitize_key( $_POST['preview_bulk_action'] ?? '' );
 
         if ( ! in_array( $action, [ 'approve_candidate', 'reject_candidate' ], true ) ) {
             wp_safe_redirect(
@@ -780,7 +769,9 @@ class SeedRegistryAdminPage {
         $table = new \TMWSEO\Engine\Admin\Tables\SeedRegistryTable( $status_filter );
         $table->prepare_items();
 
-        echo '<form method="post" action="' . esc_url( add_query_arg( 'action', 'tmwseo_seed_preview_bulk_action', admin_url( 'admin-post.php' ) ) ) . '">';
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" id="tmwseo-preview-bulk-form">';
+        echo '<input type="hidden" name="action" value="tmwseo_seed_preview_bulk_action">';
+        echo '<input type="hidden" name="preview_bulk_action" id="tmwseo-preview-bulk-action" value="">';
         echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '">';
         echo '<input type="hidden" name="tab" value="preview">';
         if ( $status_filter !== '' ) {
@@ -792,6 +783,21 @@ class SeedRegistryAdminPage {
         }
         $table->search_box( __( 'Search Keywords / Clusters', 'tmwseo' ), 'seed-preview-search' );
         $table->display();
+        echo '<script>';
+        echo '(function(){';
+        echo 'var form=document.getElementById("tmwseo-preview-bulk-form");';
+        echo 'if(!form){return;}';
+        echo 'form.addEventListener("submit",function(){';
+        echo 'var top=form.querySelector("select[name=\"action\"]");';
+        echo 'var bottom=form.querySelector("select[name=\"action2\"]");';
+        echo 'var selected="";';
+        echo 'if(top&&top.value&&top.value!=="-1"){selected=top.value;}';
+        echo 'if((!selected)&&bottom&&bottom.value&&bottom.value!=="-1"){selected=bottom.value;}';
+        echo 'var hidden=document.getElementById("tmwseo-preview-bulk-action");';
+        echo 'if(hidden){hidden.value=selected;}';
+        echo '});';
+        echo '})();';
+        echo '</script>';
         echo '</form>';
     }
 
