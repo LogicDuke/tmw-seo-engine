@@ -255,6 +255,8 @@ class SeedRegistryAdminPage {
     // -------------------------------------------------------------------------
 
     public static function render_page(): void {
+        self::maybe_handle_preview_bulk_action();
+
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
@@ -314,6 +316,16 @@ class SeedRegistryAdminPage {
             echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'No seeds were selected.', 'tmwseo' ) . '</p></div>';
         }
 
+        $preview_notice = sanitize_key( $_GET['preview_notice'] ?? '' );
+        $preview_count  = (int) ( $_GET['preview_count'] ?? 0 );
+        if ( $preview_notice === 'bulk_approved' ) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( sprintf( __( '%d candidate(s) approved.', 'tmwseo' ), $preview_count ) ) . '</p></div>';
+        } elseif ( $preview_notice === 'bulk_rejected' ) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( sprintf( __( '%d candidate(s) rejected.', 'tmwseo' ), $preview_count ) ) . '</p></div>';
+        } elseif ( $preview_notice === 'bulk_nothing' ) {
+            echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'No candidates were selected.', 'tmwseo' ) . '</p></div>';
+        }
+
                 // Tab nav
         $tabs = [
             'trusted_seeds' => __( '🌱 Trusted Seeds', 'tmwseo' ),
@@ -364,6 +376,75 @@ class SeedRegistryAdminPage {
         }
 
         echo '</div></div>';
+    }
+
+    private static function maybe_handle_preview_bulk_action(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        if ( sanitize_key( $_REQUEST['page'] ?? '' ) !== self::PAGE_SLUG ) {
+            return;
+        }
+
+        if ( sanitize_key( $_REQUEST['tab'] ?? 'registry' ) !== 'preview' ) {
+            return;
+        }
+
+        $action = sanitize_key( $_REQUEST['action'] ?? '' );
+        if ( $action === '' || $action === '-1' ) {
+            $action = sanitize_key( $_REQUEST['action2'] ?? '' );
+        }
+
+        if ( ! in_array( $action, [ 'approve_candidate', 'reject_candidate' ], true ) ) {
+            return;
+        }
+
+        check_admin_referer( 'bulk-seed_candidates' );
+
+        $raw_ids = [];
+        if ( isset( $_POST['candidate_ids'] ) ) {
+            $raw_ids = (array) wp_unslash( $_POST['candidate_ids'] );
+        } elseif ( isset( $_GET['candidate_ids'] ) ) {
+            $raw_ids = (array) wp_unslash( $_GET['candidate_ids'] );
+        }
+
+        $candidate_ids = array_values( array_filter( array_map( 'absint', $raw_ids ) ) );
+        $processed     = 0;
+        foreach ( $candidate_ids as $candidate_id ) {
+            if ( $action === 'approve_candidate' ) {
+                ExpansionCandidateRepository::approve_candidate( $candidate_id, get_current_user_id() );
+            } else {
+                ExpansionCandidateRepository::reject_candidate( $candidate_id, '', get_current_user_id() );
+            }
+            $processed++;
+        }
+
+        $redirect_args = [
+            'page'           => self::PAGE_SLUG,
+            'tab'            => 'preview',
+            'preview_notice' => ( $processed > 0 )
+                ? ( $action === 'approve_candidate' ? 'bulk_approved' : 'bulk_rejected' )
+                : 'bulk_nothing',
+            'preview_count'  => $processed,
+        ];
+
+        $status = sanitize_key( $_REQUEST['status'] ?? '' );
+        if ( $status !== '' ) {
+            $redirect_args['status'] = $status;
+        }
+
+        $search = sanitize_text_field( wp_unslash( $_REQUEST['s'] ?? '' ) );
+        if ( $search !== '' ) {
+            $redirect_args['s'] = $search;
+        }
+
+        $redirect_url = remove_query_arg(
+            [ 'action', 'action2', '_wpnonce', 'candidate_ids' ],
+            add_query_arg( $redirect_args, admin_url( 'admin.php' ) )
+        );
+        wp_safe_redirect( $redirect_url );
+        exit;
     }
 
     // -------------------------------------------------------------------------
