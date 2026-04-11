@@ -2516,16 +2516,22 @@ class Admin {
         }
         $approved_count        = $sc['approved']          ?? 0;
         $new_count             = $sc['new']               ?? 0;
-        $ignored_count         = $sc['ignored']           ?? 0;
-        $rejected_count        = $sc['rejected']          ?? 0;
+        // Keyword candidates use `ignored` for rejected moderation actions.
+        // Any legacy `rejected` rows (rare) are folded into the same bucket.
+        $ignored_count         = ( $sc['ignored'] ?? 0 ) + ( $sc['rejected'] ?? 0 );
         $queued_count          = $sc['queued_for_review'] ?? 0;
 
         // ── Active view ───────────────────────────────────────────────────────
         $allowed_views = [
             'candidates', 'all', 'raw', 'approved', 'new',
-            'ignored', 'rejected', 'queued_for_review', 'clusters',
+            'ignored', 'queued_for_review', 'clusters',
         ];
         $view = isset( $_GET['view'] ) ? sanitize_key( (string) $_GET['view'] ) : 'candidates';
+        // `rejected` is a legacy URL alias — keyword candidates store rejected
+        // moderation as `ignored`, so redirect silently to the correct tab.
+        if ( $view === 'rejected' ) {
+            $view = 'ignored';
+        }
         if ( ! in_array( $view, $allowed_views, true ) ) {
             $view = 'candidates';
         }
@@ -2590,15 +2596,16 @@ class Admin {
 
         // ── View tabs ─────────────────────────────────────────────────────────
         // Map: view slug => [ label, count or null ]
+        // NOTE: keyword candidates use `ignored` as the stored status for Reject
+        // actions — there is no separate `rejected` candidate status in this table.
         $tabs = [
             'candidates'       => [ __( 'All Candidates', 'tmwseo' ),    $cand_count ],
             'new'              => [ __( 'New', 'tmwseo' ),                $new_count ],
             'queued_for_review'=> [ __( 'Queued for Review', 'tmwseo' ),  $queued_count ],
             'approved'         => [ __( 'Approved', 'tmwseo' ),           $approved_count ],
-            'ignored'          => [ __( 'Ignored', 'tmwseo' ),            $ignored_count ],
-            'rejected'         => [ __( 'Rejected', 'tmwseo' ),           $rejected_count ],
+            'ignored'          => [ __( 'Ignored / Rejected', 'tmwseo' ), $ignored_count ],
             'raw'              => [ __( 'Raw Keywords', 'tmwseo' ),        $raw_count ],
-            'clusters'         => [ __( 'Keyword Clusters', 'tmwseo' ),      $cluster_count ],
+            'clusters'         => [ __( 'Keyword Clusters', 'tmwseo' ),   $cluster_count ],
         ];
 
         // Normalise: 'all' aliases to 'candidates' in the tab bar
@@ -2900,14 +2907,16 @@ class Admin {
             AdminUI::section_end();
 
         } else {
-            // ── Candidate views (all, approved, new, ignored, rejected, queued_for_review) ──
+            // ── Candidate views (all, approved, new, ignored, queued_for_review) ──
+            // Note: keyword candidates store rejected moderation as `ignored`.
+            // ?view=rejected is aliased to `ignored` before reaching this block.
 
             // Determine status filter
             $status_map = [
                 'approved'         => 'approved',
                 'new'              => 'new',
+                // `ignored` is the real stored status for rejected keyword candidates.
                 'ignored'          => 'ignored',
-                'rejected'         => 'rejected',
                 'queued_for_review'=> 'queued_for_review',
             ];
             $status_filter = $status_map[ $view ] ?? null; // null = all candidates
@@ -2915,8 +2924,7 @@ class Admin {
             $section_label = match ( $view ) {
                 'approved'          => __( 'Approved Candidates', 'tmwseo' ),
                 'new'               => __( 'New Candidates', 'tmwseo' ),
-                'ignored'           => __( 'Ignored Candidates', 'tmwseo' ),
-                'rejected'          => __( 'Rejected Candidates', 'tmwseo' ),
+                'ignored'           => __( 'Ignored / Rejected Candidates', 'tmwseo' ),
                 'queued_for_review' => __( 'Queued for Review', 'tmwseo' ),
                 default             => __( 'All Candidates', 'tmwseo' ),
             };
