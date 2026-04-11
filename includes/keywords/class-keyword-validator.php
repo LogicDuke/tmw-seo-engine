@@ -121,12 +121,29 @@ class KeywordValidator {
     private static function passes_niche_context_check(string $keyword): bool {
         $entities = self::load_niche_entities();
 
-        // ── Architecture v5.0: tightened niche context ────────────
-        // Model names are always on-niche — if keyword contains a model name, it passes.
+        // ── Architecture v5.1: tightened model-name gate ──────────────────
+        // Multi-token model names (e.g. "anna claire", "mia malkova") are
+        // specific enough to be unambiguous — pass immediately on a match.
+        // Single-token model names (e.g. "arianna", "bella") are common
+        // first names that appear in many off-niche contexts.  A keyword
+        // containing only a single-token model name must ALSO contain at
+        // least one cam/adult anchor term to be considered on-niche.
         foreach ($entities['models'] as $entity) {
-            if (self::contains_term($keyword, $entity)) {
+            if (!self::contains_term($keyword, $entity)) {
+                continue;
+            }
+            if (self::is_multi_token_term($entity)) {
+                // Unambiguous multi-token match — accept immediately.
                 return true;
             }
+            // Single-token match: require at least one anchor term too.
+            foreach (self::$anchor_terms as $anchor) {
+                if (self::contains_term($keyword, $anchor)) {
+                    return true;
+                }
+            }
+            // Single-token model name found but no anchor term — keep
+            // scanning; do NOT return true yet.
         }
 
         // For tags and categories, the keyword must ALSO contain at least one
@@ -163,6 +180,14 @@ class KeywordValidator {
         }
 
         return false;
+    }
+
+    /**
+     * Returns true when a term contains more than one whitespace-separated token.
+     * Used to distinguish "mia malkova" (unambiguous) from "arianna" (common first name).
+     */
+    private static function is_multi_token_term(string $term): bool {
+        return str_word_count(trim($term)) > 1;
     }
 
     /** @return array<string,array<int,string>> */
@@ -280,6 +305,10 @@ class KeywordValidator {
 
     /**
      * Cluster key: remove generic modifiers so closely related variants group together.
+     *
+     * Uses whole-word-safe regex boundaries instead of raw str_replace() to prevent
+     * substring corruption (e.g. "meaning" must not become "aning", "meloni" → "loni").
+     * Longer phrases are sorted first so "near me" is removed before "near" or "me".
      */
     public static function cluster_key(string $keyword): string {
         $k = self::normalize($keyword);
@@ -289,12 +318,19 @@ class KeywordValidator {
             'near me','near','me','without registration','no signup','no sign up',
             'girls','girl','models','model',
         ];
+
+        // Sort longer phrases first so multi-word entries match before their components.
+        usort($remove, static fn(string $a, string $b): int => strlen($b) - strlen($a));
+
         foreach ($remove as $r) {
-            $k = str_replace($r, ' ', $k);
+            $k = preg_replace('/\b' . preg_quote($r, '/') . '\b/u', ' ', $k);
         }
+
         $k = preg_replace('/\s+/', ' ', $k);
-        $k = trim($k);
-        if ($k === '') $k = self::normalize($keyword);
+        $k = trim((string) $k);
+        if ($k === '') {
+            $k = self::normalize($keyword);
+        }
         return $k;
     }
 }
