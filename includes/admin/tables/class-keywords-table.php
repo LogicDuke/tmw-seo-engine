@@ -53,9 +53,9 @@ class KeywordsTable extends \WP_List_Table {
 
     protected function get_bulk_actions(): array {
         return [
-            'approve' => __('Approve', 'tmwseo'),
-            'reject'  => __('Reject', 'tmwseo'),
-            'delete'  => __('Delete', 'tmwseo'),
+            'tmwseo_kw_bulk_approve' => __( 'Approve', 'tmwseo' ),
+            'tmwseo_kw_bulk_reject'  => __( 'Reject', 'tmwseo' ),
+            'tmwseo_kw_bulk_delete'  => __( 'Delete', 'tmwseo' ),
         ];
     }
 
@@ -184,28 +184,37 @@ class KeywordsTable extends \WP_List_Table {
     }
 
     protected function process_bulk_action(): void {
+        // Primary bulk handling is via AdminFormHandlers::handle_keyword_candidates_bulk()
+        // triggered from the load-tmwseo-engine_page_tmwseo-keywords hook before headers
+        // are sent, enabling a clean redirect.  This method is a safety fallback only —
+        // it runs only if the dedicated handler was not reached (should not happen in
+        // normal operation, but guards against edge cases).
         global $wpdb;
-        $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $table  = $wpdb->prefix . 'tmw_keyword_candidates';
         $action = $this->current_action();
-        if (!$action || !in_array($action, ['approve', 'reject', 'delete'], true)) {
+
+        $action_map = [
+            'tmwseo_kw_bulk_approve' => 'approved',
+            'tmwseo_kw_bulk_reject'  => 'ignored',
+        ];
+
+        if ( ! $action || ( ! isset( $action_map[ $action ] ) && $action !== 'tmwseo_kw_bulk_delete' ) ) {
             return;
         }
 
-        check_admin_referer('bulk-' . $this->_args['plural']);
+        check_admin_referer( 'bulk-keywords' );
 
-        $ids = isset($_POST['keyword_ids']) ? (array) $_POST['keyword_ids'] : [];
-        $ids = array_values(array_filter(array_map('absint', $ids)));
-        if ($ids === []) {
+        $ids = isset( $_POST['keyword_ids'] ) ? (array) $_POST['keyword_ids'] : [];
+        $ids = array_values( array_filter( array_map( 'absint', $ids ) ) );
+        if ( $ids === [] ) {
             return;
         }
 
-        foreach ($ids as $id) {
-            if ($action === 'approve') {
-                $wpdb->update($table, ['status' => 'approved'], ['id' => $id], ['%s'], ['%d']);
-            } elseif ($action === 'reject') {
-                $wpdb->update($table, ['status' => 'ignored'], ['id' => $id], ['%s'], ['%d']);
-            } elseif ($action === 'delete') {
-                $wpdb->delete($table, ['id' => $id], ['%d']);
+        foreach ( $ids as $id ) {
+            if ( isset( $action_map[ $action ] ) ) {
+                $wpdb->update( $table, [ 'status' => $action_map[ $action ] ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
+            } elseif ( $action === 'tmwseo_kw_bulk_delete' ) {
+                $wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] );
             }
         }
     }

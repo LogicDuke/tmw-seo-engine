@@ -966,7 +966,10 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Content Briefs', 'tmwseo'), __('Content Briefs', 'tmwseo'), 'manage_options', 'tmwseo-content-briefs', ['\\TMWSEO\\Engine\\Suggestions\\SuggestionsAdminPage', 'render_static_briefs']);
 
         // ── Intelligence ───────────────────────────────────────────────────
-        add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'),            __('Keywords', 'tmwseo'),            'manage_options', 'tmwseo-keywords',            [__CLASS__, 'render_keywords']);
+        // Store the hook so we can register the early bulk-action handler below.
+        $kw_page_hook = add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'), __('Keywords', 'tmwseo'), 'manage_options', 'tmwseo-keywords', [__CLASS__, 'render_keywords']);
+        // Early handler fires before admin-header.php so wp_safe_redirect() is safe.
+        add_action( 'load-' . $kw_page_hook, [ __CLASS__, 'handle_keywords_page_load' ] );
         add_submenu_page(self::MENU_SLUG, __('Autopilot', 'tmwseo'),           __('Autopilot', 'tmwseo'),           'manage_options', 'tmwseo-autopilot',          ['\\TMWSEO\\Engine\\Admin\\AutopilotAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Opportunities', 'tmwseo'),       __('Opportunities', 'tmwseo'),       'manage_options', 'tmwseo-opportunities',       ['\\TMWSEO\\Engine\\Opportunities\\OpportunityUI', 'render_static']);
         add_submenu_page(self::MENU_SLUG, __('Traffic Forecast', 'tmwseo'),   __('Traffic Forecast', 'tmwseo'),   'manage_options', 'tmwseo-traffic-forecast',   ['\\TMWSEO\\Engine\\Opportunities\\TrafficForecastUI', 'render_page']);
@@ -1443,6 +1446,16 @@ class Admin {
 
     public static function handle_keyword_candidate_action(): void {
         AdminFormHandlers::handle_keyword_candidate_action();
+    }
+
+    /**
+     * Fires on load-tmwseo-engine_page_tmwseo-keywords — before admin-header.php,
+     * so wp_safe_redirect() is safe. Delegates to AdminFormHandlers for bulk
+     * candidate approve / reject / delete.  Returns silently when the request is
+     * not a bulk action (e.g. initial page load or search submission).
+     */
+    public static function handle_keywords_page_load(): void {
+        AdminFormHandlers::handle_keyword_candidates_bulk();
     }
 
 
@@ -2912,10 +2925,48 @@ class Admin {
             $keywords_table = new KeywordsTable( $status_filter, $view );
             $keywords_table->prepare_items();
             echo '<div class="tmwui-table-wrap">';
-            echo '<form method="get">';
+
+            // ── Bulk-result notice ────────────────────────────────────────────
+            if ( isset( $_GET['tmwseo_notice'] ) ) {
+                $bulk_notice = sanitize_key( (string) $_GET['tmwseo_notice'] );
+                $bulk_count  = isset( $_GET['tmwseo_bulk_count'] ) ? max( 0, (int) $_GET['tmwseo_bulk_count'] ) : 0;
+                if ( in_array( $bulk_notice, [ 'kw_bulk_approved', 'kw_bulk_rejected', 'kw_bulk_deleted', 'kw_bulk_empty', 'kw_bulk_unauthorized' ], true ) ) {
+                    $bulk_msg = match ( $bulk_notice ) {
+                        'kw_bulk_approved'   => sprintf( _n( '%d keyword approved.', '%d keywords approved.', $bulk_count, 'tmwseo' ), $bulk_count ),
+                        'kw_bulk_rejected'   => sprintf( _n( '%d keyword rejected (set to ignored).', '%d keywords rejected (set to ignored).', $bulk_count, 'tmwseo' ), $bulk_count ),
+                        'kw_bulk_deleted'    => sprintf( _n( '%d keyword deleted.', '%d keywords deleted.', $bulk_count, 'tmwseo' ), $bulk_count ),
+                        'kw_bulk_empty'      => __( 'No rows selected. Please check at least one keyword before applying a bulk action.', 'tmwseo' ),
+                        'kw_bulk_unauthorized' => __( 'Bulk action failed: insufficient permissions.', 'tmwseo' ),
+                        default              => '',
+                    };
+                    $bulk_level = in_array( $bulk_notice, [ 'kw_bulk_empty', 'kw_bulk_unauthorized' ], true ) ? 'notice-warning' : 'notice-success';
+                    if ( $bulk_msg !== '' ) {
+                        echo '<div class="notice ' . esc_attr( $bulk_level ) . ' is-dismissible inline" style="margin:0 0 12px;"><p>' . esc_html( $bulk_msg ) . '</p></div>';
+                    }
+                }
+            }
+
+            // ── Search form (GET — preserves view/search in URL) ──────────────
+            echo '<form method="get" style="margin-bottom:4px;">';
             echo '<input type="hidden" name="page" value="tmwseo-keywords">';
             echo '<input type="hidden" name="view" value="' . esc_attr( $view ) . '">';
             $keywords_table->search_box( __( 'Search Keywords', 'tmwseo' ), 'keyword-search' );
+            echo '</form>';
+
+            // ── Bulk-action form (POST — enables reliable checkbox submission) ─
+            // Separate from the search form so GET-based search and POST-based
+            // bulk actions do not conflict.  The load-{hook} handler processes
+            // POSTs before admin-header.php is output, allowing a clean redirect.
+            $search_val = isset( $_REQUEST['s'] ) ? sanitize_text_field( wp_unslash( (string) $_REQUEST['s'] ) ) : '';
+            $paged_val  = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+            echo '<form method="post" id="tmwseo-kw-bulk-form">';
+            echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+            echo '<input type="hidden" name="view" value="' . esc_attr( $view ) . '">';
+            echo '<input type="hidden" name="_s" value="' . esc_attr( $search_val ) . '">';
+            echo '<input type="hidden" name="_paged" value="' . esc_attr( (string) $paged_val ) . '">';
+            // wp_nonce_field so our handler can verify; WP_List_Table also outputs
+            // its own bulk-keywords nonce inside display() — both target same action.
+            wp_nonce_field( 'bulk-keywords' );
             $keywords_table->display();
             echo '</form>';
             echo '</div>';

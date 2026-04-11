@@ -809,4 +809,107 @@ class AdminFormHandlers {
         );
         exit;
     }
+
+    // ── Keyword Candidates Bulk Action ────────────────────────────────────────
+    // Triggered from the load-tmwseo-engine_page_tmwseo-keywords hook (fires
+    // before admin-header.php so wp_safe_redirect() is safe to call).
+    //
+    // Action map:
+    //   tmwseo_kw_bulk_approve => status = approved
+    //   tmwseo_kw_bulk_reject  => status = ignored
+    //   tmwseo_kw_bulk_delete  => row deleted
+    //
+    // Nonce: bulk-keywords  (the WP_List_Table standard nonce, present in form)
+
+    public static function handle_keyword_candidates_bulk(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_safe_redirect( add_query_arg(
+                [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'kw_bulk_unauthorized' ],
+                admin_url( 'admin.php' )
+            ) );
+            exit;
+        }
+
+        // Determine which bulk action was submitted (top or bottom select).
+        $raw_action = '';
+        if ( isset( $_POST['action'] ) && (string) $_POST['action'] !== '-1' ) {
+            $raw_action = sanitize_key( (string) wp_unslash( $_POST['action'] ) );
+        }
+        if ( $raw_action === '' && isset( $_POST['action2'] ) && (string) $_POST['action2'] !== '-1' ) {
+            $raw_action = sanitize_key( (string) wp_unslash( $_POST['action2'] ) );
+        }
+
+        $allowed_actions = [ 'tmwseo_kw_bulk_approve', 'tmwseo_kw_bulk_reject', 'tmwseo_kw_bulk_delete' ];
+        if ( ! in_array( $raw_action, $allowed_actions, true ) ) {
+            // Not a bulk action (e.g. search submit with action=-1) — let render proceed.
+            return;
+        }
+
+        check_admin_referer( 'bulk-keywords' );
+
+        $ids = isset( $_POST['keyword_ids'] ) ? (array) $_POST['keyword_ids'] : [];
+        $ids = array_values( array_filter( array_map( 'absint', $ids ) ) );
+
+        // Preserve view/search/paged for the redirect destination.
+        $view  = isset( $_POST['view'] )  ? sanitize_key( (string) wp_unslash( $_POST['view'] ) )            : 'candidates';
+        $s     = isset( $_POST['_s'] )    ? sanitize_text_field( (string) wp_unslash( $_POST['_s'] ) )        : '';
+        $paged = isset( $_POST['_paged'] ) ? max( 1, (int) $_POST['_paged'] )                                 : 1;
+
+        if ( empty( $ids ) ) {
+            wp_safe_redirect( add_query_arg( array_filter( [
+                'page'            => 'tmwseo-keywords',
+                'view'            => $view,
+                's'               => $s,
+                'paged'           => $paged > 1 ? $paged : null,
+                'tmwseo_notice'   => 'kw_bulk_empty',
+            ] ), admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $count = 0;
+
+        foreach ( $ids as $id ) {
+            if ( $raw_action === 'tmwseo_kw_bulk_approve' ) {
+                $updated = $wpdb->update(
+                    $table,
+                    [ 'status' => 'approved', 'updated_at' => current_time( 'mysql' ) ],
+                    [ 'id' => $id ],
+                    [ '%s', '%s' ],
+                    [ '%d' ]
+                );
+                if ( $updated !== false ) { $count++; }
+            } elseif ( $raw_action === 'tmwseo_kw_bulk_reject' ) {
+                $updated = $wpdb->update(
+                    $table,
+                    [ 'status' => 'ignored', 'updated_at' => current_time( 'mysql' ) ],
+                    [ 'id' => $id ],
+                    [ '%s', '%s' ],
+                    [ '%d' ]
+                );
+                if ( $updated !== false ) { $count++; }
+            } elseif ( $raw_action === 'tmwseo_kw_bulk_delete' ) {
+                $deleted = $wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] );
+                if ( $deleted ) { $count++; }
+            }
+        }
+
+        $notice_slug = match ( $raw_action ) {
+            'tmwseo_kw_bulk_approve' => 'kw_bulk_approved',
+            'tmwseo_kw_bulk_reject'  => 'kw_bulk_rejected',
+            'tmwseo_kw_bulk_delete'  => 'kw_bulk_deleted',
+            default                  => 'kw_bulk_done',
+        };
+
+        wp_safe_redirect( add_query_arg( array_filter( [
+            'page'                  => 'tmwseo-keywords',
+            'view'                  => $view,
+            's'                     => $s,
+            'paged'                 => $paged > 1 ? $paged : null,
+            'tmwseo_notice'         => $notice_slug,
+            'tmwseo_bulk_count'     => $count,
+        ] ), admin_url( 'admin.php' ) ) );
+        exit;
+    }
 }
