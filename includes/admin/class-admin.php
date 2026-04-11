@@ -14,6 +14,7 @@ use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
 use TMWSEO\Engine\Admin\Tables\KeywordsTable;
 use TMWSEO\Engine\Admin\Tables\ClustersTable;
+use TMWSEO\Engine\Admin\Tables\KeywordClustersTable;
 use TMWSEO\Engine\Admin\AdminFormHandlers;
 use TMWSEO\Engine\Admin\AdminAjaxHandlers;
 
@@ -2557,7 +2558,7 @@ class Admin {
             ],
             [
                 'value' => $cluster_count,
-                'label' => __( 'Clusters', 'tmwseo' ),
+                'label' => __( 'Keyword Clusters', 'tmwseo' ),
                 'color' => 'neutral',
                 'url'   => $view_url( 'clusters' ),
                 'sub'   => sprintf( __( '%d new →', 'tmwseo' ), $new_clusters ),
@@ -2584,7 +2585,7 @@ class Admin {
             'ignored'          => [ __( 'Ignored', 'tmwseo' ),            $ignored_count ],
             'rejected'         => [ __( 'Rejected', 'tmwseo' ),           $rejected_count ],
             'raw'              => [ __( 'Raw Keywords', 'tmwseo' ),        $raw_count ],
-            'clusters'         => [ __( 'Clusters', 'tmwseo' ),           $cluster_count ],
+            'clusters'         => [ __( 'Keyword Clusters', 'tmwseo' ),      $cluster_count ],
         ];
 
         // Normalise: 'all' aliases to 'candidates' in the tab bar
@@ -2702,25 +2703,25 @@ class Admin {
             AdminUI::section_end();
 
         } elseif ( $view === 'clusters' ) {
-            // ── Clusters-only view ───────────────────────────────────────────
-            $cluster_service = \TMWSEO\Engine\Plugin::get_cluster_service();
-            $scoring_engine  = \TMWSEO\Engine\Plugin::get_cluster_scoring_engine();
+            // ── Keyword Clusters view ────────────────────────────────────────
+            // Source: tmw_keyword_clusters (keyword-clustering dataset).
+            // NOT the legacy internal-link clusters (tmw_clusters / TMW_Cluster_Service).
 
-            AdminUI::section_start( __( 'Clusters', 'tmwseo' ) );
-            if ( $cluster_service && $scoring_engine ) {
-                $clusters_table = new ClustersTable( $cluster_service, $scoring_engine );
-                $clusters_table->prepare_items();
-                echo '<div class="tmwui-table-wrap">';
-                echo '<form method="get">';
-                echo '<input type="hidden" name="page" value="tmwseo-keywords">';
-                echo '<input type="hidden" name="view" value="clusters">';
-                $clusters_table->search_box( __( 'Search Clusters', 'tmwseo' ), 'cluster-search' );
-                $clusters_table->display();
-                echo '</form>';
-                echo '</div>';
-            } else {
-                AdminUI::empty_state( __( 'Cluster service unavailable.', 'tmwseo' ) );
-            }
+            AdminUI::section_start(
+                __( 'Keyword Clusters', 'tmwseo' ),
+                __( 'Keyword groups built by the clustering engine. Count matches the KPI card above.', 'tmwseo' )
+            );
+
+            $kw_clusters_table = new KeywordClustersTable();
+            $kw_clusters_table->prepare_items();
+            echo '<div class="tmwui-table-wrap">';
+            echo '<form method="get">';
+            echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+            echo '<input type="hidden" name="view" value="clusters">';
+            $kw_clusters_table->search_box( __( 'Search Keyword Clusters', 'tmwseo' ), 'kw-cluster-search' );
+            $kw_clusters_table->display();
+            echo '</form>';
+            echo '</div>';
             AdminUI::section_end();
 
         } else {
@@ -2766,25 +2767,21 @@ class Admin {
             echo '<p class="description">' . esc_html__( 'Approve sets candidate status to approved. Reject sets candidate status to ignored. Use bulk actions for faster moderation.', 'tmwseo' ) . '</p>';
             AdminUI::section_end();
 
-            // ── Also show clusters section on default (candidates/all) view ──
+            // ── Keyword Clusters summary on default (candidates/all) view ──
             if ( in_array( $view, [ 'candidates', 'all' ], true ) ) {
-                $cluster_service = \TMWSEO\Engine\Plugin::get_cluster_service();
-                $scoring_engine  = \TMWSEO\Engine\Plugin::get_cluster_scoring_engine();
-
-                AdminUI::section_start( __( 'Top Clusters', 'tmwseo' ) );
-                if ( $cluster_service && $scoring_engine ) {
-                    $clusters_table = new ClustersTable( $cluster_service, $scoring_engine );
-                    $clusters_table->prepare_items();
-                    echo '<div class="tmwui-table-wrap">';
-                    echo '<form method="get">';
-                    echo '<input type="hidden" name="page" value="tmwseo-keywords">';
-                    $clusters_table->search_box( __( 'Search Clusters', 'tmwseo' ), 'cluster-search' );
-                    $clusters_table->display();
-                    echo '</form>';
-                    echo '</div>';
-                } else {
-                    AdminUI::empty_state( __( 'Cluster service unavailable.', 'tmwseo' ) );
-                }
+                AdminUI::section_start(
+                    __( 'Top Keyword Clusters', 'tmwseo' ),
+                    __( 'Highest-opportunity keyword clusters. Click the Keyword Clusters tab for the full list.', 'tmwseo' )
+                );
+                $kw_clusters_table = new KeywordClustersTable();
+                $kw_clusters_table->prepare_items();
+                echo '<div class="tmwui-table-wrap">';
+                echo '<form method="get">';
+                echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+                $kw_clusters_table->search_box( __( 'Search Keyword Clusters', 'tmwseo' ), 'kw-cluster-search' );
+                $kw_clusters_table->display();
+                echo '</form>';
+                echo '</div>';
                 AdminUI::section_end();
             }
         }

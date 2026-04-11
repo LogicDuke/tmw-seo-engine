@@ -316,6 +316,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-list-table-pagination.php' );
         tmwseo_safe_require( $p . 'tables/class-keywords-table.php' );
         tmwseo_safe_require( $p . 'tables/class-clusters-table.php' );
+        tmwseo_safe_require( $p . 'tables/class-keyword-clusters-table.php' ); // keyword-cluster dataset (tmw_keyword_clusters), NOT legacy tmw_clusters
         tmwseo_safe_require( $p . 'tables/class-opportunities-table.php' );
         tmwseo_safe_require( $p . 'tables/class-seed-registry-table.php' );
 
