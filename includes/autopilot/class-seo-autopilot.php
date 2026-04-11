@@ -6,6 +6,7 @@ if (!defined('ABSPATH')) { exit; }
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\KeywordValidator;
+use TMWSEO\Engine\Keywords\KeywordClusterReconciler;
 use TMWSEO\Engine\Keywords\DataForSEOKeywordIdeaProvider;
 use TMWSEO\Engine\Keywords\GoogleKeywordPlannerIdeaProvider;
 use TMWSEO\Engine\Services\DataForSEO;
@@ -251,26 +252,58 @@ class SEOAutopilot {
 
             $normalized[] = $normalized_row;
 
-            $wpdb->query($wpdb->prepare(
-                "INSERT INTO {$cluster_table}
-                    (cluster_key, representative, keywords, total_volume, avg_difficulty, opportunity, status, updated_at)
-                 VALUES
-                    (%s, %s, %s, %d, %f, %f, 'new', %s)
-                 ON DUPLICATE KEY UPDATE
-                    representative = VALUES(representative),
-                    keywords = VALUES(keywords),
-                    total_volume = VALUES(total_volume),
-                    avg_difficulty = VALUES(avg_difficulty),
-                    opportunity = VALUES(opportunity),
-                    updated_at = VALUES(updated_at)",
-                $cluster_key,
-                (string) ($normalized_row['keywords'][0] ?? $cluster_key),
-                wp_json_encode($normalized_row['keywords']),
-                (int) $normalized_row['total_volume'],
-                (float) $avg_kd,
-                (float) $opportunity_score,
-                current_time('mysql')
-            ));
+            // Canonical-identity guard: before inserting, check whether an
+            // equivalent row already exists under the canonical base key.
+            // This prevents autopilot (simple base key) from creating a
+            // sibling alongside a KeywordEngine row (suffixed key) that
+            // represents the same real cluster.
+            $canonical_base = KeywordClusterReconciler::canonical_base( $cluster_key );
+            $canonical_id   = 0;
+            if ( $canonical_base !== $cluster_key ) {
+                $canonical_id = (int) $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT id FROM {$cluster_table} WHERE cluster_key = %s LIMIT 1",
+                        $canonical_base
+                    )
+                );
+            }
+
+            if ( $canonical_id > 0 ) {
+                // Canonical row exists — update it in place; do NOT insert a sibling.
+                $wpdb->update(
+                    $cluster_table,
+                    [
+                        'representative' => (string) ( $normalized_row['keywords'][0] ?? $cluster_key ),
+                        'keywords'       => wp_json_encode( $normalized_row['keywords'] ),
+                        'total_volume'   => (int) $normalized_row['total_volume'],
+                        'avg_difficulty' => (float) $avg_kd,
+                        'opportunity'    => (float) $opportunity_score,
+                        'updated_at'     => current_time( 'mysql' ),
+                    ],
+                    [ 'id' => $canonical_id ]
+                );
+            } else {
+                $wpdb->query( $wpdb->prepare(
+                    "INSERT INTO {$cluster_table}
+                        (cluster_key, representative, keywords, total_volume, avg_difficulty, opportunity, status, updated_at)
+                     VALUES
+                        (%s, %s, %s, %d, %f, %f, 'new', %s)
+                     ON DUPLICATE KEY UPDATE
+                        representative = VALUES(representative),
+                        keywords = VALUES(keywords),
+                        total_volume = VALUES(total_volume),
+                        avg_difficulty = VALUES(avg_difficulty),
+                        opportunity = VALUES(opportunity),
+                        updated_at = VALUES(updated_at)",
+                    $cluster_key,
+                    (string) ( $normalized_row['keywords'][0] ?? $cluster_key ),
+                    wp_json_encode( $normalized_row['keywords'] ),
+                    (int) $normalized_row['total_volume'],
+                    (float) $avg_kd,
+                    (float) $opportunity_score,
+                    current_time( 'mysql' )
+                ) );
+            }
         }
 
         usort($normalized, static function ($a, $b) {

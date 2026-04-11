@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\DiscoveryGovernor;
+use TMWSEO\Engine\Keywords\KeywordClusterReconciler;
 use TMWSEO\Engine\KeywordIntelligence\KeywordDatabase;
 use TMWSEO\Engine\KeywordIntelligence\KeywordClassifier;
 use TMWSEO\Engine\Services\Settings;
@@ -1676,6 +1677,24 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             foreach ($existing_clusters as $existing_cluster) {
                 $cluster_map[(string)$existing_cluster['cluster_key']] = (int)$existing_cluster['id'];
             }
+
+            // Canonical-identity guard: for each key without a direct match,
+            // check whether a canonical base-key row already exists to avoid
+            // creating a suffixed sibling alongside an existing base-key row.
+            foreach ($cluster_keys as $key) {
+                if (isset($cluster_map[$key])) { continue; }
+                $base = KeywordClusterReconciler::canonical_base( $key );
+                if ($base !== $key && isset($cluster_map[$base])) {
+                    $cluster_map[$key] = $cluster_map[$base];
+                } elseif ($base !== $key) {
+                    $base_id = (int) $wpdb->get_var(
+                        $wpdb->prepare("SELECT id FROM {$cluster_table} WHERE cluster_key = %s LIMIT 1", $base)
+                    );
+                    if ($base_id > 0) {
+                        $cluster_map[$key] = $base_id;
+                    }
+                }
+            }
         }
 
         // Upsert clusters
@@ -1836,7 +1855,22 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         }
 
         $avg_kd = ($kd_n > 0) ? round($sum_kd / $kd_n, 2) : 0;
-        $existing_id = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$cluster_table} WHERE cluster_key=%s LIMIT 1", $bucket_key));
+
+        // Canonical-identity guard: prefer the canonical base key over the
+        // suffixed bucket_key when an equivalent base-key row already exists.
+        // This prevents split-brain (new + built) when autopilot already
+        // created a row under the base key for the same representative.
+        $canonical_base = KeywordClusterReconciler::canonical_base( $bucket_key );
+        $canonical_id   = 0;
+        if ( $canonical_base !== $bucket_key ) {
+            $canonical_id = (int) $wpdb->get_var(
+                $wpdb->prepare( "SELECT id FROM {$cluster_table} WHERE cluster_key = %s LIMIT 1", $canonical_base )
+            );
+        }
+
+        $existing_id = $canonical_id > 0
+            ? $canonical_id
+            : (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$cluster_table} WHERE cluster_key=%s LIMIT 1", $bucket_key ) );
 
         if ($existing_id > 0) {
             $wpdb->update($cluster_table, [

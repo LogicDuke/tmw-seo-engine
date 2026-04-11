@@ -2707,6 +2707,63 @@ class Admin {
             // Source: tmw_keyword_clusters (keyword-clustering dataset).
             // NOT the legacy internal-link clusters (tmw_clusters / TMW_Cluster_Service).
 
+            // ── Reconciler result notice ─────────────────────────────────────
+            $reconcile_result = get_transient( 'tmwseo_reconcile_result' );
+            if ( is_array( $reconcile_result ) ) {
+                delete_transient( 'tmwseo_reconcile_result' );
+                $mode_label = $reconcile_result['mode'] === 'dry_run' ? 'Dry-run report' : 'Repair executed';
+                $level      = $reconcile_result['mode'] === 'dry_run' ? 'notice-info' : 'notice-success';
+                if ( ! empty( $reconcile_result['errors'] ) ) { $level = 'notice-error'; }
+                echo '<div class="notice ' . esc_attr( $level ) . ' is-dismissible"><p>';
+                echo '<strong>' . esc_html( $mode_label ) . ':</strong> ';
+                echo esc_html( $reconcile_result['groups_found'] ) . ' duplicate group(s) found across ';
+                echo esc_html( $reconcile_result['rows_examined'] ) . ' rows examined. ';
+                if ( $reconcile_result['mode'] !== 'dry_run' ) {
+                    echo esc_html( $reconcile_result['merges_performed'] ) . ' merge(s) performed, ';
+                    echo esc_html( $reconcile_result['map_rows_rewired'] ) . ' cluster-map rows rewired, ';
+                    echo esc_html( $reconcile_result['siblings_deleted'] ) . ' sibling rows deleted.';
+                }
+                if ( ! empty( $reconcile_result['errors'] ) ) {
+                    echo ' Errors: ' . esc_html( implode( '; ', $reconcile_result['errors'] ) );
+                }
+                echo '</p>';
+
+                if ( ! empty( $reconcile_result['groups'] ) ) {
+                    echo '<details style="margin-top:6px;"><summary style="cursor:pointer;font-weight:600;">View group details (' . count( $reconcile_result['groups'] ) . ')</summary>';
+                    echo '<table class="widefat striped" style="margin-top:8px;font-size:12px;">';
+                    echo '<thead><tr><th>Canonical Base</th><th>Survivor ID / Key</th><th>Siblings</th><th>Merged Status</th><th>Merged Page ID</th></tr></thead><tbody>';
+                    foreach ( $reconcile_result['groups'] as $g ) {
+                        echo '<tr>';
+                        echo '<td><code>' . esc_html( (string) ( $g['canonical_base'] ?? '' ) ) . '</code></td>';
+                        echo '<td>#' . esc_html( (string) ( $g['survivor_id'] ?? '' ) ) . ' <small>' . esc_html( (string) ( $g['survivor_key'] ?? '' ) ) . '</small></td>';
+                        echo '<td><small>' . esc_html( implode( ', ', array_map( 'strval', (array) ( $g['sibling_ids'] ?? [] ) ) ) ) . '</small></td>';
+                        echo '<td>' . esc_html( (string) ( $g['merged_data']['status'] ?? '' ) ) . '</td>';
+                        echo '<td>' . esc_html( (string) ( $g['merged_data']['page_id'] ?? '—' ) ) . '</td>';
+                        echo '</tr>';
+                    }
+                    echo '</tbody></table></details>';
+                }
+                echo '</div>';
+            }
+
+            // ── Reconciler action panel ──────────────────────────────────────
+            echo '<div style="margin-bottom:16px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">';
+            echo '<span style="font-size:13px;font-weight:600;color:#374151;">🔧 Duplicate Cluster Repair</span>';
+            echo '<span style="font-size:12px;color:#6b7280;">If the same keyword appears as both <em>new</em> and <em>built</em>, run a dry-run first, then execute to merge duplicates.</span>';
+            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline;">';
+            wp_nonce_field( 'tmwseo_reconcile_clusters_nonce' );
+            echo '<input type="hidden" name="action" value="tmwseo_reconcile_clusters">';
+            echo '<input type="hidden" name="mode" value="dry">';
+            echo '<button type="submit" class="button button-secondary">Dry-run (report only)</button>';
+            echo '</form>';
+            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline;">';
+            wp_nonce_field( 'tmwseo_reconcile_clusters_nonce' );
+            echo '<input type="hidden" name="action" value="tmwseo_reconcile_clusters">';
+            echo '<input type="hidden" name="mode" value="execute">';
+            echo '<button type="submit" class="button" style="color:#b91c1c;border-color:#fca5a5;" onclick="return confirm(\'This will merge duplicate keyword cluster rows and rewire cluster-map references. Run dry-run first to preview. Continue?\')">Execute Merge</button>';
+            echo '</form>';
+            echo '</div>';
+
             AdminUI::section_start(
                 __( 'Keyword Clusters', 'tmwseo' ),
                 __( 'Keyword groups built by the clustering engine. Count matches the KPI card above.', 'tmwseo' )

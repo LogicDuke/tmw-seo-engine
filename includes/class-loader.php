@@ -88,6 +88,7 @@ class Loader {
     private static function load_keywords(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/keywords/';
         tmwseo_safe_require( $p . 'class-keyword-validator.php' );
+        tmwseo_safe_require( $p . 'class-keyword-cluster-reconciler.php' ); // canonical identity + admin-triggered merge
         tmwseo_safe_require( $p . 'class-kd-filter.php' );
         tmwseo_safe_require( $p . 'class-keyword-usage.php' );
         tmwseo_safe_require( $p . 'class-curated-keyword-library.php' );

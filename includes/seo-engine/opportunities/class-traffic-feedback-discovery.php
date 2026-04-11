@@ -2,6 +2,8 @@
 namespace TMWSEO\Engine\Opportunities;
 
 use TMWSEO\Engine\Integrations\GSCApi;
+use TMWSEO\Engine\Keywords\KeywordValidator;
+use TMWSEO\Engine\Keywords\KeywordClusterReconciler;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Services\Settings;
 
@@ -115,32 +117,49 @@ class TrafficFeedbackDiscovery {
     private static function find_matching_cluster_id(string $query): int {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_clusters';
-        $rows = $wpdb->get_results("SELECT id, cluster_key, representative, keywords FROM {$table}", ARRAY_A);
-        if (!is_array($rows) || empty($rows)) {
+
+        // ── 1. Canonical key lookup — fast path, consistent with all writers ──
+        // Derive the same canonical key that KeywordEngine and autopilot use.
+        $canonical_key = KeywordClusterReconciler::canonical_base(
+            KeywordValidator::cluster_key( $query )
+        );
+        if ( $canonical_key !== '' ) {
+            $canonical_id = (int) $wpdb->get_var(
+                $wpdb->prepare( "SELECT id FROM {$table} WHERE cluster_key = %s LIMIT 1", $canonical_key )
+            );
+            if ( $canonical_id > 0 ) {
+                return $canonical_id;
+            }
+        }
+
+        // ── 2. Representative / keyword-list exact match — full scan fallback ──
+        $rows = $wpdb->get_results( "SELECT id, cluster_key, representative, keywords FROM {$table}", ARRAY_A );
+        if ( ! is_array( $rows ) || empty( $rows ) ) {
             return 0;
         }
 
-        $query_tokens = self::tokenize($query);
+        $query_lower  = strtolower( trim( $query ) );
+        $query_tokens = self::tokenize( $query );
 
-        foreach ($rows as $cluster) {
-            $representative = strtolower(trim((string) ($cluster['representative'] ?? '')));
-            $cluster_key = strtolower(trim((string) ($cluster['cluster_key'] ?? '')));
-            if ($representative === $query || $cluster_key === sanitize_title($query)) {
-                return (int) ($cluster['id'] ?? 0);
+        foreach ( $rows as $cluster ) {
+            $representative = strtolower( trim( (string) ( $cluster['representative'] ?? '' ) ) );
+            if ( $representative === $query_lower ) {
+                return (int) ( $cluster['id'] ?? 0 );
             }
 
-            $keywords = json_decode((string) ($cluster['keywords'] ?? ''), true);
-            if (is_array($keywords)) {
-                foreach ($keywords as $candidate) {
-                    if (strtolower(trim((string) $candidate)) === $query) {
-                        return (int) ($cluster['id'] ?? 0);
+            $keywords = json_decode( (string) ( $cluster['keywords'] ?? '' ), true );
+            if ( is_array( $keywords ) ) {
+                foreach ( $keywords as $candidate ) {
+                    if ( strtolower( trim( (string) $candidate ) ) === $query_lower ) {
+                        return (int) ( $cluster['id'] ?? 0 );
                     }
                 }
             }
 
-            $cluster_tokens = self::tokenize($representative . ' ' . $cluster_key);
-            if (count(array_intersect($query_tokens, $cluster_tokens)) >= 2) {
-                return (int) ($cluster['id'] ?? 0);
+            // Token-intersection fallback (unchanged from original).
+            $cluster_tokens = self::tokenize( $representative . ' ' . strtolower( trim( (string) ( $cluster['cluster_key'] ?? '' ) ) ) );
+            if ( count( array_intersect( $query_tokens, $cluster_tokens ) ) >= 2 ) {
+                return (int) ( $cluster['id'] ?? 0 );
             }
         }
 
@@ -150,25 +169,37 @@ class TrafficFeedbackDiscovery {
     private static function create_candidate_cluster(string $query, int $impressions): int {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_clusters';
-        $base_key = sanitize_title($query);
-        $cluster_key = $base_key !== '' ? $base_key : 'traffic-query';
 
-        $existing = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE cluster_key = %s LIMIT 1", $cluster_key));
-        if ($existing > 0) {
+        // Use the same canonical key derivation as all other writers so this
+        // path never creates a sibling row alongside an existing base-key row.
+        $raw_key      = KeywordValidator::cluster_key( $query );
+        $cluster_key  = KeywordClusterReconciler::canonical_base( $raw_key );
+        if ( $cluster_key === '' ) {
+            $cluster_key = KeywordValidator::normalize( $query );
+        }
+        if ( $cluster_key === '' ) {
+            $cluster_key = 'traffic-query';
+        }
+
+        // Resolve existing canonical row before inserting.
+        $existing = (int) $wpdb->get_var(
+            $wpdb->prepare( "SELECT id FROM {$table} WHERE cluster_key = %s LIMIT 1", $cluster_key )
+        );
+        if ( $existing > 0 ) {
             return $existing;
         }
 
-        $created = $wpdb->insert($table, [
-            'cluster_key' => $cluster_key,
+        $created = $wpdb->insert( $table, [
+            'cluster_key'    => $cluster_key,
             'representative' => $query,
-            'keywords' => wp_json_encode([$query]),
-            'total_volume' => $impressions,
+            'keywords'       => wp_json_encode( [ $query ] ),
+            'total_volume'   => $impressions,
             'avg_difficulty' => 0.0,
-            'opportunity' => self::score($impressions, 0, 11),
-            'page_id' => 0,
-            'status' => 'candidate',
-            'updated_at' => current_time('mysql'),
-        ], ['%s', '%s', '%s', '%d', '%f', '%f', '%d', '%s', '%s']);
+            'opportunity'    => self::score( $impressions, 0, 11 ),
+            'page_id'        => 0,
+            'status'         => 'candidate',
+            'updated_at'     => current_time( 'mysql' ),
+        ], [ '%s', '%s', '%s', '%d', '%f', '%f', '%d', '%s', '%s' ] );
 
         return $created ? (int) $wpdb->insert_id : 0;
     }

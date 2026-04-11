@@ -174,6 +174,7 @@ class Plugin {
         // for admin pages and manual triggers.
         if (\TMWSEO\Engine\Admin\StagingOperationsPage::is_component_enabled('keyword_scheduler')) {
             \TMWSEO\Engine\Keywords\KeywordScheduler::init();
+            \TMWSEO\Engine\Keywords\KeywordClusterReconciler::init(); // admin-triggered repair only — never auto-runs
         }
         if (\TMWSEO\Engine\Admin\StagingOperationsPage::is_component_enabled('seo_autopilot')) {
             \TMWSEO\Engine\Autopilot\SEOAutopilot::init();
