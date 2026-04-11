@@ -2611,20 +2611,17 @@ class Admin {
         // Normalise: 'all' aliases to 'candidates' in the tab bar
         $active_tab = ( $view === 'all' ) ? 'candidates' : $view;
 
-        echo '<div style="margin:12px 0 18px;border-bottom:1px solid #c3c4c7;">';
+        echo '<nav class="nav-tab-wrapper tmwui-view-tabs" style="margin-bottom:20px;">';
         foreach ( $tabs as $slug => [ $label, $count ] ) {
             $is_active = ( $slug === $active_tab );
             $link_url  = $view_url( $slug );
             $badge     = $count !== null
-                ? ' <span style="display:inline-block;background:' . ( $is_active ? '#2271b1' : '#e5e7eb' ) . ';color:' . ( $is_active ? '#fff' : '#374151' ) . ';font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;vertical-align:middle;">' . esc_html( (string) $count ) . '</span>'
+                ? ' <span class="tmwui-tab-badge" style="display:inline-block;background:' . ( $is_active ? '#2271b1' : '#e5e7eb' ) . ';color:' . ( $is_active ? '#fff' : '#374151' ) . ';font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;vertical-align:middle;margin-left:4px;">' . esc_html( (string) $count ) . '</span>'
                 : '';
-            if ( $is_active ) {
-                echo '<a href="' . esc_url( $link_url ) . '" style="display:inline-block;padding:8px 14px;margin-right:2px;font-size:13px;font-weight:700;text-decoration:none;color:#2271b1;border:1px solid #c3c4c7;border-bottom:2px solid #fff;background:#fff;border-radius:3px 3px 0 0;position:relative;top:1px;">' . esc_html( $label ) . $badge . '</a>';
-            } else {
-                echo '<a href="' . esc_url( $link_url ) . '" style="display:inline-block;padding:8px 14px;margin-right:2px;font-size:13px;font-weight:400;text-decoration:none;color:#50575e;border:1px solid transparent;border-bottom:none;background:transparent;border-radius:3px 3px 0 0;">' . esc_html( $label ) . $badge . '</a>';
-            }
+            $class = 'nav-tab' . ( $is_active ? ' nav-tab-active' : '' );
+            echo '<a href="' . esc_url( $link_url ) . '" class="' . esc_attr( $class ) . '">' . esc_html( $label ) . $badge . '</a>';
         }
-        echo '</div>';
+        echo '</nav>';
 
         $focused_candidate_id = isset( $_GET['tmwseo_candidate_focus'] ) ? absint( $_GET['tmwseo_candidate_focus'] ) : 0;
 
@@ -2871,23 +2868,25 @@ class Admin {
                 echo '</div>';
             }
 
-            // ── Reconciler action panel ──────────────────────────────────────
-            echo '<div style="margin-bottom:16px;padding:12px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">';
-            echo '<span style="font-size:13px;font-weight:600;color:#374151;">🔧 Duplicate Cluster Repair</span>';
-            echo '<span style="font-size:12px;color:#6b7280;">If the same keyword appears as both <em>new</em> and <em>built</em>, run a dry-run first, then execute to merge duplicates.</span>';
-            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline;">';
+            AdminUI::section_start(
+                __( 'Cluster Maintenance', 'tmwseo' ),
+                __( 'If the same keyword appears as both new and built, run a dry-run first to preview, then execute to merge duplicates safely.', 'tmwseo' )
+            );
+            echo '<div class="tmwui-cta-row">';
+            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
             wp_nonce_field( 'tmwseo_reconcile_clusters_nonce' );
             echo '<input type="hidden" name="action" value="tmwseo_reconcile_clusters">';
             echo '<input type="hidden" name="mode" value="dry">';
-            echo '<button type="submit" class="button button-secondary">Dry-run (report only)</button>';
+            echo '<button type="submit" class="button button-secondary">🔍 ' . esc_html__( 'Dry-run (report only)', 'tmwseo' ) . '</button>';
             echo '</form>';
-            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline;">';
+            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
             wp_nonce_field( 'tmwseo_reconcile_clusters_nonce' );
             echo '<input type="hidden" name="action" value="tmwseo_reconcile_clusters">';
             echo '<input type="hidden" name="mode" value="execute">';
-            echo '<button type="submit" class="button" style="color:#b91c1c;border-color:#fca5a5;" onclick="return confirm(\'This will merge duplicate keyword cluster rows and rewire cluster-map references. Run dry-run first to preview. Continue?\')">Execute Merge</button>';
+            echo '<button type="submit" class="button" style="color:#b91c1c;border-color:#fca5a5;" onclick="return confirm(\'' . esc_js( __( 'This will merge duplicate keyword cluster rows and rewire cluster-map references. Run dry-run first to preview. Continue?', 'tmwseo' ) ) . '\')">🔧 ' . esc_html__( 'Execute Merge', 'tmwseo' ) . '</button>';
             echo '</form>';
             echo '</div>';
+            AdminUI::section_end();
 
             AdminUI::section_start(
                 __( 'Keyword Clusters', 'tmwseo' ),
