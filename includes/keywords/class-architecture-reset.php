@@ -111,6 +111,11 @@ class ArchitectureReset {
         self::create_keyword_raw_table();
 
         // ── Step 3: Restore model root seeds ──────────────────────
+        // Multi-token model names (e.g. "anna claire") are restored as trusted
+        // model_root seeds.  Single-token names (e.g. "arianna") are blocked by
+        // the SeedRegistry model_root ambiguity gate and are silently skipped —
+        // their anchored phrase variants re-enter via discovery/expansion.
+        // model_roots_restored counts only successfully restored multi-token roots.
         $model_ids = get_posts( [
             'post_type'      => 'model',
             'post_status'    => 'publish',

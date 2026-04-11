@@ -13,8 +13,13 @@ if (!defined('ABSPATH')) { exit; }
  * Model Discovery Trigger — fires on model post save.
  *
  * As of 4.3.0 generated phrases go to the preview layer only.
- * The bare model name may still become a trusted root seed
- * via register_trusted_seed('model_root') — that is intentional.
+ * As of 5.3.2 the bare model name is registered as a trusted root seed
+ * only when it is multi-token (e.g. "anna claire", "mia malkova").
+ * Single-token model names (e.g. "arianna", "bella") are ambiguous and are
+ * blocked from tmwseo_seeds by the SeedRegistry::register_trusted_seed()
+ * model_root ambiguity gate.  Their anchored phrase variants (e.g.
+ * "arianna webcam", "arianna cam girl") still reach the preview layer via
+ * ExpansionCandidateRepository — that path is unaffected.
  *
  * Kill switch: enable_model_auto_keyword_discovery (Settings, default 1 = ON)
  * The preview routing is always active regardless of this switch.
@@ -55,7 +60,10 @@ class ModelDiscoveryTrigger {
         }
 
         // 1. Register the bare model name as a trusted root seed (model_root source).
-        //    This is the ONLY direct write to tmwseo_seeds from this trigger.
+        //    Multi-token names (e.g. "anna claire") are allowed.
+        //    Single-token names (e.g. "arianna") are blocked by the
+        //    SeedRegistry model_root ambiguity gate and register_trusted_seed()
+        //    returns false — no fallback needed; anchored variants cover discovery.
         $root_registered = SeedRegistry::register_trusted_seed(
             $model_name,
             'model_root',

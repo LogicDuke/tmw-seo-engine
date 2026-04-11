@@ -77,6 +77,15 @@ class SeedRegistry {
     /**
      * Write a trusted root seed directly into tmwseo_seeds.
      * Source must be in TRUSTED_DIRECT_SOURCES; otherwise returns false and logs.
+     *
+     * model_root ambiguity gate (v5.3.2):
+     *   MULTI-TOKEN model names (e.g. "anna claire", "mia malkova") are unambiguous
+     *   and are allowed through as trusted roots.
+     *   SINGLE-TOKEN model names (e.g. "arianna", "bella", "sophia") are common
+     *   first names that collide with many off-niche queries — they are blocked from
+     *   the trusted seed layer to prevent junk root propagation.
+     *   Manual seeds, static_curated, approved_import, and all other source types
+     *   are NOT affected by this gate.
      */
     public static function register_trusted_seed(
         string $seed,
@@ -98,6 +107,17 @@ class SeedRegistry {
             return false;
         }
 
+        // model_root ambiguity gate — only applies to model_root source.
+        if ( $source === 'model_root' && ! self::should_allow_model_root_seed( $seed ) ) {
+            Logs::info( 'keywords', '[TMW-SEED] model_root seed blocked: single-token model name is ambiguous', [
+                'seed'        => self::normalize_seed( $seed ),
+                'entity_type' => $entity_type,
+                'entity_id'   => $entity_id,
+                'note'        => 'Anchored phrase variants still enter the preview layer via ExpansionCandidateRepository.',
+            ] );
+            return false;
+        }
+
         return self::write_to_registry(
             $seed,
             $source,
@@ -108,6 +128,26 @@ class SeedRegistry {
             $import_batch_id,
             $import_source_label
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // model_root ambiguity helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns true when a model_root seed may be written to tmwseo_seeds.
+     * Multi-token names are unambiguous; single-token names are blocked.
+     */
+    private static function should_allow_model_root_seed( string $seed ): bool {
+        return self::is_multi_token_seed( self::normalize_seed( $seed ) );
+    }
+
+    /**
+     * Returns true when the normalized seed contains more than one whitespace-
+     * separated token.  "anna claire" → true.  "arianna" → false.
+     */
+    private static function is_multi_token_seed( string $normalized_seed ): bool {
+        return str_word_count( trim( $normalized_seed ) ) > 1;
     }
 
     // -----------------------------------------------------------------------

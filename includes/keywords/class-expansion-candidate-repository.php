@@ -53,6 +53,34 @@ class ExpansionCandidateRepository {
     // Table helper
     // -------------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Quality scoring helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Infer a simple intent label from the phrase.
+     * Returns 'commercial', 'informational', or null (unknown).
+     */
+    private static function infer_intent( string $normalized_phrase ): ?string {
+        // Commercial intent — phrase contains a clear cam/adult purchase/interaction signal.
+        $commercial_signals = [ 'webcam', 'cam', 'live cam', 'adult cam', 'chat', 'cam girl', 'cam model', 'cam site' ];
+        foreach ( $commercial_signals as $signal ) {
+            if ( str_contains( $normalized_phrase, $signal ) ) {
+                return 'commercial';
+            }
+        }
+
+        // Informational intent — generic-info or how-to pattern.
+        $info_signals = [ 'how', 'what', 'why', 'when', 'who', 'meaning', 'means', 'age', 'net worth', 'ethnicity', 'birthday', 'wiki' ];
+        foreach ( $info_signals as $signal ) {
+            if ( preg_match( '/\b' . preg_quote( $signal, '/' ) . '\b/u', $normalized_phrase ) ) {
+                return 'informational';
+            }
+        }
+
+        return null; // unknown — leave blank for operator
+    }
+
     private static function table(): string {
         global $wpdb;
         return $wpdb->prefix . 'tmw_seed_expansion_candidates';
@@ -186,6 +214,27 @@ class ExpansionCandidateRepository {
             ? self::STATUS_FAST_TRACK
             : self::STATUS_PENDING;
 
+        // ── Candidate quality pre-scoring (v5.3.3) ────────────────
+        // Evaluate relevance before insert so operators see meaningful scores.
+        // Clearly off-lane phrases (score well below threshold + no authority match)
+        // are blocked here rather than occupying queue capacity.
+        $evaluation    = TopicalRelevanceFilter::evaluate( $normalised, [ 'entity_name' => '' ] );
+        $eval_score    = (int) $evaluation['score'];
+        $authority_hit = (bool) $evaluation['authority_match'];
+
+        // Block: score is negative AND no authority signal. These are junk/off-lane.
+        if ( $eval_score < 0 && ! $authority_hit ) {
+            TopicalRelevanceFilter::log_rejection( $normalised, $evaluation );
+            return false;
+        }
+
+        // Clamp quality_score to a 0–100 float for storage.
+        // Mapping: raw score [-10..+10] → [0..100] via linear stretch capped at 0/100.
+        $quality_score = (float) max( 0.0, min( 100.0, ( $eval_score + 5 ) * 10 ) );
+
+        // Simple intent inference.
+        $intent_guess = self::infer_intent( $normalised );
+
         $inserted = $wpdb->insert(
             $table,
             [
@@ -196,9 +245,9 @@ class ExpansionCandidateRepository {
                 'entity_id'       => max( 0, $entity_id ),
                 'batch_id'        => sanitize_key( $batch_id ),
                 'status'          => $status,
-                'quality_score'   => null,
+                'quality_score'   => $quality_score,
                 'duplicate_flag'  => 0,
-                'intent_guess'    => null,
+                'intent_guess'    => $intent_guess,
                 'provenance_meta' => ! empty( $provenance_meta )
                     ? wp_json_encode( $provenance_meta )
                     : null,
