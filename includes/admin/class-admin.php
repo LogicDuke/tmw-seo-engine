@@ -2711,38 +2711,143 @@ class Admin {
             $reconcile_result = get_transient( 'tmwseo_reconcile_result' );
             if ( is_array( $reconcile_result ) ) {
                 delete_transient( 'tmwseo_reconcile_result' );
-                $mode_label = $reconcile_result['mode'] === 'dry_run' ? 'Dry-run report' : 'Repair executed';
-                $level      = $reconcile_result['mode'] === 'dry_run' ? 'notice-info' : 'notice-success';
-                if ( ! empty( $reconcile_result['errors'] ) ) { $level = 'notice-error'; }
-                echo '<div class="notice ' . esc_attr( $level ) . ' is-dismissible"><p>';
-                echo '<strong>' . esc_html( $mode_label ) . ':</strong> ';
-                echo esc_html( $reconcile_result['groups_found'] ) . ' duplicate group(s) found across ';
-                echo esc_html( $reconcile_result['rows_examined'] ) . ' rows examined. ';
-                if ( $reconcile_result['mode'] !== 'dry_run' ) {
-                    echo esc_html( $reconcile_result['merges_performed'] ) . ' merge(s) performed, ';
-                    echo esc_html( $reconcile_result['map_rows_rewired'] ) . ' cluster-map rows rewired, ';
-                    echo esc_html( $reconcile_result['siblings_deleted'] ) . ' sibling rows deleted.';
-                }
-                if ( ! empty( $reconcile_result['errors'] ) ) {
-                    echo ' Errors: ' . esc_html( implode( '; ', $reconcile_result['errors'] ) );
-                }
-                echo '</p>';
 
-                if ( ! empty( $reconcile_result['groups'] ) ) {
-                    echo '<details style="margin-top:6px;"><summary style="cursor:pointer;font-weight:600;">View group details (' . count( $reconcile_result['groups'] ) . ')</summary>';
-                    echo '<table class="widefat striped" style="margin-top:8px;font-size:12px;">';
-                    echo '<thead><tr><th>Canonical Base</th><th>Survivor ID / Key</th><th>Siblings</th><th>Merged Status</th><th>Merged Page ID</th></tr></thead><tbody>';
-                    foreach ( $reconcile_result['groups'] as $g ) {
-                        echo '<tr>';
-                        echo '<td><code>' . esc_html( (string) ( $g['canonical_base'] ?? '' ) ) . '</code></td>';
-                        echo '<td>#' . esc_html( (string) ( $g['survivor_id'] ?? '' ) ) . ' <small>' . esc_html( (string) ( $g['survivor_key'] ?? '' ) ) . '</small></td>';
-                        echo '<td><small>' . esc_html( implode( ', ', array_map( 'strval', (array) ( $g['sibling_ids'] ?? [] ) ) ) ) . '</small></td>';
-                        echo '<td>' . esc_html( (string) ( $g['merged_data']['status'] ?? '' ) ) . '</td>';
-                        echo '<td>' . esc_html( (string) ( $g['merged_data']['page_id'] ?? '—' ) ) . '</td>';
+                $is_dry     = $reconcile_result['mode'] === 'dry_run';
+                $has_errors = ! empty( $reconcile_result['errors'] );
+                $groups     = (array) ( $reconcile_result['groups'] ?? [] );
+                $found      = (int) $reconcile_result['groups_found'];
+                $examined   = (int) $reconcile_result['rows_examined'];
+
+                if ( $has_errors ) {
+                    $notice_class = 'notice-error';
+                    $headline     = '❌ Reconciler encountered errors';
+                } elseif ( $is_dry && $found === 0 ) {
+                    $notice_class = 'notice-success';
+                    $headline     = '✅ Dry-run complete — no duplicate groups found';
+                } elseif ( $is_dry ) {
+                    $notice_class = 'notice-warning';
+                    $headline     = "⚠️ Dry-run complete — {$found} duplicate group(s) found across {$examined} rows. No changes made. Review each group below, then click Execute Merge if correct.";
+                } elseif ( $found === 0 ) {
+                    $notice_class = 'notice-success';
+                    $headline     = '✅ Execute complete — no duplicate groups to merge';
+                } else {
+                    $notice_class = 'notice-success';
+                    $headline     = '✅ Execute complete — ' . (int) $reconcile_result['merges_performed'] . ' group(s) merged, '
+                        . (int) $reconcile_result['map_rows_rewired'] . ' cluster-map row(s) rewired, '
+                        . (int) $reconcile_result['siblings_deleted'] . ' sibling row(s) deleted.';
+                }
+
+                echo '<div class="notice ' . esc_attr( $notice_class ) . ' is-dismissible" style="padding:14px 16px 16px;">';
+                echo '<p style="font-size:14px;font-weight:700;margin:0 0 4px;">' . esc_html( $headline ) . '</p>';
+                echo '<p style="font-size:12px;color:#6b7280;margin:0 0 12px;">Rows examined: <strong>' . esc_html( (string) $examined ) . '</strong> &nbsp;|&nbsp; Duplicate groups found: <strong>' . esc_html( (string) $found ) . '</strong></p>';
+
+                if ( $found === 0 && ! $has_errors ) {
+                    echo '<p style="font-size:13px;color:#166534;margin:0;">All ' . esc_html( (string) $examined ) . ' keyword cluster rows have distinct canonical identities. No merge action is needed.</p>';
+                }
+
+                foreach ( $groups as $idx => $g ) {
+                    $g_num       = $idx + 1;
+                    $canonical   = (string) ( $g['canonical_base'] ?? '—' );
+                    $surv_id     = (int) ( $g['survivor_id'] ?? 0 );
+                    $surv_key    = (string) ( $g['survivor_key'] ?? '—' );
+                    $surv_status = (string) ( $g['survivor_status'] ?? 'new' );
+                    $surv_page   = (int) ( $g['survivor_page_id'] ?? 0 );
+                    $surv_rep    = (string) ( $g['survivor_representative'] ?? '—' );
+                    $surv_vol    = (int) ( $g['survivor_volume'] ?? 0 );
+                    $sib_rows    = (array) ( $g['sibling_rows'] ?? [] );
+                    $merged      = (array) ( $g['merged_data'] ?? [] );
+                    $g_error     = (string) ( $g['error'] ?? '' );
+
+                    $badge = static function ( string $st, int $pid = 0 ): string {
+                        $map = [
+                            'built'     => 'background:#dcfce7;color:#166534;',
+                            'new'       => 'background:#dbeafe;color:#1e40af;',
+                            'candidate' => 'background:#f3f4f6;color:#374151;',
+                            'archived'  => 'background:#f3f4f6;color:#6b7280;',
+                        ];
+                        $c   = $map[ $st ] ?? 'background:#f3f4f6;color:#374151;';
+                        $out = '<span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;' . esc_attr( $c ) . '">' . esc_html( $st ) . '</span>';
+                        if ( $pid > 0 ) {
+                            $out .= '&nbsp;<span style="font-size:11px;color:#15803d;font-weight:600;">page_id=' . (int) $pid . '</span>';
+                        }
+                        return $out;
+                    };
+
+                    $hdr_bg = $g_error !== '' ? '#fef2f2' : ( $is_dry ? '#fefce8' : '#f0fdf4' );
+                    echo '<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">';
+
+                    // Group header
+                    echo '<div style="padding:8px 12px;background:' . esc_attr( $hdr_bg ) . ';border-bottom:1px solid #e5e7eb;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">';
+                    echo '<span style="font-weight:700;font-size:13px;">Group ' . $g_num . '</span>';
+                    echo '<span style="font-size:12px;color:#374151;">Canonical identity: <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;">' . esc_html( $canonical ) . '</code></span>';
+                    echo '<span style="font-size:12px;color:#6b7280;">' . (int) $g['row_count'] . ' rows will become 1</span>';
+                    if ( $g_error !== '' ) {
+                        echo '<span style="color:#b91c1c;font-size:12px;font-weight:600;">⚠ Error: ' . esc_html( $g_error ) . '</span>';
+                    }
+                    echo '</div>';
+
+                    // Rows table
+                    echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+                    echo '<thead><tr style="background:#f9fafb;">';
+                    foreach ( [ 'Role', 'ID', 'cluster_key', 'Representative', 'Current Status', 'Volume' ] as $th ) {
+                        $align = $th === 'Volume' ? 'right' : 'left';
+                        echo '<th style="padding:6px 10px;text-align:' . $align . ';font-weight:600;color:#374151;border-bottom:1px solid #e5e7eb;">' . esc_html( $th ) . '</th>';
+                    }
+                    echo '</tr></thead><tbody>';
+
+                    // Survivor
+                    echo '<tr style="background:#f0fdf4;">';
+                    echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap;"><strong style="color:#15803d;">✔ SURVIVOR</strong><br><span style="font-size:10px;color:#6b7280;">row kept; state merged into it</span></td>';
+                    echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;font-family:monospace;white-space:nowrap;">#' . $surv_id . '</td>';
+                    echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;word-break:break-all;"><code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;">' . esc_html( $surv_key ) . '</code></td>';
+                    echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;">' . esc_html( $surv_rep ) . '</td>';
+                    echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">' . $badge( $surv_status, $surv_page ) . '</td>';
+                    echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:right;">' . esc_html( number_format_i18n( $surv_vol ) ) . '</td>';
+                    echo '</tr>';
+
+                    // Siblings
+                    foreach ( $sib_rows as $sib ) {
+                        $sib_id     = (int) ( $sib['id'] ?? 0 );
+                        $sib_key    = (string) ( $sib['cluster_key'] ?? '—' );
+                        $sib_rep    = (string) ( $sib['representative'] ?? '—' );
+                        $sib_status = (string) ( $sib['status'] ?? 'new' );
+                        $sib_page   = (int) ( $sib['page_id'] ?? 0 );
+                        $sib_vol    = (int) ( $sib['total_volume'] ?? 0 );
+
+                        echo '<tr style="background:#fef2f2;">';
+                        echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap;"><strong style="color:#b91c1c;">✕ SIBLING</strong><br><span style="font-size:10px;color:#6b7280;">cluster-map rewired → survivor; row deleted</span></td>';
+                        echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;font-family:monospace;white-space:nowrap;">#' . $sib_id . '</td>';
+                        echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;word-break:break-all;"><code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;">' . esc_html( $sib_key ) . '</code></td>';
+                        echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;">' . esc_html( $sib_rep ) . '</td>';
+                        echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">' . $badge( $sib_status, $sib_page ) . '</td>';
+                        echo '<td style="padding:7px 10px;border-bottom:1px solid #e5e7eb;text-align:right;">' . esc_html( number_format_i18n( $sib_vol ) ) . '</td>';
                         echo '</tr>';
                     }
-                    echo '</tbody></table></details>';
+
+                    // After-merge preview
+                    $m_status = (string) ( $merged['status'] ?? '—' );
+                    $m_page   = (int) ( $merged['page_id'] ?? 0 );
+                    $m_rep    = (string) ( $merged['representative'] ?? '—' );
+                    $m_vol    = (int) ( $merged['total_volume'] ?? 0 );
+                    echo '<tr style="background:#eff6ff;border-top:2px solid #bfdbfe;">';
+                    echo '<td style="padding:7px 10px;color:#1e40af;font-weight:700;" colspan="2">After execute →</td>';
+                    echo '<td style="padding:7px 10px;"><code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;">' . esc_html( $surv_key ) . '</code>&nbsp;<span style="font-size:10px;color:#6b7280;">(key unchanged)</span></td>';
+                    echo '<td style="padding:7px 10px;">' . esc_html( $m_rep ) . '</td>';
+                    echo '<td style="padding:7px 10px;white-space:nowrap;">' . $badge( $m_status, $m_page ) . '</td>';
+                    echo '<td style="padding:7px 10px;text-align:right;">' . esc_html( number_format_i18n( $m_vol ) ) . '</td>';
+                    echo '</tr>';
+
+                    echo '</tbody></table></div>';
                 }
+
+                if ( $has_errors ) {
+                    echo '<ul style="margin:8px 0 0 18px;padding:0;">';
+                    foreach ( (array) $reconcile_result['errors'] as $err ) {
+                        echo '<li style="font-size:12px;color:#b91c1c;">' . esc_html( (string) $err ) . '</li>';
+                    }
+                    echo '</ul>';
+                }
+
                 echo '</div>';
             }
 

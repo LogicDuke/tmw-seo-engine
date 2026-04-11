@@ -290,17 +290,35 @@ class KeywordClusterReconciler {
             }
         }
 
-        $avg_kd         = $kd_n > 0 ? round( $sum_kd / $kd_n, 2 ) : 0.0;
+        $avg_kd          = $kd_n > 0 ? round( $sum_kd / $kd_n, 2 ) : 0.0;
         $merged_keywords = array_values( array_unique( $all_keywords ) );
 
+        // Build per-sibling current-state rows (used by dry-run report).
+        $sibling_rows = array_map( static fn( $r ) => [
+            'id'             => (int) $r['id'],
+            'cluster_key'    => (string) $r['cluster_key'],
+            'representative' => (string) $r['representative'],
+            'status'         => (string) ( $r['status'] ?? 'new' ),
+            'page_id'        => (int) ( $r['page_id'] ?? 0 ),
+            'total_volume'   => (int) ( $r['total_volume'] ?? 0 ),
+        ], $siblings );
+
         return [
-            'canonical_base'  => $canonical_base,
-            'survivor_id'     => (int) $survivor['id'],
-            'survivor_key'    => (string) $survivor['cluster_key'],
-            'sibling_ids'     => $sibling_ids,
-            'sibling_keys'    => array_map( static fn( $r ) => (string) $r['cluster_key'], $siblings ),
-            'row_count'       => count( $rows ),
-            'merged_data'     => [
+            'canonical_base'       => $canonical_base,
+            // Survivor — current state before any merge.
+            'survivor_id'          => (int) $survivor['id'],
+            'survivor_key'         => (string) $survivor['cluster_key'],
+            'survivor_status'      => (string) ( $survivor['status'] ?? 'new' ),
+            'survivor_page_id'     => (int) ( $survivor['page_id'] ?? 0 ),
+            'survivor_representative' => (string) $survivor['representative'],
+            'survivor_volume'      => (int) ( $survivor['total_volume'] ?? 0 ),
+            // Siblings — current state before deletion.
+            'sibling_ids'          => $sibling_ids,
+            'sibling_keys'         => array_map( static fn( $r ) => (string) $r['cluster_key'], $siblings ),
+            'sibling_rows'         => $sibling_rows,
+            'row_count'            => count( $rows ),
+            // What the merged survivor row will look like after execute.
+            'merged_data'          => [
                 'representative'=> $best_representative,
                 'status'        => $best_status,
                 'page_id'       => $best_page_id > 0 ? $best_page_id : null,
