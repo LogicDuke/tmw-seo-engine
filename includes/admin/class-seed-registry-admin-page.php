@@ -34,6 +34,7 @@ class SeedRegistryAdminPage {
         add_action( 'admin_post_tmwseo_candidates_export',       [ __CLASS__, 'handle_candidates_export' ] );
         add_action( 'admin_post_tmwseo_trusted_seed_delete',     [ __CLASS__, 'handle_trusted_seed_delete' ] );
         add_action( 'admin_post_tmwseo_ts_bulk_action',           [ __CLASS__, 'handle_trusted_seeds_bulk_action' ] );
+        add_action( 'admin_init', [ __CLASS__, 'maybe_handle_preview_bulk_action' ] );
     }
 
     public static function register_menu(): void {
@@ -314,6 +315,16 @@ class SeedRegistryAdminPage {
             echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'No seeds were selected.', 'tmwseo' ) . '</p></div>';
         }
 
+        $preview_notice = sanitize_key( $_GET['preview_notice'] ?? '' );
+        $preview_count  = (int) ( $_GET['preview_count'] ?? 0 );
+        if ( $preview_notice === 'bulk_approved' ) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( sprintf( __( '%d candidate(s) approved.', 'tmwseo' ), $preview_count ) ) . '</p></div>';
+        } elseif ( $preview_notice === 'bulk_rejected' ) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( sprintf( __( '%d candidate(s) rejected.', 'tmwseo' ), $preview_count ) ) . '</p></div>';
+        } elseif ( $preview_notice === 'bulk_nothing' ) {
+            echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'No candidates were selected.', 'tmwseo' ) . '</p></div>';
+        }
+
                 // Tab nav
         $tabs = [
             'trusted_seeds' => __( '🌱 Trusted Seeds', 'tmwseo' ),
@@ -364,6 +375,95 @@ class SeedRegistryAdminPage {
         }
 
         echo '</div></div>';
+    }
+
+    /**
+     * admin_init gate — only proceeds when our routing field is present.
+     * Replaces the former admin_post_tmwseo_seed_preview_bulk_action hook.
+     * Posting to admin.php avoids admin-post.php JS routing that was clearing
+     * the action field before the request reached the server.
+     */
+    public static function maybe_handle_preview_bulk_action(): void {
+        if ( empty( $_POST['tmwseo_preview_bulk'] ) ) {
+            return;
+        }
+        self::handle_preview_bulk_action();
+    }
+
+    public static function handle_preview_bulk_action(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Forbidden', 'tmwseo' ) );
+        }
+
+        check_admin_referer( 'tmwseo_preview_bulk_action', 'tmwseo_pba_nonce' );
+
+        $action = sanitize_key( $_POST['preview_bulk_action'] ?? '' );
+        if ( $action === '' || $action === '-1' ) {
+            $action = sanitize_key( $_POST['preview_bulk_action_bottom'] ?? '' );
+        }
+
+        if ( ! in_array( $action, [ 'approve_candidate', 'reject_candidate' ], true ) ) {
+            wp_safe_redirect(
+                add_query_arg(
+                    [
+                        'page' => self::PAGE_SLUG,
+                        'tab'  => 'preview',
+                    ],
+                    admin_url( 'admin.php' )
+                )
+            );
+            exit;
+        }
+
+        $raw_ids = [];
+        if ( isset( $_POST['candidate_ids'] ) ) {
+            $raw_ids = (array) wp_unslash( $_POST['candidate_ids'] );
+        } elseif ( isset( $_GET['candidate_ids'] ) ) {
+            $raw_ids = (array) wp_unslash( $_GET['candidate_ids'] );
+        }
+
+        $candidate_ids = array_values( array_filter( array_map( 'absint', $raw_ids ) ) );
+        $processed     = 0;
+        foreach ( $candidate_ids as $candidate_id ) {
+            if ( $action === 'approve_candidate' ) {
+                ExpansionCandidateRepository::approve_candidate( $candidate_id, get_current_user_id() );
+            } else {
+                ExpansionCandidateRepository::reject_candidate( $candidate_id, '', get_current_user_id() );
+            }
+            $processed++;
+        }
+
+        $redirect_args = [
+            'page'           => self::PAGE_SLUG,
+            'tab'            => 'preview',
+            'preview_notice' => ( $processed > 0 )
+                ? ( $action === 'approve_candidate' ? 'bulk_approved' : 'bulk_rejected' )
+                : 'bulk_nothing',
+            'preview_count'  => $processed,
+        ];
+
+        $status = sanitize_key( $_POST['status'] ?? '' );
+        if ( $status === '' ) {
+            $status = sanitize_key( $_GET['status'] ?? '' );
+        }
+        if ( $status !== '' ) {
+            $redirect_args['status'] = $status;
+        }
+
+        $search = sanitize_text_field( wp_unslash( $_POST['s'] ?? '' ) );
+        if ( $search === '' ) {
+            $search = sanitize_text_field( wp_unslash( $_GET['s'] ?? '' ) );
+        }
+        if ( $search !== '' ) {
+            $redirect_args['s'] = $search;
+        }
+
+        $redirect_url = remove_query_arg(
+            [ 'action', 'action2', '_wpnonce', '_wp_http_referer', 'candidate_ids' ],
+            add_query_arg( $redirect_args, admin_url( 'admin.php' ) )
+        );
+        wp_safe_redirect( $redirect_url );
+        exit;
     }
 
     // -------------------------------------------------------------------------
@@ -685,11 +785,17 @@ class SeedRegistryAdminPage {
         $table = new \TMWSEO\Engine\Admin\Tables\SeedRegistryTable( $status_filter );
         $table->prepare_items();
 
-        echo '<form method="get">';
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin.php' ) ) . '" id="tmwseo-preview-bulk-form">';
+        echo '<input type="hidden" name="tmwseo_preview_bulk" value="1">';
+        wp_nonce_field( 'tmwseo_preview_bulk_action', 'tmwseo_pba_nonce' );
         echo '<input type="hidden" name="page" value="' . esc_attr( self::PAGE_SLUG ) . '">';
         echo '<input type="hidden" name="tab" value="preview">';
         if ( $status_filter !== '' ) {
             echo '<input type="hidden" name="status" value="' . esc_attr( $status_filter ) . '">';
+        }
+        $search_term = sanitize_text_field( wp_unslash( $_GET['s'] ?? '' ) );
+        if ( $search_term !== '' ) {
+            echo '<input type="hidden" name="s" value="' . esc_attr( $search_term ) . '">';
         }
         $table->search_box( __( 'Search Keywords / Clusters', 'tmwseo' ), 'seed-preview-search' );
         $table->display();

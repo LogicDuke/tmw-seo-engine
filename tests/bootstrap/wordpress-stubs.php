@@ -228,6 +228,7 @@ if (!function_exists('wp_kses_post'))         { function wp_kses_post(string $s)
 
 // ── v5.1.1: New handler classes (required for Admin class to load) ─────────────
 // Admin class has `use` statements for these; PHP needs them resolvable at parse time.
+require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-registry.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ui.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ajax-handlers.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-form-handlers.php';

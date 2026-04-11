@@ -2481,83 +2481,313 @@ class Admin {
 
     public static function render_keywords(): void {
         global $wpdb;
-        $raw_table    = $wpdb->prefix . 'tmw_keyword_raw';
-        $cand_table   = $wpdb->prefix . 'tmw_keyword_candidates';
+        $raw_table     = $wpdb->prefix . 'tmw_keyword_raw';
+        $cand_table    = $wpdb->prefix . 'tmw_keyword_candidates';
         $cluster_table = $wpdb->prefix . 'tmw_keyword_clusters';
 
-        $raw_count     = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$raw_table}");
-        $cand_count    = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cand_table}");
-        $approved_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cand_table} WHERE status='approved'");
-        $cluster_count  = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table}");
-        $new_clusters   = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$cluster_table} WHERE status='new'");
+        // ── Counts for KPI cards and tab badges ──────────────────────────────
+        $raw_count     = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$raw_table}" );
+        $cand_count    = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$cand_table}" );
+        $cluster_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$cluster_table}" );
+        $new_clusters  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$cluster_table} WHERE status='new'" );
 
-        // ── Page shell ───────────────────────────────────────────────────────
-        echo '<div class="wrap">';
-        AdminUI::page_header(
-            __('TMW SEO Engine — Keywords', 'tmwseo'),
-            __('Keyword workflow for review. It does not auto-create or auto-publish pages.', 'tmwseo')
+        // Per-status counts for tabs
+        $status_rows = (array) $wpdb->get_results(
+            "SELECT status, COUNT(*) AS cnt FROM {$cand_table} GROUP BY status",
+            ARRAY_A
         );
+        $sc = []; // status → count
+        foreach ( $status_rows as $r ) {
+            $sc[ (string) $r['status'] ] = (int) $r['cnt'];
+        }
+        $approved_count        = $sc['approved']          ?? 0;
+        $new_count             = $sc['new']               ?? 0;
+        $ignored_count         = $sc['ignored']           ?? 0;
+        $rejected_count        = $sc['rejected']          ?? 0;
+        $queued_count          = $sc['queued_for_review'] ?? 0;
 
-        // ── KPI cards ────────────────────────────────────────────────────────
-        AdminUI::kpi_row([
-            [ 'value' => $raw_count,     'label' => __('Raw Keywords', 'tmwseo'),  'color' => 'neutral' ],
-            [ 'value' => $cand_count,    'label' => __('Candidates', 'tmwseo'),    'color' => 'neutral' ],
-            [ 'value' => $approved_count,'label' => __('Approved', 'tmwseo'),      'color' => $approved_count > 0 ? 'ok' : 'neutral' ],
-            [ 'value' => $cluster_count, 'label' => __('Clusters', 'tmwseo'),      'color' => 'neutral',
-              'sub' => sprintf( __('%d new', 'tmwseo'), $new_clusters ) ],
-        ]);
-
-        // ── Actions ──────────────────────────────────────────────────────────
-        echo '<div class="tmwui-cta-row">';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_run_keyword_cycle');
-        echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
-        submit_button('Refresh Suggestions', 'primary', 'submit', false);
-        echo '</form>';
-        echo '<a class="button" href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=tmwseo_run_worker'), 'tmwseo_run_worker')) . '">Run Worker (healthcheck)</a>';
-        echo '</div>';
-
-        // ── Recent Candidates table ───────────────────────────────────────────
-        $focused_candidate_id = isset($_GET['tmwseo_candidate_focus']) ? absint($_GET['tmwseo_candidate_focus']) : 0;
-
-        AdminUI::section_start( __('Recent Candidates', 'tmwseo') );
-        $keywords_table = new KeywordsTable();
-        $keywords_table->prepare_items();
-        echo '<div class="tmwui-table-wrap">';
-        echo '<form method="get">';
-        echo '<input type="hidden" name="page" value="tmwseo-keywords">';
-        $keywords_table->search_box(__('Search Keywords / Clusters', 'tmwseo'), 'keyword-search');
-        $keywords_table->display();
-        echo '</form>';
-        echo '</div>'; // .tmwui-table-wrap
-
-        if ($focused_candidate_id > 0) {
-            echo '<script>(function(){var row=document.getElementById(' . wp_json_encode('tmw-candidate-' . $focused_candidate_id) . ');if(row){row.style.outline="2px solid #2271b1";row.style.outlineOffset="-2px";row.style.background="#f0f6fc";row.scrollIntoView({behavior:"smooth",block:"center"});}})();</script>';
+        // ── Active view ───────────────────────────────────────────────────────
+        $allowed_views = [
+            'candidates', 'all', 'raw', 'approved', 'new',
+            'ignored', 'rejected', 'queued_for_review', 'clusters',
+        ];
+        $view = isset( $_GET['view'] ) ? sanitize_key( (string) $_GET['view'] ) : 'candidates';
+        if ( ! in_array( $view, $allowed_views, true ) ) {
+            $view = 'candidates';
         }
 
-        echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
-        echo '<p class="description" style="margin-top:8px;">' . esc_html__('Approve sets candidate status to approved. Reject sets candidate status to ignored. Use bulk actions for faster moderation.', 'tmwseo') . '</p>';
-        AdminUI::section_end();
+        // Helper: build page URL preserving view
+        $kw_url = static function ( array $args = [] ) use ( $view ): string {
+            $base = [ 'page' => 'tmwseo-keywords' ];
+            return esc_url( add_query_arg( array_merge( $base, $args ), admin_url( 'admin.php' ) ) );
+        };
+        $view_url = static function ( string $v ) use ( $kw_url ): string {
+            return $kw_url( [ 'view' => $v ] );
+        };
 
-        // ── Top Clusters table ────────────────────────────────────────────────
-        $cluster_service = \TMWSEO\Engine\Plugin::get_cluster_service();
-        $scoring_engine = \TMWSEO\Engine\Plugin::get_cluster_scoring_engine();
+        // ── Page shell ────────────────────────────────────────────────────────
+        echo '<div class="wrap">';
+        AdminUI::page_header(
+            __( 'TMW SEO Engine — Keywords', 'tmwseo' ),
+            __( 'Keyword workflow for review. It does not auto-create or auto-publish pages.', 'tmwseo' )
+        );
 
-        AdminUI::section_start( __('Top Clusters', 'tmwseo') );
-        if ($cluster_service && $scoring_engine) {
-            $clusters_table = new ClustersTable($cluster_service, $scoring_engine);
-            $clusters_table->prepare_items();
+        // ── Clickable KPI cards ───────────────────────────────────────────────
+        AdminUI::kpi_row( [
+            [
+                'value' => $raw_count,
+                'label' => __( 'Raw Keywords', 'tmwseo' ),
+                'color' => 'neutral',
+                'url'   => $view_url( 'raw' ),
+                'sub'   => __( 'View raw list →', 'tmwseo' ),
+            ],
+            [
+                'value' => $cand_count,
+                'label' => __( 'Candidates', 'tmwseo' ),
+                'color' => 'neutral',
+                'url'   => $view_url( 'candidates' ),
+                'sub'   => __( 'All candidate rows →', 'tmwseo' ),
+            ],
+            [
+                'value' => $approved_count,
+                'label' => __( 'Approved', 'tmwseo' ),
+                'color' => $approved_count > 0 ? 'ok' : 'neutral',
+                'url'   => $view_url( 'approved' ),
+                'sub'   => __( 'Approved only →', 'tmwseo' ),
+            ],
+            [
+                'value' => $cluster_count,
+                'label' => __( 'Clusters', 'tmwseo' ),
+                'color' => 'neutral',
+                'url'   => $view_url( 'clusters' ),
+                'sub'   => sprintf( __( '%d new →', 'tmwseo' ), $new_clusters ),
+            ],
+        ] );
+
+        // ── Actions row ───────────────────────────────────────────────────────
+        echo '<div class="tmwui-cta-row">';
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_run_keyword_cycle' );
+        echo '<input type="hidden" name="action" value="tmwseo_run_keyword_cycle">';
+        submit_button( 'Refresh Suggestions', 'primary', 'submit', false );
+        echo '</form>';
+        echo '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tmwseo_run_worker' ), 'tmwseo_run_worker' ) ) . '">Run Worker (healthcheck)</a>';
+        echo '</div>';
+
+        // ── View tabs ─────────────────────────────────────────────────────────
+        // Map: view slug => [ label, count or null ]
+        $tabs = [
+            'candidates'       => [ __( 'All Candidates', 'tmwseo' ),    $cand_count ],
+            'new'              => [ __( 'New', 'tmwseo' ),                $new_count ],
+            'queued_for_review'=> [ __( 'Queued for Review', 'tmwseo' ),  $queued_count ],
+            'approved'         => [ __( 'Approved', 'tmwseo' ),           $approved_count ],
+            'ignored'          => [ __( 'Ignored', 'tmwseo' ),            $ignored_count ],
+            'rejected'         => [ __( 'Rejected', 'tmwseo' ),           $rejected_count ],
+            'raw'              => [ __( 'Raw Keywords', 'tmwseo' ),        $raw_count ],
+            'clusters'         => [ __( 'Clusters', 'tmwseo' ),           $cluster_count ],
+        ];
+
+        // Normalise: 'all' aliases to 'candidates' in the tab bar
+        $active_tab = ( $view === 'all' ) ? 'candidates' : $view;
+
+        echo '<div style="margin:12px 0 18px;border-bottom:1px solid #c3c4c7;">';
+        foreach ( $tabs as $slug => [ $label, $count ] ) {
+            $is_active = ( $slug === $active_tab );
+            $link_url  = $view_url( $slug );
+            $badge     = $count !== null
+                ? ' <span style="display:inline-block;background:' . ( $is_active ? '#2271b1' : '#e5e7eb' ) . ';color:' . ( $is_active ? '#fff' : '#374151' ) . ';font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;vertical-align:middle;">' . esc_html( (string) $count ) . '</span>'
+                : '';
+            if ( $is_active ) {
+                echo '<a href="' . esc_url( $link_url ) . '" style="display:inline-block;padding:8px 14px;margin-right:2px;font-size:13px;font-weight:700;text-decoration:none;color:#2271b1;border:1px solid #c3c4c7;border-bottom:2px solid #fff;background:#fff;border-radius:3px 3px 0 0;position:relative;top:1px;">' . esc_html( $label ) . $badge . '</a>';
+            } else {
+                echo '<a href="' . esc_url( $link_url ) . '" style="display:inline-block;padding:8px 14px;margin-right:2px;font-size:13px;font-weight:400;text-decoration:none;color:#50575e;border:1px solid transparent;border-bottom:none;background:transparent;border-radius:3px 3px 0 0;">' . esc_html( $label ) . $badge . '</a>';
+            }
+        }
+        echo '</div>';
+
+        $focused_candidate_id = isset( $_GET['tmwseo_candidate_focus'] ) ? absint( $_GET['tmwseo_candidate_focus'] ) : 0;
+
+        // ── Render content by view ────────────────────────────────────────────
+
+        if ( $view === 'raw' ) {
+            // ── Raw Keywords view ────────────────────────────────────────────
+            AdminUI::section_start(
+                __( 'Raw Keywords', 'tmwseo' ),
+                __( 'Keywords ingested from all sources before de-duplication and scoring. Read-only reference.', 'tmwseo' )
+            );
+
+            $search = isset( $_REQUEST['s'] ) ? sanitize_text_field( wp_unslash( (string) $_REQUEST['s'] ) ) : '';
+
+            // Search form
+            echo '<form method="get" style="margin-bottom:12px;">';
+            echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+            echo '<input type="hidden" name="view" value="raw">';
+            echo '<input type="search" name="s" value="' . esc_attr( $search ) . '" placeholder="' . esc_attr__( 'Search raw keywords…', 'tmwseo' ) . '" style="width:260px;">';
+            submit_button( __( 'Search', 'tmwseo' ), 'button', 'submit', false );
+            echo '</form>';
+
+            $where_sql  = '';
+            $where_args = [];
+            if ( $search !== '' ) {
+                $where_sql    = ' WHERE keyword LIKE %s';
+                $where_args[] = '%' . $wpdb->esc_like( $search ) . '%';
+            }
+
+            $per_page     = 100;
+            $current_page = max( 1, isset( $_GET['paged'] ) ? (int) $_GET['paged'] : 1 );
+            $offset       = ( $current_page - 1 ) * $per_page;
+
+            $total_raw = $where_args === []
+                ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$raw_table}{$where_sql}" )
+                : (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$raw_table}{$where_sql}", $where_args ) );
+
+            $raw_sql  = "SELECT id, keyword, source, volume, cpc, competition, discovered_at FROM {$raw_table}{$where_sql} ORDER BY discovered_at DESC LIMIT %d OFFSET %d";
+            $raw_args = $where_args;
+            $raw_args[] = $per_page;
+            $raw_args[] = $offset;
+
+            $raw_rows = (array) $wpdb->get_results( $wpdb->prepare( $raw_sql, $raw_args ), ARRAY_A );
+
+            if ( empty( $raw_rows ) ) {
+                AdminUI::empty_state( __( 'No raw keywords found.', 'tmwseo' ) );
+            } else {
+                $total_pages = (int) ceil( $total_raw / $per_page );
+
+                echo '<p style="font-size:12px;color:#646970;margin-bottom:8px;">' . sprintf(
+                    esc_html__( 'Showing %1$d–%2$d of %3$d raw keywords.', 'tmwseo' ),
+                    $offset + 1,
+                    min( $offset + $per_page, $total_raw ),
+                    $total_raw
+                ) . '</p>';
+
+                echo '<div class="tmwui-table-wrap">';
+                echo '<table class="widefat striped"><thead><tr>';
+                echo '<th>' . esc_html__( 'Keyword', 'tmwseo' ) . '</th>';
+                echo '<th>' . esc_html__( 'Source', 'tmwseo' ) . '</th>';
+                echo '<th>' . esc_html__( 'Volume', 'tmwseo' ) . '</th>';
+                echo '<th>' . esc_html__( 'CPC', 'tmwseo' ) . '</th>';
+                echo '<th>' . esc_html__( 'Competition', 'tmwseo' ) . '</th>';
+                echo '<th>' . esc_html__( 'Discovered', 'tmwseo' ) . '</th>';
+                echo '</tr></thead><tbody>';
+
+                foreach ( $raw_rows as $r ) {
+                    echo '<tr>';
+                    echo '<td><strong>' . esc_html( (string) $r['keyword'] ) . '</strong></td>';
+                    echo '<td><span style="display:inline-block;padding:1px 6px;background:#f3f4f6;border-radius:3px;font-size:11px;">' . esc_html( (string) $r['source'] ) . '</span></td>';
+                    echo '<td>' . ( $r['volume'] !== null ? esc_html( number_format_i18n( (int) $r['volume'] ) ) : '—' ) . '</td>';
+                    echo '<td>' . ( $r['cpc'] !== null ? '$' . esc_html( number_format( (float) $r['cpc'], 2 ) ) : '—' ) . '</td>';
+                    echo '<td>' . ( $r['competition'] !== null ? esc_html( number_format( (float) $r['competition'], 3 ) ) : '—' ) . '</td>';
+                    echo '<td style="white-space:nowrap;font-size:12px;color:#646970;">' . esc_html( substr( (string) $r['discovered_at'], 0, 16 ) ) . '</td>';
+                    echo '</tr>';
+                }
+                echo '</tbody></table></div>';
+
+                // Simple pagination
+                if ( $total_pages > 1 ) {
+                    echo '<div style="margin-top:10px;display:flex;gap:6px;align-items:center;">';
+                    for ( $p = 1; $p <= min( $total_pages, 20 ); $p++ ) {
+                        $purl = $view_url( 'raw' ) . '&paged=' . $p . ( $search !== '' ? '&s=' . urlencode( $search ) : '' );
+                        if ( $p === $current_page ) {
+                            echo '<strong style="padding:4px 8px;background:#2271b1;color:#fff;border-radius:3px;">' . $p . '</strong>';
+                        } else {
+                            echo '<a href="' . esc_url( $purl ) . '" style="padding:4px 8px;border:1px solid #c3c4c7;border-radius:3px;text-decoration:none;color:#2271b1;">' . $p . '</a>';
+                        }
+                    }
+                    if ( $total_pages > 20 ) {
+                        echo '<span style="color:#646970;">…' . esc_html( (string) $total_pages ) . ' pages</span>';
+                    }
+                    echo '</div>';
+                }
+            }
+            AdminUI::section_end();
+
+        } elseif ( $view === 'clusters' ) {
+            // ── Clusters-only view ───────────────────────────────────────────
+            $cluster_service = \TMWSEO\Engine\Plugin::get_cluster_service();
+            $scoring_engine  = \TMWSEO\Engine\Plugin::get_cluster_scoring_engine();
+
+            AdminUI::section_start( __( 'Clusters', 'tmwseo' ) );
+            if ( $cluster_service && $scoring_engine ) {
+                $clusters_table = new ClustersTable( $cluster_service, $scoring_engine );
+                $clusters_table->prepare_items();
+                echo '<div class="tmwui-table-wrap">';
+                echo '<form method="get">';
+                echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+                echo '<input type="hidden" name="view" value="clusters">';
+                $clusters_table->search_box( __( 'Search Clusters', 'tmwseo' ), 'cluster-search' );
+                $clusters_table->display();
+                echo '</form>';
+                echo '</div>';
+            } else {
+                AdminUI::empty_state( __( 'Cluster service unavailable.', 'tmwseo' ) );
+            }
+            AdminUI::section_end();
+
+        } else {
+            // ── Candidate views (all, approved, new, ignored, rejected, queued_for_review) ──
+
+            // Determine status filter
+            $status_map = [
+                'approved'         => 'approved',
+                'new'              => 'new',
+                'ignored'          => 'ignored',
+                'rejected'         => 'rejected',
+                'queued_for_review'=> 'queued_for_review',
+            ];
+            $status_filter = $status_map[ $view ] ?? null; // null = all candidates
+
+            $section_label = match ( $view ) {
+                'approved'          => __( 'Approved Candidates', 'tmwseo' ),
+                'new'               => __( 'New Candidates', 'tmwseo' ),
+                'ignored'           => __( 'Ignored Candidates', 'tmwseo' ),
+                'rejected'          => __( 'Rejected Candidates', 'tmwseo' ),
+                'queued_for_review' => __( 'Queued for Review', 'tmwseo' ),
+                default             => __( 'All Candidates', 'tmwseo' ),
+            };
+
+            AdminUI::section_start( $section_label );
+            $keywords_table = new KeywordsTable( $status_filter, $view );
+            $keywords_table->prepare_items();
             echo '<div class="tmwui-table-wrap">';
             echo '<form method="get">';
             echo '<input type="hidden" name="page" value="tmwseo-keywords">';
-            $clusters_table->search_box(__('Search Clusters', 'tmwseo'), 'cluster-search');
-            $clusters_table->display();
+            echo '<input type="hidden" name="view" value="' . esc_attr( $view ) . '">';
+            $keywords_table->search_box( __( 'Search Keywords', 'tmwseo' ), 'keyword-search' );
+            $keywords_table->display();
             echo '</form>';
-            echo '</div>'; // .tmwui-table-wrap
-        } else {
-            AdminUI::empty_state( __('Cluster service unavailable.', 'tmwseo') );
+            echo '</div>';
+
+            if ( $focused_candidate_id > 0 ) {
+                echo '<script>(function(){var row=document.getElementById(' . wp_json_encode( 'tmw-candidate-' . $focused_candidate_id ) . ');if(row){row.style.outline="2px solid #2271b1";row.style.outlineOffset="-2px";row.style.background="#f0f6fc";row.scrollIntoView({behavior:"smooth",block:"center"});}})();</script>';
+            }
+
+            echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
+
+            echo '<p class="description">' . esc_html__( 'Approve sets candidate status to approved. Reject sets candidate status to ignored. Use bulk actions for faster moderation.', 'tmwseo' ) . '</p>';
+            AdminUI::section_end();
+
+            // ── Also show clusters section on default (candidates/all) view ──
+            if ( in_array( $view, [ 'candidates', 'all' ], true ) ) {
+                $cluster_service = \TMWSEO\Engine\Plugin::get_cluster_service();
+                $scoring_engine  = \TMWSEO\Engine\Plugin::get_cluster_scoring_engine();
+
+                AdminUI::section_start( __( 'Top Clusters', 'tmwseo' ) );
+                if ( $cluster_service && $scoring_engine ) {
+                    $clusters_table = new ClustersTable( $cluster_service, $scoring_engine );
+                    $clusters_table->prepare_items();
+                    echo '<div class="tmwui-table-wrap">';
+                    echo '<form method="get">';
+                    echo '<input type="hidden" name="page" value="tmwseo-keywords">';
+                    $clusters_table->search_box( __( 'Search Clusters', 'tmwseo' ), 'cluster-search' );
+                    $clusters_table->display();
+                    echo '</form>';
+                    echo '</div>';
+                } else {
+                    AdminUI::empty_state( __( 'Cluster service unavailable.', 'tmwseo' ) );
+                }
+                AdminUI::section_end();
+            }
         }
-        AdminUI::section_end();
 
         self::footer();
     }
