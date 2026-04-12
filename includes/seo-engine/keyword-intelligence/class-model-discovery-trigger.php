@@ -25,7 +25,7 @@ if (!defined('ABSPATH')) { exit; }
  * The preview routing is always active regardless of this switch.
  */
 class ModelDiscoveryTrigger {
-    private const MAX_SEEDS_PER_MODEL  = 10;
+    private const MAX_SEEDS_PER_MODEL  = 24;
     private const META_KEY_PROCESSED   = '_tmwseo_model_auto_discovery_processed';
 
     public static function init(): void {
@@ -202,11 +202,35 @@ class ModelDiscoveryTrigger {
     public static function build_phrase_candidates(string $model_name): array {
         $base = [
             $model_name . ' webcam',
+            $model_name . ' web cam',
+            $model_name . ' cam',
+            $model_name . ' camgirl',
             $model_name . ' cam girl',
-            $model_name . ' live cam',
+            $model_name . ' cam girls',
             $model_name . ' cam model',
+            $model_name . ' cam models',
+            $model_name . ' cam site',
+            $model_name . ' live cam',
+            $model_name . ' live cams',
+            $model_name . ' live cam show',
+            $model_name . ' adult live cam',
             $model_name . ' webcam chat',
             $model_name . ' cam show',
+            $model_name . ' cam chat',
+            $model_name . ' live chat',
+            $model_name . ' adult chat',
+            $model_name . ' video chat',
+            $model_name . ' live video chat',
+            $model_name . ' adult video chat',
+            $model_name . ' adult webcam chat',
+            $model_name . ' adult cam',
+            $model_name . ' adult cams',
+            $model_name . ' adult webcam',
+            $model_name . ' adult streaming',
+            $model_name . ' webcam platform',
+            $model_name . ' cam platform',
+            $model_name . ' webcam tips',
+            $model_name . ' webcam earnings',
         ];
 
         $normalized = [];
