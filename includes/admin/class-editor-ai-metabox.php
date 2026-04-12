@@ -371,6 +371,18 @@ class Editor_AI_Metabox {
 
         echo '</div>'; // .tmwseo-mb-btn-stack
         echo '<p class="tmwseo-mb-help">' . esc_html__('Refresh Keywords runs in the background. Reload the editor after a few seconds to see updated fields.', 'tmwseo') . '</p>';
+
+        // Re-run Preview Phrases — model post type only, operator-triggered.
+        if ($post->post_type === 'model') {
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:8px">';
+            wp_nonce_field('tmwseo_rerun_model_preview_phrases_' . $post->ID);
+            echo '<input type="hidden" name="action" value="tmwseo_rerun_model_preview_phrases">';
+            echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post->ID) . '">';
+            echo '<button type="submit" class="button">' . esc_html__('Re-run Preview Phrases', 'tmwseo') . '</button>';
+            echo '</form>';
+            echo '<p class="tmwseo-mb-help">' . esc_html__('Rebuilds preview keyword phrases for this existing model. Does not auto-publish.', 'tmwseo') . '</p>';
+        }
+
         echo '</div>'; // .tmwseo-mb-zone (maintenance)
 
         // Rollback JS (unchanged logic, moved below the button it targets)

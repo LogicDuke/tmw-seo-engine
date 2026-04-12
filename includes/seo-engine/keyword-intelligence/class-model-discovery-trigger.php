@@ -103,11 +103,103 @@ class ModelDiscoveryTrigger {
     }
 
     /**
+     * Re-run preview phrases for an existing published model.
+     *
+     * Safe to call on already-processed models.  Does NOT reset the one-time
+     * _tmwseo_model_auto_discovery_processed flag and does NOT call
+     * maybe_trigger_discovery().  Trusted-seed behaviour (model_root gate) is
+     * unchanged — SeedRegistry decides whether the bare name is allowed.
+     *
+     * @param  int   $post_id  WP post ID of the model.
+     * @return array {
+     *   ok: bool, reason: string, post_id: int, model_name: string,
+     *   preview_batch_id: string|null, preview_inserted: int, preview_skipped: int
+     * }
+     */
+    public static function rerun_preview_phrases_for_model(int $post_id): array {
+        $fail = static function(string $reason) use ($post_id): array {
+            return [
+                'ok'               => false,
+                'reason'           => $reason,
+                'post_id'          => $post_id,
+                'model_name'       => '',
+                'preview_batch_id' => null,
+                'preview_inserted' => 0,
+                'preview_skipped'  => 0,
+            ];
+        };
+
+        $post = get_post($post_id);
+        if (!($post instanceof \WP_Post)) {
+            return $fail('invalid_post');
+        }
+        if ($post->post_type !== 'model') {
+            return $fail('wrong_post_type');
+        }
+        if ($post->post_status !== 'publish') {
+            return $fail('not_published');
+        }
+
+        $model_name = trim((string) get_the_title($post_id));
+        if ($model_name === '') {
+            return $fail('empty_title');
+        }
+
+        // Honour the same trusted-seed registration as the normal auto flow.
+        // SeedRegistry::register_trusted_seed() enforces the model_root
+        // ambiguity gate — single-token names are blocked there, not here.
+        SeedRegistry::register_trusted_seed(
+            $model_name,
+            'model_root',
+            'model',
+            $post_id,
+            'model_name',
+            1
+        );
+
+        // Rebuild phrase variants and insert into preview layer.
+        $phrase_candidates = self::build_phrase_candidates($model_name);
+        $batch_result      = ExpansionCandidateRepository::insert_batch(
+            $phrase_candidates,
+            'model_auto',
+            'model_name_x_modifier',
+            'model',
+            $post_id,
+            ['model_name' => $model_name, 'post_id' => $post_id]
+        );
+
+        // Fire the orchestrator so preview candidates can be processed.
+        DiscoveryOrchestrator::run([
+            'source'      => 'model_auto',
+            'entity_type' => 'model',
+            'entity_id'   => $post_id,
+        ]);
+
+        Logs::info('keywords', '[TMW-SEO-AUTO] Model preview phrases re-run', [
+            'post_id'          => $post_id,
+            'model_name'       => $model_name,
+            'preview_batch_id' => $batch_result['batch_id'],
+            'preview_inserted' => $batch_result['inserted'],
+            'preview_skipped'  => $batch_result['skipped'],
+        ]);
+
+        return [
+            'ok'               => true,
+            'reason'           => 'ok',
+            'post_id'          => $post_id,
+            'model_name'       => $model_name,
+            'preview_batch_id' => $batch_result['batch_id'] ?? null,
+            'preview_inserted' => (int) ($batch_result['inserted'] ?? 0),
+            'preview_skipped'  => (int) ($batch_result['skipped'] ?? 0),
+        ];
+    }
+
+    /**
      * Phrase variants — go to preview layer only.
      *
      * @return string[]
      */
-    private static function build_phrase_candidates(string $model_name): array {
+    public static function build_phrase_candidates(string $model_name): array {
         $base = [
             $model_name . ' webcam',
             $model_name . ' cam girl',

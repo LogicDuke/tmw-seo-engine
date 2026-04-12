@@ -21,6 +21,7 @@ use TMWSEO\Engine\JobWorker;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\NicheSerpMiningService;
+use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -810,16 +811,79 @@ class AdminFormHandlers {
         exit;
     }
 
+    // ─── Model Preview Phrases Re-run ─────────────────────────────────────────
+
+    /**
+     * Admin-post handler: re-run preview phrases for an existing published model.
+     *
+     * Nonce:   tmwseo_rerun_model_preview_phrases_{post_id}
+     * Action:  tmwseo_rerun_model_preview_phrases
+     * Capability: manage_options
+     *
+     * On success redirects to post.php?post={id}&action=edit with:
+     *   tmwseo_notice=model_preview_rerun
+     *   tmwseo_preview_inserted=N
+     *   tmwseo_preview_skipped=N
+     *   tmwseo_preview_batch_id=... (optional)
+     *
+     * On failure redirects with tmwseo_notice=model_preview_rerun_failed.
+     */
+    public static function handle_rerun_model_preview_phrases(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
+        }
+
+        $post_id = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
+        if ( $post_id <= 0 ) {
+            wp_safe_redirect( add_query_arg(
+                [ 'tmwseo_notice' => 'model_preview_rerun_failed', 'tmwseo_rerun_reason' => 'invalid_post' ],
+                wp_get_referer() ?: admin_url()
+            ) );
+            exit;
+        }
+
+        if ( ! check_admin_referer( 'tmwseo_rerun_model_preview_phrases_' . $post_id ) ) {
+            wp_safe_redirect( add_query_arg(
+                [
+                    'post'           => $post_id,
+                    'action'         => 'edit',
+                    'tmwseo_notice'  => 'model_preview_rerun_failed',
+                    'tmwseo_rerun_reason' => 'invalid_nonce',
+                ],
+                admin_url( 'post.php' )
+            ) );
+            exit;
+        }
+
+        $result = ModelDiscoveryTrigger::rerun_preview_phrases_for_model( $post_id );
+
+        if ( ! $result['ok'] ) {
+            wp_safe_redirect( add_query_arg(
+                array_filter( [
+                    'post'                => $post_id,
+                    'action'              => 'edit',
+                    'tmwseo_notice'       => 'model_preview_rerun_failed',
+                    'tmwseo_rerun_reason' => $result['reason'],
+                ] ),
+                admin_url( 'post.php' )
+            ) );
+            exit;
+        }
+
+        $args = array_filter( [
+            'post'                     => $post_id,
+            'action'                   => 'edit',
+            'tmwseo_notice'            => 'model_preview_rerun',
+            'tmwseo_preview_inserted'  => $result['preview_inserted'],
+            'tmwseo_preview_skipped'   => $result['preview_skipped'],
+            'tmwseo_preview_batch_id'  => $result['preview_batch_id'] ?? '',
+        ] );
+
+        wp_safe_redirect( add_query_arg( $args, admin_url( 'post.php' ) ) );
+        exit;
+    }
+
     // ── Keyword Candidates Bulk Action ────────────────────────────────────────
-    // Triggered from the load-tmwseo-engine_page_tmwseo-keywords hook (fires
-    // before admin-header.php so wp_safe_redirect() is safe to call).
-    //
-    // Action map:
-    //   tmwseo_kw_bulk_approve => status = approved
-    //   tmwseo_kw_bulk_reject  => status = ignored
-    //   tmwseo_kw_bulk_delete  => row deleted
-    //
-    // Nonce: bulk-keywords  (the WP_List_Table standard nonce, present in form)
 
     public static function handle_keyword_candidates_bulk(): void {
         if ( ! current_user_can( 'manage_options' ) ) {

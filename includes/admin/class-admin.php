@@ -51,6 +51,7 @@ class Admin {
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
         add_action('admin_post_tmwseo_generate_model_seeds', [__CLASS__, 'handle_generate_model_seeds']);
+        add_action('admin_post_tmwseo_rerun_model_preview_phrases', [__CLASS__, 'handle_rerun_model_preview_phrases']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -1354,6 +1355,10 @@ class Admin {
         AdminFormHandlers::handle_generate_model_seeds();
     }
 
+    public static function handle_rerun_model_preview_phrases(): void {
+        AdminFormHandlers::handle_rerun_model_preview_phrases();
+    }
+
 
     /**
      * Legacy settings save handler — neutralized.
@@ -1627,6 +1632,27 @@ class Admin {
             $message = __('Review sign-off recorded. No content was auto-applied and nothing was published automatically. The draft remains draft-only until a manual apply is performed.', 'tmwseo');
         } elseif ($notice === 'review_signoff_refused') {
             $message = __('Review sign-off was refused. This action is allowed only for explicit draft posts with a valid review bundle. No changes were made.', 'tmwseo');
+            $is_error_notice_override = true;
+        } elseif ($notice === 'model_preview_rerun') {
+            $inserted = isset($_GET['tmwseo_preview_inserted']) ? max(0, (int) $_GET['tmwseo_preview_inserted']) : 0;
+            $skipped  = isset($_GET['tmwseo_preview_skipped'])  ? max(0, (int) $_GET['tmwseo_preview_skipped'])  : 0;
+            $message  = sprintf(
+                __('Preview phrases rebuilt for this model. Inserted: %1$d, skipped: %2$d.', 'tmwseo'),
+                $inserted,
+                $skipped
+            );
+        } elseif ($notice === 'model_preview_rerun_failed') {
+            $reason = isset($_GET['tmwseo_rerun_reason'])
+                ? sanitize_key((string) wp_unslash($_GET['tmwseo_rerun_reason']))
+                : '';
+            $reason_labels = [
+                'invalid_post'    => __('Preview phrase re-run failed: invalid model post.', 'tmwseo'),
+                'wrong_post_type' => __('Preview phrase re-run failed: post is not a model.', 'tmwseo'),
+                'not_published'   => __('Preview phrase re-run failed: model is not published.', 'tmwseo'),
+                'empty_title'     => __('Preview phrase re-run failed: model title is empty.', 'tmwseo'),
+                'invalid_nonce'   => __('Preview phrase re-run failed: security check did not pass.', 'tmwseo'),
+            ];
+            $message = $reason_labels[$reason] ?? __('Preview phrase re-run failed.', 'tmwseo');
             $is_error_notice_override = true;
         }
 
