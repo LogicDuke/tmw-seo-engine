@@ -201,6 +201,7 @@ class ModelDiscoveryTrigger {
      */
     public static function build_phrase_candidates(string $model_name): array {
         $base = [
+            // Core cam intent.
             $model_name . ' webcam',
             $model_name . ' web cam',
             $model_name . ' cam',
@@ -210,12 +211,14 @@ class ModelDiscoveryTrigger {
             $model_name . ' cam model',
             $model_name . ' cam models',
             $model_name . ' cam site',
+            // Live cam and show intent.
             $model_name . ' live cam',
             $model_name . ' live cams',
             $model_name . ' live cam show',
             $model_name . ' adult live cam',
-            $model_name . ' webcam chat',
             $model_name . ' cam show',
+            // Chat intent (including adult video chat family).
+            $model_name . ' webcam chat',
             $model_name . ' cam chat',
             $model_name . ' live chat',
             $model_name . ' adult chat',
@@ -223,6 +226,7 @@ class ModelDiscoveryTrigger {
             $model_name . ' live video chat',
             $model_name . ' adult video chat',
             $model_name . ' adult webcam chat',
+            // Adult and platform/tips modifiers.
             $model_name . ' adult cam',
             $model_name . ' adult cams',
             $model_name . ' adult webcam',
@@ -241,6 +245,12 @@ class ModelDiscoveryTrigger {
             }
         }
 
-        return array_slice(array_values(array_unique($normalized)), 0, self::MAX_SEEDS_PER_MODEL);
+        $unique = array_values(array_unique($normalized));
+
+        // Keep the historical MAX_SEEDS_PER_MODEL floor while ensuring all
+        // curated model phrase families remain preview-only candidates.
+        $preview_limit = max(self::MAX_SEEDS_PER_MODEL, count($unique));
+
+        return array_slice($unique, 0, $preview_limit);
     }
 }

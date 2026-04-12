@@ -41,7 +41,7 @@ class TopicalRelevanceFilter {
         'video chat',
         'live video chat',
         'adult video chat',
-        // Platform / earnings context
+        // Platform / earnings context (adult video chat family stays on-lane)
         'webcam platform',
         'webcam earnings',
         'cam platform',
