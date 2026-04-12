@@ -16,6 +16,7 @@ use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Content\ContentEngine;
 use TMWSEO\Engine\Content\ContentGenerationGate;
+use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -189,6 +190,56 @@ class AdminAjaxHandlers {
             'message' => $refresh_keywords_only
                 ? __( 'Keyword refresh queued. Refresh in a few seconds.', 'tmwseo' )
                 : __( 'Generation queued. Refresh in a few seconds.', 'tmwseo' ),
+        ] );
+    }
+
+    /**
+     * wp_ajax_tmwseo_rerun_model_preview_phrases
+     *
+     * Gutenberg-safe AJAX endpoint for "Re-run Preview Phrases" metabox button.
+     * Delegates to ModelDiscoveryTrigger::rerun_preview_phrases_for_model() —
+     * no discovery logic lives here.
+     *
+     * Nonce action: tmwseo_rerun_preview_phrases_{post_id}
+     */
+    public static function ajax_rerun_model_preview_phrases(): void {
+        $post_id = isset( $_POST['post_id'] ) ? (int) $_POST['post_id'] : 0;
+        if ( $post_id <= 0 ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid post.', 'tmwseo' ) ], 400 );
+        }
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => __( 'Permission denied.', 'tmwseo' ) ], 403 );
+        }
+
+        $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['nonce'] ) ) : '';
+        if ( $nonce === '' || ! wp_verify_nonce( $nonce, 'tmwseo_rerun_preview_phrases_' . $post_id ) ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid or expired nonce.', 'tmwseo' ) ], 403 );
+        }
+
+        $result = ModelDiscoveryTrigger::rerun_preview_phrases_for_model( $post_id );
+
+        if ( ! $result['ok'] ) {
+            $reason_labels = [
+                'invalid_post'    => __( 'Invalid model post.', 'tmwseo' ),
+                'wrong_post_type' => __( 'Post is not a model.', 'tmwseo' ),
+                'not_published'   => __( 'Model is not published.', 'tmwseo' ),
+                'empty_title'     => __( 'Model title is empty.', 'tmwseo' ),
+            ];
+            $message = $reason_labels[ $result['reason'] ] ?? __( 'Preview phrase re-run failed.', 'tmwseo' );
+            wp_send_json_error( [ 'message' => $message, 'reason' => $result['reason'] ], 422 );
+        }
+
+        wp_send_json_success( [
+            'reload'   => true,
+            'inserted' => $result['preview_inserted'],
+            'skipped'  => $result['preview_skipped'],
+            'message'  => sprintf(
+                /* translators: 1: inserted count, 2: skipped count */
+                __( 'Preview phrases rebuilt. Inserted: %1$d, skipped: %2$d. Reloading...', 'tmwseo' ),
+                $result['preview_inserted'],
+                $result['preview_skipped']
+            ),
         ] );
     }
 

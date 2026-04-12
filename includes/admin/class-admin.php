@@ -47,6 +47,7 @@ class Admin {
         add_action('admin_post_tmwseo_refresh_keywords_now', [__CLASS__, 'handle_refresh_keywords_now']);
         add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
+        add_action('wp_ajax_tmwseo_rerun_model_preview_phrases', [__CLASS__, 'ajax_rerun_model_preview_phrases']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
@@ -1483,6 +1484,9 @@ class Admin {
         AdminAjaxHandlers::ajax_kick_worker();
     }
 
+    public static function ajax_rerun_model_preview_phrases(): void {
+        AdminAjaxHandlers::ajax_rerun_model_preview_phrases();
+    }
 
 
     public static function handle_refresh_keywords_now(): void {

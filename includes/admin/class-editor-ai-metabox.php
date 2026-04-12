@@ -373,13 +373,17 @@ class Editor_AI_Metabox {
         echo '<p class="tmwseo-mb-help">' . esc_html__('Refresh Keywords runs in the background. Reload the editor after a few seconds to see updated fields.', 'tmwseo') . '</p>';
 
         // Re-run Preview Phrases — model post type only, operator-triggered.
+        // Uses AJAX (type="button") for Gutenberg metabox reliability, mirroring Refresh Keywords.
         if ($post->post_type === 'model') {
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:8px">';
-            wp_nonce_field('tmwseo_rerun_model_preview_phrases_' . $post->ID);
-            echo '<input type="hidden" name="action" value="tmwseo_rerun_model_preview_phrases">';
-            echo '<input type="hidden" name="post_id" value="' . esc_attr((string) $post->ID) . '">';
-            echo '<button type="submit" class="button">' . esc_html__('Re-run Preview Phrases', 'tmwseo') . '</button>';
-            echo '</form>';
+            echo '<button '
+                . 'type="button" '
+                . 'id="tmwseo-rerun-preview-phrases-btn" '
+                . 'class="button" '
+                . 'style="margin-top:8px" '
+                . 'data-post-id="' . esc_attr((string) $post->ID) . '" '
+                . 'data-nonce="' . esc_attr(wp_create_nonce('tmwseo_rerun_preview_phrases_' . $post->ID)) . '" '
+                . 'data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '"'
+                . '>' . esc_html__('Re-run Preview Phrases', 'tmwseo') . '</button>';
             echo '<p class="tmwseo-mb-help">' . esc_html__('Rebuilds preview keyword phrases for this existing model. Does not auto-publish.', 'tmwseo') . '</p>';
         }
 
