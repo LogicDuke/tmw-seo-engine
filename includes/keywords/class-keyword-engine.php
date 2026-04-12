@@ -450,10 +450,22 @@ class KeywordEngine {
                                     ]);
                                     continue;
                                 }
+                                $matched_entity_type = (string) ($entity_match['entity_type'] ?? '');
+                                $matched_entity_name = (string) ($entity_match['entity_name'] ?? $node_entity_name);
+                                if (self::is_model_entity_type($matched_entity_type) && !self::is_safe_model_entity_keyword($kw, $matched_entity_name)) {
+                                    Logs::info('keywords', '[TMW-MODEL-FENCE] Rejected discovered keyword for model entity: unsafe modifier family', [
+                                        'keyword' => $kw,
+                                        'seed' => $seed,
+                                        'entity_id' => (int) ($entity_match['entity_id'] ?? 0),
+                                        'entity_type' => $matched_entity_type,
+                                        'entity_name' => $matched_entity_name,
+                                    ]);
+                                    continue;
+                                }
 
                                 $topical = TopicalRelevanceFilter::evaluate($kw, [
                                     'serp_items' => (array) ($it['items'] ?? $it['serp_items'] ?? []),
-                                    'entity_name' => (string) ($entity_match['entity_name'] ?? $node_entity_name),
+                                    'entity_name' => $matched_entity_name,
                                     'similarity_score' => (float) ($entity_match['similarity_score'] ?? 0),
                                 ]);
                                 if (empty($topical['allowed'])) {
@@ -562,7 +574,7 @@ class KeywordEngine {
                                         $eligible_secondary[] = [
                                             'keyword' => $candidate_seed,
                                             'entity_id' => $resolved_entity_id,
-                                            'entity_name' => (string) ($entity_match['entity_name'] ?? $node_entity_name),
+                                            'entity_name' => $matched_entity_name,
                                             'entity_type' => 'authority_node',
                                             'similarity_score' => (float) ($entity_match['similarity_score'] ?? 0),
                                         ];
@@ -2071,5 +2083,149 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         Logs::info('keywords', '[TMW-KW] Suggested pages queued from keyword clusters', [
             'count' => $stored,
         ]);
+    }
+
+    private static function is_model_entity_type(string $entity_type): bool {
+        return strtolower(trim($entity_type)) === 'model';
+    }
+
+    private static function is_safe_model_entity_keyword(string $keyword, string $entity_name): bool {
+        $normalized_keyword = KeywordValidator::normalize($keyword);
+        $normalized_entity  = KeywordValidator::normalize($entity_name);
+
+        if ($normalized_keyword === '' || $normalized_entity === '') {
+            return false;
+        }
+
+        if ($normalized_keyword === $normalized_entity) {
+            return false;
+        }
+
+        $prefix = $normalized_entity . ' ';
+        if (strpos($normalized_keyword, $prefix) !== 0) {
+            return false;
+        }
+
+        $suffix = trim(substr($normalized_keyword, strlen($prefix)));
+        if ($suffix === '') {
+            return false;
+        }
+
+        $allowed_suffixes = [
+            'webcam',
+            'web cam',
+            'cam',
+            'camgirl',
+            'cam girl',
+            'cam girls',
+            'cam model',
+            'cam models',
+            'cam site',
+            'live cam',
+            'live cams',
+            'live cam show',
+            'adult live cam',
+            'cam show',
+            'webcam chat',
+            'cam chat',
+            'live chat',
+            'adult chat',
+            'video chat',
+            'live video chat',
+            'adult video chat',
+            'adult webcam chat',
+            'adult cam',
+            'adult cams',
+            'adult webcam',
+            'adult streaming',
+            'webcam platform',
+            'cam platform',
+            'webcam tips',
+            'webcam earnings',
+            'sex cam',
+            'sex cams',
+        ];
+
+        return in_array($suffix, $allowed_suffixes, true);
+    }
+
+    /**
+     * @param string[] $model_names Optional explicit model names to scope cleanup.
+     * @return array{scanned:int,updated:int}
+     */
+    public static function cleanup_legacy_model_noise(array $model_names = []): array {
+        global $wpdb;
+
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $entity_table = $wpdb->prefix . 'tmw_topic_entities';
+        $entity_table_exists = (string) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $entity_table)) === $entity_table;
+
+        $normalized_model_names = array_values(array_unique(array_filter(array_map(static function ($value): string {
+            return KeywordValidator::normalize((string) $value);
+        }, $model_names))));
+
+        $rows = [];
+        if ($entity_table_exists) {
+            $rows = $wpdb->get_results(
+                "SELECT c.id, c.keyword, e.entity_name
+                 FROM {$cand_table} c
+                 INNER JOIN {$entity_table} e ON e.id = c.entity_id
+                 WHERE c.entity_type = 'topic_entity'
+                   AND e.entity_type = 'model'
+                   AND c.status IN ('new','discovered','scored','queued_for_review')",
+                ARRAY_A
+            );
+        } else {
+            $rows = $wpdb->get_results(
+                "SELECT id, keyword, '' AS entity_name
+                 FROM {$cand_table}
+                 WHERE entity_type = 'model'
+                   AND status IN ('new','discovered','scored','queued_for_review')",
+                ARRAY_A
+            );
+        }
+
+        $scanned = 0;
+        $updated = 0;
+        foreach ((array) $rows as $row) {
+            $keyword = (string) ($row['keyword'] ?? '');
+            $entity_name = KeywordValidator::normalize((string) ($row['entity_name'] ?? ''));
+            if ($keyword === '' || $entity_name === '') {
+                continue;
+            }
+
+            if (!empty($normalized_model_names) && !in_array($entity_name, $normalized_model_names, true)) {
+                continue;
+            }
+
+            $scanned++;
+            if (self::is_safe_model_entity_keyword($keyword, $entity_name)) {
+                continue;
+            }
+
+            $changed = $wpdb->update($cand_table, [
+                'status' => 'ignored',
+                'needs_recluster' => 1,
+                'needs_rescore' => 1,
+                'updated_at' => current_time('mysql'),
+            ], [
+                'id' => (int) ($row['id'] ?? 0),
+            ], ['%s', '%d', '%d', '%s'], ['%d']);
+
+            if ($changed !== false && $changed > 0) {
+                $updated++;
+            }
+        }
+
+        Logs::info('keywords', '[TMW-MODEL-FENCE] Legacy model noise cleanup completed', [
+            'scanned' => $scanned,
+            'updated' => $updated,
+            'scoped_model_names' => count($normalized_model_names),
+        ]);
+
+        return [
+            'scanned' => $scanned,
+            'updated' => $updated,
+        ];
     }
 }
