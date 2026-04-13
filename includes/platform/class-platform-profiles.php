@@ -77,7 +77,7 @@ class PlatformProfiles {
 
         self::sync_to_table($post_id);
 
-        Logs::info('platform', 'Saved platform profiles', ['model_id' => $post_id]);
+        Logs::info('platform', '[TMW-PLATFORM] Saved platform profiles', ['model_id' => $post_id]);
     }
 
 
@@ -251,9 +251,68 @@ class PlatformProfiles {
         return $username;
     }
 
+    public static function extract_username_from_profile_url(string $platform, string $url): string {
+        return self::extract_username_from_url($platform, $url);
+    }
+
     private static function extract_username_from_url(string $platform, string $url): string {
         $platform_data = PlatformRegistry::get($platform);
         if (!is_array($platform_data)) {
+            return '';
+        }
+
+        $parts = wp_parse_url(trim($url));
+        if (!is_array($parts)) {
+            return '';
+        }
+
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $path = trim((string) ($parts['path'] ?? ''), '/');
+        $query = (string) ($parts['query'] ?? '');
+        $fragment = trim((string) ($parts['fragment'] ?? ''), '/');
+
+        // Safe parser rules for approved non-standard URL formats.
+        if ($platform === 'myfreecams') {
+            if (strpos($host, 'myfreecams.com') === false) {
+                return '';
+            }
+            return $fragment !== '' ? sanitize_text_field(urldecode($fragment)) : '';
+        }
+        if ($platform === 'flirt4free') {
+            if (strpos($host, 'flirt4free.com') === false) {
+                return '';
+            }
+            parse_str($query, $params);
+            return !empty($params['model']) ? sanitize_text_field(urldecode((string) $params['model'])) : '';
+        }
+        if ($platform === 'sakuralive') {
+            if (strpos($host, 'sakuralive.com') === false) {
+                return '';
+            }
+            return $query !== '' ? sanitize_text_field(urldecode($query)) : '';
+        }
+        if ($platform === 'stripchat') {
+            if (strpos($host, 'stripchat.com') === false) {
+                return '';
+            }
+            $segments = $path === '' ? [] : explode('/', $path);
+            return !empty($segments[0]) ? sanitize_text_field(urldecode((string) $segments[0])) : '';
+        }
+        if ($platform === 'carrd') {
+            if ($host === '' || strpos($host, '.carrd.co') === false) {
+                return '';
+            }
+            $subdomain = str_replace('.carrd.co', '', $host);
+            return sanitize_text_field(urldecode($subdomain));
+        }
+        if ($platform === 'fansly') {
+            if (strpos($host, 'fansly.com') === false) {
+                return '';
+            }
+            $segments = $path === '' ? [] : explode('/', $path);
+            if (count($segments) >= 2 && strtolower((string) $segments[1]) === 'posts' && $segments[0] !== '') {
+                return sanitize_text_field(urldecode((string) $segments[0]));
+            }
             return '';
         }
 
@@ -264,7 +323,7 @@ class PlatformProfiles {
 
         $escaped = preg_quote($pattern, '#');
         $regex = str_replace('\{username\}', '([^/?#&]+)', $escaped);
-        if (!preg_match('#^' . $regex . '$#i', $url, $matches)) {
+        if (!preg_match('#^' . $regex . '$#i', trim($url), $matches)) {
             return '';
         }
 
@@ -280,6 +339,14 @@ class PlatformProfiles {
         $pattern = (string) ($platform_data['profile_url_pattern'] ?? '');
         if ($pattern === '' || strpos($pattern, '{username}') === false) {
             return '';
+        }
+
+        if ($platform === 'myfreecams' || $platform === 'sakuralive') {
+            return esc_url_raw(str_replace('{username}', rawurlencode($username), $pattern));
+        }
+        if ($platform === 'carrd') {
+            $safe = sanitize_title_with_dashes($username);
+            return esc_url_raw(str_replace('{username}', $safe, $pattern));
         }
 
         return esc_url_raw(str_replace('{username}', rawurlencode($username), $pattern));
