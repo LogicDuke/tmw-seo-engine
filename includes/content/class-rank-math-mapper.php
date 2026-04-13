@@ -89,10 +89,21 @@ class RankMathMapper {
     /**
      * Extract the top N extras from a keyword pack, capped to RANK_MATH_EXTRA_CAP.
      *
+     * Priority for model pages:
+     *   1. rankmath_additional — dedicated model-name-led chips (set by ModelKeywordPack)
+     *   2. additional          — legacy generic pool
+     *   3. secondary           — oldest fallback
+     *
      * @return string[]
      */
     public static function extract_extras( array $keyword_pack ): array {
-        $additional = $keyword_pack['additional'] ?? $keyword_pack['secondary'] ?? [];
+        // Prefer the dedicated Rank Math chip field when present and non-empty.
+        if ( ! empty( $keyword_pack['rankmath_additional'] ) && is_array( $keyword_pack['rankmath_additional'] ) ) {
+            $additional = $keyword_pack['rankmath_additional'];
+        } else {
+            $additional = $keyword_pack['additional'] ?? $keyword_pack['secondary'] ?? [];
+        }
+
         if ( ! is_array( $additional ) ) {
             $additional = [];
         }

@@ -230,9 +230,16 @@ class ContentEngine {
 
         $secondary_keywords = [];
         if ($post->post_type === 'model') {
-            $secondary_keywords = (!empty($keyword_pack['additional']) && is_array($keyword_pack['additional']))
-                ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['additional']))), 0, 4)
-                : AssistedDraftEnrichmentService::build_model_secondary_keywords($focus_kw);
+            // Prefer the dedicated model-name-led chip list when available (set by
+            // ModelKeywordPack::build()). Fall back to generic additional, then to
+            // the enrichment-service fallback for legacy packs without either key.
+            if (!empty($keyword_pack['rankmath_additional']) && is_array($keyword_pack['rankmath_additional'])) {
+                $secondary_keywords = array_slice(array_values(array_filter(array_map('strval', $keyword_pack['rankmath_additional']))), 0, 4);
+            } elseif (!empty($keyword_pack['additional']) && is_array($keyword_pack['additional'])) {
+                $secondary_keywords = array_slice(array_values(array_filter(array_map('strval', $keyword_pack['additional']))), 0, 4);
+            } else {
+                $secondary_keywords = AssistedDraftEnrichmentService::build_model_secondary_keywords($focus_kw);
+            }
         }
 
         if ($strategy === 'template') {
