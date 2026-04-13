@@ -176,11 +176,18 @@ class ModelKeywordPack {
         // Confidence = how well the selected additional keywords scored.
         $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
 
+        // Dedicated Rank Math chips: model-name-led, varied per post.
+        // These replace the old name-free generic fallback as the Rank Math chip source.
+        $rankmath_chips = $is_model_page
+            ? self::build_rankmath_chips($primary, $post->ID, $platform_slugs)
+            : [];
+
         return [
-            'primary' => $primary,
-            'additional' => $additional,
-            'longtail' => $longtail,
-            'confidence' => $confidence,
+            'primary'             => $primary,
+            'additional'          => $additional,
+            'longtail'            => $longtail,
+            'rankmath_additional' => $rankmath_chips,
+            'confidence'          => $confidence,
             'sources' => [
                 'platforms' => $platform_slugs,
                 'tags' => $top_tags,
@@ -503,6 +510,85 @@ class ModelKeywordPack {
         }
 
         return false;
+    }
+
+    /**
+     * Build Rank Math-specific keyword chips for a model page.
+     *
+     * Chips are always model-name-led (e.g. "Arianna webcam"),
+     * varied deterministically per post ID, and safe for Rank Math.
+     * Replaces the old name-free generic fallback as the Rank Math chip source.
+     *
+     * @param string   $name          Exact model name.
+     * @param int      $post_id       Post ID used as deterministic seed.
+     * @param string[] $platform_slugs Active platform slugs for optional platform chip.
+     * @return string[]               Up to 4 chips.
+     */
+    private static function build_rankmath_chips(string $name, int $post_id, array $platform_slugs): array {
+        if ($name === '') {
+            return [];
+        }
+
+        // Modifier pool — compact, readable, 1–4 word suffixes.
+        $modifiers = [
+            'webcam',
+            'live cam',
+            'cam model',
+            'cam girl',
+            'webcam chat',
+            'cam chat',
+            'adult webcam',
+            'adult cam',
+            'adult video chat',
+            'live video chat',
+            'cam show',
+            'webcam platform',
+            'webcam earnings',
+        ];
+
+        // Deterministic Fisher-Yates shuffle seeded by name + post_id.
+        $pool = $modifiers;
+        $lcg  = abs((int) crc32($name . '-' . $post_id));
+        for ($i = count($pool) - 1; $i > 0; $i--) {
+            $lcg   = ($lcg * 1664525 + 1013904223) & 0xFFFFFFFF;
+            $j     = $lcg % ($i + 1);
+            $tmp   = $pool[$i];
+            $pool[$i] = $pool[$j];
+            $pool[$j] = $tmp;
+        }
+
+        // Build 4 name-led chips from shuffled modifiers.
+        $chips = [];
+        foreach ($pool as $mod) {
+            $chips[] = $name . ' ' . $mod;
+            if (count($chips) >= 4) {
+                break;
+            }
+        }
+
+        // Optionally replace the last chip with a platform-specific one
+        // (e.g. "Arianna LiveJasmin") when a primary platform is known.
+        $labels = array_values(array_filter(
+            array_map([self::class, 'platform_keyword_label'], $platform_slugs),
+            'strlen'
+        ));
+        if (!empty($labels)) {
+            $platform_chip   = $name . ' ' . $labels[0];
+            $platform_chip_l = strtolower($platform_chip);
+            $already         = false;
+            foreach ($chips as $c) {
+                if (strtolower($c) === $platform_chip_l) {
+                    $already = true;
+                    break;
+                }
+            }
+            if (!$already && count($chips) >= 4) {
+                array_pop($chips);
+                $chips[] = $platform_chip;
+            }
+        }
+
+        return array_slice(self::dedupe_keywords($chips), 0, 4);
     }
 
     private static function platform_keyword_label(string $platform): string {

@@ -90,6 +90,14 @@ class TemplateContent {
         )));
         $longtail = array_slice($longtail, 0, 8);
 
+        // Single source of truth for Rank Math chips and the on-page keyword
+        // coverage block. Prefer the dedicated model-name-led list when available
+        // (set by ModelKeywordPack::build() for model pages); fall back to $extra
+        // for non-model pages and legacy packs that do not carry the key.
+        $rankmath_keywords = !empty($pack['rankmath_additional'])
+            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
+            : array_slice($extra, 0, 4);
+
         $context = [
             'name' => $name,
             'site' => get_bloginfo('name'),
@@ -106,7 +114,7 @@ class TemplateContent {
             'extra_focus_4' => $extra[3] ?? 'HD live stream',
             'extra_keywords' => $extra,
             'longtail_keywords' => $longtail,
-            'rankmath_additional_keywords' => array_slice($extra, 0, 4),
+            'rankmath_additional_keywords' => $rankmath_keywords,
             'active_platforms' => $active_platforms,
             'active_platforms_text' => self::format_platform_list($active_platforms, $primary_platform_label),
         ];
@@ -151,7 +159,7 @@ class TemplateContent {
             $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
         }
         $watch_para = $watch_para_pool[self::stable_pick_index($seed . '|watch', count($watch_para_pool))];
-        $keyword_coverage_html = self::render_rankmath_keyword_coverage(array_slice($extra, 0, 4), $name);
+        $keyword_coverage_html = self::render_rankmath_keyword_coverage($rankmath_keywords, $name);
 
         $support_payload = self::build_model_renderer_support_payload($post, array_merge($pack, [
             'name' => $name,
