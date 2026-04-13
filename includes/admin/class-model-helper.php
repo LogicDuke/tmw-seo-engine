@@ -28,6 +28,9 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Model\ModelResearchProvider;
+use TMWSEO\Engine\Platform\PlatformRegistry;
+use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Logs;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -819,12 +822,72 @@ class ModelHelper {
             }
         }
 
+        self::apply_detected_platform_usernames( $post_id, $merged );
+
         // Clear the proposed blob after applying
         delete_post_meta( $post_id, self::META_PROPOSED );
         update_post_meta( $post_id, self::META_STATUS, 'researched' );
         update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
 
         return true;
+    }
+
+    /**
+     * Map reviewed social/profile URLs into platform username meta only when
+     * extraction is unambiguous and no manual username already exists.
+     */
+    private static function apply_detected_platform_usernames( int $post_id, array $merged ): void {
+        $urls = [];
+        foreach ( [ 'social_urls', 'source_urls' ] as $key ) {
+            if ( isset( $merged[ $key ] ) && is_array( $merged[ $key ] ) ) {
+                $urls = array_merge( $urls, $merged[ $key ] );
+            }
+        }
+        $urls = array_values( array_unique( array_filter( array_map( 'trim', $urls ) ) ) );
+        if ( empty( $urls ) ) {
+            return;
+        }
+
+        $detected = [];
+        foreach ( PlatformRegistry::get_slugs() as $slug ) {
+            foreach ( $urls as $url ) {
+                $username = PlatformProfiles::extract_username_from_profile_url( $slug, $url );
+                if ( $username === '' ) {
+                    continue;
+                }
+                $detected[ $slug ][] = $username;
+            }
+        }
+
+        foreach ( $detected as $slug => $matches ) {
+            $matches = array_values( array_unique( $matches ) );
+            if ( count( $matches ) !== 1 ) {
+                Logs::info( 'model_research', '[TMW-URLMAP] Rejected ambiguous platform username extraction', [
+                    'post_id'   => $post_id,
+                    'platform'  => $slug,
+                    'matches'   => $matches,
+                ] );
+                continue;
+            }
+
+            $meta_key = '_tmwseo_platform_username_' . $slug;
+            $existing = trim( (string) get_post_meta( $post_id, $meta_key, true ) );
+            if ( $existing !== '' ) {
+                Logs::info( 'model_research', '[TMW-URLMAP] Preserved existing manual platform username', [
+                    'post_id'   => $post_id,
+                    'platform'  => $slug,
+                    'existing'  => $existing,
+                ] );
+                continue;
+            }
+
+            update_post_meta( $post_id, $meta_key, sanitize_text_field( $matches[0] ) );
+            Logs::info( 'model_research', '[TMW-PLATFORM] Applied reviewed platform username', [
+                'post_id'   => $post_id,
+                'platform'  => $slug,
+                'username'  => $matches[0],
+            ] );
+        }
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────
