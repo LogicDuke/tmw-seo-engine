@@ -242,7 +242,8 @@ class PlatformProfiles {
             return '';
         }
 
-        $username = self::extract_username_from_url($platform, $legacy_url);
+        $parsed = self::parse_profile_candidate($platform, $legacy_url);
+        $username = !empty($parsed['success']) ? (string) ($parsed['username'] ?? '') : '';
         if ($username === '') {
             return '';
         }
@@ -252,18 +253,32 @@ class PlatformProfiles {
     }
 
     public static function extract_username_from_profile_url(string $platform, string $url): string {
-        return self::extract_username_from_url($platform, $url);
+        $parsed = self::parse_profile_candidate($platform, $url);
+        return !empty($parsed['success']) ? (string) ($parsed['username'] ?? '') : '';
     }
 
-    private static function extract_username_from_url(string $platform, string $url): string {
+    public static function parse_profile_candidate(string $platform, string $url): array {
+        $platform = sanitize_key($platform);
+        $url = trim($url);
+        $base = [
+            'success' => false,
+            'username' => '',
+            'normalized_platform' => $platform,
+            'normalized_url' => '',
+            'reject_reason' => '',
+        ];
+
         $platform_data = PlatformRegistry::get($platform);
-        if (!is_array($platform_data)) {
-            return '';
+        if (!is_array($platform_data) || $url === '') {
+            $base['reject_reason'] = 'unsupported_platform';
+            return $base;
         }
 
-        $parts = wp_parse_url(trim($url));
+        $normalized_url = self::normalize_input_url($url);
+        $parts = wp_parse_url($normalized_url);
         if (!is_array($parts)) {
-            return '';
+            $base['reject_reason'] = 'invalid_url';
+            return $base;
         }
 
         $host = strtolower((string) ($parts['host'] ?? ''));
@@ -271,63 +286,118 @@ class PlatformProfiles {
         $query = (string) ($parts['query'] ?? '');
         $fragment = trim((string) ($parts['fragment'] ?? ''), '/');
 
-        // Safe parser rules for approved non-standard URL formats.
-        if ($platform === 'myfreecams') {
-            if (strpos($host, 'myfreecams.com') === false) {
-                return '';
+        $base['normalized_url'] = $normalized_url;
+
+        $host_ok = self::matches_platform_host($platform, $host);
+        if (!$host_ok) {
+            $base['reject_reason'] = 'host_mismatch';
+            return $base;
+        }
+
+        $username = self::extract_username_by_rule($platform, $host, $path, $query, $fragment);
+        if ($username === '') {
+            $base['reject_reason'] = 'unsupported_shape';
+            return $base;
+        }
+
+        $base['success'] = true;
+        $base['username'] = $username;
+        $base['normalized_url'] = self::build_profile_url($platform, $username);
+        return $base;
+    }
+
+    private static function normalize_input_url(string $url): string {
+        if (!preg_match('#^https?://#i', $url)) {
+            $url = 'https://' . ltrim($url, '/');
+        }
+        return trim($url);
+    }
+
+    private static function matches_platform_host(string $platform, string $host): bool {
+        $rule = PlatformRegistry::get_parser_rule($platform);
+        $host = strtolower(preg_replace('/^www\./', '', $host));
+        $allowed = [];
+        foreach ((array) ($rule['input_hosts'] ?? []) as $candidate) {
+            $allowed[] = strtolower(preg_replace('/^www\./', '', (string) $candidate));
+        }
+
+        if (!empty($allowed) && in_array($host, $allowed, true)) {
+            return true;
+        }
+
+        if (!empty($rule['locale_host']) && str_ends_with($host, '.stripchat.com')) {
+            return true;
+        }
+
+        foreach ((array) ($rule['input_aliases'] ?? []) as $alias) {
+            if (str_ends_with($host, strtolower((string) $alias))) {
+                return true;
             }
+        }
+
+        $canonical_slug = PlatformRegistry::find_slug_by_host($host);
+        return $canonical_slug === $platform;
+    }
+
+    private static function extract_username_by_rule(string $platform, string $host, string $path, string $query, string $fragment): string {
+        $segments = $path === '' ? [] : explode('/', $path);
+        $host = strtolower(preg_replace('/^www\./', '', $host));
+
+        if ($platform === 'myfreecams') {
             return $fragment !== '' ? sanitize_text_field(urldecode($fragment)) : '';
         }
         if ($platform === 'flirt4free') {
-            if (strpos($host, 'flirt4free.com') === false) {
-                return '';
-            }
             parse_str($query, $params);
-            return !empty($params['model']) ? sanitize_text_field(urldecode((string) $params['model'])) : '';
+            if (!empty($params['model'])) {
+                return sanitize_text_field(urldecode((string) $params['model']));
+            }
+            if (count($segments) >= 4 && $segments[0] === 'videos' && $segments[1] === 'girls' && $segments[2] === 'models') {
+                return sanitize_text_field(urldecode((string) $segments[3]));
+            }
+            if (count($segments) >= 2 && $segments[0] === 'model') {
+                return sanitize_text_field(urldecode((string) $segments[1]));
+            }
+            return '';
         }
         if ($platform === 'sakuralive') {
-            if (strpos($host, 'sakuralive.com') === false) {
-                return '';
-            }
             return $query !== '' ? sanitize_text_field(urldecode($query)) : '';
         }
         if ($platform === 'stripchat') {
-            if (strpos($host, 'stripchat.com') === false) {
-                return '';
-            }
-            $segments = $path === '' ? [] : explode('/', $path);
             return !empty($segments[0]) ? sanitize_text_field(urldecode((string) $segments[0])) : '';
         }
         if ($platform === 'carrd') {
-            if ($host === '' || strpos($host, '.carrd.co') === false) {
+            if (!str_ends_with($host, '.carrd.co')) {
                 return '';
             }
             $subdomain = str_replace('.carrd.co', '', $host);
-            return sanitize_text_field(urldecode($subdomain));
+            return $subdomain !== '' ? sanitize_text_field(urldecode($subdomain)) : '';
         }
         if ($platform === 'fansly') {
-            if (strpos($host, 'fansly.com') === false) {
-                return '';
-            }
-            $segments = $path === '' ? [] : explode('/', $path);
             if (count($segments) >= 2 && strtolower((string) $segments[1]) === 'posts' && $segments[0] !== '') {
+                return sanitize_text_field(urldecode((string) $segments[0]));
+            }
+            if (count($segments) >= 2 && in_array(strtolower((string) $segments[0]), ['u', '@'], true) && $segments[1] !== '') {
+                return sanitize_text_field(urldecode((string) $segments[1]));
+            }
+            if (!empty($segments[0]) && !in_array(strtolower((string) $segments[0]), ['explore', 'posts', 'messages', 'login', 'signup'], true)) {
                 return sanitize_text_field(urldecode((string) $segments[0]));
             }
             return '';
         }
-
-        $pattern = (string) ($platform_data['profile_url_pattern'] ?? '');
-        if ($pattern === '' || strpos($pattern, '{username}') === false) {
+        if ($platform === 'livejasmin') {
+            if (count($segments) >= 3 && in_array(strtolower((string) $segments[1]), ['chat', 'model', 'profile'], true)) {
+                return sanitize_text_field(urldecode((string) $segments[2]));
+            }
+            if (count($segments) >= 2 && in_array(strtolower((string) $segments[0]), ['chat', 'model', 'profile'], true)) {
+                return sanitize_text_field(urldecode((string) $segments[1]));
+            }
+            if (count($segments) >= 1 && preg_match('/^[a-z]{2}$/i', (string) $segments[0]) && in_array(strtolower((string) ($segments[1] ?? '')), ['chat', 'model', 'profile', 'chat-html5'], true) && !empty($segments[2])) {
+                return sanitize_text_field(urldecode((string) $segments[2]));
+            }
             return '';
         }
 
-        $escaped = preg_quote($pattern, '#');
-        $regex = str_replace('\{username\}', '([^/?#&]+)', $escaped);
-        if (!preg_match('#^' . $regex . '$#i', trim($url), $matches)) {
-            return '';
-        }
-
-        return sanitize_text_field(urldecode((string) ($matches[1] ?? '')));
+        return !empty($segments[0]) ? sanitize_text_field(urldecode((string) $segments[0])) : '';
     }
 
     private static function build_profile_url(string $platform, string $username): string {

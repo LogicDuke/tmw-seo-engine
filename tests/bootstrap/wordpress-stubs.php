@@ -188,6 +188,15 @@ require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-gsc-api.php';
 // ── Additional WP function stubs needed by Admin::sanitize_settings ─────────
 if (!function_exists('esc_url_raw'))          { function esc_url_raw(string $url): string { return filter_var($url, FILTER_SANITIZE_URL) ?: ''; } }
 if (!function_exists('sanitize_textarea_field')) { function sanitize_textarea_field(string $str): string { return trim(strip_tags($str)); } }
+if (!function_exists('sanitize_title_with_dashes')) { function sanitize_title_with_dashes(string $title): string { return trim(strtolower(preg_replace('/[^a-z0-9]+/i', '-', $title)), '-'); } }
+if (!function_exists('wp_parse_url'))         {
+    function wp_parse_url(string $url, int $component = -1) {
+        if ($component === -1) {
+            return parse_url($url);
+        }
+        return parse_url($url, $component);
+    }
+}
 if (!function_exists('number_format_i18n'))   { function number_format_i18n(float $n, int $d = 0): string { return number_format($n, $d); } }
 if (!function_exists('admin_url'))            { function admin_url(string $path = ''): string { return 'http://example.com/wp-admin/' . ltrim($path, '/'); } }
 if (!function_exists('get_current_user_id'))  { function get_current_user_id(): int { return 1; } }
