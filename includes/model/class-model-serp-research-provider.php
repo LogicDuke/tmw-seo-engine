@@ -6,8 +6,8 @@
  * integrated into this plugin. No new API dependencies are introduced.
  *
  * WHAT IT DOES:
- *   1. Takes the model's post title and builds a 4-query pack from it.
- *   2. Issues up to 4 Google SERP lookups via DataForSEO (live/advanced).
+ *   1. Takes the model's post title and builds a 5-query pack from it.
+ *   2. Issues up to 5 Google SERP lookups via DataForSEO (live/advanced).
  *   3. Merges and deduplicates results across all successful queries.
  *   4. Parses the merged pool for:
  *      - Platform names (cam site domains — "active on platform X" signals)
@@ -18,11 +18,12 @@
  *   5. Returns structured proposed data. NEVER writes to post meta directly.
  *      The ModelResearchPipeline + ModelHelper handle persistence after admin review.
  *
- * QUERY PACK (4 queries, each capped at 20 results):
+ * QUERY PACK (5 queries, each capped at 20 results):
  *   1. {model_name}
  *   2. {model_name} cam model
  *   3. {model_name} webcam OR chaturbate OR livejasmin
- *   4. {model_name} fansly OR stripchat OR onlyfans
+ *   4. {model_name} fansly OR stripchat OR onlyfans OR sinparty
+ *   5. {model_name} x OR twitter OR friendsbio
  *
  * FALLBACK BEHAVIOUR:
  *   - If DataForSEO is not configured   -> returns status='no_provider'.
@@ -120,10 +121,14 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         'beacons.ai'     => 'Beacons',
         'solo.to'        => 'solo.to',
         '.carrd.co'      => 'Carrd',
+        'x.com'          => 'X',
+        'twitter.com'    => 'X',
+        'friendsbio.com' => 'FriendsBio',
     ];
 
     /**
      * Subset of KNOWN_PLATFORMS whose result URLs are surfaced in social_urls.
+     * Hub matches in KNOWN_HUBS are already surfaced as social URLs.
      *
      * @var string[]
      */
@@ -159,7 +164,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
     /**
      * Look up model data from Google SERP via DataForSEO.
      *
-     * Runs a bounded 4-query pack (each capped at 20 results), merges and
+     * Runs a bounded 5-query pack (each capped at 20 results), merges and
      * deduplicates results, then returns proposed (un-applied) data for admin review.
      * Does NOT write anything to post meta.
      *
@@ -197,7 +202,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'model_name' => $model_name,
         ] );
 
-        // ── Build and run the 4-query pack ────────────────────────────────
+        // ── Build and run the 5-query pack ────────────────────────────────
         $queries      = $this->build_query_pack( $model_name );
         $pack_results = $this->run_query_pack( $queries, $post_id );
 
@@ -248,13 +253,14 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
     // =========================================================================
 
     /**
-     * Build the fixed 4-query pack for a given model name.
+     * Build the fixed 5-query pack for a given model name.
      *
      * Query templates (order matters — first query is the baseline):
      *   1. {model_name}
      *   2. {model_name} cam model
      *   3. {model_name} webcam OR chaturbate OR livejasmin
-     *   4. {model_name} fansly OR stripchat OR onlyfans
+     *   4. {model_name} fansly OR stripchat OR onlyfans OR sinparty
+     *   5. {model_name} x OR twitter OR friendsbio
      *
      * @param  string   $model_name
      * @return string[]
@@ -264,7 +270,8 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             $model_name,
             $model_name . ' cam model',
             $model_name . ' webcam OR chaturbate OR livejasmin',
-            $model_name . ' fansly OR stripchat OR onlyfans',
+            $model_name . ' fansly OR stripchat OR onlyfans OR sinparty',
+            $model_name . ' x OR twitter OR friendsbio',
         ];
     }
 
