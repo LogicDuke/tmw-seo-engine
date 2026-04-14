@@ -1,5 +1,22 @@
 # TMW SEO Engine — Changelog
 
+## 4.6.4 — Research Precision Hotfix (2026-04-14)
+
+### Bug Fixes & Safety Hardening
+
+- **`includes/model/class-model-serp-research-provider.php`**
+- **Extraction-gated `platform_names`**: Platforms are no longer proposed based on raw SERP domain presence. A successful structured extraction via `PlatformProfiles::parse_url_for_platform_structured()` is now required before a platform name enters `platform_names`. Raw domain hits that fail extraction are visible in the `platform_candidates` audit table only.
+- **Extraction-gated `social_urls`**: Hub URLs (Linktree, AllMyLinks, solo.to, Beacons, Carrd) and Fansly are no longer added to `social_urls` on domain match alone. Only successful extractions with a `normalized_url` contribute to `social_urls`. Unextractable hub URLs appear in `notes` for manual operator review.
+- **Extraction-count confidence scoring**: Confidence is now derived solely from the number of successful structured extractions (0→5, 1→25, 2→45, 3+→60) plus optional corroboration bonuses. All raw domain-hit boosts, identity-domain (tube site) boosts, and query-induced platform noise contributions have been removed.
+- **Removed TLD country autofill**: The `country` field is always returned blank by this provider. TLD suffix hints (`.co`→Colombia, `.ro`→Romania, etc.) are recorded in `notes` only with explicit "verify manually" language.
+- **Fixed `strpos` domain-matching collision bug**: Replaced `strpos`-based `match_domain_label()` with a new `match_domain_label_strict()` that uses exact equality or true-subdomain suffix matching. This eliminates confirmed false positives: `xcams.com` and `olecams.com` no longer match `cams.com`, ending spurious `Cams.com` platform proposals.
+- **Filtered `source_urls`**: Raw SERP URLs are quality-gated before entering `source_urls`. Search/results pages, tag pages, category/browse listings, and generic performers pages are excluded. Only evidence-level (profile-shaped) URLs are kept, deduped, max 20.
+- **`platform_candidates` audit table preserved**: Structure, deduplication logic, and metabox rendering are unchanged and backward-compatible.
+- **Version bumped**: `4.6.3` → `4.6.4` consistently across plugin header, constant, and test assertions.
+
+---
+
+
 ## Unreleased
 
 ### Bug Fix
