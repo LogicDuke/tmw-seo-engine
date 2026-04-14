@@ -49,6 +49,8 @@ namespace TMWSEO\Engine\Model;
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Platform\PlatformRegistry;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -104,6 +106,8 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         'xvideos.com',
         'xhamster.com',
         'reddit.com',
+        'erome.com',
+        'erome.live',
     ];
 
     /**
@@ -228,6 +232,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
                 'country'        => '',
                 'language'       => '',
                 'source_urls'    => [],
+                'platform_candidates' => [],
                 'confidence'     => 10,
                 'notes'          => sprintf(
                     'Multi-query pack ran (%d/%d succeeded). Empty result pool — name may be too generic or not yet indexed.',
@@ -256,11 +261,32 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
      * @return string[]
      */
     private function build_query_pack( string $model_name ): array {
-        return [
+        $pack = [
             $model_name,
             $model_name . ' cam model',
-            $model_name . ' webcam OR chaturbate OR livejasmin',
+            $model_name . ' webcam',
+            $model_name . ' chaturbate',
+            $model_name . ' stripchat',
+            $model_name . ' fansly',
+            $model_name . ' flirt4free',
+            $model_name . ' cams.com',
+            $model_name . ' livejasmin',
+            $model_name . ' (linktree OR allmylinks OR beacons OR carrd OR solo.to)',
         ];
+
+        $pack = array_values(array_unique(array_filter(array_map('trim', $pack))));
+        $max = (int) apply_filters('tmwseo_serp_query_pack_limit', 10, $model_name);
+        if ($max > 0 && count($pack) > $max) {
+            $pack = array_slice($pack, 0, $max);
+        }
+
+        Logs::info('model_research', '[TMW-RESEARCH] SERP query pack built', [
+            'model_name' => $model_name,
+            'query_pack_size' => count($pack),
+            'queries' => $pack,
+        ]);
+
+        return $pack;
     }
 
     /**
@@ -446,6 +472,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         $country_hint = '';
         $confidence   = 0;
         $notes_parts  = [];
+        $platform_candidates = [];
 
         // Prevent double-counting the cross-query boost for the same domain.
         $cross_query_boosted = [];
@@ -501,6 +528,54 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
                 $ambiguous_urls[] = $url;
             }
 
+            $platform_slug = $this->match_platform_slug($domain);
+            if ($platform_slug !== '') {
+                $parsed = PlatformProfiles::parse_profile_candidate($platform_slug, $url);
+                $status = !empty($parsed['success']) ? 'matched' : 'unsupported_shape';
+                $platform_candidates[] = [
+                    'platform_slug' => $platform_slug,
+                    'platform_label' => PlatformRegistry::get($platform_slug)['name'] ?? ucfirst($platform_slug),
+                    'raw_url' => $url,
+                    'category' => 'platform',
+                    'extracted_username' => (string) ($parsed['username'] ?? ''),
+                    'extraction_status' => $status,
+                    'confidence' => !empty($parsed['success']) ? 90 : 40,
+                    'source_query' => (string) ($item['_query'] ?? ''),
+                    'reject_reason' => (string) ($parsed['reject_reason'] ?? ''),
+                ];
+                if (empty($parsed['success'])) {
+                    Logs::info('model_research', '[TMW-URLMAP] Rejected URL candidate', [
+                        'platform_slug' => $platform_slug,
+                        'url' => $url,
+                        'reason' => (string) ($parsed['reject_reason'] ?? 'unsupported_shape'),
+                    ]);
+                }
+            } elseif ($hub_label !== '') {
+                $platform_candidates[] = [
+                    'platform_slug' => sanitize_key(strtolower(str_replace(['.', ' '], '_', $hub_label))),
+                    'platform_label' => $hub_label,
+                    'raw_url' => $url,
+                    'category' => 'hub',
+                    'extracted_username' => '',
+                    'extraction_status' => 'unsupported_platform',
+                    'confidence' => 60,
+                    'source_query' => (string) ($item['_query'] ?? ''),
+                    'reject_reason' => '',
+                ];
+            } elseif ($this->is_identity_domain($domain)) {
+                $platform_candidates[] = [
+                    'platform_slug' => '',
+                    'platform_label' => $domain,
+                    'raw_url' => $url,
+                    'category' => 'identity',
+                    'extracted_username' => '',
+                    'extraction_status' => 'rejected',
+                    'confidence' => 30,
+                    'source_query' => (string) ($item['_query'] ?? ''),
+                    'reject_reason' => 'identity_only_domain',
+                ];
+            }
+
             // ── Cross-query corroboration boost ────────────────────────────
             if (
                 $domain !== '' &&
@@ -543,7 +618,8 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         // ── Deduplication ─────────────────────────────────────────────────
         $platforms   = array_values( array_unique( $platforms ) );
         $social_urls = array_values( array_unique( $social_urls ) );
-        $source_urls = array_values( array_slice( array_unique( $source_urls ), 0, 10 ) );
+        $source_urls = array_values( array_slice( array_unique( $source_urls ), 0, 30 ) );
+        $platform_candidates = array_values($this->dedupe_candidates($platform_candidates));
 
         // ── Best bio ──────────────────────────────────────────────────────
         ksort( $bio_snippets );
@@ -600,6 +676,9 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'confidence'            => $confidence,
             'name_in_snippet_count' => $name_in_snippet_count,
             'bio_len'               => strlen( $bio ),
+            'retained_source_urls'  => count($source_urls),
+            'candidate_count'       => count($platform_candidates),
+            'successful_extractions'=> count(array_filter($platform_candidates, static fn($c) => ($c['extraction_status'] ?? '') === 'matched')),
         ] );
         Logs::info( 'model_research', '[TMW-URLMAP] URL classification summary', [
             'platform_urls'  => array_values( array_unique( $platform_hits ) ),
@@ -617,6 +696,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'country'        => $country_hint,
             'language'       => '',
             'source_urls'    => $source_urls,
+            'platform_candidates' => $platform_candidates,
             'confidence'     => $confidence,
             'notes'          => $notes,
         ];
@@ -659,5 +739,33 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         }
 
         return false;
+    }
+
+    private function match_platform_slug(string $domain): string {
+        foreach (array_keys(self::KNOWN_PLATFORMS) as $known_domain) {
+            if (strpos($domain, (string) $known_domain) !== false) {
+                return PlatformRegistry::find_slug_by_host((string) $known_domain);
+            }
+        }
+        return '';
+    }
+
+    private function dedupe_candidates(array $candidates): array {
+        $seen = [];
+        $out = [];
+        foreach ($candidates as $candidate) {
+            $key = implode('|', [
+                (string) ($candidate['platform_slug'] ?? ''),
+                (string) ($candidate['raw_url'] ?? ''),
+                (string) ($candidate['extracted_username'] ?? ''),
+                (string) ($candidate['extraction_status'] ?? ''),
+            ]);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $candidate;
+        }
+        return $out;
     }
 }

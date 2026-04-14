@@ -240,6 +240,50 @@ class PlatformRegistry {
         ],
     ];
 
+    /**
+     * Input parsing rules by platform slug.
+     *
+     * canonical_pattern remains the output builder source of truth.
+     * input_hosts/input_aliases are used for resilient username extraction.
+     *
+     * @var array<string, array{
+     *   input_hosts: string[],
+     *   input_aliases?: string[],
+     *   locale_host?: bool
+     * }>
+     */
+    private static array $parser_rules = [
+        'chaturbate' => [
+            'input_hosts' => [ 'chaturbate.com', 'www.chaturbate.com' ],
+        ],
+        'camscom' => [
+            'input_hosts' => [ 'cams.com', 'www.cams.com' ],
+        ],
+        'flirt4free' => [
+            'input_hosts' => [ 'flirt4free.com', 'www.flirt4free.com' ],
+        ],
+        'livejasmin' => [
+            'input_hosts' => [ 'livejasmin.com', 'www.livejasmin.com' ],
+        ],
+        'stripchat' => [
+            'input_hosts' => [ 'stripchat.com', 'www.stripchat.com' ],
+            'locale_host' => true,
+        ],
+        'fansly' => [
+            'input_hosts' => [ 'fansly.com', 'www.fansly.com' ],
+        ],
+        'myfreecams' => [
+            'input_hosts' => [ 'myfreecams.com', 'www.myfreecams.com' ],
+        ],
+        'carrd' => [
+            'input_hosts' => [ 'carrd.co', 'www.carrd.co' ],
+            'input_aliases' => [ '.carrd.co' ],
+        ],
+        'sakuralive' => [
+            'input_hosts' => [ 'sakuralive.com', 'www.sakuralive.com' ],
+        ],
+    ];
+
     public static function get_platforms(): array {
         return array_values(self::$platforms);
     }
@@ -255,5 +299,30 @@ class PlatformRegistry {
 
     public static function get_slugs(): array {
         return array_keys(self::$platforms);
+    }
+
+    public static function get_parser_rule(string $slug): array {
+        $slug = sanitize_key($slug);
+        return self::$parser_rules[$slug] ?? [];
+    }
+
+    public static function find_slug_by_host(string $host): string {
+        $normalized = strtolower(trim($host));
+        if ($normalized === '') {
+            return '';
+        }
+
+        $stripped = preg_replace('/^www\./', '', $normalized);
+        foreach (self::$platforms as $slug => $platform) {
+            $pattern = (string) ($platform['profile_url_pattern'] ?? '');
+            $parts = wp_parse_url($pattern);
+            $pattern_host = strtolower((string) ($parts['host'] ?? ''));
+            $pattern_host = preg_replace('/^www\./', '', $pattern_host);
+            if ($pattern_host !== '' && ($stripped === $pattern_host || str_ends_with($stripped, '.' . $pattern_host))) {
+                return (string) $slug;
+            }
+        }
+
+        return '';
     }
 }
