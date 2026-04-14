@@ -91,10 +91,15 @@ class SchemaGenerator {
             ],
         ];
 
-        // Platform profile links
+        // sameAs: verified platform profile URLs + verified external links.
+        // Research social_urls are NEVER used here.
         $platform_links = self::get_platform_links( $post->ID );
-        if ( ! empty( $platform_links ) ) {
-            $schema['sameAs'] = $platform_links;
+        $verified_links = class_exists( '\\TMWSEO\\Engine\\Model\\VerifiedLinks' )
+            ? \TMWSEO\Engine\Model\VerifiedLinks::get_schema_urls( $post->ID )
+            : [];
+        $same_as = array_values( array_unique( array_merge( $platform_links, $verified_links ) ) );
+        if ( ! empty( $same_as ) ) {
+            $schema['sameAs'] = $same_as;
         }
 
         // Tags as keywords
@@ -243,7 +248,8 @@ class SchemaGenerator {
         if ( ! is_array( $links ) ) return [];
         $urls = [];
         foreach ( $links as $link ) {
-            $url = trim( (string) ( $link['url'] ?? '' ) );
+            // PlatformProfiles::get_links() returns 'profile_url', not 'url'.
+            $url = trim( (string) ( $link['profile_url'] ?? '' ) );
             if ( $url !== '' && filter_var( $url, FILTER_VALIDATE_URL ) ) {
                 $urls[] = $url;
             }

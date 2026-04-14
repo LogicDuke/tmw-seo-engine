@@ -344,6 +344,12 @@ class Plugin {
             \TMWSEO\Engine\Admin\SerpGapAdminPage::init(); // 4.6.3
             \TMWSEO\Engine\Admin\CategoryFormulaAdminPage::init(); // 5.2.0
         }
+
+        // Runs on ALL requests (admin + front end) so [tmw_verified_links] shortcode
+        // is registered on front-end page renders.  Admin-only hooks (metabox,
+        // save_post, admin-post) are gated internally by WordPress — they simply
+        // never fire outside the admin context.
+        \TMWSEO\Engine\Model\VerifiedLinks::init(); // 4.7.0 — Verified external links + schema sameAs fix
     }
 
     /**

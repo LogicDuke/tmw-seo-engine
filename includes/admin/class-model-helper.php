@@ -325,6 +325,9 @@ class ModelHelper {
                 // platform_candidates is an array-of-arrays — skip it here;
                 // it is rendered by the dedicated candidate audit table below.
                 if ( $field === 'platform_candidates' ) { continue; }
+                // social_urls rendered as a selectable promote block below —
+                // never display raw research URLs as plain text in this table.
+                if ( $field === 'social_urls' ) { continue; }
                 if ( $value === null || $value === '' || $value === [] ) { continue; }
                 // For flat arrays (platform_names, social_urls, etc.), implode scalars only.
                 if ( is_array( $value ) ) {
@@ -383,6 +386,23 @@ class ModelHelper {
                         . '</tr>';
                 }
                 echo '</table></details>';
+            }
+            // ── Promote-from-research block ───────────────────────────────────
+            // Shows candidate social_urls as per-URL checkboxes with type selection.
+            // Completely independent from "Apply Proposed Data" — no auto-promote.
+            if (
+                class_exists( '\\TMWSEO\\Engine\\Model\\VerifiedLinks' ) &&
+                isset( $merged['social_urls'] ) &&
+                is_array( $merged['social_urls'] ) &&
+                ! empty( $merged['social_urls'] )
+            ) {
+                \TMWSEO\Engine\Model\VerifiedLinks::render_promote_block(
+                    $post->ID,
+                    array_filter(
+                        array_map( 'strval', $merged['social_urls'] ),
+                        static fn( $u ) => is_string( $u ) && trim( $u ) !== ''
+                    )
+                );
             }
             // ── Apply / Discard buttons ───────────────────────────────────────
             $apply_url = wp_nonce_url(
