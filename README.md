@@ -1,6 +1,6 @@
 # TMW SEO Engine
 
-**Version:** 4.6.3 · **Author:** The Milisofia Ltd · **Requires PHP:** 8.0+ · **Requires WordPress:** 6.0+
+**Version:** 4.6.5 · **Author:** The Milisofia Ltd · **Requires PHP:** 8.0+ · **Requires WordPress:** 6.0+
 
 ---
 

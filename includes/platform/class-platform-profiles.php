@@ -436,7 +436,7 @@ class PlatformProfiles {
         $normalized_url     = self::normalize_url_for_matching($url);
 
         $escaped = preg_quote($normalized_pattern, '#');
-        $regex   = str_replace('\\{username\\}', '([^/?#&]+)', $escaped);
+        $regex   = str_replace('\\{username\\}', '([^/?\\#&]+)', $escaped);
 
         // \/?$ — allow optional trailing slash at URL end after the username
         if (!preg_match('#^' . $regex . '\/?$#i', $normalized_url, $matches)) {

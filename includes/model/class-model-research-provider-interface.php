@@ -39,6 +39,8 @@ interface ModelResearchProvider {
      *   bio?: string,
      *   platform_names?: string[],
      *   social_urls?: string[],
+     *   field_confidence?: array<string,int>,
+     *   research_diagnostics?: array<string,mixed>,
      *   country?: string,
      *   language?: string,
      *   source_urls?: string[],

@@ -2,19 +2,23 @@
 /**
  * TMW SEO Engine — DataForSEO SERP Model Research Provider
  *
- * Implements ModelResearchProvider using the DataForSEO SERP endpoint already
- * integrated into this plugin. No new API dependencies are introduced.
+ * Uses the existing DataForSEO SERP endpoint to discover candidate profile URLs,
+ * then gates trusted outputs on structured extraction via PlatformProfiles.
  *
- * TRUST CONTRACT (v4.6.4+):
- *   - platform_names  : extraction-gated — successful structured extraction required
- *   - social_urls     : extraction-gated — normalized_url from successful extraction only
- *   - confidence      : extraction-count-based only; no raw domain boosts
- *   - country         : always blank from this provider (TLD hints go to notes only)
- *   - source_urls     : filtered to evidence/profile pages only
+ * RESEARCH TRUST MODEL (v4.6.5):
+ *   - platform_names       : successful structured extractions only
+ *   - social_urls          : successful structured extractions only
+ *   - confidence           : extraction-backed + corroboration only
+ *   - country              : always blank from this provider
+ *   - source_urls          : filtered evidence pages only
+ *   - platform_candidates  : full audit trail of successful + rejected parses
+ *   - field_confidence     : per-field operator diagnostics
+ *   - research_diagnostics : query stats, source classes, hub expansion stats,
+ *                            discovered handles, and evidence samples
  *
  * @package TMWSEO\Engine\Model
  * @since   4.6.1
- * @updated 4.6.4 — extraction-gated outputs, strict domain matching, no TLD country autofill
+ * @updated 4.6.5 — hub expansion, query diagnostics, evidence ledger, safer source filtering
  */
 
 namespace TMWSEO\Engine\Model;
@@ -29,15 +33,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 final class ModelSerpResearchProvider implements ModelResearchProvider {
 
-    /**
-     * Platform domains used to identify CANDIDATE URLs for structured extraction.
-     * A domain match here means: "attempt extraction on this URL."
-     * It does NOT mean: "this model is on this platform."
-     * Only a successful PlatformProfiles::parse_url_for_platform_structured() result
-     * may contribute to platform_names or social_urls.
-     *
-     * @var array<string,string>
-     */
+    /** @var array<string,string> */
     private const KNOWN_PLATFORMS = [
         'chaturbate.com'     => 'Chaturbate',
         'stripchat.com'      => 'Stripchat',
@@ -67,14 +63,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         'xlovecam.com'       => 'XLoveCam',
     ];
 
-    /**
-     * Hub/link-aggregator domains. Candidate URLs from these are collected and
-     * attempted for extraction. Hub URLs that succeed (username extracted) may
-     * populate social_urls via their normalized_url. Unextractable hub URLs go
-     * into notes only — never into social_urls directly.
-     *
-     * @var array<string,string>
-     */
+    /** @var array<string,string> */
     private const KNOWN_HUBS = [
         'linktr.ee'      => 'Linktree',
         'allmylinks.com' => 'AllMyLinks',
@@ -83,13 +72,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         'carrd.co'       => 'Carrd',
     ];
 
-    /**
-     * TLD suffixes that loosely hint at country of origin.
-     * These are NEVER auto-populated into the country field.
-     * They appear in notes only so the operator can verify manually.
-     *
-     * @var array<string,string>
-     */
+    /** @var array<string,string> */
     private const TLD_COUNTRY_HINTS = [
         '.de' => 'Germany',
         '.fr' => 'France',
@@ -108,12 +91,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         '.hu' => 'Hungary',
     ];
 
-    /**
-     * URL path/query segments that indicate a listing/browse/search page.
-     * URLs containing any of these are excluded from source_urls.
-     *
-     * @var string[]
-     */
+    /** @var string[] */
     private const SOURCE_URL_BLOCKLIST_SEGMENTS = [
         '/search/', '/search?', '/results/', '/results?',
         '?q=',      '?s=',
@@ -130,9 +108,11 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         '/discover/', '/discover?',
     ];
 
-    // =========================================================================
-    // Public entrypoint
-    // =========================================================================
+    private const HUB_EXPANSION_CACHE_PREFIX = 'tmwseo_model_research_hub_';
+    private const HUB_EXPANSION_CACHE_TTL    = 43200; // 12 hours
+    private const MAX_HUB_PAGES              = 3;
+    private const MAX_HUB_LINKS_PER_PAGE     = 50;
+    private const MAX_EVIDENCE_ITEMS         = 16;
 
     public function provider_name(): string {
         return 'dataforseo_serp';
@@ -167,6 +147,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         $pack_results = $this->run_query_pack( $queries, $post_id );
         $succeeded    = $pack_results['succeeded'];
         $raw_items    = $pack_results['items'];
+        $query_stats  = $pack_results['query_stats'];
 
         if ( $succeeded === 0 ) {
             return [
@@ -189,6 +170,14 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
                 'platform_names'      => [],
                 'social_urls'         => [],
                 'platform_candidates' => [],
+                'field_confidence'    => [ 'platform_names' => 5, 'social_urls' => 5, 'bio' => 5, 'country' => 0, 'language' => 0, 'source_urls' => 5 ],
+                'research_diagnostics'=> [
+                    'query_stats'         => $query_stats,
+                    'source_class_counts' => [],
+                    'hub_expansion'       => [ 'attempted' => 0, 'expanded_profiles' => 0, 'fetch_failures' => 0, 'cached_hits' => 0 ],
+                    'discovered_handles'  => [],
+                    'evidence_items'      => [],
+                ],
                 'country'             => '',
                 'language'            => '',
                 'source_urls'         => [],
@@ -201,51 +190,75 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             ];
         }
 
-        return $this->parse_merged_items( $model_name, $merged, $succeeded, count( $queries ) );
+        return $this->parse_merged_items( $model_name, $merged, $succeeded, count( $queries ), $query_stats );
     }
 
-    // =========================================================================
-    // Query pack
-    // =========================================================================
-
-    /** @return string[] */
+    /**
+     * @return array<int,array{query:string,family:string}>
+     */
     private function build_query_pack( string $model_name ): array {
         return [
-            $model_name,
-            $model_name . ' cam model',
-            $model_name . ' webcam OR chaturbate OR livejasmin',
-            $model_name . ' fansly OR stripchat OR onlyfans',
+            [ 'query' => $model_name, 'family' => 'exact_name' ],
+            [ 'query' => $model_name . ' cam model', 'family' => 'niche_context' ],
+            [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin', 'family' => 'webcam_platform_discovery' ],
+            [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
+            [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
         ];
     }
 
     /**
-     * @param  string[] $queries
-     * @return array{succeeded:int,failed:int,last_error:string|null,items:array[]}
+     * @param  array<int,array{query:string,family:string}> $queries
+     * @return array{succeeded:int,failed:int,last_error:string|null,items:array[],query_stats:array[]}
      */
     private function run_query_pack( array $queries, int $post_id ): array {
-        $all_items  = [];
-        $succeeded  = 0;
-        $failed     = 0;
-        $last_error = null;
+        $all_items   = [];
+        $query_stats = [];
+        $succeeded   = 0;
+        $failed      = 0;
+        $last_error  = null;
 
-        foreach ( $queries as $idx => $query ) {
+        foreach ( $queries as $idx => $descriptor ) {
+            $query  = trim( (string) ( $descriptor['query'] ?? '' ) );
+            $family = trim( (string) ( $descriptor['family'] ?? 'generic' ) );
+            if ( $query === '' ) {
+                continue;
+            }
+
             $serp = DataForSEO::serp_live( $query, 20 );
             if ( empty( $serp['ok'] ) ) {
-                $last_error = (string) ( $serp['error'] ?? 'unknown_error' );
+                $last_error    = (string) ( $serp['error'] ?? 'unknown_error' );
                 $failed++;
+                $query_stats[] = [
+                    'family'       => $family,
+                    'query'        => $query,
+                    'ok'           => false,
+                    'result_count' => 0,
+                    'error'        => $last_error,
+                ];
                 Logs::warn( 'model_research', '[TMW-RESEARCH] SERP query failed — pack continues', [
                     'post_id'     => $post_id,
                     'query_index' => $idx,
+                    'query_family'=> $family,
                     'error'       => $last_error,
                 ] );
                 continue;
             }
+
             $items = (array) ( $serp['items'] ?? [] );
             $succeeded++;
+            $query_stats[] = [
+                'family'       => $family,
+                'query'        => $query,
+                'ok'           => true,
+                'result_count' => count( $items ),
+                'error'        => '',
+            ];
+
             foreach ( $items as $item ) {
-                $item['_query']       = $query;
-                $item['_query_index'] = $idx;
-                $all_items[]          = $item;
+                $item['_query']        = $query;
+                $item['_query_index']  = $idx;
+                $item['_query_family'] = $family;
+                $all_items[]           = $item;
             }
         }
 
@@ -254,25 +267,22 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'failed'     => $failed,
             'last_error' => $last_error,
             'items'      => $all_items,
+            'query_stats'=> $query_stats,
         ];
     }
-
-    // =========================================================================
-    // Merge + dedup
-    // =========================================================================
 
     /**
      * @param  array[] $raw_items
      * @return array{items:array[],domain_counts:array<string,int>}
      */
     private function merge_serp_items( array $raw_items ): array {
-        $seen_keys    = [];
-        $merged_items = [];
+        $seen_keys      = [];
+        $merged_items   = [];
         $domain_queries = [];
 
         foreach ( $raw_items as $item ) {
-            $url    = (string) ( $item['url']    ?? '' );
-            $domain = (string) ( $item['domain'] ?? '' );
+            $url    = (string) ( $item['url'] ?? '' );
+            $domain = strtolower( (string) ( $item['domain'] ?? '' ) );
             if ( $url === '' ) { continue; }
 
             $qi  = (int) ( $item['_query_index'] ?? 0 );
@@ -282,13 +292,14 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
                 $domain_queries[ $domain ][ $qi ] = true;
             }
             if ( isset( $seen_keys[ $key ] ) ) { continue; }
+
             $seen_keys[ $key ] = true;
             $merged_items[]    = $item;
         }
 
         $domain_counts = [];
-        foreach ( $domain_queries as $d => $qi_set ) {
-            $domain_counts[ $d ] = count( $qi_set );
+        foreach ( $domain_queries as $domain => $qi_set ) {
+            $domain_counts[ $domain ] = count( $qi_set );
         }
 
         return [ 'items' => $merged_items, 'domain_counts' => $domain_counts ];
@@ -297,77 +308,76 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
     private function normalize_result_key( string $url ): string {
         $parts = parse_url( $url );
         if ( ! is_array( $parts ) ) { return strtolower( $url ); }
-        $scheme = strtolower( $parts['scheme'] ?? 'https' );
-        $host   = strtolower( $parts['host']   ?? '' );
-        $path   = rtrim( $parts['path'] ?? '', '/' );
+        $scheme = strtolower( (string) ( $parts['scheme'] ?? 'https' ) );
+        $host   = strtolower( (string) ( $parts['host'] ?? '' ) );
+        $path   = rtrim( (string) ( $parts['path'] ?? '' ), '/' );
         return $scheme . '://' . $host . $path;
     }
 
-    // =========================================================================
-    // Core parser — extraction-gated (v4.6.4)
-    // =========================================================================
-
     /**
-     * Parse merged SERP pool into structured proposed-data fields.
-     *
-     * ORDER OF OPERATIONS:
-     *   1. Classify SERP items: collect candidate URLs + filter source_urls
-     *   2. Run structured extraction on all candidate URLs
-     *   3. Dedup platform_candidates (successful + rejected)
-     *   4. Derive platform_names from successful extractions only
-     *   5. Derive social_urls from successful hub/social extractions only
-     *   6. Derive confidence from extraction count only
-     *   7. Build notes (TLD hints, unextracted hubs, ambient signals)
-     *   8. Return same overall array shape as before
+     * @param array{items:array[],domain_counts:array<string,int>} $merged
+     * @param array<int,array<string,mixed>> $query_stats
      */
     private function parse_merged_items(
         string $model_name,
         array $merged,
         int $succeeded,
-        int $total_queries
+        int $total_queries,
+        array $query_stats
     ): array {
-        $items         = $merged['items'];
-        $domain_counts = $merged['domain_counts'];
+        $items         = (array) ( $merged['items'] ?? [] );
+        $domain_counts = (array) ( $merged['domain_counts'] ?? [] );
 
-        // ── STEP 1: Classify candidate URLs + collect filtered source_urls ────
-
-        $platform_cand_urls = []; // url => true
-        $hub_cand_urls      = []; // url => true
-        $source_urls_raw    = [];
-        $bio_snippets       = [];
-        $name_in_snippet    = 0;
-        $tld_hint_country   = '';
-        $tld_hint_domain    = '';
+        $platform_cand_urls  = [];
+        $hub_cand_urls       = [];
+        $source_urls_raw     = [];
+        $bio_snippets        = [];
+        $name_in_snippet     = 0;
+        $tld_hint_country    = '';
+        $tld_hint_domain     = '';
+        $source_class_counts = [];
+        $evidence_items      = [];
 
         foreach ( $items as $item ) {
-            $url     = (string) ( $item['url']      ?? '' );
-            $domain  = (string) ( $item['domain']   ?? '' );
-            $snippet = (string) ( $item['snippet']  ?? '' );
-            $pos     = (int)    ( $item['position'] ?? 99 );
+            $url         = (string) ( $item['url'] ?? '' );
+            $domain      = strtolower( (string) ( $item['domain'] ?? '' ) );
+            $snippet     = (string) ( $item['snippet'] ?? '' );
+            $pos         = (int) ( $item['position'] ?? 99 );
+            $query_family= (string) ( $item['_query_family'] ?? '' );
 
             if ( $url === '' ) { continue; }
 
-            // Name-in-snippet counter
+            $source_class = $this->classify_source_url( $url, $domain );
+            $source_class_counts[ $source_class ] = (int) ( $source_class_counts[ $source_class ] ?? 0 ) + 1;
+
+            $is_platform_candidate = $this->match_domain_label_strict( $domain, self::KNOWN_PLATFORMS ) !== '';
+            $is_hub_candidate      = $this->match_domain_label_strict( $domain, self::KNOWN_HUBS ) !== '';
+
+            if ( count( $evidence_items ) < self::MAX_EVIDENCE_ITEMS ) {
+                $evidence_items[] = [
+                    'url'          => $url,
+                    'class'        => $source_class,
+                    'query_family' => $query_family,
+                    'position'     => $pos,
+                    'candidate'    => $is_platform_candidate ? 'platform' : ( $is_hub_candidate ? 'hub' : '' ),
+                ];
+            }
+
             if ( $snippet !== '' && stripos( $snippet, $model_name ) !== false ) {
                 $name_in_snippet++;
             }
 
-            // Source URL quality gate
             if ( $this->is_evidence_url( $url ) ) {
                 $source_urls_raw[] = $url;
             }
 
-            // Platform candidate (strict match only)
-            if ( $this->match_domain_label_strict( $domain, self::KNOWN_PLATFORMS ) !== '' ) {
+            if ( $is_platform_candidate ) {
                 $platform_cand_urls[ $url ] = true;
             }
-
-            // Hub candidate (strict match only)
-            if ( $this->match_domain_label_strict( $domain, self::KNOWN_HUBS ) !== '' ) {
+            if ( $is_hub_candidate ) {
                 $hub_cand_urls[ $url ] = true;
             }
 
-            // Bio snippet
             if (
                 $snippet !== '' &&
                 stripos( $snippet, $model_name ) !== false &&
@@ -377,7 +387,6 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
                 $bio_snippets[ $pos ] = $snippet;
             }
 
-            // TLD country hint — notes ONLY, never fills country field
             if ( $tld_hint_country === '' && $domain !== '' ) {
                 foreach ( self::TLD_COUNTRY_HINTS as $tld => $country ) {
                     if ( substr( $domain, -strlen( $tld ) ) === $tld ) {
@@ -390,58 +399,90 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         }
 
         Logs::info( 'model_research', '[TMW-RESEARCH] Candidate URL classification complete', [
-            'model_name'         => $model_name,
-            'platform_cand_count'=> count( $platform_cand_urls ),
-            'hub_cand_count'     => count( $hub_cand_urls ),
+            'model_name'          => $model_name,
+            'platform_cand_count' => count( $platform_cand_urls ),
+            'hub_cand_count'      => count( $hub_cand_urls ),
+            'source_classes'      => $source_class_counts,
         ] );
 
-        // ── STEP 2: Run structured extraction on all candidate URLs ───────────
+        $hub_stats = [
+            'attempted'         => 0,
+            'expanded_profiles' => 0,
+            'fetch_failures'    => 0,
+            'cached_hits'       => 0,
+        ];
+        $hub_expanded_map = [];
+        $hub_pages_seen   = 0;
 
-        $all_candidate_urls = array_keys( $platform_cand_urls + $hub_cand_urls );
-        $raw_candidates     = [];
+        foreach ( array_keys( $hub_cand_urls ) as $hub_url ) {
+            if ( $hub_pages_seen >= self::MAX_HUB_PAGES ) {
+                break;
+            }
+            $hub_pages_seen++;
+            $expanded_urls = $this->expand_hub_candidate_urls( $hub_url, $hub_stats );
+            foreach ( $expanded_urls as $expanded_url ) {
+                $hub_expanded_map[ $expanded_url ] = $hub_url;
+                if ( $this->is_evidence_url( $expanded_url ) ) {
+                    $source_urls_raw[] = $expanded_url;
+                }
+                if ( count( $evidence_items ) < self::MAX_EVIDENCE_ITEMS ) {
+                    $evidence_items[] = [
+                        'url'          => $expanded_url,
+                        'class'        => 'expanded_profile',
+                        'query_family' => 'hub_expansion',
+                        'position'     => 0,
+                        'candidate'    => 'expanded',
+                    ];
+                }
+            }
+        }
 
+        $all_candidate_urls_map = $platform_cand_urls + $hub_cand_urls;
+        foreach ( array_keys( $hub_expanded_map ) as $expanded_url ) {
+            $all_candidate_urls_map[ $expanded_url ] = true;
+        }
+        $all_candidate_urls = array_keys( $all_candidate_urls_map );
+
+        $raw_candidates = [];
         foreach ( $all_candidate_urls as $candidate_url ) {
             foreach ( PlatformRegistry::get_slugs() as $slug ) {
                 $result = PlatformProfiles::parse_url_for_platform_structured( $slug, $candidate_url );
                 if ( $result['reject_reason'] === 'host_mismatch' ) { continue; }
-                $raw_candidates[] = array_merge( [ 'source_url' => $candidate_url ], $result );
+                $row = array_merge( [ 'source_url' => $candidate_url ], $result );
+                if ( isset( $hub_expanded_map[ $candidate_url ] ) ) {
+                    $row['discovered_via_hub'] = (string) $hub_expanded_map[ $candidate_url ];
+                }
+                $raw_candidates[] = $row;
             }
         }
-
-        // ── STEP 3: Dedup platform_candidates ────────────────────────────────
 
         $seen_ck             = [];
         $platform_candidates = [];
-
-        foreach ( $raw_candidates as $c ) {
-            $ck = ! empty( $c['success'] )
-                ? 'ok|'  . ( $c['normalized_platform'] ?? '' ) . '|' . ( $c['username']     ?? '' )
-                : 'rej|' . ( $c['normalized_platform'] ?? '' ) . '|' . ( $c['reject_reason'] ?? '' ) . '|' . ( $c['source_url'] ?? '' );
-
-            if ( ! isset( $seen_ck[ $ck ] ) ) {
-                $seen_ck[ $ck ]        = true;
-                $platform_candidates[] = $c;
-            }
+        foreach ( $raw_candidates as $candidate ) {
+            $ck = ! empty( $candidate['success'] )
+                ? 'ok|' . ( $candidate['normalized_platform'] ?? '' ) . '|' . ( $candidate['username'] ?? '' )
+                : 'rej|' . ( $candidate['normalized_platform'] ?? '' ) . '|' . ( $candidate['reject_reason'] ?? '' ) . '|' . ( $candidate['source_url'] ?? '' );
+            if ( isset( $seen_ck[ $ck ] ) ) { continue; }
+            $seen_ck[ $ck ]        = true;
+            $platform_candidates[] = $candidate;
         }
 
         $successful = array_values( array_filter( $platform_candidates, static fn( $c ) => ! empty( $c['success'] ) ) );
-        $rejected   = array_values( array_filter( $platform_candidates, static fn( $c ) =>   empty( $c['success'] ) ) );
+        $rejected   = array_values( array_filter( $platform_candidates, static fn( $c ) => empty( $c['success'] ) ) );
 
         Logs::info( 'model_research', '[TMW-RESEARCH] Structured extraction complete', [
-            'model_name'  => $model_name,
-            'successful'  => count( $successful ),
-            'rejected'    => count( $rejected ),
+            'model_name' => $model_name,
+            'successful' => count( $successful ),
+            'rejected'   => count( $rejected ),
         ] );
 
-        // ── STEP 4: platform_names — from successful extractions only ─────────
-
         $platforms_by_slug = [];
-        foreach ( $successful as $c ) {
-            $slug = (string) ( $c['normalized_platform'] ?? '' );
+        foreach ( $successful as $candidate ) {
+            $slug = (string) ( $candidate['normalized_platform'] ?? '' );
             if ( $slug === '' || isset( $platforms_by_slug[ $slug ] ) ) { continue; }
-            $pd = PlatformRegistry::get( $slug );
-            $platforms_by_slug[ $slug ] = is_array( $pd )
-                ? (string) ( $pd['name'] ?? ucfirst( $slug ) )
+            $platform_data = PlatformRegistry::get( $slug );
+            $platforms_by_slug[ $slug ] = is_array( $platform_data )
+                ? (string) ( $platform_data['name'] ?? ucfirst( $slug ) )
                 : ucfirst( str_replace( '_', ' ', $slug ) );
         }
         $platform_names = array_values( $platforms_by_slug );
@@ -451,56 +492,40 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'platform_names' => $platform_names,
         ] );
 
-        // ── STEP 5: social_urls — hub/social platforms, successful extractions ─
-        //
-        // Hub slugs are those whose profile_url_pattern host matches a KNOWN_HUB
-        // domain. Fansly is also included as it serves as both a cam platform
-        // and a creator/social link.
-
-        $hub_slugs = $this->resolve_hub_slugs();
-
+        $hub_slugs   = $this->resolve_hub_slugs();
         $social_urls = [];
-        foreach ( $successful as $c ) {
-            $slug     = (string) ( $c['normalized_platform'] ?? '' );
-            $norm_url = trim( (string) ( $c['normalized_url'] ?? '' ) );
-            if ( ( isset( $hub_slugs[ $slug ] ) || $slug === 'fansly' ) && $norm_url !== '' ) {
+        foreach ( $successful as $candidate ) {
+            $slug     = (string) ( $candidate['normalized_platform'] ?? '' );
+            $norm_url = trim( (string) ( $candidate['normalized_url'] ?? '' ) );
+            if ( $norm_url === '' ) { continue; }
+            if ( isset( $hub_slugs[ $slug ] ) || $slug === 'fansly' ) {
                 $social_urls[] = $norm_url;
             }
         }
         $social_urls = array_values( array_unique( $social_urls ) );
 
-        // ── STEP 6: confidence — extraction-count based only ──────────────────
-
         $n_ext      = count( $successful );
-        $confidence = match( true ) {
+        $confidence = match ( true ) {
             $n_ext === 0 => 5,
             $n_ext === 1 => 25,
             $n_ext === 2 => 45,
             default      => 60,
         };
 
-        // +5 corroboration bonus if a successful-extraction domain appeared in 2+ queries
         $corroborated = [];
-        foreach ( $successful as $c ) {
-            $src    = (string) ( $c['source_url'] ?? '' );
-            $d      = strtolower( (string) ( parse_url( $src, PHP_URL_HOST ) ?? '' ) );
-            $d      = (string) preg_replace( '/^www\./', '', $d );
-            if ( $d !== '' && ! isset( $corroborated[ $d ] ) ) {
-                if ( isset( $domain_counts[ $d ] ) && $domain_counts[ $d ] >= 2 ) {
-                    $confidence        += 5;
-                    $corroborated[ $d ] = true;
-                }
+        foreach ( $successful as $candidate ) {
+            $src = strtolower( (string) ( parse_url( (string) ( $candidate['source_url'] ?? '' ), PHP_URL_HOST ) ?? '' ) );
+            $src = (string) preg_replace( '/^www\./', '', $src );
+            if ( $src !== '' && ! isset( $corroborated[ $src ] ) && (int) ( $domain_counts[ $src ] ?? 0 ) >= 2 ) {
+                $confidence += 5;
+                $corroborated[ $src ] = true;
             }
         }
 
-        // +5 snippet identity bonus — only if at least one extraction succeeded
         if ( $n_ext > 0 && $name_in_snippet >= 3 ) {
             $confidence += 5;
         }
-
         $confidence = min( 90, $confidence );
-
-        // ── STEP 7: source_urls — filtered ────────────────────────────────────
 
         $source_urls = array_values( array_slice( array_unique( $source_urls_raw ), 0, 20 ) );
 
@@ -510,17 +535,22 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'raw_count'   => count( $source_urls_raw ),
         ] );
 
-        // ── STEP 8: Bio ───────────────────────────────────────────────────────
-
         ksort( $bio_snippets );
         $bio = ! empty( $bio_snippets ) ? trim( (string) reset( $bio_snippets ) ) : '';
 
-        // ── STEP 9: Notes ─────────────────────────────────────────────────────
+        $discovered_handles = [];
+        foreach ( $successful as $candidate ) {
+            $handle = trim( (string) ( $candidate['username'] ?? '' ) );
+            if ( $handle === '' ) { continue; }
+            $discovered_handles[] = $handle;
+        }
+        $discovered_handles = array_values( array_unique( $discovered_handles ) );
+
+        $field_confidence = $this->build_field_confidence( $confidence, count( $social_urls ), $bio !== '', count( $source_urls ) );
 
         $notes_parts = [];
-
-        $pack_note = sprintf( 'Multi-query pack: %d/%d queries succeeded.', $succeeded, $total_queries );
-        $failed_n  = $total_queries - $succeeded;
+        $pack_note   = sprintf( 'Multi-query pack: %d/%d queries succeeded.', $succeeded, $total_queries );
+        $failed_n    = $total_queries - $succeeded;
         if ( $failed_n > 0 ) {
             $pack_note .= sprintf( ' %d failed (results may be partial).', $failed_n );
         }
@@ -532,6 +562,14 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             count( $rejected ),
             count( $all_candidate_urls )
         );
+
+        if ( $hub_stats['attempted'] > 0 ) {
+            $notes_parts[] = sprintf(
+                'Hub expansion: %d hub page(s) checked, %d supported outbound profile URL(s) found.',
+                (int) $hub_stats['attempted'],
+                (int) $hub_stats['expanded_profiles']
+            );
+        }
 
         if ( $tld_hint_country !== '' ) {
             $notes_parts[] = sprintf(
@@ -545,19 +583,19 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             $notes_parts[] = sprintf( 'Model name in %d SERP snippet(s).', $name_in_snippet );
         }
 
-        // Hub URLs that were detected but not extracted -> notes for operator review
         $unextracted_hubs = array_filter(
             array_keys( $hub_cand_urls ),
-            function( $u ) use ( $successful ) {
-                foreach ( $successful as $c ) {
-                    if ( (string) ( $c['source_url'] ?? '' ) === $u ) { return false; }
+            static function ( string $url ) use ( $successful ): bool {
+                foreach ( $successful as $candidate ) {
+                    if ( (string) ( $candidate['source_url'] ?? '' ) === $url ) {
+                        return false;
+                    }
                 }
                 return true;
             }
         );
         if ( ! empty( $unextracted_hubs ) ) {
-            $notes_parts[] = 'Hub URLs found but unextractable (review manually): '
-                . implode( ', ', array_values( $unextracted_hubs ) );
+            $notes_parts[] = 'Hub URLs found but unextractable (review manually): ' . implode( ', ', array_values( $unextracted_hubs ) );
         }
 
         if ( $bio === '' ) {
@@ -565,6 +603,14 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         }
 
         $notes = implode( ' | ', array_filter( $notes_parts ) );
+
+        $research_diagnostics = [
+            'query_stats'         => $query_stats,
+            'source_class_counts' => $source_class_counts,
+            'hub_expansion'       => $hub_stats,
+            'discovered_handles'  => $discovered_handles,
+            'evidence_items'      => $evidence_items,
+        ];
 
         Logs::info( 'model_research', '[TMW-RESEARCH] Research result finalized', [
             'model_name'   => $model_name,
@@ -575,24 +621,22 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         ] );
 
         return [
-            'status'              => 'ok',
-            'display_name'        => $model_name,
-            'aliases'             => [],
-            'bio'                 => $bio,
-            'platform_names'      => $platform_names,
-            'social_urls'         => $social_urls,
-            'platform_candidates' => $platform_candidates,
-            'country'             => '', // always blank — TLD hints in notes only
-            'language'            => '',
-            'source_urls'         => $source_urls,
-            'confidence'          => $confidence,
-            'notes'               => $notes,
+            'status'               => 'ok',
+            'display_name'         => $model_name,
+            'aliases'              => [],
+            'bio'                  => $bio,
+            'platform_names'       => $platform_names,
+            'social_urls'          => $social_urls,
+            'platform_candidates'  => $platform_candidates,
+            'field_confidence'     => $field_confidence,
+            'research_diagnostics' => $research_diagnostics,
+            'country'              => '',
+            'language'             => '',
+            'source_urls'          => $source_urls,
+            'confidence'           => $confidence,
+            'notes'                => $notes,
         ];
     }
-
-    // =========================================================================
-    // Self-registration
-    // =========================================================================
 
     public static function maybe_register(): void {
         add_filter( 'tmwseo_research_providers', static function ( array $providers ): array {
@@ -603,25 +647,12 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         } );
     }
 
-    // =========================================================================
-    // Domain matching — strict only, no substring matching
-    // =========================================================================
-
     /**
-     * Match $domain against $map using STRICT equality or true-subdomain suffix.
-     *
-     * Rules (both sides lowercased, www. stripped):
-     *   $domain === $needle                       (exact match)
-     *   str_ends_with($domain, '.' . $needle)     (true subdomain)
-     *
-     * This eliminates all strpos substring collision bugs, e.g.:
-     *   xcams.com   DOES NOT match cams.com   (was a false positive)
-     *   olecams.com DOES NOT match cams.com   (was a false positive)
-     *   bongacams.com DOES NOT match cams.com (was a false positive)
+     * Match $domain against $map using strict equality or true-subdomain suffix.
      *
      * @param  string               $domain
      * @param  array<string,string> $map
-     * @return string  Matched label, or '' if no match
+     * @return string
      */
     private function match_domain_label_strict( string $domain, array $map ): string {
         $domain = strtolower( (string) preg_replace( '/^www\./', '', $domain ) );
@@ -634,53 +665,318 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         return '';
     }
 
-    // =========================================================================
-    // Source URL quality filter
-    // =========================================================================
+    private function classify_source_url( string $url, string $domain = '' ): string {
+        if ( $url === '' ) { return 'empty'; }
 
-    /**
-     * Return true if $url is likely a model-profile / evidence page.
-     * Return false for search pages, tag/category listings, browse pages, etc.
-     */
-    private function is_evidence_url( string $url ): bool {
-        if ( $url === '' ) { return false; }
-        $lower = strtolower( $url );
-        foreach ( self::SOURCE_URL_BLOCKLIST_SEGMENTS as $seg ) {
-            if ( strpos( $lower, $seg ) !== false ) { return false; }
+        $host = $domain !== ''
+            ? strtolower( (string) preg_replace( '/^www\./', '', $domain ) )
+            : strtolower( (string) preg_replace( '/^www\./', '', (string) ( parse_url( $url, PHP_URL_HOST ) ?? '' ) ) );
+
+        if ( $this->match_domain_label_strict( $host, self::KNOWN_HUBS ) !== '' ) {
+            return 'hub_profile';
         }
-        return true;
+
+        if ( $this->has_supported_profile_extraction( $url ) ) {
+            return 'platform_profile';
+        }
+
+        $lower = strtolower( $url );
+        if (
+            strpos( $lower, '/search/' ) !== false ||
+            strpos( $lower, '/results/' ) !== false ||
+            strpos( $lower, '?q=' ) !== false ||
+            strpos( $lower, '?s=' ) !== false
+        ) {
+            return 'search';
+        }
+
+        foreach ( [ '/tag/', '/tags/', '/category/', '/categories/', '/performers/', '/browse/', '/directory/', '/models/', '/explore/', '/discover/', '/feed/' ] as $segment ) {
+            if ( strpos( $lower, $segment ) !== false ) {
+                return 'listing';
+            }
+        }
+
+        foreach ( [ '/blog/', '/blogs/', '/news/', '/article', '/articles/', '/wiki/' ] as $segment ) {
+            if ( strpos( $lower, $segment ) !== false ) {
+                return 'article';
+            }
+        }
+
+        return 'other';
     }
 
-    // =========================================================================
-    // Hub slug resolution
-    // =========================================================================
+    private function is_evidence_url( string $url ): bool {
+        static $cache = [];
+        if ( isset( $cache[ $url ] ) ) {
+            return $cache[ $url ];
+        }
+
+        if ( $url === '' ) {
+            return $cache[ $url ] = false;
+        }
+
+        if ( $this->has_supported_profile_extraction( $url ) ) {
+            return $cache[ $url ] = true;
+        }
+
+        $lower = strtolower( $url );
+        foreach ( self::SOURCE_URL_BLOCKLIST_SEGMENTS as $segment ) {
+            if ( strpos( $lower, $segment ) !== false ) {
+                return $cache[ $url ] = false;
+            }
+        }
+
+        return $cache[ $url ] = true;
+    }
+
+    private function has_supported_profile_extraction( string $url ): bool {
+        static $cache = [];
+        if ( isset( $cache[ $url ] ) ) {
+            return $cache[ $url ];
+        }
+
+        foreach ( PlatformRegistry::get_slugs() as $slug ) {
+            $parsed = PlatformProfiles::parse_url_for_platform_structured( $slug, $url );
+            if ( ! empty( $parsed['success'] ) ) {
+                return $cache[ $url ] = true;
+            }
+        }
+
+        return $cache[ $url ] = false;
+    }
 
     /**
-     * Build a map of PlatformRegistry slugs whose canonical profile_url_pattern
-     * host matches one of the KNOWN_HUB domains.
-     * Used to decide which successful extractions belong in social_urls.
-     *
-     * @return array<string,true>  slug => true
+     * @param array<string,int> $stats
+     * @return string[]
      */
-    private function resolve_hub_slugs(): array {
+    private function expand_hub_candidate_urls( string $hub_url, array &$stats ): array {
+        $cache_key = self::HUB_EXPANSION_CACHE_PREFIX . md5( $hub_url );
+        $cached    = get_transient( $cache_key );
+        if ( is_array( $cached ) ) {
+            $stats['attempted']++;
+            $stats['cached_hits']++;
+            $stats['expanded_profiles'] += count( $cached );
+            return array_values( array_unique( array_map( 'strval', $cached ) ) );
+        }
+
+        $stats['attempted']++;
+
+        if ( ! function_exists( 'wp_remote_get' ) || ! function_exists( 'wp_remote_retrieve_body' ) ) {
+            $stats['fetch_failures']++;
+            return [];
+        }
+
+        $response = wp_remote_get( $hub_url, [
+            'timeout'     => 12,
+            'redirection' => 4,
+            'user-agent'  => 'TMW SEO Engine/' . ( defined( 'TMWSEO_ENGINE_VERSION' ) ? TMWSEO_ENGINE_VERSION : 'dev' ) . ' ModelResearch HubExpansion',
+        ] );
+        if ( is_wp_error( $response ) ) {
+            $stats['fetch_failures']++;
+            return [];
+        }
+
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( $body === '' ) {
+            $stats['fetch_failures']++;
+            return [];
+        }
+
+        $links    = $this->extract_absolute_links_from_html( $hub_url, $body );
+        $filtered = [];
+        foreach ( $links as $link ) {
+            if ( count( $filtered ) >= self::MAX_HUB_LINKS_PER_PAGE ) {
+                break;
+            }
+            if ( $link === $hub_url ) {
+                continue;
+            }
+            if ( $this->url_matches_supported_host( $link ) ) {
+                $filtered[] = $link;
+            }
+        }
+
+        $filtered = array_values( array_unique( $filtered ) );
+        set_transient( $cache_key, $filtered, self::HUB_EXPANSION_CACHE_TTL );
+        $stats['expanded_profiles'] += count( $filtered );
+
+        Logs::info( 'model_research', '[TMW-RESEARCH] Hub expansion completed', [
+            'hub_url'          => $hub_url,
+            'expanded_count'   => count( $filtered ),
+            'raw_link_count'   => count( $links ),
+        ] );
+
+        return $filtered;
+    }
+
+    /**
+     * @return string[]
+     */
+    private function extract_absolute_links_from_html( string $base_url, string $html ): array {
+        $links = [];
+
+        if ( class_exists( '\\DOMDocument' ) ) {
+            $dom = new \DOMDocument();
+            $prev = libxml_use_internal_errors( true );
+            $loaded = $dom->loadHTML( $html );
+            libxml_clear_errors();
+            libxml_use_internal_errors( $prev );
+            if ( $loaded ) {
+                foreach ( $dom->getElementsByTagName( 'a' ) as $anchor ) {
+                    $href = trim( (string) $anchor->getAttribute( 'href' ) );
+                    $absolute = $this->normalize_link_candidate( $href, $base_url );
+                    if ( $absolute !== '' ) {
+                        $links[] = $absolute;
+                    }
+                }
+            }
+        }
+
+        if ( empty( $links ) && preg_match_all( '/href\s*=\s*(["\'])(.*?)\1/i', $html, $matches ) ) {
+            foreach ( (array) ( $matches[2] ?? [] ) as $href ) {
+                $absolute = $this->normalize_link_candidate( trim( (string) $href ), $base_url );
+                if ( $absolute !== '' ) {
+                    $links[] = $absolute;
+                }
+            }
+        }
+
+        return array_values( array_unique( $links ) );
+    }
+
+    private function normalize_link_candidate( string $href, string $base_url ): string {
+        $href = trim( html_entity_decode( $href, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+        if ( $href === '' ) {
+            return '';
+        }
+
+        foreach ( [ '#', 'mailto:', 'tel:', 'javascript:' ] as $prefix ) {
+            if ( str_starts_with( strtolower( $href ), $prefix ) ) {
+                return '';
+            }
+        }
+
+        if ( str_starts_with( $href, '//' ) ) {
+            $href = 'https:' . $href;
+        } elseif ( ! preg_match( '#^[a-z][a-z0-9+.-]*://#i', $href ) ) {
+            $parts = wp_parse_url( $base_url );
+            if ( ! is_array( $parts ) ) {
+                return '';
+            }
+            $scheme = (string) ( $parts['scheme'] ?? 'https' );
+            $host   = (string) ( $parts['host'] ?? '' );
+            if ( $host === '' ) {
+                return '';
+            }
+            if ( str_starts_with( $href, '/' ) ) {
+                $href = $scheme . '://' . $host . $href;
+            } else {
+                $base_path = (string) ( $parts['path'] ?? '/' );
+                $base_dir  = rtrim( str_replace( '\\', '/', dirname( $base_path ) ), '/' );
+                if ( $base_dir === '.' ) {
+                    $base_dir = '';
+                }
+                $href = $scheme . '://' . $host . ( $base_dir !== '' ? $base_dir : '' ) . '/' . ltrim( $href, './' );
+            }
+        }
+
+        if ( ! filter_var( $href, FILTER_VALIDATE_URL ) ) {
+            return '';
+        }
+
+        return $href;
+    }
+
+    private function url_matches_supported_host( string $url ): bool {
+        $host = strtolower( (string) ( parse_url( $url, PHP_URL_HOST ) ?? '' ) );
+        $host = (string) preg_replace( '/^www\./', '', $host );
+        if ( $host === '' ) {
+            return false;
+        }
+
+        foreach ( $this->get_supported_hosts() as $supported_host ) {
+            if ( $host === $supported_host || str_ends_with( $host, '.' . $supported_host ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return string[] */
+    private function get_supported_hosts(): array {
         static $cache = null;
-        if ( $cache !== null ) { return $cache; }
+        if ( $cache !== null ) {
+            return $cache;
+        }
 
         $cache = [];
         foreach ( PlatformRegistry::get_slugs() as $slug ) {
-            $pd = PlatformRegistry::get( $slug );
-            if ( ! is_array( $pd ) ) { continue; }
-            $pattern = (string) ( $pd['profile_url_pattern'] ?? '' );
+            $platform_data = PlatformRegistry::get( $slug );
+            if ( ! is_array( $platform_data ) ) {
+                continue;
+            }
+            $pattern = (string) ( $platform_data['profile_url_pattern'] ?? '' );
+            $host    = strtolower( (string) ( parse_url( $pattern, PHP_URL_HOST ) ?? '' ) );
+            $host    = (string) preg_replace( '/^www\./', '', $host );
+            if ( $host !== '' ) {
+                $cache[] = $host;
+            }
+        }
+
+        $cache = array_values( array_unique( $cache ) );
+        return $cache;
+    }
+
+    /** @return array<string,int> */
+    private function build_field_confidence( int $platform_confidence, int $social_count, bool $has_bio, int $source_count ): array {
+        $social_confidence = match ( true ) {
+            $social_count === 0 => 5,
+            $social_count === 1 => 25,
+            $social_count === 2 => 45,
+            default             => 60,
+        };
+
+        $source_confidence = match ( true ) {
+            $source_count === 0 => 5,
+            $source_count <= 2  => 20,
+            $source_count <= 5  => 35,
+            default             => 50,
+        };
+
+        return [
+            'platform_names' => $platform_confidence,
+            'social_urls'    => $social_confidence,
+            'bio'            => $has_bio ? 35 : 5,
+            'country'        => 0,
+            'language'       => 0,
+            'source_urls'    => $source_confidence,
+        ];
+    }
+
+    /** @return array<string,true> */
+    private function resolve_hub_slugs(): array {
+        static $cache = null;
+        if ( $cache !== null ) {
+            return $cache;
+        }
+
+        $cache = [];
+        foreach ( PlatformRegistry::get_slugs() as $slug ) {
+            $platform_data = PlatformRegistry::get( $slug );
+            if ( ! is_array( $platform_data ) ) { continue; }
+            $pattern = (string) ( $platform_data['profile_url_pattern'] ?? '' );
             if ( $pattern === '' ) { continue; }
-            $p_host = strtolower( (string) ( parse_url( $pattern, PHP_URL_HOST ) ?? '' ) );
-            $p_host = (string) preg_replace( '/^www\./', '', $p_host );
+            $host = strtolower( (string) ( parse_url( $pattern, PHP_URL_HOST ) ?? '' ) );
+            $host = (string) preg_replace( '/^www\./', '', $host );
             foreach ( array_keys( self::KNOWN_HUBS ) as $hub_domain ) {
-                if ( $p_host === $hub_domain || str_ends_with( $p_host, '.' . $hub_domain ) ) {
+                if ( $host === $hub_domain || str_ends_with( $host, '.' . $hub_domain ) ) {
                     $cache[ $slug ] = true;
                     break;
                 }
             }
         }
+
         return $cache;
     }
 }

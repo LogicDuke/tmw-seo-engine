@@ -1,5 +1,29 @@
 # TMW SEO Engine — Changelog
 
+## 4.6.5 — Research Intelligence Pass (2026-04-14)
+
+### Model Research Improvements
+
+- **`includes/model/class-model-serp-research-provider.php`**
+- Added a dedicated **hub discovery query family** to surface Linktree / Beacons / AllMyLinks / solo.to / Carrd results earlier in the SERP pack.
+- Added **hub expansion**: detected hub pages are fetched, outbound links are extracted, matched against supported platform hosts, and fed back into structured extraction. This improves recovery of real profile URLs without lowering trust gates.
+- Added **research diagnostics** to the provider output: query coverage stats, source-class counts, hub-expansion stats, discovered handles, and evidence samples.
+- Added **field-level confidence diagnostics** so operators can distinguish strong platform evidence from weaker bio/source signals.
+- Improved **source URL filtering** so supported profile URLs are preserved even when their path contains segments like `/cams/` that would otherwise look like listings.
+- Fixed a **platform parser regex delimiter bug** so structured extraction no longer emits warnings when evaluating patterns that include `#` characters (for example `myfreecams`).
+
+### Admin Review UX
+
+- **`includes/admin/class-model-helper.php`**
+- Proposed-data review now renders a dedicated **Research Diagnostics** panel with query coverage, source classes, hub-expansion stats, discovered handles, evidence samples, and per-field confidence.
+
+### Test & Release Hygiene
+
+- **`tests/ModelSerpResearchProviderTest.php`** repaired to test the real final provider via `ReflectionClass` instead of subclassing a `final` class and calling `private` methods directly.
+- Version synchronized to **`4.6.5`** across plugin header, constant, README, PHPUnit activation assertions, and bootstrap stubs.
+
+---
+
 ## 4.6.4 — Research Precision Hotfix (2026-04-14)
 
 ### Bug Fixes & Safety Hardening
