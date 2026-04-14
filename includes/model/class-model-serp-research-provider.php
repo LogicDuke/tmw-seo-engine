@@ -125,8 +125,9 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * ~15 external HTTP requests. At 2-3 s each that exceeds Cloudflare's
      * 100 s proxy timeout in the worst case, and commonly trips 30 s host limits.
      *
-     * These constants reduce the synchronous budget to 3 external calls max.
-     * Restore full depth/pass-two once a background/async research path exists.
+     * These constants keep the synchronous budget bounded enough to avoid
+     * gateway timeouts while preserving key discovery lanes. Pass two and hub
+     * fetches stay disabled until a background/async research path exists.
      *
      * @see TMWSEO-TIMEOUT-FIX
      */
@@ -298,13 +299,17 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @return array<int,array{query:string,family:string}>
      */
     private function build_query_pack( string $model_name ): array {
-        // TMWSEO-TIMEOUT-FIX: reduced from 6 to 3 queries for synchronous path.
-        // Removed temporarily: niche_context, webcam_platform_discovery, social_discovery.
-        // Restore all 6 once research runs in a background job.
+        // Balanced synchronous pack: restore the highest-value discovery lanes
+        // from 4.6.5 while keeping the request budget bounded.
+        // Kept: exact_name, webcam_platform_discovery, creator_platform_discovery,
+        // hub_discovery, social_discovery.
+        // Deferred for async/background mode: niche_context and pass-two confirmation.
         return [
             [ 'query' => $model_name, 'family' => 'exact_name' ],
+            [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin OR camsoda', 'family' => 'webcam_platform_discovery' ],
             [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
             [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
+            [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
         ];
     }
 
