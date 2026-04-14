@@ -225,6 +225,9 @@ if (!function_exists('wp_remote_post'))       { function wp_remote_post(string $
 if (!function_exists('wp_date'))              { function wp_date(string $fmt, int $ts = null): string { return gmdate($fmt, $ts); } }
 if (!function_exists('wp_unslash'))           { function wp_unslash($v) { return is_string($v) ? stripslashes($v) : $v; } }
 if (!function_exists('wp_kses_post'))         { function wp_kses_post(string $s): string { return strip_tags($s, '<a><strong><em><p>'); } }
+if (!function_exists('wp_parse_url'))         { function wp_parse_url(string $url, int $component = -1) { return parse_url($url, $component); } }
+if (!function_exists('sanitize_title_with_dashes')) { function sanitize_title_with_dashes(string $title): string { return strtolower(preg_replace('/[^a-zA-Z0-9-]/', '-', $title)); } }
+if (!function_exists('wp_trim_words'))        { function wp_trim_words(string $text, int $num_words = 55, string $more = '&hellip;'): string { $words = explode(' ', $text); if (count($words) <= $num_words) { return $text; } return implode(' ', array_slice($words, 0, $num_words)) . $more; } }
 
 // ── v5.1.1: New handler classes (required for Admin class to load) ─────────────
 // Admin class has `use` statements for these; PHP needs them resolvable at parse time.

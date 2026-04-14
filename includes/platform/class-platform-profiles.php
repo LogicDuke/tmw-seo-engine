@@ -77,7 +77,7 @@ class PlatformProfiles {
 
         self::sync_to_table($post_id);
 
-        Logs::info('platform', 'Saved platform profiles', ['model_id' => $post_id]);
+        Logs::info('platform', '[TMW-PLATFORM] Saved platform profiles', ['model_id' => $post_id]);
     }
 
 
@@ -251,24 +251,303 @@ class PlatformProfiles {
         return $username;
     }
 
+    public static function extract_username_from_profile_url(string $platform, string $url): string {
+        return self::extract_username_from_url($platform, $url);
+    }
+
+    /**
+     * Parse a profile URL and return a structured parse-audit result.
+     *
+     * Always returns an array with all five keys regardless of outcome.
+     *
+     * @return array{
+     *   success: bool,
+     *   username: string,
+     *   normalized_platform: string,
+     *   normalized_url: string,
+     *   reject_reason: string,
+     * }
+     */
+    public static function parse_url_for_platform_structured(string $platform, string $url): array {
+        $base = [
+            'success'             => false,
+            'username'            => '',
+            'normalized_platform' => $platform,
+            'normalized_url'      => '',
+            'reject_reason'       => '',
+        ];
+
+        $platform_data = PlatformRegistry::get($platform);
+        if (!is_array($platform_data)) {
+            $base['reject_reason'] = 'unknown_platform';
+            return $base;
+        }
+
+        // Fast host guard: reject before attempting extraction when host clearly
+        // does not belong to this platform. Produces 'host_mismatch' reason.
+        if (!self::url_host_matches_platform($platform, $url)) {
+            $base['reject_reason'] = 'host_mismatch';
+            return $base;
+        }
+
+        $username = self::extract_username_from_url($platform, $url);
+        if ($username === '') {
+            $base['reject_reason'] = 'extraction_failed';
+            return $base;
+        }
+
+        return [
+            'success'             => true,
+            'username'            => $username,
+            'normalized_platform' => $platform,
+            'normalized_url'      => self::build_profile_url($platform, $username),
+            'reject_reason'       => '',
+        ];
+    }
+
     private static function extract_username_from_url(string $platform, string $url): string {
         $platform_data = PlatformRegistry::get($platform);
         if (!is_array($platform_data)) {
             return '';
         }
 
-        $pattern = (string) ($platform_data['profile_url_pattern'] ?? '');
+        $url   = trim($url);
+        $parts = wp_parse_url($url);
+        if (!is_array($parts)) {
+            return '';
+        }
+
+        $host     = strtolower((string)($parts['host'] ?? ''));
+        $path     = trim((string)($parts['path'] ?? ''), '/');
+        $query    = (string)($parts['query'] ?? '');
+        $fragment = trim((string)($parts['fragment'] ?? ''), '/');
+
+        // ── Explicit handlers for platforms with non-standard URL shapes ──────
+        //
+        // All host checks use self::host_equals_or_subdomain_of() — NOT strpos —
+        // to prevent lookalike-domain attacks (e.g. evilfansly.com matching fansly.com).
+
+        if ($platform === 'myfreecams') {
+            if (!self::host_equals_or_subdomain_of($host, 'myfreecams.com')) {
+                return '';
+            }
+            return $fragment !== '' ? sanitize_text_field(urldecode($fragment)) : '';
+        }
+
+        if ($platform === 'flirt4free') {
+            if (!self::host_equals_or_subdomain_of($host, 'flirt4free.com')) {
+                return '';
+            }
+            // Shape 1: ?model={username}  (canonical output form)
+            parse_str($query, $params);
+            if (!empty($params['model'])) {
+                return sanitize_text_field(urldecode((string)$params['model']));
+            }
+            // Shape 2: /videos/girls/models/{username}/  (common SERP variant)
+            // MUST require all three prefix segments — never extract first segment alone.
+            $segments = $path !== '' ? explode('/', $path) : [];
+            if (
+                count($segments) >= 4
+                && $segments[0] === 'videos'
+                && $segments[1] === 'girls'
+                && $segments[2] === 'models'
+                && $segments[3] !== ''
+            ) {
+                return sanitize_text_field(urldecode($segments[3]));
+            }
+            return '';
+        }
+
+        if ($platform === 'sakuralive') {
+            if (!self::host_equals_or_subdomain_of($host, 'sakuralive.com')) {
+                return '';
+            }
+            return $query !== '' ? sanitize_text_field(urldecode($query)) : '';
+        }
+
+        if ($platform === 'stripchat') {
+            if (!self::host_equals_or_subdomain_of($host, 'stripchat.com')) {
+                return '';
+            }
+            $segments = $path !== '' ? explode('/', $path) : [];
+            return !empty($segments[0]) ? sanitize_text_field(urldecode((string)$segments[0])) : '';
+        }
+
+        if ($platform === 'carrd') {
+            // Carrd profiles live at exactly {username}.carrd.co.
+            // We need a single-level true subdomain:
+            //   ✓ janecam.carrd.co
+            //   ✗ carrd.co (no subdomain = no username)
+            //   ✗ www.carrd.co (reserved subdomain)
+            //   ✗ foo.bar.carrd.co (two-level, ambiguous)
+            //   ✗ foo.carrd.co.evil.com (lookalike — does NOT end with .carrd.co)
+            if ($host === '' || !self::host_equals_or_subdomain_of($host, 'carrd.co')) {
+                return '';
+            }
+            // Extract the single subdomain segment
+            $subdomain = substr($host, 0, strlen($host) - strlen('.carrd.co'));
+            if ($subdomain === '' || $subdomain === 'www' || strpos($subdomain, '.') !== false) {
+                return ''; // empty, reserved, or multi-level subdomain
+            }
+            return sanitize_text_field(urldecode($subdomain));
+        }
+
+        if ($platform === 'fansly') {
+            if (!self::host_equals_or_subdomain_of($host, 'fansly.com')) {
+                return '';
+            }
+            $segments = $path !== '' ? explode('/', $path) : [];
+            if (!empty($segments[0])) {
+                $candidate = (string)$segments[0];
+                // Guard: reject known non-username path components on fansly.com
+                $reserved = ['about', 'login', 'signup', 'feed', 'discover', 'live', 'shop', 'search'];
+                if (!in_array(strtolower($candidate), $reserved, true)) {
+                    return sanitize_text_field(urldecode($candidate));
+                }
+            }
+            return '';
+        }
+
+        // ── Pattern-derived safe regex (all remaining platforms) ─────────────
+        //
+        // Build a regex directly from the platform's canonical profile_url_pattern.
+        // Because the regex encodes the full domain + path prefix, a URL can only
+        // match if its structure is exactly right for this platform.
+        //
+        // Both URL and pattern are normalized before matching to handle:
+        //   • www. prefix variants  (stripped from both sides)
+        //   • trailing slashes      (stripped from path end)
+        //
+        // THERE IS NO GENERIC FALLBACK. If the regex does not match, return ''.
+        // An unrecognised URL shape for a platform produces no username — the
+        // caller (parse_url_for_platform_structured) records it as 'extraction_failed'.
+
+        $pattern = (string)($platform_data['profile_url_pattern'] ?? '');
         if ($pattern === '' || strpos($pattern, '{username}') === false) {
             return '';
         }
 
-        $escaped = preg_quote($pattern, '#');
-        $regex = str_replace('\{username\}', '([^/?#&]+)', $escaped);
-        if (!preg_match('#^' . $regex . '$#i', $url, $matches)) {
+        // Normalize the pattern through the same function used for the URL,
+        // using a safe placeholder so {username} survives normalization intact.
+        $normalized_pattern = self::normalize_url_for_matching(
+            str_replace('{username}', '__TMW_U__', $pattern)
+        );
+        $normalized_pattern = str_replace('__TMW_U__', '{username}', $normalized_pattern);
+        $normalized_url     = self::normalize_url_for_matching($url);
+
+        $escaped = preg_quote($normalized_pattern, '#');
+        $regex   = str_replace('\\{username\\}', '([^/?#&]+)', $escaped);
+
+        // \/?$ — allow optional trailing slash at URL end after the username
+        if (!preg_match('#^' . $regex . '\/?$#i', $normalized_url, $matches)) {
             return '';
         }
 
-        return sanitize_text_field(urldecode((string) ($matches[1] ?? '')));
+        return sanitize_text_field(urldecode((string)($matches[1] ?? '')));
+    }
+
+    /**
+     * Normalize a URL for pattern-matching purposes:
+     *   - lowercase scheme + host
+     *   - strip leading www. from host (so patterns and inputs are www-agnostic)
+     *   - strip trailing slash from path end only
+     *   - preserve query string (needed for ?model= canonical forms)
+     *
+     * Only the www prefix and trailing path slash are modified.
+     * All other path segments are left untouched — this is what keeps parsing safe.
+     */
+    private static function normalize_url_for_matching(string $url): string {
+        $parts = parse_url(trim($url));
+        if (!is_array($parts)) {
+            return strtolower(rtrim($url, '/'));
+        }
+
+        $scheme = strtolower($parts['scheme'] ?? 'https');
+        $host   = strtolower($parts['host'] ?? '');
+
+        if (strpos($host, 'www.') === 0) {
+            $host = substr($host, 4);
+        }
+
+        $path  = rtrim($parts['path'] ?? '', '/');
+        $query = isset($parts['query']) ? '?' . $parts['query'] : '';
+
+        return $scheme . '://' . $host . $path . $query;
+    }
+
+    /**
+     * Check whether a URL's host plausibly belongs to the given platform.
+     *
+     * Uses host_equals_or_subdomain_of() for strict matching — substring checks
+     * like strpos() would allow lookalike domains (e.g. evilfansly.com matching
+     * fansly.com as a substring).
+     *
+     * Used as a fast guard in parse_url_for_platform_structured() so that
+     * iterating all platform slugs against a URL pool is O(n) cheap — the
+     * vast majority of platform/URL combinations are rejected here before
+     * the more expensive extraction logic runs.
+     */
+    private static function url_host_matches_platform(string $platform, string $url): bool {
+        $parts = wp_parse_url(trim($url));
+        if (!is_array($parts)) {
+            return false;
+        }
+        $host = strtolower((string)($parts['host'] ?? ''));
+        if ($host === '') {
+            return false;
+        }
+
+        // Carrd: host must be a single-level true subdomain of carrd.co
+        if ($platform === 'carrd') {
+            if (!self::host_equals_or_subdomain_of($host, 'carrd.co')) {
+                return false;
+            }
+            $sub = substr($host, 0, strlen($host) - strlen('.carrd.co'));
+            return $sub !== '' && $sub !== 'www' && strpos($sub, '.') === false;
+        }
+
+        $platform_data = PlatformRegistry::get($platform);
+        if (!is_array($platform_data)) {
+            return false;
+        }
+        $pattern = (string)($platform_data['profile_url_pattern'] ?? '');
+        if ($pattern === '') {
+            return false;
+        }
+
+        $p_parts     = parse_url($pattern);
+        $raw_pat     = strtolower((string)($p_parts['host'] ?? ''));
+        // Strip leading www. from both sides to get comparable root domains
+        $root_domain = preg_replace('/^www\\./', '', $raw_pat);
+        $url_host    = preg_replace('/^www\\./', '', $host);
+
+        return $root_domain !== '' && self::host_equals_or_subdomain_of($url_host, $root_domain);
+    }
+
+    /**
+     * Strict host matching helper.
+     *
+     * Returns true only when $host is EXACTLY $root_domain or is a true
+     * subdomain of it (i.e. ends with '.' . $root_domain).
+     *
+     * This prevents substring-based lookalike attacks:
+     *   host_equals_or_subdomain_of('evilfansly.com', 'fansly.com')  → false
+     *   host_equals_or_subdomain_of('notstripchat.com', 'stripchat.com') → false
+     *   host_equals_or_subdomain_of('foo.carrd.co.evil.com', 'carrd.co') → false
+     *   host_equals_or_subdomain_of('fansly.com', 'fansly.com')        → true
+     *   host_equals_or_subdomain_of('sub.fansly.com', 'fansly.com')    → true
+     *   host_equals_or_subdomain_of('es.stripchat.com', 'stripchat.com') → true
+     */
+    private static function host_equals_or_subdomain_of(string $host, string $root): bool {
+        $host = strtolower($host);
+        $root = strtolower($root);
+
+        if ($host === $root) {
+            return true;
+        }
+
+        $suffix = '.' . $root;
+        return substr($host, -strlen($suffix)) === $suffix;
     }
 
     private static function build_profile_url(string $platform, string $username): string {
@@ -280,6 +559,14 @@ class PlatformProfiles {
         $pattern = (string) ($platform_data['profile_url_pattern'] ?? '');
         if ($pattern === '' || strpos($pattern, '{username}') === false) {
             return '';
+        }
+
+        if ($platform === 'myfreecams' || $platform === 'sakuralive') {
+            return esc_url_raw(str_replace('{username}', rawurlencode($username), $pattern));
+        }
+        if ($platform === 'carrd') {
+            $safe = sanitize_title_with_dashes($username);
+            return esc_url_raw(str_replace('{username}', $safe, $pattern));
         }
 
         return esc_url_raw(str_replace('{username}', rawurlencode($username), $pattern));

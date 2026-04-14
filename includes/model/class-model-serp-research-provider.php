@@ -6,8 +6,8 @@
  * integrated into this plugin. No new API dependencies are introduced.
  *
  * WHAT IT DOES:
- *   1. Takes the model's post title and builds a 3-query pack from it.
- *   2. Issues up to 3 Google SERP lookups via DataForSEO (live/advanced).
+ *   1. Takes the model's post title and builds a 4-query pack from it.
+ *   2. Issues up to 4 Google SERP lookups via DataForSEO (live/advanced).
  *   3. Merges and deduplicates results across all successful queries.
  *   4. Parses the merged pool for:
  *      - Platform names (cam site domains — "active on platform X" signals)
@@ -18,10 +18,11 @@
  *   5. Returns structured proposed data. NEVER writes to post meta directly.
  *      The ModelResearchPipeline + ModelHelper handle persistence after admin review.
  *
- * QUERY PACK (3 fixed queries, each capped at 10 results):
+ * QUERY PACK (4 queries, each capped at 20 results):
  *   1. {model_name}
  *   2. {model_name} cam model
  *   3. {model_name} webcam OR chaturbate OR livejasmin
+ *   4. {model_name} fansly OR stripchat OR onlyfans
  *
  * FALLBACK BEHAVIOUR:
  *   - If DataForSEO is not configured   -> returns status='no_provider'.
@@ -49,6 +50,8 @@ namespace TMWSEO\Engine\Model;
 use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Platform\PlatformRegistry;
+use TMWSEO\Engine\Platform\PlatformProfiles;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -71,17 +74,25 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         'cam4.com'           => 'Cam4',
         'livejasmin.com'     => 'LiveJasmin',
         'myfreecams.com'     => 'MyFreeCams',
-        'onlyfans.com'       => 'OnlyFans',
         'fansly.com'         => 'Fansly',
-        'manyvids.com'       => 'ManyVids',
-        'clips4sale.com'     => 'Clips4Sale',
-        'iwantclips.com'     => 'IWantClips',
-        'loyalfans.com'      => 'LoyalFans',
-        'fancentro.com'      => 'FanCentro',
-        'twitter.com'        => 'Twitter/X',
-        'x.com'              => 'Twitter/X',
-        'instagram.com'      => 'Instagram',
-        'linktr.ee'          => 'Linktree',
+        'jerkmatelive.com'   => 'Jerkmate',
+        'sinparty.com'       => 'SinParty',
+        'xtease.com'         => 'XTease',
+        'olecams.com'        => 'OleCams',
+        'cameraprive.com'    => 'Camera Prive',
+        'camirada.com'       => 'Camirada',
+        'cams.com'           => 'Cams.com',
+        'dscgirls.live'      => 'Delhi Sex Chat',
+        'livefreefun.org'    => 'LiveFreeFun',
+        'flirt4free.com'     => 'Flirt4Free',
+        'imlive.com'         => 'ImLive',
+        'revealme.com'       => 'RevealMe',
+        'royalcamslive.com'  => 'Royal Cams',
+        'sakuralive.com'     => 'SakuraLive',
+        'slutroulette.com'   => 'Slut Roulette',
+        'sweepsex.com'       => 'Sweepsex',
+        'xcams.com'          => 'Xcams',
+        'xlovecam.com'       => 'XLoveCam',
     ];
 
     /**
@@ -96,8 +107,19 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         'xvideos.com',
         'xhamster.com',
         'reddit.com',
-        'allmylinks.com',
-        'beacons.ai',
+    ];
+
+    /**
+     * Link/identity hubs that are useful discovery signals but not treated as cam platforms.
+     *
+     * @var array<string,string>
+     */
+    private const KNOWN_HUBS = [
+        'linktr.ee'      => 'Linktree',
+        'allmylinks.com' => 'AllMyLinks',
+        'beacons.ai'     => 'Beacons',
+        'solo.to'        => 'solo.to',
+        '.carrd.co'      => 'Carrd',
     ];
 
     /**
@@ -105,13 +127,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
      *
      * @var string[]
      */
-    private const SOCIAL_URL_LABELS = [
-        'Twitter/X',
-        'Instagram',
-        'OnlyFans',
-        'Linktree',
-        'Fansly',
-    ];
+    private const SOCIAL_URL_LABELS = [ 'Fansly', 'Linktree', 'AllMyLinks', 'Beacons', 'solo.to', 'Carrd' ];
 
     /** @var array<string,string> TLDs that hint at country of origin. */
     private const TLD_COUNTRY_HINTS = [
@@ -143,8 +159,8 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
     /**
      * Look up model data from Google SERP via DataForSEO.
      *
-     * Runs a bounded 3-query pack, merges and deduplicates results, then returns
-     * proposed (un-applied) data for admin review.
+     * Runs a bounded 4-query pack (each capped at 20 results), merges and
+     * deduplicates results, then returns proposed (un-applied) data for admin review.
      * Does NOT write anything to post meta.
      *
      * @param int    $post_id    WordPress post ID of the model post.
@@ -176,12 +192,12 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             ];
         }
 
-        Logs::info( 'model_research', '[TMW] DataForSEO SERP multi-query research started', [
+        Logs::info( 'model_research', '[TMW-RESEARCH] DataForSEO SERP multi-query research started', [
             'post_id'    => $post_id,
             'model_name' => $model_name,
         ] );
 
-        // ── Build and run the 3-query pack ────────────────────────────────
+        // ── Build and run the 4-query pack ────────────────────────────────
         $queries      = $this->build_query_pack( $model_name );
         $pack_results = $this->run_query_pack( $queries, $post_id );
 
@@ -232,12 +248,13 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
     // =========================================================================
 
     /**
-     * Build the fixed 3-query pack for a given model name.
+     * Build the fixed 4-query pack for a given model name.
      *
      * Query templates (order matters — first query is the baseline):
      *   1. {model_name}
      *   2. {model_name} cam model
      *   3. {model_name} webcam OR chaturbate OR livejasmin
+     *   4. {model_name} fansly OR stripchat OR onlyfans
      *
      * @param  string   $model_name
      * @return string[]
@@ -247,13 +264,15 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             $model_name,
             $model_name . ' cam model',
             $model_name . ' webcam OR chaturbate OR livejasmin',
+            $model_name . ' fansly OR stripchat OR onlyfans',
         ];
     }
 
     /**
      * Execute each query in the pack via DataForSEO::serp_live().
      *
-     * Failures are logged and skipped; the pack continues with whatever succeeds.
+     * Each query is capped at 20 results. Failures are logged and skipped;
+     * the pack continues with whatever succeeds.
      * Each item is enriched with _query and _query_index fields for traceability.
      *
      * Returns:
@@ -273,7 +292,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         $last_error = null;
 
         foreach ( $queries as $idx => $query ) {
-            $serp = DataForSEO::serp_live( $query, 10 );
+            $serp = DataForSEO::serp_live( $query, 20 );
 
             if ( empty( $serp['ok'] ) ) {
                 $last_error = (string) ( $serp['error'] ?? 'unknown_error' );
@@ -439,6 +458,9 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
 
         // Count snippets that mention the model name (identity-name signal).
         $name_in_snippet_count = 0;
+        $platform_hits = [];
+        $hub_hits = [];
+        $ambiguous_urls = [];
 
         foreach ( $items as $item ) {
             $url     = (string) ( $item['url']      ?? '' );
@@ -459,23 +481,30 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
 
             // ── Platform identification ────────────────────────────────────
             $matched_platform = false;
-            foreach ( self::KNOWN_PLATFORMS as $platform_domain => $platform_label ) {
-                if ( strpos( $domain, $platform_domain ) !== false ) {
-                    $platforms[] = $platform_label;
-
-                    if ( in_array( $platform_label, self::SOCIAL_URL_LABELS, true ) ) {
-                        $social_urls[] = $url;
-                    }
-
-                    $confidence      += ( $pos <= 3 ) ? 20 : 10;
-                    $matched_platform = true;
-                    break;
+            $platform_label = $this->match_domain_label( $domain, self::KNOWN_PLATFORMS );
+            if ( $platform_label !== '' ) {
+                $platforms[] = $platform_label;
+                $platform_hits[] = $url;
+                if ( in_array( $platform_label, self::SOCIAL_URL_LABELS, true ) ) {
+                    $social_urls[] = $url;
                 }
+                $confidence += ( $pos <= 3 ) ? 20 : 10;
+                $matched_platform = true;
+            }
+
+            $hub_label = $this->match_domain_label( $domain, self::KNOWN_HUBS );
+            if ( $hub_label !== '' ) {
+                $hub_hits[] = $url;
+                $social_urls[] = $url;
             }
 
             // ── Identity-domain signal ─────────────────────────────────────
             if ( ! $matched_platform && $this->is_identity_domain( $domain ) ) {
                 $confidence += 5;
+            }
+
+            if ( ! $matched_platform && $hub_label === '' && $this->looks_like_supported_domain( $domain ) ) {
+                $ambiguous_urls[] = $url;
             }
 
             // ── Cross-query corroboration boost ────────────────────────────
@@ -520,7 +549,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         // ── Deduplication ─────────────────────────────────────────────────
         $platforms   = array_values( array_unique( $platforms ) );
         $social_urls = array_values( array_unique( $social_urls ) );
-        $source_urls = array_values( array_slice( array_unique( $source_urls ), 0, 10 ) );
+        $source_urls = array_values( array_slice( array_unique( $source_urls ), 0, 20 ) );
 
         // ── Best bio ──────────────────────────────────────────────────────
         ksort( $bio_snippets );
@@ -531,6 +560,12 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         if ( empty( $platforms ) ) {
             $confidence    = max( 5, $confidence - 20 );
             $notes_parts[] = 'No known cam-platform URLs found across all queries.';
+        }
+        if ( ! empty( $hub_hits ) ) {
+            $notes_parts[] = sprintf( 'Identity hubs detected: %d URL(s).', count( array_unique( $hub_hits ) ) );
+        }
+        if ( ! empty( $ambiguous_urls ) ) {
+            $notes_parts[] = sprintf( 'Rejected %d URL(s) due to ambiguous account extraction.', count( array_unique( $ambiguous_urls ) ) );
         }
 
         // ── Build notes string ────────────────────────────────────────────
@@ -560,29 +595,90 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
 
         $notes = implode( ' | ', array_filter( $notes_parts ) );
 
-        Logs::info( 'model_research', '[TMW] Multi-query SERP research complete', [
+        Logs::info( 'model_research', '[TMW-RESEARCH] Multi-query SERP research complete', [
             'model_name'            => $model_name,
             'queries_succeeded'     => $succeeded,
             'queries_total'         => $total_queries,
             'merged_item_count'     => count( $items ),
             'platforms'             => $platforms,
+            'platform_match_count'  => count( array_unique( $platform_hits ) ),
+            'hub_match_count'       => count( array_unique( $hub_hits ) ),
             'confidence'            => $confidence,
             'name_in_snippet_count' => $name_in_snippet_count,
             'bio_len'               => strlen( $bio ),
         ] );
+        Logs::info( 'model_research', '[TMW-URLMAP] URL classification summary', [
+            'platform_urls'  => array_values( array_unique( $platform_hits ) ),
+            'hub_urls'       => array_values( array_unique( $hub_hits ) ),
+            'rejected_urls'  => array_values( array_unique( $ambiguous_urls ) ),
+        ] );
+
+        // ── Build platform_candidates — structured per-URL parse audit ─────────
+        //
+        // For every URL that matched a known-platform or hub domain in SERP results,
+        // attempt extraction and record the full structured result. This gives the
+        // review UI and apply logic a complete audit of what was found and why
+        // anything was rejected — without any first-segment guesswork.
+        $all_candidate_urls = array_values( array_unique( array_merge(
+            array_unique( $platform_hits ),
+            array_unique( $hub_hits )
+        ) ) );
+
+        $platform_candidates = [];
+        foreach ( $all_candidate_urls as $candidate_url ) {
+            foreach ( PlatformRegistry::get_slugs() as $slug ) {
+                $result = PlatformProfiles::parse_url_for_platform_structured( $slug, $candidate_url );
+                // Fast skip — host clearly does not belong to this platform.
+                if ( $result['reject_reason'] === 'host_mismatch' ) {
+                    continue;
+                }
+                $platform_candidates[] = array_merge( [ 'source_url' => $candidate_url ], $result );
+            }
+        }
+
+        // Deduplicate candidates with different keys for successful vs rejected.
+        //
+        // Successful: collapse by (platform, username) — same username from two
+        //   different SERP URLs is still the same extraction; keep first.
+        // Rejected: collapse by (platform, reject_reason, source_url) — different
+        //   source URLs that fail for the same reason on the same platform are
+        //   meaningful audit entries and must not all collapse to one empty-username row.
+        $seen_ck            = [];
+        $deduped_candidates = [];
+        foreach ( $platform_candidates as $c ) {
+            if ( ! empty( $c['success'] ) ) {
+                // Successful extraction: dedupe by platform + username
+                $ck = 'ok|' . ( $c['normalized_platform'] ?? '' ) . '|' . ( $c['username'] ?? '' );
+            } else {
+                // Rejected: dedupe by platform + reason + source URL
+                $ck = 'rej|' . ( $c['normalized_platform'] ?? '' ) . '|' . ( $c['reject_reason'] ?? '' ) . '|' . ( $c['source_url'] ?? '' );
+            }
+            if ( ! isset( $seen_ck[ $ck ] ) ) {
+                $seen_ck[ $ck ]       = true;
+                $deduped_candidates[] = $c;
+            }
+        }
+
+        Logs::info( 'model_research', '[TMW-CANDIDATE] Platform candidates extracted', [
+            'model_name'             => $model_name,
+            'total_candidates'       => count( $deduped_candidates ),
+            'successful_extractions' => count( array_filter( $deduped_candidates, static fn( $c ) => ! empty( $c['success'] ) ) ),
+            'rejected'               => count( array_filter( $deduped_candidates, static fn( $c ) => empty( $c['success'] ) ) ),
+        ] );
 
         return [
-            'status'         => 'ok',
-            'display_name'   => $model_name,
-            'aliases'        => [],
-            'bio'            => $bio,
-            'platform_names' => $platforms,
-            'social_urls'    => $social_urls,
-            'country'        => $country_hint,
-            'language'       => '',
-            'source_urls'    => $source_urls,
-            'confidence'     => $confidence,
-            'notes'          => $notes,
+            'status'              => 'ok',
+            'display_name'        => $model_name,
+            'aliases'             => [],
+            'bio'                 => $bio,
+            'platform_names'      => $platforms,
+            'social_urls'         => $social_urls,
+            'platform_candidates' => $deduped_candidates,
+            'country'             => $country_hint,
+            'language'            => '',
+            'source_urls'         => $source_urls,
+            'confidence'          => $confidence,
+            'notes'               => $notes,
         ];
     }
 
@@ -603,5 +699,25 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             }
             return $providers;
         } );
+    }
+
+    private function match_domain_label( string $domain, array $map ): string {
+        foreach ( $map as $needle => $label ) {
+            if ( strpos( $domain, $needle ) !== false ) {
+                return (string) $label;
+            }
+        }
+
+        return '';
+    }
+
+    private function looks_like_supported_domain( string $domain ): bool {
+        foreach ( array_keys( self::KNOWN_PLATFORMS + self::KNOWN_HUBS ) as $known_domain ) {
+            if ( strpos( $domain, (string) $known_domain ) !== false ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

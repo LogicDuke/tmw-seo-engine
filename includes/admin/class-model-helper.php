@@ -28,6 +28,9 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Model\ModelResearchProvider;
+use TMWSEO\Engine\Platform\PlatformRegistry;
+use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Logs;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -139,8 +142,8 @@ final class ModelResearchPipeline {
     /** @param array<string,array> $provider_results */
     private static function merge_results( array $provider_results ): array {
         $fields = [ 'display_name', 'aliases', 'bio', 'platform_names',
-                    'social_urls', 'country', 'language', 'source_urls',
-                    'confidence', 'notes' ];
+                    'social_urls', 'platform_candidates', 'country', 'language',
+                    'source_urls', 'confidence', 'notes' ];
 
         $merged = array_fill_keys( $fields, null );
 
@@ -319,14 +322,69 @@ class ModelHelper {
             echo '<strong>' . esc_html__( 'Proposed data (pending review):', 'tmwseo' ) . '</strong>';
             echo '<table style="margin-top:8px;width:100%;border-collapse:collapse;">';
             foreach ( $merged as $field => $value ) {
+                // platform_candidates is an array-of-arrays — skip it here;
+                // it is rendered by the dedicated candidate audit table below.
+                if ( $field === 'platform_candidates' ) { continue; }
                 if ( $value === null || $value === '' || $value === [] ) { continue; }
-                $display = is_array( $value ) ? implode( ', ', $value ) : (string) $value;
+                // For flat arrays (platform_names, social_urls, etc.), implode scalars only.
+                if ( is_array( $value ) ) {
+                    $display = implode( ', ', array_map( 'strval', array_filter( $value, 'is_scalar' ) ) );
+                } else {
+                    $display = (string) $value;
+                }
+                if ( $display === '' ) { continue; }
                 echo '<tr><td style="padding:2px 8px 2px 0;font-weight:600;white-space:nowrap;">'
                     . esc_html( str_replace( '_', ' ', ucfirst( $field ) ) ) . '</td>';
                 echo '<td style="padding:2px 0;">' . esc_html( $display ) . '</td></tr>';
             }
             echo '</table>';
-            // Apply / Discard buttons
+            // ── Candidate audit table ─────────────────────────────────────────
+            $candidates = isset( $merged['platform_candidates'] ) && is_array( $merged['platform_candidates'] )
+                ? $merged['platform_candidates']
+                : [];
+            if ( ! empty( $candidates ) ) {
+                $successful = array_filter( $candidates, static fn( $c ) => ! empty( $c['success'] ) );
+                $rejected   = array_filter( $candidates, static fn( $c ) => empty( $c['success'] ) );
+                echo '<details style="margin-top:10px;">';
+                echo '<summary style="cursor:pointer;font-weight:600;padding:4px 0;">';
+                printf(
+                    /* translators: %1$d total, %2$d extractable, %3$d rejected */
+                    esc_html__( 'Platform URL Candidates: %1$d total · %2$d extractable · %3$d rejected', 'tmwseo' ),
+                    count( $candidates ),
+                    count( $successful ),
+                    count( $rejected )
+                );
+                echo '</summary>';
+                echo '<table style="margin-top:6px;width:100%;border-collapse:collapse;font-size:12px;">';
+                echo '<tr style="background:#f6f7f7;">'
+                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Platform', 'tmwseo' ) . '</th>'
+                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Source URL', 'tmwseo' ) . '</th>'
+                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Username', 'tmwseo' ) . '</th>'
+                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Result', 'tmwseo' ) . '</th>'
+                    . '</tr>';
+                foreach ( $candidates as $c ) {
+                    $ok     = ! empty( $c['success'] );
+                    $bg     = $ok ? '#f0fff4' : '#fff5f5';
+                    $status = $ok
+                        ? '<span style="color:#1d6a2e;">&#10003; ok</span>'
+                        : '<span style="color:#8a1a1a;">' . esc_html( (string) ( $c['reject_reason'] ?? 'rejected' ) ) . '</span>';
+                    $pd     = PlatformRegistry::get( (string) ( $c['normalized_platform'] ?? '' ) );
+                    $plabel = $pd ? esc_html( $pd['name'] ) : esc_html( (string) ( $c['normalized_platform'] ?? '' ) );
+                    $src    = (string) ( $c['source_url'] ?? '' );
+                    $src_display = strlen( $src ) > 60 ? substr( $src, 0, 60 ) . '…' : $src;
+                    echo '<tr style="background:' . esc_attr( $bg ) . ';">'
+                        . '<td style="padding:3px 6px;">' . $plabel . '</td>'
+                        . '<td style="padding:3px 6px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                        . '<a href="' . esc_url( $src ) . '" target="_blank" rel="noopener" title="' . esc_attr( $src ) . '">'
+                        . esc_html( $src_display )
+                        . '</a></td>'
+                        . '<td style="padding:3px 6px;">' . esc_html( (string) ( $c['username'] ?? '—' ) ) . '</td>'
+                        . '<td style="padding:3px 6px;">' . $status . '</td>'
+                        . '</tr>';
+                }
+                echo '</table></details>';
+            }
+            // ── Apply / Discard buttons ───────────────────────────────────────
             $apply_url = wp_nonce_url(
                 admin_url( 'admin-post.php?action=tmwseo_apply_model_research&post_id=' . $post->ID ),
                 'tmwseo_apply_research_' . $post->ID
@@ -819,12 +877,129 @@ class ModelHelper {
             }
         }
 
+        self::apply_detected_platform_usernames( $post_id, $merged );
+
         // Clear the proposed blob after applying
         delete_post_meta( $post_id, self::META_PROPOSED );
         update_post_meta( $post_id, self::META_STATUS, 'researched' );
         update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
 
         return true;
+    }
+
+    /**
+     * Map reviewed URLs into platform username meta.
+     *
+     * Path A (preferred): uses structured platform_candidates from research output.
+     *   Requires exactly 1 successful extraction per platform; never overwrites
+     *   existing manual values.
+     *
+     * Path B (legacy fallback): for older proposed blobs that pre-date platform_candidates,
+     *   falls back to scanning social_urls / source_urls against all platform slugs.
+     *   Same single-match and no-overwrite rules apply.
+     */
+    private static function apply_detected_platform_usernames( int $post_id, array $merged ): void {
+
+        // ── Path A: structured platform_candidates (new research blobs) ───────
+        if ( isset( $merged['platform_candidates'] ) && is_array( $merged['platform_candidates'] ) ) {
+            $by_platform = [];
+            foreach ( $merged['platform_candidates'] as $c ) {
+                if ( empty( $c['success'] ) ) {
+                    continue;
+                }
+                $slug     = (string) ( $c['normalized_platform'] ?? '' );
+                $username = (string) ( $c['username'] ?? '' );
+                if ( $slug === '' || $username === '' ) {
+                    continue;
+                }
+                $by_platform[ $slug ][] = $username;
+            }
+
+            foreach ( $by_platform as $slug => $usernames ) {
+                $unique = array_values( array_unique( $usernames ) );
+                if ( count( $unique ) !== 1 ) {
+                    Logs::info( 'model_research', '[TMW-URLMAP] Skipped: multiple candidate usernames for platform', [
+                        'post_id'  => $post_id,
+                        'platform' => $slug,
+                        'matches'  => $unique,
+                    ] );
+                    continue;
+                }
+
+                $meta_key = '_tmwseo_platform_username_' . $slug;
+                $existing = trim( (string) get_post_meta( $post_id, $meta_key, true ) );
+                if ( $existing !== '' ) {
+                    Logs::info( 'model_research', '[TMW-URLMAP] Preserved existing manual username', [
+                        'post_id'  => $post_id,
+                        'platform' => $slug,
+                        'existing' => $existing,
+                    ] );
+                    continue;
+                }
+
+                update_post_meta( $post_id, $meta_key, sanitize_text_field( $unique[0] ) );
+                Logs::info( 'model_research', '[TMW-PLATFORM] Applied platform username from candidate', [
+                    'post_id'  => $post_id,
+                    'platform' => $slug,
+                    'username' => $unique[0],
+                ] );
+            }
+            return; // Path A handled — do not fall through to legacy scan
+        }
+
+        // ── Path B: legacy fallback — scan social_urls / source_urls ─────────
+        // Handles proposed blobs saved before platform_candidates was introduced.
+        $urls = [];
+        foreach ( [ 'social_urls', 'source_urls' ] as $key ) {
+            if ( isset( $merged[ $key ] ) && is_array( $merged[ $key ] ) ) {
+                $urls = array_merge( $urls, $merged[ $key ] );
+            }
+        }
+        $urls = array_values( array_unique( array_filter( array_map( 'trim', $urls ) ) ) );
+        if ( empty( $urls ) ) {
+            return;
+        }
+
+        $detected = [];
+        foreach ( PlatformRegistry::get_slugs() as $slug ) {
+            foreach ( $urls as $url ) {
+                $username = PlatformProfiles::extract_username_from_profile_url( $slug, $url );
+                if ( $username === '' ) {
+                    continue;
+                }
+                $detected[ $slug ][] = $username;
+            }
+        }
+
+        foreach ( $detected as $slug => $matches ) {
+            $matches = array_values( array_unique( $matches ) );
+            if ( count( $matches ) !== 1 ) {
+                Logs::info( 'model_research', '[TMW-URLMAP] Rejected ambiguous platform username extraction (legacy path)', [
+                    'post_id'  => $post_id,
+                    'platform' => $slug,
+                    'matches'  => $matches,
+                ] );
+                continue;
+            }
+
+            $meta_key = '_tmwseo_platform_username_' . $slug;
+            $existing = trim( (string) get_post_meta( $post_id, $meta_key, true ) );
+            if ( $existing !== '' ) {
+                Logs::info( 'model_research', '[TMW-URLMAP] Preserved existing manual platform username (legacy path)', [
+                    'post_id'  => $post_id,
+                    'platform' => $slug,
+                    'existing' => $existing,
+                ] );
+                continue;
+            }
+
+            update_post_meta( $post_id, $meta_key, sanitize_text_field( $matches[0] ) );
+            Logs::info( 'model_research', '[TMW-PLATFORM] Applied reviewed platform username (legacy path)', [
+                'post_id'  => $post_id,
+                'platform' => $slug,
+                'username' => $matches[0],
+            ] );
+        }
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────
