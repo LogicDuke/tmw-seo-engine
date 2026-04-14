@@ -315,6 +315,52 @@ class ModelHelper {
             echo '</p></div>';
         }
 
+        // ── Phase 2: proposed-data debug notices ──────────────────────────────
+        // Surface an actionable message when status is 'researched' but the
+        // yellow proposed-data block would otherwise show nothing.
+        if ( $status === 'researched' ) {
+            if ( $proposed_raw === '' ) {
+                echo '<div class="notice notice-warning inline" style="margin:0 0 12px;">';
+                echo '<p><strong>[TMW-RESEARCH]</strong> ';
+                echo esc_html__( 'Research status is "Researched" but no proposed data was saved. The request likely timed out before the pipeline could write results. Click Research Now to try again.', 'tmwseo' );
+                echo '</p></div>';
+            } elseif ( $proposed === null ) {
+                echo '<div class="notice notice-error inline" style="margin:0 0 12px;">';
+                echo '<p><strong>[TMW-RESEARCH]</strong> ';
+                /* translators: %d: byte length of raw proposed blob */
+                echo esc_html( sprintf(
+                    __( 'Proposed data blob exists (%d bytes) but could not be decoded as JSON — it may have been truncated by a timeout. Click Research Now to re-run.', 'tmwseo' ),
+                    strlen( $proposed_raw )
+                ) );
+                echo '</p></div>';
+            } elseif ( is_array( $proposed ) && empty( $proposed['merged'] ) ) {
+                $ps   = esc_html( (string) ( $proposed['pipeline_status'] ?? 'unknown' ) );
+                $keys = esc_html( implode( ', ', array_keys( $proposed ) ) );
+                $prs  = isset( $proposed['provider_results'] ) && is_array( $proposed['provider_results'] )
+                    ? $proposed['provider_results'] : [];
+                $pr_msgs = [];
+                foreach ( $prs as $pname => $presult ) {
+                    $pmsg = (string) ( $presult['message'] ?? $presult['error'] ?? '' );
+                    if ( $pmsg !== '' ) {
+                        $pr_msgs[] = esc_html( $pname . ': ' . $pmsg );
+                    }
+                }
+                echo '<div class="notice notice-warning inline" style="margin:0 0 12px;">';
+                echo '<p><strong>[TMW-RESEARCH]</strong> ';
+                /* translators: %1$s pipeline status, %2$s top-level key list */
+                echo esc_html( sprintf(
+                    __( 'Research ran but merged data is empty. Pipeline status: %1$s. Top-level keys: %2$s.', 'tmwseo' ),
+                    (string) ( $proposed['pipeline_status'] ?? 'unknown' ),
+                    implode( ', ', array_keys( $proposed ) )
+                ) );
+                if ( ! empty( $pr_msgs ) ) {
+                    echo ' ' . implode( ' | ', $pr_msgs );
+                }
+                echo ' ' . esc_html__( 'Click Research Now to re-run.', 'tmwseo' );
+                echo '</p></div>';
+            }
+        }
+
         // ── Proposed data panel (if a pipeline run returned data pending review) ──
         if ( is_array( $proposed ) && ! empty( $proposed['merged'] ) ) {
             $merged = $proposed['merged'];
@@ -471,9 +517,31 @@ class ModelHelper {
                             . '</p>';
                     }
 
-                    $handles = isset( $diagnostics['discovered_handles'] ) && is_array( $diagnostics['discovered_handles'] )
-                        ? array_filter( array_map( 'strval', $diagnostics['discovered_handles'] ) )
+                    // discovered_handles may be a flat string[] (pre-v5.0.0) or an
+                    // array-of-objects with provenance (v5.0.0+). Render both shapes.
+                    $raw_handles = isset( $diagnostics['discovered_handles'] ) && is_array( $diagnostics['discovered_handles'] )
+                        ? $diagnostics['discovered_handles']
                         : [];
+                    $handles = [];
+                    foreach ( $raw_handles as $h ) {
+                        if ( is_string( $h ) && $h !== '' ) {
+                            // Old flat string format
+                            $handles[] = $h;
+                        } elseif ( is_array( $h ) && isset( $h['handle'] ) && (string) $h['handle'] !== '' ) {
+                            // New array-with-provenance format
+                            $label = (string) $h['handle'];
+                            $plat  = (string) ( $h['platform'] ?? '' );
+                            $src   = (string) ( $h['source'] ?? '' );
+                            if ( $plat !== '' ) {
+                                $label .= ' (' . $plat;
+                                if ( $src === 'pass_two_confirmation' ) {
+                                    $label .= ', confirmed';
+                                }
+                                $label .= ')';
+                            }
+                            $handles[] = $label;
+                        }
+                    }
                     if ( ! empty( $handles ) ) {
                         echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Discovered Handles', 'tmwseo' ) . '</p>';
                         echo '<p style="margin:0 0 6px;">' . esc_html( implode( ', ', $handles ) ) . '</p>';
@@ -948,24 +1016,70 @@ class ModelHelper {
      * Saves proposed data for admin review; NEVER auto-applies or auto-publishes.
      */
     public static function run_research_now( int $post_id ): void {
+        // Extend PHP execution time — does not affect proxy/Cloudflare timeouts
+        // but prevents PHP's own limit from killing the request prematurely.
+        @set_time_limit( 120 );
+
+        $t_start = microtime( true );
+        Logs::info( 'model_research', '[TMW-RESEARCH] run_research_now started', [
+            'post_id' => $post_id,
+        ] );
+
         try {
             $result = ModelResearchPipeline::run( $post_id );
 
             $pipeline_status = (string) ( $result['pipeline_status'] ?? 'error' );
+            $merged          = $result['merged'] ?? [];
+            $merged_keys     = is_array( $merged ) ? array_keys( $merged ) : [];
+
+            // ── Phase 3: log encode attempt ───────────────────────────────
+            $encoded = wp_json_encode( $result );
+            if ( $encoded === false || $encoded === '' ) {
+                Logs::warn( 'model_research', '[TMW-RESEARCH] wp_json_encode failed — proposed data NOT saved', [
+                    'post_id'         => $post_id,
+                    'pipeline_status' => $pipeline_status,
+                    'merged_keys'     => $merged_keys,
+                ] );
+                update_post_meta( $post_id, self::META_STATUS, 'error' );
+                update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+                return;
+            }
+
+            $encoded_bytes = strlen( $encoded );
+            Logs::info( 'model_research', '[TMW-RESEARCH] Encoded proposed data', [
+                'post_id'         => $post_id,
+                'pipeline_status' => $pipeline_status,
+                'encoded_bytes'   => $encoded_bytes,
+                'merged_keys'     => $merged_keys,
+                'merged_empty'    => empty( $merged ),
+            ] );
 
             // Persist the full pipeline output as proposed data for admin review.
-            update_post_meta( $post_id, self::META_PROPOSED, wp_json_encode( $result ) );
+            update_post_meta( $post_id, self::META_PROPOSED, $encoded );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
 
             if ( $pipeline_status === 'no_provider' ) {
-                // Keep status as 'not_researched' — there's nothing to review.
                 update_post_meta( $post_id, self::META_STATUS, 'not_researched' );
             } elseif ( $pipeline_status === 'ok' || $pipeline_status === 'partial' ) {
                 update_post_meta( $post_id, self::META_STATUS, 'researched' );
             } else {
                 update_post_meta( $post_id, self::META_STATUS, 'error' );
             }
+
+            $t_ms = (int) round( ( microtime( true ) - $t_start ) * 1000 );
+            Logs::info( 'model_research', '[TMW-RESEARCH] run_research_now complete', [
+                'post_id'         => $post_id,
+                'pipeline_status' => $pipeline_status,
+                'duration_ms'     => $t_ms,
+            ] );
+
         } catch ( \Throwable $e ) {
+            $t_ms = (int) round( ( microtime( true ) - $t_start ) * 1000 );
+            Logs::warn( 'model_research', '[TMW-RESEARCH] run_research_now threw exception', [
+                'post_id'     => $post_id,
+                'error'       => $e->getMessage(),
+                'duration_ms' => $t_ms,
+            ] );
             update_post_meta( $post_id, self::META_STATUS, 'error' );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
         }

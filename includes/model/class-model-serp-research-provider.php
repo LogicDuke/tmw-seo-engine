@@ -117,6 +117,24 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     private const MAX_EVIDENCE_ITEMS         = 16;
 
     /**
+     * Synchronous-path limits — tuned to prevent 504/524 gateway timeouts on
+     * admin-post.php research requests.
+     *
+     * Root cause: a full research run makes up to 6 pass-one + 6 confirmation
+     * DataForSEO calls plus 3 wp_remote_get hub-expansion fetches, totalling
+     * ~15 external HTTP requests. At 2-3 s each that exceeds Cloudflare's
+     * 100 s proxy timeout in the worst case, and commonly trips 30 s host limits.
+     *
+     * These constants reduce the synchronous budget to 3 external calls max.
+     * Restore full depth/pass-two once a background/async research path exists.
+     *
+     * @see TMWSEO-TIMEOUT-FIX
+     */
+    private const SYNC_SERP_DEPTH    = 8;    // was 20 — fewer results per query
+    private const SYNC_MAX_HUB_PAGES = 0;    // was 3 — disable hub expansion fetches
+    private const SYNC_PASS_TWO      = false; // disable confirmation pass for sync path
+
+    /**
      * Platform slugs whose extracted profile URLs belong in social_urls.
      *
      * X/Twitter and link-hub platforms are "social" profiles — suitable for
@@ -163,6 +181,8 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             'post_id'    => $post_id,
             'model_name' => $model_name,
         ] );
+
+        $t_lookup_start = microtime( true );
 
         // ── PASS ONE: broad name-based discovery ─────────────────────────────
         $queries_p1   = $this->build_query_pack( $model_name );
@@ -225,17 +245,24 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         }
 
         // ── PASS TWO: handle-seeded confirmation ──────────────────────────────
-        $handle_seeds = $this->build_handle_seeds( $p1_successful, $model_name );
-        $pass_two     = $this->run_confirmation_pass( $handle_seeds, $already_confirmed, $post_id );
-        $items_p2     = $pass_two['items'];
-        $conf_log     = $pass_two['confirmation_log'];
-
-        Logs::info( 'model_research', '[TMW-RESEARCH] Pass two confirmation complete', [
-            'model_name'   => $model_name,
-            'seeds'        => count( $handle_seeds ),
-            'p2_items'     => count( $items_p2 ),
-            'conf_queries' => count( $conf_log ),
-        ] );
+        // TMWSEO-TIMEOUT-FIX: disabled for synchronous path (SYNC_PASS_TWO = false).
+        // Pass two adds up to 6 more DataForSEO calls which push total request
+        // time past Cloudflare/host timeouts. Re-enable once running in background.
+        $handle_seeds = [];
+        $conf_log     = [];
+        $items_p2     = [];
+        if ( self::SYNC_PASS_TWO ) {
+            $handle_seeds = $this->build_handle_seeds( $p1_successful, $model_name );
+            $pass_two     = $this->run_confirmation_pass( $handle_seeds, $already_confirmed, $post_id );
+            $items_p2     = $pass_two['items'];
+            $conf_log     = $pass_two['confirmation_log'];
+            Logs::info( 'model_research', '[TMW-RESEARCH] Pass two confirmation complete', [
+                'model_name'   => $model_name,
+                'seeds'        => count( $handle_seeds ),
+                'p2_items'     => count( $items_p2 ),
+                'conf_queries' => count( $conf_log ),
+            ] );
+        }
 
         // ── Merge both passes; pass-one items take dedup precedence ───────────
         $all_items_combined = array_merge( $items_p1, $items_p2 );
@@ -243,8 +270,18 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
 
         $all_query_stats = array_merge(
             $pack_p1['query_stats'],
-            $pass_two['query_stats']
+            self::SYNC_PASS_TWO ? ( $pass_two['query_stats'] ?? [] ) : []
         );
+
+        $t_lookup_ms = (int) round( ( microtime( true ) - $t_lookup_start ) * 1000 );
+        Logs::info( 'model_research', '[TMW-RESEARCH] lookup() total duration', [
+            'post_id'      => $post_id,
+            'model_name'   => $model_name,
+            'duration_ms'  => $t_lookup_ms,
+            'p1_queries'   => count( $queries_p1 ),
+            'p1_succeeded' => $succeeded_p1,
+            'pass_two'     => self::SYNC_PASS_TWO,
+        ] );
 
         return $this->parse_merged_items(
             $model_name,
@@ -261,13 +298,13 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @return array<int,array{query:string,family:string}>
      */
     private function build_query_pack( string $model_name ): array {
+        // TMWSEO-TIMEOUT-FIX: reduced from 6 to 3 queries for synchronous path.
+        // Removed temporarily: niche_context, webcam_platform_discovery, social_discovery.
+        // Restore all 6 once research runs in a background job.
         return [
             [ 'query' => $model_name, 'family' => 'exact_name' ],
-            [ 'query' => $model_name . ' cam model', 'family' => 'niche_context' ],
-            [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin', 'family' => 'webcam_platform_discovery' ],
             [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
             [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
-            [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
         ];
     }
 
@@ -289,7 +326,10 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                 continue;
             }
 
-            $serp = DataForSEO::serp_live( $query, 20 );
+            $t_query_start = microtime( true );
+            $serp = DataForSEO::serp_live( $query, self::SYNC_SERP_DEPTH );
+            $t_query_ms = (int) round( ( microtime( true ) - $t_query_start ) * 1000 );
+
             if ( empty( $serp['ok'] ) ) {
                 $last_error    = (string) ( $serp['error'] ?? 'unknown_error' );
                 $failed++;
@@ -299,12 +339,14 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                     'ok'           => false,
                     'result_count' => 0,
                     'error'        => $last_error,
+                    'duration_ms'  => $t_query_ms,
                 ];
                 Logs::warn( 'model_research', '[TMW-RESEARCH] SERP query failed — pack continues', [
-                    'post_id'     => $post_id,
-                    'query_index' => $idx,
-                    'query_family'=> $family,
-                    'error'       => $last_error,
+                    'post_id'      => $post_id,
+                    'query_index'  => $idx,
+                    'query_family' => $family,
+                    'duration_ms'  => $t_query_ms,
+                    'error'        => $last_error,
                 ] );
                 continue;
             }
@@ -317,7 +359,14 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                 'ok'           => true,
                 'result_count' => count( $items ),
                 'error'        => '',
+                'duration_ms'  => $t_query_ms,
             ];
+            Logs::info( 'model_research', '[TMW-RESEARCH] SERP query ok', [
+                'post_id'      => $post_id,
+                'query_family' => $family,
+                'results'      => count( $items ),
+                'duration_ms'  => $t_query_ms,
+            ] );
 
             foreach ( $items as $item ) {
                 $item['_query']        = $query;
@@ -484,7 +533,8 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         $hub_pages_seen   = 0;
 
         foreach ( array_keys( $hub_cand_urls ) as $hub_url ) {
-            if ( $hub_pages_seen >= self::MAX_HUB_PAGES ) {
+            // TMWSEO-TIMEOUT-FIX: SYNC_MAX_HUB_PAGES = 0 disables hub fetches for sync path.
+            if ( $hub_pages_seen >= self::SYNC_MAX_HUB_PAGES ) {
                 break;
             }
             $hub_pages_seen++;
