@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v4.6.5 + Keyword Data Explorer v2 — Security & stability patch: atomic API budget tracking (DataForSEO + AI Router), GSC token encryption, ModelDiscovery draft-only publishing, bulk KD batching, DiscoveryGovernor race fix, Expansion candidate pruning, Bing/Reddit caching, POST-before-output fix, dead WorkerCron removed.
- * Version: 4.6.5
+ * Description: Intelligence Core v5.0.0 — X/Twitter support, handle seeding, confirmation pass, social coverage widening, evidence URL blocklist ordering fix.
+ * Version: 5.0.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '4.6.5');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.0.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 

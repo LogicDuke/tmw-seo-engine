@@ -49,6 +49,13 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority' => 9,
         ],
+        'twitter' => [
+            'name'                   => 'X (Twitter)',
+            'slug'                   => 'twitter',
+            'profile_url_pattern'    => 'https://x.com/{username}',
+            'affiliate_link_pattern' => '',
+            'priority'               => 12,
+        ],
         'livejasmin' => [
             'name' => 'LiveJasmin',
             'slug' => 'livejasmin',

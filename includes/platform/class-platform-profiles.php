@@ -408,6 +408,54 @@ class PlatformProfiles {
             return '';
         }
 
+        if ($platform === 'twitter') {
+            // Accept both x.com (canonical) and twitter.com (legacy).
+            // Canonical output URL always uses x.com (via build_profile_url).
+            $is_x       = self::host_equals_or_subdomain_of($host, 'x.com');
+            $is_twitter = self::host_equals_or_subdomain_of($host, 'twitter.com');
+            if (!$is_x && !$is_twitter) {
+                return '';
+            }
+
+            // Reject tweet/content URLs — /status/ anywhere in the path means
+            // this is a tweet reference, not a profile.
+            if (strpos('/' . $path . '/', '/status/') !== false) {
+                return '';
+            }
+
+            $segments = $path !== '' ? explode('/', $path) : [];
+
+            // Must have exactly one path segment (the username).
+            // Two or more segments = /handle/following, /handle/likes, /handle/status/xyz, etc.
+            if (count($segments) !== 1 || $segments[0] === '') {
+                return '';
+            }
+
+            // Strip leading @ (sometimes present in crawled/linked URLs)
+            $candidate = ltrim((string)$segments[0], '@');
+
+            // Reserved first-level paths — these are Twitter UI routes, not profiles.
+            static $twitter_reserved = [
+                'home', 'explore', 'notifications', 'messages', 'search', 'i',
+                'settings', 'login', 'logout', 'intent', 'share', 'hashtag',
+                'compose', 'privacy', 'tos', 'help', 'about', 'en', 'download',
+                'status', 'following', 'followers', 'media', 'likes', 'replies',
+                'highlights', 'lists', 'moments', 'bookmarks', 'communities',
+                'verified_followers', 'who_to_follow', 'connect_people', 'jobs',
+            ];
+            if (in_array(strtolower($candidate), $twitter_reserved, true)) {
+                return '';
+            }
+
+            // Twitter usernames: 1–15 chars, alphanumeric + underscore only.
+            // Rejects hyphens, dots, and other characters that Twitter does not allow.
+            if (!preg_match('/^[A-Za-z0-9_]{1,15}$/', $candidate)) {
+                return '';
+            }
+
+            return sanitize_text_field($candidate);
+        }
+
         // ── Pattern-derived safe regex (all remaining platforms) ─────────────
         //
         // Build a regex directly from the platform's canonical profile_url_pattern.
@@ -462,7 +510,11 @@ class PlatformProfiles {
             return strtolower(rtrim($url, '/'));
         }
 
-        $scheme = strtolower($parts['scheme'] ?? 'https');
+        // Normalize scheme to https: all registry patterns use https://, and the
+        // http vs https distinction is irrelevant for username extraction purposes.
+        // Without this, http://chaturbate.com/user would fail to match the
+        // https://chaturbate.com/{username} pattern regex.
+        $scheme = 'https';
         $host   = strtolower($parts['host'] ?? '');
 
         if (strpos($host, 'www.') === 0) {
@@ -504,6 +556,13 @@ class PlatformProfiles {
             }
             $sub = substr($host, 0, strlen($host) - strlen('.carrd.co'));
             return $sub !== '' && $sub !== 'www' && strpos($sub, '.') === false;
+        }
+
+        // Twitter/X: canonical host is x.com; twitter.com is an accepted legacy host.
+        // Both are valid for the 'twitter' slug — neither is a subdomain of the other.
+        if ($platform === 'twitter') {
+            return self::host_equals_or_subdomain_of($host, 'x.com')
+                || self::host_equals_or_subdomain_of($host, 'twitter.com');
         }
 
         $platform_data = PlatformRegistry::get($platform);

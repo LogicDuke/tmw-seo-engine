@@ -31,10 +31,12 @@ use TMWSEO\Engine\Platform\PlatformProfiles;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-final class ModelSerpResearchProvider implements ModelResearchProvider {
+class ModelSerpResearchProvider implements ModelResearchProvider {
 
     /** @var array<string,string> */
     private const KNOWN_PLATFORMS = [
+        'x.com'              => 'X (Twitter)',
+        'twitter.com'        => 'X (Twitter)',
         'chaturbate.com'     => 'Chaturbate',
         'stripchat.com'      => 'Stripchat',
         'camsoda.com'        => 'CamSoda',
@@ -114,6 +116,25 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
     private const MAX_HUB_LINKS_PER_PAGE     = 50;
     private const MAX_EVIDENCE_ITEMS         = 16;
 
+    /**
+     * Platform slugs whose extracted profile URLs belong in social_urls.
+     *
+     * X/Twitter and link-hub platforms are "social" profiles — suitable for
+     * schema sameAs markup and cross-linking. Cam platforms are commercial/
+     * affiliate profiles; they belong in platform_names/platform_candidates only.
+     *
+     * @var string[]
+     */
+    private const SOCIAL_PLATFORM_SLUGS = [
+        'twitter',
+        'linktree',
+        'allmylinks',
+        'beacons',
+        'solo_to',
+        'carrd',
+        'fansly',
+    ];
+
     public function provider_name(): string {
         return 'dataforseo_serp';
     }
@@ -143,25 +164,25 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'model_name' => $model_name,
         ] );
 
-        $queries      = $this->build_query_pack( $model_name );
-        $pack_results = $this->run_query_pack( $queries, $post_id );
-        $succeeded    = $pack_results['succeeded'];
-        $raw_items    = $pack_results['items'];
-        $query_stats  = $pack_results['query_stats'];
+        // ── PASS ONE: broad name-based discovery ─────────────────────────────
+        $queries_p1   = $this->build_query_pack( $model_name );
+        $pack_p1      = $this->run_query_pack( $queries_p1, $post_id );
+        $succeeded_p1 = $pack_p1['succeeded'];
+        $items_p1     = $pack_p1['items'];
 
-        if ( $succeeded === 0 ) {
+        if ( $succeeded_p1 === 0 ) {
             return [
                 'status'  => 'error',
                 'message' => sprintf(
                     __( 'All DataForSEO SERP queries failed. Last error: %s', 'tmwseo' ),
-                    (string) ( $pack_results['last_error'] ?? 'unknown_error' )
+                    (string) ( $pack_p1['last_error'] ?? 'unknown_error' )
                 ),
             ];
         }
 
-        $merged = $this->merge_serp_items( $raw_items );
+        $merged_p1 = $this->merge_serp_items( $items_p1 );
 
-        if ( empty( $merged['items'] ) ) {
+        if ( empty( $merged_p1['items'] ) ) {
             return [
                 'status'              => 'partial',
                 'message'             => __( 'No SERP results found across all queries for this model name.', 'tmwseo' ),
@@ -172,10 +193,11 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
                 'platform_candidates' => [],
                 'field_confidence'    => [ 'platform_names' => 5, 'social_urls' => 5, 'bio' => 5, 'country' => 0, 'language' => 0, 'source_urls' => 5 ],
                 'research_diagnostics'=> [
-                    'query_stats'         => $query_stats,
+                    'query_stats'         => $pack_p1['query_stats'],
                     'source_class_counts' => [],
                     'hub_expansion'       => [ 'attempted' => 0, 'expanded_profiles' => 0, 'fetch_failures' => 0, 'cached_hits' => 0 ],
                     'discovered_handles'  => [],
+                    'handle_discovery'    => [ 'seeds' => [], 'confirmation_queries' => [], 'confirmation_results' => [] ],
                     'evidence_items'      => [],
                 ],
                 'country'             => '',
@@ -184,13 +206,55 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
                 'confidence'          => 5,
                 'notes'               => sprintf(
                     'Multi-query pack ran (%d/%d succeeded). Empty result pool.',
-                    $succeeded,
-                    count( $queries )
+                    $succeeded_p1,
+                    count( $queries_p1 )
                 ),
             ];
         }
 
-        return $this->parse_merged_items( $model_name, $merged, $succeeded, count( $queries ), $query_stats );
+        // ── Partial extraction from pass one — used only to seed pass two ────
+        // Full extraction runs later on the combined item pool.
+        $p1_candidates  = $this->extract_candidates_from_items( $merged_p1['items'] );
+        $p1_successful  = array_values( array_filter( $p1_candidates, static fn( $c ) => ! empty( $c['success'] ) ) );
+        $already_confirmed = [];
+        foreach ( $p1_successful as $c ) {
+            $slug = (string) ( $c['normalized_platform'] ?? '' );
+            if ( $slug !== '' ) {
+                $already_confirmed[ $slug ] = true;
+            }
+        }
+
+        // ── PASS TWO: handle-seeded confirmation ──────────────────────────────
+        $handle_seeds = $this->build_handle_seeds( $p1_successful, $model_name );
+        $pass_two     = $this->run_confirmation_pass( $handle_seeds, $already_confirmed, $post_id );
+        $items_p2     = $pass_two['items'];
+        $conf_log     = $pass_two['confirmation_log'];
+
+        Logs::info( 'model_research', '[TMW-RESEARCH] Pass two confirmation complete', [
+            'model_name'   => $model_name,
+            'seeds'        => count( $handle_seeds ),
+            'p2_items'     => count( $items_p2 ),
+            'conf_queries' => count( $conf_log ),
+        ] );
+
+        // ── Merge both passes; pass-one items take dedup precedence ───────────
+        $all_items_combined = array_merge( $items_p1, $items_p2 );
+        $merged_combined    = $this->merge_serp_items( $all_items_combined );
+
+        $all_query_stats = array_merge(
+            $pack_p1['query_stats'],
+            $pass_two['query_stats']
+        );
+
+        return $this->parse_merged_items(
+            $model_name,
+            $merged_combined,
+            $succeeded_p1,
+            count( $queries_p1 ),
+            $all_query_stats,
+            $handle_seeds,
+            $conf_log
+        );
     }
 
     /**
@@ -203,6 +267,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin', 'family' => 'webcam_platform_discovery' ],
             [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
             [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
+            [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
         ];
     }
 
@@ -317,13 +382,17 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
     /**
      * @param array{items:array[],domain_counts:array<string,int>} $merged
      * @param array<int,array<string,mixed>> $query_stats
+     * @param array<int,array{handle:string,source_platform:string,source_url:string}> $handle_seeds
+     * @param array<int,array<string,mixed>> $conf_log
      */
     private function parse_merged_items(
         string $model_name,
         array $merged,
         int $succeeded,
         int $total_queries,
-        array $query_stats
+        array $query_stats,
+        array $handle_seeds = [],
+        array $conf_log = []
     ): array {
         $items         = (array) ( $merged['items'] ?? [] );
         $domain_counts = (array) ( $merged['domain_counts'] ?? [] );
@@ -492,13 +561,12 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'platform_names' => $platform_names,
         ] );
 
-        $hub_slugs   = $this->resolve_hub_slugs();
         $social_urls = [];
         foreach ( $successful as $candidate ) {
             $slug     = (string) ( $candidate['normalized_platform'] ?? '' );
             $norm_url = trim( (string) ( $candidate['normalized_url'] ?? '' ) );
             if ( $norm_url === '' ) { continue; }
-            if ( isset( $hub_slugs[ $slug ] ) || $slug === 'fansly' ) {
+            if ( in_array( $slug, self::SOCIAL_PLATFORM_SLUGS, true ) ) {
                 $social_urls[] = $norm_url;
             }
         }
@@ -538,13 +606,34 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         ksort( $bio_snippets );
         $bio = ! empty( $bio_snippets ) ? trim( (string) reset( $bio_snippets ) ) : '';
 
-        $discovered_handles = [];
+        $discovered_handles    = [];
+        $seen_handle_slugs     = [];
+        $conf_results_for_diag = [];
         foreach ( $successful as $candidate ) {
-            $handle = trim( (string) ( $candidate['username'] ?? '' ) );
+            $handle  = trim( (string) ( $candidate['username'] ?? '' ) );
+            $slug    = (string) ( $candidate['normalized_platform'] ?? '' );
+            $src_url = (string) ( $candidate['source_url'] ?? '' );
+            $family  = (string) ( $candidate['_query_family'] ?? '' );
+            $conf_of = (string) ( $candidate['_confirmation_handle'] ?? '' );
             if ( $handle === '' ) { continue; }
-            $discovered_handles[] = $handle;
+            $dk = $handle . '|' . $slug;
+            if ( isset( $seen_handle_slugs[ $dk ] ) ) { continue; }
+            $seen_handle_slugs[ $dk ] = true;
+            $is_confirmation = str_contains( $family, 'confirmation' );
+            $entry = [
+                'handle'     => $handle,
+                'platform'   => $slug,
+                'source'     => $is_confirmation ? 'pass_two_confirmation' : 'pass_one',
+                'source_url' => $src_url,
+            ];
+            if ( $conf_of !== '' ) {
+                $entry['confirmation_of'] = $conf_of;
+            }
+            $discovered_handles[] = $entry;
+            if ( $is_confirmation ) {
+                $conf_results_for_diag[] = $entry;
+            }
         }
-        $discovered_handles = array_values( array_unique( $discovered_handles ) );
 
         $field_confidence = $this->build_field_confidence( $confidence, count( $social_urls ), $bio !== '', count( $source_urls ) );
 
@@ -609,6 +698,11 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             'source_class_counts' => $source_class_counts,
             'hub_expansion'       => $hub_stats,
             'discovered_handles'  => $discovered_handles,
+            'handle_discovery'    => [
+                'seeds'                => $handle_seeds,
+                'confirmation_queries' => $conf_log,
+                'confirmation_results' => $conf_results_for_diag,
+            ],
             'evidence_items'      => $evidence_items,
         ];
 
@@ -654,7 +748,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param  array<string,string> $map
      * @return string
      */
-    private function match_domain_label_strict( string $domain, array $map ): string {
+    protected function match_domain_label_strict( string $domain, array $map ): string {
         $domain = strtolower( (string) preg_replace( '/^www\./', '', $domain ) );
         foreach ( $map as $needle => $label ) {
             $needle = strtolower( $needle );
@@ -705,7 +799,7 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         return 'other';
     }
 
-    private function is_evidence_url( string $url ): bool {
+    protected function is_evidence_url( string $url ): bool {
         static $cache = [];
         if ( isset( $cache[ $url ] ) ) {
             return $cache[ $url ];
@@ -715,15 +809,19 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             return $cache[ $url ] = false;
         }
 
-        if ( $this->has_supported_profile_extraction( $url ) ) {
-            return $cache[ $url ] = true;
-        }
-
+        // Blocklist check runs FIRST. A URL that matches a listing/search/category
+        // pattern is never evidence — regardless of whether a username token happens
+        // to sit at path position 0 (e.g. stripchat.com/performers/new would
+        // otherwise extract 'performers' as a username and bypass this guard).
         $lower = strtolower( $url );
         foreach ( self::SOURCE_URL_BLOCKLIST_SEGMENTS as $segment ) {
             if ( strpos( $lower, $segment ) !== false ) {
                 return $cache[ $url ] = false;
             }
+        }
+
+        if ( $this->has_supported_profile_extraction( $url ) ) {
+            return $cache[ $url ] = true;
         }
 
         return $cache[ $url ] = true;
@@ -922,6 +1020,12 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
             if ( $host !== '' ) {
                 $cache[] = $host;
             }
+            // Twitter/X: the registry pattern uses x.com but twitter.com is also
+            // a valid host. Add it explicitly so hub-expansion links and SERP
+            // items from twitter.com are not silently discarded.
+            if ( $slug === 'twitter' ) {
+                $cache[] = 'twitter.com';
+            }
         }
 
         $cache = array_values( array_unique( $cache ) );
@@ -978,5 +1082,230 @@ final class ModelSerpResearchProvider implements ModelResearchProvider {
         }
 
         return $cache;
+    }
+
+    // ── Pass-two helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Run PlatformProfiles extraction against a flat list of SERP items and
+     * return the raw candidate rows. Used by lookup() to do a lightweight
+     * pass-one extraction just for seeding pass two — the same extraction
+     * pipeline also runs later on the combined item pool, so nothing is lost.
+     *
+     * @param  array[] $items  Merged SERP items (already deduplicated).
+     * @return array[]
+     */
+    private function extract_candidates_from_items( array $items ): array {
+        $candidate_urls = [];
+        foreach ( $items as $item ) {
+            $url    = (string) ( $item['url'] ?? '' );
+            $domain = strtolower( (string) ( $item['domain'] ?? '' ) );
+            if ( $url === '' ) { continue; }
+            if (
+                $this->match_domain_label_strict( $domain, self::KNOWN_PLATFORMS ) !== '' ||
+                $this->match_domain_label_strict( $domain, self::KNOWN_HUBS ) !== ''
+            ) {
+                $candidate_urls[ $url ] = true;
+            }
+        }
+
+        $results = [];
+        foreach ( array_keys( $candidate_urls ) as $url ) {
+            foreach ( PlatformRegistry::get_slugs() as $slug ) {
+                $parsed = PlatformProfiles::parse_url_for_platform_structured( $slug, $url );
+                if ( $parsed['reject_reason'] === 'host_mismatch' ) { continue; }
+                $results[] = array_merge( [ 'source_url' => $url ], $parsed );
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Build a ranked, deduplicated list of handle seeds from pass-one successful
+     * extractions plus a name-derived candidate from the model's display name.
+     *
+     * Seeds are sorted by PlatformRegistry priority (ascending = higher priority
+     * platforms first). Capped at 5. Deduplication is case-insensitive.
+     *
+     * @param  array[]  $successful   Pass-one successful extraction rows.
+     * @param  string   $model_name   Post title / display name.
+     * @return array<int,array{handle:string,source_platform:string,source_url:string}>
+     */
+    protected function build_handle_seeds( array $successful, string $model_name ): array {
+        // Sort by PlatformRegistry priority ascending (lower number = higher priority).
+        usort( $successful, static function ( array $a, array $b ): int {
+            $pa = PlatformRegistry::get( (string) ( $a['normalized_platform'] ?? '' ) );
+            $pb = PlatformRegistry::get( (string) ( $b['normalized_platform'] ?? '' ) );
+            return (int) ( $pa['priority'] ?? 999 ) <=> (int) ( $pb['priority'] ?? 999 );
+        } );
+
+        $seeds = [];
+        $seen  = [];
+
+        foreach ( $successful as $candidate ) {
+            $handle  = trim( (string) ( $candidate['username'] ?? '' ) );
+            $slug    = (string) ( $candidate['normalized_platform'] ?? '' );
+            $src_url = (string) ( $candidate['source_url'] ?? '' );
+            if ( $handle === '' || $slug === '' ) { continue; }
+            if ( isset( $seen[ strtolower( $handle ) ] ) ) { continue; }
+            $seen[ strtolower( $handle ) ] = true;
+            $seeds[] = [
+                'handle'          => $handle,
+                'source_platform' => $slug,
+                'source_url'      => $src_url,
+            ];
+            if ( count( $seeds ) >= 5 ) { break; }
+        }
+
+        // Add a name-derived candidate (spaces and non-alphanumeric stripped).
+        // e.g. "Aisha Dupont" → "AishaDupont"
+        $name_clean = (string) preg_replace( '/[^A-Za-z0-9]/', '', $model_name );
+        if ( $name_clean !== '' && ! isset( $seen[ strtolower( $name_clean ) ] ) && count( $seeds ) < 5 ) {
+            $seeds[] = [
+                'handle'          => $name_clean,
+                'source_platform' => 'name_derived',
+                'source_url'      => '',
+            ];
+        }
+
+        return $seeds;
+    }
+
+    /**
+     * Run a bounded second-pass confirmation using discovered handle seeds.
+     *
+     * Runs site-scoped queries like `site:x.com "OhhAisha"`. Results still
+     * require successful structured extraction before they can populate any
+     * trusted output field — the trust gate is identical to pass one.
+     *
+     * Hard limits:
+     *   - max 3 seeds processed
+     *   - max 6 total confirmation queries
+     *   - max 5 SERP results per confirmation query
+     *
+     * @param  array<int,array{handle:string,source_platform:string,source_url:string}> $seeds
+     * @param  array<string,true>  $already_confirmed  Platform slugs confirmed in pass one.
+     * @param  int                 $post_id
+     * @return array{items:array[],query_stats:array[],confirmation_log:array[]}
+     */
+    private function run_confirmation_pass(
+        array $seeds,
+        array $already_confirmed,
+        int $post_id
+    ): array {
+        $all_items        = [];
+        $query_stats      = [];
+        $confirmation_log = [];
+        $query_count      = 0;
+        $max_queries      = 6;
+
+        // Take top 3 seeds only (already ranked by platform priority).
+        $seeds = array_slice( $seeds, 0, 3 );
+
+        foreach ( $seeds as $seed ) {
+            $handle = (string) ( $seed['handle'] ?? '' );
+            if ( $handle === '' || $query_count >= $max_queries ) { break; }
+
+            // X/Twitter confirmation — always run unless twitter already confirmed.
+            if ( ! isset( $already_confirmed['twitter'] ) ) {
+                $query  = 'site:x.com "' . $handle . '"';
+                $result = $this->run_single_confirmation_query( $query, $handle, 'twitter_confirmation', $post_id );
+                $query_stats[]      = $result['stat'];
+                $confirmation_log[] = array_merge( [ 'handle' => $handle, 'platform_target' => 'twitter' ], $result['stat'] );
+                $all_items          = array_merge( $all_items, $result['items'] );
+                $query_count++;
+            }
+
+            if ( $query_count >= $max_queries ) { break; }
+
+            // Stripchat confirmation — skip if this handle came from stripchat itself.
+            if (
+                ( $seed['source_platform'] ?? '' ) !== 'stripchat' &&
+                ! isset( $already_confirmed['stripchat'] )
+            ) {
+                $query  = 'site:stripchat.com "' . $handle . '"';
+                $result = $this->run_single_confirmation_query( $query, $handle, 'stripchat_confirmation', $post_id );
+                $query_stats[]      = $result['stat'];
+                $confirmation_log[] = array_merge( [ 'handle' => $handle, 'platform_target' => 'stripchat' ], $result['stat'] );
+                $all_items          = array_merge( $all_items, $result['items'] );
+                $query_count++;
+            }
+
+            if ( $query_count >= $max_queries ) { break; }
+
+            // Chaturbate confirmation — skip if this handle came from chaturbate itself.
+            if (
+                ( $seed['source_platform'] ?? '' ) !== 'chaturbate' &&
+                ! isset( $already_confirmed['chaturbate'] )
+            ) {
+                $query  = 'site:chaturbate.com "' . $handle . '"';
+                $result = $this->run_single_confirmation_query( $query, $handle, 'chaturbate_confirmation', $post_id );
+                $query_stats[]      = $result['stat'];
+                $confirmation_log[] = array_merge( [ 'handle' => $handle, 'platform_target' => 'chaturbate' ], $result['stat'] );
+                $all_items          = array_merge( $all_items, $result['items'] );
+                $query_count++;
+            }
+        }
+
+        return [
+            'items'            => $all_items,
+            'query_stats'      => $query_stats,
+            'confirmation_log' => $confirmation_log,
+        ];
+    }
+
+    /**
+     * Run a single bounded confirmation query and tag each result item.
+     *
+     * @return array{stat:array<string,mixed>,items:array[]}
+     */
+    private function run_single_confirmation_query(
+        string $query,
+        string $handle,
+        string $family,
+        int $post_id
+    ): array {
+        // Confirmation queries fetch only 5 results (vs 20 for pass-one queries).
+        $serp = DataForSEO::serp_live( $query, 5 );
+
+        if ( empty( $serp['ok'] ) ) {
+            Logs::warn( 'model_research', '[TMW-RESEARCH] Confirmation query failed', [
+                'post_id' => $post_id,
+                'query'   => $query,
+                'error'   => (string) ( $serp['error'] ?? 'unknown_error' ),
+            ] );
+            return [
+                'stat'  => [
+                    'family'       => $family,
+                    'query'        => $query,
+                    'ok'           => false,
+                    'result_count' => 0,
+                    'error'        => (string) ( $serp['error'] ?? 'unknown_error' ),
+                ],
+                'items' => [],
+            ];
+        }
+
+        $items  = (array) ( $serp['items'] ?? [] );
+        $tagged = [];
+        foreach ( $items as $item ) {
+            $item['_query']               = $query;
+            $item['_query_index']         = 99; // pass-two marker
+            $item['_query_family']        = $family;
+            $item['_confirmation_handle'] = $handle;
+            $tagged[]                     = $item;
+        }
+
+        return [
+            'stat'  => [
+                'family'       => $family,
+                'query'        => $query,
+                'ok'           => true,
+                'result_count' => count( $items ),
+                'error'        => '',
+            ],
+            'items' => $tagged,
+        ];
     }
 }

@@ -171,7 +171,7 @@ if ( ! class_exists( 'WP_Error' ) ) {
 function is_wp_error( $thing ): bool { return $thing instanceof WP_Error; }
 
 // ── Plugin path constants ──────────────────────────────────────────────────────
-define( 'TMWSEO_ENGINE_VERSION', '4.6.3' );
+define( 'TMWSEO_ENGINE_VERSION', '5.0.0' );
 // __DIR__ = tests/bootstrap  →  dirname(__DIR__) = tests  →  dirname(dirname(__DIR__)) = plugin root
 define( 'TMWSEO_ENGINE_PATH', dirname( dirname( __DIR__ ) ) . '/' );
 define( 'TMWSEO_ENGINE_URL', 'http://example.com/wp-content/plugins/tmw-seo-engine/' );
@@ -237,3 +237,14 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-ajax-handlers.php'
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-form-handlers.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-csv-manager-admin-page.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-admin.php';
+
+// ── Model research classes ────────────────────────────────────────────────────
+// Required by ModelSerpResearchProviderTest, ModelSerpResearchProviderGroupEFTest,
+// and TwitterParserTest.
+if ( ! function_exists( 'esc_url_raw' ) ) {
+    function esc_url_raw( string $url ): string { return filter_var( $url, FILTER_SANITIZE_URL ) ?: ''; }
+}
+require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-research-provider-interface.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-serp-research-provider.php';
