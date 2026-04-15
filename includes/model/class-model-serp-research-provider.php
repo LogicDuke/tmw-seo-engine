@@ -209,10 +209,16 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      */
     private const MAX_HANDLE_VARIANTS = 5;
 
+    /**
+     * {@inheritdoc}
+     */
     public function provider_name(): string {
         return 'dataforseo_serp';
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function lookup( int $post_id, string $model_name ): array {
         $model_name = trim( $model_name );
         if ( $model_name === '' ) {

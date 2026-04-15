@@ -36,6 +36,8 @@ class TestableSerpProvider extends \TMWSEO\Engine\Model\ModelSerpResearchProvide
 
     /**
      * Expose evidence URL filter helper for unit tests.
+     *
+     * @return bool
      */
     public function is_evidence_public( string $url ): bool {
         return $this->is_evidence_url( $url );
@@ -62,10 +64,17 @@ class TestableSerpProvider extends \TMWSEO\Engine\Model\ModelSerpResearchProvide
     }
 }
 
+/**
+ * Regression tests for strict URL classification, variant generation, and
+ * bounded query-pack composition in ModelSerpResearchProvider.
+ */
 class ModelSerpResearchProviderTest extends TestCase {
 
     private TestableSerpProvider $provider;
 
+    /**
+     * Initialize provider test double for each test case.
+     */
     protected function setUp(): void {
         $this->provider = new TestableSerpProvider();
     }
