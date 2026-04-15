@@ -1020,6 +1020,9 @@ class ModelHelper {
         // but prevents PHP's own limit from killing the request prematurely.
         @set_time_limit( 120 );
 
+        // Defensive cleanup: never carry stale proposed data into a new run.
+        delete_post_meta( $post_id, self::META_PROPOSED );
+
         $t_start = microtime( true );
         Logs::info( 'model_research', '[TMW-RESEARCH] run_research_now started', [
             'post_id' => $post_id,
@@ -1058,6 +1061,22 @@ class ModelHelper {
             update_post_meta( $post_id, self::META_PROPOSED, $encoded );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
 
+            if ( ! self::stored_proposed_blob_round_trip_ok( $post_id ) ) {
+                $stored_raw   = (string) get_post_meta( $post_id, self::META_PROPOSED, true );
+                $stored_bytes = strlen( $stored_raw );
+
+                delete_post_meta( $post_id, self::META_PROPOSED );
+                update_post_meta( $post_id, self::META_STATUS, 'error' );
+                update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+
+                Logs::warn( 'model_research', '[TMW-RESEARCH] stored proposed blob failed round-trip decode', [
+                    'post_id'         => $post_id,
+                    'pipeline_status' => $pipeline_status,
+                    'stored_bytes'    => $stored_bytes,
+                ] );
+                return;
+            }
+
             if ( $pipeline_status === 'no_provider' ) {
                 update_post_meta( $post_id, self::META_STATUS, 'not_researched' );
             } elseif ( $pipeline_status === 'ok' || $pipeline_status === 'partial' ) {
@@ -1083,6 +1102,19 @@ class ModelHelper {
             update_post_meta( $post_id, self::META_STATUS, 'error' );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
         }
+    }
+
+    /**
+     * Validate proposed data persistence by reading back and decoding JSON.
+     */
+    private static function stored_proposed_blob_round_trip_ok( int $post_id ): bool {
+        $stored_raw = (string) get_post_meta( $post_id, self::META_PROPOSED, true );
+        if ( $stored_raw === '' ) {
+            return false;
+        }
+
+        $decoded = json_decode( $stored_raw, true );
+        return is_array( $decoded );
     }
 
     /**
