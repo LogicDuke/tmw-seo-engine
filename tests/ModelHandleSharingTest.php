@@ -138,6 +138,35 @@ class RecordingSeedsProvider extends ModelDirectProbeProvider {
 }
 
 /**
+ * Probe double that records queue order and returns a configurable result.
+ */
+class RecordingQueueProbe extends ModelPlatformProbe {
+    public array $queue = [];
+    private array $result;
+
+    public function __construct( array $result ) {
+        $this->result = $result;
+    }
+
+    public function run( array $seeds, array $confirmed, int $post_id ): array {
+        $this->queue = $this->build_work_queue( $seeds, $confirmed );
+        return $this->result;
+    }
+}
+
+class RecordingQueueProvider extends ModelDirectProbeProvider {
+    public RecordingQueueProbe $probe_instance;
+
+    public function __construct( array $probe_result ) {
+        $this->probe_instance = new RecordingQueueProbe( $probe_result );
+    }
+
+    protected function make_probe(): ModelPlatformProbe {
+        return $this->probe_instance;
+    }
+}
+
+/**
  * Minimal stub provider for pipeline tests; does not implement context-aware interface.
  */
 class NonContextAwareStub implements ModelResearchProvider {
@@ -618,6 +647,78 @@ class ModelHandleSharingTest extends TestCase {
 
         $this->assertNotEmpty( $diag['shared_handles'],
             'shared_handles must reflect the SERP handles received.' );
+    }
+
+    /** @test */
+    public function test_structured_serp_handle_is_targeted_to_core_platform_probe_queue(): void {
+        $provider = new RecordingQueueProvider( [
+            'verified_urls' => [
+                'https://chaturbate.com/anisyia' => [
+                    'slug'       => 'chaturbate',
+                    'username'   => 'anisyia',
+                    'handle'     => 'anisyia',
+                    'http_status'=> 200,
+                    'parse'      => [ 'success' => true, 'platform' => 'Chaturbate', 'username' => 'anisyia' ],
+                ],
+            ],
+            'diagnostics'   => [
+                'seeds_used' => 1, 'probes_attempted' => 3, 'probes_accepted' => 1,
+                'probes_rejected' => 2, 'get_fallbacks_used' => 0,
+                'seed_priorities' => [ 'anisyia' => 1 ], 'probe_log' => [],
+            ],
+        ] );
+        $provider->set_prior_results( [
+            'dataforseo_serp' => make_serp_with_handles( [
+                [ 'handle' => 'anisyia', 'source_platform' => 'chaturbate', 'source_url' => 'https://chaturbate.com/anisyia/', 'method' => 'structured_platform', 'tier' => 1 ],
+            ] ),
+        ] );
+
+        $result = $provider->lookup( 1, 'Anisyia' );
+
+        $this->assertContains( 'Chaturbate', $result['platform_names'],
+            'Trusted platform_names must still be populated only from successful strict parse results.' );
+
+        $pairs = array_map(
+            static fn( array $item ): string => $item['slug'] . '|' . ( $item['seed']['handle'] ?? '' ),
+            array_slice( $provider->probe_instance->queue, 0, 3 )
+        );
+        $this->assertContains( 'chaturbate|anisyia', $pairs );
+        $this->assertContains( 'stripchat|anisyia',  $pairs );
+        $this->assertContains( 'camsoda|anisyia',    $pairs );
+    }
+
+    /** @test */
+    public function test_rejected_or_ambiguous_probe_parse_never_promotes_trusted_fields(): void {
+        $provider = new HandleSharingProbeProvider( [
+            'verified_urls' => [
+                'https://chaturbate.com/not-real' => [
+                    'slug'       => 'chaturbate',
+                    'username'   => 'not-real',
+                    'handle'     => 'not-real',
+                    'http_status'=> 200,
+                    'parse'      => [ 'success' => false, 'reason' => 'unsupported_or_ambiguous' ],
+                ],
+            ],
+            'diagnostics'   => [
+                'seeds_used' => 1, 'probes_attempted' => 1, 'probes_accepted' => 1,
+                'probes_rejected' => 0, 'get_fallbacks_used' => 0,
+                'seed_priorities' => [ 'not-real' => 1 ], 'probe_log' => [],
+            ],
+        ] );
+        $provider->set_prior_results( [
+            'dataforseo_serp' => make_serp_with_handles( [
+                [ 'handle' => 'anisyia', 'source_platform' => 'chaturbate', 'source_url' => 'https://chaturbate.com/anisyia/', 'method' => 'structured_platform', 'tier' => 1 ],
+            ] ),
+        ] );
+
+        $result = $provider->lookup( 1, 'Anisyia' );
+
+        $this->assertSame( [], $result['platform_names'],
+            'Probe entries without parse.success must not populate platform_names.' );
+        $this->assertSame( [], $result['social_urls'],
+            'Direct probe must not populate social_urls from probe hits.' );
+        $this->assertSame( [], $result['platform_candidates'],
+            'Rejected/ambiguous probe parse must stay out of trusted candidate output.' );
     }
 
     /** @test */
