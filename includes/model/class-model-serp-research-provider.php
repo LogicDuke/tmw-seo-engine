@@ -901,6 +901,25 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         $discovered_handles    = [];
         $seen_handle_slugs     = [];
         $conf_results_for_diag = [];
+
+        /**
+         * Structured handle list for cross-provider sharing (v4.6.9).
+         *
+         * Exposed as `discovered_handles_structured` in the provider result
+         * so that later context-aware providers (e.g. ModelDirectProbeProvider)
+         * can use high-quality handles discovered by this SERP run instead of
+         * probing only from a name-derived guess.
+         *
+         * Each entry carries method + tier so the consuming provider can
+         * apply its own prioritization without re-interpreting platform slugs:
+         *   method 'structured_platform' / tier 1 — adult cam platform extraction
+         *   method 'social_hub'          / tier 2 — social/hub platform extraction
+         *
+         * @var array<int,array{handle:string,source_platform:string,source_url:string,method:string,tier:int}>
+         */
+        $discovered_handles_structured = [];
+        $seen_shared_handles_lc        = [];
+
         foreach ( $successful as $candidate ) {
             $handle  = trim( (string) ( $candidate['username'] ?? '' ) );
             $slug    = (string) ( $candidate['normalized_platform'] ?? '' );
@@ -924,6 +943,22 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             $discovered_handles[] = $entry;
             if ( $is_confirmation ) {
                 $conf_results_for_diag[] = $entry;
+            }
+
+            // Build cross-provider shareable handle entry (deduplicated by lowercase handle).
+            $handle_lc = strtolower( $handle );
+            if ( ! isset( $seen_shared_handles_lc[ $handle_lc ] ) ) {
+                $seen_shared_handles_lc[ $handle_lc ] = true;
+                // Classify method and tier: social/hub platforms get tier 2;
+                // adult cam platform extractions get tier 1 (highest confidence).
+                $is_social_or_hub = in_array( $slug, self::SOCIAL_PLATFORM_SLUGS, true );
+                $discovered_handles_structured[] = [
+                    'handle'          => $handle,
+                    'source_platform' => $slug,
+                    'source_url'      => $src_url,
+                    'method'          => $is_social_or_hub ? 'social_hub' : 'structured_platform',
+                    'tier'            => $is_social_or_hub ? 2 : 1,
+                ];
             }
         }
 
@@ -1023,20 +1058,24 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         ] );
 
         return [
-            'status'               => 'ok',
-            'display_name'         => $model_name,
-            'aliases'              => [],
-            'bio'                  => $bio,
-            'platform_names'       => $platform_names,
-            'social_urls'          => $social_urls,
-            'platform_candidates'  => $platform_candidates,
-            'field_confidence'     => $field_confidence,
-            'research_diagnostics' => $research_diagnostics,
-            'country'              => '',
-            'language'             => '',
-            'source_urls'          => $source_urls,
-            'confidence'           => $confidence,
-            'notes'                => $notes,
+            'status'                        => 'ok',
+            'display_name'                  => $model_name,
+            'aliases'                       => [],
+            'bio'                           => $bio,
+            'platform_names'                => $platform_names,
+            'social_urls'                   => $social_urls,
+            'platform_candidates'           => $platform_candidates,
+            'field_confidence'              => $field_confidence,
+            'research_diagnostics'          => $research_diagnostics,
+            'country'                       => '',
+            'language'                      => '',
+            'source_urls'                   => $source_urls,
+            'confidence'                    => $confidence,
+            'notes'                         => $notes,
+            // Cross-provider handle-sharing artifact (v4.6.9).
+            // Consumed by ModelDirectProbeProvider via ModelContextAwareProvider.
+            // Not a display field — not merged into proposed data by merge_results().
+            'discovered_handles_structured' => $discovered_handles_structured,
         ];
     }
 

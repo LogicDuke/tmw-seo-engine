@@ -73,13 +73,21 @@ class TestableDirectProbeProvider extends ModelDirectProbeProvider {
     }
 
     /**
-     * Expose build_name_seeds() as public for direct assertions.
+     * Expose build_seeds_for_probe() as public for direct assertions.
      *
      * @param string $model_name
+     * @param array  $shared_handles
      * @return array<int,array{handle:string,source_platform:string,source_url:string}>
      */
-    public function build_name_seeds_public( string $model_name ): array {
-        return $this->build_name_seeds( $model_name );
+    public function build_seeds_for_probe_public( string $model_name, array $shared_handles = [] ): array {
+        return $this->build_seeds_for_probe( $model_name, $shared_handles );
+    }
+
+    /**
+     * Expose collect_shared_handles() as public for direct assertions.
+     */
+    public function collect_shared_handles_public(): array {
+        return $this->collect_shared_handles();
     }
 }
 
@@ -555,25 +563,28 @@ class ModelHybridPipelineTest extends TestCase {
     /** @test */
     public function test_build_name_seeds_strips_non_alphanumeric(): void {
         $provider = $this->make_provider_with_empty_probe();
-        $seeds = $provider->build_name_seeds_public( 'Abby Murray' );
+        // No shared handles → falls through to name-derived
+        $seeds = $provider->build_seeds_for_probe_public( 'Abby Murray' );
 
-        $this->assertCount( 1, $seeds );
-        $this->assertSame( 'AbbyMurray', $seeds[0]['handle'] );
-        $this->assertSame( 'name_derived', $seeds[0]['source_platform'] );
+        $this->assertNotEmpty( $seeds );
+        $handles = array_column( $seeds, 'handle' );
+        // Name-derived seed must contain the stripped name
+        $this->assertContains( 'AbbyMurray', $handles );
     }
 
     /** @test */
     public function test_build_name_seeds_preserves_camel_case(): void {
         $provider = $this->make_provider_with_empty_probe();
-        $seeds = $provider->build_name_seeds_public( 'Anisyia' );
+        $seeds    = $provider->build_seeds_for_probe_public( 'Anisyia' );
 
-        $this->assertSame( 'Anisyia', $seeds[0]['handle'] );
+        $handles = array_column( $seeds, 'handle' );
+        $this->assertContains( 'Anisyia', $handles );
     }
 
     /** @test */
     public function test_build_name_seeds_empty_for_punctuation_only(): void {
         $provider = $this->make_provider_with_empty_probe();
-        $seeds = $provider->build_name_seeds_public( '--- !!!' );
+        $seeds    = $provider->build_seeds_for_probe_public( '--- !!!' );
         $this->assertSame( [], $seeds );
     }
 

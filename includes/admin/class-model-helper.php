@@ -111,6 +111,17 @@ final class ModelResearchPipeline {
             if ( ! ( $provider instanceof ModelResearchProvider ) ) {
                 continue;
             }
+
+            // ── Handle-sharing: pass prior results to context-aware providers ──
+            // If a provider implements ModelContextAwareProvider, give it a
+            // snapshot of results collected so far before calling lookup().
+            // This allows later providers (e.g. direct probe) to consume
+            // handles discovered by earlier providers (e.g. SERP) without
+            // redesigning the core lookup() contract.
+            if ( $provider instanceof ModelContextAwareProvider ) {
+                $provider->set_prior_results( $provider_results );
+            }
+
             try {
                 $result = $provider->lookup( $post_id, $model_name );
             } catch ( \Throwable $e ) {

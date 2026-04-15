@@ -192,7 +192,9 @@ class ModelPlatformProbe {
     /**
      * Seed source_platform priority tiers (lower integer = higher priority).
      *
-     * Tier 1 — name_derived: directly from the model display name; strongest anchor.
+     * Tier 1 — verified_extract: handle confirmed by SERP structured extraction.
+     *           This is the highest-confidence seed — the platform was already found.
+     * Tier 1 — name_derived: directly from the model display name; strong anchor.
      * Tier 2 — adult cam platforms: handle extracted from a verified cam profile.
      * Tier 3 — trusted hubs: handle from a link-hub (fansly, linktree, etc.).
      * Tier 4 — default/unrecognised source.
@@ -202,24 +204,38 @@ class ModelPlatformProbe {
      * @var array<string,int>
      */
     private const SEED_SOURCE_PRIORITY = [
-        'name_derived' => 1,
-        'chaturbate'   => 2,
-        'stripchat'    => 2,
-        'camsoda'      => 2,
-        'bonga'        => 2,
-        'cam4'         => 2,
-        'sinparty'     => 2,
-        'jerkmate'     => 2,
-        'camscom'      => 2,
-        'livejasmin'   => 2,
-        'fansly'       => 3,
-        'linktree'     => 3,
-        'allmylinks'   => 3,
-        'beacons'      => 3,
-        'solo_to'      => 3,
-        'carrd'        => 3,
-        'twitter'      => 5,
+        'verified_extract' => 1,   // v4.6.9: SERP-confirmed structured extraction
+        'name_derived'     => 1,
+        'chaturbate'       => 2,
+        'stripchat'        => 2,
+        'camsoda'          => 2,
+        'bonga'            => 2,
+        'cam4'             => 2,
+        'sinparty'         => 2,
+        'jerkmate'         => 2,
+        'camscom'          => 2,
+        'livejasmin'       => 2,
+        'fansly'           => 3,
+        'linktree'         => 3,
+        'allmylinks'       => 3,
+        'beacons'          => 3,
+        'solo_to'          => 3,
+        'carrd'            => 3,
+        'twitter'          => 5,
     ];
+
+    /**
+     * Core platform slugs that receive a guaranteed probe with the best available
+     * seed before the general round-robin budget is consumed.
+     *
+     * These platforms are high-priority recall targets (CamSoda / Chaturbate /
+     * Stripchat) that are commonly missed when a noisy seed list exhausts the
+     * round-robin budget before reaching them. The priority phase ensures at
+     * least one probe per core platform regardless of total seed count.
+     *
+     * @var string[]
+     */
+    private const CORE_PRIORITY_SLUGS = [ 'chaturbate', 'stripchat', 'camsoda' ];
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -748,20 +764,26 @@ class ModelPlatformProbe {
     // ── Work queue ────────────────────────────────────────────────────────────
 
     /**
-     * Build the round-robin probe work queue.
+     * Build the round-robin probe work queue with core-platform priority guarantee.
      *
-     * Outer loop: platform slug (PROBE_PRIORITY_SLUGS order = highest value first).
-     * Inner loop: seeds (already sorted by quality tier — best seed first).
+     * Two phases:
      *
-     * This order guarantees:
-     *  - The highest-value platform (chaturbate) is attempted for every seed
-     *    before any lower-priority platform is tried at all.
-     *  - No single seed can exhaust the budget across many low-priority platforms.
+     * Phase 1 — Priority guarantee (v4.6.9):
+     *   For each CORE_PRIORITY_SLUG (CamSoda, Chaturbate, Stripchat), insert the
+     *   best available seed first. This ensures these three high-value platforms
+     *   receive at least one probe regardless of how many seeds are in the list.
+     *   Without this, a large seed count exhausts the round-robin budget before
+     *   CamSoda is ever attempted.
      *
-     * Example with 2 seeds [s1 (tier 1), s2 (tier 2)] and budget=4:
-     *   chaturbate/s1, chaturbate/s2,
-     *   stripchat/s1,  stripchat/s2   ← budget exhausted here
-     *   (camsoda/s1, ... not reached)
+     * Phase 2 — Round-robin (outer=platform, inner=seed):
+     *   All remaining (platform, seed) pairs not already emitted in Phase 1 are
+     *   appended in priority-slug order × seed order. Seeds are already sorted
+     *   by quality tier at this point.
+     *
+     * Example with 3 seeds [s1, s2, s3] and MAX_PROBES=6:
+     *   Phase 1: chaturbate/s1, stripchat/s1, camsoda/s1           (3 slots)
+     *   Phase 2: chaturbate/s2, chaturbate/s3, stripchat/s2, ...   (3 slots remaining)
+     *   → All three core platforms guaranteed at least one probe.
      *
      * @param  array<int,array{handle:string,source_platform:string,source_url:string}> $unique_seeds
      *         Deduplicated, priority-sorted seeds.
@@ -770,15 +792,39 @@ class ModelPlatformProbe {
      * @return list<array{slug:string,seed:array}>
      */
     public function build_work_queue( array $unique_seeds, array $already_confirmed ): array {
-        $queue = [];
+        $queue         = [];
+        $emitted_pairs = []; // tracks (slug|handle) already in queue
+
+        // ── Phase 1: core-platform priority guarantee ─────────────────────────
+        // Best seed (first in priority-sorted list) for each core platform first.
+        foreach ( self::CORE_PRIORITY_SLUGS as $slug ) {
+            if ( isset( $already_confirmed[ $slug ] ) ) {
+                continue;
+            }
+            foreach ( $unique_seeds as $seed ) {
+                $pair = $slug . '|' . $seed['handle'];
+                if ( ! isset( $emitted_pairs[ $pair ] ) ) {
+                    $emitted_pairs[ $pair ] = true;
+                    $queue[] = [ 'slug' => $slug, 'seed' => $seed ];
+                    break; // best seed only in priority phase
+                }
+            }
+        }
+
+        // ── Phase 2: round-robin for all platforms (deduped against Phase 1) ──
         foreach ( self::PROBE_PRIORITY_SLUGS as $slug ) {
             if ( isset( $already_confirmed[ $slug ] ) ) {
                 continue;
             }
             foreach ( $unique_seeds as $seed ) {
-                $queue[] = [ 'slug' => $slug, 'seed' => $seed ];
+                $pair = $slug . '|' . $seed['handle'];
+                if ( ! isset( $emitted_pairs[ $pair ] ) ) {
+                    $emitted_pairs[ $pair ] = true;
+                    $queue[] = [ 'slug' => $slug, 'seed' => $seed ];
+                }
             }
         }
+
         return $queue;
     }
 

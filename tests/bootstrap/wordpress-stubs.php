@@ -252,6 +252,7 @@ if ( ! function_exists( 'esc_url_raw' ) ) {
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-research-provider-interface.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-context-aware-provider-interface.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-platform-probe.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-direct-probe-provider.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-serp-research-provider.php';

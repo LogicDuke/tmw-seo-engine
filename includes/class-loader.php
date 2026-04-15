@@ -170,6 +170,7 @@ class Loader {
     private static function load_models(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/model/';
         tmwseo_safe_require( $p . 'class-model-research-provider-interface.php' );
+        tmwseo_safe_require( $p . 'class-model-context-aware-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-rollback.php' );
         tmwseo_safe_require( $p . 'class-model-optimizer.php' );
         tmwseo_safe_require( $p . 'class-model-discovery-worker.php' );

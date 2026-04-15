@@ -421,7 +421,9 @@ class ModelPlatformProbeTest extends TestCase {
     // =========================================================================
 
     /** @test */
-    public function test_work_queue_is_round_robin_platform_outer_seed_inner(): void {
+    public function test_work_queue_core_platforms_guaranteed_first(): void {
+        // v4.6.9: the priority phase inserts chaturbate/s1, stripchat/s1, camsoda/s1
+        // BEFORE the general round-robin resumes with chaturbate/s2, etc.
         $seeds = [
             [ 'handle' => 'alpha', 'source_platform' => 'name_derived', 'source_url' => '' ],
             [ 'handle' => 'beta',  'source_platform' => 'chaturbate',   'source_url' => '' ],
@@ -429,52 +431,55 @@ class ModelPlatformProbeTest extends TestCase {
 
         $queue = $this->probe->build_work_queue_public( $seeds, [] );
 
-        // First two entries must both be chaturbate (one per seed).
+        // First three entries must be the core priority phase:
+        // chaturbate/alpha, stripchat/alpha, camsoda/alpha (best seed for each core platform).
         $this->assertSame( 'chaturbate', $queue[0]['slug'] );
         $this->assertSame( 'alpha',      $queue[0]['seed']['handle'] );
-        $this->assertSame( 'chaturbate', $queue[1]['slug'] );
-        $this->assertSame( 'beta',       $queue[1]['seed']['handle'] );
-
-        // Third and fourth entries must be stripchat.
-        $this->assertSame( 'stripchat',  $queue[2]['slug'] );
+        $this->assertSame( 'stripchat',  $queue[1]['slug'] );
+        $this->assertSame( 'alpha',      $queue[1]['seed']['handle'] );
+        $this->assertSame( 'camsoda',    $queue[2]['slug'] );
         $this->assertSame( 'alpha',      $queue[2]['seed']['handle'] );
-        $this->assertSame( 'stripchat',  $queue[3]['slug'] );
+
+        // After priority phase, round-robin continues with remaining pairs.
+        // chaturbate/beta comes next (chaturbate/alpha already emitted in priority phase).
+        $this->assertSame( 'chaturbate', $queue[3]['slug'] );
         $this->assertSame( 'beta',       $queue[3]['seed']['handle'] );
     }
 
     /** @test */
-    public function test_round_robin_prevents_single_seed_consuming_budget(): void {
-        // With 3 seeds and MAX_PROBES = 6, round-robin means:
-        // chaturbate/s1, chaturbate/s2, chaturbate/s3,
-        // stripchat/s1,  stripchat/s2,  stripchat/s3  ← budget exhausted
-        // camsoda never reached.
-        // A seed-first (old) approach would probe all platforms for s1 first,
-        // leaving s2 and s3 with no probes at all.
+    public function test_round_robin_guarantees_camsoda_coverage_with_three_seeds(): void {
+        // v4.6.9 behavior with 3 seeds and MAX_PROBES=6:
+        // Priority phase:  chaturbate/s1, stripchat/s1, camsoda/s1       (3 probes)
+        // Round-robin:     chaturbate/s2, chaturbate/s3, stripchat/s2    (3 probes → budget)
+        //
+        // Old behavior (v4.6.8): chaturbate×3 + stripchat×3 = 6, camsoda=0.
+        // New behavior (v4.6.9): chaturbate×3, stripchat×2, camsoda×1 — CamSoda guaranteed.
         $seeds = [
             [ 'handle' => 's1', 'source_platform' => 'name_derived', 'source_url' => '' ],
             [ 'handle' => 's2', 'source_platform' => 'chaturbate',   'source_url' => '' ],
             [ 'handle' => 's3', 'source_platform' => 'stripchat',    'source_url' => '' ],
         ];
 
-        // Register 200 responses for chaturbate and stripchat for all three seeds.
         foreach ( ['s1','s2','s3'] as $h ) {
-            $this->probe->set_mock_response( "https://chaturbate.com/{$h}", true, 200, 'http_200' );
-            $this->probe->set_mock_response( "https://stripchat.com/{$h}",  true, 200, 'http_200' );
+            $this->probe->set_mock_response( "https://chaturbate.com/{$h}",  true, 200, 'http_200' );
+            $this->probe->set_mock_response( "https://stripchat.com/{$h}",   true, 200, 'http_200' );
             $this->probe->set_mock_response( "https://www.camsoda.com/{$h}", true, 200, 'http_200' );
         }
 
         $result = $this->probe->run( $seeds, [], 1 );
 
-        // Budget is 6. Round-robin hits chaturbate×3 + stripchat×3 = 6.
-        $this->assertSame( 6, $result['diagnostics']['probes_attempted'] );
+        $this->assertSame( 6, $result['diagnostics']['probes_attempted'],
+            'Total probes must still be bounded at MAX_PROBES.' );
 
         $slugs_probed = array_column( $result['diagnostics']['probe_log'], 'slug' );
-        // chaturbate must appear for all 3 seeds.
-        $this->assertSame( 3, count( array_filter( $slugs_probed, fn($s) => $s === 'chaturbate' ) ) );
-        // stripchat must appear for all 3 seeds.
-        $this->assertSame( 3, count( array_filter( $slugs_probed, fn($s) => $s === 'stripchat' ) ) );
-        // camsoda must NOT appear (budget exhausted).
-        $this->assertNotContains( 'camsoda', $slugs_probed );
+
+        // chaturbate still gets 3 probes (1 priority + 2 round-robin).
+        $this->assertSame( 3, count( array_filter( $slugs_probed, fn($s) => $s === 'chaturbate' ) ),
+            'chaturbate must be probed 3 times (1 priority + 2 round-robin).' );
+
+        // camsoda must now be probed (priority phase guarantee) — was 0 in old scheduling.
+        $this->assertContains( 'camsoda', $slugs_probed,
+            'camsoda must appear at least once — guaranteed by the priority phase.' );
     }
 
     /** @test */
