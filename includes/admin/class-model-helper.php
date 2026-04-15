@@ -28,6 +28,7 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Model\ModelResearchProvider;
+use TMWSEO\Engine\Model\ModelContextAwareProvider;
 use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Logs;
