@@ -342,9 +342,11 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @return array<int,array{query:string,family:string}>
      */
     protected function build_query_pack( string $model_name ): array {
-        // Balanced synchronous pack: keep the proven pass-one lanes, then add
-        // two compact variant families to catch normalized-handle profiles
-        // without exploding sync query count.
+        // Synchronous budget guardrail:
+        //   - Always keep the original 5 high-value pass-one families.
+        //   - Add at most 2 grouped variant families (never per-domain fan-out).
+        // This keeps pass-one bounded at 7 total SERP calls when variants exist,
+        // so recall improves without reintroducing timeout-prone query explosion.
         $queries = [
             [ 'query' => $model_name, 'family' => 'exact_name' ],
             [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin OR camsoda', 'family' => 'webcam_platform_discovery' ],
@@ -355,6 +357,8 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
 
         $variant_terms = $this->build_handle_variant_terms( $model_name );
         if ( $variant_terms === '' ) {
+            // Empty/unsupported names produce no handle variants; keep only the
+            // original 5 broad families and do not append variant families.
             return $queries;
         }
 

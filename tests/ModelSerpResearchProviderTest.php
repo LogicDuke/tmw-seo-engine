@@ -180,8 +180,13 @@ class ModelSerpResearchProviderTest extends TestCase {
     public function test_handle_variants_are_case_insensitive_and_bounded(): void {
         $variants = $this->provider->build_handle_variants_public( 'Anisyia' );
 
-        $this->assertCount( 1, $variants );
-        $this->assertSame( 'anisyia', strtolower( $variants[0] ) );
+        $this->assertSame( [ 'anisyia' ], $variants );
+    }
+
+    /** @test */
+    public function test_handle_variants_empty_or_punctuation_only_name_returns_empty(): void {
+        $this->assertSame( [], $this->provider->build_handle_variants_public( '' ) );
+        $this->assertSame( [], $this->provider->build_handle_variants_public( '!!! --- ___' ) );
     }
 
     /** @test */
@@ -204,6 +209,16 @@ class ModelSerpResearchProviderTest extends TestCase {
         $this->assertContains( 'webcam_platform_variant_discovery', $families );
         $this->assertContains( 'creator_hub_variant_discovery', $families );
         $this->assertCount( 7, $pack, 'Variant discovery should add exactly two bounded synchronous queries.' );
+    }
+
+    /** @test */
+    public function test_query_pack_has_no_variant_families_when_variant_terms_are_empty(): void {
+        $pack = $this->provider->build_query_pack_public( '!!! --- ___' );
+        $families = array_column( $pack, 'family' );
+
+        $this->assertCount( 5, $pack, 'Punctuation-only model names should keep only the original pass-one families.' );
+        $this->assertNotContains( 'webcam_platform_variant_discovery', $families );
+        $this->assertNotContains( 'creator_hub_variant_discovery', $families );
     }
 
     /** @test */
