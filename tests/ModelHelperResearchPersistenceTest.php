@@ -6,6 +6,7 @@
 namespace TMWSEO\Engine\Admin;
 
 use PHPUnit\Framework\TestCase;
+use TMWSEO\Engine\Model\ModelContextAwareProvider;
 use TMWSEO\Engine\Model\ModelResearchProvider;
 
 $GLOBALS['_tmw_model_helper_meta'] = [];
@@ -145,6 +146,97 @@ final class StaticResultProvider implements ModelResearchProvider {
     }
 }
 
+final class SerpDiscoveryProvider implements ModelResearchProvider {
+    /**
+     * Stable provider key matching the SERP provider slot.
+     */
+    public function provider_name(): string {
+        return 'dataforseo_serp';
+    }
+
+    /**
+     * Return a deterministic SERP payload with one structured handle.
+     */
+    public function lookup( int $post_id, string $model_name ): array {
+        return [
+            'status'                        => 'ok',
+            'display_name'                  => $model_name,
+            'aliases'                       => [],
+            'bio'                           => '',
+            'platform_names'                => [ 'Chaturbate' ],
+            'social_urls'                   => [],
+            'platform_candidates'           => [],
+            'field_confidence'              => [ 'platform_names' => 45 ],
+            'research_diagnostics'          => [],
+            'country'                       => '',
+            'language'                      => '',
+            'source_urls'                   => [],
+            'confidence'                    => 45,
+            'notes'                         => 'SERP',
+            'discovered_handles_structured' => [
+                [
+                    'handle'          => 'anisyia',
+                    'source_platform' => 'chaturbate',
+                    'source_url'      => 'https://chaturbate.com/anisyia/',
+                    'method'          => 'structured_platform',
+                    'tier'            => 1,
+                ],
+            ],
+        ];
+    }
+}
+
+/**
+ * Context-aware test double that records prior results from the pipeline.
+ *
+ * Exists to assert the SERP → direct-probe handle-sharing contract in this PR.
+ */
+final class ContextAwareProbeRecorderProvider implements ModelResearchProvider, ModelContextAwareProvider {
+    /** @var array<string,array> */
+    public array $received_prior_results = [];
+
+    /**
+     * Stable provider key matching the direct probe provider slot.
+     */
+    public function provider_name(): string {
+        return 'direct_probe';
+    }
+
+    /**
+     * Capture accumulated provider results injected by the pipeline.
+     *
+     * @param array<string,array> $prior_results Prior provider results keyed by provider name.
+     */
+    public function set_prior_results( array $prior_results ): void {
+        $this->received_prior_results = $prior_results;
+    }
+
+    /**
+     * Return a payload that surfaces whether a shared handle was received.
+     */
+    public function lookup( int $post_id, string $model_name ): array {
+        $serp_handles = (array) ( $this->received_prior_results['dataforseo_serp']['discovered_handles_structured'] ?? [] );
+        $first_handle = (string) ( $serp_handles[0]['handle'] ?? '' );
+
+        return [
+            'status'               => 'ok',
+            'display_name'         => $model_name,
+            'aliases'              => [],
+            'bio'                  => '',
+            'platform_names'       => $first_handle !== '' ? [ 'Shared:' . $first_handle ] : [],
+            'social_urls'          => [],
+            'platform_candidates'  => [],
+            'field_confidence'     => [ 'platform_names' => 20 ],
+            'research_diagnostics' => [ 'shared_handles' => $serp_handles ],
+            'country'              => '',
+            'language'             => '',
+            'source_urls'          => [],
+            'confidence'           => 20,
+            'notes'                => 'Probe',
+        ];
+    }
+}
+
 final class ModelHelperResearchPersistenceTest extends TestCase {
     /**
      * Reset deterministic test doubles for each test.
@@ -281,5 +373,31 @@ final class ModelHelperResearchPersistenceTest extends TestCase {
 
         $this->assertSame( '', get_post_meta( $post_id, ModelHelper::META_PROPOSED, true ) );
         $this->assertSame( '', get_post_meta( $post_id, ModelHelper::META_STATUS, true ) );
+    }
+
+    /**
+     * Regression: pipeline must pass SERP context to direct probe providers.
+     *
+     * Ensures the context-aware provider receives SERP-discovered handles
+     * through set_prior_results() before lookup() executes.
+     */
+    public function test_pipeline_passes_serp_context_to_context_aware_probe_provider(): void {
+        $post_id = 107;
+        $GLOBALS['_tmw_model_helper_title_by_post'][ $post_id ] = 'Model Zeta';
+
+        $probe_provider = new ContextAwareProbeRecorderProvider();
+        $GLOBALS['_tmw_model_helper_research_providers'] = [
+            new SerpDiscoveryProvider(),
+            $probe_provider,
+        ];
+
+        $result = ModelResearchPipeline::run( $post_id );
+
+        $this->assertArrayHasKey( 'dataforseo_serp', $probe_provider->received_prior_results );
+        $this->assertSame(
+            'anisyia',
+            (string) ( $probe_provider->received_prior_results['dataforseo_serp']['discovered_handles_structured'][0]['handle'] ?? '' )
+        );
+        $this->assertContains( 'Shared:anisyia', (array) ( $result['merged']['platform_names'] ?? [] ) );
     }
 }
