@@ -87,6 +87,11 @@ final class ModelResearchPipeline {
      * Returns a combined result. Does NOT write anything to the database —
      * the caller (ModelHelper) decides what to persist and where.
      *
+     * Context-aware hook:
+     * Providers implementing ModelContextAwareProvider receive accumulated
+     * prior provider results via set_prior_results() before lookup().
+     *
+     * @param  int $post_id Model post ID.
      * @return array{
      *   pipeline_status: string,   // 'ok' | 'no_provider' | 'error'
      *   provider_results: array,

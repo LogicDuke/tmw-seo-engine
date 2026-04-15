@@ -147,10 +147,16 @@ final class StaticResultProvider implements ModelResearchProvider {
 }
 
 final class SerpDiscoveryProvider implements ModelResearchProvider {
+    /**
+     * Stable provider key matching the SERP provider slot.
+     */
     public function provider_name(): string {
         return 'dataforseo_serp';
     }
 
+    /**
+     * Return a deterministic SERP payload with one structured handle.
+     */
     public function lookup( int $post_id, string $model_name ): array {
         return [
             'status'                        => 'ok',
@@ -180,18 +186,34 @@ final class SerpDiscoveryProvider implements ModelResearchProvider {
     }
 }
 
+/**
+ * Context-aware test double that records prior results from the pipeline.
+ *
+ * Exists to assert the SERP → direct-probe handle-sharing contract in this PR.
+ */
 final class ContextAwareProbeRecorderProvider implements ModelResearchProvider, ModelContextAwareProvider {
     /** @var array<string,array> */
     public array $received_prior_results = [];
 
+    /**
+     * Stable provider key matching the direct probe provider slot.
+     */
     public function provider_name(): string {
         return 'direct_probe';
     }
 
+    /**
+     * Capture accumulated provider results injected by the pipeline.
+     *
+     * @param array<string,array> $prior_results Prior provider results keyed by provider name.
+     */
     public function set_prior_results( array $prior_results ): void {
         $this->received_prior_results = $prior_results;
     }
 
+    /**
+     * Return a payload that surfaces whether a shared handle was received.
+     */
     public function lookup( int $post_id, string $model_name ): array {
         $serp_handles = (array) ( $this->received_prior_results['dataforseo_serp']['discovered_handles_structured'] ?? [] );
         $first_handle = (string) ( $serp_handles[0]['handle'] ?? '' );
@@ -355,6 +377,9 @@ final class ModelHelperResearchPersistenceTest extends TestCase {
 
     /**
      * Regression: pipeline must pass SERP context to direct probe providers.
+     *
+     * Ensures the context-aware provider receives SERP-discovered handles
+     * through set_prior_results() before lookup() executes.
      */
     public function test_pipeline_passes_serp_context_to_context_aware_probe_provider(): void {
         $post_id = 107;
