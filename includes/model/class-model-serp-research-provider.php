@@ -154,10 +154,71 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'fansly',
     ];
 
+    /**
+     * Domain allowlist used by grouped webcam variant discovery queries.
+     *
+     * @var string[]
+     */
+    private const VARIANT_DISCOVERY_WEBCAM_DOMAINS = [
+        'jerkmatelive.com',
+        'jerkmate.com',
+        'myfreecams.com',
+        'livejasmin.com',
+        'sinparty.com',
+        'xtease.com',
+        'olecams.com',
+        'bongacams.com',
+        'cam4.com',
+        'cameraprive.com',
+        'camirada.com',
+        'cams.com',
+        'camsoda.com',
+        'chaturbate.com',
+        'dscgirls.live',
+        'livefreefun.org',
+        'flirt4free.com',
+        'imlive.com',
+        'revealme.com',
+        'royalcamslive.com',
+        'sakuralive.com',
+        'slutroulette.com',
+        'stripchat.com',
+        'sweepsex.com',
+        'xcams.com',
+        'xlovecam.com',
+    ];
+
+    /**
+     * Domain allowlist used by grouped creator/hub variant discovery queries.
+     *
+     * @var string[]
+     */
+    private const VARIANT_DISCOVERY_CREATOR_DOMAINS = [
+        'fansly.com',
+        'linktr.ee',
+        'allmylinks.com',
+        'beacons.ai',
+        'solo.to',
+        'carrd.co',
+        'x.com',
+        'twitter.com',
+    ];
+
+    /**
+     * Hard cap for generated handle variants used in sync grouped discovery.
+     */
+    private const MAX_HANDLE_VARIANTS = 5;
+
+    /**
+     * {@inheritdoc}
+     */
     public function provider_name(): string {
         return 'dataforseo_serp';
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function lookup( int $post_id, string $model_name ): array {
         $model_name = trim( $model_name );
         if ( $model_name === '' ) {
@@ -296,21 +357,131 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     }
 
     /**
+     * Build the bounded synchronous pass-one query pack.
+     *
+     * Guardrails:
+     * - Always include the original 5 broad discovery families.
+     * - Add at most 2 grouped variant families when variant terms exist.
+     *
+     * @param  string $model_name
      * @return array<int,array{query:string,family:string}>
      */
-    private function build_query_pack( string $model_name ): array {
-        // Balanced synchronous pack: restore the highest-value discovery lanes
-        // from 4.6.5 while keeping the request budget bounded.
-        // Kept: exact_name, webcam_platform_discovery, creator_platform_discovery,
-        // hub_discovery, social_discovery.
-        // Deferred for async/background mode: niche_context and pass-two confirmation.
-        return [
+    protected function build_query_pack( string $model_name ): array {
+        // Synchronous budget guardrail:
+        //   - Always keep the original 5 high-value pass-one families.
+        //   - Add at most 2 grouped variant families (never per-domain fan-out).
+        // This keeps pass-one bounded at 7 total SERP calls when variants exist,
+        // so recall improves without reintroducing timeout-prone query explosion.
+        $queries = [
             [ 'query' => $model_name, 'family' => 'exact_name' ],
             [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin OR camsoda', 'family' => 'webcam_platform_discovery' ],
             [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
             [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
             [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
         ];
+
+        $variant_terms = $this->build_handle_variant_terms( $model_name );
+        if ( $variant_terms === '' ) {
+            // Empty/unsupported names produce no handle variants; keep only the
+            // original 5 broad families and do not append variant families.
+            return $queries;
+        }
+
+        $webcam_domains = implode( ' OR ', self::VARIANT_DISCOVERY_WEBCAM_DOMAINS );
+        $creator_domains = implode( ' OR ', self::VARIANT_DISCOVERY_CREATOR_DOMAINS );
+
+        // Variant families are intentionally variant-led (not display-name-led)
+        // so they can recover profiles where SERP/snippets expose only handle
+        // normalizations and not the literal model display name.
+        $queries[] = [
+            'query'  => '(' . $variant_terms . ') (' . $webcam_domains . ')',
+            'family' => 'webcam_platform_variant_discovery',
+        ];
+        $queries[] = [
+            'query'  => '(' . $variant_terms . ') (' . $creator_domains . ')',
+            'family' => 'creator_hub_variant_discovery',
+        ];
+
+        return $queries;
+    }
+
+    /**
+     * Generate normalized handle variants from a model display name.
+     *
+     * Multi-token names may produce lowercase, hyphen, underscore, CamelCase,
+     * and lowerCamel forms. Single-token names stay bounded to lowercase.
+     *
+     * @param  string $model_name
+     * @return string[]
+     */
+    protected function build_handle_variants( string $model_name ): array {
+        $name = trim( $model_name );
+        if ( $name === '' ) {
+            return [];
+        }
+
+        preg_match_all( '/[A-Za-z0-9]+/u', $name, $matches );
+        $parts = array_values( array_filter( array_map( 'strval', $matches[0] ?? [] ) ) );
+        if ( empty( $parts ) ) {
+            return [];
+        }
+
+        $lower_parts = array_map( static fn( string $p ): string => strtolower( $p ), $parts );
+        $camel_parts = array_map( static function ( string $p ): string {
+            $l = strtolower( $p );
+            return ucfirst( $l );
+        }, $parts );
+
+        $candidates = [
+            implode( '', $lower_parts ),
+            implode( '-', $lower_parts ),
+            implode( '_', $lower_parts ),
+        ];
+
+        // Preserve CamelCase and lowerCamel variants for multi-token names
+        // (e.g. Abby Murray -> AbbyMurray / abbyMurray). Single-token names
+        // intentionally stay bounded to normalized lowercase only.
+        if ( count( $parts ) > 1 ) {
+            $camel = implode( '', $camel_parts );
+            if ( $camel !== '' ) {
+                $candidates[] = $camel;
+                $candidates[] = lcfirst( $camel );
+            }
+        }
+
+        $seen = [];
+        $variants = [];
+        foreach ( $candidates as $candidate ) {
+            $candidate = trim( $candidate );
+            if ( $candidate === '' ) {
+                continue;
+            }
+            if ( isset( $seen[ $candidate ] ) ) {
+                continue;
+            }
+            $seen[ $candidate ] = true;
+            $variants[] = $candidate;
+            if ( count( $variants ) >= self::MAX_HANDLE_VARIANTS ) {
+                break;
+            }
+        }
+
+        return $variants;
+    }
+
+    /**
+     * Build quoted OR terms for grouped variant-led SERP discovery queries.
+     *
+     * @param  string $model_name
+     * @return string
+     */
+    private function build_handle_variant_terms( string $model_name ): string {
+        $variants = $this->build_handle_variants( $model_name );
+        if ( empty( $variants ) ) {
+            return '';
+        }
+        $quoted = array_map( static fn( string $variant ): string => '"' . $variant . '"', $variants );
+        return implode( ' OR ', $quoted );
     }
 
     /**
