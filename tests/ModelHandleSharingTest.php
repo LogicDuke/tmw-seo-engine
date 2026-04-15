@@ -68,8 +68,16 @@ use TMWSEO\Engine\Admin\ModelResearchPipeline;
  */
 class HandleSharingProbeProvider extends ModelDirectProbeProvider {
 
+    /**
+     * Fixed probe payload returned by the test probe double.
+     *
+     * @var array{verified_urls:array,diagnostics:array}
+     */
     private array $mock_probe_return;
 
+    /**
+     * @param array{verified_urls?:array,diagnostics?:array} $probe_return
+     */
     public function __construct( array $probe_return = [] ) {
         $this->mock_probe_return = $probe_return ?: [
             'verified_urls' => [],
@@ -81,18 +89,39 @@ class HandleSharingProbeProvider extends ModelDirectProbeProvider {
         ];
     }
 
+    /**
+     * {@inheritdoc}
+     */
     protected function make_probe(): ModelPlatformProbe {
         return new FixedResultProbe( $this->mock_probe_return );
     }
 
+    /**
+     * Public wrapper for unit-testing protected handle collection logic.
+     *
+     * @return array<int,array<string,mixed>>
+     */
     public function collect_shared_handles_public(): array {
         return $this->collect_shared_handles();
     }
 
+    /**
+     * Public wrapper for unit-testing seed construction.
+     *
+     * @param  string                                $model_name
+     * @param  array<int,array<string,mixed>>        $shared
+     * @return array<int,array<string,mixed>>
+     */
     public function build_seeds_for_probe_public( string $model_name, array $shared = [] ): array {
         return $this->build_seeds_for_probe( $model_name, $shared );
     }
 
+    /**
+     * Public wrapper for unit-testing bounded variant generation.
+     *
+     * @param  string $handle
+     * @return string[]
+     */
     public function generate_variants_public( string $handle ): array {
         return $this->generate_bounded_variants( $handle );
     }
@@ -102,8 +131,21 @@ class HandleSharingProbeProvider extends ModelDirectProbeProvider {
  * ModelPlatformProbe subclass that always returns a fixed result from run().
  */
 class FixedResultProbe extends ModelPlatformProbe {
+    /**
+     * Fixed run() return payload.
+     *
+     * @var array{verified_urls:array,diagnostics:array}
+     */
     private array $fixed;
+
+    /**
+     * @param array{verified_urls:array,diagnostics:array} $fixed
+     */
     public function __construct( array $fixed ) { $this->fixed = $fixed; }
+
+    /**
+     * {@inheritdoc}
+     */
     public function run( array $seeds, array $confirmed, int $post_id ): array {
         return $this->fixed;
     }
@@ -113,7 +155,16 @@ class FixedResultProbe extends ModelPlatformProbe {
  * A probe provider that records which seeds it received.
  */
 class RecordingSeedsProbe extends ModelPlatformProbe {
+    /**
+     * Last seed list observed by run().
+     *
+     * @var array<int,array{handle:string,source_platform:string,source_url:string}>
+     */
     public array $received_seeds = [];
+
+    /**
+     * {@inheritdoc}
+     */
     public function run( array $seeds, array $confirmed, int $post_id ): array {
         $this->received_seeds = $seeds;
         return [
@@ -127,11 +178,87 @@ class RecordingSeedsProbe extends ModelPlatformProbe {
     }
 }
 
+/**
+ * Direct-probe provider double that exposes a seed-recording probe instance.
+ */
 class RecordingSeedsProvider extends ModelDirectProbeProvider {
+    /**
+     * Probe instance used to capture seeds forwarded by lookup().
+     *
+     * @var RecordingSeedsProbe
+     */
     public RecordingSeedsProbe $probe_instance;
+
+    /**
+     * Build provider with a fresh recording probe.
+     */
     public function __construct() {
         $this->probe_instance = new RecordingSeedsProbe();
     }
+
+    /**
+     * {@inheritdoc}
+     */
+    protected function make_probe(): ModelPlatformProbe {
+        return $this->probe_instance;
+    }
+}
+
+/**
+ * Probe double that records queue order and returns a configurable result.
+ */
+class RecordingQueueProbe extends ModelPlatformProbe {
+    /**
+     * Work queue observed during run().
+     *
+     * @var list<array{slug:string,seed:array<string,mixed>}>
+     */
+    public array $queue = [];
+
+    /**
+     * Fixed run() return payload.
+     *
+     * @var array{verified_urls:array,diagnostics:array}
+     */
+    private array $result;
+
+    /**
+     * @param array{verified_urls:array,diagnostics:array} $result
+     */
+    public function __construct( array $result ) {
+        $this->result = $result;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public function run( array $seeds, array $confirmed, int $post_id ): array {
+        $this->queue = $this->build_work_queue( $seeds, $confirmed );
+        return $this->result;
+    }
+}
+
+/**
+ * Direct-probe provider double that injects RecordingQueueProbe.
+ */
+class RecordingQueueProvider extends ModelDirectProbeProvider {
+    /**
+     * Probe instance used for queue-order assertions.
+     *
+     * @var RecordingQueueProbe
+     */
+    public RecordingQueueProbe $probe_instance;
+
+    /**
+     * @param array{verified_urls:array,diagnostics:array} $probe_result
+     */
+    public function __construct( array $probe_result ) {
+        $this->probe_instance = new RecordingQueueProbe( $probe_result );
+    }
+
+    /**
+     * {@inheritdoc}
+     */
     protected function make_probe(): ModelPlatformProbe {
         return $this->probe_instance;
     }
@@ -153,6 +280,10 @@ class NonContextAwareStub implements ModelResearchProvider {
 
 /**
  * Build a minimal SERP result with discovered_handles_structured populated.
+ *
+ * @param  array<int,array{handle:string,source_platform:string,source_url:string,method:string,tier:int}> $handles
+ * @param  array<string,mixed>                                                                               $overrides
+ * @return array<string,mixed>
  */
 function make_serp_with_handles( array $handles, array $overrides = [] ): array {
     return array_merge( [
@@ -178,14 +309,25 @@ function make_serp_with_handles( array $handles, array $overrides = [] ): array 
 
 class ModelHandleSharingTest extends TestCase {
 
+    /**
+     * Primary provider fixture used by most tests.
+     *
+     * @var HandleSharingProbeProvider
+     */
     private HandleSharingProbeProvider $provider;
 
+    /**
+     * {@inheritdoc}
+     */
     protected function setUp(): void {
         // Disable safe mode (Settings defaults to safe_mode=1).
         $GLOBALS['_tmw_test_options']['tmwseo_engine_settings'] = [ 'safe_mode' => 0 ];
         $this->provider = new HandleSharingProbeProvider();
     }
 
+    /**
+     * {@inheritdoc}
+     */
     protected function tearDown(): void {
         unset( $GLOBALS['_tmw_test_options']['tmwseo_engine_settings'] );
     }
@@ -618,6 +760,78 @@ class ModelHandleSharingTest extends TestCase {
 
         $this->assertNotEmpty( $diag['shared_handles'],
             'shared_handles must reflect the SERP handles received.' );
+    }
+
+    /** @test */
+    public function test_structured_serp_handle_is_targeted_to_core_platform_probe_queue(): void {
+        $provider = new RecordingQueueProvider( [
+            'verified_urls' => [
+                'https://chaturbate.com/anisyia' => [
+                    'slug'       => 'chaturbate',
+                    'username'   => 'anisyia',
+                    'handle'     => 'anisyia',
+                    'http_status'=> 200,
+                    'parse'      => [ 'success' => true, 'platform' => 'Chaturbate', 'username' => 'anisyia' ],
+                ],
+            ],
+            'diagnostics'   => [
+                'seeds_used' => 1, 'probes_attempted' => 3, 'probes_accepted' => 1,
+                'probes_rejected' => 2, 'get_fallbacks_used' => 0,
+                'seed_priorities' => [ 'anisyia' => 1 ], 'probe_log' => [],
+            ],
+        ] );
+        $provider->set_prior_results( [
+            'dataforseo_serp' => make_serp_with_handles( [
+                [ 'handle' => 'anisyia', 'source_platform' => 'chaturbate', 'source_url' => 'https://chaturbate.com/anisyia/', 'method' => 'structured_platform', 'tier' => 1 ],
+            ] ),
+        ] );
+
+        $result = $provider->lookup( 1, 'Anisyia' );
+
+        $this->assertContains( 'Chaturbate', $result['platform_names'],
+            'Trusted platform_names must still be populated only from successful strict parse results.' );
+
+        $pairs = array_map(
+            static fn( array $item ): string => $item['slug'] . '|' . ( $item['seed']['handle'] ?? '' ),
+            array_slice( $provider->probe_instance->queue, 0, 3 )
+        );
+        $this->assertContains( 'chaturbate|anisyia', $pairs );
+        $this->assertContains( 'stripchat|anisyia',  $pairs );
+        $this->assertContains( 'camsoda|anisyia',    $pairs );
+    }
+
+    /** @test */
+    public function test_rejected_or_ambiguous_probe_parse_never_promotes_trusted_fields(): void {
+        $provider = new HandleSharingProbeProvider( [
+            'verified_urls' => [
+                'https://chaturbate.com/not-real' => [
+                    'slug'       => 'chaturbate',
+                    'username'   => 'not-real',
+                    'handle'     => 'not-real',
+                    'http_status'=> 200,
+                    'parse'      => [ 'success' => false, 'reason' => 'unsupported_or_ambiguous' ],
+                ],
+            ],
+            'diagnostics'   => [
+                'seeds_used' => 1, 'probes_attempted' => 1, 'probes_accepted' => 1,
+                'probes_rejected' => 0, 'get_fallbacks_used' => 0,
+                'seed_priorities' => [ 'not-real' => 1 ], 'probe_log' => [],
+            ],
+        ] );
+        $provider->set_prior_results( [
+            'dataforseo_serp' => make_serp_with_handles( [
+                [ 'handle' => 'anisyia', 'source_platform' => 'chaturbate', 'source_url' => 'https://chaturbate.com/anisyia/', 'method' => 'structured_platform', 'tier' => 1 ],
+            ] ),
+        ] );
+
+        $result = $provider->lookup( 1, 'Anisyia' );
+
+        $this->assertSame( [], $result['platform_names'],
+            'Probe entries without parse.success must not populate platform_names.' );
+        $this->assertSame( [], $result['social_urls'],
+            'Direct probe must not populate social_urls from probe hits.' );
+        $this->assertSame( [], $result['platform_candidates'],
+            'Rejected/ambiguous probe parse must stay out of trusted candidate output.' );
     }
 
     /** @test */

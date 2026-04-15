@@ -248,7 +248,20 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         $t_lookup_start = microtime( true );
 
         // ── PASS ONE: broad name-based discovery ─────────────────────────────
-        $queries_p1   = $this->build_query_pack( $model_name );
+        // Read operator-stored aliases (comma-separated, max 3) to extend probing.
+        // Aliases are additive — they never replace or modify the primary name queries.
+        // An alias equal to the primary name (case-insensitive) is silently skipped.
+        $aliases_raw = trim( (string) get_post_meta( $post_id, \TMWSEO\Engine\Admin\ModelHelper::META_ALIASES, true ) );
+        $aliases     = [];
+        if ( $aliases_raw !== '' ) {
+            foreach ( array_slice( (array) preg_split( '/\s*,\s*/', $aliases_raw ), 0, 3 ) as $alias ) {
+                $alias = trim( (string) $alias );
+                if ( $alias !== '' && strtolower( $alias ) !== strtolower( $model_name ) ) {
+                    $aliases[] = $alias;
+                }
+            }
+        }
+        $queries_p1   = $this->build_query_pack( $model_name, $aliases );
         $pack_p1      = $this->run_query_pack( $queries_p1, $post_id );
         $succeeded_p1 = $pack_p1['succeeded'];
         $items_p1     = $pack_p1['items'];
@@ -414,7 +427,18 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param  string $model_name
      * @return array<int,array{query:string,family:string}>
      */
-    protected function build_query_pack( string $model_name ): array {
+    /**
+     * Build the pass-one SERP query pack for a model.
+     *
+     * @param  string   $model_name  Primary display name (always queried).
+     * @param  string[] $aliases     Known stage names / alternative handles.
+     *                               Bounded to 3 entries; each contributes at most
+     *                               2 extra SERP queries (webcam + creator families).
+     *                               Tagged with _alias_source for diagnostic attribution.
+     *                               Aliases never replace or modify primary queries.
+     * @return array<int,array<string,string>>
+     */
+    protected function build_query_pack( string $model_name, array $aliases = [] ): array {
         // Synchronous budget guardrail:
         //   - Always keep the original 5 high-value pass-one families.
         //   - Add at most 2 grouped variant families (never per-domain fan-out).
@@ -429,26 +453,45 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         ];
 
         $variant_terms = $this->build_handle_variant_terms( $model_name );
-        if ( $variant_terms === '' ) {
-            // Empty/unsupported names produce no handle variants; keep only the
-            // original 5 broad families and do not append variant families.
-            return $queries;
+        if ( $variant_terms !== '' ) {
+            $webcam_domains  = implode( ' OR ', self::VARIANT_DISCOVERY_WEBCAM_DOMAINS );
+            $creator_domains = implode( ' OR ', self::VARIANT_DISCOVERY_CREATOR_DOMAINS );
+
+            // Variant families are intentionally variant-led (not display-name-led)
+            // so they can recover profiles where SERP/snippets expose only handle
+            // normalizations and not the literal model display name.
+            $queries[] = [
+                'query'  => '(' . $variant_terms . ') (' . $webcam_domains . ')',
+                'family' => 'webcam_platform_variant_discovery',
+            ];
+            $queries[] = [
+                'query'  => '(' . $variant_terms . ') (' . $creator_domains . ')',
+                'family' => 'creator_hub_variant_discovery',
+            ];
         }
 
-        $webcam_domains = implode( ' OR ', self::VARIANT_DISCOVERY_WEBCAM_DOMAINS );
-        $creator_domains = implode( ' OR ', self::VARIANT_DISCOVERY_CREATOR_DOMAINS );
-
-        // Variant families are intentionally variant-led (not display-name-led)
-        // so they can recover profiles where SERP/snippets expose only handle
-        // normalizations and not the literal model display name.
-        $queries[] = [
-            'query'  => '(' . $variant_terms . ') (' . $webcam_domains . ')',
-            'family' => 'webcam_platform_variant_discovery',
-        ];
-        $queries[] = [
-            'query'  => '(' . $variant_terms . ') (' . $creator_domains . ')',
-            'family' => 'creator_hub_variant_discovery',
-        ];
+        // ── Alias-augmented queries (bounded: max 3 aliases × 2 families) ────
+        // Applied only when operator-stored aliases exist and differ from the primary
+        // name. Same query families as primary webcam/creator discovery — allows alias
+        // handles to surface profiles the primary name missed.
+        // Parse strictness is NOT relaxed; all candidates still go through
+        // PlatformProfiles::parse_url_for_platform_structured().
+        foreach ( array_slice( $aliases, 0, 3 ) as $alias ) {
+            $alias = trim( (string) $alias );
+            if ( $alias === '' ) {
+                continue;
+            }
+            $queries[] = [
+                'query'         => $alias . ' webcam OR chaturbate OR livejasmin OR camsoda',
+                'family'        => 'alias_webcam_discovery',
+                '_alias_source' => $alias,
+            ];
+            $queries[] = [
+                'query'         => $alias . ' fansly OR stripchat OR onlyfans',
+                'family'        => 'alias_creator_discovery',
+                '_alias_source' => $alias,
+            ];
+        }
 
         return $queries;
     }
@@ -592,10 +635,16 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                 'duration_ms'  => $t_query_ms,
             ] );
 
+            $alias_source = trim( (string) ( $descriptor['_alias_source'] ?? '' ) );
             foreach ( $items as $item ) {
                 $item['_query']        = $query;
                 $item['_query_index']  = $idx;
                 $item['_query_family'] = $family;
+                // Propagate alias provenance so diagnostics (evidence_items,
+                // discovered_handles) can surface which alias found which result.
+                if ( $alias_source !== '' ) {
+                    $item['_alias_source'] = $alias_source;
+                }
                 $all_items[]           = $item;
             }
         }
@@ -700,13 +749,19 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             $is_hub_candidate      = $this->match_domain_label_strict( $domain, self::KNOWN_HUBS ) !== '';
 
             if ( count( $evidence_items ) < self::MAX_EVIDENCE_ITEMS ) {
-                $evidence_items[] = [
+                $evidence_entry = [
                     'url'          => $url,
                     'class'        => $source_class,
                     'query_family' => $query_family,
                     'position'     => $pos,
                     'candidate'    => $is_platform_candidate ? 'platform' : ( $is_hub_candidate ? 'hub' : '' ),
                 ];
+                // Tag evidence with which alias drove this result (when applicable).
+                $item_alias = trim( (string) ( $item['_alias_source'] ?? '' ) );
+                if ( $item_alias !== '' ) {
+                    $evidence_entry['alias_source'] = $item_alias;
+                }
+                $evidence_items[] = $evidence_entry;
             }
 
             if ( $snippet !== '' && stripos( $snippet, $model_name ) !== false ) {
@@ -718,10 +773,18 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             }
 
             if ( $is_platform_candidate ) {
-                $platform_cand_urls[ $url ] = true;
+                // Store the alias that produced this URL, or '' for primary-query results.
+                // First-write-wins: if the same URL appears in both a primary query and an
+                // alias query, the primary (empty-string) entry is kept.  This means
+                // _alias_source is only set when the URL was found ONLY via an alias.
+                if ( ! isset( $platform_cand_urls[ $url ] ) ) {
+                    $platform_cand_urls[ $url ] = trim( (string) ( $item['_alias_source'] ?? '' ) );
+                }
             }
             if ( $is_hub_candidate ) {
-                $hub_cand_urls[ $url ] = true;
+                if ( ! isset( $hub_cand_urls[ $url ] ) ) {
+                    $hub_cand_urls[ $url ] = true;
+                }
             }
 
             if (
@@ -812,6 +875,19 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                 }
                 if ( isset( $probe_url_set[ $candidate_url ] ) ) {
                     $row['discovered_via_probe'] = true;
+                }
+                // Propagate alias provenance for SERP-originated platform candidate URLs.
+                // Only set when the URL was found exclusively via an alias query
+                // (platform_cand_urls value is non-empty string in that case).
+                // Probe-injected and hub-expanded URLs are intentionally excluded:
+                // their provenance cannot be reliably traced back to a specific alias.
+                if (
+                    isset( $platform_cand_urls[ $candidate_url ] ) &&
+                    (string) $platform_cand_urls[ $candidate_url ] !== '' &&
+                    ! isset( $probe_url_set[ $candidate_url ] ) &&
+                    ! isset( $hub_expanded_map[ $candidate_url ] )
+                ) {
+                    $row['_alias_source'] = (string) $platform_cand_urls[ $candidate_url ];
                 }
                 $raw_candidates[] = $row;
             }

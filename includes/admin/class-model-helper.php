@@ -28,6 +28,7 @@
 namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Model\ModelResearchProvider;
+use TMWSEO\Engine\Model\ModelContextAwareProvider;
 use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Logs;
@@ -86,6 +87,11 @@ final class ModelResearchPipeline {
      * Returns a combined result. Does NOT write anything to the database —
      * the caller (ModelHelper) decides what to persist and where.
      *
+     * Context-aware hook:
+     * Providers implementing ModelContextAwareProvider receive accumulated
+     * prior provider results via set_prior_results() before lookup().
+     *
+     * @param  int $post_id Model post ID.
      * @return array{
      *   pipeline_status: string,   // 'ok' | 'no_provider' | 'error'
      *   provider_results: array,
@@ -572,209 +578,154 @@ class ModelHelper {
                 echo '<td style="padding:2px 0;">' . esc_html( $display ) . '</td></tr>';
             }
             echo '</table>';
-            // ── Candidate audit table ─────────────────────────────────────────
-            $candidates = isset( $merged['platform_candidates'] ) && is_array( $merged['platform_candidates'] )
-                ? $merged['platform_candidates']
+            // ── Candidate review section (trusted / promote / rejected) ──────
+            self::render_candidate_review_section( $merged, $post->ID );
+
+            // ── Research Diagnostics (collapsed — for operators debugging runs) ─
+            $field_confidence = isset( $merged['field_confidence'] ) && is_array( $merged['field_confidence'] )
+                ? $merged['field_confidence']
                 : [];
-            if ( ! empty( $candidates ) ) {
-                $successful = array_filter( $candidates, static fn( $c ) => ! empty( $c['success'] ) );
-                $rejected   = array_filter( $candidates, static fn( $c ) => empty( $c['success'] ) );
+            $diagnostics = isset( $merged['research_diagnostics'] ) && is_array( $merged['research_diagnostics'] )
+                ? $merged['research_diagnostics']
+                : [];
+            if ( ! empty( $field_confidence ) || ! empty( $diagnostics ) ) {
                 echo '<details style="margin-top:10px;">';
-                echo '<summary style="cursor:pointer;font-weight:600;padding:4px 0;">';
-                printf(
-                    /* translators: %1$d total, %2$d extractable, %3$d rejected */
-                    esc_html__( 'Platform URL Candidates: %1$d total · %2$d extractable · %3$d rejected', 'tmwseo' ),
-                    count( $candidates ),
-                    count( $successful ),
-                    count( $rejected )
-                );
-                echo '</summary>';
-                echo '<table style="margin-top:6px;width:100%;border-collapse:collapse;font-size:12px;">';
-                echo '<tr style="background:#f6f7f7;">'
-                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Platform', 'tmwseo' ) . '</th>'
-                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Source URL', 'tmwseo' ) . '</th>'
-                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Username', 'tmwseo' ) . '</th>'
-                    . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Result', 'tmwseo' ) . '</th>'
-                    . '</tr>';
-                foreach ( $candidates as $c ) {
-                    $ok     = ! empty( $c['success'] );
-                    $bg     = $ok ? '#f0fff4' : '#fff5f5';
-                    $status = $ok
-                        ? '<span style="color:#1d6a2e;">&#10003; ok</span>'
-                        : '<span style="color:#8a1a1a;">' . esc_html( (string) ( $c['reject_reason'] ?? 'rejected' ) ) . '</span>';
-                    $pd     = PlatformRegistry::get( (string) ( $c['normalized_platform'] ?? '' ) );
-                    $plabel = $pd ? esc_html( $pd['name'] ) : esc_html( (string) ( $c['normalized_platform'] ?? '' ) );
-                    $src    = (string) ( $c['source_url'] ?? '' );
-                    $src_display = strlen( $src ) > 60 ? substr( $src, 0, 60 ) . '…' : $src;
-                    echo '<tr style="background:' . esc_attr( $bg ) . ';">'
-                        . '<td style="padding:3px 6px;">' . $plabel . '</td>'
-                        . '<td style="padding:3px 6px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
-                        . '<a href="' . esc_url( $src ) . '" target="_blank" rel="noopener" title="' . esc_attr( $src ) . '">'
-                        . esc_html( $src_display )
-                        . '</a></td>'
-                        . '<td style="padding:3px 6px;">' . esc_html( (string) ( $c['username'] ?? '—' ) ) . '</td>'
-                        . '<td style="padding:3px 6px;">' . $status . '</td>'
+                echo '<summary style="cursor:pointer;font-weight:600;padding:4px 0;">'
+                    . esc_html__( 'Research Diagnostics', 'tmwseo' )
+                    . '</summary>';
+
+                if ( ! empty( $field_confidence ) ) {
+                    echo '<p style="margin:8px 0 4px;font-weight:600;">' . esc_html__( 'Field Confidence', 'tmwseo' ) . '</p>';
+                    echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+                    echo '<tr style="background:#f6f7f7;">'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Field', 'tmwseo' ) . '</th>'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Confidence', 'tmwseo' ) . '</th>'
                         . '</tr>';
+                    foreach ( $field_confidence as $field_key => $field_score ) {
+                        echo '<tr>'
+                            . '<td style="padding:3px 6px;">' . esc_html( str_replace( '_', ' ', ucfirst( (string) $field_key ) ) ) . '</td>'
+                            . '<td style="padding:3px 6px;">' . esc_html( (string) $field_score ) . '%</td>'
+                            . '</tr>';
+                    }
+                    echo '</table>';
                 }
-                echo '</table></details>';
-            }
-                $field_confidence = isset( $merged['field_confidence'] ) && is_array( $merged['field_confidence'] )
-                    ? $merged['field_confidence']
+
+                $query_stats = isset( $diagnostics['query_stats'] ) && is_array( $diagnostics['query_stats'] )
+                    ? $diagnostics['query_stats']
                     : [];
-                $diagnostics = isset( $merged['research_diagnostics'] ) && is_array( $merged['research_diagnostics'] )
-                    ? $merged['research_diagnostics']
+                if ( ! empty( $query_stats ) ) {
+                    echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Query Coverage', 'tmwseo' ) . '</p>';
+                    echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+                    echo '<tr style="background:#f6f7f7;">'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Family', 'tmwseo' ) . '</th>'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Results', 'tmwseo' ) . '</th>'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Status', 'tmwseo' ) . '</th>'
+                        . '</tr>';
+                    foreach ( $query_stats as $row ) {
+                        $ok = ! empty( $row['ok'] );
+                        echo '<tr>'
+                            . '<td style="padding:3px 6px;">' . esc_html( (string) ( $row['family'] ?? 'query' ) ) . '</td>'
+                            . '<td style="padding:3px 6px;">' . esc_html( (string) ( $row['result_count'] ?? 0 ) ) . '</td>'
+                            . '<td style="padding:3px 6px;">'
+                            . ( $ok ? '<span style="color:#1d6a2e;">ok</span>' : '<span style="color:#8a1a1a;">' . esc_html( (string) ( $row['error'] ?? 'failed' ) ) . '</span>' )
+                            . '</td>'
+                            . '</tr>';
+                    }
+                    echo '</table>';
+                }
+
+                $source_classes = isset( $diagnostics['source_class_counts'] ) && is_array( $diagnostics['source_class_counts'] )
+                    ? $diagnostics['source_class_counts']
                     : [];
-                if ( ! empty( $field_confidence ) || ! empty( $diagnostics ) ) {
-                    echo '<details style="margin-top:10px;">';
-                    echo '<summary style="cursor:pointer;font-weight:600;padding:4px 0;">'
-                        . esc_html__( 'Research Diagnostics', 'tmwseo' )
-                        . '</summary>';
-
-                    if ( ! empty( $field_confidence ) ) {
-                        echo '<p style="margin:8px 0 4px;font-weight:600;">' . esc_html__( 'Field Confidence', 'tmwseo' ) . '</p>';
-                        echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-                        echo '<tr style="background:#f6f7f7;">'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Field', 'tmwseo' ) . '</th>'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Confidence', 'tmwseo' ) . '</th>'
-                            . '</tr>';
-                        foreach ( $field_confidence as $field_key => $field_score ) {
-                            echo '<tr>'
-                                . '<td style="padding:3px 6px;">' . esc_html( str_replace( '_', ' ', ucfirst( (string) $field_key ) ) ) . '</td>'
-                                . '<td style="padding:3px 6px;">' . esc_html( (string) $field_score ) . '%</td>'
-                                . '</tr>';
-                        }
-                        echo '</table>';
+                if ( ! empty( $source_classes ) ) {
+                    echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Source Classes', 'tmwseo' ) . '</p>';
+                    echo '<p style="margin:0 0 6px;">';
+                    $bits = [];
+                    foreach ( $source_classes as $class_name => $class_count ) {
+                        $bits[] = esc_html( (string) $class_name . ': ' . (string) $class_count );
                     }
+                    echo implode( ' · ', $bits );
+                    echo '</p>';
+                }
 
-                    $query_stats = isset( $diagnostics['query_stats'] ) && is_array( $diagnostics['query_stats'] )
-                        ? $diagnostics['query_stats']
-                        : [];
-                    if ( ! empty( $query_stats ) ) {
-                        echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Query Coverage', 'tmwseo' ) . '</p>';
-                        echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-                        echo '<tr style="background:#f6f7f7;">'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Family', 'tmwseo' ) . '</th>'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Results', 'tmwseo' ) . '</th>'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Status', 'tmwseo' ) . '</th>'
-                            . '</tr>';
-                        foreach ( $query_stats as $row ) {
-                            $ok = ! empty( $row['ok'] );
-                            echo '<tr>'
-                                . '<td style="padding:3px 6px;">' . esc_html( (string) ( $row['family'] ?? 'query' ) ) . '</td>'
-                                . '<td style="padding:3px 6px;">' . esc_html( (string) ( $row['result_count'] ?? 0 ) ) . '</td>'
-                                . '<td style="padding:3px 6px;">'
-                                . ( $ok ? '<span style="color:#1d6a2e;">ok</span>' : '<span style="color:#8a1a1a;">' . esc_html( (string) ( $row['error'] ?? 'failed' ) ) . '</span>' )
-                                . '</td>'
-                                . '</tr>';
-                        }
-                        echo '</table>';
-                    }
+                $hub_stats = isset( $diagnostics['hub_expansion'] ) && is_array( $diagnostics['hub_expansion'] )
+                    ? $diagnostics['hub_expansion']
+                    : [];
+                if ( ! empty( $hub_stats ) ) {
+                    echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Hub Expansion', 'tmwseo' ) . '</p>';
+                    echo '<p style="margin:0 0 6px;">'
+                        . esc_html( sprintf(
+                            'attempted: %d · expanded profiles: %d · fetch failures: %d · cache hits: %d',
+                            (int) ( $hub_stats['attempted'] ?? 0 ),
+                            (int) ( $hub_stats['expanded_profiles'] ?? 0 ),
+                            (int) ( $hub_stats['fetch_failures'] ?? 0 ),
+                            (int) ( $hub_stats['cached_hits'] ?? 0 )
+                        ) )
+                        . '</p>';
+                }
 
-                    $source_classes = isset( $diagnostics['source_class_counts'] ) && is_array( $diagnostics['source_class_counts'] )
-                        ? $diagnostics['source_class_counts']
-                        : [];
-                    if ( ! empty( $source_classes ) ) {
-                        echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Source Classes', 'tmwseo' ) . '</p>';
-                        echo '<p style="margin:0 0 6px;">';
-                        $bits = [];
-                        foreach ( $source_classes as $class_name => $class_count ) {
-                            $bits[] = esc_html( (string) $class_name . ': ' . (string) $class_count );
-                        }
-                        echo implode( ' · ', $bits );
-                        echo '</p>';
-                    }
-
-                    $hub_stats = isset( $diagnostics['hub_expansion'] ) && is_array( $diagnostics['hub_expansion'] )
-                        ? $diagnostics['hub_expansion']
-                        : [];
-                    if ( ! empty( $hub_stats ) ) {
-                        echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Hub Expansion', 'tmwseo' ) . '</p>';
-                        echo '<p style="margin:0 0 6px;">'
-                            . esc_html( sprintf(
-                                'attempted: %d · expanded profiles: %d · fetch failures: %d · cache hits: %d',
-                                (int) ( $hub_stats['attempted'] ?? 0 ),
-                                (int) ( $hub_stats['expanded_profiles'] ?? 0 ),
-                                (int) ( $hub_stats['fetch_failures'] ?? 0 ),
-                                (int) ( $hub_stats['cached_hits'] ?? 0 )
-                            ) )
-                            . '</p>';
-                    }
-
-                    // discovered_handles may be a flat string[] (pre-v5.0.0) or an
-                    // array-of-objects with provenance (v5.0.0+). Render both shapes.
-                    $raw_handles = isset( $diagnostics['discovered_handles'] ) && is_array( $diagnostics['discovered_handles'] )
-                        ? $diagnostics['discovered_handles']
-                        : [];
-                    $handles = [];
-                    foreach ( $raw_handles as $h ) {
-                        if ( is_string( $h ) && $h !== '' ) {
-                            // Old flat string format
-                            $handles[] = $h;
-                        } elseif ( is_array( $h ) && isset( $h['handle'] ) && (string) $h['handle'] !== '' ) {
-                            // New array-with-provenance format
-                            $label = (string) $h['handle'];
-                            $plat  = (string) ( $h['platform'] ?? '' );
-                            $src   = (string) ( $h['source'] ?? '' );
-                            if ( $plat !== '' ) {
-                                $label .= ' (' . $plat;
-                                if ( $src === 'pass_two_confirmation' ) {
-                                    $label .= ', confirmed';
-                                }
-                                $label .= ')';
+                // discovered_handles may be a flat string[] (pre-v5.0.0) or an
+                // array-of-objects with provenance (v5.0.0+). Render both shapes.
+                $raw_handles = isset( $diagnostics['discovered_handles'] ) && is_array( $diagnostics['discovered_handles'] )
+                    ? $diagnostics['discovered_handles']
+                    : [];
+                $handles = [];
+                foreach ( $raw_handles as $h ) {
+                    if ( is_string( $h ) && $h !== '' ) {
+                        $handles[] = $h;
+                    } elseif ( is_array( $h ) && isset( $h['handle'] ) && (string) $h['handle'] !== '' ) {
+                        $label = (string) $h['handle'];
+                        $plat  = (string) ( $h['platform'] ?? '' );
+                        $src   = (string) ( $h['source'] ?? '' );
+                        if ( $plat !== '' ) {
+                            $label .= ' (' . $plat;
+                            if ( $src === 'pass_two_confirmation' ) {
+                                $label .= ', confirmed';
                             }
-                            $handles[] = $label;
+                            $label .= ')';
                         }
+                        $handles[] = $label;
                     }
-                    if ( ! empty( $handles ) ) {
-                        echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Discovered Handles', 'tmwseo' ) . '</p>';
-                        echo '<p style="margin:0 0 6px;">' . esc_html( implode( ', ', $handles ) ) . '</p>';
-                    }
-
-                    $evidence_items = isset( $diagnostics['evidence_items'] ) && is_array( $diagnostics['evidence_items'] )
-                        ? $diagnostics['evidence_items']
-                        : [];
-                    if ( ! empty( $evidence_items ) ) {
-                        echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Evidence Samples', 'tmwseo' ) . '</p>';
-                        echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-                        echo '<tr style="background:#f6f7f7;">'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Type', 'tmwseo' ) . '</th>'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Family', 'tmwseo' ) . '</th>'
-                            . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'URL', 'tmwseo' ) . '</th>'
-                            . '</tr>';
-                        foreach ( $evidence_items as $evidence ) {
-                            $sample_url = (string) ( $evidence['url'] ?? '' );
-                            $display_url = strlen( $sample_url ) > 70 ? substr( $sample_url, 0, 70 ) . '…' : $sample_url;
-                            echo '<tr>'
-                                . '<td style="padding:3px 6px;">' . esc_html( (string) ( $evidence['class'] ?? '' ) ) . '</td>'
-                                . '<td style="padding:3px 6px;">' . esc_html( (string) ( $evidence['query_family'] ?? '' ) ) . '</td>'
-                                . '<td style="padding:3px 6px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
-                                . '<a href="' . esc_url( $sample_url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $sample_url ) . '">'
-                                . esc_html( $display_url )
-                                . '</a></td>'
-                                . '</tr>';
-                        }
-                        echo '</table>';
-                    }
-
-                    echo '</details>';
                 }
-            // ── Promote-from-research block ───────────────────────────────────
-            // Shows candidate social_urls as per-URL checkboxes with type selection.
-            // Completely independent from "Apply Proposed Data" — no auto-promote.
-            if (
-                class_exists( '\\TMWSEO\\Engine\\Model\\VerifiedLinks' ) &&
-                isset( $merged['social_urls'] ) &&
-                is_array( $merged['social_urls'] ) &&
-                ! empty( $merged['social_urls'] )
-            ) {
-                \TMWSEO\Engine\Model\VerifiedLinks::render_promote_block(
-                    $post->ID,
-                    array_filter(
-                        array_map( 'strval', $merged['social_urls'] ),
-                        static fn( $u ) => is_string( $u ) && trim( $u ) !== ''
-                    )
-                );
+                if ( ! empty( $handles ) ) {
+                    echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Discovered Handles', 'tmwseo' ) . '</p>';
+                    echo '<p style="margin:0 0 6px;">' . esc_html( implode( ', ', $handles ) ) . '</p>';
+                }
+
+                $evidence_items = isset( $diagnostics['evidence_items'] ) && is_array( $diagnostics['evidence_items'] )
+                    ? $diagnostics['evidence_items']
+                    : [];
+                if ( ! empty( $evidence_items ) ) {
+                    echo '<p style="margin:10px 0 4px;font-weight:600;">' . esc_html__( 'Evidence Samples', 'tmwseo' ) . '</p>';
+                    echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+                    echo '<tr style="background:#f6f7f7;">'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Type', 'tmwseo' ) . '</th>'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Family / Alias', 'tmwseo' ) . '</th>'
+                        . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'URL', 'tmwseo' ) . '</th>'
+                        . '</tr>';
+                    foreach ( $evidence_items as $evidence ) {
+                        $sample_url  = (string) ( $evidence['url'] ?? '' );
+                        $display_url = strlen( $sample_url ) > 70 ? substr( $sample_url, 0, 70 ) . '…' : $sample_url;
+                        $family_cell = esc_html( (string) ( $evidence['query_family'] ?? '' ) );
+                        $ev_alias    = trim( (string) ( $evidence['alias_source'] ?? '' ) );
+                        if ( $ev_alias !== '' ) {
+                            $family_cell .= ' <em style="color:#666;">(alias: ' . esc_html( $ev_alias ) . ')</em>';
+                        }
+                        echo '<tr>'
+                            . '<td style="padding:3px 6px;">' . esc_html( (string) ( $evidence['class'] ?? '' ) ) . '</td>'
+                            . '<td style="padding:3px 6px;">' . $family_cell . '</td>'
+                            . '<td style="padding:3px 6px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                            . '<a href="' . esc_url( $sample_url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $sample_url ) . '">'
+                            . esc_html( $display_url )
+                            . '</a></td>'
+                            . '</tr>';
+                    }
+                    echo '</table>';
+                }
+
+                echo '</details>';
             }
+
             // ── Apply / Discard buttons ───────────────────────────────────────
             $apply_url = wp_nonce_url(
                 admin_url( 'admin-post.php?action=tmwseo_apply_model_research&post_id=' . $post->ID ),
@@ -860,6 +811,135 @@ class ModelHelper {
         echo esc_html__( 'Saved with the post. Data is never auto-published.', 'tmwseo' );
         echo '</span>';
         echo '</p>';
+    }
+
+    // ── Candidate review section ─────────────────────────────────────────
+
+    /**
+     * Render the structured candidate review section inside the proposed-data panel.
+     *
+     * Layout (top to bottom):
+     *   1. Trusted Extractions — success=true candidates, visible immediately.
+     *      Columns: platform, profile URL, username, provider / alias attribution.
+     *   2. Promote-from-research block — VerifiedLinks per-URL checkbox form.
+     *      Receives ONLY social_urls (success-only). Trust contract unchanged.
+     *   3. Rejected / Audit-Only — success=false candidates, collapsed.
+     *      Clearly labelled "not promotable"; shows reject_reason per row.
+     *
+     * @param array<string,mixed> $merged   Merged pipeline output.
+     * @param int                 $post_id  Model post ID (for promote form).
+     */
+    private static function render_candidate_review_section( array $merged, int $post_id ): void {
+        $candidates = isset( $merged['platform_candidates'] ) && is_array( $merged['platform_candidates'] )
+            ? $merged['platform_candidates']
+            : [];
+
+        $successful = array_values( array_filter( $candidates, static fn( $c ) => ! empty( $c['success'] ) ) );
+        $rejected   = array_values( array_filter( $candidates, static fn( $c ) => empty( $c['success'] ) ) );
+
+        // ── 1. Trusted Extractions — prominent, not collapsed ────────────────
+        if ( ! empty( $successful ) ) {
+            echo '<div style="margin-top:10px;">';
+            echo '<p style="margin:0 0 6px;font-weight:600;color:#1d6a2e;">';
+            printf(
+                /* translators: %d number of trusted extracted platform profiles */
+                esc_html__( '✓ Trusted Extractions (%d) — ready to review and promote', 'tmwseo' ),
+                count( $successful )
+            );
+            echo '</p>';
+            echo '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#f0fff4;border:1px solid #b7e4c7;">';
+            echo '<tr style="background:#d8f3dc;">'
+                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Platform', 'tmwseo' ) . '</th>'
+                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Profile URL', 'tmwseo' ) . '</th>'
+                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Username', 'tmwseo' ) . '</th>'
+                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Provider / Alias', 'tmwseo' ) . '</th>'
+                . '</tr>';
+            foreach ( $successful as $c ) {
+                $pd       = PlatformRegistry::get( (string) ( $c['normalized_platform'] ?? '' ) );
+                $plabel   = $pd ? esc_html( (string) ( $pd['name'] ?? '' ) ) : esc_html( (string) ( $c['normalized_platform'] ?? '' ) );
+                $norm_url = (string) ( $c['normalized_url'] ?? $c['source_url'] ?? '' );
+                $url_disp = strlen( $norm_url ) > 55 ? substr( $norm_url, 0, 55 ) . '…' : $norm_url;
+                $provider = esc_html( (string) ( $c['_provider'] ?? '—' ) );
+                $alias    = trim( (string) ( $c['_alias_source'] ?? '' ) );
+                $prov_cell = $alias !== ''
+                    ? $provider . ' <em style="color:#555;">(alias: ' . esc_html( $alias ) . ')</em>'
+                    : $provider;
+                echo '<tr style="border-top:1px solid #b7e4c7;">'
+                    . '<td style="padding:4px 6px;font-weight:600;">' . $plabel . '</td>'
+                    . '<td style="padding:4px 6px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                    . '<a href="' . esc_url( $norm_url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $norm_url ) . '" style="color:#155724;">'
+                    . esc_html( $url_disp ) . '</a></td>'
+                    . '<td style="padding:4px 6px;font-family:monospace;">' . esc_html( (string) ( $c['username'] ?? '—' ) ) . '</td>'
+                    . '<td style="padding:4px 6px;font-size:11px;">' . $prov_cell . '</td>'
+                    . '</tr>';
+            }
+            echo '</table>';
+            echo '</div>';
+        }
+
+        // ── 2. Promote-from-research block ────────────────────────────────────
+        // Only social_urls (success-only extractions) reach this form.
+        // Rejected candidates are never included here. Trust contract unchanged.
+        // This form is completely independent of "Apply Proposed Data".
+        if (
+            class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) &&
+            isset( $merged['social_urls'] ) &&
+            is_array( $merged['social_urls'] ) &&
+            ! empty( $merged['social_urls'] )
+        ) {
+            \TMWSEO\Engine\Model\VerifiedLinks::render_promote_block(
+                $post_id,
+                array_values( array_filter(
+                    array_map( 'strval', $merged['social_urls'] ),
+                    static fn( $u ) => is_string( $u ) && trim( $u ) !== ''
+                ) )
+            );
+        }
+
+        // ── 3. Rejected / Audit-Only — collapsed, clearly non-promotable ─────
+        if ( ! empty( $rejected ) ) {
+            echo '<details style="margin-top:8px;border:1px solid #f5c6cb;border-radius:3px;">';
+            echo '<summary style="cursor:pointer;padding:6px 10px;background:#fff5f5;color:#8a1a1a;font-weight:600;border-radius:3px;">';
+            printf(
+                /* translators: %d number of rejected candidates */
+                esc_html__( '⚠ Rejected / Audit-Only (%d) — not promotable', 'tmwseo' ),
+                count( $rejected )
+            );
+            echo '</summary>';
+            echo '<div style="padding:6px 10px;">';
+            echo '<p style="margin:4px 0 8px;font-size:12px;color:#721c24;">';
+            echo esc_html__( 'These URLs were rejected during structured extraction. They are shown for audit purposes only. None will be promoted or included in platform outputs.', 'tmwseo' );
+            echo '</p>';
+            echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+            echo '<tr style="background:#f8d7da;">'
+                . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Platform', 'tmwseo' ) . '</th>'
+                . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Source URL', 'tmwseo' ) . '</th>'
+                . '<th style="padding:3px 6px;text-align:left;">' . esc_html__( 'Reject Reason', 'tmwseo' ) . '</th>'
+                . '</tr>';
+            foreach ( $rejected as $c ) {
+                $pd     = PlatformRegistry::get( (string) ( $c['normalized_platform'] ?? '' ) );
+                $plabel = $pd ? esc_html( (string) ( $pd['name'] ?? '' ) ) : esc_html( (string) ( $c['normalized_platform'] ?? '' ) );
+                $src    = (string) ( $c['source_url'] ?? '' );
+                $src_d  = strlen( $src ) > 60 ? substr( $src, 0, 60 ) . '…' : $src;
+                $reason = esc_html( ucfirst( str_replace( '_', ' ', (string) ( $c['reject_reason'] ?? 'rejected' ) ) ) );
+                echo '<tr style="border-top:1px solid #f5c6cb;">'
+                    . '<td style="padding:3px 6px;color:#721c24;">' . $plabel . '</td>'
+                    . '<td style="padding:3px 6px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                    . '<a href="' . esc_url( $src ) . '" target="_blank" rel="noopener" title="' . esc_attr( $src ) . '" style="color:#856404;">'
+                    . esc_html( $src_d ) . '</a></td>'
+                    . '<td style="padding:3px 6px;color:#721c24;">' . $reason . '</td>'
+                    . '</tr>';
+            }
+            echo '</table>';
+            echo '</div></details>';
+        }
+
+        // ── Empty state ───────────────────────────────────────────────────────
+        if ( empty( $successful ) && empty( $rejected ) ) {
+            echo '<p style="margin-top:8px;font-size:12px;color:#666;font-style:italic;">';
+            echo esc_html__( 'No platform candidates were found in this research run.', 'tmwseo' );
+            echo '</p>';
+        }
     }
 
     // ── Metabox: save ────────────────────────────────────────────────────

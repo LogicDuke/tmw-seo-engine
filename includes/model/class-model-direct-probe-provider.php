@@ -58,6 +58,16 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
  * being admitted as platform_candidates.
  */
 class ModelDirectProbeProvider implements ModelResearchProvider, ModelContextAwareProvider {
+    /**
+     * Supported strong-probe platform slugs.
+     *
+     * When SERP provides a structured platform handle, these slugs are probed
+     * deterministically first for recall (without relaxing trust boundaries).
+     *
+     * @var string[]
+     */
+    private const TARGETED_PROBE_SLUGS = [ 'chaturbate', 'stripchat', 'camsoda' ];
+
 
     /**
      * Maximum total seeds passed to ModelPlatformProbe.
@@ -304,7 +314,14 @@ class ModelDirectProbeProvider implements ModelResearchProvider, ModelContextAwa
      * Items are returned in the order received; duplicates (same lowercase
      * handle) are removed, keeping the first occurrence.
      *
-     * @return array<int,array{handle:string,source_platform:string,source_url:string,method:string,tier:int}>
+     * @return array<int,array{
+     *     handle:string,
+     *     source_platform:string,
+     *     source_url:string,
+     *     method:string,
+     *     tier:int,
+     *     preferred_probe_slugs:list<string>
+     * }>
      */
     protected function collect_shared_handles(): array {
         $handles    = [];
@@ -323,18 +340,42 @@ class ModelDirectProbeProvider implements ModelResearchProvider, ModelContextAwa
                     continue;
                 }
                 $handle = trim( (string) ( $h['handle'] ?? '' ) );
-                if ( $handle === '' ) {
+                $method = (string) ( $h['method'] ?? '' );
+                $tier   = (int)    ( $h['tier'] ?? 0 );
+                $source = strtolower( trim( (string) ( $h['source_platform'] ?? '' ) ) );
+                $url    = (string) ( $h['source_url'] ?? '' );
+
+                if (
+                    $handle === '' ||
+                    ! preg_match( '/^[A-Za-z0-9._-]{2,64}$/', $handle ) ||
+                    ! in_array( $method, [ 'structured_platform', 'social_hub' ], true ) ||
+                    $tier <= 0
+                ) {
                     continue;
                 }
                 $lc = strtolower( $handle );
                 if ( ! isset( $seen_lc[ $lc ] ) ) {
                     $seen_lc[ $lc ] = true;
+                    $preferred_probe_slugs = [];
+
+                    // Strong provenance path:
+                    // structured platform extraction from a supported adult cam slug.
+                    if (
+                        $method === 'structured_platform' &&
+                        in_array( $source, self::TARGETED_PROBE_SLUGS, true )
+                    ) {
+                        $preferred_probe_slugs = array_values(
+                            array_unique( array_merge( [ $source ], self::TARGETED_PROBE_SLUGS ) )
+                        );
+                    }
+
                     $handles[] = [
                         'handle'          => $handle,
-                        'source_platform' => (string) ( $h['source_platform'] ?? 'shared' ),
-                        'source_url'      => (string) ( $h['source_url'] ?? '' ),
-                        'method'          => (string) ( $h['method'] ?? 'structured_platform' ),
-                        'tier'            => (int)    ( $h['tier'] ?? 2 ),
+                        'source_platform' => $source !== '' ? $source : 'shared',
+                        'source_url'      => $url,
+                        'method'          => $method,
+                        'tier'            => $tier,
+                        'preferred_probe_slugs' => $preferred_probe_slugs,
                     ];
                 }
             }
@@ -364,7 +405,7 @@ class ModelDirectProbeProvider implements ModelResearchProvider, ModelContextAwa
      *
      * @param  string $model_name     Model display name / post title.
      * @param  array  $shared_handles Output of collect_shared_handles().
-     * @return array<int,array{handle:string,source_platform:string,source_url:string}>
+     * @return array<int,array{handle:string,source_platform:string,source_url:string,preferred_probe_slugs?:list<string>}>
      */
     protected function build_seeds_for_probe( string $model_name, array $shared_handles ): array {
         $seeds   = [];
@@ -402,6 +443,14 @@ class ModelDirectProbeProvider implements ModelResearchProvider, ModelContextAwa
                 'source_platform' => $probe_source,
                 'source_url'      => (string) ( $h['source_url'] ?? '' ),
             ];
+            if ( ! empty( $h['preferred_probe_slugs'] ) && is_array( $h['preferred_probe_slugs'] ) ) {
+                $seeds[ count( $seeds ) - 1 ]['preferred_probe_slugs'] = array_values(
+                    array_filter(
+                        array_map( 'strval', $h['preferred_probe_slugs'] ),
+                        static fn( string $slug ): bool => in_array( $slug, self::TARGETED_PROBE_SLUGS, true )
+                    )
+                );
+            }
         }
 
         // ── Phase 2: name-derived seed ────────────────────────────────────────

@@ -49,8 +49,8 @@ class TestableSerpProvider extends \TMWSEO\Engine\Model\ModelSerpResearchProvide
      * @param  string $model_name
      * @return array<int,array{query:string,family:string}>
      */
-    public function build_query_pack_public( string $model_name ): array {
-        return $this->build_query_pack( $model_name );
+    public function build_query_pack_public( string $model_name, array $aliases = [] ): array {
+        return $this->build_query_pack( $model_name, $aliases );
     }
 
     /**

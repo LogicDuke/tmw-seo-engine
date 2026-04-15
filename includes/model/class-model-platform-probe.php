@@ -785,7 +785,7 @@ class ModelPlatformProbe {
      *   Phase 2: chaturbate/s2, chaturbate/s3, stripchat/s2, ...   (3 slots remaining)
      *   → All three core platforms guaranteed at least one probe.
      *
-     * @param  array<int,array{handle:string,source_platform:string,source_url:string}> $unique_seeds
+     * @param  array<int,array{handle:string,source_platform:string,source_url:string,preferred_probe_slugs?:list<string>}> $unique_seeds
      *         Deduplicated, priority-sorted seeds.
      * @param  array<string,true> $already_confirmed
      *         Platform slugs confirmed by SERP pass-one; skipped entirely.
@@ -794,6 +794,29 @@ class ModelPlatformProbe {
     public function build_work_queue( array $unique_seeds, array $already_confirmed ): array {
         $queue         = [];
         $emitted_pairs = []; // tracks (slug|handle) already in queue
+
+        // ── Phase 0: structured-handle targeted probing (deterministic) ───────
+        // Seeds can optionally carry preferred_probe_slugs when they originate
+        // from strong structured extraction (e.g., SERP chaturbate username).
+        // Those pairs are emitted first to guarantee early probes on known
+        // supported platforms before weaker name guessing paths.
+        foreach ( $unique_seeds as $seed ) {
+            $preferred = $seed['preferred_probe_slugs'] ?? [];
+            if ( ! is_array( $preferred ) || empty( $preferred ) ) {
+                continue;
+            }
+            foreach ( $preferred as $slug ) {
+                $slug = strtolower( trim( (string) $slug ) );
+                if ( $slug === '' || isset( $already_confirmed[ $slug ] ) ) {
+                    continue;
+                }
+                $pair = $slug . '|' . $seed['handle'];
+                if ( ! isset( $emitted_pairs[ $pair ] ) ) {
+                    $emitted_pairs[ $pair ] = true;
+                    $queue[]                = [ 'slug' => $slug, 'seed' => $seed ];
+                }
+            }
+        }
 
         // ── Phase 1: core-platform priority guarantee ─────────────────────────
         // Best seed (first in priority-sorted list) for each core platform first.

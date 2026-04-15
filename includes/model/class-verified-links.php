@@ -677,11 +677,22 @@ class VerifiedLinks {
         echo '<input type="hidden" name="post_id"               value="' . (int) $post_id . '" />';
         echo '<input type="hidden" name="tmwseo_promote_nonce"  value="' . esc_attr( $nonce ) . '" />';
 
+        // Sort type labels A→Z for the dropdown — display only, no functional change.
+        $sorted_type_labels = self::TYPE_LABELS;
+        asort( $sorted_type_labels );
+
         echo '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:13px;">';
+        echo '<tr style="background:#fef3cd;font-size:11px;color:#555;">'
+            . '<th style="padding:3px 0;width:22px;"></th>'
+            . '<th style="padding:3px 4px;text-align:left;">' . esc_html__( 'Platform', 'tmwseo' ) . '</th>'
+            . '<th style="padding:3px 4px;text-align:left;">' . esc_html__( 'URL', 'tmwseo' ) . '</th>'
+            . '<th style="padding:3px 4px;width:150px;text-align:left;">' . esc_html__( 'Type', 'tmwseo' ) . '</th>'
+            . '</tr>';
 
         foreach ( $social_urls as $idx => $url ) {
-            $display   = strlen( $url ) > 65 ? substr( $url, 0, 65 ) . '…' : $url;
-            $guessed   = self::guess_type_from_url( $url );
+            $display        = strlen( $url ) > 55 ? substr( $url, 0, 55 ) . '…' : $url;
+            $guessed        = self::guess_type_from_url( $url );
+            $platform_label = self::platform_label_from_url( $url );
 
             echo '<tr style="border-bottom:1px solid #f0e0a0;">';
 
@@ -691,6 +702,11 @@ class VerifiedLinks {
                 . 'name="tmwseo_promote_url[]" '
                 . 'value="' . esc_attr( $url ) . '" '
                 . 'id="tmwseo-promote-' . (int) $idx . '" />';
+            echo '</td>';
+
+            // Platform label
+            echo '<td style="padding:5px 4px;vertical-align:middle;white-space:nowrap;font-size:11px;color:#444;">';
+            echo esc_html( $platform_label );
             echo '</td>';
 
             // URL link
@@ -705,11 +721,11 @@ class VerifiedLinks {
             echo '</label>';
             echo '</td>';
 
-            // Type dropdown — pre-selected based on URL heuristic
+            // Type dropdown — pre-selected by URL heuristic, A→Z sorted
             echo '<td style="padding:5px 0;width:150px;vertical-align:middle;">';
             echo '<select name="tmwseo_promote_type[' . (int) $idx . ']" style="width:100%;">';
             echo '<option value="">' . esc_html__( '— Type —', 'tmwseo' ) . '</option>';
-            foreach ( self::TYPE_LABELS as $val => $label_text ) {
+            foreach ( $sorted_type_labels as $val => $label_text ) {
                 printf(
                     '<option value="%s"%s>%s</option>',
                     esc_attr( $val ),
@@ -801,6 +817,50 @@ class VerifiedLinks {
 
     private static function type_label( string $type ): string {
         return self::TYPE_LABELS[ $type ] ?? ucfirst( str_replace( '_', ' ', $type ) );
+    }
+
+    // ── platform_label_from_url() — human-readable name for promote table ────
+
+    /**
+     * Return a short human-readable platform name for the promote-block table.
+     * Best-effort heuristic for operator context only — not a trust decision.
+     */
+    private static function platform_label_from_url( string $url ): string {
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        $host = (string) preg_replace( '/^www\./', '', $host );
+
+        $map = [
+            'instagram.com'  => 'Instagram',
+            'tiktok.com'     => 'TikTok',
+            'twitter.com'    => 'X (Twitter)',
+            'x.com'          => 'X (Twitter)',
+            'facebook.com'   => 'Facebook',
+            'fb.com'         => 'Facebook',
+            'youtube.com'    => 'YouTube',
+            'youtu.be'       => 'YouTube',
+            'linktr.ee'      => 'Linktree',
+            'linktree.com'   => 'Linktree',
+            'onlyfans.com'   => 'OnlyFans',
+            'fansly.com'     => 'Fansly',
+            'chaturbate.com' => 'Chaturbate',
+            'stripchat.com'  => 'Stripchat',
+            'livejasmin.com' => 'LiveJasmin',
+            'camsoda.com'    => 'CamSoda',
+            'bongacams.com'  => 'BongaCams',
+            'cam4.com'       => 'Cam4',
+            'myfreecams.com' => 'MyFreeCams',
+            'allmylinks.com' => 'AllMyLinks',
+            'beacons.ai'     => 'Beacons',
+            'solo.to'        => 'solo.to',
+        ];
+
+        if ( isset( $map[ $host ] ) ) {
+            return $map[ $host ];
+        }
+
+        // Generic fallback: strip TLD and capitalise the root domain.
+        $root = explode( '.', $host )[0] ?? $host;
+        return ucfirst( (string) $root );
     }
 
     // ── guess_type_from_url() — UI convenience only ───────────────────────

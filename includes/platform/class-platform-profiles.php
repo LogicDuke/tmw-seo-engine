@@ -642,6 +642,9 @@ class PlatformProfiles {
             $labels[$slug] = $name;
         }
 
+        // Sort A→Z by display label for operator-facing admin UI.
+        // The internal PlatformRegistry priority order (used for probing) is unchanged.
+        asort( $labels );
         return $labels;
     }
 }
