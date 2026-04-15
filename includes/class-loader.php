@@ -175,6 +175,8 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-discovery-worker.php' );
         tmwseo_safe_require( $p . 'class-model-intelligence.php' );
         tmwseo_safe_require( $p . 'class-model-serp-research-provider.php' );
+        tmwseo_safe_require( $p . 'class-model-platform-probe.php' );
+        tmwseo_safe_require( $p . 'class-model-direct-probe-provider.php' );
         tmwseo_safe_require( $p . 'class-verified-links.php' ); // 4.7.0 — verified external links
     }
 

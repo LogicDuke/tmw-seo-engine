@@ -139,21 +139,183 @@ final class ModelResearchPipeline {
         ];
     }
 
-    /** @param array<string,array> $provider_results */
-    private static function merge_results( array $provider_results ): array {
-        $fields = [ 'display_name', 'aliases', 'bio', 'platform_names',
-                    'social_urls', 'platform_candidates', 'field_confidence', 'research_diagnostics',
-                    'country', 'language', 'source_urls', 'confidence', 'notes' ];
+    /**
+     * Merge results from multiple providers into a single proposed-data blob.
+     *
+     * Field-aware merge strategy (v4.6.8):
+     *
+     *   display_name, bio, country, language
+     *     First confident non-empty value wins (SERP runs first, so SERP wins
+     *     unless blank; probe never overwrites these fields).
+     *
+     *   aliases, platform_names, social_urls, source_urls
+     *     Union + deduplicate. Order is stable: SERP results appear first.
+     *     platform_names is sorted alphabetically for deterministic output.
+     *
+     *   platform_candidates
+     *     All rows from all providers are appended. Successful candidates are
+     *     deduplicated by (normalized_platform, username); rejected candidates
+     *     by (normalized_platform, reject_reason, source_url). Each row is
+     *     tagged with a _provider key for operator audit-trail visibility.
+     *
+     *   field_confidence
+     *     Per-key maximum across providers. An operator sees the best evidence
+     *     any provider had for each individual field.
+     *
+     *   research_diagnostics
+     *     Nested under `providers.{provider_name}` — never flattened or
+     *     overwritten. A top-level `summary` key holds a brief aggregate.
+     *
+     *   confidence
+     *     Starts at the maximum single-provider confidence. Adds +5 for each
+     *     additional provider that returned at least one platform candidate
+     *     (corroboration bonus). Capped at 90.
+     *
+     *   notes
+     *     Each provider's notes prefixed by "[provider_name]", pipe-joined.
+     *
+     * @param  array<string,array> $provider_results  Keyed by provider_name.
+     * @return array<string,mixed>
+     */
+    public static function merge_results( array $provider_results ): array {
+        $merged = [
+            'display_name'         => '',
+            'aliases'              => [],
+            'bio'                  => '',
+            'platform_names'       => [],
+            'social_urls'          => [],
+            'platform_candidates'  => [],
+            'field_confidence'     => [],
+            'research_diagnostics' => [ 'providers' => [], 'summary' => [] ],
+            'country'              => '',
+            'language'             => '',
+            'source_urls'          => [],
+            'confidence'           => 0,
+            'notes'                => '',
+        ];
 
-        $merged = array_fill_keys( $fields, null );
+        $note_parts          = [];
+        $provider_confidences = [];
 
-        foreach ( $provider_results as $result ) {
-            foreach ( $fields as $field ) {
-                if ( isset( $result[ $field ] ) && $result[ $field ] !== '' && $result[ $field ] !== [] ) {
-                    $merged[ $field ] = $result[ $field ];
+        foreach ( $provider_results as $provider_name => $result ) {
+            $provider_name = (string) $provider_name;
+            $status        = (string) ( $result['status'] ?? '' );
+
+            // Always store per-provider diagnostics regardless of status.
+            $merged['research_diagnostics']['providers'][ $provider_name ] = [
+                'status'   => $status,
+                'message'  => (string) ( $result['message'] ?? '' ),
+                'data'     => $result['research_diagnostics'] ?? [],
+            ];
+
+            if ( $status !== 'ok' && $status !== 'partial' ) {
+                continue;
+            }
+
+            // ── Scalar "first confident non-empty wins" ───────────────────────
+            foreach ( [ 'display_name', 'bio', 'country', 'language' ] as $scalar_field ) {
+                $val = $result[ $scalar_field ] ?? '';
+                if ( $merged[ $scalar_field ] === '' && (string) $val !== '' ) {
+                    $merged[ $scalar_field ] = (string) $val;
                 }
             }
+
+            // ── Notes: prefix + append ────────────────────────────────────────
+            $provider_notes = trim( (string) ( $result['notes'] ?? '' ) );
+            if ( $provider_notes !== '' ) {
+                $note_parts[] = '[' . $provider_name . '] ' . $provider_notes;
+            }
+
+            // ── Set fields: union + dedupe (insertion-order-stable) ───────────
+            foreach ( [ 'aliases', 'social_urls', 'source_urls' ] as $set_field ) {
+                foreach ( (array) ( $result[ $set_field ] ?? [] ) as $item ) {
+                    $item = (string) $item;
+                    if ( $item !== '' && ! in_array( $item, $merged[ $set_field ], true ) ) {
+                        $merged[ $set_field ][] = $item;
+                    }
+                }
+            }
+
+            // platform_names: union + dedupe (sorted at end)
+            foreach ( (array) ( $result['platform_names'] ?? [] ) as $pname ) {
+                $pname = (string) $pname;
+                if ( $pname !== '' && ! in_array( $pname, $merged['platform_names'], true ) ) {
+                    $merged['platform_names'][] = $pname;
+                }
+            }
+
+            // ── platform_candidates: append + tag with _provider ──────────────
+            foreach ( (array) ( $result['platform_candidates'] ?? [] ) as $candidate ) {
+                if ( ! is_array( $candidate ) ) {
+                    continue;
+                }
+                $candidate['_provider'] = $provider_name;
+                $merged['platform_candidates'][] = $candidate;
+            }
+
+            // ── field_confidence: per-key maximum ─────────────────────────────
+            foreach ( (array) ( $result['field_confidence'] ?? [] ) as $field_key => $conf_val ) {
+                $conf_val = (int) $conf_val;
+                $field_key = (string) $field_key;
+                if ( ! isset( $merged['field_confidence'][ $field_key ] ) ||
+                     $conf_val > $merged['field_confidence'][ $field_key ] ) {
+                    $merged['field_confidence'][ $field_key ] = $conf_val;
+                }
+            }
+
+            // Track per-provider confidence for final calculation.
+            $provider_confidences[] = (int) ( $result['confidence'] ?? 0 );
         }
+
+        // ── Deduplicate platform_candidates ───────────────────────────────────
+        // Successful: unique by (normalized_platform, username).
+        // Rejected:   unique by (normalized_platform, reject_reason, source_url).
+        // First occurrence wins (SERP provider's row is kept when both providers
+        // found the same profile via different paths).
+        $seen_ck             = [];
+        $deduped_candidates  = [];
+        foreach ( $merged['platform_candidates'] as $candidate ) {
+            $ck = ! empty( $candidate['success'] )
+                ? 'ok|'  . ( $candidate['normalized_platform'] ?? '' ) . '|' . ( $candidate['username'] ?? '' )
+                : 'rej|' . ( $candidate['normalized_platform'] ?? '' ) . '|' . ( $candidate['reject_reason'] ?? '' ) . '|' . ( $candidate['source_url'] ?? '' );
+            if ( ! isset( $seen_ck[ $ck ] ) ) {
+                $seen_ck[ $ck ]       = true;
+                $deduped_candidates[] = $candidate;
+            }
+        }
+        $merged['platform_candidates'] = $deduped_candidates;
+
+        // ── platform_names: sort for deterministic output ─────────────────────
+        sort( $merged['platform_names'] );
+
+        // ── Final confidence ──────────────────────────────────────────────────
+        // Base: the best single-provider confidence score.
+        // Bonus: +5 for each additional provider that found ≥1 platform candidate.
+        // This reflects corroboration without arbitrarily inflating confidence.
+        // Cap: 90 (full confidence requires manual operator review).
+        if ( ! empty( $provider_confidences ) ) {
+            $base_conf = max( $provider_confidences );
+            $providers_with_platforms = count( array_filter(
+                $provider_confidences,
+                static fn( int $c ): bool => $c > 0
+            ) );
+            $corroboration_bonus = max( 0, ( $providers_with_platforms - 1 ) * 5 );
+            $merged['confidence'] = min( 90, $base_conf + $corroboration_bonus );
+        }
+
+        // ── Notes: join ───────────────────────────────────────────────────────
+        $merged['notes'] = implode( ' | ', $note_parts );
+
+        // ── Diagnostics summary ───────────────────────────────────────────────
+        $merged['research_diagnostics']['summary'] = [
+            'providers_run'          => count( $provider_results ),
+            'providers_with_data'    => count( array_filter(
+                $provider_results,
+                static fn( array $r ): bool => in_array( $r['status'] ?? '', [ 'ok', 'partial' ], true )
+            ) ),
+            'merged_platform_count'  => count( $merged['platform_names'] ),
+            'merged_candidate_count' => count( $merged['platform_candidates'] ),
+        ];
 
         return $merged;
     }
@@ -233,6 +395,14 @@ class ModelHelper {
         // will return real SERP-derived data instead of the stub's "no provider" message.
         if ( class_exists( '\TMWSEO\Engine\Model\ModelSerpResearchProvider' ) ) {
             \TMWSEO\Engine\Model\ModelSerpResearchProvider::maybe_register();
+        }
+
+        // ── Register direct probe provider (no API key required) ──────────────
+        // 4.6.8: Complements SERP with direct HTTP platform-profile recall.
+        // Provider order: SERP (priority 10) → direct probe (priority 20).
+        // merge_results() field-aware merge ensures both providers cooperate.
+        if ( class_exists( '\TMWSEO\Engine\Model\ModelDirectProbeProvider' ) ) {
+            \TMWSEO\Engine\Model\ModelDirectProbeProvider::maybe_register();
         }
     }
 
