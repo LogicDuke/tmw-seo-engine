@@ -23,19 +23,58 @@ use PHPUnit\Framework\TestCase;
  */
 class TestableSerpProvider extends \TMWSEO\Engine\Model\ModelSerpResearchProvider {
 
+    /**
+     * Expose strict domain matcher for unit tests.
+     *
+     * @param  string               $domain
+     * @param  array<string,string> $map
+     * @return string
+     */
     public function match_strict_public( string $domain, array $map ): string {
         return $this->match_domain_label_strict( $domain, $map );
     }
 
+    /**
+     * Expose evidence URL filter helper for unit tests.
+     *
+     * @return bool
+     */
     public function is_evidence_public( string $url ): bool {
         return $this->is_evidence_url( $url );
     }
+
+    /**
+     * Expose synchronous query-pack builder for unit tests.
+     *
+     * @param  string $model_name
+     * @return array<int,array{query:string,family:string}>
+     */
+    public function build_query_pack_public( string $model_name ): array {
+        return $this->build_query_pack( $model_name );
+    }
+
+    /**
+     * Expose handle-variant generator for unit tests.
+     *
+     * @param  string $model_name
+     * @return string[]
+     */
+    public function build_handle_variants_public( string $model_name ): array {
+        return $this->build_handle_variants( $model_name );
+    }
 }
 
+/**
+ * Regression tests for strict URL classification, variant generation, and
+ * bounded query-pack composition in ModelSerpResearchProvider.
+ */
 class ModelSerpResearchProviderTest extends TestCase {
 
     private TestableSerpProvider $provider;
 
+    /**
+     * Initialize provider test double for each test case.
+     */
     protected function setUp(): void {
         $this->provider = new TestableSerpProvider();
     }
@@ -147,5 +186,94 @@ class ModelSerpResearchProviderTest extends TestCase {
     /** @test */
     public function test_empty_url_blocked(): void {
         $this->assertFalse( $this->provider->is_evidence_public( '' ) );
+    }
+
+    /** @test */
+    public function test_handle_variants_include_required_normalized_forms(): void {
+        $variants = $this->provider->build_handle_variants_public( 'Abby Murray' );
+
+        $this->assertSame( [
+            'abbymurray',
+            'abby-murray',
+            'abby_murray',
+            'AbbyMurray',
+            'abbyMurray',
+        ], $variants );
+    }
+
+    /** @test */
+    public function test_handle_variants_are_case_insensitive_and_bounded(): void {
+        $variants = $this->provider->build_handle_variants_public( 'Anisyia' );
+
+        $this->assertSame( [ 'anisyia' ], $variants );
+    }
+
+    /** @test */
+    public function test_handle_variants_empty_or_punctuation_only_name_returns_empty(): void {
+        $this->assertSame( [], $this->provider->build_handle_variants_public( '' ) );
+        $this->assertSame( [], $this->provider->build_handle_variants_public( '!!! --- ___' ) );
+    }
+
+    /** @test */
+    public function test_query_pack_preserves_existing_broad_families(): void {
+        $pack = $this->provider->build_query_pack_public( 'Anisyia' );
+        $families = array_column( $pack, 'family' );
+
+        $this->assertContains( 'exact_name', $families );
+        $this->assertContains( 'webcam_platform_discovery', $families );
+        $this->assertContains( 'creator_platform_discovery', $families );
+        $this->assertContains( 'hub_discovery', $families );
+        $this->assertContains( 'social_discovery', $families );
+    }
+
+    /** @test */
+    public function test_query_pack_adds_compact_variant_grouped_families(): void {
+        $pack = $this->provider->build_query_pack_public( 'Abby Murray' );
+        $families = array_column( $pack, 'family' );
+
+        $this->assertContains( 'webcam_platform_variant_discovery', $families );
+        $this->assertContains( 'creator_hub_variant_discovery', $families );
+        $variant_families = array_values( array_filter(
+            $families,
+            static fn( string $family ): bool => str_contains( $family, 'variant_discovery' )
+        ) );
+        $this->assertCount( 2, $variant_families, 'Exactly two grouped variant families should be added.' );
+        $this->assertCount( 7, $pack, 'Variant discovery should add exactly two bounded synchronous queries.' );
+    }
+
+    /** @test */
+    public function test_query_pack_has_no_variant_families_when_variant_terms_are_empty(): void {
+        $pack = $this->provider->build_query_pack_public( '!!! --- ___' );
+        $families = array_column( $pack, 'family' );
+
+        $this->assertCount( 5, $pack, 'Punctuation-only model names should keep only the original pass-one families.' );
+        $this->assertNotContains( 'webcam_platform_variant_discovery', $families );
+        $this->assertNotContains( 'creator_hub_variant_discovery', $families );
+    }
+
+    /** @test */
+    public function test_webcam_variant_query_covers_target_platform_domains(): void {
+        $pack = $this->provider->build_query_pack_public( 'Abby Murray' );
+        $row  = array_values( array_filter( $pack, static fn( $q ) => $q['family'] === 'webcam_platform_variant_discovery' ) )[0] ?? [];
+        $query = (string) ( $row['query'] ?? '' );
+
+        $this->assertStringContainsString( 'camsoda.com', $query );
+        $this->assertStringContainsString( 'stripchat.com', $query );
+        $this->assertStringContainsString( 'chaturbate.com', $query );
+        $this->assertStringContainsString( 'livejasmin.com', $query );
+        $this->assertStringContainsString( 'sinparty.com', $query );
+        $this->assertStringNotContainsString( 'Abby Murray', $query );
+    }
+
+    /** @test */
+    public function test_creator_hub_variant_query_covers_target_hub_domains(): void {
+        $pack = $this->provider->build_query_pack_public( 'Abby Murray' );
+        $row  = array_values( array_filter( $pack, static fn( $q ) => $q['family'] === 'creator_hub_variant_discovery' ) )[0] ?? [];
+        $query = (string) ( $row['query'] ?? '' );
+
+        $this->assertStringContainsString( 'fansly.com', $query );
+        $this->assertStringContainsString( 'linktr.ee', $query );
+        $this->assertStringContainsString( 'allmylinks.com', $query );
+        $this->assertStringNotContainsString( 'Abby Murray', $query );
     }
 }

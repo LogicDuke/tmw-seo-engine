@@ -28,6 +28,7 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Model\ModelPlatformProbe;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -154,10 +155,71 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'fansly',
     ];
 
+    /**
+     * Domain allowlist used by grouped webcam variant discovery queries.
+     *
+     * @var string[]
+     */
+    private const VARIANT_DISCOVERY_WEBCAM_DOMAINS = [
+        'jerkmatelive.com',
+        'jerkmate.com',
+        'myfreecams.com',
+        'livejasmin.com',
+        'sinparty.com',
+        'xtease.com',
+        'olecams.com',
+        'bongacams.com',
+        'cam4.com',
+        'cameraprive.com',
+        'camirada.com',
+        'cams.com',
+        'camsoda.com',
+        'chaturbate.com',
+        'dscgirls.live',
+        'livefreefun.org',
+        'flirt4free.com',
+        'imlive.com',
+        'revealme.com',
+        'royalcamslive.com',
+        'sakuralive.com',
+        'slutroulette.com',
+        'stripchat.com',
+        'sweepsex.com',
+        'xcams.com',
+        'xlovecam.com',
+    ];
+
+    /**
+     * Domain allowlist used by grouped creator/hub variant discovery queries.
+     *
+     * @var string[]
+     */
+    private const VARIANT_DISCOVERY_CREATOR_DOMAINS = [
+        'fansly.com',
+        'linktr.ee',
+        'allmylinks.com',
+        'beacons.ai',
+        'solo.to',
+        'carrd.co',
+        'x.com',
+        'twitter.com',
+    ];
+
+    /**
+     * Hard cap for generated handle variants used in sync grouped discovery.
+     */
+    private const MAX_HANDLE_VARIANTS = 5;
+
+    /**
+     * {@inheritdoc}
+     */
     public function provider_name(): string {
         return 'dataforseo_serp';
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function lookup( int $post_id, string $model_name ): array {
         $model_name = trim( $model_name );
         if ( $model_name === '' ) {
@@ -245,18 +307,21 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             }
         }
 
-        // ── PASS TWO: handle-seeded confirmation ──────────────────────────────
+        // ── Build handle seeds — shared by pass two and the probe phase ──────────
+        // Always built here regardless of SYNC_PASS_TWO so the probe phase can
+        // use seeds even when pass two is disabled for sync-budget reasons.
+        $handle_seeds = $this->build_handle_seeds( $p1_successful, $model_name );
+
+        // ── PASS TWO: handle-seeded SERP confirmation ─────────────────────────
         // TMWSEO-TIMEOUT-FIX: disabled for synchronous path (SYNC_PASS_TWO = false).
         // Pass two adds up to 6 more DataForSEO calls which push total request
         // time past Cloudflare/host timeouts. Re-enable once running in background.
-        $handle_seeds = [];
-        $conf_log     = [];
-        $items_p2     = [];
+        $conf_log = [];
+        $items_p2 = [];
         if ( self::SYNC_PASS_TWO ) {
-            $handle_seeds = $this->build_handle_seeds( $p1_successful, $model_name );
-            $pass_two     = $this->run_confirmation_pass( $handle_seeds, $already_confirmed, $post_id );
-            $items_p2     = $pass_two['items'];
-            $conf_log     = $pass_two['confirmation_log'];
+            $pass_two = $this->run_confirmation_pass( $handle_seeds, $already_confirmed, $post_id );
+            $items_p2 = $pass_two['items'];
+            $conf_log = $pass_two['confirmation_log'];
             Logs::info( 'model_research', '[TMW-RESEARCH] Pass two confirmation complete', [
                 'model_name'   => $model_name,
                 'seeds'        => count( $handle_seeds ),
@@ -264,6 +329,24 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                 'conf_queries' => count( $conf_log ),
             ] );
         }
+
+        // ── PASS THREE: direct platform probe ────────────────────────────────
+        // Synthesizes canonical profile URLs from handle seeds and verifies each
+        // with a lightweight HTTP HEAD request. Bounded by ModelPlatformProbe::MAX_PROBES.
+        // Probe-accepted URLs still flow through parse_url_for_platform_structured()
+        // — the trust gate is identical to pass one. This catches real platform
+        // profiles (including offline/deactivated) that SERP queries fail to surface.
+        $probe_result      = $this->run_platform_probe( $handle_seeds, $already_confirmed, $post_id );
+        $probe_urls        = array_keys( $probe_result['verified_urls'] );
+        $probe_diagnostics = $probe_result['diagnostics'];
+
+        Logs::info( 'model_research', '[TMW-RESEARCH] Probe phase complete', [
+            'post_id'          => $post_id,
+            'model_name'       => $model_name,
+            'seeds'            => count( $handle_seeds ),
+            'probes_attempted' => $probe_diagnostics['probes_attempted'],
+            'probes_accepted'  => $probe_diagnostics['probes_accepted'],
+        ] );
 
         // ── Merge both passes; pass-one items take dedup precedence ───────────
         $all_items_combined = array_merge( $items_p1, $items_p2 );
@@ -276,12 +359,13 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
 
         $t_lookup_ms = (int) round( ( microtime( true ) - $t_lookup_start ) * 1000 );
         Logs::info( 'model_research', '[TMW-RESEARCH] lookup() total duration', [
-            'post_id'      => $post_id,
-            'model_name'   => $model_name,
-            'duration_ms'  => $t_lookup_ms,
-            'p1_queries'   => count( $queries_p1 ),
-            'p1_succeeded' => $succeeded_p1,
-            'pass_two'     => self::SYNC_PASS_TWO,
+            'post_id'        => $post_id,
+            'model_name'     => $model_name,
+            'duration_ms'    => $t_lookup_ms,
+            'p1_queries'     => count( $queries_p1 ),
+            'p1_succeeded'   => $succeeded_p1,
+            'pass_two'       => self::SYNC_PASS_TWO,
+            'probe_accepted' => $probe_diagnostics['probes_accepted'],
         ] );
 
         return $this->parse_merged_items(
@@ -291,26 +375,161 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             count( $queries_p1 ),
             $all_query_stats,
             $handle_seeds,
-            $conf_log
+            $conf_log,
+            $probe_urls,
+            $probe_diagnostics
         );
     }
 
     /**
+     * Instantiate and run the platform probe phase.
+     *
+     * Extracted into a protected method so tests can inject a mock probe
+     * by overriding this method without touching the rest of lookup().
+     *
+     * @param  array<int,array{handle:string,source_platform:string,source_url:string}> $handle_seeds
+     * @param  array<string,true>  $already_confirmed
+     * @param  int                 $post_id
+     * @return array{verified_urls:array,diagnostics:array}
+     */
+    protected function run_platform_probe(
+        array $handle_seeds,
+        array $already_confirmed,
+        int $post_id
+    ): array {
+        if ( ! class_exists( ModelPlatformProbe::class ) ) {
+            // Fallback path in case autoloading is not yet set up.
+            require_once __DIR__ . '/class-model-platform-probe.php';
+        }
+        return ( new ModelPlatformProbe() )->run( $handle_seeds, $already_confirmed, $post_id );
+    }
+
+    /**
+     * Build the bounded synchronous pass-one query pack.
+     *
+     * Guardrails:
+     * - Always include the original 5 broad discovery families.
+     * - Add at most 2 grouped variant families when variant terms exist.
+     *
+     * @param  string $model_name
      * @return array<int,array{query:string,family:string}>
      */
-    private function build_query_pack( string $model_name ): array {
-        // Balanced synchronous pack: restore the highest-value discovery lanes
-        // from 4.6.5 while keeping the request budget bounded.
-        // Kept: exact_name, webcam_platform_discovery, creator_platform_discovery,
-        // hub_discovery, social_discovery.
-        // Deferred for async/background mode: niche_context and pass-two confirmation.
-        return [
+    protected function build_query_pack( string $model_name ): array {
+        // Synchronous budget guardrail:
+        //   - Always keep the original 5 high-value pass-one families.
+        //   - Add at most 2 grouped variant families (never per-domain fan-out).
+        // This keeps pass-one bounded at 7 total SERP calls when variants exist,
+        // so recall improves without reintroducing timeout-prone query explosion.
+        $queries = [
             [ 'query' => $model_name, 'family' => 'exact_name' ],
             [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin OR camsoda', 'family' => 'webcam_platform_discovery' ],
             [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
             [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
             [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
         ];
+
+        $variant_terms = $this->build_handle_variant_terms( $model_name );
+        if ( $variant_terms === '' ) {
+            // Empty/unsupported names produce no handle variants; keep only the
+            // original 5 broad families and do not append variant families.
+            return $queries;
+        }
+
+        $webcam_domains = implode( ' OR ', self::VARIANT_DISCOVERY_WEBCAM_DOMAINS );
+        $creator_domains = implode( ' OR ', self::VARIANT_DISCOVERY_CREATOR_DOMAINS );
+
+        // Variant families are intentionally variant-led (not display-name-led)
+        // so they can recover profiles where SERP/snippets expose only handle
+        // normalizations and not the literal model display name.
+        $queries[] = [
+            'query'  => '(' . $variant_terms . ') (' . $webcam_domains . ')',
+            'family' => 'webcam_platform_variant_discovery',
+        ];
+        $queries[] = [
+            'query'  => '(' . $variant_terms . ') (' . $creator_domains . ')',
+            'family' => 'creator_hub_variant_discovery',
+        ];
+
+        return $queries;
+    }
+
+    /**
+     * Generate normalized handle variants from a model display name.
+     *
+     * Multi-token names may produce lowercase, hyphen, underscore, CamelCase,
+     * and lowerCamel forms. Single-token names stay bounded to lowercase.
+     *
+     * @param  string $model_name
+     * @return string[]
+     */
+    protected function build_handle_variants( string $model_name ): array {
+        $name = trim( $model_name );
+        if ( $name === '' ) {
+            return [];
+        }
+
+        preg_match_all( '/[A-Za-z0-9]+/u', $name, $matches );
+        $parts = array_values( array_filter( array_map( 'strval', $matches[0] ?? [] ) ) );
+        if ( empty( $parts ) ) {
+            return [];
+        }
+
+        $lower_parts = array_map( static fn( string $p ): string => strtolower( $p ), $parts );
+        $camel_parts = array_map( static function ( string $p ): string {
+            $l = strtolower( $p );
+            return ucfirst( $l );
+        }, $parts );
+
+        $candidates = [
+            implode( '', $lower_parts ),
+            implode( '-', $lower_parts ),
+            implode( '_', $lower_parts ),
+        ];
+
+        // Preserve CamelCase and lowerCamel variants for multi-token names
+        // (e.g. Abby Murray -> AbbyMurray / abbyMurray). Single-token names
+        // intentionally stay bounded to normalized lowercase only.
+        if ( count( $parts ) > 1 ) {
+            $camel = implode( '', $camel_parts );
+            if ( $camel !== '' ) {
+                $candidates[] = $camel;
+                $candidates[] = lcfirst( $camel );
+            }
+        }
+
+        $seen = [];
+        $variants = [];
+        foreach ( $candidates as $candidate ) {
+            $candidate = trim( $candidate );
+            if ( $candidate === '' ) {
+                continue;
+            }
+            if ( isset( $seen[ $candidate ] ) ) {
+                continue;
+            }
+            $seen[ $candidate ] = true;
+            $variants[] = $candidate;
+            if ( count( $variants ) >= self::MAX_HANDLE_VARIANTS ) {
+                break;
+            }
+        }
+
+        return $variants;
+    }
+
+    /**
+     * Build quoted OR terms for grouped variant-led SERP discovery queries.
+     *
+     * @param  string $model_name
+     * @return string
+     */
+    private function build_handle_variant_terms( string $model_name ): string {
+        $variants = $this->build_handle_variants( $model_name );
+        if ( empty( $variants ) ) {
+            return '';
+        }
+        $quoted = array_map( static fn( string $variant ): string => '"' . $variant . '"', $variants );
+        return implode( ' OR ', $quoted );
     }
 
     /**
@@ -438,6 +657,8 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param array<int,array<string,mixed>> $query_stats
      * @param array<int,array{handle:string,source_platform:string,source_url:string}> $handle_seeds
      * @param array<int,array<string,mixed>> $conf_log
+     * @param string[] $probe_candidate_urls Probe-verified canonical URLs to inject into the candidate pool.
+     * @param array<string,mixed> $probe_diagnostics Diagnostic data from the probe phase.
      */
     private function parse_merged_items(
         string $model_name,
@@ -446,7 +667,9 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         int $total_queries,
         array $query_stats,
         array $handle_seeds = [],
-        array $conf_log = []
+        array $conf_log = [],
+        array $probe_candidate_urls = [],
+        array $probe_diagnostics = []
     ): array {
         $items         = (array) ( $merged['items'] ?? [] );
         $domain_counts = (array) ( $merged['domain_counts'] ?? [] );
@@ -565,6 +788,17 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         foreach ( array_keys( $hub_expanded_map ) as $expanded_url ) {
             $all_candidate_urls_map[ $expanded_url ] = true;
         }
+
+        // Inject probe-verified URLs into the candidate pool.
+        // These are tagged so platform_candidates carries a discoverable audit trail.
+        $probe_url_set = [];
+        foreach ( $probe_candidate_urls as $probe_url ) {
+            if ( ! isset( $all_candidate_urls_map[ $probe_url ] ) ) {
+                $all_candidate_urls_map[ $probe_url ] = true;
+            }
+            $probe_url_set[ $probe_url ] = true;
+        }
+
         $all_candidate_urls = array_keys( $all_candidate_urls_map );
 
         $raw_candidates = [];
@@ -575,6 +809,9 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                 $row = array_merge( [ 'source_url' => $candidate_url ], $result );
                 if ( isset( $hub_expanded_map[ $candidate_url ] ) ) {
                     $row['discovered_via_hub'] = (string) $hub_expanded_map[ $candidate_url ];
+                }
+                if ( isset( $probe_url_set[ $candidate_url ] ) ) {
+                    $row['discovered_via_probe'] = true;
                 }
                 $raw_candidates[] = $row;
             }
@@ -746,6 +983,15 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             $notes_parts[] = 'No usable bio snippet found — fill manually.';
         }
 
+        if ( isset( $probe_diagnostics['probes_attempted'] ) && (int) $probe_diagnostics['probes_attempted'] > 0 ) {
+            $notes_parts[] = sprintf(
+                'Platform probe: %d probe(s) attempted, %d accepted from %d handle seed(s).',
+                (int) $probe_diagnostics['probes_attempted'],
+                (int) $probe_diagnostics['probes_accepted'],
+                (int) $probe_diagnostics['seeds_used']
+            );
+        }
+
         $notes = implode( ' | ', array_filter( $notes_parts ) );
 
         $research_diagnostics = [
@@ -759,6 +1005,13 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
                 'confirmation_results' => $conf_results_for_diag,
             ],
             'evidence_items'      => $evidence_items,
+            'platform_probe'      => $probe_diagnostics ?: [
+                'seeds_used'       => 0,
+                'probes_attempted' => 0,
+                'probes_accepted'  => 0,
+                'probes_rejected'  => 0,
+                'probe_log'        => [],
+            ],
         ];
 
         Logs::info( 'model_research', '[TMW-RESEARCH] Research result finalized', [

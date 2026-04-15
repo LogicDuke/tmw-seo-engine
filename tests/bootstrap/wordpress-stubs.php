@@ -222,6 +222,11 @@ if (!function_exists('do_settings_sections')) { function do_settings_sections(st
 if (!function_exists('settings_fields'))      { function settings_fields(string $g): void {} }
 if (!function_exists('submit_button'))        { function submit_button(string $t = null): void {} }
 if (!function_exists('wp_remote_post'))       { function wp_remote_post(string $url, array $args = []): array { return []; } }
+if (!function_exists('wp_remote_head'))       { function wp_remote_head(string $url, array $args = []): array { return []; } }
+if (!function_exists('wp_remote_get'))        { function wp_remote_get(string $url, array $args = []): array { return []; } }
+if (!function_exists('wp_remote_retrieve_response_code')) { function wp_remote_retrieve_response_code($response): int { return (int)($response['response']['code'] ?? 0); } }
+if (!function_exists('wp_remote_retrieve_header')) { function wp_remote_retrieve_header($response, string $header): string { return (string)(($response['headers'][$header] ?? $response['headers'][strtolower($header)] ?? '')); } }
+if (!function_exists('wp_remote_retrieve_body')) { function wp_remote_retrieve_body($response): string { return (string)($response['body'] ?? ''); } }
 if (!function_exists('wp_date'))              { function wp_date(string $fmt, int $ts = null): string { return gmdate($fmt, $ts); } }
 if (!function_exists('wp_unslash'))           { function wp_unslash($v) { return is_string($v) ? stripslashes($v) : $v; } }
 if (!function_exists('wp_kses_post'))         { function wp_kses_post(string $s): string { return strip_tags($s, '<a><strong><em><p>'); } }
@@ -247,4 +252,5 @@ if ( ! function_exists( 'esc_url_raw' ) ) {
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-platform-profiles.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/platform/class-affiliate-link-builder.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-research-provider-interface.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-platform-probe.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-serp-research-provider.php';
