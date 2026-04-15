@@ -30,6 +30,20 @@ class TestableSerpProvider extends \TMWSEO\Engine\Model\ModelSerpResearchProvide
     public function is_evidence_public( string $url ): bool {
         return $this->is_evidence_url( $url );
     }
+
+    /**
+     * @return array<int,array{query:string,family:string}>
+     */
+    public function build_query_pack_public( string $model_name ): array {
+        return $this->build_query_pack( $model_name );
+    }
+
+    /**
+     * @return string[]
+     */
+    public function build_handle_variants_public( string $model_name ): array {
+        return $this->build_handle_variants( $model_name );
+    }
 }
 
 class ModelSerpResearchProviderTest extends TestCase {
@@ -147,5 +161,71 @@ class ModelSerpResearchProviderTest extends TestCase {
     /** @test */
     public function test_empty_url_blocked(): void {
         $this->assertFalse( $this->provider->is_evidence_public( '' ) );
+    }
+
+    /** @test */
+    public function test_handle_variants_include_required_normalized_forms(): void {
+        $variants = $this->provider->build_handle_variants_public( 'Abby Murray' );
+
+        $this->assertSame( [
+            'abbymurray',
+            'abby-murray',
+            'abby_murray',
+            'AbbyMurray',
+            'abbyMurray',
+        ], $variants );
+    }
+
+    /** @test */
+    public function test_handle_variants_are_case_insensitive_and_bounded(): void {
+        $variants = $this->provider->build_handle_variants_public( 'Anisyia' );
+
+        $this->assertCount( 1, $variants );
+        $this->assertSame( 'anisyia', strtolower( $variants[0] ) );
+    }
+
+    /** @test */
+    public function test_query_pack_preserves_existing_broad_families(): void {
+        $pack = $this->provider->build_query_pack_public( 'Anisyia' );
+        $families = array_column( $pack, 'family' );
+
+        $this->assertContains( 'exact_name', $families );
+        $this->assertContains( 'webcam_platform_discovery', $families );
+        $this->assertContains( 'creator_platform_discovery', $families );
+        $this->assertContains( 'hub_discovery', $families );
+        $this->assertContains( 'social_discovery', $families );
+    }
+
+    /** @test */
+    public function test_query_pack_adds_compact_variant_grouped_families(): void {
+        $pack = $this->provider->build_query_pack_public( 'Abby Murray' );
+        $families = array_column( $pack, 'family' );
+
+        $this->assertContains( 'webcam_platform_variant_discovery', $families );
+        $this->assertContains( 'creator_hub_variant_discovery', $families );
+        $this->assertCount( 7, $pack, 'Variant discovery should add exactly two bounded synchronous queries.' );
+    }
+
+    /** @test */
+    public function test_webcam_variant_query_covers_target_platform_domains(): void {
+        $pack = $this->provider->build_query_pack_public( 'Abby Murray' );
+        $row  = array_values( array_filter( $pack, static fn( $q ) => $q['family'] === 'webcam_platform_variant_discovery' ) )[0] ?? [];
+        $query = (string) ( $row['query'] ?? '' );
+
+        $this->assertStringContainsString( 'camsoda.com', $query );
+        $this->assertStringContainsString( 'stripchat.com', $query );
+        $this->assertStringContainsString( 'chaturbate.com', $query );
+        $this->assertStringContainsString( 'sinparty.com', $query );
+    }
+
+    /** @test */
+    public function test_creator_hub_variant_query_covers_target_hub_domains(): void {
+        $pack = $this->provider->build_query_pack_public( 'Abby Murray' );
+        $row  = array_values( array_filter( $pack, static fn( $q ) => $q['family'] === 'creator_hub_variant_discovery' ) )[0] ?? [];
+        $query = (string) ( $row['query'] ?? '' );
+
+        $this->assertStringContainsString( 'fansly.com', $query );
+        $this->assertStringContainsString( 'linktr.ee', $query );
+        $this->assertStringContainsString( 'allmylinks.com', $query );
     }
 }

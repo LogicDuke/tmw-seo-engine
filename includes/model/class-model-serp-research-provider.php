@@ -154,6 +154,49 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'fansly',
     ];
 
+    /** @var string[] */
+    private const VARIANT_DISCOVERY_WEBCAM_DOMAINS = [
+        'jerkmatelive.com',
+        'jerkmate.com',
+        'myfreecams.com',
+        'sinparty.com',
+        'xtease.com',
+        'olecams.com',
+        'bongacams.com',
+        'cam4.com',
+        'cameraprive.com',
+        'camirada.com',
+        'cams.com',
+        'camsoda.com',
+        'chaturbate.com',
+        'dscgirls.live',
+        'livefreefun.org',
+        'flirt4free.com',
+        'imlive.com',
+        'revealme.com',
+        'royalcamslive.com',
+        'sakuralive.com',
+        'slutroulette.com',
+        'stripchat.com',
+        'sweepsex.com',
+        'xcams.com',
+        'xlovecam.com',
+    ];
+
+    /** @var string[] */
+    private const VARIANT_DISCOVERY_CREATOR_DOMAINS = [
+        'fansly.com',
+        'linktr.ee',
+        'allmylinks.com',
+        'beacons.ai',
+        'solo.to',
+        'carrd.co',
+        'x.com',
+        'twitter.com',
+    ];
+
+    private const MAX_HANDLE_VARIANTS = 5;
+
     public function provider_name(): string {
         return 'dataforseo_serp';
     }
@@ -298,19 +341,99 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     /**
      * @return array<int,array{query:string,family:string}>
      */
-    private function build_query_pack( string $model_name ): array {
-        // Balanced synchronous pack: restore the highest-value discovery lanes
-        // from 4.6.5 while keeping the request budget bounded.
-        // Kept: exact_name, webcam_platform_discovery, creator_platform_discovery,
-        // hub_discovery, social_discovery.
-        // Deferred for async/background mode: niche_context and pass-two confirmation.
-        return [
+    protected function build_query_pack( string $model_name ): array {
+        // Balanced synchronous pack: keep the proven pass-one lanes, then add
+        // two compact variant families to catch normalized-handle profiles
+        // without exploding sync query count.
+        $queries = [
             [ 'query' => $model_name, 'family' => 'exact_name' ],
             [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin OR camsoda', 'family' => 'webcam_platform_discovery' ],
             [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
             [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
             [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
         ];
+
+        $variant_terms = $this->build_handle_variant_terms( $model_name );
+        if ( $variant_terms === '' ) {
+            return $queries;
+        }
+
+        $webcam_domains = implode( ' OR ', self::VARIANT_DISCOVERY_WEBCAM_DOMAINS );
+        $creator_domains = implode( ' OR ', self::VARIANT_DISCOVERY_CREATOR_DOMAINS );
+
+        $queries[] = [
+            'query'  => $model_name . ' (' . $variant_terms . ') (' . $webcam_domains . ')',
+            'family' => 'webcam_platform_variant_discovery',
+        ];
+        $queries[] = [
+            'query'  => $model_name . ' (' . $variant_terms . ') (' . $creator_domains . ')',
+            'family' => 'creator_hub_variant_discovery',
+        ];
+
+        return $queries;
+    }
+
+    /**
+     * @return string[]
+     */
+    protected function build_handle_variants( string $model_name ): array {
+        $name = trim( $model_name );
+        if ( $name === '' ) {
+            return [];
+        }
+
+        preg_match_all( '/[A-Za-z0-9]+/u', $name, $matches );
+        $parts = array_values( array_filter( array_map( 'strval', $matches[0] ?? [] ) ) );
+        if ( empty( $parts ) ) {
+            return [];
+        }
+
+        $lower_parts = array_map( static fn( string $p ): string => strtolower( $p ), $parts );
+        $camel_parts = array_map( static function ( string $p ): string {
+            $l = strtolower( $p );
+            return ucfirst( $l );
+        }, $parts );
+
+        $candidates = [
+            implode( '', $lower_parts ),
+            implode( '-', $lower_parts ),
+            implode( '_', $lower_parts ),
+            implode( '', $camel_parts ),
+        ];
+
+        $camel = implode( '', $camel_parts );
+        if ( $camel !== '' ) {
+            $candidates[] = lcfirst( $camel );
+        }
+
+        $seen = [];
+        $variants = [];
+        foreach ( $candidates as $candidate ) {
+            $candidate = trim( $candidate );
+            if ( $candidate === '' ) {
+                continue;
+            }
+            $key = strtolower( $candidate );
+            if ( isset( $seen[ $key ] ) ) {
+                continue;
+            }
+            $seen[ $key ] = true;
+            $variants[] = $candidate;
+            if ( count( $variants ) >= self::MAX_HANDLE_VARIANTS ) {
+                break;
+            }
+        }
+
+        return $variants;
+    }
+
+    private function build_handle_variant_terms( string $model_name ): string {
+        $variants = $this->build_handle_variants( $model_name );
+        if ( empty( $variants ) ) {
+            return '';
+        }
+        $quoted = array_map( static fn( string $variant ): string => '"' . $variant . '"', $variants );
+        return implode( ' OR ', $quoted );
     }
 
     /**
