@@ -154,7 +154,11 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'fansly',
     ];
 
-    /** @var string[] */
+    /**
+     * Domain allowlist used by grouped webcam variant discovery queries.
+     *
+     * @var string[]
+     */
     private const VARIANT_DISCOVERY_WEBCAM_DOMAINS = [
         'jerkmatelive.com',
         'jerkmate.com',
@@ -184,7 +188,11 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'xlovecam.com',
     ];
 
-    /** @var string[] */
+    /**
+     * Domain allowlist used by grouped creator/hub variant discovery queries.
+     *
+     * @var string[]
+     */
     private const VARIANT_DISCOVERY_CREATOR_DOMAINS = [
         'fansly.com',
         'linktr.ee',
@@ -196,6 +204,9 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'twitter.com',
     ];
 
+    /**
+     * Hard cap for generated handle variants used in sync grouped discovery.
+     */
     private const MAX_HANDLE_VARIANTS = 5;
 
     public function provider_name(): string {
@@ -340,6 +351,13 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     }
 
     /**
+     * Build the bounded synchronous pass-one query pack.
+     *
+     * Guardrails:
+     * - Always include the original 5 broad discovery families.
+     * - Add at most 2 grouped variant families when variant terms exist.
+     *
+     * @param  string $model_name
      * @return array<int,array{query:string,family:string}>
      */
     protected function build_query_pack( string $model_name ): array {
@@ -382,6 +400,12 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     }
 
     /**
+     * Generate normalized handle variants from a model display name.
+     *
+     * Multi-token names may produce lowercase, hyphen, underscore, CamelCase,
+     * and lowerCamel forms. Single-token names stay bounded to lowercase.
+     *
+     * @param  string $model_name
      * @return string[]
      */
     protected function build_handle_variants( string $model_name ): array {
@@ -441,6 +465,9 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
 
     /**
      * Build quoted OR terms for grouped variant-led SERP discovery queries.
+     *
+     * @param  string $model_name
+     * @return string
      */
     private function build_handle_variant_terms( string $model_name ): string {
         $variants = $this->build_handle_variants( $model_name );

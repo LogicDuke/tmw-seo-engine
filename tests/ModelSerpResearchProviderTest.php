@@ -23,15 +23,28 @@ use PHPUnit\Framework\TestCase;
  */
 class TestableSerpProvider extends \TMWSEO\Engine\Model\ModelSerpResearchProvider {
 
+    /**
+     * Expose strict domain matcher for unit tests.
+     *
+     * @param  string               $domain
+     * @param  array<string,string> $map
+     * @return string
+     */
     public function match_strict_public( string $domain, array $map ): string {
         return $this->match_domain_label_strict( $domain, $map );
     }
 
+    /**
+     * Expose evidence URL filter helper for unit tests.
+     */
     public function is_evidence_public( string $url ): bool {
         return $this->is_evidence_url( $url );
     }
 
     /**
+     * Expose synchronous query-pack builder for unit tests.
+     *
+     * @param  string $model_name
      * @return array<int,array{query:string,family:string}>
      */
     public function build_query_pack_public( string $model_name ): array {
@@ -39,6 +52,9 @@ class TestableSerpProvider extends \TMWSEO\Engine\Model\ModelSerpResearchProvide
     }
 
     /**
+     * Expose handle-variant generator for unit tests.
+     *
+     * @param  string $model_name
      * @return string[]
      */
     public function build_handle_variants_public( string $model_name ): array {
