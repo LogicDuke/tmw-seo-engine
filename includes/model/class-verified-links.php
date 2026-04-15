@@ -57,6 +57,7 @@ class VerifiedLinks {
         'personal_site',
         'onlyfans',
         'fansly',
+        'pornhub',
         'other',
     ];
 
@@ -70,6 +71,7 @@ class VerifiedLinks {
         'personal_site' => 'Personal Site',
         'onlyfans'      => 'OnlyFans',
         'fansly'        => 'Fansly',
+        'pornhub'       => 'Pornhub',
         'other'         => 'Other',
     ];
 
@@ -852,6 +854,7 @@ class VerifiedLinks {
             'allmylinks.com' => 'AllMyLinks',
             'beacons.ai'     => 'Beacons',
             'solo.to'        => 'solo.to',
+            'pornhub.com'    => 'Pornhub',
         ];
 
         if ( isset( $map[ $host ] ) ) {
@@ -882,6 +885,7 @@ class VerifiedLinks {
             'linktree.com'  => 'linktree',
             'onlyfans.com'  => 'onlyfans',
             'fansly.com'    => 'fansly',
+            'pornhub.com'   => 'pornhub',
         ];
 
         return $map[ $host ] ?? 'other';

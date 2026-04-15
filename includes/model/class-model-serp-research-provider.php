@@ -75,6 +75,24 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'carrd.co'       => 'Carrd',
     ];
 
+    /**
+     * External/social domains surfaced to operators as reviewable candidates.
+     *
+     * These bypass strict platform-profile parsing intentionally — they are
+     * shown in a separate operator-review lane, never auto-promoted.
+     * Key = bare domain (no www). Value = ['label', 'type', 'confidence'].
+     * 'type' maps to VerifiedLinks::ALLOWED_TYPES.
+     *
+     * @var array<string,array{label:string,type:string,confidence:string}>
+     */
+    private const EXTERNAL_SOCIAL_DOMAINS = [
+        'tiktok.com'   => [ 'label' => 'TikTok',    'type' => 'tiktok',        'confidence' => 'high'   ],
+        'facebook.com' => [ 'label' => 'Facebook',   'type' => 'facebook',      'confidence' => 'medium' ],
+        'fb.com'       => [ 'label' => 'Facebook',   'type' => 'facebook',      'confidence' => 'medium' ],
+        'onlyfans.com' => [ 'label' => 'OnlyFans',   'type' => 'onlyfans',      'confidence' => 'high'   ],
+        'pornhub.com'  => [ 'label' => 'Pornhub',    'type' => 'pornhub',       'confidence' => 'medium' ],
+    ];
+
     /** @var array<string,string> */
     private const TLD_COUNTRY_HINTS = [
         '.de' => 'Germany',
@@ -725,6 +743,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
 
         $platform_cand_urls  = [];
         $hub_cand_urls       = [];
+        $external_cand_map   = [];  // operator-reviewable external/social URLs (TikTok, Facebook, etc.)
         $source_urls_raw     = [];
         $bio_snippets        = [];
         $name_in_snippet     = 0;
@@ -784,6 +803,21 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             if ( $is_hub_candidate ) {
                 if ( ! isset( $hub_cand_urls[ $url ] ) ) {
                     $hub_cand_urls[ $url ] = true;
+                }
+            }
+
+            // ── External/social candidate collection ─────────────────────────
+            // Collect TikTok, Facebook, OnlyFans, Pornhub, and .xxx personal pages
+            // as operator-reviewable candidates — separate lane from strict extractions.
+            // Only collected when NOT already a platform or hub candidate.
+            if ( ! $is_platform_candidate && ! $is_hub_candidate && ! isset( $external_cand_map[ $url ] ) ) {
+                $ext_info = $this->classify_external_candidate( $domain, $url );
+                if ( $ext_info !== null ) {
+                    $external_cand_map[ $url ] = array_merge( $ext_info, [
+                        'url'          => $url,
+                        'query_family' => $query_family,
+                        '_alias_source' => trim( (string) ( $item['_alias_source'] ?? '' ) ),
+                    ] );
                 }
             }
 
@@ -1141,6 +1175,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             'platform_names'                => $platform_names,
             'social_urls'                   => $social_urls,
             'platform_candidates'           => $platform_candidates,
+            'external_candidates'           => array_values( $external_cand_map ),
             'field_confidence'              => $field_confidence,
             'research_diagnostics'          => $research_diagnostics,
             'country'                       => '',
@@ -1180,6 +1215,53 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             }
         }
         return '';
+    }
+
+    /**
+     * Classify a URL as an operator-reviewable external social candidate.
+     *
+     * Returns a data array when the domain belongs to the explicit EXTERNAL_SOCIAL_DOMAINS
+     * allowlist (TikTok, Facebook, OnlyFans, Pornhub), or when the domain uses the .xxx TLD
+     * at a shallow path depth (likely a personal profile page).
+     *
+     * Returns null for anything else — this intentionally produces a small, high-signal
+     * list rather than broad noise. Parser strictness is not relaxed; nothing returned
+     * here bypasses structured extraction or auto-promotes.
+     *
+     * @param  string $domain  Bare lowercased domain from the item (may have www).
+     * @param  string $url     Full URL for path-depth inspection.
+     * @return array{detected_platform:string,label:string,suggested_type:string,confidence:string}|null
+     */
+    private function classify_external_candidate( string $domain, string $url ): ?array {
+        $bare = strtolower( (string) preg_replace( '/^www\./', '', $domain ) );
+
+        // Explicit allowlist match
+        if ( isset( self::EXTERNAL_SOCIAL_DOMAINS[ $bare ] ) ) {
+            $meta = self::EXTERNAL_SOCIAL_DOMAINS[ $bare ];
+            return [
+                'detected_platform' => $bare,
+                'label'             => (string) $meta['label'],
+                'suggested_type'    => (string) $meta['type'],
+                'confidence'        => (string) $meta['confidence'],
+            ];
+        }
+
+        // .xxx TLD — include only root or one-segment paths (profile/about pages).
+        // Deep content paths (galleries, videos, etc.) are excluded.
+        if ( str_ends_with( $bare, '.xxx' ) ) {
+            $path       = (string) ( parse_url( $url, PHP_URL_PATH ) ?? '/' );
+            $path_depth = substr_count( trim( $path, '/' ), '/' );
+            if ( $path_depth <= 1 ) {
+                return [
+                    'detected_platform' => 'personal_xxx',
+                    'label'             => $bare,
+                    'suggested_type'    => 'personal_site',
+                    'confidence'        => 'medium',
+                ];
+            }
+        }
+
+        return null;
     }
 
     private function classify_source_url( string $url, string $domain = '' ): string {
