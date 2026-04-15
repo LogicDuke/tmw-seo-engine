@@ -194,6 +194,8 @@ class ModelHelper {
      * Admins review this before applying anything.
      */
     const META_PROPOSED     = '_tmwseo_research_proposed';
+    /** Option-key prefix for per-post research run lock. */
+    private const RESEARCH_LOCK_OPTION_PREFIX = 'tmwseo_research_lock_';
 
     // ── Bootstrap ─────────────────────────────────────────────────────────
 
@@ -1020,15 +1022,22 @@ class ModelHelper {
         // but prevents PHP's own limit from killing the request prematurely.
         @set_time_limit( 120 );
 
-        // Defensive cleanup: never carry stale proposed data into a new run.
-        delete_post_meta( $post_id, self::META_PROPOSED );
+        if ( ! self::acquire_research_lock( $post_id ) ) {
+            Logs::info( 'model_research', '[TMW-RESEARCH] run_research_now skipped; lock already held', [
+                'post_id' => $post_id,
+            ] );
+            return;
+        }
 
         $t_start = microtime( true );
-        Logs::info( 'model_research', '[TMW-RESEARCH] run_research_now started', [
-            'post_id' => $post_id,
-        ] );
-
         try {
+            // Defensive cleanup: never carry stale proposed data into a new run.
+            delete_post_meta( $post_id, self::META_PROPOSED );
+
+            Logs::info( 'model_research', '[TMW-RESEARCH] run_research_now started', [
+                'post_id' => $post_id,
+            ] );
+
             $result = ModelResearchPipeline::run( $post_id );
 
             $pipeline_status = (string) ( $result['pipeline_status'] ?? 'error' );
@@ -1058,7 +1067,7 @@ class ModelHelper {
             ] );
 
             // Persist the full pipeline output as proposed data for admin review.
-            update_post_meta( $post_id, self::META_PROPOSED, $encoded );
+            update_post_meta( $post_id, self::META_PROPOSED, wp_slash( $encoded ) );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
 
             if ( ! self::stored_proposed_blob_round_trip_ok( $post_id ) ) {
@@ -1101,6 +1110,8 @@ class ModelHelper {
             ] );
             update_post_meta( $post_id, self::META_STATUS, 'error' );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+        } finally {
+            self::release_research_lock( $post_id );
         }
     }
 
@@ -1115,6 +1126,32 @@ class ModelHelper {
 
         $decoded = json_decode( $stored_raw, true );
         return is_array( $decoded );
+    }
+
+    /**
+     * Acquire a short-lived per-post research lock.
+     */
+    private static function acquire_research_lock( int $post_id, int $ttl_seconds = 120 ): bool {
+        $option_key = self::RESEARCH_LOCK_OPTION_PREFIX . $post_id;
+        $now        = time();
+        $expires_at = $now + max( 1, $ttl_seconds );
+
+        $existing_expires_at = (int) get_option( $option_key, 0 );
+        if ( $existing_expires_at > $now ) {
+            return false;
+        }
+        if ( $existing_expires_at > 0 ) {
+            delete_option( $option_key );
+        }
+
+        return add_option( $option_key, $expires_at, '', 'no' );
+    }
+
+    /**
+     * Release per-post research lock.
+     */
+    private static function release_research_lock( int $post_id ): void {
+        delete_option( self::RESEARCH_LOCK_OPTION_PREFIX . $post_id );
     }
 
     /**
