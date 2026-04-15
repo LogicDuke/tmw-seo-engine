@@ -159,6 +159,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'jerkmatelive.com',
         'jerkmate.com',
         'myfreecams.com',
+        'livejasmin.com',
         'sinparty.com',
         'xtease.com',
         'olecams.com',
@@ -365,12 +366,15 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         $webcam_domains = implode( ' OR ', self::VARIANT_DISCOVERY_WEBCAM_DOMAINS );
         $creator_domains = implode( ' OR ', self::VARIANT_DISCOVERY_CREATOR_DOMAINS );
 
+        // Variant families are intentionally variant-led (not display-name-led)
+        // so they can recover profiles where SERP/snippets expose only handle
+        // normalizations and not the literal model display name.
         $queries[] = [
-            'query'  => $model_name . ' (' . $variant_terms . ') (' . $webcam_domains . ')',
+            'query'  => '(' . $variant_terms . ') (' . $webcam_domains . ')',
             'family' => 'webcam_platform_variant_discovery',
         ];
         $queries[] = [
-            'query'  => $model_name . ' (' . $variant_terms . ') (' . $creator_domains . ')',
+            'query'  => '(' . $variant_terms . ') (' . $creator_domains . ')',
             'family' => 'creator_hub_variant_discovery',
         ];
 
@@ -402,12 +406,17 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             implode( '', $lower_parts ),
             implode( '-', $lower_parts ),
             implode( '_', $lower_parts ),
-            implode( '', $camel_parts ),
         ];
 
-        $camel = implode( '', $camel_parts );
-        if ( $camel !== '' ) {
-            $candidates[] = lcfirst( $camel );
+        // Preserve CamelCase and lowerCamel variants for multi-token names
+        // (e.g. Abby Murray -> AbbyMurray / abbyMurray). Single-token names
+        // intentionally stay bounded to normalized lowercase only.
+        if ( count( $parts ) > 1 ) {
+            $camel = implode( '', $camel_parts );
+            if ( $camel !== '' ) {
+                $candidates[] = $camel;
+                $candidates[] = lcfirst( $camel );
+            }
         }
 
         $seen = [];
@@ -417,11 +426,10 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             if ( $candidate === '' ) {
                 continue;
             }
-            $key = strtolower( $candidate );
-            if ( isset( $seen[ $key ] ) ) {
+            if ( isset( $seen[ $candidate ] ) ) {
                 continue;
             }
-            $seen[ $key ] = true;
+            $seen[ $candidate ] = true;
             $variants[] = $candidate;
             if ( count( $variants ) >= self::MAX_HANDLE_VARIANTS ) {
                 break;
@@ -431,6 +439,9 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         return $variants;
     }
 
+    /**
+     * Build quoted OR terms for grouped variant-led SERP discovery queries.
+     */
     private function build_handle_variant_terms( string $model_name ): string {
         $variants = $this->build_handle_variants( $model_name );
         if ( empty( $variants ) ) {

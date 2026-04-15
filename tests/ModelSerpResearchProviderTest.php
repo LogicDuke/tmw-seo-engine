@@ -208,6 +208,11 @@ class ModelSerpResearchProviderTest extends TestCase {
 
         $this->assertContains( 'webcam_platform_variant_discovery', $families );
         $this->assertContains( 'creator_hub_variant_discovery', $families );
+        $variant_families = array_values( array_filter(
+            $families,
+            static fn( string $family ): bool => str_contains( $family, 'variant_discovery' )
+        ) );
+        $this->assertCount( 2, $variant_families, 'Exactly two grouped variant families should be added.' );
         $this->assertCount( 7, $pack, 'Variant discovery should add exactly two bounded synchronous queries.' );
     }
 
@@ -230,7 +235,9 @@ class ModelSerpResearchProviderTest extends TestCase {
         $this->assertStringContainsString( 'camsoda.com', $query );
         $this->assertStringContainsString( 'stripchat.com', $query );
         $this->assertStringContainsString( 'chaturbate.com', $query );
+        $this->assertStringContainsString( 'livejasmin.com', $query );
         $this->assertStringContainsString( 'sinparty.com', $query );
+        $this->assertStringNotContainsString( 'Abby Murray', $query );
     }
 
     /** @test */
@@ -242,5 +249,6 @@ class ModelSerpResearchProviderTest extends TestCase {
         $this->assertStringContainsString( 'fansly.com', $query );
         $this->assertStringContainsString( 'linktr.ee', $query );
         $this->assertStringContainsString( 'allmylinks.com', $query );
+        $this->assertStringNotContainsString( 'Abby Murray', $query );
     }
 }
