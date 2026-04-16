@@ -65,6 +65,8 @@ class VerifiedLinks {
         'personal_site',
         'onlyfans',
         'fansly',
+        'fancentro',
+        'streamate',
         'pornhub',
         'other',
     ];
@@ -79,6 +81,8 @@ class VerifiedLinks {
         'personal_site' => 'Personal Site',
         'onlyfans'      => 'OnlyFans',
         'fansly'        => 'Fansly',
+        'fancentro'     => 'FanCentro',
+        'streamate'     => 'Streamate',
         'pornhub'       => 'Pornhub',
         'other'         => 'Other',
     ];
@@ -905,6 +909,8 @@ class VerifiedLinks {
             'linktree.com'   => 'Linktree',
             'onlyfans.com'   => 'OnlyFans',
             'fansly.com'     => 'Fansly',
+            'fancentro.com'  => 'FanCentro',
+            'streamate.com'  => 'Streamate',
             'chaturbate.com' => 'Chaturbate',
             'stripchat.com'  => 'Stripchat',
             'livejasmin.com' => 'LiveJasmin',
@@ -946,6 +952,8 @@ class VerifiedLinks {
             'linktree.com'  => 'linktree',
             'onlyfans.com'  => 'onlyfans',
             'fansly.com'    => 'fansly',
+            'fancentro.com' => 'fancentro',
+            'streamate.com' => 'streamate',
             'pornhub.com'   => 'pornhub',
         ];
 

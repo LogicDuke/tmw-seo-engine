@@ -903,22 +903,62 @@ class ModelHelper {
                     . esc_html( $url_disp ) . '</a></td>'
                     . '<td style="padding:4px 6px;font-family:monospace;">' . esc_html( (string) ( $c['username'] ?? '—' ) ) . '</td>'
                     . '<td style="padding:4px 6px;font-size:11px;">' . $prov_cell . '</td>'
-                    . '<td style="padding:4px 6px;white-space:nowrap;">';
+                    . '<td style="padding:6px 6px;min-width:220px;">';
 
                 if ( $norm_url !== '' && class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) ) {
-                    echo '<form method="post" action="' . esc_url( $promote_action ) . '" style="display:inline;">';
+                    // Build alphabetically-sorted type dropdown for this row.
+                    $all_types = \TMWSEO\Engine\Model\VerifiedLinks::TYPE_LABELS;
+                    asort( $all_types );
+
+                    $uniq_t = 'trusted_' . (int) $idx;
+                    echo '<form method="post" action="' . esc_url( $promote_action ) . '">';
                     echo '<input type="hidden" name="action"               value="tmwseo_promote_to_verified">';
                     echo '<input type="hidden" name="post_id"              value="' . (int) $post_id . '">';
                     echo '<input type="hidden" name="tmwseo_promote_nonce" value="' . esc_attr( $promote_nonce ) . '">';
-                    echo '<input type="hidden" name="tmwseo_promote_url[]" value="' . esc_attr( $norm_url ) . '">';
-                    echo '<input type="hidden" name="tmwseo_promote_type[0]" value="' . esc_attr( $vl_type ) . '">';
-                    echo '<button type="submit" class="button button-small" style="font-size:11px;height:22px;line-height:20px;">';
+                    echo '<input type="hidden" name="tmwseo_promote_url[0]" value="' . esc_attr( $norm_url ) . '">';
+
+                    // ── Type (visible, operator can override) ─────────────
+                    echo '<div style="margin-bottom:4px;">';
+                    echo '<select name="tmwseo_promote_type[0]" '
+                        . 'id="' . esc_attr( $uniq_t ) . '_type" '
+                        . 'style="font-size:11px;width:100%;max-width:180px;" '
+                        . 'title="' . esc_attr__( 'VL type to assign on promote', 'tmwseo' ) . '">';
+                    foreach ( $all_types as $tv => $tl ) {
+                        printf(
+                            '<option value="%s"%s>%s</option>',
+                            esc_attr( $tv ),
+                            selected( $vl_type, $tv, false ),
+                            esc_html( $tl )
+                        );
+                    }
+                    echo '</select>';
+                    echo '</div>';
+
+                    // ── Optional outbound URL ──────────────────────────────
+                    echo '<div style="margin-bottom:4px;">';
+                    echo '<input type="text" '
+                        . 'name="tmwseo_outbound_url[0]" '
+                        . 'id="' . esc_attr( $uniq_t ) . '_out" '
+                        . 'value="" '
+                        . 'placeholder="' . esc_attr__( 'Outbound URL (optional)', 'tmwseo' ) . '" '
+                        . 'style="font-size:11px;width:100%;max-width:180px;font-family:monospace;" />';
+                    echo '</div>';
+
+                    // ── Outbound type (hidden default, no extra UI needed here) ──
+                    echo '<input type="hidden" name="tmwseo_outbound_type[0]" value="direct_profile">';
+
+                    // ── Promote + Dismiss ──────────────────────────────────
+                    echo '<div style="display:flex;gap:4px;">';
+                    echo '<button type="submit" class="button button-primary button-small" style="font-size:11px;">';
                     echo esc_html__( 'Promote', 'tmwseo' );
-                    echo '</button></form> ';
+                    echo '</button></form>';
+                } else {
+                    echo '<div style="display:flex;gap:4px;">';
                 }
-                echo '<button type="button" class="button button-small" style="font-size:11px;height:22px;line-height:20px;color:#8a1a1a;" '
-                    . 'onclick="document.getElementById(\'tmwseo-trusted-row-' . (int) $idx . '\').style.display=\'none\';">'
+                echo '<button type="button" class="button button-small" style="font-size:11px;color:#8a1a1a;" '
+                    . 'onclick="document.getElementById(' . json_encode( 'tmwseo-trusted-row-' . (int) $idx ) . ').style.display=\'none\';">'
                     . esc_html__( 'Dismiss', 'tmwseo' ) . '</button>';
+                echo '</div>';
                 echo '</td></tr>';
             }
             echo '</table>';
@@ -1050,23 +1090,7 @@ class ModelHelper {
             echo '</div>'; // end outer panel
         }
 
-        // ── 3. Promote-from-research block (social_urls = strict extractions only) ─
-        if (
-            class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) &&
-            isset( $merged['social_urls'] ) &&
-            is_array( $merged['social_urls'] ) &&
-            ! empty( $merged['social_urls'] )
-        ) {
-            \TMWSEO\Engine\Model\VerifiedLinks::render_promote_block(
-                $post_id,
-                array_values( array_filter(
-                    array_map( 'strval', $merged['social_urls'] ),
-                    static fn( $u ) => is_string( $u ) && trim( $u ) !== ''
-                ) )
-            );
-        }
-
-        // ── 4. Rejected / Audit-Only — collapsed, clearly non-promotable ─────
+        // ── 3. Rejected / Audit-Only — collapsed, clearly non-promotable ─────
         if ( ! empty( $rejected ) ) {
             echo '<details style="margin-top:8px;border:1px solid #f5c6cb;border-radius:3px;">';
             echo '<summary style="cursor:pointer;padding:6px 10px;background:#fff5f5;color:#8a1a1a;font-weight:600;border-radius:3px;">';
@@ -1114,11 +1138,14 @@ class ModelHelper {
     /**
      * Map a platform slug to the nearest VerifiedLinks ALLOWED_TYPES value.
      * Used to pre-fill the type on per-row promote buttons in the trusted table.
+     * The operator sees and can override this value before submitting.
      */
     private static function platform_slug_to_vl_type( string $slug ): string {
         $map = [
             'twitter'    => 'x',
             'fansly'     => 'fansly',
+            'fancentro'  => 'fancentro',
+            'streamate'  => 'streamate',
             'linktree'   => 'linktree',
             'allmylinks' => 'linktree',
             'beacons'    => 'linktree',
