@@ -95,6 +95,56 @@ class AffiliateLinkBuilder {
         return home_url('/go/' . rawurlencode($platform_slug) . '/' . rawurlencode($clean_username) . '/');
     }
 
+    /**
+     * Build an affiliate URL for an arbitrary approved target URL.
+     *
+     * Used by the Verified External Links affiliate routing layer, where the
+     * link being routed is an already-approved outbound URL (not necessarily
+     * a username-based platform profile).
+     *
+     * Lookup order:
+     *   1. Per-platform affiliate settings for $network_key (enabled + template).
+     *   2. If $network_key is empty or not configured, returns $target_url unchanged.
+     *
+     * The $target_url is passed as both {profile_url} and {encoded_profile_url}
+     * in the template — existing template infrastructure handles it correctly.
+     *
+     * Returns $target_url on any failure so callers always get a valid URL.
+     *
+     * @param string $target_url   Operator-approved outbound URL (the VL `url` field).
+     * @param string $network_key  Affiliate network key, e.g. 'crack_revenue' or a
+     *                             platform slug. Must be a key in
+     *                             tmwseo_platform_affiliate_settings option.
+     * @return string              Routed affiliate URL, or $target_url as fallback.
+     */
+    public static function build_affiliate_url_for_target( string $target_url, string $network_key ): string {
+        $target_url  = esc_url_raw( trim( $target_url ) );
+        $network_key = sanitize_key( $network_key );
+
+        if ( $target_url === '' || $network_key === '' ) {
+            return $target_url;
+        }
+
+        $settings = self::get_platform_affiliate_settings( $network_key );
+        if ( empty( $settings['enabled'] ) || empty( $settings['template'] ) ) {
+            return $target_url;
+        }
+
+        $built = self::build_from_template(
+            (string) $settings['template'],
+            $network_key,
+            '',           // no username in this path — template should use {profile_url}
+            $target_url,  // profile_url = approved outbound target
+            $settings
+        );
+
+        if ( $built !== '' && wp_http_validate_url( $built ) ) {
+            return $built;
+        }
+
+        return $target_url;
+    }
+
     public static function maybe_handle_redirect(): void {
         $platform = (string) get_query_var('tmw_go_platform', '');
         $username = (string) get_query_var('tmw_go_username', '');

@@ -20,22 +20,34 @@
  *
  * DATA_SHAPE per entry:
  * {
- *   "url"            : string  — esc_url_raw, required, https/http only
- *                                For research-promoted entries this is the OUTBOUND target
- *                                (the URL the directory links to), which may differ from
- *                                the source profile URL detected during research.
- *   "source_url"     : string  — optional; the original detected profile URL (audit trail).
- *                                Stored when the operator chose a different outbound target.
- *   "outbound_type"  : string  — optional; operator intent: "direct_profile" | "personal_site"
- *                                | "website" | "social". Carries no functional effect yet;
- *                                reserved for future affiliate-routing logic.
- *   "type"           : string  — one of ALLOWED_TYPES, required
- *   "label"          : string  — optional display override, max 80 chars
- *   "is_active"      : bool    — default true; inactive entries excluded from output
- *   "is_primary"     : bool    — at most one entry may be true
- *   "added_at"       : string  — Y-m-d, set on creation, never overwritten
- *   "promoted_from"  : string  — "manual" | "research"  (audit trail only)
+ *   "url"              : string  — esc_url_raw, required, https/http only.
+ *                                  This is the operator-approved OUTBOUND TARGET URL.
+ *                                  It may differ from source_url (see below).
+ *                                  It is what the frontend shortcode links to UNLESS
+ *                                  affiliate routing is active (see use_affiliate).
+ *   "source_url"       : string  — optional. The original detected profile URL (audit
+ *                                  trail). Stored when the operator chose a different
+ *                                  outbound target. Never rendered; never used in schema.
+ *   "outbound_type"    : string  — optional. Operator intent: "direct_profile" |
+ *                                  "personal_site" | "website" | "social". Stored for
+ *                                  future routing logic. No functional effect yet.
+ *   "use_affiliate"    : bool    — default false. When true, the shortcode routes through
+ *                                  the affiliate layer (get_routed_url()) instead of using
+ *                                  url directly. Schema sameAs ALWAYS uses url regardless.
+ *   "affiliate_network": string  — key into tmwseo_platform_affiliate_settings option.
+ *                                  E.g. 'crack_revenue', a platform slug, or ''.
+ *                                  Required when use_affiliate=true; ignored otherwise.
+ *   "type"             : string  — one of ALLOWED_TYPES, required.
+ *   "label"            : string  — optional display override, max 80 chars.
+ *   "is_active"        : bool    — default true; inactive entries excluded from output.
+ *   "is_primary"       : bool    — at most one entry may be true.
+ *   "added_at"         : string  — Y-m-d, set on creation, never overwritten.
+ *   "promoted_from"    : string  — "manual" | "research" (audit trail only).
  * }
+ *
+ * URL semantics (three distinct concepts):
+ *   source_url (audit) → url (outbound target) → get_routed_url() (affiliate or url)
+ *   schema sameAs always uses url, never the routed affiliate URL.
  *
  * @package TMWSEO\Engine\Model
  * @since   4.7.0
@@ -185,11 +197,15 @@ class VerifiedLinks {
         ?>
         <script>
         (function () {
-            var counter        = <?php echo (int) count( $links ); ?>;
-            var typeOptions    = <?php echo wp_json_encode( $type_options_html ); ?>;
-            var placeholderTxt = <?php echo wp_json_encode( __( 'Optional label', 'tmwseo' ) ); ?>;
-            var emptyTxt       = <?php echo wp_json_encode( __( 'No verified links yet. Click "+ Add Link" below to add one.', 'tmwseo' ) ); ?>;
-            var removeTxt      = <?php echo wp_json_encode( __( 'Remove', 'tmwseo' ) ); ?>;
+            var counter               = <?php echo (int) count( $links ); ?>;
+            var typeOptions           = <?php echo wp_json_encode( $type_options_html ); ?>;
+            var placeholderTxt        = <?php echo wp_json_encode( __( 'Optional label', 'tmwseo' ) ); ?>;
+            var emptyTxt              = <?php echo wp_json_encode( __( 'No verified links yet. Click \"+ Add Link\" below to add one.', 'tmwseo' ) ); ?>;
+            var removeTxt             = <?php echo wp_json_encode( __( 'Remove', 'tmwseo' ) ); ?>;
+            var affRouteTxt           = <?php echo wp_json_encode( __( 'Route through affiliate', 'tmwseo' ) ); ?>;
+            var networkKeyTxt         = <?php echo wp_json_encode( __( 'Network key', 'tmwseo' ) ); ?>;
+            var networkPlaceholderTxt = <?php echo wp_json_encode( __( 'e.g. crack_revenue or platform slug', 'tmwseo' ) ); ?>;
+            var schemaNotesTxt        = <?php echo wp_json_encode( __( '(must match a key in Affiliates settings; schema sameAs always uses the outbound URL above)', 'tmwseo' ) ); ?>;
 
             function buildRow(n) {
                 var tr = document.createElement('tr');
@@ -219,15 +235,39 @@ class VerifiedLinks {
                         '        title="' + removeTxt + '" ' +
                         '        style="color:#a00;font-size:18px;line-height:1;padding:0;">&times;</button>' +
                     '</td>' +
-                    // Hidden audit-trail fields
                     '<td style="display:none;">' +
-                        '<input type="hidden" name="tmwseo_vl[' + n + '][added_at]"      value="" />' +
-                        '<input type="hidden" name="tmwseo_vl[' + n + '][promoted_from]" value="manual" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][added_at]"          value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][promoted_from]"     value="manual" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][source_url]"        value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][outbound_type]"     value="" />' +
                     '</td>';
-                return tr;
+
+                // Affiliate routing sub-row
+                var affTr = document.createElement('tr');
+                affTr.className = 'tmwseo-vl-aff-row';
+                affTr.setAttribute('data-parent-idx', n);
+                affTr.style.cssText = 'background:#f8f8f8;border-top:1px dashed #ddd;';
+                affTr.innerHTML =
+                    '<td colspan="6" style="padding:4px 8px;">' +
+                        '<label style="font-size:11px;color:#555;cursor:pointer;">' +
+                            '<input type="checkbox" name="tmwseo_vl[' + n + '][use_affiliate]" value="1" ' +
+                            '       style="margin-right:4px;" />' +
+                            affRouteTxt +
+                        '</label>' +
+                        '<span style="margin-left:12px;font-size:11px;color:#888;">' + networkKeyTxt + ': </span>' +
+                        '<input type="text" name="tmwseo_vl[' + n + '][affiliate_network]" value="" ' +
+                        '       placeholder="' + networkPlaceholderTxt + '" ' +
+                        '       style="font-size:11px;width:200px;margin-left:4px;" />' +
+                        '<span style="margin-left:8px;font-size:10px;color:#aaa;">' + schemaNotesTxt + '</span>' +
+                    '</td>';
+
+                var frag = document.createDocumentFragment();
+                frag.appendChild(tr);
+                frag.appendChild(affTr);
+                return frag;
             }
 
-            // Add Link
+            // Add Link — append both the main row and the affiliate sub-row
             document.getElementById('tmwseo-vl-add-btn').addEventListener('click', function () {
                 var emptyRow = document.getElementById('tmwseo-vl-empty-row');
                 if (emptyRow) emptyRow.parentNode.removeChild(emptyRow);
@@ -269,13 +309,17 @@ class VerifiedLinks {
     // ── Render a single existing row ──────────────────────────────────────
 
     private static function render_row( int $n, array $entry ): void {
-        $url         = (string) ( $entry['url']          ?? '' );
-        $type        = (string) ( $entry['type']         ?? '' );
-        $label       = (string) ( $entry['label']        ?? '' );
-        $is_active   = ! empty( $entry['is_active'] );
-        $is_primary  = ! empty( $entry['is_primary'] );
-        $added_at    = (string) ( $entry['added_at']      ?? '' );
-        $prom_from   = (string) ( $entry['promoted_from'] ?? 'manual' );
+        $url               = (string) ( $entry['url']               ?? '' );
+        $type              = (string) ( $entry['type']              ?? '' );
+        $label             = (string) ( $entry['label']             ?? '' );
+        $is_active         = ! empty( $entry['is_active'] );
+        $is_primary        = ! empty( $entry['is_primary'] );
+        $added_at          = (string) ( $entry['added_at']          ?? '' );
+        $prom_from         = (string) ( $entry['promoted_from']     ?? 'manual' );
+        $source_url        = (string) ( $entry['source_url']        ?? '' );
+        $outbound_type     = (string) ( $entry['outbound_type']     ?? '' );
+        $use_affiliate     = ! empty( $entry['use_affiliate'] );
+        $affiliate_network = (string) ( $entry['affiliate_network'] ?? '' );
 
         echo '<tr class="tmwseo-vl-row" data-idx="' . (int) $n . '">';
 
@@ -297,6 +341,15 @@ class VerifiedLinks {
         echo '<td style="padding:4px 6px;">';
         echo '<input type="url" name="tmwseo_vl[' . (int) $n . '][url]" '
             . 'value="' . esc_attr( $url ) . '" class="large-text" placeholder="https://" />';
+        // Source URL — hidden audit trail, shown as small text if present
+        if ( $source_url !== '' ) {
+            echo '<div style="font-size:10px;color:#888;margin-top:2px;" title="' . esc_attr( $source_url ) . '">';
+            echo esc_html__( 'Source:', 'tmwseo' ) . ' ';
+            echo '<a href="' . esc_url( $source_url ) . '" target="_blank" rel="noopener" style="color:#888;">'
+                . esc_html( strlen( $source_url ) > 50 ? substr( $source_url, 0, 50 ) . '…' : $source_url )
+                . '</a>';
+            echo '</div>';
+        }
         echo '</td>';
 
         // Label
@@ -325,12 +378,39 @@ class VerifiedLinks {
             . 'style="color:#a00;font-size:18px;line-height:1;padding:0;">&times;</button>';
         echo '</td>';
 
-        // Hidden audit-trail fields (no display cell needed — keep them in a hidden td)
+        // Hidden audit-trail fields + affiliate routing fields
         echo '<td style="display:none;">';
-        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][added_at]"      value="' . esc_attr( $added_at ) . '" />';
-        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][promoted_from]" value="' . esc_attr( $prom_from ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][added_at]"          value="' . esc_attr( $added_at ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][promoted_from]"     value="' . esc_attr( $prom_from ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][source_url]"        value="' . esc_attr( $source_url ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][outbound_type]"     value="' . esc_attr( $outbound_type ) . '" />';
         echo '</td>';
 
+        // Affiliate routing — inline, below the main row as an expandable section
+        echo '</tr>';
+        // Affiliate sub-row (always rendered, visible when expanded)
+        echo '<tr class="tmwseo-vl-aff-row" data-parent-idx="' . (int) $n . '" '
+            . 'style="background:#f8f8f8;border-top:1px dashed #ddd;">';
+        echo '<td colspan="6" style="padding:4px 8px;">';
+        echo '<label style="font-size:11px;color:#555;cursor:pointer;">';
+        echo '<input type="checkbox" '
+            . 'name="tmwseo_vl[' . (int) $n . '][use_affiliate]" '
+            . 'value="1" '
+            . ( $use_affiliate ? 'checked ' : '' )
+            . 'style="margin-right:4px;" />';
+        echo esc_html__( 'Route through affiliate', 'tmwseo' );
+        echo '</label>';
+        echo '<span style="margin-left:12px;font-size:11px;color:#888;">'
+            . esc_html__( 'Network key:', 'tmwseo' ) . ' </span>';
+        echo '<input type="text" '
+            . 'name="tmwseo_vl[' . (int) $n . '][affiliate_network]" '
+            . 'value="' . esc_attr( $affiliate_network ) . '" '
+            . 'placeholder="' . esc_attr__( 'e.g. crack_revenue or platform slug', 'tmwseo' ) . '" '
+            . 'style="font-size:11px;width:200px;margin-left:4px;" />';
+        echo '<span style="margin-left:8px;font-size:10px;color:#aaa;">'
+            . esc_html__( '(must match a key in Affiliates settings; schema sameAs always uses the outbound URL above)', 'tmwseo' )
+            . '</span>';
+        echo '</td>';
         echo '</tr>';
     }
 
@@ -630,12 +710,75 @@ class VerifiedLinks {
         return is_array( $decoded ) ? $decoded : [];
     }
 
+    // ── get_routed_url() ──────────────────────────────────────────────────
+
+    /**
+     * Return the URL to render for a VL entry in frontend output (shortcode).
+     *
+     * Three-way routing decision:
+     *   1. use_affiliate = false (or unset)
+     *      → Return url (operator-approved outbound target). No affiliate involved.
+     *
+     *   2. use_affiliate = true, affiliate_network configured and template enabled
+     *      → Build routed affiliate URL via AffiliateLinkBuilder::build_affiliate_url_for_target().
+     *        Falls back to url on any failure so output is never broken.
+     *
+     *   3. use_affiliate = true but network misconfigured / template absent
+     *      → Fall back to url silently (safe degradation).
+     *
+     * Schema sameAs NEVER uses this method — it always reads url directly.
+     * That keeps identity URLs (sameAs) separate from monetized routing.
+     *
+     * @param  array<string,mixed> $link  One entry from get_links().
+     * @return string                     URL safe for frontend output.
+     */
+    public static function get_routed_url( array $link ): string {
+        $url = trim( (string) ( $link['url'] ?? '' ) );
+        if ( $url === '' ) {
+            return '';
+        }
+
+        $use_affiliate     = ! empty( $link['use_affiliate'] );
+        $affiliate_network = sanitize_key( (string) ( $link['affiliate_network'] ?? '' ) );
+
+        if ( ! $use_affiliate || $affiliate_network === '' ) {
+            return $url;
+        }
+
+        if ( ! class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' ) ) {
+            return $url;
+        }
+
+        $routed = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_affiliate_url_for_target(
+            $url,
+            $affiliate_network
+        );
+
+        // build_affiliate_url_for_target returns $url on any failure, so we
+        // always get a valid URL. Log when routing was attempted.
+        if ( $routed !== $url ) {
+            \TMWSEO\Engine\Logs::info( 'verified_links', '[TMW-VL] Affiliate routing applied', [
+                'source_url'       => (string) ( $link['source_url'] ?? '' ),
+                'outbound_url'     => $url,
+                'routed_url'       => $routed,
+                'affiliate_network'=> $affiliate_network,
+            ] );
+        }
+
+        return $routed;
+    }
+
     // ── get_schema_urls() ─────────────────────────────────────────────────
 
     /**
      * Return clean, validated URLs for active verified links.
      * Called by SchemaGenerator::person_schema() for sameAs.
      * Never reads research meta keys.
+     *
+     * Schema sameAs ALWAYS uses `url` (the operator-approved outbound target),
+     * NEVER the affiliate-routed URL. sameAs identifies the model's identity
+     * on a platform; affiliate routing is a commercial layer that must not
+     * appear in structured-data identity claims.
      *
      * @return string[]
      */
@@ -644,6 +787,7 @@ class VerifiedLinks {
         $urls  = [];
         foreach ( $links as $link ) {
             if ( empty( $link['is_active'] ) ) { continue; }
+            // Intentionally reads 'url', not get_routed_url() — see doc above.
             $url = trim( (string) ( $link['url'] ?? '' ) );
             if ( $url !== '' && filter_var( $url, FILTER_VALIDATE_URL ) ) {
                 $urls[] = $url;
@@ -659,6 +803,13 @@ class VerifiedLinks {
      *
      * Renders only verified external links. Does NOT render platform profile
      * links — use [tmw_model_links] for those. The two shortcodes are independent.
+     *
+     * Frontend URL resolution:
+     *   - Calls get_routed_url() per entry.
+     *   - If affiliate routing is active for an entry, the rendered href is the
+     *     affiliate URL, NOT the raw outbound target.
+     *   - This is intentional: the shortcode is the monetized display layer.
+     *   - Schema sameAs is NOT affected (it uses url directly).
      *
      * @param array|string $atts
      */
@@ -682,7 +833,8 @@ class VerifiedLinks {
         foreach ( $links as $link ) {
             if ( $active_only && empty( $link['is_active'] ) ) { continue; }
 
-            $url = trim( (string) ( $link['url'] ?? '' ) );
+            // Use routed URL (affiliate if configured; outbound target otherwise).
+            $url = self::get_routed_url( $link );
             if ( $url === '' || ! filter_var( $url, FILTER_VALIDATE_URL ) ) { continue; }
 
             $custom_label = trim( (string) ( $link['label'] ?? '' ) );
@@ -852,18 +1004,55 @@ class VerifiedLinks {
             : date( 'Y-m-d' );
 
         // promoted_from — audit trail
-        $pf_raw       = sanitize_text_field( (string) ( $raw['promoted_from'] ?? 'manual' ) );
+        $pf_raw        = sanitize_text_field( (string) ( $raw['promoted_from'] ?? 'manual' ) );
         $promoted_from = in_array( $pf_raw, [ 'research', 'manual' ], true ) ? $pf_raw : 'manual';
 
-        return [
-            'url'          => $url,
-            'type'         => $type,
-            'label'        => $label,
-            'is_active'    => $is_active,
-            'is_primary'   => $is_primary,
-            'added_at'     => $added_at,
-            'promoted_from'=> $promoted_from,
+        // source_url — optional audit trail; preserve across metabox save
+        $source_url_raw = trim( (string) ( $raw['source_url'] ?? '' ) );
+        $source_url     = $source_url_raw !== '' ? esc_url_raw( $source_url_raw ) : '';
+
+        // outbound_type — informational, no validation against enum needed
+        $valid_outbound_types = [ 'direct_profile', 'personal_site', 'website', 'social' ];
+        $outbound_type_raw    = sanitize_key( (string) ( $raw['outbound_type'] ?? '' ) );
+        $outbound_type        = in_array( $outbound_type_raw, $valid_outbound_types, true )
+            ? $outbound_type_raw
+            : '';
+
+        // use_affiliate — bool; explicit '1' or true only (defensive)
+        $raw_aff      = $raw['use_affiliate'] ?? '0';
+        $use_affiliate = ( $raw_aff !== '' && $raw_aff !== '0' && $raw_aff !== false );
+
+        // affiliate_network — sanitized key; empty string = no network configured
+        $affiliate_network = sanitize_key( (string) ( $raw['affiliate_network'] ?? '' ) );
+
+        $entry = [
+            'url'               => $url,
+            'type'              => $type,
+            'label'             => $label,
+            'is_active'         => $is_active,
+            'is_primary'        => $is_primary,
+            'added_at'          => $added_at,
+            'promoted_from'     => $promoted_from,
         ];
+
+        // Store optional audit/routing fields only when non-empty
+        // to keep the JSON compact for entries that don't use them.
+        if ( $source_url !== '' ) {
+            $entry['source_url'] = $source_url;
+        }
+        if ( $outbound_type !== '' ) {
+            $entry['outbound_type'] = $outbound_type;
+        }
+        if ( $use_affiliate ) {
+            $entry['use_affiliate']     = true;
+            $entry['affiliate_network'] = $affiliate_network;
+        } elseif ( $affiliate_network !== '' ) {
+            // Preserve network key even when routing disabled — operator may
+            // re-enable without needing to re-enter the network key.
+            $entry['affiliate_network'] = $affiliate_network;
+        }
+
+        return $entry;
     }
 
     // ── normalize_url_for_dedup() ─────────────────────────────────────────
