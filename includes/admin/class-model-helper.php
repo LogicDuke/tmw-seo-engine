@@ -838,17 +838,13 @@ class ModelHelper {
     /**
      * Render the structured candidate review section inside the proposed-data panel.
      *
-     * Layout (top to bottom):
-     *   1. Trusted Extractions — success=true, strict-parser-backed. Per-row Promote/Dismiss.
-     *   2. External / Social Candidates — TikTok, Facebook, OnlyFans, Pornhub, .xxx.
-     *      Operator-reviewable only; never auto-trusted. Per-row Promote/Dismiss.
-     *   3. Promote-from-research block — VerifiedLinks form for social_urls (success-only).
-     *   4. Rejected / Audit-Only — success=false candidates, collapsed.
+     * Platforms are grouped into: Social / Fansites / Cam Platforms / Link Hubs / Other.
+     * Each group renders as a collapsible <details> block with distinct colour coding.
      *
      * Trust contract unchanged:
-     *   – Green rows remain strict structured-extraction results only.
-     *   – External candidates are a separate, explicitly-labelled review lane.
-     *   – Nothing is auto-promoted. Every promote action requires an explicit click.
+     *   - Green rows remain strict structured-extraction results only.
+     *   - External candidates are a separate, explicitly-labelled review lane.
+     *   - Nothing is auto-promoted. Every promote action requires an explicit click.
      *
      * @param array<string,mixed> $merged   Merged pipeline output.
      * @param int                 $post_id  Model post ID (for nonces and promote forms).
@@ -867,8 +863,81 @@ class ModelHelper {
         $promote_action = admin_url( 'admin-post.php' );
         $promote_nonce  = wp_create_nonce( \TMWSEO\Engine\Model\VerifiedLinks::NONCE_PROMOTE . $post_id );
 
-        // ── 1. Trusted Extractions — prominent, per-row Promote / Dismiss ────
+        // ── Group definitions (display order, labels, colours) ────────────────
+        $group_meta = [
+            'social'  => [
+                'label'       => __( '💬 Social',        'tmwseo' ),
+                'header_bg'   => '#e8f4fd',
+                'border'      => '#aed6f1',
+                'title_color' => '#1a5276',
+                'row_bg'      => '#f0f8ff',
+                'row_border'  => '#aed6f1',
+                'head_bg'     => '#d6eaf8',
+            ],
+            'fansite' => [
+                'label'       => __( '💖 Fansites',      'tmwseo' ),
+                'header_bg'   => '#fdf2f8',
+                'border'      => '#d7bde2',
+                'title_color' => '#6c3483',
+                'row_bg'      => '#fdf2f8',
+                'row_border'  => '#d7bde2',
+                'head_bg'     => '#f5eef8',
+            ],
+            'cam'     => [
+                'label'       => __( '🎥 Cam Platforms',  'tmwseo' ),
+                'header_bg'   => '#f0fff4',
+                'border'      => '#b7e4c7',
+                'title_color' => '#1d6a2e',
+                'row_bg'      => '#f0fff4',
+                'row_border'  => '#b7e4c7',
+                'head_bg'     => '#d8f3dc',
+            ],
+            'linkhub' => [
+                'label'       => __( '🔗 Link Hubs',     'tmwseo' ),
+                'header_bg'   => '#fefefe',
+                'border'      => '#ced4da',
+                'title_color' => '#495057',
+                'row_bg'      => '#fafafa',
+                'row_border'  => '#dee2e6',
+                'head_bg'     => '#e9ecef',
+            ],
+            'other'   => [
+                'label'       => __( '🌐 Other',          'tmwseo' ),
+                'header_bg'   => '#fff8e1',
+                'border'      => '#ffe082',
+                'title_color' => '#7d5c00',
+                'row_bg'      => '#fffde7',
+                'row_border'  => '#ffe082',
+                'head_bg'     => '#fff9c4',
+            ],
+        ];
+
+        // ── Bucket helpers ────────────────────────────────────────────────────
+        $bucket_trusted = static function( array $items ) use ( $group_meta ): array {
+            $buckets = array_fill_keys( array_keys( $group_meta ), [] );
+            foreach ( $items as $idx => $c ) {
+                $slug  = (string) ( $c['normalized_platform'] ?? '' );
+                $group = \TMWSEO\Engine\Platform\PlatformRegistry::get_group( $slug );
+                $buckets[ $group ][] = [ 'idx' => $idx, 'c' => $c ];
+            }
+            return $buckets;
+        };
+
+        $bucket_external = static function( array $items ) use ( $group_meta ): array {
+            $buckets = array_fill_keys( array_keys( $group_meta ), [] );
+            foreach ( $items as $eidx => $ec ) {
+                $slug  = (string) ( $ec['detected_platform'] ?? '' );
+                $pd    = \TMWSEO\Engine\Platform\PlatformRegistry::get( $slug );
+                $group = $pd ? ( $pd['group'] ?? 'other' ) : self::classify_external_candidate( $ec );
+                $buckets[ $group ][] = [ 'eidx' => $eidx, 'ec' => $ec ];
+            }
+            return $buckets;
+        };
+
+        // ── 1. Trusted Extractions — grouped ─────────────────────────────────
         if ( ! empty( $successful ) ) {
+            $trusted_buckets = $bucket_trusted( $successful );
+
             echo '<div style="margin-top:10px;">';
             echo '<p style="margin:0 0 6px;font-weight:600;color:#1d6a2e;">';
             printf(
@@ -876,97 +945,91 @@ class ModelHelper {
                 count( $successful )
             );
             echo '</p>';
-            echo '<table style="width:100%;border-collapse:collapse;font-size:12px;background:#f0fff4;border:1px solid #b7e4c7;">';
-            echo '<tr style="background:#d8f3dc;">'
-                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Platform', 'tmwseo' ) . '</th>'
-                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Profile URL', 'tmwseo' ) . '</th>'
-                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Username', 'tmwseo' ) . '</th>'
-                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Provider / Alias', 'tmwseo' ) . '</th>'
-                . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Actions', 'tmwseo' ) . '</th>'
-                . '</tr>';
-            foreach ( $successful as $idx => $c ) {
-                $pd       = PlatformRegistry::get( (string) ( $c['normalized_platform'] ?? '' ) );
-                $plabel   = $pd ? esc_html( (string) ( $pd['name'] ?? '' ) ) : esc_html( (string) ( $c['normalized_platform'] ?? '' ) );
-                $norm_url = (string) ( $c['normalized_url'] ?? $c['source_url'] ?? '' );
-                $url_disp = strlen( $norm_url ) > 50 ? substr( $norm_url, 0, 50 ) . '…' : $norm_url;
-                $provider = esc_html( (string) ( $c['_provider'] ?? '—' ) );
-                $alias    = trim( (string) ( $c['_alias_source'] ?? '' ) );
-                $prov_cell = $alias !== ''
-                    ? $provider . ' <em style="color:#555;">(alias: ' . esc_html( $alias ) . ')</em>'
-                    : $provider;
-                $vl_type  = self::platform_slug_to_vl_type( (string) ( $c['normalized_platform'] ?? '' ) );
 
-                echo '<tr style="border-top:1px solid #b7e4c7;" id="tmwseo-trusted-row-' . (int) $idx . '">'
-                    . '<td style="padding:4px 6px;font-weight:600;">' . $plabel . '</td>'
-                    . '<td style="padding:4px 6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
-                    . '<a href="' . esc_url( $norm_url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $norm_url ) . '" style="color:#155724;">'
-                    . esc_html( $url_disp ) . '</a></td>'
-                    . '<td style="padding:4px 6px;font-family:monospace;">' . esc_html( (string) ( $c['username'] ?? '—' ) ) . '</td>'
-                    . '<td style="padding:4px 6px;font-size:11px;">' . $prov_cell . '</td>'
-                    . '<td style="padding:6px 6px;min-width:220px;">';
+            foreach ( $group_meta as $gkey => $gm ) {
+                $rows = $trusted_buckets[ $gkey ] ?? [];
+                if ( empty( $rows ) ) { continue; }
 
-                if ( $norm_url !== '' && class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) ) {
-                    // Build alphabetically-sorted type dropdown for this row.
-                    $all_types = \TMWSEO\Engine\Model\VerifiedLinks::TYPE_LABELS;
-                    asort( $all_types );
+                $open = in_array( $gkey, [ 'cam', 'social', 'fansite' ], true ) ? ' open' : '';
+                echo '<details' . $open . ' style="margin-bottom:6px;border:1px solid ' . esc_attr( $gm['border'] ) . ';border-radius:3px;">';
+                echo '<summary style="cursor:pointer;padding:5px 10px;background:' . esc_attr( $gm['header_bg'] ) . ';color:' . esc_attr( $gm['title_color'] ) . ';font-weight:600;border-radius:3px;">';
+                echo esc_html( $gm['label'] ) . ' <span style="font-weight:400;font-size:11px;">(' . count( $rows ) . ')</span>';
+                echo '</summary>';
 
-                    $uniq_t = 'trusted_' . (int) $idx;
-                    echo '<form method="post" action="' . esc_url( $promote_action ) . '">';
-                    echo '<input type="hidden" name="action"               value="tmwseo_promote_to_verified">';
-                    echo '<input type="hidden" name="post_id"              value="' . (int) $post_id . '">';
-                    echo '<input type="hidden" name="tmwseo_promote_nonce" value="' . esc_attr( $promote_nonce ) . '">';
-                    echo '<input type="hidden" name="tmwseo_promote_url[0]" value="' . esc_attr( $norm_url ) . '">';
+                echo '<table style="width:100%;border-collapse:collapse;font-size:12px;background:' . esc_attr( $gm['row_bg'] ) . ';">';
+                echo '<tr style="background:' . esc_attr( $gm['head_bg'] ) . ';">'
+                    . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Platform',       'tmwseo' ) . '</th>'
+                    . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Profile URL',    'tmwseo' ) . '</th>'
+                    . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Username',       'tmwseo' ) . '</th>'
+                    . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Provider/Alias', 'tmwseo' ) . '</th>'
+                    . '<th style="padding:4px 6px;text-align:left;">' . esc_html__( 'Actions',        'tmwseo' ) . '</th>'
+                    . '</tr>';
 
-                    // ── Type (visible, operator can override) ─────────────
-                    echo '<div style="margin-bottom:4px;">';
-                    echo '<select name="tmwseo_promote_type[0]" '
-                        . 'id="' . esc_attr( $uniq_t ) . '_type" '
-                        . 'style="font-size:11px;width:100%;max-width:180px;" '
-                        . 'title="' . esc_attr__( 'VL type to assign on promote', 'tmwseo' ) . '">';
-                    foreach ( $all_types as $tv => $tl ) {
-                        printf(
-                            '<option value="%s"%s>%s</option>',
-                            esc_attr( $tv ),
-                            selected( $vl_type, $tv, false ),
-                            esc_html( $tl )
-                        );
+                foreach ( $rows as $entry ) {
+                    $idx      = (int) $entry['idx'];
+                    $c        = $entry['c'];
+                    $pd       = \TMWSEO\Engine\Platform\PlatformRegistry::get( (string) ( $c['normalized_platform'] ?? '' ) );
+                    $plabel   = $pd ? esc_html( (string) ( $pd['name'] ?? '' ) ) : esc_html( (string) ( $c['normalized_platform'] ?? '' ) );
+                    $norm_url = (string) ( $c['normalized_url'] ?? $c['source_url'] ?? '' );
+                    $url_disp = strlen( $norm_url ) > 50 ? substr( $norm_url, 0, 50 ) . '…' : $norm_url;
+                    $provider  = esc_html( (string) ( $c['_provider'] ?? '—' ) );
+                    $alias     = trim( (string) ( $c['_alias_source'] ?? '' ) );
+                    $prov_cell = $alias !== ''
+                        ? $provider . ' <em style="color:#555;">(alias: ' . esc_html( $alias ) . ')</em>'
+                        : $provider;
+                    $vl_type   = self::platform_slug_to_vl_type( (string) ( $c['normalized_platform'] ?? '' ) );
+
+                    echo '<tr style="border-top:1px solid ' . esc_attr( $gm['row_border'] ) . ';" id="tmwseo-trusted-row-' . $idx . '">'
+                        . '<td style="padding:4px 6px;font-weight:600;">' . $plabel . '</td>'
+                        . '<td style="padding:4px 6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
+                        . '<a href="' . esc_url( $norm_url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $norm_url ) . '" style="color:' . esc_attr( $gm['title_color'] ) . ';">'
+                        . esc_html( $url_disp ) . '</a></td>'
+                        . '<td style="padding:4px 6px;font-family:monospace;">' . esc_html( (string) ( $c['username'] ?? '—' ) ) . '</td>'
+                        . '<td style="padding:4px 6px;font-size:11px;">' . $prov_cell . '</td>'
+                        . '<td style="padding:6px 6px;min-width:220px;">';
+
+                    if ( $norm_url !== '' && class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) ) {
+                        $all_types = \TMWSEO\Engine\Model\VerifiedLinks::TYPE_LABELS;
+                        asort( $all_types );
+                        $uniq_t = 'trusted_' . $idx;
+                        echo '<form method="post" action="' . esc_url( $promote_action ) . '">';
+                        echo '<input type="hidden" name="action"               value="tmwseo_promote_to_verified">';
+                        echo '<input type="hidden" name="post_id"              value="' . (int) $post_id . '">';
+                        echo '<input type="hidden" name="tmwseo_promote_nonce" value="' . esc_attr( $promote_nonce ) . '">';
+                        echo '<input type="hidden" name="tmwseo_promote_url[0]" value="' . esc_attr( $norm_url ) . '">';
+                        echo '<div style="margin-bottom:4px;">';
+                        echo '<select name="tmwseo_promote_type[0]" id="' . esc_attr( $uniq_t ) . '_type" style="font-size:11px;width:100%;max-width:180px;" title="' . esc_attr__( 'VL type to assign on promote', 'tmwseo' ) . '">';
+                        foreach ( $all_types as $tv => $tl ) {
+                            printf( '<option value="%s"%s>%s</option>', esc_attr( $tv ), selected( $vl_type, $tv, false ), esc_html( $tl ) );
+                        }
+                        echo '</select></div>';
+                        echo '<div style="margin-bottom:4px;">';
+                        echo '<input type="text" name="tmwseo_outbound_url[0]" id="' . esc_attr( $uniq_t ) . '_out" value="" placeholder="' . esc_attr__( 'Outbound URL (optional)', 'tmwseo' ) . '" style="font-size:11px;width:100%;max-width:180px;font-family:monospace;" />';
+                        echo '</div>';
+                        echo '<input type="hidden" name="tmwseo_outbound_type[0]" value="direct_profile">';
+                        echo '<div style="display:flex;gap:4px;">';
+                        echo '<button type="submit" class="button button-primary button-small" style="font-size:11px;">' . esc_html__( 'Promote', 'tmwseo' ) . '</button></form>';
+                    } else {
+                        echo '<div style="display:flex;gap:4px;">';
                     }
-                    echo '</select>';
+                    echo '<button type="button" class="button button-small" style="font-size:11px;color:#8a1a1a;" '
+                        . 'onclick="document.getElementById(' . json_encode( 'tmwseo-trusted-row-' . $idx ) . ').style.display=\'none\';">'
+                        . esc_html__( 'Dismiss', 'tmwseo' ) . '</button>';
                     echo '</div>';
-
-                    // ── Optional outbound URL ──────────────────────────────
-                    echo '<div style="margin-bottom:4px;">';
-                    echo '<input type="text" '
-                        . 'name="tmwseo_outbound_url[0]" '
-                        . 'id="' . esc_attr( $uniq_t ) . '_out" '
-                        . 'value="" '
-                        . 'placeholder="' . esc_attr__( 'Outbound URL (optional)', 'tmwseo' ) . '" '
-                        . 'style="font-size:11px;width:100%;max-width:180px;font-family:monospace;" />';
-                    echo '</div>';
-
-                    // ── Outbound type (hidden default, no extra UI needed here) ──
-                    echo '<input type="hidden" name="tmwseo_outbound_type[0]" value="direct_profile">';
-
-                    // ── Promote + Dismiss ──────────────────────────────────
-                    echo '<div style="display:flex;gap:4px;">';
-                    echo '<button type="submit" class="button button-primary button-small" style="font-size:11px;">';
-                    echo esc_html__( 'Promote', 'tmwseo' );
-                    echo '</button></form>';
-                } else {
-                    echo '<div style="display:flex;gap:4px;">';
+                    echo '</td></tr>';
                 }
-                echo '<button type="button" class="button button-small" style="font-size:11px;color:#8a1a1a;" '
-                    . 'onclick="document.getElementById(' . json_encode( 'tmwseo-trusted-row-' . (int) $idx ) . ').style.display=\'none\';">'
-                    . esc_html__( 'Dismiss', 'tmwseo' ) . '</button>';
-                echo '</div>';
-                echo '</td></tr>';
+
+                echo '</table>';
+                echo '</details>';
             }
-            echo '</table>';
+
             echo '</div>';
         }
 
-        // ── 2. External / Social Candidates — separate review lane ────────────
+        // ── 2. External / Social Candidates — grouped ─────────────────────────
         if ( ! empty( $external ) ) {
+            $ext_buckets = $bucket_external( $external );
+
             echo '<div style="margin-top:10px;border:1px solid #d4e6f1;border-radius:3px;">';
             echo '<div style="background:#ebf5fb;padding:6px 10px;border-bottom:1px solid #d4e6f1;">';
             echo '<strong style="color:#1a5276;">';
@@ -980,113 +1043,95 @@ class ModelHelper {
             echo '</span>';
             echo '</div>';
 
-            foreach ( $external as $eidx => $ec ) {
-                $ec_url    = (string) ( $ec['url'] ?? '' );
-                $ec_label  = esc_html( (string) ( $ec['label'] ?? $ec['detected_platform'] ?? '' ) );
-                $ec_type   = (string) ( $ec['suggested_type'] ?? 'other' );
-                $ec_conf   = (string) ( $ec['confidence'] ?? 'medium' );
-                $ec_alias  = trim( (string) ( $ec['_alias_source'] ?? '' ) );
-                $ec_disp   = strlen( $ec_url ) > 60 ? substr( $ec_url, 0, 60 ) . '…' : $ec_url;
-                $conf_color = match ( $ec_conf ) { 'high' => '#1d6a2e', 'medium' => '#7d5c00', default => '#50575e' };
-                $conf_bg    = match ( $ec_conf ) { 'high' => '#edfaef', 'medium' => '#fcf9e8', default => '#f0f0f1' };
-                $alias_note = $ec_alias !== '' ? ' <em style="color:#666;">(via alias: ' . esc_html( $ec_alias ) . ')</em>' : '';
+            foreach ( $group_meta as $gkey => $gm ) {
+                $rows = $ext_buckets[ $gkey ] ?? [];
+                if ( empty( $rows ) ) { continue; }
 
-                $row_id = 'tmwseo-ext-row-' . (int) $eidx;
-                echo '<div id="' . esc_attr( $row_id ) . '" style="border-top:1px solid #d4e6f1;padding:8px 10px;background:#fff;">';
+                $open = in_array( $gkey, [ 'fansite', 'social' ], true ) ? ' open' : '';
+                echo '<details' . $open . ' style="border-top:1px solid #d4e6f1;">';
+                echo '<summary style="cursor:pointer;padding:5px 10px;background:' . esc_attr( $gm['header_bg'] ) . ';color:' . esc_attr( $gm['title_color'] ) . ';font-weight:600;">';
+                echo esc_html( $gm['label'] ) . ' <span style="font-weight:400;font-size:11px;">(' . count( $rows ) . ')</span>';
+                echo '</summary>';
 
-                // ── Row header: platform + confidence badge ────────────────
-                echo '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">';
-                echo '<strong>' . $ec_label . '</strong>' . $alias_note;
-                echo '<span style="background:' . esc_attr( $conf_bg ) . ';color:' . esc_attr( $conf_color ) . ';padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;">'
-                    . esc_html( ucfirst( $ec_conf ) ) . '</span>';
-                echo '</div>';
+                foreach ( $rows as $entry ) {
+                    $eidx      = (int) $entry['eidx'];
+                    $ec        = $entry['ec'];
+                    $ec_url    = (string) ( $ec['url'] ?? '' );
+                    $ec_label  = esc_html( (string) ( $ec['label'] ?? $ec['detected_platform'] ?? '' ) );
+                    $ec_type   = (string) ( $ec['suggested_type'] ?? 'other' );
+                    $ec_conf   = (string) ( $ec['confidence'] ?? 'medium' );
+                    $ec_alias  = trim( (string) ( $ec['_alias_source'] ?? '' ) );
+                    $ec_disp   = strlen( $ec_url ) > 60 ? substr( $ec_url, 0, 60 ) . '…' : $ec_url;
+                    $conf_color = match ( $ec_conf ) { 'high' => '#1d6a2e', 'medium' => '#7d5c00', default => '#50575e' };
+                    $conf_bg    = match ( $ec_conf ) { 'high' => '#edfaef', 'medium' => '#fcf9e8', default => '#f0f0f1' };
+                    $alias_note = $ec_alias !== '' ? ' <em style="color:#666;">(via alias: ' . esc_html( $ec_alias ) . ')</em>' : '';
+                    $row_id     = 'tmwseo-ext-row-' . $eidx;
 
-                // ── Source URL (detected) ─────────────────────────────────
-                echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px;">';
-                echo '<tr>';
-                echo '<td style="width:130px;padding:2px 6px 2px 0;color:#666;">'
-                    . esc_html__( 'Source URL (detected):', 'tmwseo' ) . '</td>';
-                echo '<td style="padding:2px 0;font-family:monospace;font-size:11px;">';
-                echo '<a href="' . esc_url( $ec_url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $ec_url ) . '" style="color:#1a5276;">'
-                    . esc_html( $ec_disp ) . '</a>';
-                echo '</td></tr>';
-                echo '</table>';
-
-                // ── Promote form: outbound target + type ──────────────────
-                if ( $ec_url !== '' && class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) ) {
-                    $uniq = 'ext_' . $eidx;
-                    echo '<form method="post" action="' . esc_url( $promote_action ) . '" style="margin:0;">';
-                    echo '<input type="hidden" name="action"               value="tmwseo_promote_to_verified">';
-                    echo '<input type="hidden" name="post_id"              value="' . (int) $post_id . '">';
-                    echo '<input type="hidden" name="tmwseo_promote_nonce" value="' . esc_attr( $promote_nonce ) . '">';
-                    // Source URL — always sent as the detected URL
-                    echo '<input type="hidden" name="tmwseo_promote_url[0]" value="' . esc_attr( $ec_url ) . '">';
-                    echo '<input type="hidden" name="tmwseo_promote_type[0]" value="' . esc_attr( $ec_type ) . '">';
-
-                    echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-
-                    // Outbound target URL (optional override)
-                    echo '<tr><td style="width:130px;padding:2px 6px 2px 0;color:#666;vertical-align:middle;">';
-                    echo '<label for="' . esc_attr( $uniq ) . '_outbound">'
-                        . esc_html__( 'Outbound target URL:', 'tmwseo' ) . '</label>';
-                    echo '</td><td style="padding:2px 0;">';
-                    echo '<input type="text" id="' . esc_attr( $uniq ) . '_outbound" '
-                        . 'name="tmwseo_outbound_url[0]" '
-                        . 'value="" '
-                        . 'placeholder="' . esc_attr( $ec_url ) . '" '
-                        . 'style="width:100%;font-size:11px;font-family:monospace;" />';
-                    echo '<p style="margin:2px 0 0;font-size:10px;color:#888;">'
-                        . esc_html__( 'Optional. Leave blank to use the source URL above. Enter a different URL if the directory should link elsewhere (e.g. personal site, affiliate-ready URL in a later phase).', 'tmwseo' )
-                        . '</p>';
-                    echo '</td></tr>';
-
-                    // Outbound target type
-                    $outbound_type_opts = [
-                        'direct_profile' => __( 'Direct profile', 'tmwseo' ),
-                        'personal_site'  => __( 'Personal site',  'tmwseo' ),
-                        'website'        => __( 'Website',        'tmwseo' ),
-                        'social'         => __( 'Social',         'tmwseo' ),
-                    ];
-                    $default_outbound = ( $ec['suggested_type'] ?? '' ) === 'personal_site' ? 'personal_site' : 'direct_profile';
-                    echo '<tr><td style="padding:2px 6px 2px 0;color:#666;vertical-align:middle;">';
-                    echo '<label for="' . esc_attr( $uniq ) . '_otype">'
-                        . esc_html__( 'Outbound type:', 'tmwseo' ) . '</label>';
-                    echo '</td><td style="padding:2px 0;">';
-                    echo '<select id="' . esc_attr( $uniq ) . '_otype" '
-                        . 'name="tmwseo_outbound_type[0]" '
-                        . 'style="font-size:11px;">';
-                    foreach ( $outbound_type_opts as $ov => $ol ) {
-                        printf(
-                            '<option value="%s"%s>%s</option>',
-                            esc_attr( $ov ),
-                            selected( $default_outbound, $ov, false ),
-                            esc_html( $ol )
-                        );
-                    }
-                    echo '</select>';
-                    echo '<span style="margin-left:8px;font-size:10px;color:#888;">'
-                        . esc_html__( '(Stored for future affiliate routing — no effect yet)', 'tmwseo' )
-                        . '</span>';
-                    echo '</td></tr>';
-
-                    echo '</table>';
-
-                    echo '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;">';
-                    echo '<button type="submit" class="button button-primary button-small" style="font-size:11px;">';
-                    echo esc_html__( 'Promote →', 'tmwseo' );
-                    echo '</button></form>';
-                    echo '<button type="button" class="button button-small" style="font-size:11px;color:#8a1a1a;" '
-                        . 'onclick="document.getElementById(' . json_encode( $row_id ) . ').style.display=\'none\';">'
-                        . esc_html__( 'Dismiss', 'tmwseo' ) . '</button>';
+                    echo '<div id="' . esc_attr( $row_id ) . '" style="border-top:1px solid ' . esc_attr( $gm['row_border'] ) . ';padding:8px 10px;background:#fff;">';
+                    echo '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">';
+                    echo '<strong>' . $ec_label . '</strong>' . $alias_note;
+                    echo '<span style="background:' . esc_attr( $conf_bg ) . ';color:' . esc_attr( $conf_color ) . ';padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;">' . esc_html( ucfirst( $ec_conf ) ) . '</span>';
                     echo '</div>';
-                } else {
-                    echo '<button type="button" class="button button-small" style="font-size:11px;color:#8a1a1a;" '
-                        . 'onclick="document.getElementById(' . json_encode( $row_id ) . ').style.display=\'none\';">'
-                        . esc_html__( 'Dismiss', 'tmwseo' ) . '</button>';
+
+                    echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:6px;">';
+                    echo '<tr><td style="width:130px;padding:2px 6px 2px 0;color:#666;">' . esc_html__( 'Source URL (detected):', 'tmwseo' ) . '</td>';
+                    echo '<td style="padding:2px 0;font-family:monospace;font-size:11px;">';
+                    echo '<a href="' . esc_url( $ec_url ) . '" target="_blank" rel="noopener" title="' . esc_attr( $ec_url ) . '" style="color:#1a5276;">' . esc_html( $ec_disp ) . '</a>';
+                    echo '</td></tr></table>';
+
+                    if ( $ec_url !== '' && class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) ) {
+                        $uniq = 'ext_' . $eidx;
+                        echo '<form method="post" action="' . esc_url( $promote_action ) . '" style="margin:0;">';
+                        echo '<input type="hidden" name="action"               value="tmwseo_promote_to_verified">';
+                        echo '<input type="hidden" name="post_id"              value="' . (int) $post_id . '">';
+                        echo '<input type="hidden" name="tmwseo_promote_nonce" value="' . esc_attr( $promote_nonce ) . '">';
+                        echo '<input type="hidden" name="tmwseo_promote_url[0]"  value="' . esc_attr( $ec_url ) . '">';
+                        echo '<input type="hidden" name="tmwseo_promote_type[0]" value="' . esc_attr( $ec_type ) . '">';
+
+                        $outbound_type_opts = [
+                            'direct_profile' => __( 'Direct profile', 'tmwseo' ),
+                            'personal_site'  => __( 'Personal site',  'tmwseo' ),
+                            'website'        => __( 'Website',        'tmwseo' ),
+                            'social'         => __( 'Social',         'tmwseo' ),
+                        ];
+                        $default_outbound = ( $ec['suggested_type'] ?? '' ) === 'personal_site' ? 'personal_site' : 'direct_profile';
+
+                        echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+                        echo '<tr><td style="width:130px;padding:2px 6px 2px 0;color:#666;vertical-align:middle;">';
+                        echo '<label for="' . esc_attr( $uniq ) . '_outbound">' . esc_html__( 'Outbound target URL:', 'tmwseo' ) . '</label>';
+                        echo '</td><td style="padding:2px 0;">';
+                        echo '<input type="text" id="' . esc_attr( $uniq ) . '_outbound" name="tmwseo_outbound_url[0]" value="" placeholder="' . esc_attr( $ec_url ) . '" style="width:100%;font-size:11px;font-family:monospace;" />';
+                        echo '<p style="margin:2px 0 0;font-size:10px;color:#888;">' . esc_html__( 'Optional. Leave blank to use the source URL above. Enter a different URL if the directory should link elsewhere (e.g. personal site, affiliate-ready URL in a later phase).', 'tmwseo' ) . '</p>';
+                        echo '</td></tr>';
+                        echo '<tr><td style="padding:2px 6px 2px 0;color:#666;vertical-align:middle;">';
+                        echo '<label for="' . esc_attr( $uniq ) . '_otype">' . esc_html__( 'Outbound type:', 'tmwseo' ) . '</label>';
+                        echo '</td><td style="padding:2px 0;">';
+                        echo '<select id="' . esc_attr( $uniq ) . '_otype" name="tmwseo_outbound_type[0]" style="font-size:11px;">';
+                        foreach ( $outbound_type_opts as $ov => $ol ) {
+                            printf( '<option value="%s"%s>%s</option>', esc_attr( $ov ), selected( $default_outbound, $ov, false ), esc_html( $ol ) );
+                        }
+                        echo '</select>';
+                        echo '<span style="margin-left:8px;font-size:10px;color:#888;">' . esc_html__( '(Stored for future affiliate routing — no effect yet)', 'tmwseo' ) . '</span>';
+                        echo '</td></tr></table>';
+
+                        echo '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;">';
+                        echo '<button type="submit" class="button button-primary button-small" style="font-size:11px;">' . esc_html__( 'Promote →', 'tmwseo' ) . '</button></form>';
+                        echo '<button type="button" class="button button-small" style="font-size:11px;color:#8a1a1a;" '
+                            . 'onclick="document.getElementById(' . json_encode( $row_id ) . ').style.display=\'none\';">'
+                            . esc_html__( 'Dismiss', 'tmwseo' ) . '</button>';
+                        echo '</div>';
+                    } else {
+                        echo '<button type="button" class="button button-small" style="font-size:11px;color:#8a1a1a;" '
+                            . 'onclick="document.getElementById(' . json_encode( $row_id ) . ').style.display=\'none\';">'
+                            . esc_html__( 'Dismiss', 'tmwseo' ) . '</button>';
+                    }
+
+                    echo '</div>'; // end row div
                 }
 
-                echo '</div>'; // end row div
+                echo '</details>';
             }
+
             echo '</div>'; // end outer panel
         }
 
@@ -1133,6 +1178,42 @@ class ModelHelper {
             echo esc_html__( 'No platform candidates were found in this research run.', 'tmwseo' );
             echo '</p>';
         }
+    }
+
+    /**
+     * Classify an external candidate URL into a platform group.
+     * Used when the candidate is not in PlatformRegistry (e.g. OnlyFans, TikTok).
+     *
+     * @param array<string,mixed> $ec  External candidate row.
+     * @return string  'social'|'fansite'|'cam'|'linkhub'|'other'
+     */
+    private static function classify_external_candidate( array $ec ): string {
+        $url = strtolower( (string) ( $ec['url'] ?? '' ) );
+
+        // Social networks
+        foreach ( [ 'twitter.com', 'x.com', 'tiktok.com', 'facebook.com', 'instagram.com',
+                    'youtube.com', 'snapchat.com', 'reddit.com', 'pinterest.com' ] as $h ) {
+            if ( str_contains( $url, $h ) ) { return 'social'; }
+        }
+        // Fansites / subscription platforms
+        foreach ( [ 'onlyfans.com', 'fansly.com', 'fancentro.com', 'manyvids.com',
+                    'loyalfans.com', 'ifans.com', 'admireme.vip', 'justfor.fans',
+                    'clips4sale.com', 'patreon.com', 'pornhub.com', 'modelcentro.com' ] as $h ) {
+            if ( str_contains( $url, $h ) ) { return 'fansite'; }
+        }
+        // Cam platforms
+        foreach ( [ 'chaturbate.com', 'stripchat.com', 'livejasmin.com', 'myfreecams.com',
+                    'camsoda.com', 'bongacams.com', 'cam4.com', 'imlive.com', 'streamate.com',
+                    'flirt4free.com', 'jerkmate', 'cams.com', 'sinparty.com', 'xtease.com',
+                    'olecams.com', 'cameraprive.com', 'camirada.com', 'sakuralive.com',
+                    'xcams.com', 'xlovecam.com' ] as $h ) {
+            if ( str_contains( $url, $h ) ) { return 'cam'; }
+        }
+        // Link hubs
+        foreach ( [ 'linktr.ee', 'allmylinks.com', 'beacons.ai', 'solo.to', '.carrd.co' ] as $h ) {
+            if ( str_contains( $url, $h ) ) { return 'linkhub'; }
+        }
+        return 'other';
     }
 
     /**
