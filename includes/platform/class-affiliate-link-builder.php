@@ -96,25 +96,69 @@ class AffiliateLinkBuilder {
     }
 
     /**
+     * Return an ordered map of network/platform slugs that have affiliate routing
+     * currently configured and available for operator selection.
+     *
+     * Lookup order (both sources merged, networks take display precedence):
+     *   1. tmwseo_affiliate_networks — generic network keys (e.g. 'crack_revenue').
+     *      These are URL-rewriting templates not tied to a specific platform slug.
+     *   2. tmwseo_platform_affiliate_settings — platform-slug-keyed templates.
+     *      These require the network key to match a PlatformRegistry slug.
+     *
+     * Only enabled entries are included. Returns slug => label.
+     *
+     * @return array<string,string>  slug => human-readable label, alpha-sorted.
+     */
+    public static function get_configurable_network_keys(): array {
+        $keys = [];
+
+        // Network-level keys first (crack_revenue, etc.)
+        $networks = get_option( 'tmwseo_affiliate_networks', [] );
+        if ( is_array( $networks ) ) {
+            foreach ( $networks as $slug => $cfg ) {
+                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) ) {
+                    $label        = trim( (string) ( $cfg['label'] ?? $slug ) );
+                    $keys[ $slug ] = $label !== '' ? $label : $slug;
+                }
+            }
+        }
+
+        // Platform-level keys (platform slugs with enabled templates)
+        $platforms = get_option( 'tmwseo_platform_affiliate_settings', [] );
+        if ( is_array( $platforms ) ) {
+            foreach ( $platforms as $slug => $cfg ) {
+                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) && ! isset( $keys[ $slug ] ) ) {
+                    $pd           = PlatformRegistry::get( $slug );
+                    $label        = is_array( $pd ) ? (string) ( $pd['name'] ?? $slug ) : $slug;
+                    $keys[ $slug ] = $label;
+                }
+            }
+        }
+
+        asort( $keys );
+        return $keys;
+    }
+
+    /**
      * Build an affiliate URL for an arbitrary approved target URL.
      *
      * Used by the Verified External Links affiliate routing layer, where the
      * link being routed is an already-approved outbound URL (not necessarily
      * a username-based platform profile).
      *
-     * Lookup order:
-     *   1. Per-platform affiliate settings for $network_key (enabled + template).
-     *   2. If $network_key is empty or not configured, returns $target_url unchanged.
-     *
-     * The $target_url is passed as both {profile_url} and {encoded_profile_url}
-     * in the template — existing template infrastructure handles it correctly.
+     * Lookup order for $network_key:
+     *   1. tmwseo_affiliate_networks option — generic network-level templates
+     *      (e.g. 'crack_revenue'). These are configured through the Affiliate
+     *      Networks section of the admin Affiliates page.
+     *   2. tmwseo_platform_affiliate_settings option — platform-slug-keyed
+     *      templates. Only platform slugs registered in PlatformRegistry can
+     *      ever appear here; the sanitizer strips any other keys.
      *
      * Returns $target_url on any failure so callers always get a valid URL.
      *
      * @param string $target_url   Operator-approved outbound URL (the VL `url` field).
-     * @param string $network_key  Affiliate network key, e.g. 'crack_revenue' or a
-     *                             platform slug. Must be a key in
-     *                             tmwseo_platform_affiliate_settings option.
+     * @param string $network_key  Network or platform slug. Must be a key in one of
+     *                             the two affiliate options described above.
      * @return string              Routed affiliate URL, or $target_url as fallback.
      */
     public static function build_affiliate_url_for_target( string $target_url, string $network_key ): string {
@@ -125,7 +169,14 @@ class AffiliateLinkBuilder {
             return $target_url;
         }
 
-        $settings = self::get_platform_affiliate_settings( $network_key );
+        // Check tmwseo_affiliate_networks first (network-level keys).
+        $settings = self::get_network_affiliate_settings( $network_key );
+
+        // Fall back to platform-slug settings if not found in networks.
+        if ( empty( $settings ) ) {
+            $settings = self::get_platform_affiliate_settings( $network_key );
+        }
+
         if ( empty( $settings['enabled'] ) || empty( $settings['template'] ) ) {
             return $target_url;
         }
@@ -133,7 +184,7 @@ class AffiliateLinkBuilder {
         $built = self::build_from_template(
             (string) $settings['template'],
             $network_key,
-            '',           // no username in this path — template should use {profile_url}
+            '',           // no username — template should use {profile_url}
             $target_url,  // profile_url = approved outbound target
             $settings
         );
@@ -143,6 +194,21 @@ class AffiliateLinkBuilder {
         }
 
         return $target_url;
+    }
+
+    /**
+     * Read one entry from tmwseo_affiliate_networks (network-level settings).
+     *
+     * @param string $network  Network slug key.
+     * @return array<string,mixed>
+     */
+    private static function get_network_affiliate_settings( string $network ): array {
+        $all = get_option( 'tmwseo_affiliate_networks', [] );
+        if ( ! is_array( $all ) ) {
+            return [];
+        }
+        $settings = $all[ $network ] ?? [];
+        return is_array( $settings ) ? $settings : [];
     }
 
     public static function maybe_handle_redirect(): void {

@@ -34,8 +34,15 @@
  *   "use_affiliate"    : bool    — default false. When true, the shortcode routes through
  *                                  the affiliate layer (get_routed_url()) instead of using
  *                                  url directly. Schema sameAs ALWAYS uses url regardless.
- *   "affiliate_network": string  — key into tmwseo_platform_affiliate_settings option.
- *                                  E.g. 'crack_revenue', a platform slug, or ''.
+ *   "affiliate_network": string  — key into one of two admin-configured affiliate
+ *                                  options, looked up in this order:
+ *                                  1. tmwseo_affiliate_networks (network-level keys,
+ *                                     e.g. 'crack_revenue' — configured in the
+ *                                     Affiliate Networks section of admin)
+ *                                  2. tmwseo_platform_affiliate_settings (platform
+ *                                     slugs only — e.g. 'fansly', 'chaturbate')
+ *                                  Use AffiliateLinkBuilder::get_configurable_network_keys()
+ *                                  to get the current list of available keys.
  *                                  Required when use_affiliate=true; ignored otherwise.
  *   "type"             : string  — one of ALLOWED_TYPES, required.
  *   "label"            : string  — optional display override, max 80 chars.
@@ -197,15 +204,35 @@ class VerifiedLinks {
         ?>
         <script>
         (function () {
-            var counter               = <?php echo (int) count( $links ); ?>;
-            var typeOptions           = <?php echo wp_json_encode( $type_options_html ); ?>;
-            var placeholderTxt        = <?php echo wp_json_encode( __( 'Optional label', 'tmwseo' ) ); ?>;
-            var emptyTxt              = <?php echo wp_json_encode( __( 'No verified links yet. Click \"+ Add Link\" below to add one.', 'tmwseo' ) ); ?>;
-            var removeTxt             = <?php echo wp_json_encode( __( 'Remove', 'tmwseo' ) ); ?>;
-            var affRouteTxt           = <?php echo wp_json_encode( __( 'Route through affiliate', 'tmwseo' ) ); ?>;
-            var networkKeyTxt         = <?php echo wp_json_encode( __( 'Network key', 'tmwseo' ) ); ?>;
-            var networkPlaceholderTxt = <?php echo wp_json_encode( __( 'e.g. crack_revenue or platform slug', 'tmwseo' ) ); ?>;
-            var schemaNotesTxt        = <?php echo wp_json_encode( __( '(must match a key in Affiliates settings; schema sameAs always uses the outbound URL above)', 'tmwseo' ) ); ?>;
+            var counter           = <?php echo (int) count( $links ); ?>;
+            var typeOptions       = <?php echo wp_json_encode( $type_options_html ); ?>;
+            var placeholderTxt    = <?php echo wp_json_encode( __( 'Optional label', 'tmwseo' ) ); ?>;
+            var emptyTxt          = <?php echo wp_json_encode( __( 'No verified links yet. Click \"+ Add Link\" below to add one.', 'tmwseo' ) ); ?>;
+            var removeTxt         = <?php echo wp_json_encode( __( 'Remove', 'tmwseo' ) ); ?>;
+            var affRouteTxt       = <?php echo wp_json_encode( __( 'Route through affiliate', 'tmwseo' ) ); ?>;
+            var networkLabelTxt   = <?php echo wp_json_encode( __( 'Network:', 'tmwseo' ) ); ?>;
+            var schemaNotesTxt    = <?php echo wp_json_encode( __( '(schema sameAs always uses the outbound URL above)', 'tmwseo' ) ); ?>;
+            var configureAffHtml  = <?php
+                $aff_url = esc_url( admin_url( 'admin.php?page=tmwseo-affiliates' ) );
+                $aff_msg = esc_html__( 'No networks configured.', 'tmwseo' );
+                $aff_lnk = esc_html__( 'Configure in Affiliates →', 'tmwseo' );
+                echo wp_json_encode(
+                    $aff_msg . ' <a href="' . $aff_url . '" target="_blank" style="font-size:11px;">' . $aff_lnk . '</a>'
+                );
+            ?>;
+            <?php
+            // Build network select options HTML once in PHP, inject as a JS string.
+            // The PHP render_row() makes a fresh live call; this JS copy is for new rows only.
+            $js_net_keys     = class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
+                ? \TMWSEO\Engine\Platform\AffiliateLinkBuilder::get_configurable_network_keys()
+                : [];
+            $js_net_opts     = '<option value="">' . esc_html__( '— Select network —', 'tmwseo' ) . '</option>';
+            foreach ( $js_net_keys as $nk => $nl ) {
+                $js_net_opts .= '<option value="' . esc_attr( $nk ) . '">' . esc_html( $nl ) . '</option>';
+            }
+            ?>
+            var networkSelectHtml = <?php echo wp_json_encode( $js_net_opts ); ?>;
+            var hasNetworks       = <?php echo empty( $js_net_keys ) ? 'false' : 'true'; ?>;
 
             function buildRow(n) {
                 var tr = document.createElement('tr');
@@ -247,6 +274,9 @@ class VerifiedLinks {
                 affTr.className = 'tmwseo-vl-aff-row';
                 affTr.setAttribute('data-parent-idx', n);
                 affTr.style.cssText = 'background:#f8f8f8;border-top:1px dashed #ddd;';
+                var networkCtrl = hasNetworks
+                    ? '<select name="tmwseo_vl[' + n + '][affiliate_network]" style="font-size:11px;margin-left:4px;">' + networkSelectHtml + '</select>'
+                    : '<span style="font-size:11px;color:#888;margin-left:4px;">' + configureAffHtml + '</span>';
                 affTr.innerHTML =
                     '<td colspan="6" style="padding:4px 8px;">' +
                         '<label style="font-size:11px;color:#555;cursor:pointer;">' +
@@ -254,12 +284,11 @@ class VerifiedLinks {
                             '       style="margin-right:4px;" />' +
                             affRouteTxt +
                         '</label>' +
-                        '<span style="margin-left:12px;font-size:11px;color:#888;">' + networkKeyTxt + ': </span>' +
-                        '<input type="text" name="tmwseo_vl[' + n + '][affiliate_network]" value="" ' +
-                        '       placeholder="' + networkPlaceholderTxt + '" ' +
-                        '       style="font-size:11px;width:200px;margin-left:4px;" />' +
+                        '<span style="margin-left:12px;font-size:11px;color:#888;">' + networkLabelTxt + '</span>' +
+                        networkCtrl +
                         '<span style="margin-left:8px;font-size:10px;color:#aaa;">' + schemaNotesTxt + '</span>' +
                     '</td>';
+
 
                 var frag = document.createDocumentFragment();
                 frag.appendChild(tr);
@@ -386,9 +415,8 @@ class VerifiedLinks {
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][outbound_type]"     value="' . esc_attr( $outbound_type ) . '" />';
         echo '</td>';
 
-        // Affiliate routing — inline, below the main row as an expandable section
+        // Affiliate routing — sub-row below the main entry row
         echo '</tr>';
-        // Affiliate sub-row (always rendered, visible when expanded)
         echo '<tr class="tmwseo-vl-aff-row" data-parent-idx="' . (int) $n . '" '
             . 'style="background:#f8f8f8;border-top:1px dashed #ddd;">';
         echo '<td colspan="6" style="padding:4px 8px;">';
@@ -400,15 +428,49 @@ class VerifiedLinks {
             . 'style="margin-right:4px;" />';
         echo esc_html__( 'Route through affiliate', 'tmwseo' );
         echo '</label>';
+
+        // Network key — dropdown populated from configured/enabled networks + platforms.
+        $network_keys = class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
+            ? \TMWSEO\Engine\Platform\AffiliateLinkBuilder::get_configurable_network_keys()
+            : [];
+
         echo '<span style="margin-left:12px;font-size:11px;color:#888;">'
-            . esc_html__( 'Network key:', 'tmwseo' ) . ' </span>';
-        echo '<input type="text" '
-            . 'name="tmwseo_vl[' . (int) $n . '][affiliate_network]" '
-            . 'value="' . esc_attr( $affiliate_network ) . '" '
-            . 'placeholder="' . esc_attr__( 'e.g. crack_revenue or platform slug', 'tmwseo' ) . '" '
-            . 'style="font-size:11px;width:200px;margin-left:4px;" />';
+            . esc_html__( 'Network:', 'tmwseo' ) . ' </span>';
+
+        if ( ! empty( $network_keys ) ) {
+            echo '<select name="tmwseo_vl[' . (int) $n . '][affiliate_network]" '
+                . 'style="font-size:11px;margin-left:4px;">';
+            echo '<option value="">' . esc_html__( '— Select network —', 'tmwseo' ) . '</option>';
+            foreach ( $network_keys as $nk => $nl ) {
+                printf(
+                    '<option value="%s"%s>%s</option>',
+                    esc_attr( $nk ),
+                    selected( $affiliate_network, $nk, false ),
+                    esc_html( $nl )
+                );
+            }
+            echo '</select>';
+        } else {
+            // Fallback: no networks configured yet — show key as read-only text
+            // with a link to the admin affiliates page.
+            echo '<span style="font-size:11px;color:#888;margin-left:4px;">';
+            if ( $affiliate_network !== '' ) {
+                echo '<code>' . esc_html( $affiliate_network ) . '</code>';
+                echo '<input type="hidden" '
+                    . 'name="tmwseo_vl[' . (int) $n . '][affiliate_network]" '
+                    . 'value="' . esc_attr( $affiliate_network ) . '" />';
+            } else {
+                echo esc_html__( 'No networks configured.', 'tmwseo' );
+                echo ' <a href="' . esc_url( admin_url( 'admin.php?page=tmwseo-affiliates' ) ) . '" '
+                    . 'style="font-size:11px;" target="_blank">'
+                    . esc_html__( 'Configure in Affiliates →', 'tmwseo' )
+                    . '</a>';
+            }
+            echo '</span>';
+        }
+
         echo '<span style="margin-left:8px;font-size:10px;color:#aaa;">'
-            . esc_html__( '(must match a key in Affiliates settings; schema sameAs always uses the outbound URL above)', 'tmwseo' )
+            . esc_html__( '(schema sameAs always uses the outbound URL above)', 'tmwseo' )
             . '</span>';
         echo '</td>';
         echo '</tr>';

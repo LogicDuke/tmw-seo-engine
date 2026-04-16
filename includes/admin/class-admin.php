@@ -729,6 +729,20 @@ class Admin {
                 'default' => [],
             ]
         );
+
+        // Network-level affiliate settings — keyed by network slug (e.g. 'crack_revenue').
+        // Separate from platform settings which are keyed by PlatformRegistry slug.
+        // This option is what makes generic network keys like 'crack_revenue' actually
+        // configurable through the admin UI without polluting the platform table.
+        register_setting(
+            'tmwseo_settings_group',
+            'tmwseo_affiliate_networks',
+            [
+                'type'              => 'array',
+                'sanitize_callback' => [__CLASS__, 'sanitize_affiliate_networks'],
+                'default'           => [],
+            ]
+        );
     }
 
     public static function sanitize_settings($input): array {
@@ -899,6 +913,45 @@ class Admin {
                 'siteid' => sanitize_text_field((string) ($row['siteid'] ?? (string) ($defaults['siteid'] ?? ''))),
                 'categoryname' => sanitize_text_field((string) ($row['categoryname'] ?? (string) ($defaults['categoryname'] ?? ''))),
                 'pagename' => sanitize_text_field((string) ($row['pagename'] ?? (string) ($defaults['pagename'] ?? ''))),
+            ];
+        }
+
+        return $sanitized;
+    }
+
+    /**
+     * Sanitize the `tmwseo_affiliate_networks` option.
+     *
+     * This option holds network-level affiliate templates — keyed by an arbitrary
+     * network slug chosen by the operator (e.g. 'crack_revenue', 'trafficjunky').
+     * It is entirely separate from `tmwseo_platform_affiliate_settings` which is
+     * keyed by PlatformRegistry slugs.
+     *
+     * Only rows explicitly submitted by the admin form are preserved. Network keys
+     * are validated as sanitized slugs. Empty-slug rows are discarded.
+     *
+     * @param mixed $input Raw POST data from the networks form.
+     * @return array<string,array{label:string,enabled:int,template:string,campaign:string,source:string,subaffid:string}>
+     */
+    public static function sanitize_affiliate_networks( $input ): array {
+        $input     = is_array( $input ) ? $input : [];
+        $sanitized = [];
+
+        foreach ( $input as $raw_key => $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+            $slug = sanitize_key( (string) ( $row['slug'] ?? $raw_key ) );
+            if ( $slug === '' ) {
+                continue;
+            }
+            $sanitized[ $slug ] = [
+                'label'    => sanitize_text_field( (string) ( $row['label']    ?? $slug ) ),
+                'enabled'  => ! empty( $row['enabled'] ) ? 1 : 0,
+                'template' => sanitize_textarea_field( (string) ( $row['template'] ?? '' ) ),
+                'campaign' => sanitize_text_field( (string) ( $row['campaign'] ?? '' ) ),
+                'source'   => sanitize_text_field( (string) ( $row['source']   ?? '' ) ),
+                'subaffid' => sanitize_text_field( (string) ( $row['subaffid'] ?? '' ) ),
             ];
         }
 
@@ -3737,6 +3790,115 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
         $per_platform = is_array($per_platform) ? $per_platform : [];
         $platforms = self::get_affiliate_platform_defaults();
 
+        // ── Affiliate Networks section ────────────────────────────────────────
+        // Network-level templates are for generic URL-rewriting (e.g. Crack Revenue)
+        // applied to any approved outbound link, independent of which platform
+        // it originated from. These are separate from per-platform templates above.
+        $networks     = get_option( 'tmwseo_affiliate_networks', [] );
+        $networks     = is_array( $networks ) ? $networks : [];
+
+        echo '<form method="post" action="options.php">';
+        settings_fields( 'tmwseo_settings_group' );
+        echo '<input type="hidden" name="tmwseo_engine_settings[tmwseo_settings_section]" value="affiliate">';
+
+        echo '<h2>' . esc_html__( 'Affiliate Networks (URL-level routing)', 'tmwseo' ) . '</h2>';
+        echo '<p class="description">'
+            . esc_html__( 'Configure network-level templates for routing approved outbound links (e.g. Crack Revenue). '
+                . 'These templates receive {profile_url} and {encoded_profile_url} as the approved outbound URL. '
+                . 'Network keys here are available in the Verified External Links affiliate routing selector.', 'tmwseo' )
+            . '</p>';
+        echo '<table class="form-table">';
+
+        // Pre-seed row for crack_revenue if not yet configured
+        $known_network_defaults = [
+            'crack_revenue' => __( 'Crack Revenue', 'tmwseo' ),
+        ];
+        foreach ( $known_network_defaults as $net_slug => $net_label ) {
+            if ( ! isset( $networks[ $net_slug ] ) ) {
+                $networks[ $net_slug ] = [
+                    'label'    => $net_label,
+                    'enabled'  => 0,
+                    'template' => '',
+                    'campaign' => '',
+                    'source'   => '',
+                    'subaffid' => '',
+                ];
+            }
+        }
+
+        foreach ( $networks as $net_slug => $net ) {
+            $net_label    = (string) ( $net['label']    ?? $net_slug );
+            $net_enabled  = ! empty( $net['enabled'] );
+            $net_template = (string) ( $net['template'] ?? '' );
+            $net_campaign = (string) ( $net['campaign'] ?? '' );
+            $net_source   = (string) ( $net['source']   ?? '' );
+            $net_subaffid = (string) ( $net['subaffid'] ?? '' );
+
+            $preview_target = 'https://example.com/model/demo_user';
+            $preview = $net_template !== '' ? strtr( $net_template, [
+                '{profile_url}'         => $preview_target,
+                '{encoded_profile_url}' => rawurlencode( $preview_target ),
+                '{campaign}'            => rawurlencode( $net_campaign ),
+                '{source}'              => rawurlencode( $net_source ),
+                '{subaffid}'            => rawurlencode( $net_subaffid ),
+                '{username}'            => '',
+                '{platform}'            => '',
+            ] ) : '';
+
+            echo '<tr><td colspan="2"><h3 style="margin:0 0 4px;">'
+                . esc_html( $net_label )
+                . ' <code style="font-size:11px;color:#888;">(' . esc_html( $net_slug ) . ')</code>'
+                . '</h3></td></tr>';
+
+            echo '<input type="hidden" name="tmwseo_affiliate_networks[' . esc_attr( $net_slug ) . '][slug]"  value="' . esc_attr( $net_slug ) . '" />';
+            echo '<input type="hidden" name="tmwseo_affiliate_networks[' . esc_attr( $net_slug ) . '][label]" value="' . esc_attr( $net_label ) . '" />';
+
+            echo '<tr><th>' . esc_html__( 'Enabled', 'tmwseo' ) . '</th><td>'
+                . '<label><input type="checkbox" '
+                . 'name="tmwseo_affiliate_networks[' . esc_attr( $net_slug ) . '][enabled]" '
+                . 'value="1" ' . checked( $net_enabled, true, false ) . '> '
+                . /* translators: %s: network label */ sprintf( esc_html__( 'Enable %s routing', 'tmwseo' ), esc_html( $net_label ) )
+                . '</label></td></tr>';
+
+            echo '<tr><th>' . esc_html__( 'Template', 'tmwseo' ) . '</th><td>'
+                . '<textarea name="tmwseo_affiliate_networks[' . esc_attr( $net_slug ) . '][template]" '
+                . 'rows="3" class="large-text code">'
+                . esc_textarea( $net_template )
+                . '</textarea>'
+                . '<p class="description">'
+                . esc_html__( 'Placeholders: {profile_url}, {encoded_profile_url}, {campaign}, {source}, {subaffid}', 'tmwseo' )
+                . '</p></td></tr>';
+
+            echo '<tr><th>' . esc_html__( 'Campaign', 'tmwseo' ) . '</th><td>'
+                . '<input type="text" name="tmwseo_affiliate_networks[' . esc_attr( $net_slug ) . '][campaign]" '
+                . 'value="' . esc_attr( $net_campaign ) . '" class="regular-text" /></td></tr>';
+
+            echo '<tr><th>' . esc_html__( 'Source', 'tmwseo' ) . '</th><td>'
+                . '<input type="text" name="tmwseo_affiliate_networks[' . esc_attr( $net_slug ) . '][source]" '
+                . 'value="' . esc_attr( $net_source ) . '" class="regular-text" /></td></tr>';
+
+            echo '<tr><th>' . esc_html__( 'Sub Aff ID', 'tmwseo' ) . '</th><td>'
+                . '<input type="text" name="tmwseo_affiliate_networks[' . esc_attr( $net_slug ) . '][subaffid]" '
+                . 'value="' . esc_attr( $net_subaffid ) . '" class="regular-text" /></td></tr>';
+
+            if ( $preview !== '' ) {
+                echo '<tr><th>' . esc_html__( 'Preview', 'tmwseo' ) . '</th><td>'
+                    . '<code>' . esc_html( $preview ) . '</code>'
+                    . '<p class="description">'
+                    . esc_html__( 'Preview uses dummy URL: https://example.com/model/demo_user', 'tmwseo' )
+                    . '</p></td></tr>';
+            }
+
+            echo '<tr><td colspan="2"><hr style="margin:8px 0;border:none;border-top:1px solid #ddd;"></td></tr>';
+        }
+
+        echo '</table>';
+        submit_button( __( 'Save affiliate networks', 'tmwseo' ) );
+        echo '</form>';
+
+        echo '<hr style="margin:24px 0;">';
+
+        // ── Per-platform affiliate templates ──────────────────────────────────
         echo '<form method="post" action="options.php">';
         settings_fields('tmwseo_settings_group');
         echo '<input type="hidden" name="tmwseo_engine_settings[tmwseo_settings_section]" value="affiliate">';
