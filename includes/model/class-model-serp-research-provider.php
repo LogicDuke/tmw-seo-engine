@@ -1235,9 +1235,18 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     private function classify_external_candidate( string $domain, string $url ): ?array {
         $bare = strtolower( (string) preg_replace( '/^www\./', '', $domain ) );
 
-        // Explicit allowlist match
+        // ── Explicit allowlist match ──────────────────────────────────────────
         if ( isset( self::EXTERNAL_SOCIAL_DOMAINS[ $bare ] ) ) {
             $meta = self::EXTERNAL_SOCIAL_DOMAINS[ $bare ];
+
+            // Pornhub: accept only real creator/model profile paths.
+            // Reject search results, video pages, and generic content URLs.
+            if ( $bare === 'pornhub.com' ) {
+                if ( ! $this->is_pornhub_creator_profile_url( $url ) ) {
+                    return null;
+                }
+            }
+
             return [
                 'detected_platform' => $bare,
                 'label'             => (string) $meta['label'],
@@ -1246,8 +1255,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             ];
         }
 
-        // .xxx TLD — include only root or one-segment paths (profile/about pages).
-        // Deep content paths (galleries, videos, etc.) are excluded.
+        // ── .xxx TLD — shallow path only (personal profile/about pages) ──────
         if ( str_ends_with( $bare, '.xxx' ) ) {
             $path       = (string) ( parse_url( $url, PHP_URL_PATH ) ?? '/' );
             $path_depth = substr_count( trim( $path, '/' ), '/' );
@@ -1261,7 +1269,99 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             }
         }
 
+        // ── Generic personal site detection ──────────────────────────────────
+        // Detects short branded domains (e.g. anisyia.com) at shallow paths.
+        // Bounded by:
+        //   - not a known platform, hub, or external social domain
+        //   - not a large multi-content TLD (com/net/org/io require path check)
+        //   - path is root, /about, or /contact only
+        //   - domain has exactly one subdomain level (no deep subdomains)
+        //   - query string absent (clean profile URL)
+        $personal = $this->classify_personal_site( $bare, $url );
+        if ( $personal !== null ) {
+            return $personal;
+        }
+
         return null;
+    }
+
+    /**
+     * Validate that a pornhub.com URL is a real creator/model profile page.
+     *
+     * Accepted patterns (case-insensitive):
+     *   /model/{slug}
+     *   /model/{slug}/videos    (still a profile, not a content deep-link)
+     *   /pornstar/{slug}
+     *
+     * Rejected:
+     *   /video/search?...
+     *   /view_video.php
+     *   /videos/...
+     *   Any URL with a query string (search, filter pages)
+     *   Bare domain root
+     */
+    private function is_pornhub_creator_profile_url( string $url ): bool {
+        $parsed = parse_url( $url );
+        $path   = strtolower( trim( (string) ( $parsed['path'] ?? '/' ), '/' ) );
+        $query  = (string) ( $parsed['query'] ?? '' );
+
+        // Reject any URL with a query string — these are search/filter pages.
+        if ( $query !== '' ) {
+            return false;
+        }
+
+        // Must match /model/{slug} or /pornstar/{slug} at the start of the path.
+        return (bool) preg_match(
+            '#^(?:model|pornstar)/[a-z0-9_\-\.]{2,80}(?:/[a-z0-9_\-]*)?$#',
+            $path
+        );
+    }
+
+    /**
+     * Detect a personal branded website at shallow path depth.
+     *
+     * Rules (all must be true):
+     *   - domain is not a known platform, hub, or external social domain
+     *   - no query string in the URL
+     *   - path is one of: '' | '/' | '/about' | '/contact' | '/home'
+     *   - domain has at most 2 parts (e.g. anisyia.com — not cdn.example.com)
+     *   - domain uses a generic TLD (com, net, org, io, co, me, tv, live)
+     *     OR ends in .xxx (already handled above)
+     *
+     * Returns null when conditions not met.
+     */
+    private function classify_personal_site( string $bare_domain, string $url ): ?array {
+        static $personal_tlds = [ 'com', 'net', 'org', 'io', 'co', 'me', 'tv', 'live' ];
+
+        $parsed = parse_url( $url );
+        $query  = (string) ( $parsed['query'] ?? '' );
+        if ( $query !== '' ) {
+            return null;
+        }
+
+        $path_raw = strtolower( trim( (string) ( $parsed['path'] ?? '/' ), '/' ) );
+        $allowed_paths = [ '', 'about', 'contact', 'home' ];
+        if ( ! in_array( $path_raw, $allowed_paths, true ) ) {
+            return null;
+        }
+
+        $parts = explode( '.', $bare_domain );
+        // Require exactly 2 parts (e.g. anisyia.com), not subdomain-heavy hosts.
+        if ( count( $parts ) !== 2 ) {
+            return null;
+        }
+
+        $tld = strtolower( end( $parts ) );
+        if ( ! in_array( $tld, $personal_tlds, true ) ) {
+            return null;
+        }
+
+        return [
+            'detected_platform' => 'personal_site',
+            'label'             => $bare_domain,
+            'suggested_type'    => 'personal_site',
+            'confidence'        => 'low',
+        ];
     }
 
     private function classify_source_url( string $url, string $domain = '' ): string {

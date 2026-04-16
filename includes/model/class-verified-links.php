@@ -20,13 +20,21 @@
  *
  * DATA_SHAPE per entry:
  * {
- *   "url"          : string  — esc_url_raw, required, https/http only
- *   "type"         : string  — one of ALLOWED_TYPES, required
- *   "label"        : string  — optional display override, max 80 chars
- *   "is_active"    : bool    — default true; inactive entries excluded from output
- *   "is_primary"   : bool    — at most one entry may be true
- *   "added_at"     : string  — Y-m-d, set on creation, never overwritten
- *   "promoted_from": string  — "manual" | "research"  (audit trail only)
+ *   "url"            : string  — esc_url_raw, required, https/http only
+ *                                For research-promoted entries this is the OUTBOUND target
+ *                                (the URL the directory links to), which may differ from
+ *                                the source profile URL detected during research.
+ *   "source_url"     : string  — optional; the original detected profile URL (audit trail).
+ *                                Stored when the operator chose a different outbound target.
+ *   "outbound_type"  : string  — optional; operator intent: "direct_profile" | "personal_site"
+ *                                | "website" | "social". Carries no functional effect yet;
+ *                                reserved for future affiliate-routing logic.
+ *   "type"           : string  — one of ALLOWED_TYPES, required
+ *   "label"          : string  — optional display override, max 80 chars
+ *   "is_active"      : bool    — default true; inactive entries excluded from output
+ *   "is_primary"     : bool    — at most one entry may be true
+ *   "added_at"       : string  — Y-m-d, set on creation, never overwritten
+ *   "promoted_from"  : string  — "manual" | "research"  (audit trail only)
  * }
  *
  * @package TMWSEO\Engine\Model
@@ -419,35 +427,75 @@ class VerifiedLinks {
             ? array_map( 'sanitize_key', array_map( 'wp_unslash', $_POST['tmwseo_promote_type'] ) )
             : [];
 
+        // Optional outbound target URLs — operator may provide a different URL
+        // (e.g. personal site) to link to instead of the raw detected source.
+        // When empty, falls back to the detected URL.
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+        $outbound_urls = ( isset( $_POST['tmwseo_outbound_url'] ) && is_array( $_POST['tmwseo_outbound_url'] ) )
+            ? array_map( 'esc_url_raw', array_map( 'wp_unslash', $_POST['tmwseo_outbound_url'] ) )
+            : [];
+
+        // Optional outbound target type hint (direct_profile|personal_site|website|social).
+        // Stored as audit metadata; no functional routing effect in this phase.
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+        $outbound_types = ( isset( $_POST['tmwseo_outbound_type'] ) && is_array( $_POST['tmwseo_outbound_type'] ) )
+            ? array_map( 'sanitize_key', array_map( 'wp_unslash', $_POST['tmwseo_outbound_type'] ) )
+            : [];
+
         $promoted = 0;
         $skipped  = 0;
 
-        foreach ( $promote_urls as $idx => $url ) {
+        foreach ( $promote_urls as $idx => $source_url ) {
             $type = (string) ( $promote_types[ $idx ] ?? '' );
 
             if ( $type === '' || ! in_array( $type, self::ALLOWED_TYPES, true ) ) {
                 Logs::info( 'verified_links', '[TMW-VL] Skipped promote — no valid type', [
                     'post_id' => $post_id,
-                    'url'     => $url,
+                    'url'     => $source_url,
                     'type'    => $type,
                 ] );
                 $skipped++;
                 continue;
             }
 
-            $added = self::add_link( $post_id, $url, $type, '', true, false, 'research' );
+            // Determine what URL to store as the outbound target.
+            // If the operator provided a non-empty outbound URL, use it.
+            // Otherwise fall back to the detected source URL.
+            $outbound_url = trim( (string) ( $outbound_urls[ $idx ] ?? '' ) );
+            if ( $outbound_url === '' ) {
+                $outbound_url = $source_url;
+            }
+            $outbound_url = esc_url_raw( $outbound_url );
+
+            $outbound_type = sanitize_key( (string) ( $outbound_types[ $idx ] ?? '' ) );
+            $valid_outbound_types = [ 'direct_profile', 'personal_site', 'website', 'social' ];
+            if ( ! in_array( $outbound_type, $valid_outbound_types, true ) ) {
+                $outbound_type = 'direct_profile';
+            }
+
+            // Extra metadata stored alongside the entry for audit trail.
+            // source_url only stored when it differs from outbound_url.
+            $extra_meta = [];
+            if ( $outbound_url !== $source_url && $source_url !== '' ) {
+                $extra_meta['source_url']    = $source_url;
+            }
+            $extra_meta['outbound_type'] = $outbound_type;
+
+            $added = self::add_link( $post_id, $outbound_url, $type, '', true, false, 'research', $extra_meta );
             if ( $added ) {
                 $promoted++;
                 Logs::info( 'verified_links', '[TMW-VL] Promoted link from research', [
-                    'post_id' => $post_id,
-                    'url'     => $url,
-                    'type'    => $type,
+                    'post_id'       => $post_id,
+                    'source_url'    => $source_url,
+                    'outbound_url'  => $outbound_url,
+                    'outbound_type' => $outbound_type,
+                    'type'          => $type,
                 ] );
             } else {
                 $skipped++;
                 Logs::info( 'verified_links', '[TMW-VL] Promote skipped — invalid or duplicate', [
                     'post_id' => $post_id,
-                    'url'     => $url,
+                    'url'     => $outbound_url,
                 ] );
             }
         }
@@ -507,7 +555,8 @@ class VerifiedLinks {
         string $label         = '',
         bool   $is_active     = true,
         bool   $is_primary    = false,
-        string $promoted_from = 'manual'
+        string $promoted_from = 'manual',
+        array  $extra_meta    = []
     ): bool {
         $entry = self::sanitize_and_validate_entry( [
             'url'          => $url,
@@ -519,6 +568,18 @@ class VerifiedLinks {
             'added_at'     => '',
         ] );
         if ( $entry === false ) { return false; }
+
+        // Merge extra audit metadata (source_url, outbound_type).
+        // These are stored as-is after light sanitisation — no validation
+        // against ALLOWED_TYPES because they are informational only.
+        if ( ! empty( $extra_meta ) ) {
+            if ( isset( $extra_meta['source_url'] ) ) {
+                $entry['source_url'] = esc_url_raw( (string) $extra_meta['source_url'] );
+            }
+            if ( isset( $extra_meta['outbound_type'] ) ) {
+                $entry['outbound_type'] = sanitize_key( (string) $extra_meta['outbound_type'] );
+            }
+        }
 
         $links = self::get_links( $post_id );
 
