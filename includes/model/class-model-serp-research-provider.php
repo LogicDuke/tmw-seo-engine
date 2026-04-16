@@ -46,6 +46,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'livejasmin.com'     => 'LiveJasmin',
         'myfreecams.com'     => 'MyFreeCams',
         'fansly.com'         => 'Fansly',
+        'fancentro.com'      => 'FanCentro',
         'jerkmatelive.com'   => 'Jerkmate',
         'sinparty.com'       => 'SinParty',
         'xtease.com'         => 'XTease',
@@ -62,6 +63,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'sakuralive.com'     => 'SakuraLive',
         'slutroulette.com'   => 'Slut Roulette',
         'sweepsex.com'       => 'Sweepsex',
+        'streamate.com'      => 'Streamate',
         'xcams.com'          => 'Xcams',
         'xlovecam.com'       => 'XLoveCam',
     ];
@@ -201,6 +203,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         'royalcamslive.com',
         'sakuralive.com',
         'slutroulette.com',
+        'streamate.com',
         'stripchat.com',
         'sweepsex.com',
         'xcams.com',
@@ -214,6 +217,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      */
     private const VARIANT_DISCOVERY_CREATOR_DOMAINS = [
         'fansly.com',
+        'fancentro.com',
         'linktr.ee',
         'allmylinks.com',
         'beacons.ai',
@@ -465,7 +469,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         $queries = [
             [ 'query' => $model_name, 'family' => 'exact_name' ],
             [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin OR camsoda', 'family' => 'webcam_platform_discovery' ],
-            [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans', 'family' => 'creator_platform_discovery' ],
+            [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans OR fancentro', 'family' => 'creator_platform_discovery' ],
             [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
             [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
         ];
@@ -1232,7 +1236,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param  string $url     Full URL for path-depth inspection.
      * @return array{detected_platform:string,label:string,suggested_type:string,confidence:string}|null
      */
-    private function classify_external_candidate( string $domain, string $url ): ?array {
+    protected function classify_external_candidate( string $domain, string $url ): ?array {
         $bare = strtolower( (string) preg_replace( '/^www\./', '', $domain ) );
 
         // ── Explicit allowlist match ──────────────────────────────────────────
@@ -1300,7 +1304,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      *   Any URL with a query string (search, filter pages)
      *   Bare domain root
      */
-    private function is_pornhub_creator_profile_url( string $url ): bool {
+    protected function is_pornhub_creator_profile_url( string $url ): bool {
         $parsed = parse_url( $url );
         $path   = strtolower( trim( (string) ( $parsed['path'] ?? '/' ), '/' ) );
         $query  = (string) ( $parsed['query'] ?? '' );
@@ -1330,7 +1334,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      *
      * Returns null when conditions not met.
      */
-    private function classify_personal_site( string $bare_domain, string $url ): ?array {
+    protected function classify_personal_site( string $bare_domain, string $url ): ?array {
         static $personal_tlds = [ 'com', 'net', 'org', 'io', 'co', 'me', 'tv', 'live' ];
 
         $parsed = parse_url( $url );

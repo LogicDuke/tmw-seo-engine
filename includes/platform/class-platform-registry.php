@@ -70,6 +70,13 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority' => 15,
         ],
+        'fancentro' => [
+            'name' => 'FanCentro',
+            'slug' => 'fancentro',
+            'profile_url_pattern' => 'https://fancentro.com/{username}',
+            'affiliate_link_pattern' => '',
+            'priority' => 16,
+        ],
         'stripchat' => [
             'name' => 'Stripchat',
             'slug' => 'stripchat',

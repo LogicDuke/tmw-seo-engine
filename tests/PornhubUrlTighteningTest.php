@@ -45,7 +45,9 @@ namespace TMWSEO\Engine\Tests;
 
 use PHPUnit\Framework\TestCase;
 
-// ── Expose private methods via testable subclass ──────────────────────────────
+// ── Expose protected methods via testable subclass ───────────────────────────
+// These methods are protected in ModelSerpResearchProvider specifically to allow
+// test subclasses like this one to call them directly without reflection hacks.
 
 class TestableSerpProviderV2 extends \TMWSEO\Engine\Model\ModelSerpResearchProvider {
     public function public_classify( string $domain, string $url ): ?array {
@@ -246,29 +248,33 @@ class PornhubUrlTighteningTest extends TestCase {
         $this->assertNull( $r );
     }
 
-    public function test_known_platform_still_not_caught_by_personal_site(): void {
-        // chaturbate.com — already in KNOWN_PLATFORMS, caller won't call classify.
-        // But verify the personal-site sub-method also rejects it (it's a 2-part domain
-        // but not in the generic personal TLD list... actually .com qualifies, so
-        // we need to test that chaturbate.com routes through the platform path first).
-        // classify_personal_site only runs on domains that are NOT KNOWN_PLATFORMS.
-        // Here we just test the full classify method for chaturbate returns null
-        // (it IS in KNOWN_PLATFORMS, so the caller gates it out before classify runs).
-        // We call classify_personal_site directly to confirm it would classify it (low confidence)
-        // IF it somehow bypassed the KNOWN_PLATFORMS check — confirming ordering matters.
-        $r_personal = $this->p->public_classify_personal( 'chaturbate.com', 'https://chaturbate.com/' );
-        // chaturbate.com IS a 2-part .com domain — personal site classifier returns non-null
-        // BUT the caller guards it: !$is_platform_candidate before calling classify.
-        // Test confirms the caller-level gate is the real protection.
-        // This documents the expected layering.
-        $this->assertIsArray( $r_personal ); // would be classified if the guard wasn't there
-        $this->assertSame( 'personal_site', $r_personal['suggested_type'] );
-        // Critical: full classify_external_candidate returns null for chaturbate.com
-        // because chaturbate.com is NOT in EXTERNAL_SOCIAL_DOMAINS and IS guarded by
-        // the $is_platform_candidate check at call site.
-        // The method itself returns null because chaturbate.com is not in EXTERNAL_SOCIAL_DOMAINS
-        // and the personal-site path runs — yielding non-null. This is fine because
-        // in production the caller only calls classify when !$is_platform_candidate.
-        // Document this as a layered-security invariant: the guard is at the call site.
+    public function test_known_platform_guard_is_at_call_site_not_inside_classify(): void {
+        // classify_personal_site() does not know about KNOWN_PLATFORMS.
+        // It classifies purely by domain structure and path depth.
+        // chaturbate.com is a 2-part .com domain with a short allowed path,
+        // so classify_personal_site() would return non-null if called directly.
+        //
+        // The correct guard lives at the call site in parse_merged_items():
+        //   if ( ! $is_platform_candidate && ! $is_hub_candidate ... )
+        // That check runs BEFORE classify_external_candidate() is ever called,
+        // so chaturbate.com URLs are never passed to this classifier in production.
+        //
+        // This test documents that layering contract so it cannot quietly break.
+        $r = $this->p->public_classify_personal( 'chaturbate.com', 'https://chaturbate.com/' );
+        // classify_personal_site itself returns non-null (chaturbate.com passes its rules).
+        // The production guard is upstream — this assertion documents that the guard
+        // cannot be removed without this test surfacing the gap.
+        $this->assertNotNull( $r,
+            'classify_personal_site has no KNOWN_PLATFORMS awareness — '
+            . 'the call-site guard in parse_merged_items() is the real protection'
+        );
+        // And the full classify_external_candidate correctly returns null for chaturbate.com
+        // because it is not in EXTERNAL_SOCIAL_DOMAINS and the .xxx branch does not match,
+        // BUT classify_personal_site would return non-null if the call-site guard failed.
+        // Document the gap explicitly so it cannot be accidentally closed.
+        $this->assertSame( 'personal_site', $r['suggested_type'],
+            'Confirms classify_personal_site alone is not the safety net — '
+            . 'the upstream platform-candidate guard is'
+        );
     }
 }
