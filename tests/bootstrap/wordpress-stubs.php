@@ -171,7 +171,7 @@ if ( ! class_exists( 'WP_Error' ) ) {
 function is_wp_error( $thing ): bool { return $thing instanceof WP_Error; }
 
 // ── Plugin path constants ──────────────────────────────────────────────────────
-define( 'TMWSEO_ENGINE_VERSION', '5.0.2' );
+define( 'TMWSEO_ENGINE_VERSION', '5.0.1' );
 // __DIR__ = tests/bootstrap  →  dirname(__DIR__) = tests  →  dirname(dirname(__DIR__)) = plugin root
 define( 'TMWSEO_ENGINE_PATH', dirname( dirname( __DIR__ ) ) . '/' );
 define( 'TMWSEO_ENGINE_URL', 'http://example.com/wp-content/plugins/tmw-seo-engine/' );

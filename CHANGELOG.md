@@ -1,6 +1,6 @@
 # TMW SEO Engine — Changelog
 
-## 5.0.2 — Full Audit Runtime Fix (2026-04-17)
+## 5.0.1 — Full Audit Runtime Fix (2026-04-17)
 
 ### Bug Fixes
 
@@ -44,7 +44,7 @@
   `class-model-full-audit-provider.php` so `FullAuditModeTest.php` can
   parse. Previously the test double (`TestableFullAuditProvider`) failed
   at parse time with `Class not found`.
-- Version synchronized to **`5.0.2`** across plugin header and constant.
+- Version synchronized to **`5.0.1`** across plugin header and constant.
 
 ---
 

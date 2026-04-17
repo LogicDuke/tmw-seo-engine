@@ -17,12 +17,12 @@ class ActivationTest extends TestCase {
     }
 
     public function test_version_is_4_6_4(): void {
-        $this->assertSame( '5.0.2', TMWSEO_ENGINE_VERSION );
+        $this->assertSame( '5.0.1', TMWSEO_ENGINE_VERSION );
     }
 
     public function test_plugin_header_version_matches_constant(): void {
         $contents = (string) file_get_contents( TMWSEO_ENGINE_PATH . 'tmw-seo-engine.php' );
-        $this->assertStringContainsString( 'Version: 5.0.2', $contents );
+        $this->assertStringContainsString( 'Version: 5.0.1', $contents );
     }
 
     public function test_path_constant_is_real_directory(): void {
