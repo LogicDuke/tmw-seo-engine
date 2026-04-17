@@ -147,6 +147,21 @@ class ModelPlatformProbe {
     private const FALLBACK_GET_TIMEOUT = 4;
 
     /**
+     * Full-audit probe budget — covers every registry platform with 1 seed.
+     * 32 registry slugs × 1 seed + 8 buffer = 40. Synchronous budget: 40×3s=120s.
+     *
+     * @var int
+     */
+    public const FULL_AUDIT_MAX_PROBES = 40;
+
+    /**
+     * Full-audit GET fallback budget.
+     *
+     * @var int
+     */
+    public const FULL_AUDIT_MAX_FALLBACK_GETS = 8;
+
+    /**
      * Maximum response body bytes read in a GET fallback check.
      *
      * 8 KB is enough to find a handle mention in a typical "profile not found"
@@ -854,6 +869,239 @@ class ModelPlatformProbe {
         }
 
         return $queue;
+    }
+
+    // ── Full-audit public entry point ────────────────────────────────────────
+
+    /**
+     * Run a full-platform-coverage probe.
+     *
+     * Differences from run():
+     *   - Iterates EVERY slug in PlatformRegistry (not just PROBE_PRIORITY_SLUGS).
+     *   - No CORE_PRIORITY_SLUGS favoritism — all platforms get equal access.
+     *   - Budget: FULL_AUDIT_MAX_PROBES (40) instead of MAX_PROBES (6).
+     *   - Returns a per-platform coverage report in diagnostics['platform_coverage'].
+     *   - All safety guarantees (STRONG_ACCEPT_STATUSES, redirect check, extraction
+     *     trust gate) are identical to run().
+     *
+     * @param  array<int,array{handle:string,source_platform:string,source_url:string}> $handle_seeds
+     * @param  int                 $post_id
+     * @return array{verified_urls:array,diagnostics:array}
+     */
+    public function run_full_audit( array $handle_seeds, int $post_id ): array {
+        // Build probe slug list from the full registry, excluding fragment-only platforms.
+        $all_registry_slugs = [];
+        foreach ( PlatformRegistry::get_slugs() as $slug ) {
+            $candidate = $this->synthesize_candidate_url( $slug, 'test' );
+            if ( $candidate !== '' ) {
+                $all_registry_slugs[] = $slug;
+            }
+        }
+
+        if ( empty( $handle_seeds ) || empty( $all_registry_slugs ) ) {
+            return $this->build_result( [], 0, 0, 0, 0, 0, [], [] );
+        }
+
+        // Deduplicate and quality-sort seeds (same as run()).
+        $seen_handles = [];
+        $raw_unique   = [];
+        foreach ( $handle_seeds as $seed ) {
+            $handle = trim( (string) ( $seed['handle'] ?? '' ) );
+            if ( $handle === '' ) { continue; }
+            $lc = strtolower( $handle );
+            if ( ! isset( $seen_handles[ $lc ] ) ) {
+                $seen_handles[ $lc ] = true;
+                $raw_unique[]         = $seed;
+            }
+        }
+
+        $reference_name = '';
+        foreach ( $raw_unique as $seed ) {
+            if ( (string) ( $seed['source_platform'] ?? '' ) === 'name_derived' ) {
+                $reference_name = strtolower( trim( (string) ( $seed['handle'] ?? '' ) ) );
+                break;
+            }
+        }
+
+        $seed_priorities = [];
+        foreach ( $raw_unique as $seed ) {
+            $handle                     = (string) ( $seed['handle'] ?? '' );
+            $seed_priorities[ $handle ] = $this->seed_priority_score( $seed, $reference_name );
+        }
+
+        usort( $raw_unique, function ( array $a, array $b ) use ( $reference_name ): int {
+            return $this->seed_priority_score( $a, $reference_name )
+                <=> $this->seed_priority_score( $b, $reference_name );
+        } );
+
+        $unique_seeds = $raw_unique;
+        $seeds_used   = count( $unique_seeds );
+
+        Logs::info( 'model_research', '[TMW-PROBE-AUDIT] Full platform audit probe started', [
+            'post_id'         => $post_id,
+            'seeds'           => $seeds_used,
+            'platforms_total' => count( $all_registry_slugs ),
+            'max_probes'      => self::FULL_AUDIT_MAX_PROBES,
+        ] );
+
+        // Build flat work queue: all platforms × all seeds, no core-priority favoritism.
+        $queue         = [];
+        $emitted_pairs = [];
+
+        foreach ( $all_registry_slugs as $slug ) {
+            foreach ( $unique_seeds as $seed ) {
+                $pair = $slug . '|' . $seed['handle'];
+                if ( ! isset( $emitted_pairs[ $pair ] ) ) {
+                    $emitted_pairs[ $pair ] = true;
+                    $queue[] = [ 'slug' => $slug, 'seed' => $seed ];
+                }
+            }
+        }
+
+        // Execute probes — same logic as run() but with FULL_AUDIT_MAX_PROBES budget.
+        $verified_urls    = [];
+        $probe_log        = [];
+        $probes_attempted = 0;
+        $probes_accepted  = 0;
+        $probes_rejected  = 0;
+        $get_fallbacks    = 0;
+        $probed_url_set   = [];
+
+        // Per-platform coverage: 'confirmed' | 'rejected' | 'not_probed'
+        $platform_coverage = [];
+        foreach ( $all_registry_slugs as $slug ) {
+            $platform_coverage[ $slug ] = [
+                'status'   => 'not_probed',
+                'handle'   => '',
+                'url'      => '',
+                'reason'   => '',
+                'evidence' => '',
+            ];
+        }
+
+        foreach ( $queue as $work_item ) {
+            if ( $probes_attempted >= self::FULL_AUDIT_MAX_PROBES ) {
+                break;
+            }
+
+            $slug   = (string) ( $work_item['slug'] ?? '' );
+            $seed   = (array)  ( $work_item['seed'] ?? [] );
+            $handle = (string) ( $seed['handle'] ?? '' );
+
+            if ( $slug === '' || $handle === '' ) { continue; }
+
+            // Skip slug if it already has a confirmed result.
+            if ( ( $platform_coverage[ $slug ]['status'] ?? '' ) === 'confirmed' ) { continue; }
+
+            $candidate_url = $this->synthesize_candidate_url( $slug, $handle );
+            if ( $candidate_url === '' ) { continue; }
+
+            $url_key = strtolower( rtrim( $candidate_url, '/' ) );
+            if ( isset( $probed_url_set[ $url_key ] ) ) { continue; }
+            $probed_url_set[ $url_key ] = true;
+
+            $probes_attempted++;
+            $probe_result = $this->probe_url( $candidate_url, $slug, $handle, $get_fallbacks );
+            $accepted     = $probe_result['accepted'];
+            $status       = $probe_result['status'];
+            $reason       = $probe_result['reason'];
+
+            $log_entry = [
+                'url'      => $candidate_url,
+                'slug'     => $slug,
+                'handle'   => $handle,
+                'status'   => $status,
+                'accepted' => $accepted,
+                'reason'   => $reason,
+            ];
+
+            Logs::info( 'model_research', '[TMW-PROBE-AUDIT] Probe result', [
+                'post_id'  => $post_id,
+                'slug'     => $slug,
+                'handle'   => $handle,
+                'url'      => $candidate_url,
+                'status'   => $status,
+                'accepted' => $accepted,
+                'reason'   => $reason,
+            ] );
+
+            if ( ! $accepted ) {
+                $probes_rejected++;
+                $probe_log[] = $log_entry;
+                $platform_coverage[ $slug ] = [
+                    'status'   => 'rejected',
+                    'handle'   => $handle,
+                    'url'      => $candidate_url,
+                    'reason'   => $reason,
+                    'evidence' => 'http_' . $status,
+                ];
+                continue;
+            }
+
+            // Structured extraction trust gate — identical to run().
+            $parse = PlatformProfiles::parse_url_for_platform_structured( $slug, $candidate_url );
+            if ( empty( $parse['success'] ) ) {
+                $probes_rejected++;
+                $log_entry['accepted'] = false;
+                $log_entry['reason']   = 'extraction_failed:' . ( (string) ( $parse['reject_reason'] ?? '' ) );
+                $probe_log[] = $log_entry;
+                $platform_coverage[ $slug ] = [
+                    'status'   => 'rejected',
+                    'handle'   => $handle,
+                    'url'      => $candidate_url,
+                    'reason'   => 'extraction_failed',
+                    'evidence' => 'http_' . $status . '_extract_fail',
+                ];
+                continue;
+            }
+
+            $probes_accepted++;
+            $probe_log[] = $log_entry;
+            $verified_urls[ $candidate_url ] = [
+                'slug'        => $slug,
+                'username'    => (string) ( $parse['username'] ?? '' ),
+                'handle'      => $handle,
+                'http_status' => $status,
+                'parse'       => $parse,
+            ];
+
+            $platform_coverage[ $slug ] = [
+                'status'   => 'confirmed',
+                'handle'   => (string) ( $parse['username'] ?? $handle ),
+                'url'      => (string) ( $parse['normalized_url'] ?? $candidate_url ),
+                'reason'   => 'accepted:' . $reason,
+                'evidence' => 'http_' . $status . '+extraction_ok',
+            ];
+        }
+
+        // Mark any platforms never attempted as not_probed
+        // (already initialized above, so no extra loop needed).
+
+        Logs::info( 'model_research', '[TMW-PROBE-AUDIT] Full platform audit probe complete', [
+            'post_id'          => $post_id,
+            'platforms_checked'=> count( array_filter( $platform_coverage, static fn($p) => $p['status'] !== 'not_probed' ) ),
+            'confirmed'        => count( array_filter( $platform_coverage, static fn($p) => $p['status'] === 'confirmed' ) ),
+            'rejected'         => count( array_filter( $platform_coverage, static fn($p) => $p['status'] === 'rejected' ) ),
+            'not_probed'       => count( array_filter( $platform_coverage, static fn($p) => $p['status'] === 'not_probed' ) ),
+            'probes_attempted' => $probes_attempted,
+            'probes_accepted'  => $probes_accepted,
+        ] );
+
+        $result = $this->build_result(
+            $verified_urls,
+            $seeds_used,
+            $probes_attempted,
+            $probes_accepted,
+            $probes_rejected,
+            $get_fallbacks,
+            $seed_priorities,
+            $probe_log
+        );
+
+        // Append the per-platform coverage report.
+        $result['diagnostics']['platform_coverage'] = $platform_coverage;
+
+        return $result;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

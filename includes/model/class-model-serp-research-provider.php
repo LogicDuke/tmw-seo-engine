@@ -157,6 +157,19 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     private const SYNC_PASS_TWO      = false; // disable confirmation pass for sync path
 
     /**
+     * Full-audit mode constants — no sync-budget constraints.
+     *
+     * These replace the SYNC_* constants in full-audit mode.
+     * Restores original research quality at the cost of longer execution.
+     */
+    private const AUDIT_SERP_DEPTH          = 20;  // restored from SYNC_SERP_DEPTH=8
+    private const AUDIT_MAX_HUB_PAGES       = 3;   // restored from SYNC_MAX_HUB_PAGES=0
+    private const AUDIT_PASS_TWO            = true; // restored from SYNC_PASS_TWO=false
+    private const AUDIT_MAX_HANDLE_VARIANTS = 10;  // raised from MAX_HANDLE_VARIANTS=5
+    private const AUDIT_ALIAS_CAP           = 10;  // raised from 3
+    private const AUDIT_SEED_CAP            = 12;  // raised from 5
+
+    /**
      * Platform slugs whose extracted profile URLs belong in social_urls.
      *
      * X/Twitter and link-hub platforms are "social" profiles — suitable for
@@ -598,6 +611,133 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     }
 
     /**
+     * Build a full-audit query pack.
+     *
+     * Differences from build_query_pack():
+     *   - All aliases used (up to AUDIT_ALIAS_CAP), not just 3.
+     *   - Each alias gets 3 query families (webcam + creator + hub).
+     *   - An exhaustive grouped query using ALL platform domains is added.
+     *   - Handle variants raised to AUDIT_MAX_HANDLE_VARIANTS.
+     *
+     * @param  string   $model_name
+     * @param  string[] $aliases
+     * @return array<int,array<string,string>>
+     */
+    protected function build_query_pack_audit( string $model_name, array $aliases = [] ): array {
+        // Base 5 families (same as sync)
+        $queries = [
+            [ 'query' => $model_name, 'family' => 'exact_name' ],
+            [ 'query' => $model_name . ' webcam OR chaturbate OR livejasmin OR camsoda', 'family' => 'webcam_platform_discovery' ],
+            [ 'query' => $model_name . ' fansly OR stripchat OR onlyfans OR fancentro', 'family' => 'creator_platform_discovery' ],
+            [ 'query' => $model_name . ' linktr.ee OR allmylinks OR beacons OR solo.to OR carrd', 'family' => 'hub_discovery' ],
+            [ 'query' => $model_name . ' twitter OR x.com', 'family' => 'social_discovery' ],
+        ];
+
+        // Exhaustive domain sweep: all registry platform domains in one query.
+        // Surfaces profiles on any registered platform that a SERP indexes.
+        $all_hosts = [];
+        foreach ( PlatformRegistry::get_slugs() as $slug ) {
+            $pd = PlatformRegistry::get( $slug );
+            if ( ! is_array( $pd ) ) { continue; }
+            $pattern = (string) ( $pd['profile_url_pattern'] ?? '' );
+            $host = strtolower( (string) ( parse_url( $pattern, PHP_URL_HOST ) ?? '' ) );
+            $host = (string) preg_replace( '/^www\./', '', $host );
+            if ( $host !== '' ) { $all_hosts[] = $host; }
+        }
+        if ( ! empty( $all_hosts ) ) {
+            $queries[] = [
+                'query'  => $model_name . ' ' . implode( ' OR ', array_unique( $all_hosts ) ),
+                'family' => 'full_registry_sweep',
+            ];
+        }
+
+        // Variant-led queries with raised variant cap.
+        $saved_max = self::MAX_HANDLE_VARIANTS;
+        $variant_terms = $this->build_handle_variant_terms_audit( $model_name );
+        if ( $variant_terms !== '' ) {
+            $webcam_domains  = implode( ' OR ', self::VARIANT_DISCOVERY_WEBCAM_DOMAINS );
+            $creator_domains = implode( ' OR ', self::VARIANT_DISCOVERY_CREATOR_DOMAINS );
+            $queries[] = [ 'query' => '(' . $variant_terms . ') (' . $webcam_domains . ')', 'family' => 'webcam_platform_variant_discovery' ];
+            $queries[] = [ 'query' => '(' . $variant_terms . ') (' . $creator_domains . ')', 'family' => 'creator_hub_variant_discovery' ];
+        }
+
+        // All aliases × 3 families (webcam + creator + hub).
+        foreach ( array_slice( $aliases, 0, self::AUDIT_ALIAS_CAP ) as $alias ) {
+            $alias = trim( (string) $alias );
+            if ( $alias === '' ) { continue; }
+            $queries[] = [ 'query' => $alias . ' webcam OR chaturbate OR livejasmin OR camsoda OR bongacams OR cam4', 'family' => 'alias_webcam_discovery', '_alias_source' => $alias ];
+            $queries[] = [ 'query' => $alias . ' fansly OR stripchat OR onlyfans OR fancentro OR streamate', 'family' => 'alias_creator_discovery', '_alias_source' => $alias ];
+            $queries[] = [ 'query' => $alias . ' linktr.ee OR allmylinks OR twitter OR x.com OR beacons', 'family' => 'alias_hub_social_discovery', '_alias_source' => $alias ];
+        }
+
+        return $queries;
+    }
+
+    /**
+     * build_handle_variant_terms() using the raised AUDIT_MAX_HANDLE_VARIANTS cap.
+     */
+    private function build_handle_variant_terms_audit( string $model_name ): string {
+        $name = trim( $model_name );
+        if ( $name === '' ) { return ''; }
+        preg_match_all( '/[A-Za-z0-9]+/u', $name, $matches );
+        $parts = array_values( array_filter( array_map( 'strval', $matches[0] ?? [] ) ) );
+        if ( empty( $parts ) ) { return ''; }
+        $lower_parts = array_map( 'strtolower', $parts );
+        $camel_parts = array_map( static fn( string $p ): string => ucfirst( strtolower( $p ) ), $parts );
+        $candidates = [
+            implode( '', $lower_parts ),
+            implode( '-', $lower_parts ),
+            implode( '_', $lower_parts ),
+        ];
+        if ( count( $parts ) > 1 ) {
+            $camel = implode( '', $camel_parts );
+            if ( $camel !== '' ) { $candidates[] = $camel; $candidates[] = lcfirst( $camel ); }
+        }
+        $seen = []; $variants = [];
+        foreach ( $candidates as $candidate ) {
+            $candidate = trim( $candidate );
+            if ( $candidate === '' || isset( $seen[ $candidate ] ) ) { continue; }
+            $seen[ $candidate ] = true;
+            $variants[] = $candidate;
+            if ( count( $variants ) >= self::AUDIT_MAX_HANDLE_VARIANTS ) { break; }
+        }
+        if ( empty( $variants ) ) { return ''; }
+        $quoted = array_map( static fn( string $v ): string => '"' . $v . '"', $variants );
+        return implode( ' OR ', $quoted );
+    }
+
+    /**
+     * build_handle_seeds() with AUDIT_SEED_CAP instead of 5.
+     *
+     * @param  array[]  $successful
+     * @param  string   $model_name
+     * @return array<int,array{handle:string,source_platform:string,source_url:string}>
+     */
+    protected function build_handle_seeds_audit( array $successful, string $model_name ): array {
+        usort( $successful, static function ( array $a, array $b ): int {
+            $pa = PlatformRegistry::get( (string) ( $a['normalized_platform'] ?? '' ) );
+            $pb = PlatformRegistry::get( (string) ( $b['normalized_platform'] ?? '' ) );
+            return (int) ( $pa['priority'] ?? 999 ) <=> (int) ( $pb['priority'] ?? 999 );
+        } );
+        $seeds = []; $seen = [];
+        foreach ( $successful as $candidate ) {
+            if ( count( $seeds ) >= self::AUDIT_SEED_CAP ) { break; }
+            $handle  = trim( (string) ( $candidate['username'] ?? '' ) );
+            $slug    = (string) ( $candidate['normalized_platform'] ?? '' );
+            $src_url = (string) ( $candidate['source_url'] ?? '' );
+            if ( $handle === '' || $slug === '' ) { continue; }
+            if ( isset( $seen[ strtolower( $handle ) ] ) ) { continue; }
+            $seen[ strtolower( $handle ) ] = true;
+            $seeds[] = [ 'handle' => $handle, 'source_platform' => $slug, 'source_url' => $src_url ];
+        }
+        $name_clean = (string) preg_replace( '/[^A-Za-z0-9]/', '', $model_name );
+        if ( $name_clean !== '' && ! isset( $seen[ strtolower( $name_clean ) ] ) && count( $seeds ) < self::AUDIT_SEED_CAP ) {
+            $seeds[] = [ 'handle' => $name_clean, 'source_platform' => 'name_derived', 'source_url' => '' ];
+        }
+        return $seeds;
+    }
+
+    /**
      * @param  array<int,array{query:string,family:string}> $queries
      * @return array{succeeded:int,failed:int,last_error:string|null,items:array[],query_stats:array[]}
      */
@@ -684,7 +824,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param  array[] $raw_items
      * @return array{items:array[],domain_counts:array<string,int>}
      */
-    private function merge_serp_items( array $raw_items ): array {
+    protected function merge_serp_items( array $raw_items ): array {
         $seen_keys      = [];
         $merged_items   = [];
         $domain_queries = [];
@@ -731,7 +871,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param string[] $probe_candidate_urls Probe-verified canonical URLs to inject into the candidate pool.
      * @param array<string,mixed> $probe_diagnostics Diagnostic data from the probe phase.
      */
-    private function parse_merged_items(
+    protected function parse_merged_items(
         string $model_name,
         array $merged,
         int $succeeded,
@@ -1704,7 +1844,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param  array[] $items  Merged SERP items (already deduplicated).
      * @return array[]
      */
-    private function extract_candidates_from_items( array $items ): array {
+    protected function extract_candidates_from_items( array $items ): array {
         $candidate_urls = [];
         foreach ( $items as $item ) {
             $url    = (string) ( $item['url'] ?? '' );
@@ -1798,7 +1938,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      * @param  int                 $post_id
      * @return array{items:array[],query_stats:array[],confirmation_log:array[]}
      */
-    private function run_confirmation_pass(
+    protected function run_confirmation_pass(
         array $seeds,
         array $already_confirmed,
         int $post_id
@@ -1869,7 +2009,7 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      *
      * @return array{stat:array<string,mixed>,items:array[]}
      */
-    private function run_single_confirmation_query(
+    protected function run_single_confirmation_query(
         string $query,
         string $handle,
         string $family,

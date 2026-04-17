@@ -428,6 +428,8 @@ class ModelHelper {
         // does not submit classic metabox POST data (mirrors PlatformProfiles pattern).
         add_action( 'enqueue_block_editor_assets',              [ __CLASS__, 'enqueue_editor_assets' ] );
         add_action( 'wp_ajax_tmwseo_save_model_research',       [ __CLASS__, 'ajax_save_model_research' ] );
+        // Full platform audit — synchronous exhaustive discovery
+        add_action( 'wp_ajax_tmwseo_run_full_audit',            [ __CLASS__, 'ajax_run_full_audit' ] );
         // WP-Cron hook — runs research in a completely independent PHP process
         add_action( 'tmwseo_bg_research_cron',              [ __CLASS__, 'run_research_now' ] );
 
@@ -522,6 +524,12 @@ class ModelHelper {
         echo '<button type="button" id="tmwseo-research-btn" class="button" style="margin-left:auto;">';
         echo esc_html__( 'Research Now', 'tmwseo' );
         echo '</button>';
+        // Full Audit: exhaustive search across all registered platforms
+        $audit_nonce = wp_create_nonce( 'tmwseo_full_audit_' . $post->ID );
+        echo '<button type="button" id="tmwseo-audit-btn" class="button" '
+             . 'style="margin-left:6px;" '
+             . 'title="' . esc_attr__( 'Exhaustively search all registered platforms. Slower but thorough — use for first-time research or when Research Now misses platforms.', 'tmwseo' ) . '">'
+             . '🔍 ' . esc_html__( 'Full Audit', 'tmwseo' ) . '</button>';
         echo '</div>';
 
         // ── Research Now: progress bar + synchronous XHR ──────────────────────
@@ -653,6 +661,33 @@ class ModelHelper {
         // NETWORK ERROR: server unreachable
         echo '  x.onerror=function(){clearInterval(barTimer);showError("Network error — the server did not respond.");};';
         echo '  x.send("action=tmwseo_trigger_research&post_id="+PID+"&nonce="+TRIG_N);';
+        echo '});}';
+
+        // ── Full Audit button click handler ───────────────────────────────────
+        echo 'var auditBtn=document.getElementById("tmwseo-audit-btn");';
+        echo 'var AUDIT_N="' . esc_js( $audit_nonce ) . '";';
+        echo 'if(auditBtn){auditBtn.addEventListener("click",function(){';
+        echo '  if(auditBtn.dataset.running)return;';
+        echo '  auditBtn.dataset.running="1";auditBtn.disabled=true;auditBtn.textContent="Running full audit…";';
+        echo '  if(box)box.style.display="block";';
+        echo '  if(errBox)errBox.style.display="none";';
+        echo '  if(staleNotice)staleNotice.style.display="none";';
+        echo '  if(sTxt)sTxt.textContent="Full audit — searching all platforms…";';
+        echo '  startBarAnimation();';
+        echo '  var ax=new XMLHttpRequest();ax.timeout=290000;';
+        echo '  ax.open("POST",AJAX,true);';
+        echo '  ax.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
+        echo '  ax.onload=function(){';
+        echo '    clearInterval(barTimer);';
+        echo '    try{var d=JSON.parse(ax.responseText);';
+        echo '      if(d.success&&d.data&&d.data.status&&d.data.status!=="queued"){silentReload();return;}';
+        echo '      var msg=d.data&&d.data.message?d.data.message:"Full audit failed — check server logs.";';
+        echo '      showError(msg);';
+        echo '    }catch(e){silentReload();}';
+        echo '  };';
+        echo '  ax.ontimeout=function(){clearInterval(barTimer);if(sTxt)sTxt.textContent="Timed out — reload to check if results were saved.";};';
+        echo '  ax.onerror=function(){clearInterval(barTimer);showError("Network error.");auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;};';
+        echo '  ax.send("action=tmwseo_run_full_audit&post_id="+PID+"&nonce="+AUDIT_N);';
         echo '});}';
 
         echo '})();';
@@ -1751,6 +1786,79 @@ class ModelHelper {
         $redirect = get_edit_post_link( $post_id, 'url' );
         wp_safe_redirect( $redirect . '#tmwseo_model_research' );
         exit;
+    }
+
+    /**
+     * Full-audit AJAX handler.
+     *
+     * Runs ModelFullAuditProvider synchronously — same pattern as
+     * ajax_trigger_research() but using the exhaustive audit provider.
+     * Force-clears any stale research lock before running.
+     */
+    public static function ajax_run_full_audit(): void {
+        $post_id = (int) ( $_POST['post_id'] ?? 0 );
+        $nonce   = sanitize_text_field( wp_unslash( (string) ( $_POST['nonce'] ?? '' ) ) );
+
+        if ( $post_id <= 0 || ! wp_verify_nonce( $nonce, 'tmwseo_full_audit_' . $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
+        }
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
+        }
+
+        @set_time_limit( 300 );
+
+        // Force-release any stale lock (same safety as ajax_trigger_research).
+        self::release_research_lock( $post_id );
+        update_post_meta( $post_id, self::META_STATUS, 'queued' );
+
+        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: starting', [
+            'post_id' => $post_id,
+        ] );
+
+        if ( ! class_exists( '\\TMWSEO\\Engine\\Model\\ModelFullAuditProvider' ) ) {
+            require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-full-audit-provider.php';
+        }
+
+        // Run the pipeline with the full-audit provider.
+        // We wrap it in a fresh pipeline call so it goes through
+        // ModelResearchPipeline::merge_results() + ModelHelper::run_research_now()
+        // persistence exactly like a normal research run.
+        $provider = \TMWSEO\Engine\Model\ModelFullAuditProvider::make();
+        $result   = $provider->lookup( $post_id, get_the_title( $post_id ) );
+
+        if ( empty( $result ) || ( $result['status'] ?? '' ) === 'error' ) {
+            update_post_meta( $post_id, self::META_STATUS, 'error' );
+            wp_send_json_error( [
+                'status'  => 'error',
+                'message' => (string) ( $result['message'] ?? 'Full audit failed.' ),
+            ] );
+        }
+
+        // Persist the result via the same storage path as run_research_now().
+        $pipeline_result = [
+            'pipeline_status'  => ( $result['status'] ?? '' ) === 'no_provider' ? 'no_provider' : 'ok',
+            'provider_results' => [ 'full_audit' => $result ],
+            'merged'           => $result,
+        ];
+
+        $encoded = wp_json_encode( $pipeline_result );
+        if ( $encoded !== false && $encoded !== '' ) {
+            update_post_meta( $post_id, self::META_PROPOSED, wp_slash( $encoded ) );
+        }
+        update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+        update_post_meta( $post_id, self::META_STATUS, 'researched' );
+
+        self::release_research_lock( $post_id );
+
+        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: complete', [
+            'post_id'    => $post_id,
+            'status'     => $result['status'] ?? 'unknown',
+            'platforms'  => count( $result['platform_names'] ?? [] ),
+            'confidence' => $result['confidence'] ?? 0,
+        ] );
+
+        wp_send_json_success( [ 'status' => 'researched' ] );
     }
 
     /**
