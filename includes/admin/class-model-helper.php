@@ -513,67 +513,143 @@ class ModelHelper {
         echo '</a>';
         echo '</div>';
 
-        // ── Background research status poller ───────────────────────────────
-        // Renders only when research is actively running (status=queued) or was
-        // just triggered. Uses silent AJAX polling instead of location.reload()
-        // so Gutenberg's "Reload site?" beforeunload dialog never appears.
+        // ── Background research status poller — progress bar edition ──────────
+        // Polls admin-ajax.php every 4 s. Shows a CSS progress bar that fills
+        // over the expected research window (~90 s). Hard-stops at 5 min to prevent
+        // any possibility of an infinite loop. Never calls location.reload().
         if ( $status === 'queued' || isset( $_GET['tmwseo_research_queued'] ) ) {
-            $notice_style = $status === 'queued'
-                ? 'notice notice-info inline'
-                : 'notice notice-success inline';
-            $notice_icon  = $status === 'queued' ? '⏳' : '✅';
-            $notice_text  = $status === 'queued'
-                ? esc_html__( 'Research is running in the background. Results will appear automatically — no need to refresh.', 'tmwseo' )
-                : esc_html__( 'Research started. Results will appear automatically — no need to refresh.', 'tmwseo' );
+            $ajax_url    = esc_url( admin_url( 'admin-ajax.php' ) );
+            $poll_nonce  = wp_create_nonce( 'tmwseo_status_poll_' . $post->ID );
+            $run_nonce   = wp_nonce_url(
+                admin_url( 'admin-post.php?action=tmwseo_run_model_research&post_id=' . $post->ID ),
+                'tmwseo_run_research_' . $post->ID
+            );
+            $post_id_js  = (int) $post->ID;
 
-            echo '<div id="tmwseo-research-polling-notice" class="' . esc_attr( $notice_style ) . '" style="margin:0 0 12px;">';
-            echo '<p>' . $notice_icon . ' <strong>' . esc_html__( 'Research in progress…', 'tmwseo' ) . '</strong> ';
-            echo $notice_text;
-            echo ' <span id="tmwseo-poll-dots" style="font-family:monospace;letter-spacing:2px;"></span>';
-            echo '</p></div>';
+            echo '<div id="tmwseo-poll-box" style="margin:0 0 14px;border:1px solid #aed6f1;border-radius:4px;background:#ebf5fb;padding:10px 14px;">';
 
-            // Inline JS poller — polls admin-ajax.php every 4 s, max 90 attempts.
-            // When status leaves 'queued', silently nulls the Gutenberg beforeunload
-            // guard and reloads. Self-terminates after max attempts so it can never
-            // loop forever.
-            $ajax_url = esc_url( admin_url( 'admin-ajax.php' ) );
-            $poll_nonce = wp_create_nonce( 'tmwseo_status_poll_' . $post->ID );
-            $post_id_js = (int) $post->ID;
+            // Header row
+            echo '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+            echo '<span style="font-size:18px;">🔬</span>';
+            echo '<strong style="color:#1a5276;">' . esc_html__( 'Research in progress…', 'tmwseo' ) . '</strong>';
+            echo '<span id="tmwseo-poll-status-text" style="font-size:12px;color:#555;margin-left:4px;">';
+            echo esc_html__( 'Starting up', 'tmwseo' );
+            echo '</span>';
+            echo '<span id="tmwseo-poll-eta"  style="font-size:11px;color:#888;margin-left:auto;"></span>';
+            echo '</div>';
+
+            // Progress bar track
+            echo '<div style="background:#d6eaf8;border-radius:20px;height:14px;overflow:hidden;position:relative;">';
+            echo '<div id="tmwseo-poll-bar" style="'
+                . 'height:100%;width:0%;border-radius:20px;'
+                . 'background:linear-gradient(90deg,#2980b9,#27ae60);'
+                . 'transition:width 0.8s ease;'
+                . '"></div>';
+            // Animated shimmer overlay
+            echo '<div style="'
+                . 'position:absolute;top:0;left:0;right:0;bottom:0;'
+                . 'background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.35) 50%,transparent 100%);'
+                . 'animation:tmwseo-shimmer 1.6s infinite;'
+                . '"></div>';
+            echo '</div>';
+
+            // Sub-text
+            echo '<div style="margin-top:5px;font-size:11px;color:#555;">';
+            echo esc_html__( 'Searching platforms, extracting profiles, merging results. This page will update automatically when done.', 'tmwseo' );
+            echo '</div>';
+
+            // Fallback button (hidden, shown if research appears stuck)
+            echo '<div id="tmwseo-poll-stuck" style="display:none;margin-top:8px;">';
+            echo '<span style="font-size:12px;color:#856404;">⚠ ';
+            echo esc_html__( 'The background process seems stuck. This can happen on some server configurations. Click below to run research directly:', 'tmwseo' );
+            echo '</span><br>';
+            echo '<a id="tmwseo-poll-fallback-btn" href="' . esc_url( $run_nonce ) . '" class="button button-small" style="margin-top:4px;font-size:12px;">';
+            echo esc_html__( '▶ Run Research Now (foreground)', 'tmwseo' );
+            echo '</a>';
+            echo '</div>';
+
+            echo '</div>'; // end poll-box
+
+            // Shimmer keyframes
+            echo '<style>';
+            echo '@keyframes tmwseo-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}';
+            echo '</style>';
             echo '<script>';
+            // Constants
+            // Expected research time ≈ 90 s → bar reaches 90% at that point.
+            // Hard stop at 75 polls × 4 s = 300 s = 5 minutes.
             echo '(function(){';
-            echo '  var attempts=0,maxAttempts=90,interval=4000;';
-            echo '  var dots=document.getElementById("tmwseo-poll-dots");';
-            echo '  var dotStr="";';
-            echo '  var timer=setInterval(function(){';
-            echo '    attempts++;';
-            echo '    dotStr=(dotStr.length>=3)?"":dotStr+".";';
-            echo '    if(dots)dots.textContent=dotStr;';
-            echo '    if(attempts>=maxAttempts){';  // safety cap — never loops forever
-            echo '      clearInterval(timer);';
-            echo '      var n=document.getElementById("tmwseo-research-polling-notice");';
-            echo '      if(n)n.innerHTML="<p>⚠ Research is taking longer than expected. Please refresh manually.</p>";';
-            echo '      return;';
-            echo '    }';
-            echo '    var xhr=new XMLHttpRequest();';
-            echo '    xhr.open("POST","' . $ajax_url . '",true);';
-            echo '    xhr.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
-            echo '    xhr.onreadystatechange=function(){';
-            echo '      if(xhr.readyState!==4)return;';
-            echo '      try{';
-            echo '        var d=JSON.parse(xhr.responseText);';
-            echo '        if(d.success&&d.data&&d.data.status!=="queued"){';
-            echo '          clearInterval(timer);';
-            // Null Gutenberg's beforeunload so no "Reload site?" dialog
-            echo '          window.onbeforeunload=null;';
-            echo '          if(window.wp&&wp.data){';
-            echo '            try{wp.data.dispatch("core/editor").resetPost();}catch(e){}';
-            echo '          }';
-            echo '          location.replace(location.href.replace(/[?&]tmwseo_research_queued=1/,""));';
-            echo '        }';
-            echo '      }catch(e){}';
-            echo '    };';
-            echo '    xhr.send("action=tmwseo_research_status_poll&post_id=' . $post_id_js . '&nonce=' . esc_js( $poll_nonce ) . '");';
-            echo '  },interval);';
+            echo 'var AJAX_URL="' . $ajax_url . '";';
+            echo 'var NONCE="'    . esc_js( $poll_nonce ) . '";';
+            echo 'var POST_ID='   . $post_id_js . ';';
+            echo 'var EXPECTED_MS=90000;';   // 90 s expected window for bar 0→90%
+            echo 'var HARD_STOP=75;';        // 75 × 4 s = 5 min absolute ceiling
+            echo 'var INTERVAL=4000;';
+            echo 'var attempts=0;';
+            echo 'var startMs=Date.now();';
+            echo 'var bar=document.getElementById("tmwseo-poll-bar");';
+            echo 'var statusTxt=document.getElementById("tmwseo-poll-status-text");';
+            echo 'var etaTxt=document.getElementById("tmwseo-poll-eta");';
+            echo 'var stuckBox=document.getElementById("tmwseo-poll-stuck");';
+            echo 'var phases=["Querying search engines…","Probing platform profiles…","Extracting usernames…","Merging results…","Finalising data…"];';
+
+            echo 'function setBar(pct){if(bar)bar.style.width=Math.min(pct,100)+"%";}';
+            echo 'function elapsed(){return Date.now()-startMs;}';
+            echo 'function silentReload(){';
+            echo '  setBar(100);';
+            echo '  if(statusTxt)statusTxt.textContent="Done! Loading results…";';
+            echo '  if(etaTxt)etaTxt.textContent="";';
+            echo '  window.onbeforeunload=null;';
+            echo '  if(window.wp&&wp.data){try{wp.data.dispatch("core/editor").resetPost();}catch(e){}}';
+            echo '  setTimeout(function(){location.replace(location.href.replace(/[?&]tmwseo_research_queued=1/,""));},600);';
+            echo '}';
+
+            echo 'var timer=setInterval(function(){';
+            echo '  attempts++;';
+
+            // Progress bar: grows 0→90% over EXPECTED_MS, then creeps toward 98%
+            echo '  var el=elapsed();';
+            echo '  var pct;';
+            echo '  if(el<EXPECTED_MS){pct=Math.round((el/EXPECTED_MS)*90);}';
+            echo '  else{pct=90+Math.min(8,Math.round(((el-EXPECTED_MS)/60000)*4));}'; // creep +4%/min after expected
+            echo '  setBar(pct);';
+
+            // Status phrase cycles through phases list
+            echo '  if(statusTxt)statusTxt.textContent=phases[Math.min(Math.floor(attempts/3),phases.length-1)];';
+
+            // ETA display
+            echo '  var secEl=Math.round(el/1000);';
+            echo '  if(etaTxt)etaTxt.textContent=secEl+"s elapsed";';
+
+            // Show "stuck" fallback after 3 minutes
+            echo '  if(attempts===45&&stuckBox){stuckBox.style.display="block";}';
+
+            // Hard stop at HARD_STOP attempts — cannot loop forever
+            echo '  if(attempts>=HARD_STOP){';
+            echo '    clearInterval(timer);';
+            echo '    setBar(99);';
+            echo '    if(statusTxt)statusTxt.textContent="Timed out — please use the fallback button above.";';
+            echo '    if(etaTxt)etaTxt.textContent="";';
+            echo '    if(stuckBox)stuckBox.style.display="block";';
+            echo '    return;';
+            echo '  }';
+
+            // AJAX status poll
+            echo '  var xhr=new XMLHttpRequest();';
+            echo '  xhr.open("POST",AJAX_URL,true);';
+            echo '  xhr.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
+            echo '  xhr.onreadystatechange=function(){';
+            echo '    if(xhr.readyState!==4)return;';
+            echo '    try{';
+            echo '      var d=JSON.parse(xhr.responseText);';
+            echo '      if(d.success&&d.data&&d.data.status!=="queued"){';
+            echo '        clearInterval(timer);';
+            echo '        silentReload();';
+            echo '      }';
+            echo '    }catch(e){}';
+            echo '  };';
+            echo '  xhr.send("action=tmwseo_research_status_poll&post_id="+POST_ID+"&nonce="+NONCE);';
+            echo '},INTERVAL);';
             echo '})();';
             echo '</script>';
         }
