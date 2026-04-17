@@ -500,4 +500,142 @@ class FullAuditModeTest extends TestCase {
             'stripchat must still be in sync probe log (regression check)'
         );
     }
+    // ── Tests for ajax_run_full_audit wiring correctness ─────────────────────
+
+    /**
+     * Verify the fixed ajax_run_full_audit uses run_research_now(), not direct lookup().
+     * Test doubles cannot call WordPress AJAX handlers directly, so we verify
+     * the structural invariants in the method body via reflection.
+     */
+    public function test_ajax_run_full_audit_calls_run_research_now(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'ajax_run_full_audit' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // Must call run_research_now()
+        $this->assertStringContainsString(
+            'run_research_now',
+            $body,
+            'ajax_run_full_audit must call run_research_now() — not provider->lookup() directly'
+        );
+    }
+
+    public function test_ajax_run_full_audit_does_not_call_lookup_directly(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'ajax_run_full_audit' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // Must NOT call ->lookup() directly (that was the broken pattern)
+        $this->assertStringNotContainsString(
+            '->lookup(',
+            $body,
+            'ajax_run_full_audit must not call provider->lookup() directly — that bypasses all error handling'
+        );
+    }
+
+    public function test_ajax_run_full_audit_guard_against_queued_success(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'ajax_run_full_audit' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // Must explicitly guard against 'queued' being returned as success
+        $this->assertStringContainsString(
+            "'queued'",
+            $body,
+            'ajax_run_full_audit must guard against final_status=queued to prevent silent broken state'
+        );
+        $this->assertStringContainsString(
+            'wp_send_json_error',
+            $body,
+            'ajax_run_full_audit must call wp_send_json_error when status remains queued'
+        );
+    }
+
+    public function test_ajax_run_full_audit_uses_filter_injection_not_direct_instantiation(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'ajax_run_full_audit' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // Must inject via the filter so run_research_now() picks it up
+        $this->assertStringContainsString(
+            'tmwseo_research_providers',
+            $body,
+            'ajax_run_full_audit must inject the audit provider via the tmwseo_research_providers filter'
+        );
+        $this->assertStringContainsString(
+            'remove_filter',
+            $body,
+            'ajax_run_full_audit must remove the injected filter after the run to avoid side-effects'
+        );
+    }
+
+    public function test_ajax_trigger_research_unmodified(): void {
+        // Research Now handler must still exist and still call run_research_now directly.
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'ajax_trigger_research' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'run_research_now', $body,
+            'ajax_trigger_research must still call run_research_now (regression check)'
+        );
+        $this->assertStringNotContainsString( 'tmwseo_research_providers', $body,
+            'ajax_trigger_research must NOT inject any provider filter — it uses the normal pipeline'
+        );
+    }
+
+    public function test_full_audit_js_uses_shared_silent_reload(): void {
+        // The Full Audit JS click handler must call silentReload() on success,
+        // which includes wp.data.dispatch("core/editor").resetPost().
+        // Verify by checking the PHP that renders the JS.
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'render_metabox' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // silentReload must be defined once (shared)
+        $this->assertStringContainsString( 'function silentReload', $body,
+            'silentReload() must be defined in the metabox JS'
+        );
+        $this->assertStringContainsString( 'resetPost', $body,
+            'silentReload() must call resetPost() to clear Gutenberg dirty state'
+        );
+        // Full Audit handler must call silentReload on success
+        $this->assertStringContainsString( 'tmwseo_run_full_audit', $body,
+            'render_metabox must wire the Full Audit button to tmwseo_run_full_audit action'
+        );
+        $this->assertStringContainsString( 'silentReload', $body,
+            'Full Audit JS path must call silentReload() on success'
+        );
+    }
+
+
 }

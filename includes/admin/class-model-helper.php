@@ -1808,57 +1808,82 @@ class ModelHelper {
 
         @set_time_limit( 300 );
 
-        // Force-release any stale lock (same safety as ajax_trigger_research).
-        self::release_research_lock( $post_id );
-        update_post_meta( $post_id, self::META_STATUS, 'queued' );
-
-        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: starting', [
-            'post_id' => $post_id,
-        ] );
+        // ── Execution strategy ────────────────────────────────────────────────
+        // We reuse run_research_now() — the proven, tested execution path.
+        // It owns lock acquire/release, try/catch/finally, META_PROPOSED writing,
+        // META_STATUS updates, and round-trip JSON validation.
+        // Bypassing it (calling provider->lookup() directly) reintroduces all the
+        // bugs that path fixed: unhandled exceptions leave status='queued', no
+        // lock cleanup, no round-trip validation, no consistent error handling.
+        //
+        // The full-audit provider is temporarily injected via the filter so
+        // ModelResearchPipeline::run() picks it up instead of the normal providers.
+        // The filter is removed immediately after the run to leave no side-effects.
 
         if ( ! class_exists( '\\TMWSEO\\Engine\\Model\\ModelFullAuditProvider' ) ) {
             require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-full-audit-provider.php';
         }
 
-        // Run the pipeline with the full-audit provider.
-        // We wrap it in a fresh pipeline call so it goes through
-        // ModelResearchPipeline::merge_results() + ModelHelper::run_research_now()
-        // persistence exactly like a normal research run.
-        $provider = \TMWSEO\Engine\Model\ModelFullAuditProvider::make();
-        $result   = $provider->lookup( $post_id, get_the_title( $post_id ) );
+        // Force-clear any stale lock so run_research_now() can acquire it.
+        self::release_research_lock( $post_id );
 
-        if ( empty( $result ) || ( $result['status'] ?? '' ) === 'error' ) {
-            update_post_meta( $post_id, self::META_STATUS, 'error' );
+        // Reset the provider singleton so the filter change is picked up.
+        // (ModelResearchPipeline caches its provider list after the first call.)
+        if ( class_exists( '\\TMWSEO\\Engine\\Admin\\ModelResearchPipeline' ) ) {
+            // Reset the cached provider list via reflection so the injected
+            // full-audit provider is loaded fresh.
+            try {
+                $ref  = new \ReflectionClass( '\TMWSEO\Engine\Admin\ModelResearchPipeline' );
+                $prop = $ref->getProperty( 'providers' );
+                $prop->setAccessible( true );
+                $prop->setValue( null, null );
+            } catch ( \Throwable $ignored ) {}
+        }
+
+        // Register the full-audit provider as the ONLY provider for this run.
+        // Priority 1 ensures it fires before any real-provider auto-registrations.
+        $inject_callback = static function ( array $providers ): array {
+            return [ \TMWSEO\Engine\Model\ModelFullAuditProvider::make() ];
+        };
+        add_filter( 'tmwseo_research_providers', $inject_callback, 1 );
+
+        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: running via run_research_now()', [
+            'post_id' => $post_id,
+        ] );
+
+        // run_research_now() handles everything: lock, try/catch/finally,
+        // META_PROPOSED, META_STATUS, round-trip validation.
+        self::run_research_now( $post_id );
+
+        // Clean up: remove injected provider and reset cache so subsequent
+        // Research Now calls use the normal provider list.
+        remove_filter( 'tmwseo_research_providers', $inject_callback, 1 );
+        try {
+            $ref  = new \ReflectionClass( '\TMWSEO\Engine\Admin\ModelResearchPipeline' );
+            $prop = $ref->getProperty( 'providers' );
+            $prop->setAccessible( true );
+            $prop->setValue( null, null );
+        } catch ( \Throwable $ignored ) {}
+
+        // Read back the status written by run_research_now().
+        $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+
+        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: complete', [
+            'post_id'      => $post_id,
+            'final_status' => $final_status,
+        ] );
+
+        // Never return 'queued' as success — that is the broken state we're fixing.
+        // If status is still queued after run_research_now(), something silently
+        // failed (exception swallowed, lock blocked, etc.). Report it honestly.
+        if ( $final_status === 'queued' || $final_status === '' ) {
             wp_send_json_error( [
                 'status'  => 'error',
-                'message' => (string) ( $result['message'] ?? 'Full audit failed.' ),
+                'message' => 'Full audit completed without updating status — check server logs for [TMW-RESEARCH] entries.',
             ] );
         }
 
-        // Persist the result via the same storage path as run_research_now().
-        $pipeline_result = [
-            'pipeline_status'  => ( $result['status'] ?? '' ) === 'no_provider' ? 'no_provider' : 'ok',
-            'provider_results' => [ 'full_audit' => $result ],
-            'merged'           => $result,
-        ];
-
-        $encoded = wp_json_encode( $pipeline_result );
-        if ( $encoded !== false && $encoded !== '' ) {
-            update_post_meta( $post_id, self::META_PROPOSED, wp_slash( $encoded ) );
-        }
-        update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
-        update_post_meta( $post_id, self::META_STATUS, 'researched' );
-
-        self::release_research_lock( $post_id );
-
-        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: complete', [
-            'post_id'    => $post_id,
-            'status'     => $result['status'] ?? 'unknown',
-            'platforms'  => count( $result['platform_names'] ?? [] ),
-            'confidence' => $result['confidence'] ?? 0,
-        ] );
-
-        wp_send_json_success( [ 'status' => 'researched' ] );
+        wp_send_json_success( [ 'status' => $final_status ] );
     }
 
     /**
