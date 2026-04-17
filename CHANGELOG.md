@@ -44,7 +44,7 @@
   `class-model-full-audit-provider.php` so `FullAuditModeTest.php` can
   parse. Previously the test double (`TestableFullAuditProvider`) failed
   at parse time with `Class not found`.
-- Version rollback alignment finalized at **`5.0.1`** (from `5.0.2`) across plugin header, constant, README metadata, PHPUnit activation assertions, and bootstrap stubs.
+- Version rollback alignment finalized at **`5.0.1`** across plugin header, constant, README metadata, PHPUnit activation assertions, and bootstrap stubs.
 
 ---
 
