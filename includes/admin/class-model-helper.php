@@ -520,17 +520,18 @@ class ModelHelper {
         echo '</button>';
         echo '</div>';
 
-        // ── Research trigger button + progress bar poller ─────────────────────
-        // Renders the progress bar div always (hidden by default so it works for
-        // both fresh pages and pages where status is already 'queued'). The button
-        // fires tmwseo_trigger_research via XHR directly from the browser — no
-        // server-to-server loopback, works behind Cloudflare.
+        // ── Research trigger button + progress bar (synchronous XHR model) ──────
+        // The button fires ajax_trigger_research and WAITS for the response.
+        // Research runs synchronously on the server (~90-180 s).
+        // The progress bar animates locally — no polling needed while XHR is live.
+        // Polling only activates if the page already shows status=queued on load
+        // (covers: page reload while research runs in another tab/window).
         $ajax_url    = esc_url( admin_url( 'admin-ajax.php' ) );
         $poll_nonce  = wp_create_nonce( 'tmwseo_status_poll_' . $post->ID );
         $post_id_js  = (int) $post->ID;
-        $already_queued = ( $status === 'queued' || isset( $_GET['tmwseo_research_queued'] ) );
+        $already_queued = ( $status === 'queued' );
 
-        // Progress-bar widget (hidden until research is triggered or already running)
+        // Progress-bar widget (hidden until triggered or already running)
         $box_style = $already_queued ? 'display:block;' : 'display:none;';
         echo '<div id="tmwseo-poll-box" style="' . $box_style . 'margin:0 0 14px;border:1px solid #aed6f1;border-radius:4px;background:#ebf5fb;padding:10px 14px;">';
         echo '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
@@ -544,100 +545,111 @@ class ModelHelper {
         echo '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.35) 50%,transparent 100%);animation:tmwseo-shimmer 1.6s infinite;"></div>';
         echo '</div>';
         echo '<div style="margin-top:5px;font-size:11px;color:#555;">' . esc_html__( 'Searching platforms, extracting profiles, merging results. This page will update automatically when done.', 'tmwseo' ) . '</div>';
-        // Stuck-detection fallback (shown after 3 min if background still running)
-        echo '<div id="tmwseo-poll-stuck" style="display:none;margin-top:8px;">';
-        echo '<span style="font-size:12px;color:#856404;">⚠ ' . esc_html__( 'Still running — if this takes much longer, something may be wrong with the background process.', 'tmwseo' ) . '</span>';
+        echo '<div id="tmwseo-poll-stuck" style="display:none;margin-top:8px;font-size:12px;color:#856404;">⚠ ';
+        echo esc_html__( 'Taking longer than expected. If this persists past 3 minutes, add a Cloudflare Page Rule to disable proxying for /wp-admin/admin-ajax.php.', 'tmwseo' );
         echo '</div>';
         echo '</div>';
-
         echo '<style>@keyframes tmwseo-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}</style>';
 
         echo '<script>';
         echo '(function(){';
-        echo 'var AJAX="'        . $ajax_url . '";';
-        echo 'var POLL_N="'      . esc_js( $poll_nonce ) . '";';
-        echo 'var TRIG_N="'      . esc_js( $trigger_nonce ) . '";';
-        echo 'var PID='          . $post_id_js . ';';
-        echo 'var ALREADY='      . ( $already_queued ? 'true' : 'false' ) . ';';
-        echo 'var EXPECTED=90000,HARD_STOP=75,INTERVAL=4000;';
-        echo 'var attempts=0,timer=null,startMs=0;';
-        echo 'var phases=["Querying search engines…","Probing platform profiles…","Extracting usernames…","Merging results…","Finalising data…"];';
+        echo 'var AJAX="'    . $ajax_url . '";';
+        echo 'var POLL_N="'  . esc_js( $poll_nonce ) . '";';
+        echo 'var TRIG_N="'  . esc_js( $trigger_nonce ) . '";';
+        echo 'var PID='      . $post_id_js . ';';
+        echo 'var QUEUED='   . ( $already_queued ? 'true' : 'false' ) . ';';
+        echo 'var EXPECTED=90000;'; // 90 s = expected pipeline time
         echo 'var bar=document.getElementById("tmwseo-poll-bar");';
         echo 'var sTxt=document.getElementById("tmwseo-poll-status-text");';
         echo 'var etaTxt=document.getElementById("tmwseo-poll-eta");';
         echo 'var box=document.getElementById("tmwseo-poll-box");';
         echo 'var stuck=document.getElementById("tmwseo-poll-stuck");';
         echo 'var btn=document.getElementById("tmwseo-research-btn");';
+        echo 'var phases=["Querying search engines…","Probing platform profiles…","Extracting usernames…","Merging results…","Finalising data…"];';
+        echo 'var barTimer=null,startMs=0;';
 
         echo 'function setBar(p){if(bar)bar.style.width=Math.min(p,100)+"%";}';
+
+        // silentReload — kills Gutenberg's beforeunload, then reloads
         echo 'function silentReload(){';
-        echo '  setBar(100);';
-        echo '  if(sTxt)sTxt.textContent="Done! Loading results…";';
-        echo '  if(etaTxt)etaTxt.textContent="";';
+        echo '  setBar(100);if(sTxt)sTxt.textContent="Done! Loading results…";';
         echo '  window.onbeforeunload=null;';
         echo '  if(window.wp&&wp.data){try{wp.data.dispatch("core/editor").resetPost();}catch(e){}}';
         echo '  setTimeout(function(){location.replace(location.href.replace(/[?&]tmwseo_research_queued=1/,""));},600);';
         echo '}';
 
-        echo 'function startPoller(){';
-        echo '  startMs=Date.now();attempts=0;';
-        echo '  timer=setInterval(function(){';
-        echo '    attempts++;';
+        // startBarAnimation — drives the local progress bar while XHR is in-flight
+        echo 'function startBarAnimation(){';
+        echo '  startMs=Date.now();var phase=0;';
+        echo '  barTimer=setInterval(function(){';
         echo '    var el=Date.now()-startMs;';
-        // Progress bar: 0→90% over EXPECTED ms, then creeps
         echo '    var pct=el<EXPECTED?Math.round((el/EXPECTED)*90):90+Math.min(8,Math.round(((el-EXPECTED)/60000)*4));';
         echo '    setBar(pct);';
-        echo '    if(sTxt)sTxt.textContent=phases[Math.min(Math.floor(attempts/3),phases.length-1)];';
+        echo '    var pi=Math.min(Math.floor(el/18000),phases.length-1);'; // advance phase every 18s
+        echo '    if(sTxt)sTxt.textContent=phases[pi];';
         echo '    if(etaTxt)etaTxt.textContent=Math.round(el/1000)+"s elapsed";';
-        // Show stuck notice after 3 min (45 × 4s)
-        echo '    if(attempts===45&&stuck){stuck.style.display="block";}';
-        // Hard stop at 5 min
-        echo '    if(attempts>=HARD_STOP){';
-        echo '      clearInterval(timer);';
-        echo '      setBar(99);';
-        echo '      if(sTxt)sTxt.textContent="Timed out.";';
-        echo '      if(stuck)stuck.style.display="block";';
-        echo '      return;';
-        echo '    }';
-        // Poll status
+        echo '    if(el>180000&&stuck)stuck.style.display="block";'; // show hint after 3 min
+        echo '  },1000);';
+        echo '}';
+
+        // ── POLLING PATH: only used when page loads with status already=queued ──
+        // (e.g. another tab triggered research, user reloads this page)
+        echo 'if(QUEUED){';
+        echo '  if(box)box.style.display="block";';
+        echo '  startBarAnimation();';
+        // Poll every 4s. Stop when status changes.
+        echo '  var pollTimer=setInterval(function(){';
         echo '    var x=new XMLHttpRequest();';
         echo '    x.open("POST",AJAX,true);';
         echo '    x.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
         echo '    x.onreadystatechange=function(){';
         echo '      if(x.readyState!==4)return;';
         echo '      try{var d=JSON.parse(x.responseText);';
-        echo '        if(d.success&&d.data&&d.data.status!=="queued"){clearInterval(timer);silentReload();}';
+        echo '        if(d.success&&d.data&&d.data.status!=="queued"){clearInterval(pollTimer);clearInterval(barTimer);silentReload();}';
         echo '      }catch(e){}';
         echo '    };';
         echo '    x.send("action=tmwseo_research_status_poll&post_id="+PID+"&nonce="+POLL_N);';
-        echo '  },INTERVAL);';
+        echo '  },4000);';
         echo '}';
 
-        // If already queued on page load, start polling immediately
-        echo 'if(ALREADY){if(box)box.style.display="block";startPoller();}';
-
-        // Button click handler — fires research directly from the browser
+        // ── BUTTON CLICK PATH: synchronous XHR — waits for research to complete ──
         echo 'if(btn){btn.addEventListener("click",function(){';
-        echo '  if(btn.dataset.running)return;';  // prevent double-click
-        echo '  btn.dataset.running="1";';
-        echo '  btn.disabled=true;btn.textContent="Starting…";';
-        echo '  if(box){box.style.display="block";}';
+        echo '  if(btn.dataset.running)return;';
+        echo '  btn.dataset.running="1";btn.disabled=true;btn.textContent="Running…";';
+        echo '  if(box)box.style.display="block";';
+        echo '  startBarAnimation();';
+        // XHR timeout = 290s (just under typical Cloudflare 300s proxy timeout)
         echo '  var x=new XMLHttpRequest();';
+        echo '  x.timeout=290000;';
         echo '  x.open("POST",AJAX,true);';
         echo '  x.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
-        // We do NOT wait for this response — the server closes the connection after
-        // marking 'queued' and before running research, so the XHR may time out or
-        // return quickly. Either way we start polling immediately.
-        echo '  x.onreadystatechange=function(){';
-        echo '    if(x.readyState===4){';
-        echo '      try{var d=JSON.parse(x.responseText);';
-        echo '        if(d.success&&d.data&&d.data.status==="done"){silentReload();return;}';
-        echo '      }catch(e){}';
-        echo '    }';
+        // On complete: read result and reload
+        echo '  x.onload=function(){';
+        echo '    clearInterval(barTimer);';
+        echo '    try{var d=JSON.parse(x.responseText);';
+        echo '      if(d.success){silentReload();return;}';
+        echo '    }catch(e){}';
+        echo '    // Unexpected response — still reload so user sees actual status';
+        echo '    silentReload();';
         echo '  };';
+        // On timeout: research likely still running (slow server) — start polling
+        echo '  x.ontimeout=function(){';
+        echo '    clearInterval(barTimer);';
+        echo '    if(sTxt)sTxt.textContent="Request timed out — checking status…";';
+        echo '    if(stuck)stuck.style.display="block";';
+        // Fall back to polling — maybe research is still running and will finish
+        echo '    var pt=setInterval(function(){';
+        echo '      var p=new XMLHttpRequest();p.open("POST",AJAX,true);';
+        echo '      p.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
+        echo '      p.onreadystatechange=function(){if(p.readyState!==4)return;';
+        echo '        try{var d=JSON.parse(p.responseText);';
+        echo '          if(d.success&&d.data&&d.data.status!=="queued"){clearInterval(pt);silentReload();}';
+        echo '        }catch(e){}};';
+        echo '      p.send("action=tmwseo_research_status_poll&post_id="+PID+"&nonce="+POLL_N);';
+        echo '    },4000);';
+        echo '  };';
+        echo '  x.onerror=function(){clearInterval(barTimer);if(sTxt)sTxt.textContent="Network error. Please try again.";btn.disabled=false;btn.textContent="Research Now";delete btn.dataset.running;};';
         echo '  x.send("action=tmwseo_trigger_research&post_id="+PID+"&nonce="+TRIG_N);';
-        // Start poller right away — don't wait for XHR response
-        echo '  startPoller();';
         echo '});}';
 
         echo '})();';
@@ -1652,35 +1664,37 @@ class ModelHelper {
             wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
         }
 
-        // Mark as queued so the poller sees activity immediately.
+        // ── Synchronous execution ────────────────────────────────────────────
+        // We run the pipeline in THIS request. No cron, no loopback, no background.
+        // Reason: every server-initiated background mechanism (WP-Cron spawn,
+        // loopback HTTP, fastcgi_finish_request) is blocked or unreliable behind
+        // Cloudflare + reverse-proxy stacks. The browser XHR can wait ~90-180 s
+        // without issue; Cloudflare's admin-ajax timeout is typically ≥100 s and
+        // can be raised with a single Page Rule on /wp-admin/admin-ajax.php.
+        //
+        // This is the "works everywhere" path. Bulk research (many models) still
+        // runs via the hourly WP-Cron queue processor if cron is working — only
+        // single-model interactive research uses this synchronous path.
+
+        @set_time_limit( 300 ); // Best-effort; hard limit is php.ini
+
         update_post_meta( $post_id, self::META_STATUS, 'queued' );
 
-        // Clear any stuck previous cron job for this post, then schedule a fresh one.
-        wp_clear_scheduled_hook( 'tmwseo_bg_research_cron', [ $post_id ] );
-        $scheduled = wp_schedule_single_event( time(), 'tmwseo_bg_research_cron', [ $post_id ] );
-
-        // Spawn cron NOW so it doesn't wait for the next organic page visit.
-        // This fires a non-blocking HTTP GET to /?doing_wp_cron which WordPress
-        // uses internally — it never has to reach back into the same connection.
-        $cron_url = add_query_arg(
-            'doing_wp_cron',
-            sprintf( '%.22F', microtime( true ) ),
-            site_url( '/' )
-        );
-        wp_remote_post( $cron_url, [
-            'timeout'   => 0.01,
-            'blocking'  => false,
-            'sslverify' => false,
-            'cookies'   => [],
+        Logs::info( 'model_research', '[TMW-RESEARCH] ajax_trigger_research: running synchronously', [
+            'post_id' => $post_id,
         ] );
 
-        Logs::info( 'model_research', '[TMW-RESEARCH] ajax_trigger_research: cron scheduled + spawned', [
-            'post_id'   => $post_id,
-            'scheduled' => $scheduled,
-            'cron_url'  => $cron_url,
+        self::run_research_now( $post_id );
+
+        // Read back the final status written by run_research_now
+        $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+
+        Logs::info( 'model_research', '[TMW-RESEARCH] ajax_trigger_research: complete', [
+            'post_id'      => $post_id,
+            'final_status' => $final_status,
         ] );
 
-        wp_send_json_success( [ 'status' => 'queued' ] );
+        wp_send_json_success( [ 'status' => $final_status ?: 'error' ] );
     }
 
     /**
