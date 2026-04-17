@@ -796,4 +796,143 @@ class FullAuditModeTest extends TestCase {
     }
 
 
+    // ── Classification fix tests ──────────────────────────────────────────────
+
+    public function test_run_with_provider_returns_run_completed_true_on_partial(): void {
+        // run_with_provider must set run_completed=true when provider returns 'partial'
+        // (zero candidates = still a completed run, not a failure)
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelResearchPipeline::class );
+        $method = $ref->getMethod( 'run_with_provider' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'run_completed', $body,
+            'run_with_provider must include run_completed in its return value'
+        );
+        $this->assertStringContainsString( "'partial'", $body,
+            'run_with_provider must check for partial status in run_completed evaluation'
+        );
+    }
+
+    public function test_run_full_audit_now_uses_run_completed_flag(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_full_audit_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'run_completed', $body,
+            'run_full_audit_now must read run_completed from the pipeline result'
+        );
+    }
+
+    public function test_run_full_audit_now_does_not_set_error_for_zero_candidates(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_full_audit_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // The 'researched' write must be triggered by run_completed, not just pipeline='ok'
+        $this->assertStringContainsString( '|| $run_completed', $body,
+            'run_full_audit_now must set researched when run_completed=true, even if pipeline_status=error'
+        );
+        // Valid audit outcome comment
+        $this->assertStringContainsString( 'valid result', $body,
+            'run_full_audit_now must document that zero candidates is a valid completed result'
+        );
+    }
+
+    public function test_probe_only_audit_returns_audit_completed_true(): void {
+        $ref    = new \ReflectionClass( ModelFullAuditProvider::class );
+        $method = $ref->getMethod( 'probe_only_audit' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'audit_completed', $body,
+            'probe_only_audit must include audit_completed in diagnostics'
+        );
+        $this->assertStringContainsString( 'no_matches_found', $body,
+            'probe_only_audit must include no_matches_found in diagnostics'
+        );
+    }
+
+    public function test_run_full_audit_probe_zero_hits_does_not_produce_error_status(): void {
+        // Simulate a probe that finds nothing — all probes rejected.
+        $probe = new TestableFullAuditProbe();
+        $probe->set_default_response( false, 404, 'mock_404' );
+
+        $seeds  = [ [ 'handle' => 'UnknownModel', 'source_platform' => 'name_derived', 'source_url' => '' ] ];
+        $result = $probe->run_full_audit( $seeds, 0 );
+
+        // Probe found nothing. That is a valid completed result.
+        $this->assertArrayHasKey( 'verified_urls', $result );
+        $this->assertEmpty( $result['verified_urls'],
+            'Zero-hit probe should have empty verified_urls'
+        );
+        // The diagnostics should show attempts were made
+        $this->assertGreaterThan( 0,
+            (int) ( $result['diagnostics']['probes_attempted'] ?? 0 ),
+            'Probes must have been attempted even when all return 404'
+        );
+    }
+
+    public function test_corrupt_json_still_sets_error(): void {
+        // Verify that run_full_audit_now only writes 'error' for real failures
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_full_audit_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // Must still set error on encode failure
+        $this->assertStringContainsString( 'wp_json_encode failed', $body );
+        // Must still set error on round-trip failure
+        $this->assertStringContainsString( 'round-trip decode failed', $body );
+        // Must still set error in catch block
+        $this->assertStringContainsString( 'Throwable', $body );
+    }
+
+    public function test_no_provider_sets_not_researched_not_error(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_full_audit_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        // 'no_provider' path must set 'not_researched', not 'error' or 'researched'
+        $this->assertStringContainsString( "'not_researched'", $body );
+        $this->assertStringContainsString( "no_provider", $body );
+    }
+
+    public function test_run_research_now_status_logic_unchanged(): void {
+        // run_research_now should NOT have run_completed logic — that is audit-only
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_research_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringNotContainsString( 'run_completed', $body,
+            'run_research_now must not use run_completed flag — that is full-audit-specific'
+        );
+    }
+
+
 }

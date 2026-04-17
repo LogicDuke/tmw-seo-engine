@@ -386,8 +386,11 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             static fn( $p ) => ( $p['status'] ?? '' ) === 'confirmed'
         ) );
 
+        $audit_completed  = true; // probe ran to completion (even zero hits)
+        $no_matches_found = empty( $verified );
+
         return [
-            'status'               => empty( $verified ) ? 'partial' : 'ok',
+            'status'               => $no_matches_found ? 'partial' : 'ok',
             'display_name'         => $model_name,
             'aliases'              => [],
             'bio'                  => '',
@@ -397,17 +400,34 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             'external_candidates'  => [],
             'field_confidence'     => [ 'platform_names' => $n_confirmed > 0 ? 50 : 0, 'social_urls' => 0, 'bio' => 0, 'country' => 0, 'language' => 0, 'source_urls' => 0 ],
             'research_diagnostics' => [
-                'query_stats'      => [],
-                'platform_probe'   => $diagnostics,
-                'platform_coverage'=> $diagnostics['platform_coverage'] ?? [],
-                'audit_mode'       => true,
+                'query_stats'         => [],
+                'platform_probe'      => $diagnostics,
+                'platform_coverage'   => $diagnostics['platform_coverage'] ?? [],
+                'audit_mode'          => true,
+                'audit_completed'     => true,
+                'no_matches_found'    => $no_matches_found,
+                'confirmed_platforms' => $n_confirmed,
+                'audit_config' => [
+                    'mode'                  => 'probe_only',
+                    'seeds_built'           => count( $seeds ),
+                    'probes_attempted'      => (int) ( $diagnostics['probes_attempted'] ?? 0 ),
+                    'probes_accepted'       => (int) ( $diagnostics['probes_accepted'] ?? 0 ),
+                    'platforms_in_registry' => count( \TMWSEO\Engine\Platform\PlatformRegistry::get_slugs() ),
+                    'platforms_checked'     => count( array_filter(
+                        $diagnostics['platform_coverage'] ?? [],
+                        static fn( $p ) => ( $p['status'] ?? '' ) !== 'not_probed'
+                    ) ),
+                    'platforms_confirmed'   => $n_confirmed,
+                ],
             ],
             'country'    => '',
             'language'   => '',
             'source_urls'=> [],
             'confidence' => min( 90, $n_confirmed * 15 ),
             'notes'      => sprintf(
-                'Probe-only full audit (no SERP): %d platform(s) confirmed from %d seed(s).',
+                $no_matches_found
+                    ? 'Probe-only full audit (no SERP): 0 platforms confirmed from %2\$d seed(s). Audit completed — no evidence of this model on any registered platform.'
+                    : 'Probe-only full audit (no SERP): %1\$d platform(s) confirmed from %2\$d seed(s).',
                 $n_confirmed,
                 count( $seeds )
             ),

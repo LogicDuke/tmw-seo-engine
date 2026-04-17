@@ -132,10 +132,15 @@ final class ModelResearchPipeline {
 
         $merged = self::merge_results( $provider_results );
 
+        // Mark whether the pipeline completed a real run (vs crashed).
+        // Used by run_full_audit_now() to distinguish zero-hit audits from failures.
+        $run_completed = ( $status === 'ok' || $status === 'partial' || $status === 'no_provider' );
+
         return [
             'pipeline_status'  => $pipeline_status,
             'provider_results' => $provider_results,
             'merged'           => $merged,
+            'run_completed'    => $run_completed,
         ];
     }
 
@@ -2140,11 +2145,20 @@ class ModelHelper {
                 return;
             }
 
+            // A completed audit with zero candidates is STILL a completed audit.
+            // Only set 'error' for actual technical failures (exception, JSON corrupt,
+            // round-trip decode fail — all handled above). Here we only see 'ok',
+            // 'no_provider', or 'error' from the pipeline.
+            $run_completed = (bool) ( $result['run_completed'] ?? false );
+
             if ( $pipeline_status === 'no_provider' ) {
+                // Provider could not run (no API key, safe mode, etc.).
                 update_post_meta( $post_id, self::META_STATUS, 'not_researched' );
-            } elseif ( $pipeline_status === 'ok' || $pipeline_status === 'partial' ) {
+            } elseif ( $pipeline_status === 'ok' || $run_completed ) {
+                // Audit completed — even zero candidates is a valid result.
                 update_post_meta( $post_id, self::META_STATUS, 'researched' );
             } else {
+                // Pipeline reported 'error' AND run_completed=false → genuine failure.
                 update_post_meta( $post_id, self::META_STATUS, 'error' );
             }
 
