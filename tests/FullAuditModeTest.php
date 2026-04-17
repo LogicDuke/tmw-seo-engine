@@ -638,4 +638,162 @@ class FullAuditModeTest extends TestCase {
     }
 
 
+    // ── Tests for run_with_provider isolation ─────────────────────────────────
+
+    public function test_run_with_provider_bypasses_filter(): void {
+        // Verify ModelResearchPipeline::run_with_provider() exists
+        $this->assertTrue(
+            method_exists( \TMWSEO\Engine\Admin\ModelResearchPipeline::class, 'run_with_provider' ),
+            'ModelResearchPipeline must have run_with_provider() to isolate the audit provider'
+        );
+    }
+
+    public function test_run_with_provider_method_does_not_call_apply_filters(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelResearchPipeline::class );
+        $method = $ref->getMethod( 'run_with_provider' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringNotContainsString( 'apply_filters', $body,
+            'run_with_provider must NOT call apply_filters — that is the whole point of this method'
+        );
+        $this->assertStringNotContainsString( 'get_providers', $body,
+            'run_with_provider must NOT call get_providers() — that would re-introduce the priority bug'
+        );
+    }
+
+    public function test_ajax_run_full_audit_calls_run_full_audit_now(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'ajax_run_full_audit' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'run_full_audit_now', $body,
+            'ajax_run_full_audit must call run_full_audit_now(), not run_research_now()'
+        );
+        $this->assertStringNotContainsString( 'run_research_now', $body,
+            'ajax_run_full_audit must not call run_research_now() — that uses the shared filter path'
+        );
+    }
+
+    public function test_run_full_audit_now_uses_run_with_provider(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_full_audit_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'run_with_provider', $body,
+            'run_full_audit_now must call run_with_provider() to bypass the shared filter'
+        );
+        $this->assertStringNotContainsString( 'apply_filters', $body,
+            'run_full_audit_now must not call apply_filters directly'
+        );
+        $this->assertStringNotContainsString( 'tmwseo_research_providers', $body,
+            'run_full_audit_now must not use tmwseo_research_providers filter'
+        );
+    }
+
+    public function test_run_full_audit_now_has_full_lock_and_error_handling(): void {
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_full_audit_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'acquire_research_lock', $body );
+        $this->assertStringContainsString( 'release_research_lock', $body );
+        $this->assertStringContainsString( 'finally', $body,
+            'run_full_audit_now must release lock in finally block'
+        );
+        $this->assertStringContainsString( 'Throwable', $body,
+            'run_full_audit_now must catch Throwable to prevent status staying queued on exception'
+        );
+    }
+
+    // ── Tests proving audit provider uses audit-mode constants ────────────────
+
+    public function test_audit_provider_lookup_uses_audit_serp_depth(): void {
+        // Verify that ModelFullAuditProvider::lookup() passes AUDIT_SERP_DEPTH (20)
+        // to run_query_pack_pub(), not SYNC_SERP_DEPTH (8).
+        $ref    = new \ReflectionClass( ModelFullAuditProvider::class );
+        $method = $ref->getMethod( 'lookup' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'AUDIT_SERP_DEPTH', $body,
+            'lookup() must pass AUDIT_SERP_DEPTH to the query runner, not SYNC_SERP_DEPTH'
+        );
+        $this->assertStringNotContainsString( 'SYNC_SERP_DEPTH', $body,
+            'lookup() must not use SYNC_SERP_DEPTH in audit mode'
+        );
+    }
+
+    public function test_audit_provider_lookup_uses_build_query_pack_audit(): void {
+        $ref    = new \ReflectionClass( ModelFullAuditProvider::class );
+        $method = $ref->getMethod( 'lookup' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'build_query_pack_audit', $body,
+            'lookup() must call build_query_pack_audit(), not the sync build_query_pack()'
+        );
+    }
+
+    public function test_audit_provider_lookup_emits_audit_config_diagnostics(): void {
+        $ref    = new \ReflectionClass( ModelFullAuditProvider::class );
+        $method = $ref->getMethod( 'lookup' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $required_diag_keys = [
+            'audit_mode', 'audit_config', 'serp_depth_used', 'pass_two_enabled',
+            'probes_attempted', 'duration_ms', 'full_registry_sweep_included',
+            'platforms_confirmed',
+        ];
+        foreach ( $required_diag_keys as $key ) {
+            $this->assertStringContainsString( $key, $body,
+                "lookup() must emit '{$key}' in diagnostics"
+            );
+        }
+    }
+
+    public function test_normal_research_now_unchanged(): void {
+        // run_research_now() must still call ModelResearchPipeline::run() (the shared filter path)
+        $ref    = new \ReflectionClass( \TMWSEO\Engine\Admin\ModelHelper::class );
+        $method = $ref->getMethod( 'run_research_now' );
+        $file   = $method->getFileName();
+        $start  = $method->getStartLine();
+        $end    = $method->getEndLine();
+        $lines  = file( (string) $file );
+        $body   = implode( '', array_slice( $lines, $start - 1, $end - $start + 1 ) );
+
+        $this->assertStringContainsString( 'ModelResearchPipeline::run(', $body,
+            'run_research_now() must still call ModelResearchPipeline::run() — not run_with_provider()'
+        );
+        $this->assertStringNotContainsString( 'run_with_provider', $body,
+            'run_research_now() must NOT call run_with_provider() — Full Audit only'
+        );
+    }
+
+
 }

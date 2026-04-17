@@ -62,6 +62,17 @@ final class ModelResearchPipeline {
     /** @var ModelResearchProvider[]|null */
     private static ?array $providers = null;
 
+    /**
+     * Reset the cached provider list so the next call to get_providers()
+     * re-runs apply_filters('tmwseo_research_providers') from scratch.
+     *
+     * Required when a filter is added/removed mid-request (e.g. Full Audit
+     * injects a custom provider for one run then cleans up).
+     */
+    public static function reset_providers(): void {
+        self::$providers = null;
+    }
+
     /** @return ModelResearchProvider[] */
     public static function get_providers(): array {
         if ( self::$providers === null ) {
@@ -79,6 +90,53 @@ final class ModelResearchPipeline {
             self::$providers = is_array( $providers ) ? $providers : [ new ModelResearchStub() ];
         }
         return self::$providers;
+    }
+
+    /**
+     * Run a single explicitly-specified provider, bypassing apply_filters.
+     *
+     * Used by Full Audit so the audit provider is the ONLY one that runs.
+     * apply_filters('tmwseo_research_providers') is NOT called — this prevents
+     * the normal priority-10 SERP and priority-20 direct-probe providers from
+     * appending themselves and diluting/overriding the audit-mode results.
+     *
+     * The returned shape is identical to run() so all callers handle it the same.
+     *
+     * @param  int                    $post_id
+     * @param  ModelResearchProvider  $provider  The provider to run.
+     * @return array{pipeline_status:string,provider_results:array,merged:array}
+     */
+    public static function run_with_provider( int $post_id, ModelResearchProvider $provider ): array {
+        $model_name = get_the_title( $post_id );
+        if ( ! $model_name ) {
+            return [ 'pipeline_status' => 'error', 'provider_results' => [], 'merged' => [] ];
+        }
+
+        $provider_name   = $provider->provider_name();
+        $provider_results = [];
+
+        try {
+            $result = $provider->lookup( $post_id, $model_name );
+        } catch ( \Throwable $e ) {
+            $result = [ 'status' => 'error', 'message' => $e->getMessage() ];
+        }
+
+        $provider_results[ $provider_name ] = $result;
+        $status = (string) ( $result['status'] ?? '' );
+
+        $pipeline_status = match ( true ) {
+            $status === 'no_provider' => 'no_provider',
+            $status === 'ok' || $status === 'partial' => 'ok',
+            default => 'error',
+        };
+
+        $merged = self::merge_results( $provider_results );
+
+        return [
+            'pipeline_status'  => $pipeline_status,
+            'provider_results' => $provider_results,
+            'merged'           => $merged,
+        ];
     }
 
     /**
@@ -1808,64 +1866,21 @@ class ModelHelper {
 
         @set_time_limit( 300 );
 
-        // ── Execution strategy ────────────────────────────────────────────────
-        // We reuse run_research_now() — the proven, tested execution path.
-        // It owns lock acquire/release, try/catch/finally, META_PROPOSED writing,
-        // META_STATUS updates, and round-trip JSON validation.
-        // Bypassing it (calling provider->lookup() directly) reintroduces all the
-        // bugs that path fixed: unhandled exceptions leave status='queued', no
-        // lock cleanup, no round-trip validation, no consistent error handling.
-        //
-        // The full-audit provider is temporarily injected via the filter so
-        // ModelResearchPipeline::run() picks it up instead of the normal providers.
-        // The filter is removed immediately after the run to leave no side-effects.
-
-        if ( ! class_exists( '\\TMWSEO\\Engine\\Model\\ModelFullAuditProvider' ) ) {
-            require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-full-audit-provider.php';
-        }
-
-        // Force-clear any stale lock so run_research_now() can acquire it.
+        // Force-clear any stale lock so run_full_audit_now() can acquire it.
         self::release_research_lock( $post_id );
 
-        // Reset the provider singleton so the filter change is picked up.
-        // (ModelResearchPipeline caches its provider list after the first call.)
-        if ( class_exists( '\\TMWSEO\\Engine\\Admin\\ModelResearchPipeline' ) ) {
-            // Reset the cached provider list via reflection so the injected
-            // full-audit provider is loaded fresh.
-            try {
-                $ref  = new \ReflectionClass( '\TMWSEO\Engine\Admin\ModelResearchPipeline' );
-                $prop = $ref->getProperty( 'providers' );
-                $prop->setAccessible( true );
-                $prop->setValue( null, null );
-            } catch ( \Throwable $ignored ) {}
-        }
-
-        // Register the full-audit provider as the ONLY provider for this run.
-        // Priority 1 ensures it fires before any real-provider auto-registrations.
-        $inject_callback = static function ( array $providers ): array {
-            return [ \TMWSEO\Engine\Model\ModelFullAuditProvider::make() ];
-        };
-        add_filter( 'tmwseo_research_providers', $inject_callback, 1 );
-
-        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: running via run_research_now()', [
+        Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: calling run_full_audit_now()', [
             'post_id' => $post_id,
         ] );
 
-        // run_research_now() handles everything: lock, try/catch/finally,
-        // META_PROPOSED, META_STATUS, round-trip validation.
-        self::run_research_now( $post_id );
+        // run_full_audit_now() uses ModelResearchPipeline::run_with_provider()
+        // which calls ModelFullAuditProvider::lookup() DIRECTLY — bypassing
+        // apply_filters('tmwseo_research_providers') entirely. This prevents the
+        // normal priority-10 SERP and priority-20 direct-probe providers from
+        // appending themselves to the provider list and running their bounded
+        // sync-mode logic instead of the real audit-mode logic.
+        self::run_full_audit_now( $post_id );
 
-        // Clean up: remove injected provider and reset cache so subsequent
-        // Research Now calls use the normal provider list.
-        remove_filter( 'tmwseo_research_providers', $inject_callback, 1 );
-        try {
-            $ref  = new \ReflectionClass( '\TMWSEO\Engine\Admin\ModelResearchPipeline' );
-            $prop = $ref->getProperty( 'providers' );
-            $prop->setAccessible( true );
-            $prop->setValue( null, null );
-        } catch ( \Throwable $ignored ) {}
-
-        // Read back the status written by run_research_now().
         $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
 
         Logs::info( 'model_research', '[TMW-AUDIT] ajax_run_full_audit: complete', [
@@ -1873,13 +1888,10 @@ class ModelHelper {
             'final_status' => $final_status,
         ] );
 
-        // Never return 'queued' as success — that is the broken state we're fixing.
-        // If status is still queued after run_research_now(), something silently
-        // failed (exception swallowed, lock blocked, etc.). Report it honestly.
         if ( $final_status === 'queued' || $final_status === '' ) {
             wp_send_json_error( [
                 'status'  => 'error',
-                'message' => 'Full audit completed without updating status — check server logs for [TMW-RESEARCH] entries.',
+                'message' => 'Full audit completed without updating status — check server logs for [TMW-AUDIT] entries.',
             ] );
         }
 
@@ -2061,6 +2073,100 @@ class ModelHelper {
      */
     public static function queue_research( int $post_id ): void {
         update_post_meta( $post_id, self::META_STATUS, 'queued' );
+    }
+
+    /**
+     * Run the full-audit pipeline for a single model.
+     *
+     * Mirrors run_research_now() exactly — same lock, try/catch/finally,
+     * persistence, and status management — but uses
+     * ModelResearchPipeline::run_with_provider() with a ModelFullAuditProvider
+     * instance instead of run() with apply_filters.
+     *
+     * This bypasses the shared tmwseo_research_providers filter so the
+     * priority-10 SERP provider and priority-20 direct probe provider do NOT
+     * append themselves and override the audit-mode results.
+     *
+     * Called only by ajax_run_full_audit().
+     */
+    public static function run_full_audit_now( int $post_id ): void {
+        @set_time_limit( 300 );
+
+        if ( ! self::acquire_research_lock( $post_id ) ) {
+            Logs::info( 'model_research', '[TMW-AUDIT] run_full_audit_now skipped; lock already held', [
+                'post_id' => $post_id,
+            ] );
+            return;
+        }
+
+        $t_start = microtime( true );
+        try {
+            delete_post_meta( $post_id, self::META_PROPOSED );
+
+            Logs::info( 'model_research', '[TMW-AUDIT] run_full_audit_now started', [
+                'post_id' => $post_id,
+            ] );
+
+            if ( ! class_exists( '\\TMWSEO\\Engine\\Model\\ModelFullAuditProvider' ) ) {
+                require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-full-audit-provider.php';
+            }
+
+            $provider = \TMWSEO\Engine\Model\ModelFullAuditProvider::make();
+            $result   = ModelResearchPipeline::run_with_provider( $post_id, $provider );
+
+            $pipeline_status = (string) ( $result['pipeline_status'] ?? 'error' );
+            $merged          = $result['merged'] ?? [];
+
+            $encoded = wp_json_encode( $result );
+            if ( $encoded === false || $encoded === '' ) {
+                Logs::warn( 'model_research', '[TMW-AUDIT] wp_json_encode failed', [
+                    'post_id' => $post_id, 'pipeline_status' => $pipeline_status,
+                ] );
+                update_post_meta( $post_id, self::META_STATUS, 'error' );
+                update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+                return;
+            }
+
+            update_post_meta( $post_id, self::META_PROPOSED, wp_slash( $encoded ) );
+            update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+
+            if ( ! self::stored_proposed_blob_round_trip_ok( $post_id ) ) {
+                delete_post_meta( $post_id, self::META_PROPOSED );
+                update_post_meta( $post_id, self::META_STATUS, 'error' );
+                update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+                Logs::warn( 'model_research', '[TMW-AUDIT] round-trip decode failed', [
+                    'post_id' => $post_id,
+                ] );
+                return;
+            }
+
+            if ( $pipeline_status === 'no_provider' ) {
+                update_post_meta( $post_id, self::META_STATUS, 'not_researched' );
+            } elseif ( $pipeline_status === 'ok' || $pipeline_status === 'partial' ) {
+                update_post_meta( $post_id, self::META_STATUS, 'researched' );
+            } else {
+                update_post_meta( $post_id, self::META_STATUS, 'error' );
+            }
+
+            $t_ms = (int) round( ( microtime( true ) - $t_start ) * 1000 );
+            Logs::info( 'model_research', '[TMW-AUDIT] run_full_audit_now complete', [
+                'post_id'         => $post_id,
+                'pipeline_status' => $pipeline_status,
+                'duration_ms'     => $t_ms,
+            ] );
+
+        } catch ( \Throwable $e ) {
+            $t_ms = (int) round( ( microtime( true ) - $t_start ) * 1000 );
+            Logs::warn( 'model_research', '[TMW-AUDIT] run_full_audit_now threw exception', [
+                'post_id'     => $post_id,
+                'error'       => $e->getMessage(),
+                'duration_ms' => $t_ms,
+            ] );
+            update_post_meta( $post_id, self::META_STATUS, 'error' );
+            update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+        } finally {
+            self::release_research_lock( $post_id );
+        }
     }
 
     /**

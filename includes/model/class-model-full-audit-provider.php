@@ -180,10 +180,42 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             $probe_diagnostics
         );
 
-        // ── Enrich result with audit-specific metadata ────────────────────────
-        $result['research_diagnostics']['audit_mode'] = true;
-        $result['research_diagnostics']['platform_coverage'] =
+        // ── Enrich result with audit-specific metadata and diagnostics ───────
+        $result['research_diagnostics']['audit_mode']         = true;
+        $result['research_diagnostics']['platform_coverage']  =
             $probe_diagnostics['platform_coverage'] ?? [];
+        $result['research_diagnostics']['audit_config'] = [
+            'serp_depth_used'          => self::AUDIT_SERP_DEPTH,
+            'pass_two_enabled'         => self::AUDIT_PASS_TWO,
+            'hub_pages_limit'          => self::AUDIT_MAX_HUB_PAGES,
+            'alias_cap'                => self::AUDIT_ALIAS_CAP,
+            'seed_cap'                 => self::AUDIT_SEED_CAP,
+            'handle_variant_cap'       => self::AUDIT_MAX_HANDLE_VARIANTS,
+            'total_queries_built'      => count( $queries_p1 ),
+            'queries_succeeded'        => $pack_p1['succeeded'],
+            'aliases_used'             => count( $aliases ),
+            'seeds_built'              => count( $handle_seeds ),
+            'probes_attempted'         => (int) ( $probe_diagnostics['probes_attempted'] ?? 0 ),
+            'probes_accepted'          => (int) ( $probe_diagnostics['probes_accepted'] ?? 0 ),
+            'platforms_in_registry'    => count( \TMWSEO\Engine\Platform\PlatformRegistry::get_slugs() ),
+            'platforms_checked'        => count( array_filter(
+                $probe_diagnostics['platform_coverage'] ?? [],
+                static fn( $p ) => ( $p['status'] ?? '' ) !== 'not_probed'
+            ) ),
+            'platforms_confirmed'      => count( array_filter(
+                $probe_diagnostics['platform_coverage'] ?? [],
+                static fn( $p ) => ( $p['status'] ?? '' ) === 'confirmed'
+            ) ),
+            'duration_ms'              => (int) round( ( microtime( true ) - $t_start ) * 1000 ),
+            'query_families_used'      => array_values( array_unique(
+                array_column( $pack_p1['query_stats'], 'family' )
+            ) ),
+            'full_registry_sweep_included' => in_array(
+                'full_registry_sweep',
+                array_column( $queries_p1, 'family' ),
+                true
+            ),
+        ];
 
         $n_confirmed  = count( array_filter(
             $probe_diagnostics['platform_coverage'] ?? [],
