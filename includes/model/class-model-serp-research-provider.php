@@ -161,13 +161,19 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
      *
      * These replace the SYNC_* constants in full-audit mode.
      * Restores original research quality at the cost of longer execution.
+     *
+     * Visibility: `protected` so the ModelFullAuditProvider subclass can read
+     * them as `parent::AUDIT_*`. Declaring them `private` here would cause
+     * `PHP Error: Undefined constant ModelFullAuditProvider::AUDIT_*` at
+     * runtime the moment the child touched them (private constants are not
+     * inherited), silently breaking Full Audit. Keep as protected.
      */
-    private const AUDIT_SERP_DEPTH          = 20;  // restored from SYNC_SERP_DEPTH=8
-    private const AUDIT_MAX_HUB_PAGES       = 3;   // restored from SYNC_MAX_HUB_PAGES=0
-    private const AUDIT_PASS_TWO            = true; // restored from SYNC_PASS_TWO=false
-    private const AUDIT_MAX_HANDLE_VARIANTS = 10;  // raised from MAX_HANDLE_VARIANTS=5
-    private const AUDIT_ALIAS_CAP           = 10;  // raised from 3
-    private const AUDIT_SEED_CAP            = 12;  // raised from 5
+    protected const AUDIT_SERP_DEPTH          = 20;  // restored from SYNC_SERP_DEPTH=8
+    protected const AUDIT_MAX_HUB_PAGES       = 3;   // restored from SYNC_MAX_HUB_PAGES=0
+    protected const AUDIT_PASS_TWO            = true; // restored from SYNC_PASS_TWO=false
+    protected const AUDIT_MAX_HANDLE_VARIANTS = 10;  // raised from MAX_HANDLE_VARIANTS=5
+    protected const AUDIT_ALIAS_CAP           = 10;  // raised from 3
+    protected const AUDIT_SEED_CAP            = 12;  // raised from 5
 
     /**
      * Platform slugs whose extracted profile URLs belong in social_urls.

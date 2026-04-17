@@ -1,5 +1,53 @@
 # TMW SEO Engine — Changelog
 
+## 5.0.2 — Full Audit Runtime Fix (2026-04-17)
+
+### Bug Fixes
+
+- **`includes/model/class-model-serp-research-provider.php`**
+- **`includes/model/class-model-full-audit-provider.php`**
+- Fixed a silent runtime failure in **Full Audit** that caused every run to
+  end with `Research Status = Error` alongside an empty yellow
+  "Proposed data / Confidence 0 / No platform candidates were found" panel.
+  Root cause: the six `AUDIT_*` constants on `ModelSerpResearchProvider`
+  were declared `private const`, while the `ModelFullAuditProvider`
+  subclass referenced them via `self::AUDIT_*`. Private constants are
+  not inherited in PHP, so the first audit-constant access in `lookup()`
+  threw `\Error: Undefined constant ModelFullAuditProvider::AUDIT_SERP_DEPTH`.
+  The pipeline's `catch ( \Throwable $e )` caught the error and rewrote
+  it as a generic `status=error`, producing the confusing UI.
+- The same class of failure also affected the probe-only fallback path
+  (`probe_only_audit()`), so Full Audit was broken even when DataForSEO
+  was unavailable.
+- **Fix**: `AUDIT_*` constants promoted from `private const` to
+  `protected const` (single source of truth preserved on the parent);
+  `ModelFullAuditProvider` switched from `self::AUDIT_*` to
+  `parent::AUDIT_*` at all ten call sites, making the inheritance intent
+  explicit and making future regressions to `private const` easier to
+  diagnose.
+
+### Test & Release Hygiene
+
+- **`tests/FullAuditModeTest.php`**
+- Added four regression tests that reproduce the exact runtime failure
+  on unpatched code and verify the fix on patched code
+  (`test_parent_audit_constants_are_not_private`,
+  `test_audit_constants_are_readable_from_child_scope`,
+  `test_full_audit_provider_source_uses_parent_not_self_for_audit_constants`,
+  `test_full_audit_provider_lookup_does_not_throw_on_audit_constant_access`).
+- Removed two contradictory tests that asserted the old
+  `ajax_run_full_audit -> run_research_now + filter-injection`
+  architecture. They directly conflicted with the live tests asserting
+  the current `ajax_run_full_audit -> run_full_audit_now -> run_with_provider`
+  architecture and were consistently failing against production code.
+- **`tests/bootstrap/wordpress-stubs.php`** now loads
+  `class-model-full-audit-provider.php` so `FullAuditModeTest.php` can
+  parse. Previously the test double (`TestableFullAuditProvider`) failed
+  at parse time with `Class not found`.
+- Version synchronized to **`5.0.2`** across plugin header and constant.
+
+---
+
 ## 4.6.5 — Research Intelligence Pass (2026-04-14)
 
 ### Model Research Improvements

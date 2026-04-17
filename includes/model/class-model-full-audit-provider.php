@@ -113,7 +113,7 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
 
         // ── PASS ONE: full audit query pack ───────────────────────────────────
         $queries_p1 = $this->build_query_pack_audit( $model_name, $aliases );
-        $pack_p1    = $this->run_query_pack_pub( $queries_p1, self::AUDIT_SERP_DEPTH, $post_id );
+        $pack_p1    = $this->run_query_pack_pub( $queries_p1, parent::AUDIT_SERP_DEPTH, $post_id );
 
         if ( $pack_p1['succeeded'] === 0 ) {
             Logs::warn( 'model_research', '[TMW-AUDIT] All SERP queries failed — falling back to probe-only', [
@@ -138,7 +138,7 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         // ── PASS TWO: handle-seeded SERP confirmation (enabled in audit mode) ─
         $conf_log = [];
         $items_p2 = [];
-        if ( self::AUDIT_PASS_TWO ) {
+        if ( parent::AUDIT_PASS_TWO ) {
             $pass_two = $this->run_confirmation_pass_audit( $handle_seeds, $already_confirmed, $post_id );
             $items_p2 = $pass_two['items'];
             $conf_log = $pass_two['confirmation_log'];
@@ -185,12 +185,12 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $result['research_diagnostics']['platform_coverage']  =
             $probe_diagnostics['platform_coverage'] ?? [];
         $result['research_diagnostics']['audit_config'] = [
-            'serp_depth_used'          => self::AUDIT_SERP_DEPTH,
-            'pass_two_enabled'         => self::AUDIT_PASS_TWO,
-            'hub_pages_limit'          => self::AUDIT_MAX_HUB_PAGES,
-            'alias_cap'                => self::AUDIT_ALIAS_CAP,
-            'seed_cap'                 => self::AUDIT_SEED_CAP,
-            'handle_variant_cap'       => self::AUDIT_MAX_HANDLE_VARIANTS,
+            'serp_depth_used'          => parent::AUDIT_SERP_DEPTH,
+            'pass_two_enabled'         => parent::AUDIT_PASS_TWO,
+            'hub_pages_limit'          => parent::AUDIT_MAX_HUB_PAGES,
+            'alias_cap'                => parent::AUDIT_ALIAS_CAP,
+            'seed_cap'                 => parent::AUDIT_SEED_CAP,
+            'handle_variant_cap'       => parent::AUDIT_MAX_HANDLE_VARIANTS,
             'total_queries_built'      => count( $queries_p1 ),
             'queries_succeeded'        => $pack_p1['succeeded'],
             'aliases_used'             => count( $aliases ),
@@ -347,7 +347,7 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
                 if ( $alias !== '' && strtolower( $alias ) !== strtolower( $name_clean ) ) {
                     $seeds[] = [ 'handle' => $alias, 'source_platform' => 'name_derived', 'source_url' => '' ];
                 }
-                if ( count( $seeds ) >= self::AUDIT_SEED_CAP ) { break; }
+                if ( count( $seeds ) >= parent::AUDIT_SEED_CAP ) { break; }
             }
         }
 
@@ -478,7 +478,7 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             if ( $host !== '' ) { $confirmable_slugs[ $slug ] = $host; }
         }
 
-        $seeds = array_slice( $seeds, 0, self::AUDIT_SEED_CAP );
+        $seeds = array_slice( $seeds, 0, parent::AUDIT_SEED_CAP );
 
         foreach ( $seeds as $seed ) {
             $handle = (string) ( $seed['handle'] ?? '' );

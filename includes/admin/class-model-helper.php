@@ -1878,10 +1878,12 @@ class ModelHelper {
             'post_id' => $post_id,
         ] );
 
-        // Architecture 2: ajax_run_full_audit → run_full_audit_now() →
-        // ModelResearchPipeline::run_with_provider(ModelFullAuditProvider).
-        // run_with_provider() calls the provider directly — no filter injection,
-        // no apply_filters call — so only the audit provider runs.
+        // run_full_audit_now() uses ModelResearchPipeline::run_with_provider()
+        // which calls ModelFullAuditProvider::lookup() DIRECTLY — bypassing
+        // apply_filters('tmwseo_research_providers') entirely. This prevents the
+        // normal priority-10 SERP and priority-20 direct-probe providers from
+        // appending themselves to the provider list and running their bounded
+        // sync-mode logic instead of the real audit-mode logic.
         self::run_full_audit_now( $post_id );
 
         $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
