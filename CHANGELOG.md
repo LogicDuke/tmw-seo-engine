@@ -44,7 +44,7 @@
   `class-model-full-audit-provider.php` so `FullAuditModeTest.php` can
   parse. Previously the test double (`TestableFullAuditProvider`) failed
   at parse time with `Class not found`.
-- Version synchronized to **`5.0.1`** across plugin header and constant.
+- Version synchronized to **`5.0.1`** across plugin header, constant, README metadata, PHPUnit activation assertions, and bootstrap stubs.
 
 ---
 
