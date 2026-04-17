@@ -633,11 +633,19 @@ class PlatformProfiles {
 
     private static function get_platform_labels(): array {
         $labels = [];
+        // Sidebar shows cam platforms and fansites only.
+        // Social networks and link hubs (Twitter, TikTok, Linktree, etc.) belong
+        // in the Research metabox Verified Links section, not here.
+        $sidebar_groups = [ 'cam', 'fansite' ];
         foreach (PlatformRegistry::get_platforms() as $platform) {
-            $slug = sanitize_key((string) ($platform['slug'] ?? ''));
-            $name = sanitize_text_field((string) ($platform['name'] ?? ''));
+            $slug  = sanitize_key((string) ($platform['slug'] ?? ''));
+            $name  = sanitize_text_field((string) ($platform['name'] ?? ''));
+            $group = (string) ($platform['group'] ?? 'other');
             if ($slug === '' || $name === '') {
                 continue;
+            }
+            if ( ! in_array( $group, $sidebar_groups, true ) ) {
+                continue; // Skip social networks, link hubs, tube sites
             }
             $labels[$slug] = $name;
         }
