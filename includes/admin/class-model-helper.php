@@ -424,6 +424,8 @@ class ModelHelper {
         add_action( 'wp_ajax_tmwseo_research_status_poll',  [ __CLASS__, 'ajax_research_status_poll' ] );
         // Direct browser-triggered research (no loopback, no Cloudflare issues)
         add_action( 'wp_ajax_tmwseo_trigger_research',      [ __CLASS__, 'ajax_trigger_research' ] );
+        // WP-Cron hook — runs research in a completely independent PHP process
+        add_action( 'tmwseo_bg_research_cron',              [ __CLASS__, 'run_research_now' ] );
 
         // ── Inline admin_post: run research immediately (non-AJAX path) ───
         add_action( 'admin_post_tmwseo_run_model_research',   [ __CLASS__, 'handle_run_research' ] );
@@ -1649,46 +1651,36 @@ class ModelHelper {
         if ( ! current_user_can( 'edit_post', $post_id ) ) {
             wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
         }
-        if ( ! self::acquire_research_lock( $post_id ) ) {
-            // Already running — just confirm queued so the poller keeps going.
-            wp_send_json_success( [ 'status' => 'queued', 'message' => 'already_running' ] );
-        }
-        // Release immediately — run_research_now will re-acquire.
-        self::release_research_lock( $post_id );
 
+        // Mark as queued so the poller sees activity immediately.
         update_post_meta( $post_id, self::META_STATUS, 'queued' );
 
-        // ── Close the browser connection BEFORE running the pipeline ─────────
-        // After this point, the HTTP response is on its way to the browser.
-        // The PHP process keeps running with the pipeline.
-        @ignore_user_abort( true );
-        @set_time_limit( 300 );
+        // Clear any stuck previous cron job for this post, then schedule a fresh one.
+        wp_clear_scheduled_hook( 'tmwseo_bg_research_cron', [ $post_id ] );
+        $scheduled = wp_schedule_single_event( time(), 'tmwseo_bg_research_cron', [ $post_id ] );
 
-        // Send the JSON response now so JS can start the poller
-        http_response_code( 200 );
-        header( 'Content-Type: application/json' );
-        header( 'Connection: close' );
-        header( 'X-Accel-Buffering: no' ); // Disable Nginx/LiteSpeed proxy buffering
-        $body = wp_json_encode( [ 'success' => true, 'data' => [ 'status' => 'queued' ] ] );
-        header( 'Content-Length: ' . strlen( $body ) );
-        echo $body;
-
-        // Flush all output buffers to push the response to the TCP socket
-        while ( ob_get_level() > 0 ) { ob_end_flush(); }
-        flush();
-
-        // On PHP-FPM: detach from the FastCGI request (most reliable)
-        if ( function_exists( 'fastcgi_finish_request' ) ) {
-            fastcgi_finish_request();
-        }
-
-        Logs::info( 'model_research', '[TMW-RESEARCH] ajax_trigger_research: connection closed, running pipeline', [
-            'post_id' => $post_id,
+        // Spawn cron NOW so it doesn't wait for the next organic page visit.
+        // This fires a non-blocking HTTP GET to /?doing_wp_cron which WordPress
+        // uses internally — it never has to reach back into the same connection.
+        $cron_url = add_query_arg(
+            'doing_wp_cron',
+            sprintf( '%.22F', microtime( true ) ),
+            site_url( '/' )
+        );
+        wp_remote_post( $cron_url, [
+            'timeout'   => 0.01,
+            'blocking'  => false,
+            'sslverify' => false,
+            'cookies'   => [],
         ] );
 
-        // ── Run research after connection is closed ──────────────────────────
-        self::run_research_now( $post_id );
-        exit;
+        Logs::info( 'model_research', '[TMW-RESEARCH] ajax_trigger_research: cron scheduled + spawned', [
+            'post_id'   => $post_id,
+            'scheduled' => $scheduled,
+            'cron_url'  => $cron_url,
+        ] );
+
+        wp_send_json_success( [ 'status' => 'queued' ] );
     }
 
     /**
@@ -1821,9 +1813,9 @@ class ModelHelper {
      * Saves proposed data for admin review; NEVER auto-applies or auto-publishes.
      */
     public static function run_research_now( int $post_id ): void {
-        // Extend PHP execution time — does not affect proxy/Cloudflare timeouts
-        // but prevents PHP's own limit from killing the request prematurely.
-        @set_time_limit( 120 );
+        // Extend PHP execution time to 5 minutes — research pipeline can take
+        // 90-180 s on the first run. 120 s was too short and silently killed the process.
+        @set_time_limit( 300 );
 
         if ( ! self::acquire_research_lock( $post_id ) ) {
             Logs::info( 'model_research', '[TMW-RESEARCH] run_research_now skipped; lock already held', [
@@ -1934,7 +1926,7 @@ class ModelHelper {
     /**
      * Acquire a short-lived per-post research lock.
      */
-    private static function acquire_research_lock( int $post_id, int $ttl_seconds = 120 ): bool {
+    private static function acquire_research_lock( int $post_id, int $ttl_seconds = 300 ): bool {
         $option_key = self::RESEARCH_LOCK_OPTION_PREFIX . $post_id;
         $now        = time();
         $expires_at = $now + max( 1, $ttl_seconds );
