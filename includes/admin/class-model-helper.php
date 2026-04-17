@@ -424,6 +424,10 @@ class ModelHelper {
         add_action( 'wp_ajax_tmwseo_research_status_poll',  [ __CLASS__, 'ajax_research_status_poll' ] );
         // Direct browser-triggered research (no loopback, no Cloudflare issues)
         add_action( 'wp_ajax_tmwseo_trigger_research',      [ __CLASS__, 'ajax_trigger_research' ] );
+        // Block-editor fallback: save Model Research fields via AJAX when Gutenberg
+        // does not submit classic metabox POST data (mirrors PlatformProfiles pattern).
+        add_action( 'enqueue_block_editor_assets',              [ __CLASS__, 'enqueue_editor_assets' ] );
+        add_action( 'wp_ajax_tmwseo_save_model_research',       [ __CLASS__, 'ajax_save_model_research' ] );
         // WP-Cron hook — runs research in a completely independent PHP process
         add_action( 'tmwseo_bg_research_cron',              [ __CLASS__, 'run_research_now' ] );
 
@@ -1368,6 +1372,119 @@ class ModelHelper {
             'carrd'      => 'personal_site',
         ];
         return $map[ $slug ] ?? 'other';
+    }
+
+    // ── Block-editor fallback: Gutenberg asset + AJAX save ──────────────
+
+    /**
+     * Enqueue the block-editor JS that persists Model Research fields via AJAX
+     * when Gutenberg saves without submitting classic metabox POST data.
+     * Mirrors the pattern used by PlatformProfiles::enqueue_editor_assets().
+     */
+    public static function enqueue_editor_assets(): void {
+        if ( ! function_exists( 'get_current_screen' ) ) { return; }
+        $screen = get_current_screen();
+        if ( ! $screen || ( $screen->base ?? '' ) !== 'post' ) { return; }
+        if ( ( $screen->post_type ?? '' ) !== 'model' ) { return; }
+
+        wp_enqueue_script(
+            'tmwseo-model-research-editor',
+            TMWSEO_ENGINE_URL . 'assets/js/model-research-editor.js',
+            [ 'wp-data' ],
+            TMWSEO_ENGINE_VERSION,
+            true
+        );
+
+        wp_localize_script( 'tmwseo-model-research-editor', 'TMWSEOModelResearch', [
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'nonce'   => wp_create_nonce( 'tmwseo_model_research_ajax' ),
+        ] );
+    }
+
+    /**
+     * AJAX handler: persist Model Research fields from the block editor.
+     *
+     * Called by model-research-editor.js on every manual Gutenberg save.
+     * Uses identical sanitization to save_metabox() so data is always clean
+     * regardless of which save path wrote it.
+     *
+     * Does NOT change research status unless the existing logic in save_metabox
+     * already does so (status promotion when moving from 'not_researched' with data).
+     */
+    public static function ajax_save_model_research(): void {
+        check_ajax_referer( 'tmwseo_model_research_ajax' );
+
+        $post_id = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
+        if ( ! $post_id ) {
+            wp_send_json_error( [ 'message' => 'Missing post_id' ], 400 );
+        }
+
+        if ( get_post_type( $post_id ) !== 'model' ) {
+            wp_send_json_error( [ 'message' => 'Invalid post type' ], 400 );
+        }
+
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
+        }
+
+        // ── Scalar fields (sanitize_text_field) ──────────────────────────────
+        $scalar_map = [
+            'display_name'   => self::META_DISPLAY_NAME,
+            'aliases'        => self::META_ALIASES,
+            'platform_names' => self::META_PLATFORMS,
+            'country'        => self::META_COUNTRY,
+            'language'       => self::META_LANGUAGE,
+        ];
+        foreach ( $scalar_map as $key => $meta_key ) {
+            $val = isset( $_POST[ $key ] )
+                ? sanitize_text_field( wp_unslash( (string) $_POST[ $key ] ) )
+                : '';
+            update_post_meta( $post_id, $meta_key, $val );
+        }
+
+        // ── Textarea fields (sanitize_textarea_field) ─────────────────────────
+        foreach ( [
+            'bio'   => self::META_BIO,
+            'notes' => self::META_NOTES,
+        ] as $key => $meta_key ) {
+            $val = isset( $_POST[ $key ] )
+                ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $key ] ) )
+                : '';
+            update_post_meta( $post_id, $meta_key, $val );
+        }
+
+        // ── URL list fields (one per line → JSON array) ───────────────────────
+        foreach ( [
+            'social_urls'  => self::META_SOCIAL_URLS,
+            'source_urls'  => self::META_SOURCE_URLS,
+        ] as $key => $meta_key ) {
+            $raw  = isset( $_POST[ $key ] ) ? wp_unslash( (string) $_POST[ $key ] ) : '';
+            $urls = self::sanitize_url_list( $raw );
+            update_post_meta( $post_id, $meta_key, wp_json_encode( $urls ) );
+        }
+
+        // ── Confidence: integer 0-100 ─────────────────────────────────────────
+        $confidence = isset( $_POST['confidence'] )
+            ? max( 0, min( 100, (int) $_POST['confidence'] ) )
+            : 0;
+        update_post_meta( $post_id, self::META_CONFIDENCE, $confidence );
+
+        // ── Status promotion (mirrors save_metabox logic exactly) ─────────────
+        $current_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+        if ( $current_status === '' || $current_status === 'not_researched' ) {
+            $aliases_val = isset( $_POST['aliases'] ) ? trim( (string) $_POST['aliases'] ) : '';
+            $bio_val     = isset( $_POST['bio'] )     ? trim( (string) $_POST['bio'] )     : '';
+            if ( $confidence > 0 || $bio_val !== '' || $aliases_val !== '' ) {
+                update_post_meta( $post_id, self::META_STATUS, 'researched' );
+                update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+            }
+        }
+
+        Logs::info( 'model_research', '[TMW-RESEARCH] ajax_save_model_research: fields saved via block-editor fallback', [
+            'post_id' => $post_id,
+        ] );
+
+        wp_send_json_success( [ 'saved' => true ] );
     }
 
     // ── Metabox: save ────────────────────────────────────────────────────
