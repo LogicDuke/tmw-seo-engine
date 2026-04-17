@@ -418,8 +418,10 @@ class ModelHelper {
         add_action( 'wp_ajax_tmwseo_queue_model_research',  [ __CLASS__, 'ajax_queue_research' ] );
         add_action( 'wp_ajax_tmwseo_apply_research_data',   [ __CLASS__, 'ajax_apply_research' ] );
         // Background research — nopriv so the loopback works without a login cookie
-        add_action( 'wp_ajax_tmwseo_bg_research',        [ __CLASS__, 'ajax_bg_research' ] );
-        add_action( 'wp_ajax_nopriv_tmwseo_bg_research', [ __CLASS__, 'ajax_bg_research' ] );
+        add_action( 'wp_ajax_tmwseo_bg_research',           [ __CLASS__, 'ajax_bg_research' ] );
+        add_action( 'wp_ajax_nopriv_tmwseo_bg_research',    [ __CLASS__, 'ajax_bg_research' ] );
+        // Status polling — used by the JS poller to check when research is done
+        add_action( 'wp_ajax_tmwseo_research_status_poll',  [ __CLASS__, 'ajax_research_status_poll' ] );
 
         // ── Inline admin_post: run research immediately (non-AJAX path) ───
         add_action( 'admin_post_tmwseo_run_model_research',   [ __CLASS__, 'handle_run_research' ] );
@@ -511,19 +513,69 @@ class ModelHelper {
         echo '</a>';
         echo '</div>';
 
-        // ── Queued / in-progress auto-refresh ────────────────────────────────
-        if ( $status === 'queued' ) {
-            echo '<div class="notice notice-info inline" style="margin:0 0 12px;">';
-            echo '<p>⏳ <strong>' . esc_html__( 'Research is running in the background.', 'tmwseo' ) . '</strong> ';
-            echo esc_html__( 'This page will refresh automatically in a few seconds…', 'tmwseo' );
+        // ── Background research status poller ───────────────────────────────
+        // Renders only when research is actively running (status=queued) or was
+        // just triggered. Uses silent AJAX polling instead of location.reload()
+        // so Gutenberg's "Reload site?" beforeunload dialog never appears.
+        if ( $status === 'queued' || isset( $_GET['tmwseo_research_queued'] ) ) {
+            $notice_style = $status === 'queued'
+                ? 'notice notice-info inline'
+                : 'notice notice-success inline';
+            $notice_icon  = $status === 'queued' ? '⏳' : '✅';
+            $notice_text  = $status === 'queued'
+                ? esc_html__( 'Research is running in the background. Results will appear automatically — no need to refresh.', 'tmwseo' )
+                : esc_html__( 'Research started. Results will appear automatically — no need to refresh.', 'tmwseo' );
+
+            echo '<div id="tmwseo-research-polling-notice" class="' . esc_attr( $notice_style ) . '" style="margin:0 0 12px;">';
+            echo '<p>' . $notice_icon . ' <strong>' . esc_html__( 'Research in progress…', 'tmwseo' ) . '</strong> ';
+            echo $notice_text;
+            echo ' <span id="tmwseo-poll-dots" style="font-family:monospace;letter-spacing:2px;"></span>';
             echo '</p></div>';
-            echo '<script>setTimeout(function(){ location.reload(); }, 6000);</script>';
-        } elseif ( isset( $_GET['tmwseo_research_queued'] ) ) {
-            echo '<div class="notice notice-success inline" style="margin:0 0 12px;">';
-            echo '<p>✅ <strong>' . esc_html__( 'Research started in background.', 'tmwseo' ) . '</strong> ';
-            echo esc_html__( 'The page will refresh automatically when results are ready.', 'tmwseo' );
-            echo '</p></div>';
-            echo '<script>setTimeout(function(){ location.reload(); }, 6000);</script>';
+
+            // Inline JS poller — polls admin-ajax.php every 4 s, max 90 attempts.
+            // When status leaves 'queued', silently nulls the Gutenberg beforeunload
+            // guard and reloads. Self-terminates after max attempts so it can never
+            // loop forever.
+            $ajax_url = esc_url( admin_url( 'admin-ajax.php' ) );
+            $poll_nonce = wp_create_nonce( 'tmwseo_status_poll_' . $post->ID );
+            $post_id_js = (int) $post->ID;
+            echo '<script>';
+            echo '(function(){';
+            echo '  var attempts=0,maxAttempts=90,interval=4000;';
+            echo '  var dots=document.getElementById("tmwseo-poll-dots");';
+            echo '  var dotStr="";';
+            echo '  var timer=setInterval(function(){';
+            echo '    attempts++;';
+            echo '    dotStr=(dotStr.length>=3)?"":dotStr+".";';
+            echo '    if(dots)dots.textContent=dotStr;';
+            echo '    if(attempts>=maxAttempts){';  // safety cap — never loops forever
+            echo '      clearInterval(timer);';
+            echo '      var n=document.getElementById("tmwseo-research-polling-notice");';
+            echo '      if(n)n.innerHTML="<p>⚠ Research is taking longer than expected. Please refresh manually.</p>";';
+            echo '      return;';
+            echo '    }';
+            echo '    var xhr=new XMLHttpRequest();';
+            echo '    xhr.open("POST","' . $ajax_url . '",true);';
+            echo '    xhr.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
+            echo '    xhr.onreadystatechange=function(){';
+            echo '      if(xhr.readyState!==4)return;';
+            echo '      try{';
+            echo '        var d=JSON.parse(xhr.responseText);';
+            echo '        if(d.success&&d.data&&d.data.status!=="queued"){';
+            echo '          clearInterval(timer);';
+            // Null Gutenberg's beforeunload so no "Reload site?" dialog
+            echo '          window.onbeforeunload=null;';
+            echo '          if(window.wp&&wp.data){';
+            echo '            try{wp.data.dispatch("core/editor").resetPost();}catch(e){}';
+            echo '          }';
+            echo '          location.replace(location.href.replace(/[?&]tmwseo_research_queued=1/,""));';
+            echo '        }';
+            echo '      }catch(e){}';
+            echo '    };';
+            echo '    xhr.send("action=tmwseo_research_status_poll&post_id=' . $post_id_js . '&nonce=' . esc_js( $poll_nonce ) . '");';
+            echo '  },interval);';
+            echo '})();';
+            echo '</script>';
         }
 
         // ── Provider notice if no provider is configured ───────────────────
@@ -1525,6 +1577,27 @@ class ModelHelper {
         $redirect = get_edit_post_link( $post_id, 'url' );
         wp_safe_redirect( $redirect . '&tmwseo_research_queued=1#tmwseo_model_research' );
         exit;
+    }
+
+    /**
+     * AJAX status poller — called by the inline JS every 4 s while research is queued.
+     * Returns the current META_STATUS so the poller knows when to reload.
+     * Never triggers a page reload itself — that is handled entirely client-side.
+     */
+    public static function ajax_research_status_poll(): void {
+        $post_id = (int) ( $_POST['post_id'] ?? 0 );
+        $nonce   = sanitize_text_field( wp_unslash( (string) ( $_POST['nonce'] ?? '' ) ) );
+
+        if ( $post_id <= 0 || ! wp_verify_nonce( $nonce, 'tmwseo_status_poll_' . $post_id ) ) {
+            wp_send_json_error( [ 'status' => 'error' ], 403 );
+        }
+
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            wp_send_json_error( [ 'status' => 'error' ], 403 );
+        }
+
+        $status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+        wp_send_json_success( [ 'status' => $status ?: 'not_researched' ] );
     }
 
     /**
