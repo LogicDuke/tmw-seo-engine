@@ -34,6 +34,8 @@ use PHPUnit\Framework\TestCase;
 
 // ── Namespace-scoped meta store + overrides ─────────────────────────────
 $GLOBALS['_tmw_vl_grouped_meta'] = [];
+$GLOBALS['_tmw_vl_ajax_success'] = null;
+$GLOBALS['_tmw_vl_ajax_error']   = null;
 
 /**
  * Namespace-scoped get_post_meta(). Resolved before the global stub when
@@ -56,10 +58,53 @@ function update_post_meta( int $id, string $key, $value, $prev_value = '' ): boo
     return true;
 }
 
+/**
+ * Namespace-scoped get_post_type(): treat all test posts as model posts.
+ */
+function get_post_type( $post = null ): string {
+    return 'model';
+}
+
+/**
+ * Namespace-scoped check_ajax_referer(): no-op pass in unit tests.
+ */
+function check_ajax_referer( $action = -1, $query_arg = false, $die = true ): bool {
+    return true;
+}
+
+/**
+ * Namespace-scoped wp_send_json_success() capture helper.
+ *
+ * @param mixed $data
+ * @param int   $status_code
+ * @throws AjaxSuccessException Always thrown to short-circuit execution.
+ */
+function wp_send_json_success( $data = null, int $status_code = 200 ): void {
+    $GLOBALS['_tmw_vl_ajax_success'] = [ 'data' => $data, 'status' => $status_code ];
+    throw new AjaxSuccessException( 'ajax_success' );
+}
+
+/**
+ * Namespace-scoped wp_send_json_error() capture helper.
+ *
+ * @param mixed $data
+ * @param int   $status_code
+ * @throws AjaxErrorException Always thrown to short-circuit execution.
+ */
+function wp_send_json_error( $data = null, int $status_code = 200 ): void {
+    $GLOBALS['_tmw_vl_ajax_error'] = [ 'data' => $data, 'status' => $status_code ];
+    throw new AjaxErrorException( 'ajax_error' );
+}
+
+class AjaxSuccessException extends \RuntimeException {}
+class AjaxErrorException extends \RuntimeException {}
+
 class VerifiedLinksGroupedBlocksTest extends TestCase {
 
     protected function setUp(): void {
         $GLOBALS['_tmw_vl_grouped_meta'] = [];
+        $GLOBALS['_tmw_vl_ajax_success'] = null;
+        $GLOBALS['_tmw_vl_ajax_error']   = null;
         $_POST = [];
     }
 
@@ -315,6 +360,57 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
             $urls
         );
         $this->assertNotContains( 'https://tiktok.com/x', $urls );
+    }
+
+    // ── H. Gutenberg-compatible AJAX persistence path ────────────────
+
+    public function test_ajax_save_persists_new_rows_and_reorder(): void {
+        $post_id = 4010;
+
+        $_POST = [
+            '_ajax_nonce' => 'test_nonce',
+            'post_id'     => $post_id,
+            'rows'        => wp_json_encode( [
+                [ 'type' => 'instagram',  'url' => 'https://instagram.com/zeta', 'is_active' => '1' ],
+                [ 'type' => 'chaturbate', 'url' => 'https://chaturbate.com/alpha', 'is_active' => '1', 'is_primary' => '1' ],
+                [ 'type' => 'fansly',     'url' => 'https://fansly.com/beta', 'is_active' => '1' ],
+            ] ),
+        ];
+
+        try {
+            VerifiedLinks::ajax_save_verified_links();
+            $this->fail( 'Expected ajax handler to terminate via wp_send_json_success().' );
+        } catch ( AjaxSuccessException $e ) {
+            $this->assertNotNull( $GLOBALS['_tmw_vl_ajax_success'] );
+        }
+
+        $stored = $this->read_stored( $post_id );
+        $types  = array_map( static fn( $r ) => $r['type'], $stored );
+
+        // Family order after save: cam -> fansite -> social.
+        $this->assertSame( [ 'chaturbate', 'fansly', 'instagram' ], $types );
+    }
+
+    public function test_ajax_save_allows_clearing_existing_rows(): void {
+        $post_id = 4011;
+        $GLOBALS['_tmw_vl_grouped_meta'][ $post_id ][ VerifiedLinks::META_KEY ] = wp_json_encode( [
+            [ 'type' => 'instagram', 'url' => 'https://instagram.com/existing', 'is_active' => true ],
+        ] );
+
+        $_POST = [
+            '_ajax_nonce' => 'test_nonce',
+            'post_id'     => $post_id,
+            'rows'        => wp_json_encode( [] ),
+        ];
+
+        try {
+            VerifiedLinks::ajax_save_verified_links();
+            $this->fail( 'Expected ajax handler to terminate via wp_send_json_success().' );
+        } catch ( AjaxSuccessException $e ) {
+            $this->assertSame( 0, (int) ( $GLOBALS['_tmw_vl_ajax_success']['data']['count'] ?? -1 ) );
+        }
+
+        $this->assertSame( [], $this->read_stored( $post_id ) );
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
