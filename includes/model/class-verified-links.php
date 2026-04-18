@@ -140,6 +140,10 @@ class VerifiedLinks {
 
     // ── Bootstrap ─────────────────────────────────────────────────────────
 
+    /**
+     * Register all hooks for metabox render/save, Gutenberg fallback save,
+     * shortcode output, and promote-from-research admin flows.
+     */
     public static function init(): void {
         add_action( 'add_meta_boxes',                          [ __CLASS__, 'register_metabox' ] );
         add_action( 'save_post_model',                         [ __CLASS__, 'save_metabox' ], 20, 2 );
@@ -152,6 +156,9 @@ class VerifiedLinks {
 
     // ── Metabox registration ──────────────────────────────────────────────
 
+    /**
+     * Register the Verified External Links metabox on model edit screens.
+     */
     public static function register_metabox(): void {
         add_meta_box(
             'tmwseo_verified_external_links',
@@ -1023,6 +1030,12 @@ class VerifiedLinks {
 
     // ── handle_promote() — admin-post handler ─────────────────────────────
 
+    /**
+     * Handle explicit promote-from-research submissions.
+     *
+     * Validates nonce/capability checks, sanitizes selected URL/type rows,
+     * and persists only operator-approved entries.
+     */
     public static function handle_promote(): void {
         $post_id = (int) ( $_POST['post_id'] ?? 0 );
         if ( $post_id <= 0 ) {
@@ -1136,6 +1149,9 @@ class VerifiedLinks {
 
     // ── Admin notice after promote ────────────────────────────────────────
 
+    /**
+     * Render an admin notice after promote flow redirects.
+     */
     public static function render_promote_notice(): void {
         $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
         if ( ! $screen || $screen->base !== 'post' || $screen->post_type !== 'model' ) {
@@ -1599,6 +1615,9 @@ class VerifiedLinks {
 
     // ── normalize_url_for_dedup() ─────────────────────────────────────────
 
+    /**
+     * Normalize a URL string for duplicate detection.
+     */
     private static function normalize_url_for_dedup( string $url ): string {
         $parts = wp_parse_url( trim( $url ) );
         if ( ! is_array( $parts ) ) {
@@ -1613,6 +1632,9 @@ class VerifiedLinks {
 
     // ── type_label() ──────────────────────────────────────────────────────
 
+    /**
+     * Resolve a human-readable label for a verified-link type slug.
+     */
     private static function type_label( string $type ): string {
         return self::TYPE_LABELS[ $type ] ?? ucfirst( str_replace( '_', ' ', $type ) );
     }
@@ -1666,6 +1688,9 @@ class VerifiedLinks {
 
     // ── guess_type_from_url() — UI convenience only ───────────────────────
 
+    /**
+     * Infer the most likely verified-link type for a URL.
+     */
     private static function guess_type_from_url( string $url ): string {
         $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
         $host = (string) preg_replace( '/^www\./', '', $host );
