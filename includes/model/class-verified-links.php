@@ -74,35 +74,67 @@ class VerifiedLinks {
     const NONCE_SAVE    = 'tmwseo_verified_links_save_';
     const NONCE_PROMOTE = 'tmwseo_promote_research_';
 
+    /**
+     * Allowed type slugs for verified link entries.
+     *
+     * @since 5.1.0 Extended to include all cam platform / link-hub slugs
+     *              used by VerifiedLinksFamilies. Order here is irrelevant
+     *              for validation; per-block dropdown order comes from
+     *              VerifiedLinksFamilies::types_in_family().
+     */
     const ALLOWED_TYPES = [
+        // Cam platforms
+        'streamate',
+        'chaturbate',
+        'stripchat',
+        'livejasmin',
+        'camsoda',
+        'bongacams',
+        'cam4',
+        'myfreecams',
+        // Personal website
+        'personal_site',
+        // Fansites
+        'onlyfans',
+        'fansly',
+        'fancentro',
+        // Tube sites
+        'pornhub',
+        // Social media + link hubs
         'instagram',
         'tiktok',
         'x',
         'facebook',
         'youtube',
         'linktree',
-        'personal_site',
-        'onlyfans',
-        'fansly',
-        'fancentro',
-        'streamate',
-        'pornhub',
+        'beacons',
+        'allmylinks',
+        // Catch-all (Other / Legacy block)
         'other',
     ];
 
     const TYPE_LABELS = [
+        'streamate'     => 'Streamate',
+        'chaturbate'    => 'Chaturbate',
+        'stripchat'     => 'Stripchat',
+        'livejasmin'    => 'LiveJasmin',
+        'camsoda'       => 'CamSoda',
+        'bongacams'     => 'BongaCams',
+        'cam4'          => 'Cam4',
+        'myfreecams'    => 'MyFreeCams',
+        'personal_site' => 'Personal Site',
+        'onlyfans'      => 'OnlyFans',
+        'fansly'        => 'Fansly',
+        'fancentro'     => 'FanCentro',
+        'pornhub'       => 'Pornhub',
         'instagram'     => 'Instagram',
         'tiktok'        => 'TikTok',
         'x'             => 'X (Twitter)',
         'facebook'      => 'Facebook',
         'youtube'       => 'YouTube',
         'linktree'      => 'Linktree',
-        'personal_site' => 'Personal Site',
-        'onlyfans'      => 'OnlyFans',
-        'fansly'        => 'Fansly',
-        'fancentro'     => 'FanCentro',
-        'streamate'     => 'Streamate',
-        'pornhub'       => 'Pornhub',
+        'beacons'       => 'Beacons',
+        'allmylinks'    => 'AllMyLinks',
         'other'         => 'Other',
     ];
 
@@ -131,6 +163,17 @@ class VerifiedLinks {
 
     // ── Metabox render ────────────────────────────────────────────────────
 
+    /**
+     * Render the Verified External Links metabox as 5 grouped family blocks
+     * (Cam Platforms / Personal Website / Fansites / Tube Sites / Social Media)
+     * plus an Other / Legacy block that only appears when populated.
+     *
+     * @since 5.1.0 Replaced flat-table renderer with grouped <details> blocks.
+     *              Each block has its own family-scoped Type dropdown and its
+     *              own Add Link button. Each row has Move Up / Move Down
+     *              controls that swap only with siblings inside the same block.
+     *              Schema sameAs output and stored data shape are unchanged.
+     */
     public static function render_metabox( \WP_Post $post ): void {
         if ( ! current_user_can( 'edit_post', $post->ID ) ) {
             echo '<p>' . esc_html__( 'You do not have permission to view this.', 'tmwseo' ) . '</p>';
@@ -144,6 +187,21 @@ class VerifiedLinks {
 
         $links = self::get_links( $post->ID );
 
+        // Group existing links by family. Preserves stored order within each family.
+        // Legacy rows whose `type` is not in the registry fall into 'unmapped'.
+        $by_family = [];
+        foreach ( VerifiedLinksFamilies::display_order() as $family_slug ) {
+            $by_family[ $family_slug ] = [];
+        }
+        $row_index = 0;
+        foreach ( $links as $entry ) {
+            $type   = (string) ( $entry['type'] ?? '' );
+            $family = VerifiedLinksFamilies::family_for( $type );
+            $by_family[ $family ][] = [ 'idx' => $row_index, 'entry' => $entry ];
+            $row_index++;
+        }
+
+        // ── Header / description ──────────────────────────────────────────
         echo '<p style="margin-top:0;color:#555;font-size:13px;">';
         echo esc_html__(
             'These links appear on the front end and in schema sameAs. '
@@ -152,183 +210,424 @@ class VerifiedLinks {
         );
         echo '</p>';
 
-        // ── Table ─────────────────────────────────────────────────────────
-        echo '<table class="widefat" id="tmwseo-vl-table" '
-            . 'style="border-collapse:collapse;margin-bottom:10px;table-layout:fixed;">';
+        // Inline scoped CSS for the grouped UI (single style tag, prefixed).
+        ?>
+        <style>
+            .tmwseo-vl-block { margin: 0 0 12px; border: 1px solid #dcdcde; border-radius: 4px; background: #fff; }
+            .tmwseo-vl-block > summary {
+                list-style: none; cursor: pointer; padding: 8px 12px;
+                background: #f6f7f7; border-bottom: 1px solid #dcdcde;
+                font-weight: 600; display: flex; align-items: center; gap: 8px;
+                user-select: none;
+            }
+            .tmwseo-vl-block > summary::-webkit-details-marker { display: none; }
+            .tmwseo-vl-block > summary:before {
+                content: '▸'; display: inline-block; width: 12px; transition: transform 0.15s ease;
+                color: #555;
+            }
+            .tmwseo-vl-block[open] > summary:before { transform: rotate(90deg); }
+            .tmwseo-vl-block-accent { width: 6px; height: 16px; border-radius: 2px; display: inline-block; }
+            .tmwseo-vl-count {
+                background: #e9e9e9; color: #444; font-size: 11px; font-weight: 600;
+                border-radius: 10px; padding: 1px 8px; margin-left: 4px;
+            }
+            .tmwseo-vl-block-body { padding: 8px 10px 12px; }
+            .tmwseo-vl-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            .tmwseo-vl-table th, .tmwseo-vl-table td { padding: 4px 6px; vertical-align: middle; }
+            .tmwseo-vl-table thead th { background: #fafafa; font-size: 11px; color: #555; text-align: left; border-bottom: 1px solid #eee; }
+            .tmwseo-vl-table thead th.tmwseo-vl-th-center { text-align: center; }
+            .tmwseo-vl-row { border-bottom: 1px solid #f1f1f1; }
+            .tmwseo-vl-aff-row { background: #fafafa; border-bottom: 1px solid #f1f1f1; }
+            .tmwseo-vl-empty {
+                padding: 10px 8px; color: #888; font-style: italic; font-size: 12px;
+            }
+            .tmwseo-vl-move-btn {
+                background: #fff; border: 1px solid #c3c4c7; border-radius: 3px;
+                width: 22px; height: 22px; line-height: 18px; font-size: 12px;
+                cursor: pointer; padding: 0; color: #2c3338;
+            }
+            .tmwseo-vl-move-btn:hover:not(:disabled) { background: #f0f0f1; border-color: #8c8f94; }
+            .tmwseo-vl-move-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+            .tmwseo-vl-move-cell { white-space: nowrap; width: 56px; }
+            .tmwseo-vl-add-btn { margin-top: 6px; }
+            .tmwseo-vl-block-add-help { margin-left: 10px; font-size: 11px; color: #777; }
+        </style>
+        <?php
+
+        // ── Render the 5 visible blocks + optional Other/Legacy ───────────
+        foreach ( VerifiedLinksFamilies::display_order() as $family_slug ) {
+            $family_rows = $by_family[ $family_slug ];
+
+            // Skip the unmapped block entirely when there are no legacy rows.
+            if ( $family_slug === VerifiedLinksFamilies::FAMILY_UNMAPPED && empty( $family_rows ) ) {
+                continue;
+            }
+
+            self::render_family_block( $family_slug, $family_rows );
+        }
+
+        // ── JS: per-block add + within-block reorder + global primary ────
+        self::render_grouped_js( count( $links ) );
+    }
+
+    /**
+     * Render one family block: collapsible <details> wrapper with its own
+     * table body and Add Link button.
+     *
+     * @param string                              $family_slug
+     * @param array<int,array{idx:int,entry:array<string,mixed>}> $rows
+     */
+    private static function render_family_block( string $family_slug, array $rows ): void {
+        $label  = VerifiedLinksFamilies::family_label( $family_slug );
+        $color  = VerifiedLinksFamilies::family_color( $family_slug );
+        $count  = count( $rows );
+        $is_unmapped = ( $family_slug === VerifiedLinksFamilies::FAMILY_UNMAPPED );
+
+        $block_id      = 'tmwseo-vl-block-' . sanitize_key( $family_slug );
+        $tbody_id      = 'tmwseo-vl-rows-' . sanitize_key( $family_slug );
+        $add_btn_id    = 'tmwseo-vl-add-' . sanitize_key( $family_slug );
+        $count_id      = 'tmwseo-vl-count-' . sanitize_key( $family_slug );
+
+        echo '<details class="tmwseo-vl-block" id="' . esc_attr( $block_id ) . '"'
+            . ' data-family="' . esc_attr( $family_slug ) . '" open>';
+        echo '<summary>';
+        echo '<span class="tmwseo-vl-block-accent" style="background:' . esc_attr( $color ) . ';"></span>';
+        echo '<span>' . esc_html( $label ) . '</span>';
+        echo '<span class="tmwseo-vl-count" id="' . esc_attr( $count_id ) . '">' . (int) $count . '</span>';
+        echo '</summary>';
+
+        echo '<div class="tmwseo-vl-block-body">';
+
+        echo '<table class="tmwseo-vl-table">';
         echo '<colgroup>'
-            . '<col style="width:130px;">'
-            . '<col>'
-            . '<col style="width:130px;">'
-            . '<col style="width:56px;">'
-            . '<col style="width:60px;">'
-            . '<col style="width:36px;">'
+            . '<col style="width:56px;">'   // move
+            . '<col style="width:130px;">'  // type
+            . '<col>'                       // url
+            . '<col style="width:130px;">'  // label
+            . '<col style="width:56px;">'   // active
+            . '<col style="width:60px;">'   // primary
+            . '<col style="width:36px;">'   // remove
             . '</colgroup>';
-        echo '<thead><tr style="background:#f6f7f7;">';
-        echo '<th style="padding:6px 8px;">'                                    . esc_html__( 'Type',    'tmwseo' ) . '</th>';
-        echo '<th style="padding:6px 8px;">'                                    . esc_html__( 'URL',     'tmwseo' ) . '</th>';
-        echo '<th style="padding:6px 8px;">'                                    . esc_html__( 'Label',   'tmwseo' ) . '</th>';
-        echo '<th style="padding:6px 8px;text-align:center;">'                  . esc_html__( 'Active',  'tmwseo' ) . '</th>';
-        echo '<th style="padding:6px 8px;text-align:center;">'                  . esc_html__( 'Primary', 'tmwseo' ) . '</th>';
-        echo '<th style="padding:6px 8px;"></th>';
+        echo '<thead><tr>';
+        echo '<th class="tmwseo-vl-th-center">' . esc_html__( 'Move',    'tmwseo' ) . '</th>';
+        echo '<th>'                              . esc_html__( 'Type',    'tmwseo' ) . '</th>';
+        echo '<th>'                              . esc_html__( 'URL',     'tmwseo' ) . '</th>';
+        echo '<th>'                              . esc_html__( 'Label',   'tmwseo' ) . '</th>';
+        echo '<th class="tmwseo-vl-th-center">' . esc_html__( 'Active',  'tmwseo' ) . '</th>';
+        echo '<th class="tmwseo-vl-th-center">' . esc_html__( 'Primary', 'tmwseo' ) . '</th>';
+        echo '<th></th>';
         echo '</tr></thead>';
-        echo '<tbody id="tmwseo-vl-rows">';
+        echo '<tbody id="' . esc_attr( $tbody_id ) . '" data-family="' . esc_attr( $family_slug ) . '">';
 
-        if ( empty( $links ) ) {
-            echo '<tr id="tmwseo-vl-empty-row">'
-                . '<td colspan="6" style="padding:10px 8px;color:#888;font-style:italic;">'
-                . esc_html__( 'No verified links yet. Click "+ Add Link" below to add one.', 'tmwseo' )
+        if ( empty( $rows ) ) {
+            echo '<tr class="tmwseo-vl-empty-row"><td colspan="7" class="tmwseo-vl-empty">'
+                . esc_html__( 'No links in this block yet. Click "+ Add Link" below to add one.', 'tmwseo' )
                 . '</td></tr>';
+        } else {
+            foreach ( $rows as $row ) {
+                self::render_row( (int) $row['idx'], (array) $row['entry'], $family_slug );
+            }
         }
 
-        foreach ( $links as $n => $entry ) {
-            self::render_row( $n, $entry );
+        echo '</tbody>';
+        echo '</table>';
+
+        // Per-block Add Link button. Suppressed for the legacy/unmapped block —
+        // operators relabel/migrate those, they don't intentionally add new ones.
+        if ( ! $is_unmapped ) {
+            echo '<p class="tmwseo-vl-add-btn">';
+            echo '<button type="button" class="button tmwseo-vl-add-btn-trigger"'
+                . ' id="' . esc_attr( $add_btn_id ) . '"'
+                . ' data-family="' . esc_attr( $family_slug ) . '">'
+                . esc_html__( '+ Add Link', 'tmwseo' )
+                . '</button>';
+            echo '<span class="tmwseo-vl-block-add-help">'
+                . esc_html__( 'Saved with the post. Never auto-imported from research.', 'tmwseo' )
+                . '</span>';
+            echo '</p>';
+        } else {
+            echo '<p class="tmwseo-vl-block-add-help" style="margin:6px 0 0;">';
+            echo esc_html__(
+                'These rows have legacy or unrecognised types. Edit each row\'s type to move it into one of the blocks above.',
+                'tmwseo'
+            );
+            echo '</p>';
         }
 
-        echo '</tbody></table>';
+        echo '</div>'; // .tmwseo-vl-block-body
+        echo '</details>';
+    }
 
-        // ── Add Link button ───────────────────────────────────────────────
-        echo '<p style="margin-bottom:14px;">';
-        echo '<button type="button" class="button" id="tmwseo-vl-add-btn">'
-            . esc_html__( '+ Add Link', 'tmwseo' )
-            . '</button>';
-        echo '<span style="margin-left:12px;color:#666;font-size:12px;">'
-            . esc_html__( 'Saved with the post. Never auto-imported from research.', 'tmwseo' )
-            . '</span>';
-        echo '</p>';
-
-        // ── Inline JS (no external file needed for v1) ────────────────────
-        $type_options_html = '<option value="">' . esc_html__( '— Select type —', 'tmwseo' ) . '</option>';
-        foreach ( self::TYPE_LABELS as $val => $label_text ) {
-            $type_options_html .= '<option value="' . esc_attr( $val ) . '">' . esc_html( $label_text ) . '</option>';
+    /**
+     * Emit the single inline JS block that drives all family blocks.
+     * Kept inline (no external file) for v5.1 to avoid touching the assets
+     * enqueue layer; the script handle name is reserved for a future split.
+     *
+     * @param int $existing_row_count Count of already-rendered rows (used to seed the global counter).
+     */
+    private static function render_grouped_js( int $existing_row_count ): void {
+        // Build a JS-side type-options map keyed by family slug so newly-added
+        // rows in any block get the right filtered Type dropdown.
+        $type_options_by_family = [];
+        foreach ( VerifiedLinksFamilies::block_order() as $family_slug ) {
+            $opts = '';
+            foreach ( VerifiedLinksFamilies::types_in_family( $family_slug ) as $val => $label_text ) {
+                $opts .= '<option value="' . esc_attr( $val ) . '">' . esc_html( $label_text ) . '</option>';
+            }
+            $type_options_by_family[ $family_slug ] = $opts;
         }
+
+        $default_type_by_family = [];
+        foreach ( VerifiedLinksFamilies::block_order() as $family_slug ) {
+            $default_type_by_family[ $family_slug ] = VerifiedLinksFamilies::default_type_for( $family_slug );
+        }
+
+        // Affiliate network options HTML (built once, shared by all new rows
+        // across all blocks — same behaviour as the legacy renderer).
+        $js_net_keys = class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
+            ? \TMWSEO\Engine\Platform\AffiliateLinkBuilder::get_configurable_network_keys()
+            : [];
+        $js_net_opts = '<option value="">' . esc_html__( '— Select network —', 'tmwseo' ) . '</option>';
+        foreach ( $js_net_keys as $nk => $nl ) {
+            $js_net_opts .= '<option value="' . esc_attr( $nk ) . '">' . esc_html( $nl ) . '</option>';
+        }
+
+        $aff_url             = esc_url( admin_url( 'admin.php?page=tmwseo-affiliates' ) );
+        $configure_aff_html  = esc_html__( 'No networks configured.', 'tmwseo' )
+            . ' <a href="' . $aff_url . '" target="_blank" style="font-size:11px;">'
+            . esc_html__( 'Configure in Affiliates →', 'tmwseo' ) . '</a>';
+
         ?>
         <script>
         (function () {
-            var counter           = <?php echo (int) count( $links ); ?>;
-            var typeOptions       = <?php echo wp_json_encode( $type_options_html ); ?>;
-            var placeholderTxt    = <?php echo wp_json_encode( __( 'Optional label', 'tmwseo' ) ); ?>;
-            var emptyTxt          = <?php echo wp_json_encode( __( 'No verified links yet. Click \"+ Add Link\" below to add one.', 'tmwseo' ) ); ?>;
-            var removeTxt         = <?php echo wp_json_encode( __( 'Remove', 'tmwseo' ) ); ?>;
-            var affRouteTxt       = <?php echo wp_json_encode( __( 'Route through affiliate', 'tmwseo' ) ); ?>;
-            var networkLabelTxt   = <?php echo wp_json_encode( __( 'Network:', 'tmwseo' ) ); ?>;
-            var schemaNotesTxt    = <?php echo wp_json_encode( __( '(schema sameAs always uses the outbound URL above)', 'tmwseo' ) ); ?>;
-            var configureAffHtml  = <?php
-                $aff_url = esc_url( admin_url( 'admin.php?page=tmwseo-affiliates' ) );
-                $aff_msg = esc_html__( 'No networks configured.', 'tmwseo' );
-                $aff_lnk = esc_html__( 'Configure in Affiliates →', 'tmwseo' );
-                echo wp_json_encode(
-                    $aff_msg . ' <a href="' . $aff_url . '" target="_blank" style="font-size:11px;">' . $aff_lnk . '</a>'
-                );
-            ?>;
-            <?php
-            // Build network select options HTML once in PHP, inject as a JS string.
-            // The PHP render_row() makes a fresh live call; this JS copy is for new rows only.
-            $js_net_keys     = class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
-                ? \TMWSEO\Engine\Platform\AffiliateLinkBuilder::get_configurable_network_keys()
-                : [];
-            $js_net_opts     = '<option value="">' . esc_html__( '— Select network —', 'tmwseo' ) . '</option>';
-            foreach ( $js_net_keys as $nk => $nl ) {
-                $js_net_opts .= '<option value="' . esc_attr( $nk ) . '">' . esc_html( $nl ) . '</option>';
-            }
-            ?>
-            var networkSelectHtml = <?php echo wp_json_encode( $js_net_opts ); ?>;
-            var hasNetworks       = <?php echo empty( $js_net_keys ) ? 'false' : 'true'; ?>;
+            // Global row index counter — must stay unique across all blocks because
+            // every input name is tmwseo_vl[N][...]. PHP iterates POST in submission
+            // order which equals DOM order, so per-family ordering is preserved.
+            var counter = <?php echo (int) $existing_row_count; ?>;
 
-            function buildRow(n) {
+            var typeOptionsByFamily   = <?php echo wp_json_encode( $type_options_by_family ); ?>;
+            var defaultTypeByFamily   = <?php echo wp_json_encode( $default_type_by_family ); ?>;
+            var networkSelectHtml     = <?php echo wp_json_encode( $js_net_opts ); ?>;
+            var hasNetworks           = <?php echo empty( $js_net_keys ) ? 'false' : 'true'; ?>;
+            var configureAffHtml      = <?php echo wp_json_encode( $configure_aff_html ); ?>;
+
+            var labels = {
+                placeholder:  <?php echo wp_json_encode( __( 'Optional label', 'tmwseo' ) ); ?>,
+                empty:        <?php echo wp_json_encode( __( 'No links in this block yet. Click "+ Add Link" below to add one.', 'tmwseo' ) ); ?>,
+                remove:       <?php echo wp_json_encode( __( 'Remove', 'tmwseo' ) ); ?>,
+                moveUp:       <?php echo wp_json_encode( __( 'Move up',   'tmwseo' ) ); ?>,
+                moveDown:     <?php echo wp_json_encode( __( 'Move down', 'tmwseo' ) ); ?>,
+                affRoute:     <?php echo wp_json_encode( __( 'Route through affiliate', 'tmwseo' ) ); ?>,
+                networkLabel: <?php echo wp_json_encode( __( 'Network:', 'tmwseo' ) ); ?>,
+                schemaNote:   <?php echo wp_json_encode( __( '(schema sameAs always uses the outbound URL above)', 'tmwseo' ) ); ?>
+            };
+
+            function buildRow(n, family) {
+                var typeOpts    = typeOptionsByFamily[family] || '';
+                var defaultType = defaultTypeByFamily[family] || '';
+
+                // Pre-select the default type for this family.
+                var selectedTypeOpts = typeOpts.replace(
+                    'value="' + defaultType + '"',
+                    'value="' + defaultType + '" selected'
+                );
+
                 var tr = document.createElement('tr');
                 tr.className = 'tmwseo-vl-row';
                 tr.setAttribute('data-idx', n);
+                tr.setAttribute('data-family', family);
                 tr.innerHTML =
-                    '<td style="padding:4px 6px;">' +
-                        '<select name="tmwseo_vl[' + n + '][type]" style="width:100%;">' + typeOptions + '</select>' +
+                    '<td class="tmwseo-vl-move-cell" style="text-align:center;">' +
+                        '<button type="button" class="tmwseo-vl-move-btn tmwseo-vl-move-up" title="' + labels.moveUp + '">▲</button> ' +
+                        '<button type="button" class="tmwseo-vl-move-btn tmwseo-vl-move-down" title="' + labels.moveDown + '">▼</button>' +
                     '</td>' +
-                    '<td style="padding:4px 6px;">' +
-                        '<input type="url" name="tmwseo_vl[' + n + '][url]" value="" ' +
-                        '       class="large-text" placeholder="https://" />' +
+                    '<td>' +
+                        '<select name="tmwseo_vl[' + n + '][type]" class="tmwseo-vl-type" style="width:100%;">' + selectedTypeOpts + '</select>' +
                     '</td>' +
-                    '<td style="padding:4px 6px;">' +
-                        '<input type="text" name="tmwseo_vl[' + n + '][label]" value="" ' +
-                        '       style="width:100%;" placeholder="' + placeholderTxt + '" />' +
+                    '<td>' +
+                        '<input type="url" name="tmwseo_vl[' + n + '][url]" value="" class="large-text" placeholder="https://" />' +
                     '</td>' +
-                    '<td style="padding:4px 6px;text-align:center;">' +
+                    '<td>' +
+                        '<input type="text" name="tmwseo_vl[' + n + '][label]" value="" style="width:100%;" placeholder="' + labels.placeholder + '" />' +
+                    '</td>' +
+                    '<td style="text-align:center;">' +
                         '<input type="checkbox" name="tmwseo_vl[' + n + '][is_active]" value="1" checked />' +
                     '</td>' +
-                    '<td style="padding:4px 6px;text-align:center;">' +
-                        '<input type="checkbox" name="tmwseo_vl[' + n + '][is_primary]" value="1" ' +
-                        '       class="tmwseo-vl-primary" />' +
+                    '<td style="text-align:center;">' +
+                        '<input type="checkbox" name="tmwseo_vl[' + n + '][is_primary]" value="1" class="tmwseo-vl-primary" />' +
                     '</td>' +
-                    '<td style="padding:4px 6px;text-align:center;">' +
-                        '<button type="button" class="button-link tmwseo-vl-remove" ' +
-                        '        title="' + removeTxt + '" ' +
-                        '        style="color:#a00;font-size:18px;line-height:1;padding:0;">&times;</button>' +
-                    '</td>' +
-                    '<td style="display:none;">' +
-                        '<input type="hidden" name="tmwseo_vl[' + n + '][added_at]"          value="" />' +
-                        '<input type="hidden" name="tmwseo_vl[' + n + '][promoted_from]"     value="manual" />' +
-                        '<input type="hidden" name="tmwseo_vl[' + n + '][source_url]"        value="" />' +
-                        '<input type="hidden" name="tmwseo_vl[' + n + '][outbound_type]"     value="" />' +
+                    '<td style="text-align:center;">' +
+                        '<button type="button" class="button-link tmwseo-vl-remove" title="' + labels.remove + '" style="color:#a00;font-size:18px;line-height:1;padding:0;">&times;</button>' +
                     '</td>';
 
-                // Affiliate routing sub-row
+                // Hidden audit-trail fields go in a single off-table holder so colspan
+                // alignment in the affiliate sub-row stays correct (7 columns).
+                var hiddenHolder = document.createElement('tr');
+                hiddenHolder.style.display = 'none';
+                hiddenHolder.className = 'tmwseo-vl-hidden-holder';
+                hiddenHolder.setAttribute('data-parent-idx', n);
+                hiddenHolder.innerHTML =
+                    '<td colspan="7">' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][added_at]"      value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][promoted_from]" value="manual" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][source_url]"    value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][outbound_type]" value="" />' +
+                    '</td>';
+
                 var affTr = document.createElement('tr');
                 affTr.className = 'tmwseo-vl-aff-row';
                 affTr.setAttribute('data-parent-idx', n);
-                affTr.style.cssText = 'background:#f8f8f8;border-top:1px dashed #ddd;';
                 var networkCtrl = hasNetworks
                     ? '<select name="tmwseo_vl[' + n + '][affiliate_network]" style="font-size:11px;margin-left:4px;">' + networkSelectHtml + '</select>'
                     : '<span style="font-size:11px;color:#888;margin-left:4px;">' + configureAffHtml + '</span>';
                 affTr.innerHTML =
-                    '<td colspan="6" style="padding:4px 8px;">' +
+                    '<td colspan="7" style="padding:4px 8px;">' +
                         '<label style="font-size:11px;color:#555;cursor:pointer;">' +
-                            '<input type="checkbox" name="tmwseo_vl[' + n + '][use_affiliate]" value="1" ' +
-                            '       style="margin-right:4px;" />' +
-                            affRouteTxt +
+                            '<input type="checkbox" name="tmwseo_vl[' + n + '][use_affiliate]" value="1" style="margin-right:4px;" />' +
+                            labels.affRoute +
                         '</label>' +
-                        '<span style="margin-left:12px;font-size:11px;color:#888;">' + networkLabelTxt + '</span>' +
+                        '<span style="margin-left:12px;font-size:11px;color:#888;">' + labels.networkLabel + '</span>' +
                         networkCtrl +
-                        '<span style="margin-left:8px;font-size:10px;color:#aaa;">' + schemaNotesTxt + '</span>' +
+                        '<span style="margin-left:8px;font-size:10px;color:#aaa;">' + labels.schemaNote + '</span>' +
                     '</td>';
-
 
                 var frag = document.createDocumentFragment();
                 frag.appendChild(tr);
+                frag.appendChild(hiddenHolder);
                 frag.appendChild(affTr);
                 return frag;
             }
 
-            // Add Link — append both the main row and the affiliate sub-row
-            document.getElementById('tmwseo-vl-add-btn').addEventListener('click', function () {
-                var emptyRow = document.getElementById('tmwseo-vl-empty-row');
-                if (emptyRow) emptyRow.parentNode.removeChild(emptyRow);
-                document.getElementById('tmwseo-vl-rows').appendChild(buildRow(counter));
-                counter++;
-            });
+            // Recompute Move Up / Move Down enabled state for every row in a tbody,
+            // and refresh the block's count badge.
+            function refreshBlockState(tbody) {
+                var rows = tbody.querySelectorAll('tr.tmwseo-vl-row');
+                var family = tbody.getAttribute('data-family');
 
-            // Remove row + Primary enforcement (delegated)
-            document.getElementById('tmwseo-vl-rows').addEventListener('click', function (e) {
-                var tgt = e.target;
+                rows.forEach(function (row, i) {
+                    var up   = row.querySelector('.tmwseo-vl-move-up');
+                    var down = row.querySelector('.tmwseo-vl-move-down');
+                    if (up)   up.disabled   = ( i === 0 );
+                    if (down) down.disabled = ( i === rows.length - 1 );
+                });
 
-                if (tgt && tgt.classList.contains('tmwseo-vl-remove')) {
-                    var row = tgt.closest('tr.tmwseo-vl-row');
-                    if (row) {
-                        row.parentNode.removeChild(row);
-                        var tbody = document.getElementById('tmwseo-vl-rows');
-                        if (!tbody.querySelector('tr.tmwseo-vl-row')) {
-                            var empty = document.createElement('tr');
-                            empty.id = 'tmwseo-vl-empty-row';
-                            empty.innerHTML = '<td colspan="6" style="padding:10px 8px;color:#888;font-style:italic;">' +
-                                emptyTxt + '</td>';
-                            tbody.appendChild(empty);
-                        }
+                var countEl = document.getElementById('tmwseo-vl-count-' + family);
+                if (countEl) countEl.textContent = String(rows.length);
+
+                // Empty placeholder management.
+                var emptyRow = tbody.querySelector('tr.tmwseo-vl-empty-row');
+                if (rows.length === 0 && !emptyRow) {
+                    var er = document.createElement('tr');
+                    er.className = 'tmwseo-vl-empty-row';
+                    er.innerHTML = '<td colspan="7" class="tmwseo-vl-empty">' + labels.empty + '</td>';
+                    tbody.appendChild(er);
+                } else if (rows.length > 0 && emptyRow) {
+                    emptyRow.parentNode.removeChild(emptyRow);
+                }
+            }
+
+            // Find the trio (main row, hidden holder, aff sub-row) for a given main row.
+            function rowGroup(mainRow) {
+                var idx = mainRow.getAttribute('data-idx');
+                var siblings = mainRow.parentNode.children;
+                var group = [mainRow];
+                for (var i = 0; i < siblings.length; i++) {
+                    var s = siblings[i];
+                    if (s === mainRow) continue;
+                    if (s.getAttribute && s.getAttribute('data-parent-idx') === idx) {
+                        group.push(s);
                     }
                 }
+                return group;
+            }
 
-                // Primary: only one may be checked
-                if (tgt && tgt.classList.contains('tmwseo-vl-primary') && tgt.checked) {
-                    document.querySelectorAll('.tmwseo-vl-primary').forEach(function (cb) {
-                        if (cb !== tgt) cb.checked = false;
+            // Swap a row group with its previous (or next) sibling row group.
+            function moveRow(mainRow, direction) {
+                var tbody = mainRow.parentNode;
+                var allMainRows = Array.prototype.filter.call(
+                    tbody.children,
+                    function (n) { return n.classList && n.classList.contains('tmwseo-vl-row'); }
+                );
+                var pos = allMainRows.indexOf(mainRow);
+                if (pos < 0) return;
+
+                var targetPos = direction === 'up' ? pos - 1 : pos + 1;
+                if (targetPos < 0 || targetPos >= allMainRows.length) return;
+
+                var targetMain  = allMainRows[targetPos];
+                var movingGroup = rowGroup(mainRow);
+                var targetGroup = rowGroup(targetMain);
+
+                // Detach moving group then reinsert before target group's first node
+                // (for up) or after target group's last node (for down).
+                movingGroup.forEach(function (n) { tbody.removeChild(n); });
+
+                if (direction === 'up') {
+                    var anchor = targetGroup[0];
+                    movingGroup.forEach(function (n) { tbody.insertBefore(n, anchor); });
+                } else {
+                    var lastTarget = targetGroup[targetGroup.length - 1];
+                    var afterAnchor = lastTarget.nextSibling;
+                    movingGroup.forEach(function (n) {
+                        if (afterAnchor) tbody.insertBefore(n, afterAnchor);
+                        else tbody.appendChild(n);
                     });
                 }
+
+                refreshBlockState(tbody);
+            }
+
+            // ── Wire up Add Link buttons (one per family block) ─────────
+            document.querySelectorAll('.tmwseo-vl-add-btn-trigger').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var family = btn.getAttribute('data-family');
+                    var tbody = document.getElementById('tmwseo-vl-rows-' + family);
+                    if (!tbody) return;
+
+                    var emptyRow = tbody.querySelector('tr.tmwseo-vl-empty-row');
+                    if (emptyRow) emptyRow.parentNode.removeChild(emptyRow);
+
+                    tbody.appendChild(buildRow(counter, family));
+                    counter++;
+                    refreshBlockState(tbody);
+                });
+            });
+
+            // ── Delegated handler for remove / move / primary ───────────
+            document.querySelectorAll('tbody[id^="tmwseo-vl-rows-"]').forEach(function (tbody) {
+                refreshBlockState(tbody);
+
+                tbody.addEventListener('click', function (e) {
+                    var tgt = e.target;
+                    if (!tgt) return;
+
+                    if (tgt.classList.contains('tmwseo-vl-remove')) {
+                        var row = tgt.closest('tr.tmwseo-vl-row');
+                        if (row) {
+                            rowGroup(row).forEach(function (n) { tbody.removeChild(n); });
+                            refreshBlockState(tbody);
+                        }
+                        return;
+                    }
+
+                    if (tgt.classList.contains('tmwseo-vl-move-up') || tgt.classList.contains('tmwseo-vl-move-down')) {
+                        var row2 = tgt.closest('tr.tmwseo-vl-row');
+                        if (row2) {
+                            moveRow(row2, tgt.classList.contains('tmwseo-vl-move-up') ? 'up' : 'down');
+                        }
+                        return;
+                    }
+                });
+
+                // Primary checkboxes: only one may be checked across the entire form.
+                tbody.addEventListener('change', function (e) {
+                    var tgt = e.target;
+                    if (tgt && tgt.classList && tgt.classList.contains('tmwseo-vl-primary') && tgt.checked) {
+                        document.querySelectorAll('.tmwseo-vl-primary').forEach(function (cb) {
+                            if (cb !== tgt) cb.checked = false;
+                        });
+                    }
+                });
             });
         }());
         </script>
@@ -337,7 +636,19 @@ class VerifiedLinks {
 
     // ── Render a single existing row ──────────────────────────────────────
 
-    private static function render_row( int $n, array $entry ): void {
+    /**
+     * Render one existing row inside its family block.
+     *
+     * @since 5.1.0 Added Move Up / Move Down cell, $family parameter, and
+     *              family-scoped Type dropdown. The row's $n is the global
+     *              row index (input-name suffix); it stays stable across
+     *              renders so reordering is purely a DOM-position change.
+     *
+     * @param int                  $n      Global row index used in input names.
+     * @param array<string,mixed>  $entry  Stored entry.
+     * @param string               $family Family slug for this block.
+     */
+    private static function render_row( int $n, array $entry, string $family = '' ): void {
         $url               = (string) ( $entry['url']               ?? '' );
         $type              = (string) ( $entry['type']              ?? '' );
         $label             = (string) ( $entry['label']             ?? '' );
@@ -350,13 +661,44 @@ class VerifiedLinks {
         $use_affiliate     = ! empty( $entry['use_affiliate'] );
         $affiliate_network = (string) ( $entry['affiliate_network'] ?? '' );
 
-        echo '<tr class="tmwseo-vl-row" data-idx="' . (int) $n . '">';
+        // Resolve family if caller didn't pass one (defensive).
+        if ( $family === '' ) {
+            $family = VerifiedLinksFamilies::family_for( $type );
+        }
+
+        // Determine the type options to render in this row's dropdown.
+        // For unmapped rows we allow ALL known types so the operator can
+        // relabel the row into any family. For family rows we filter strictly.
+        if ( $family === VerifiedLinksFamilies::FAMILY_UNMAPPED ) {
+            $type_options = VerifiedLinksFamilies::type_labels(); // full set
+        } else {
+            $type_options = VerifiedLinksFamilies::types_in_family( $family );
+        }
+
+        echo '<tr class="tmwseo-vl-row" data-idx="' . (int) $n . '" data-family="' . esc_attr( $family ) . '">';
+
+        // Move
+        echo '<td class="tmwseo-vl-move-cell" style="text-align:center;">';
+        echo '<button type="button" class="tmwseo-vl-move-btn tmwseo-vl-move-up"'
+            . ' title="' . esc_attr__( 'Move up', 'tmwseo' ) . '">▲</button> ';
+        echo '<button type="button" class="tmwseo-vl-move-btn tmwseo-vl-move-down"'
+            . ' title="' . esc_attr__( 'Move down', 'tmwseo' ) . '">▼</button>';
+        echo '</td>';
 
         // Type
-        echo '<td style="padding:4px 6px;">';
-        echo '<select name="tmwseo_vl[' . (int) $n . '][type]" style="width:100%;">';
-        echo '<option value="">' . esc_html__( '— Select type —', 'tmwseo' ) . '</option>';
-        foreach ( self::TYPE_LABELS as $val => $label_text ) {
+        echo '<td>';
+        echo '<select name="tmwseo_vl[' . (int) $n . '][type]" class="tmwseo-vl-type" style="width:100%;">';
+        // If the stored type isn't in the filtered list (e.g. a legacy slug
+        // surfaced in unmapped mode), still show it as the selected option so
+        // we never lose the operator's data on render.
+        if ( $type !== '' && ! isset( $type_options[ $type ] ) ) {
+            printf(
+                '<option value="%s" selected>%s</option>',
+                esc_attr( $type ),
+                esc_html( self::type_label( $type ) . ' (' . __( 'legacy', 'tmwseo' ) . ')' )
+            );
+        }
+        foreach ( $type_options as $val => $label_text ) {
             printf(
                 '<option value="%s"%s>%s</option>',
                 esc_attr( $val ),
@@ -367,10 +709,9 @@ class VerifiedLinks {
         echo '</select></td>';
 
         // URL
-        echo '<td style="padding:4px 6px;">';
-        echo '<input type="url" name="tmwseo_vl[' . (int) $n . '][url]" '
-            . 'value="' . esc_attr( $url ) . '" class="large-text" placeholder="https://" />';
-        // Source URL — hidden audit trail, shown as small text if present
+        echo '<td>';
+        echo '<input type="url" name="tmwseo_vl[' . (int) $n . '][url]"'
+            . ' value="' . esc_attr( $url ) . '" class="large-text" placeholder="https://" />';
         if ( $source_url !== '' ) {
             echo '<div style="font-size:10px;color:#888;margin-top:2px;" title="' . esc_attr( $source_url ) . '">';
             echo esc_html__( 'Source:', 'tmwseo' ) . ' ';
@@ -382,54 +723,54 @@ class VerifiedLinks {
         echo '</td>';
 
         // Label
-        echo '<td style="padding:4px 6px;">';
-        echo '<input type="text" name="tmwseo_vl[' . (int) $n . '][label]" '
-            . 'value="' . esc_attr( $label ) . '" style="width:100%;" '
-            . 'placeholder="' . esc_attr__( 'Optional label', 'tmwseo' ) . '" />';
+        echo '<td>';
+        echo '<input type="text" name="tmwseo_vl[' . (int) $n . '][label]"'
+            . ' value="' . esc_attr( $label ) . '" style="width:100%;"'
+            . ' placeholder="' . esc_attr__( 'Optional label', 'tmwseo' ) . '" />';
         echo '</td>';
 
         // Active
-        echo '<td style="padding:4px 6px;text-align:center;">';
-        echo '<input type="checkbox" name="tmwseo_vl[' . (int) $n . '][is_active]" '
-            . 'value="1"' . checked( $is_active, true, false ) . ' />';
+        echo '<td style="text-align:center;">';
+        echo '<input type="checkbox" name="tmwseo_vl[' . (int) $n . '][is_active]"'
+            . ' value="1"' . checked( $is_active, true, false ) . ' />';
         echo '</td>';
 
         // Primary
-        echo '<td style="padding:4px 6px;text-align:center;">';
-        echo '<input type="checkbox" name="tmwseo_vl[' . (int) $n . '][is_primary]" '
-            . 'value="1" class="tmwseo-vl-primary"' . checked( $is_primary, true, false ) . ' />';
+        echo '<td style="text-align:center;">';
+        echo '<input type="checkbox" name="tmwseo_vl[' . (int) $n . '][is_primary]"'
+            . ' value="1" class="tmwseo-vl-primary"' . checked( $is_primary, true, false ) . ' />';
         echo '</td>';
 
         // Remove
-        echo '<td style="padding:4px 6px;text-align:center;">';
-        echo '<button type="button" class="button-link tmwseo-vl-remove" '
-            . 'title="' . esc_attr__( 'Remove', 'tmwseo' ) . '" '
-            . 'style="color:#a00;font-size:18px;line-height:1;padding:0;">&times;</button>';
+        echo '<td style="text-align:center;">';
+        echo '<button type="button" class="button-link tmwseo-vl-remove"'
+            . ' title="' . esc_attr__( 'Remove', 'tmwseo' ) . '"'
+            . ' style="color:#a00;font-size:18px;line-height:1;padding:0;">&times;</button>';
         echo '</td>';
-
-        // Hidden audit-trail fields + affiliate routing fields
-        echo '<td style="display:none;">';
-        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][added_at]"          value="' . esc_attr( $added_at ) . '" />';
-        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][promoted_from]"     value="' . esc_attr( $prom_from ) . '" />';
-        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][source_url]"        value="' . esc_attr( $source_url ) . '" />';
-        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][outbound_type]"     value="' . esc_attr( $outbound_type ) . '" />';
-        echo '</td>';
-
-        // Affiliate routing — sub-row below the main entry row
         echo '</tr>';
-        echo '<tr class="tmwseo-vl-aff-row" data-parent-idx="' . (int) $n . '" '
-            . 'style="background:#f8f8f8;border-top:1px dashed #ddd;">';
-        echo '<td colspan="6" style="padding:4px 8px;">';
+
+        // Hidden audit-trail fields in a hidden sibling row so the table
+        // continues to lay out correctly.
+        echo '<tr class="tmwseo-vl-hidden-holder" data-parent-idx="' . (int) $n . '" style="display:none;">';
+        echo '<td colspan="7">';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][added_at]"      value="' . esc_attr( $added_at ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][promoted_from]" value="' . esc_attr( $prom_from ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][source_url]"    value="' . esc_attr( $source_url ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][outbound_type]" value="' . esc_attr( $outbound_type ) . '" />';
+        echo '</td></tr>';
+
+        // Affiliate routing — sub-row directly below the main entry row.
+        echo '<tr class="tmwseo-vl-aff-row" data-parent-idx="' . (int) $n . '">';
+        echo '<td colspan="7" style="padding:4px 8px;">';
         echo '<label style="font-size:11px;color:#555;cursor:pointer;">';
-        echo '<input type="checkbox" '
-            . 'name="tmwseo_vl[' . (int) $n . '][use_affiliate]" '
-            . 'value="1" '
+        echo '<input type="checkbox"'
+            . ' name="tmwseo_vl[' . (int) $n . '][use_affiliate]"'
+            . ' value="1" '
             . ( $use_affiliate ? 'checked ' : '' )
             . 'style="margin-right:4px;" />';
         echo esc_html__( 'Route through affiliate', 'tmwseo' );
         echo '</label>';
 
-        // Network key — dropdown populated from configured/enabled networks + platforms.
         $network_keys = class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
             ? \TMWSEO\Engine\Platform\AffiliateLinkBuilder::get_configurable_network_keys()
             : [];
@@ -438,8 +779,8 @@ class VerifiedLinks {
             . esc_html__( 'Network:', 'tmwseo' ) . ' </span>';
 
         if ( ! empty( $network_keys ) ) {
-            echo '<select name="tmwseo_vl[' . (int) $n . '][affiliate_network]" '
-                . 'style="font-size:11px;margin-left:4px;">';
+            echo '<select name="tmwseo_vl[' . (int) $n . '][affiliate_network]"'
+                . ' style="font-size:11px;margin-left:4px;">';
             echo '<option value="">' . esc_html__( '— Select network —', 'tmwseo' ) . '</option>';
             foreach ( $network_keys as $nk => $nl ) {
                 printf(
@@ -451,18 +792,16 @@ class VerifiedLinks {
             }
             echo '</select>';
         } else {
-            // Fallback: no networks configured yet — show key as read-only text
-            // with a link to the admin affiliates page.
             echo '<span style="font-size:11px;color:#888;margin-left:4px;">';
             if ( $affiliate_network !== '' ) {
                 echo '<code>' . esc_html( $affiliate_network ) . '</code>';
-                echo '<input type="hidden" '
-                    . 'name="tmwseo_vl[' . (int) $n . '][affiliate_network]" '
-                    . 'value="' . esc_attr( $affiliate_network ) . '" />';
+                echo '<input type="hidden"'
+                    . ' name="tmwseo_vl[' . (int) $n . '][affiliate_network]"'
+                    . ' value="' . esc_attr( $affiliate_network ) . '" />';
             } else {
                 echo esc_html__( 'No networks configured.', 'tmwseo' );
-                echo ' <a href="' . esc_url( admin_url( 'admin.php?page=tmwseo-affiliates' ) ) . '" '
-                    . 'style="font-size:11px;" target="_blank">'
+                echo ' <a href="' . esc_url( admin_url( 'admin.php?page=tmwseo-affiliates' ) ) . '"'
+                    . ' style="font-size:11px;" target="_blank">'
                     . esc_html__( 'Configure in Affiliates →', 'tmwseo' )
                     . '</a>';
             }
@@ -478,6 +817,16 @@ class VerifiedLinks {
 
     // ── Metabox save ──────────────────────────────────────────────────────
 
+    /**
+     * Save handler. Same trust contract as the legacy implementation:
+     * nonce, capability, autosave guard, sanitize-and-validate per row,
+     * normalised-URL dedup, single-primary enforcement, MAX_LINKS truncation.
+     *
+     * @since 5.1.0 Added family bucket-sort: rows are grouped by family in
+     *              the fixed display order (cam → personal → fansite → tube
+     *              → social → unmapped), preserving submission order within
+     *              each family. The on-disk JSON shape is unchanged.
+     */
     public static function save_metabox( int $post_id, \WP_Post $post ): void {
         if ( ! isset( $_POST['tmwseo_verified_links_nonce'] ) ) { return; }
         if ( ! wp_verify_nonce(
@@ -492,52 +841,70 @@ class VerifiedLinks {
             ? wp_unslash( $_POST['tmwseo_vl'] )
             : [];
 
+        // Phase 1 — validate every row, retain submission order, drop invalid.
+        $validated = [];
+        foreach ( $raw_rows as $row ) {
+            if ( ! is_array( $row ) ) { continue; }
+            $entry = self::sanitize_and_validate_entry( (array) $row );
+            if ( $entry === false ) { continue; }
+            $validated[] = $entry;
+        }
+
+        // Phase 2 — bucket by family, preserving within-family submission order.
+        $buckets = [];
+        foreach ( VerifiedLinksFamilies::display_order() as $family_slug ) {
+            $buckets[ $family_slug ] = [];
+        }
+        foreach ( $validated as $entry ) {
+            $family = VerifiedLinksFamilies::family_for( (string) ( $entry['type'] ?? '' ) );
+            $buckets[ $family ][] = $entry;
+        }
+
+        // Phase 3 — flatten in family display order, then apply dedup,
+        // single-primary enforcement, and MAX_LINKS truncation.
         $links       = [];
         $seen_urls   = [];
         $has_primary = false;
 
-        foreach ( $raw_rows as $row ) {
-            if ( ! is_array( $row ) ) { continue; }
-
-            $entry = self::sanitize_and_validate_entry( (array) $row );
-            if ( $entry === false ) { continue; }
-
-            // Dedup by normalised URL
-            $norm = self::normalize_url_for_dedup( $entry['url'] );
-            if ( isset( $seen_urls[ $norm ] ) ) {
-                Logs::info( 'verified_links', '[TMW-VL] Deduped duplicate URL on save', [
-                    'post_id' => $post_id,
-                    'url'     => $entry['url'],
-                ] );
-                continue;
-            }
-            $seen_urls[ $norm ] = true;
-
-            // Enforce single primary
-            if ( $entry['is_primary'] ) {
-                if ( $has_primary ) {
-                    $entry['is_primary'] = false;
-                } else {
-                    $has_primary = true;
+        foreach ( VerifiedLinksFamilies::display_order() as $family_slug ) {
+            foreach ( $buckets[ $family_slug ] as $entry ) {
+                $norm = self::normalize_url_for_dedup( $entry['url'] );
+                if ( isset( $seen_urls[ $norm ] ) ) {
+                    Logs::info( 'verified_links', '[TMW-VL] Deduped duplicate URL on save', [
+                        'post_id' => $post_id,
+                        'url'     => $entry['url'],
+                        'family'  => $family_slug,
+                    ] );
+                    continue;
                 }
-            }
+                $seen_urls[ $norm ] = true;
 
-            $links[] = $entry;
+                if ( $entry['is_primary'] ) {
+                    if ( $has_primary ) {
+                        $entry['is_primary'] = false;
+                    } else {
+                        $has_primary = true;
+                    }
+                }
 
-            if ( count( $links ) >= self::MAX_LINKS ) {
-                Logs::warn( 'verified_links', '[TMW-VL] MAX_LINKS reached — truncating on save', [
-                    'post_id'   => $post_id,
-                    'max_links' => self::MAX_LINKS,
-                ] );
-                break;
+                $links[] = $entry;
+
+                if ( count( $links ) >= self::MAX_LINKS ) {
+                    Logs::warn( 'verified_links', '[TMW-VL] MAX_LINKS reached — truncating on save', [
+                        'post_id'   => $post_id,
+                        'max_links' => self::MAX_LINKS,
+                    ] );
+                    break 2;
+                }
             }
         }
 
         update_post_meta( $post_id, self::META_KEY, wp_json_encode( $links ) );
 
-        Logs::info( 'verified_links', '[TMW-VL] Saved verified external links', [
-            'post_id' => $post_id,
-            'count'   => count( $links ),
+        Logs::info( 'verified_links', '[TMW-VL] Saved verified external links (grouped)', [
+            'post_id'    => $post_id,
+            'count'      => count( $links ),
+            'per_family' => array_map( 'count', $buckets ),
         ] );
     }
 

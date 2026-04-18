@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.0.2 — Full Audit runtime fix: AUDIT_* constants promoted to protected so ModelFullAuditProvider can inherit them; child switched to parent::AUDIT_* at every call site. Stops the silent \Error: Undefined constant in lookup() that was surfacing as Research Status = Error with an empty proposed-data panel.
- * Version: 5.0.2
+ * Description: Intelligence Core v5.1.0 — Verified External Links: redesigned as 5 grouped family blocks (Cam Platforms, Personal Website, Fansites, Tube Sites, Social Media). Each block has a family-scoped Type dropdown, its own Add Link button, and per-row Move Up / Move Down controls scoped within the block. Storage shape is unchanged; legacy flat data renders into the correct family bucket via runtime grouping. Schema sameAs output is unaffected. Ships a new VerifiedLinksFamilies registry + 16 PHPUnit tests.
+ * Version: 5.1.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.0.2');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.1.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 

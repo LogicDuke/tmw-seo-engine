@@ -258,3 +258,16 @@ require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-direct-probe-provi
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-serp-research-provider.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-full-audit-provider.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-model-helper.php';
+
+// ── 5.1.0: Verified External Links — grouped blocks ────────────────────────────
+// Required by VerifiedLinksGroupedBlocksTest. The families registry must load
+// before the main class because render_metabox()/render_row()/save_metabox()
+// reference VerifiedLinksFamilies. WP_Post stub is needed because save_metabox
+// is type-hinted \WP_Post (parameter is never read in the function body).
+if ( ! class_exists( 'WP_Post' ) ) {
+    class WP_Post {
+        public int $ID = 0;
+    }
+}
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links-families.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links.php';

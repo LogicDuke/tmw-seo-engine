@@ -1,6 +1,56 @@
 # TMW SEO Engine — Changelog
 
-## 5.0.2 — Full Audit Runtime Fix (2026-04-17)
+## 5.1.0 — Verified External Links: Grouped Family Blocks (2026-04-18)
+
+### New Features
+
+- **Verified External Links — grouped blocks UI**: the metabox is now organised into 5 collapsible family blocks (Cam Platforms, Personal Website, Fansites, Tube Sites, Social Media) plus an auto-appearing "Other / Legacy" block when unmapped slugs are present. Each block has its own family-scoped Type dropdown, its own `+ Add Link` button, and per-row `▲ / ▼` Move Up / Move Down controls that swap only with siblings inside the same block.
+- **`VerifiedLinksFamilies` registry** (`includes/model/class-verified-links-families.php`): single source of truth that maps every `type` slug to one of the 5 visible families or to `unmapped`. Defines block display order, default type per family, labels, and accent colors. Pure PHP, no WP calls in static maps — safe to use from PHPUnit.
+- **Extended `ALLOWED_TYPES`**: added `chaturbate`, `stripchat`, `livejasmin`, `camsoda`, `bongacams`, `cam4`, `myfreecams`, `beacons`, `allmylinks` to round out cam platform / link-hub coverage. All new slugs are registered in `TYPE_LABELS` and the families registry.
+
+### Behaviour Changes
+
+- `save_metabox()` now bucket-sorts validated rows by family display order before writing, preserving within-family submission order. The on-disk JSON shape is **unchanged** — only the row order in the array changes after the operator clicks Save in the new UI. Legacy rows that have never been touched in 5.1.0 retain their pre-5.1.0 order.
+- Schema `sameAs` output is **unaffected** by the grouping change. `get_schema_urls()` still iterates active links and dedupes by URL; the order is now family-grouped after a save in the new UI.
+
+### Trust Contract (unchanged)
+
+- Manual-first. No URL is ever auto-imported from research.
+- Storage key `_tmwseo_verified_external_links`, JSON-encoded.
+- Single global primary, normalised-URL dedup, `MAX_LINKS = 30` truncation — all preserved.
+- Affiliate routing (`get_routed_url()`), promote-from-research flow, shortcode `[tmw_verified_links]` — all preserved untouched.
+
+### Migration
+
+- **Zero migration required.** No DB changes. Flat post-meta from 5.0.x renders correctly via runtime grouping. The first save in the new UI re-orders the array in family order — operator-triggered, never automatic.
+- Unknown / `other`-typed legacy rows are surfaced in the "Other / Legacy" block — never silently dropped, never silently reassigned. Operators relabel them by changing the row's Type dropdown.
+
+### Tests
+
+- New `tests/VerifiedLinksGroupedBlocksTest.php` — 16 test cases, 64 assertions covering: block order, ALLOWED_TYPES ↔ registry parity, default type per family, family disjointness, save bucket-sort, within-family order preservation, legacy round-trip, unknown-type unmapped routing, dedup, single-primary enforcement, schema sameAs URLs.
+- Test bootstrap (`tests/bootstrap/wordpress-stubs.php`) now preloads the families registry and the verified-links class plus a minimal `WP_Post` global stub.
+
+### Files Added
+
+- `includes/model/class-verified-links-families.php`
+- `tests/VerifiedLinksGroupedBlocksTest.php`
+
+### Files Modified
+
+- `includes/model/class-verified-links.php` — `ALLOWED_TYPES`, `TYPE_LABELS`, `render_metabox()`, `render_row()`, `save_metabox()` (all other methods unchanged).
+- `includes/class-loader.php` — registry loaded before main class.
+- `tests/bootstrap/wordpress-stubs.php` — preload registry + class + `WP_Post` stub.
+- `tmw-seo-engine.php` — version bump 5.0.1 → 5.1.0.
+- `CHANGELOG.md` — this entry.
+
+### Debug Logs
+
+- `[TMW-VL] Saved verified external links (grouped)` — written on every save with `per_family` row counts for ops visibility.
+- `[TMW-VL] Deduped duplicate URL on save` — now also logs the `family` of the deduped row.
+
+---
+
+## 5.0.1 — Full Audit Runtime Fix (2026-04-17)
 
 ### Bug Fixes
 
@@ -44,7 +94,7 @@
   `class-model-full-audit-provider.php` so `FullAuditModeTest.php` can
   parse. Previously the test double (`TestableFullAuditProvider`) failed
   at parse time with `Class not found`.
-- Version synchronized to **`5.0.2`** across plugin header and constant.
+- Version rollback alignment finalized at **`5.0.1`** across plugin header, constant, README metadata, PHPUnit activation assertions, and bootstrap stubs.
 
 ---
 
