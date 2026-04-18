@@ -715,6 +715,16 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     /**
      * build_handle_seeds() with AUDIT_SEED_CAP instead of 5.
      *
+     * v5.2.0 recall fix: the name-derived seed is now expanded into bounded
+     * case + separator variants so the probe always gets a lowercase shot at
+     * case-sensitive link hubs (beacons.ai/anisyia, linktr.ee/anisyia, etc.).
+     * Previously the single seed preserved post-title case ("Anisyia") and
+     * probing https://beacons.ai/Anisyia returned 404 while lowercase worked.
+     *
+     * Variant generation is bounded and deterministic. It mirrors the logic
+     * already used in ModelDirectProbeProvider::generate_bounded_variants()
+     * so the audit path matches fast-mode recall on single-token names.
+     *
      * @param  array[]  $successful
      * @param  string   $model_name
      * @return array<int,array{handle:string,source_platform:string,source_url:string}>
@@ -736,11 +746,99 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
             $seen[ strtolower( $handle ) ] = true;
             $seeds[] = [ 'handle' => $handle, 'source_platform' => $slug, 'source_url' => $src_url ];
         }
+
+        // Phase A: name_clean (case-preserved from display name).
         $name_clean = (string) preg_replace( '/[^A-Za-z0-9]/', '', $model_name );
+        $name_emitted_raw = '';
         if ( $name_clean !== '' && ! isset( $seen[ strtolower( $name_clean ) ] ) && count( $seeds ) < self::AUDIT_SEED_CAP ) {
+            $seen[ strtolower( $name_clean ) ] = true;
             $seeds[] = [ 'handle' => $name_clean, 'source_platform' => 'name_derived', 'source_url' => '' ];
+            $name_emitted_raw = $name_clean;
         }
+
+        // Phase B: bounded case/separator variants of the name-derived handle.
+        // Variants dedup against the RAW emitted handle set (case-sensitive) so
+        // "anisyia" is still added alongside "Anisyia" — they produce different
+        // URLs on case-sensitive link hubs (beacons.ai, linktr.ee) and that
+        // exact distinction is what this fix exists for.
+        if ( $name_clean !== '' ) {
+            $emitted_raw = [];
+            foreach ( $seeds as $s ) {
+                $emitted_raw[ (string) ( $s['handle'] ?? '' ) ] = true;
+            }
+            foreach ( $this->generate_audit_seed_variants( $name_clean ) as $variant ) {
+                if ( count( $seeds ) >= self::AUDIT_SEED_CAP ) { break; }
+                if ( $variant === '' ) { continue; }
+                if ( isset( $emitted_raw[ $variant ] ) ) { continue; }
+                $emitted_raw[ $variant ] = true;
+                // Track in $seen so downstream dedup callers stay consistent.
+                $seen[ strtolower( $variant ) ] = true;
+                $seeds[] = [ 'handle' => $variant, 'source_platform' => 'name_derived', 'source_url' => '' ];
+            }
+        }
+
         return $seeds;
+    }
+
+    /**
+     * Generate bounded handle variants from a name-derived handle.
+     *
+     * Mirrors ModelDirectProbeProvider::generate_bounded_variants() (which is
+     * already covered by ModelHandleSharingTest) so the two probe entry points
+     * agree on what a "safe" variant set looks like.
+     *
+     * Single-token mixed-case handles ("Anisyia") return only the lowercase
+     * form ("anisyia") — no speculative suffixes.
+     * Multi-token handles ("AbbyMurray") return [lowercase, dash, underscore,
+     * CamelCase, lowerCamel].
+     *
+     * The result NEVER includes the input as-is; dedup happens in the caller.
+     *
+     * @param  string $handle
+     * @return string[]
+     */
+    protected function generate_audit_seed_variants( string $handle ): array {
+        if ( $handle === '' ) { return []; }
+
+        preg_match_all( '/[A-Za-z0-9]+/u', $handle, $matches );
+        $raw_tokens = array_values( array_filter( array_map( 'strval', $matches[0] ?? [] ) ) );
+
+        // Split CamelCase tokens into sub-words (AbbyMurray -> [Abby, Murray]).
+        $tokens = [];
+        foreach ( $raw_tokens as $tok ) {
+            $split = (array) preg_split( '/(?<=[a-z])(?=[A-Z])/', $tok );
+            foreach ( $split as $sub ) {
+                $sub = trim( (string) $sub );
+                if ( $sub !== '' ) { $tokens[] = $sub; }
+            }
+        }
+
+        if ( count( $tokens ) < 2 ) {
+            // Single-token: only lowercase if it differs from original case.
+            $lower = strtolower( $handle );
+            return ( $lower !== $handle ) ? [ $lower ] : [];
+        }
+
+        $lower_tokens = array_map( 'strtolower', $tokens );
+        $camel_tokens = array_map( static fn( string $t ): string => ucfirst( strtolower( $t ) ), $tokens );
+
+        $candidates = [
+            implode( '',  $lower_tokens ),   // abbymurray
+            implode( '-', $lower_tokens ),   // abby-murray
+            implode( '_', $lower_tokens ),   // abby_murray
+            implode( '',  $camel_tokens ),   // AbbyMurray
+            lcfirst( implode( '', $camel_tokens ) ), // abbyMurray
+        ];
+
+        $seen = [ $handle => true ]; // exclude the exact input
+        $results = [];
+        foreach ( $candidates as $c ) {
+            $c = trim( $c );
+            if ( $c === '' || isset( $seen[ $c ] ) ) { continue; }
+            $seen[ $c ] = true;
+            $results[] = $c;
+        }
+        return $results;
     }
 
     /**

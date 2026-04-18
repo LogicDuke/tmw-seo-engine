@@ -50,6 +50,14 @@ use TMWSEO\Engine\Platform\PlatformProfiles;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+if ( ! class_exists( ModelOutboundHarvester::class ) ) {
+    $__tmw_harvester_file = __DIR__ . '/class-model-outbound-harvester.php';
+    if ( file_exists( $__tmw_harvester_file ) ) {
+        require_once $__tmw_harvester_file;
+    }
+    unset( $__tmw_harvester_file );
+}
+
 /**
  * Full platform audit research provider.
  *
@@ -149,6 +157,35 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $probe_urls        = array_keys( $probe_result['verified_urls'] );
         $probe_diagnostics = $probe_result['diagnostics'];
 
+        // ── PASS FOUR: outbound-link harvest (fallback recall) ───────────────
+        // One-hop harvest of <a href> links from already-confirmed link-hub
+        // pages (Beacons, Linktree, AllMyLinks, solo.to, Carrd) and from
+        // SERP-surfaced Facebook pages. Each extracted URL is re-parsed by
+        // PlatformProfiles::parse_url_for_platform_structured() — same strict
+        // trust gate as the probe — and must substring-match a known seed
+        // handle. Harvest URLs are merged into the probe URL set so the
+        // downstream parser treats them identically.
+        $harvest_seed_pages      = $this->collect_harvest_seed_pages(
+            $probe_result,
+            $pack_p1['items'] ?? []
+        );
+        $harvest_result          = $this->run_outbound_harvest(
+            $harvest_seed_pages,
+            $handle_seeds,
+            $post_id
+        );
+        $harvest_discovered      = $harvest_result['discovered'] ?? [];
+        $harvest_diagnostics     = $harvest_result['diagnostics'] ?? [];
+        $harvest_evidence_by_url = [];
+        foreach ( $harvest_discovered as $h ) {
+            $u = (string) ( $h['normalized_url'] ?? '' );
+            if ( $u === '' ) { continue; }
+            $harvest_evidence_by_url[ $u ] = (array) ( $h['evidence'] ?? [] );
+            if ( ! in_array( $u, $probe_urls, true ) ) {
+                $probe_urls[] = $u;
+            }
+        }
+
         // ── Merge and parse ───────────────────────────────────────────────────
         $all_items    = array_merge( $pack_p1['items'], $items_p2 );
         $merged_all   = $this->merge_serp_items_pub( $all_items );
@@ -184,6 +221,22 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $result['research_diagnostics']['audit_mode']         = true;
         $result['research_diagnostics']['platform_coverage']  =
             $probe_diagnostics['platform_coverage'] ?? [];
+
+        // Attach outbound-harvest evidence to matching platform_candidates and
+        // expose the harvest diagnostics block so operators can audit recall.
+        if ( ! empty( $harvest_evidence_by_url ) && ! empty( $result['platform_candidates'] ) ) {
+            foreach ( $result['platform_candidates'] as $ci => $cand ) {
+                $c_url = (string) ( $cand['normalized_url'] ?? '' );
+                if ( $c_url === '' ) {
+                    $c_url = (string) ( $cand['source_url'] ?? '' );
+                }
+                if ( $c_url !== '' && isset( $harvest_evidence_by_url[ $c_url ] ) ) {
+                    $result['platform_candidates'][ $ci ]['discovered_via_outbound_harvest'] = true;
+                    $result['platform_candidates'][ $ci ]['evidence'] = $harvest_evidence_by_url[ $c_url ];
+                }
+            }
+        }
+        $result['research_diagnostics']['outbound_harvest'] = $harvest_diagnostics;
         $result['research_diagnostics']['audit_config'] = [
             'serp_depth_used'          => parent::AUDIT_SERP_DEPTH,
             'pass_two_enabled'         => parent::AUDIT_PASS_TWO,
@@ -442,6 +495,101 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             require_once __DIR__ . '/class-model-platform-probe.php';
         }
         return ( new ModelPlatformProbe() )->run_full_audit( $handle_seeds, $post_id );
+    }
+
+    /**
+     * Run the outbound-link harvest pass.
+     *
+     * Factored as a protected method so test subclasses can stub the
+     * harvester without live HTTP, mirroring the pattern used for
+     * run_full_audit_probe().
+     *
+     * @param  array<int,array{url:string,source_type:string,source_platform?:string}> $seed_pages
+     * @param  array<int,array{handle:string,source_platform:string,source_url:string}> $handle_seeds
+     * @param  int $post_id
+     * @return array{discovered:array,diagnostics:array}
+     */
+    protected function run_outbound_harvest( array $seed_pages, array $handle_seeds, int $post_id ): array {
+        if ( ! class_exists( ModelOutboundHarvester::class ) ) {
+            $f = __DIR__ . '/class-model-outbound-harvester.php';
+            if ( file_exists( $f ) ) { require_once $f; }
+        }
+        if ( ! class_exists( ModelOutboundHarvester::class ) ) {
+            return [ 'discovered' => [], 'diagnostics' => [] ];
+        }
+        return ( new ModelOutboundHarvester() )->harvest( $seed_pages, $handle_seeds, $post_id );
+    }
+
+    /**
+     * Build the seed-page list the outbound harvester will fetch.
+     *
+     * Sources, in order:
+     *   1. Registry-confirmed link-hub pages from the probe phase
+     *      (beacons, linktree, allmylinks, solo_to, carrd).
+     *   2. Facebook pages surfaced by SERP pass-one whose host is
+     *      facebook.com / m.facebook.com / fb.com.
+     *
+     * Deduplication is applied on normalized URL (lowercased, trailing slash
+     * stripped). Personal-website harvesting is currently OFF by default —
+     * it would require a classifier to separate personal sites from news,
+     * directories, and unrelated pages, and is deferred until that exists.
+     *
+     * @param  array{verified_urls:array,diagnostics:array} $probe_result
+     * @param  array                                        $serp_items_p1
+     * @return array<int,array{url:string,source_type:string,source_platform:string}>
+     */
+    protected function collect_harvest_seed_pages( array $probe_result, array $serp_items_p1 ): array {
+        $pages = [];
+
+        // 1. Registry-confirmed link hubs from the probe phase.
+        static $link_hub_slugs = [ 'beacons', 'linktree', 'allmylinks', 'solo_to', 'carrd' ];
+        $verified_urls = $probe_result['verified_urls'] ?? [];
+        if ( is_array( $verified_urls ) ) {
+            foreach ( $verified_urls as $url => $entry ) {
+                if ( ! is_array( $entry ) ) { continue; }
+                $slug = (string) ( $entry['slug'] ?? '' );
+                if ( ! in_array( $slug, $link_hub_slugs, true ) ) { continue; }
+                $page_url = (string) ( $entry['parse']['normalized_url'] ?? $url );
+                if ( $page_url === '' ) { continue; }
+                $pages[] = [
+                    'url'             => $page_url,
+                    'source_type'     => 'linkhub',
+                    'source_platform' => $slug,
+                ];
+            }
+        }
+
+        // 2. Facebook pages surfaced by SERP pass-one.
+        foreach ( $serp_items_p1 as $item ) {
+            if ( ! is_array( $item ) ) { continue; }
+            $candidate_url = (string) ( $item['url'] ?? $item['link'] ?? '' );
+            if ( $candidate_url === '' ) { continue; }
+            $host = strtolower( (string) ( parse_url( $candidate_url, PHP_URL_HOST ) ?? '' ) );
+            $host = (string) preg_replace( '/^www\./', '', $host );
+            if ( $host === '' ) { continue; }
+            if (
+                $host === 'facebook.com'
+                || $host === 'm.facebook.com'
+                || $host === 'fb.com'
+                || str_ends_with( $host, '.facebook.com' )
+            ) {
+                $pages[] = [
+                    'url'             => $candidate_url,
+                    'source_type'     => 'facebook',
+                    'source_platform' => 'facebook',
+                ];
+            }
+        }
+
+        // Dedupe by normalized URL.
+        $seen = []; $out = [];
+        foreach ( $pages as $p ) {
+            $k = strtolower( rtrim( (string) ( $p['url'] ?? '' ), '/' ) );
+            if ( $k === '' || isset( $seen[ $k ] ) ) { continue; }
+            $seen[ $k ] = true;
+            $out[] = $p;
+        }
+        return $out;
     }
 
     /**

@@ -1,5 +1,84 @@
 # TMW SEO Engine — Changelog
 
+## 5.2.0 — Full-Audit Recall: Case-Sensitive Link Hubs + Outbound Harvester (2026-04-18)
+
+### Problem this release fixes
+
+Full Audit missed a supported Beacons profile (`https://beacons.ai/anisyia`) for a model whose post title is `Anisyia`. The miss was a **double recall failure**:
+
+1. **Direct-discovery miss.** The probe never actually hit `https://beacons.ai/anisyia`. It hit `https://beacons.ai/Anisyia` (case preserved from the post title), which 404s — Beacons is case-sensitive on the path, and Beacons is not in `PLATFORM_404_CONFIRM_SLUGS`, so no GET fallback ran.
+2. **Fallback-discovery miss.** The repo had no outbound-link harvester. A confirmed Facebook page that links to Beacons could not be used as an alternative path to Beacons.
+
+### Root cause (three compounding bugs in the audit path)
+
+- `ModelSerpResearchProvider::build_handle_seeds_audit()` appended only the case-preserved `name_clean` (`Anisyia`) — never the lowercase variant. The fast-mode `ModelDirectProbeProvider::build_seeds_for_probe()` already emits bounded lowercase variants via `generate_bounded_variants()`, but the audit path was never updated to match.
+- `ModelPlatformProbe::run()` and `run_full_audit()` deduplicated the incoming seed list with `strtolower($handle)` — which collapses `Anisyia` and `anisyia` to one seed BEFORE the probe queue is even built, discarding the lowercase shot.
+- The probe URL dedup (`$probed_url_set`) was keyed on `strtolower(rtrim($url, '/'))`. Even after the seed-dedup bug were fixed, `https://beacons.ai/Anisyia` and `https://beacons.ai/anisyia` would collapse to the same dedup key and the lowercase URL would still never be probed.
+
+All three must be fixed together. Any one alone leaves the Beacons case-sensitive miss in place.
+
+### Direct-discovery fix (PART A + B)
+
+- **`ModelSerpResearchProvider::build_handle_seeds_audit()`** now has two phases. Phase A emits the case-preserved `name_clean` seed (same as before). Phase B emits bounded variants from a new `generate_audit_seed_variants()` helper that mirrors `ModelDirectProbeProvider::generate_bounded_variants()` — a single-token title-case handle (`Anisyia`) emits `anisyia`; a multi-token handle (`AbbyMurray`) emits the full `[abbymurray, abby-murray, abby_murray, abbyMurray]` set. Phase B dedups on the RAW case-sensitive handle so `anisyia` survives alongside `Anisyia`.
+- **`ModelPlatformProbe::run()` and `run_full_audit()`** seed dedup is now case-sensitive (raw handle as the key). Case-insensitive platforms still collapse at the URL-dedup layer, so no duplicate probes are made against them.
+- **Probe URL dedup** (`$probed_url_set` in both `run()` and `run_full_audit()`) now uses `rtrim($url, '/')` with no lowercasing. Registry patterns already use lowercase hosts, so this is a pure path-case fix — no behaviour change for well-formed registry URLs.
+
+Strict-parser safety is unchanged. Every probe-accepted URL still flows through `PlatformProfiles::parse_url_for_platform_structured()`.
+
+### Outbound-link harvester (PART C)
+
+New class **`TMWSEO\Engine\Model\ModelOutboundHarvester`** at `includes/model/class-model-outbound-harvester.php`:
+
+- **Approved source hosts**: `beacons.ai`, `linktr.ee`, `allmylinks.com`, `solo.to`, `facebook.com` / `m.facebook.com` / `fb.com`, `{sub}.carrd.co` (single-level subdomain only), and — only when the caller explicitly flags `source_type = 'personal_website'` — any non-blocklisted host (major search engines / social platforms / CDNs are explicitly rejected).
+- **Strict parser gate**: every extracted outbound URL is classified by running it against every registry slug via `PlatformProfiles::parse_url_for_platform_structured()`. A URL is kept only if some slug returns `success = true`. No generic username extraction.
+- **Handle-similarity guard**: the extracted username must be substring-similar (case-insensitive) to at least one known seed handle. Empty hint list fails closed — the harvester will never accept an arbitrary third-party profile found on a Beacons / Facebook page.
+- **One-hop only**: harvested links are NEVER re-harvested. The `fetch_log` in test fixtures asserts this directly.
+- **Budgets**: `MAX_FETCHES = 8`, `MAX_LINKS_PER_PAGE = 50`, `MAX_RESPONSE_BYTES = 262144` (256 KB), `FETCH_TIMEOUT = 5`s.
+- **Evidence trail** (required by the v5.2.0 prompt): every discovered candidate carries `discovery_mode = 'outbound_harvest'`, `discovered_on_platform`, `discovered_from_url`, `extracted_outbound_url`, `normalized_platform`, `normalized_url`, `parser_status = 'success'`, `recursive_depth = 1`.
+- **Debug tag**: `[TMW-HARVEST]` on every log line from this class.
+
+**Integration in `ModelFullAuditProvider::lookup()`:** a new PASS FOUR runs after the full-registry probe. `collect_harvest_seed_pages()` builds the fetch list from (a) probe-confirmed link-hub pages (Beacons / Linktree / AllMyLinks / solo.to / Carrd) and (b) Facebook pages surfaced by SERP pass-one. Harvested URLs are merged into `$probe_urls` so they flow through the same strict parser gate that probe URLs already use. Matching `platform_candidates` are decorated with `discovered_via_outbound_harvest = true` and the evidence map. Harvest diagnostics are attached to `research_diagnostics.outbound_harvest`.
+
+### Diagnostics surface
+
+`research_diagnostics.outbound_harvest` now contains:
+
+- `fetch_attempted`, `fetch_succeeded`, `fetch_failed`
+- `links_extracted`, `links_parsed_success`, `links_matched_similarity`, `unique_new_candidates`
+- `pages_skipped_host_not_approved`, `pages_skipped_budget_exhausted`
+- `fetches`: per-page log with `{url, source_type, source_platform, fetched, reason, links_found, links_parsed, links_matched}`
+
+The existing `audit_config` block continues to report the handle seeds used, the probe attempts/accepts, and per-platform coverage. Combined, operators now have a complete paper trail from seed generation through direct probe through outbound harvest.
+
+### Trust contract (unchanged)
+
+- Manual usernames in `_tmwseo_platform_username_*` are never overwritten.
+- Safe Mode still suppresses all external calls.
+- Probe's `STRONG_ACCEPT_STATUSES`, redirect-preservation check, and 404 GET-fallback gate are unchanged.
+- Harvester accepts a link only if `PlatformProfiles::parse_url_for_platform_structured()` returns `success = true` against some registry slug — no looser acceptance than the rest of the system.
+
+### Files changed
+
+- `includes/model/class-model-serp-research-provider.php` — added `generate_audit_seed_variants()`, extended `build_handle_seeds_audit()` with Phase B variants.
+- `includes/model/class-model-platform-probe.php` — case-sensitive seed dedup in `run()` and `run_full_audit()`; case-sensitive URL dedup in both.
+- `includes/model/class-model-outbound-harvester.php` — **new**.
+- `includes/model/class-model-full-audit-provider.php` — PASS FOUR harvest integration, `collect_harvest_seed_pages()`, `run_outbound_harvest()`, candidate-decoration step, diagnostics wiring.
+- `tmw-seo-engine.php` — version bump 5.1.0 → 5.2.0, description updated.
+- `tests/bootstrap/wordpress-stubs.php` — require the new harvester class.
+
+### Tests
+
+- New `tests/FullAuditRecallTest.php` — 9 tests, 23 assertions covering: variant generator single/multi-token behaviour, audit seed inclusion of the lowercase variant, non-duplication when the name is already lowercase, priority-order invariant, `AUDIT_SEED_CAP` respected when variants would exceed budget, end-to-end case-sensitive Beacons confirmation via the lowercase variant, regression guard proving the uppercase-only seed path fails to confirm.
+- New `tests/OutboundHarvesterTest.php` — 21 tests, 70 assertions covering: approved-source gate for link hubs / Carrd subdomain / Facebook / personal-website blocklist, link extraction (absolute-http-only, self-host drop, single/double quotes, `MAX_LINKS_PER_PAGE` cap), strict-parser classification, end-to-end harvest from Facebook → Beacons and Beacons → multi-platform, similarity-gate positive and fail-closed cases, non-approved source rejection (no fetch), `MAX_FETCHES` budget respected, **one-hop-only invariant**, strict-parser rejection of malformed URL shapes, complete diagnostic counters, full-audit integration with `collect_harvest_seed_pages()`, Facebook-fallback end-to-end confirmation.
+- **Zero regressions** against the pre-existing test baseline. All failure/error counts match upstream `main` exactly.
+
+### Migration
+
+- **Zero migration required.** No DB changes, no schema changes, no cron changes, no menu slug changes. Existing post-meta and option keys are untouched.
+- Operators who ran a Full Audit under v5.1.0 and got a `rejected` verdict for Beacons/Linktr.ee/AllMyLinks on case-sensitive profiles should re-run Full Audit under v5.2.0 — the verdict may flip to `confirmed` with no manual intervention.
+
+---
+
 ## 5.1.0 — Verified External Links: Grouped Family Blocks (2026-04-18)
 
 ### New Features

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.1.0 — Verified External Links: redesigned as 5 grouped family blocks (Cam Platforms, Personal Website, Fansites, Tube Sites, Social Media). Each block has a family-scoped Type dropdown, its own Add Link button, and per-row Move Up / Move Down controls scoped within the block. Storage shape is unchanged; legacy flat data renders into the correct family bucket via runtime grouping. Schema sameAs output is unaffected. Ships a new VerifiedLinksFamilies registry + 16 PHPUnit tests.
- * Version: 5.1.0
+ * Description: Intelligence Core v5.2.0 — Full-Audit Recall: (1) fixed direct-discovery miss on case-sensitive link hubs (Beacons, Linktr.ee, AllMyLinks) by generating bounded lowercase variants of the name-derived seed and making the probe URL/seed dedup case-sensitive. (2) New ModelOutboundHarvester: one-hop <a href> extraction from confirmed link-hub and Facebook pages, each extracted URL parsed through the strict PlatformProfiles gate, with handle-similarity guard, bounded fetch/link/size budgets, and full evidence trail (discovery_mode, discovered_on_platform, discovered_from_url, extracted_outbound_url, normalized_platform, normalized_url, parser_status, recursive_depth). Ships 30 new PHPUnit tests. Zero regressions against pre-existing baseline.
+ * Version: 5.2.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.1.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.2.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 

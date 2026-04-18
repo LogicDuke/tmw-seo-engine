@@ -297,7 +297,12 @@ class ModelPlatformProbe {
             return $this->build_result( [], 0, 0, 0, 0, 0, [], [] );
         }
 
-        // ── Deduplicate seeds by lowercase handle ─────────────────────────────
+        // ── Deduplicate seeds by RAW (case-sensitive) handle ──────────────────
+        // Case-sensitive dedup so explicit case-variant seeds for link hubs
+        // (e.g. "Anisyia" and "anisyia") both survive into the probe queue.
+        // Registry patterns for case-insensitive platforms still collapse at
+        // the URL-dedup layer, so this change does not produce duplicate probes
+        // against case-insensitive hosts.
         $seen_handles = [];
         $raw_unique   = [];
         foreach ( $handle_seeds as $seed ) {
@@ -305,10 +310,9 @@ class ModelPlatformProbe {
             if ( $handle === '' ) {
                 continue;
             }
-            $lc = strtolower( $handle );
-            if ( ! isset( $seen_handles[ $lc ] ) ) {
-                $seen_handles[ $lc ] = true;
-                $raw_unique[]         = $seed;
+            if ( ! isset( $seen_handles[ $handle ] ) ) {
+                $seen_handles[ $handle ] = true;
+                $raw_unique[]            = $seed;
             }
         }
 
@@ -373,9 +377,13 @@ class ModelPlatformProbe {
                 continue;
             }
 
-            // Safety dedup: skip if this exact URL has already been probed
-            // (can happen when two seeds differ only in case normalisation).
-            $url_key = strtolower( rtrim( $candidate_url, '/' ) );
+            // Safety dedup: skip if this exact URL has already been probed.
+            // Path case is preserved so case-sensitive link hubs (beacons.ai,
+            // linktr.ee) can still be probed twice with different casings —
+            // Anisyia and anisyia yield different URLs and must both reach
+            // probe_url. Registry patterns already use lowercase hosts, so a
+            // plain string compare (minus trailing slash) is sufficient.
+            $url_key = rtrim( $candidate_url, '/' );
             if ( isset( $probed_url_set[ $url_key ] ) ) {
                 continue;
             }
@@ -902,16 +910,15 @@ class ModelPlatformProbe {
             return $this->build_result( [], 0, 0, 0, 0, 0, [], [] );
         }
 
-        // Deduplicate and quality-sort seeds (same as run()).
+        // Deduplicate (case-sensitive, same as run()) and quality-sort seeds.
         $seen_handles = [];
         $raw_unique   = [];
         foreach ( $handle_seeds as $seed ) {
             $handle = trim( (string) ( $seed['handle'] ?? '' ) );
             if ( $handle === '' ) { continue; }
-            $lc = strtolower( $handle );
-            if ( ! isset( $seen_handles[ $lc ] ) ) {
-                $seen_handles[ $lc ] = true;
-                $raw_unique[]         = $seed;
+            if ( ! isset( $seen_handles[ $handle ] ) ) {
+                $seen_handles[ $handle ] = true;
+                $raw_unique[]            = $seed;
             }
         }
 
@@ -996,7 +1003,9 @@ class ModelPlatformProbe {
             $candidate_url = $this->synthesize_candidate_url( $slug, $handle );
             if ( $candidate_url === '' ) { continue; }
 
-            $url_key = strtolower( rtrim( $candidate_url, '/' ) );
+            // Path case preserved so case-sensitive link hubs can be probed
+            // under both casings (see matching comment in run()).
+            $url_key = rtrim( $candidate_url, '/' );
             if ( isset( $probed_url_set[ $url_key ] ) ) { continue; }
             $probed_url_set[ $url_key ] = true;
 

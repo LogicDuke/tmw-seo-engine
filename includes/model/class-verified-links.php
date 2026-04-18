@@ -140,9 +140,15 @@ class VerifiedLinks {
 
     // ── Bootstrap ─────────────────────────────────────────────────────────
 
+    /**
+     * Register all hooks for metabox render/save, Gutenberg fallback save,
+     * shortcode output, and promote-from-research admin flows.
+     */
     public static function init(): void {
         add_action( 'add_meta_boxes',                          [ __CLASS__, 'register_metabox' ] );
         add_action( 'save_post_model',                         [ __CLASS__, 'save_metabox' ], 20, 2 );
+        add_action( 'enqueue_block_editor_assets',             [ __CLASS__, 'enqueue_editor_assets' ] );
+        add_action( 'wp_ajax_tmwseo_save_verified_links',      [ __CLASS__, 'ajax_save_verified_links' ] );
         add_shortcode( 'tmw_verified_links',                   [ __CLASS__, 'shortcode_verified_links' ] );
         add_action( 'admin_post_tmwseo_promote_to_verified',   [ __CLASS__, 'handle_promote' ] );
         add_action( 'admin_notices',                           [ __CLASS__, 'render_promote_notice' ] );
@@ -150,6 +156,9 @@ class VerifiedLinks {
 
     // ── Metabox registration ──────────────────────────────────────────────
 
+    /**
+     * Register the Verified External Links metabox on model edit screens.
+     */
     public static function register_metabox(): void {
         add_meta_box(
             'tmwseo_verified_external_links',
@@ -818,6 +827,79 @@ class VerifiedLinks {
     // ── Metabox save ──────────────────────────────────────────────────────
 
     /**
+     * Enqueue block-editor persistence JS for the Verified External Links metabox.
+     *
+     * The grouped UI is rendered in a classic metabox, but Gutenberg can save
+     * without reliably posting the metabox payload in some environments. This
+     * script snapshots the current DOM rows and persists them through admin-ajax
+     * at the same time the editor saves the post.
+     */
+    public static function enqueue_editor_assets(): void {
+        if ( ! function_exists( 'get_current_screen' ) ) { return; }
+        $screen = get_current_screen();
+        if ( ! $screen || ( $screen->base ?? '' ) !== 'post' ) { return; }
+        if ( ( $screen->post_type ?? '' ) !== 'model' ) { return; }
+
+        wp_enqueue_script(
+            'tmwseo-verified-links-editor',
+            TMWSEO_ENGINE_URL . 'assets/js/verified-links-editor.js',
+            [ 'wp-data' ],
+            TMWSEO_ENGINE_VERSION,
+            true
+        );
+
+        wp_localize_script( 'tmwseo-verified-links-editor', 'TMWSEOVerifiedLinks', [
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'nonce'   => wp_create_nonce( 'tmwseo_verified_links_ajax' ),
+        ] );
+    }
+
+    /**
+     * AJAX save bridge for Gutenberg.
+     *
+     * Persists grouped Verified External Links rows captured from the block-editor
+     * DOM. Sanitization, dedup, ordering, primary enforcement, and MAX_LINKS are
+     * delegated to the same persistence path used by save_metabox().
+     */
+    public static function ajax_save_verified_links(): void {
+        check_ajax_referer( 'tmwseo_verified_links_ajax' );
+
+        $post_id = isset( $_POST['post_id'] ) ? absint( $_POST['post_id'] ) : 0;
+        if ( ! $post_id ) {
+            Logs::warn( 'verified_links', '[TMW-VL] AJAX save failed: missing post_id', [] );
+            wp_send_json_error( [ 'message' => 'Missing post_id' ], 400 );
+        }
+
+        if ( get_post_type( $post_id ) !== 'model' ) {
+            Logs::warn( 'verified_links', '[TMW-VL] AJAX save failed: invalid post type', [
+                'post_id'   => $post_id,
+                'post_type' => (string) get_post_type( $post_id ),
+            ] );
+            wp_send_json_error( [ 'message' => 'Invalid post type' ], 400 );
+        }
+
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            Logs::warn( 'verified_links', '[TMW-VL] AJAX save failed: forbidden', [
+                'post_id' => $post_id,
+            ] );
+            wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
+        }
+
+        $rows_json = isset( $_POST['rows'] ) ? wp_unslash( (string) $_POST['rows'] ) : '[]';
+        $raw_rows  = json_decode( $rows_json, true );
+        if ( ! is_array( $raw_rows ) ) {
+            $raw_rows = [];
+        }
+
+        $saved_links = self::persist_links_from_raw_rows( $post_id, $raw_rows, 'ajax' );
+
+        wp_send_json_success( [
+            'saved' => true,
+            'count' => count( $saved_links ),
+        ] );
+    }
+
+    /**
      * Save handler. Same trust contract as the legacy implementation:
      * nonce, capability, autosave guard, sanitize-and-validate per row,
      * normalised-URL dedup, single-primary enforcement, MAX_LINKS truncation.
@@ -828,19 +910,52 @@ class VerifiedLinks {
      *              each family. The on-disk JSON shape is unchanged.
      */
     public static function save_metabox( int $post_id, \WP_Post $post ): void {
-        if ( ! isset( $_POST['tmwseo_verified_links_nonce'] ) ) { return; }
+        if ( ! isset( $_POST['tmwseo_verified_links_nonce'] ) ) {
+            Logs::info( 'verified_links', '[TMW-VL] save_metabox skipped: nonce missing (likely block-editor save without metabox payload)', [
+                'post_id' => $post_id,
+            ] );
+            return;
+        }
         if ( ! wp_verify_nonce(
             sanitize_text_field( wp_unslash( (string) $_POST['tmwseo_verified_links_nonce'] ) ),
             self::NONCE_SAVE . $post_id
-        ) ) { return; }
+        ) ) {
+            Logs::warn( 'verified_links', '[TMW-VL] save_metabox skipped: nonce verification failed', [
+                'post_id' => $post_id,
+            ] );
+            return;
+        }
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) { return; }
-        if ( ! current_user_can( 'edit_post', $post_id ) ) { return; }
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            Logs::warn( 'verified_links', '[TMW-VL] save_metabox skipped: capability check failed', [
+                'post_id' => $post_id,
+            ] );
+            return;
+        }
 
         // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
         $raw_rows = ( isset( $_POST['tmwseo_vl'] ) && is_array( $_POST['tmwseo_vl'] ) )
             ? wp_unslash( $_POST['tmwseo_vl'] )
             : [];
 
+        if ( empty( $raw_rows ) ) {
+            Logs::info( 'verified_links', '[TMW-VL] save_metabox received empty tmwseo_vl payload', [
+                'post_id' => $post_id,
+            ] );
+        }
+
+        self::persist_links_from_raw_rows( $post_id, $raw_rows, 'metabox' );
+    }
+
+    /**
+     * Persist a raw links payload using the canonical Verified Links save rules.
+     *
+     * @param int                                 $post_id   Post ID.
+     * @param array<int,array<string,mixed>>      $raw_rows  Raw rows from $_POST or AJAX JSON.
+     * @param string                              $source    Save source label ('metabox'|'ajax').
+     * @return array<int,array<string,mixed>>               Final links that were written.
+     */
+    private static function persist_links_from_raw_rows( int $post_id, array $raw_rows, string $source ): array {
         // Phase 1 — validate every row, retain submission order, drop invalid.
         $validated = [];
         foreach ( $raw_rows as $row ) {
@@ -901,15 +1016,26 @@ class VerifiedLinks {
 
         update_post_meta( $post_id, self::META_KEY, wp_json_encode( $links ) );
 
-        Logs::info( 'verified_links', '[TMW-VL] Saved verified external links (grouped)', [
+        Logs::info( 'verified_links', '[TMW-VL] Saved verified external links', [
             'post_id'    => $post_id,
+            'source'     => $source,
+            'received'   => count( $raw_rows ),
+            'validated'  => count( $validated ),
             'count'      => count( $links ),
             'per_family' => array_map( 'count', $buckets ),
         ] );
+
+        return $links;
     }
 
     // ── handle_promote() — admin-post handler ─────────────────────────────
 
+    /**
+     * Handle explicit promote-from-research submissions.
+     *
+     * Validates nonce/capability checks, sanitizes selected URL/type rows,
+     * and persists only operator-approved entries.
+     */
     public static function handle_promote(): void {
         $post_id = (int) ( $_POST['post_id'] ?? 0 );
         if ( $post_id <= 0 ) {
@@ -1023,6 +1149,9 @@ class VerifiedLinks {
 
     // ── Admin notice after promote ────────────────────────────────────────
 
+    /**
+     * Render an admin notice after promote flow redirects.
+     */
     public static function render_promote_notice(): void {
         $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
         if ( ! $screen || $screen->base !== 'post' || $screen->post_type !== 'model' ) {
@@ -1486,6 +1615,9 @@ class VerifiedLinks {
 
     // ── normalize_url_for_dedup() ─────────────────────────────────────────
 
+    /**
+     * Normalize a URL string for duplicate detection.
+     */
     private static function normalize_url_for_dedup( string $url ): string {
         $parts = wp_parse_url( trim( $url ) );
         if ( ! is_array( $parts ) ) {
@@ -1500,6 +1632,9 @@ class VerifiedLinks {
 
     // ── type_label() ──────────────────────────────────────────────────────
 
+    /**
+     * Resolve a human-readable label for a verified-link type slug.
+     */
     private static function type_label( string $type ): string {
         return self::TYPE_LABELS[ $type ] ?? ucfirst( str_replace( '_', ' ', $type ) );
     }
@@ -1553,6 +1688,9 @@ class VerifiedLinks {
 
     // ── guess_type_from_url() — UI convenience only ───────────────────────
 
+    /**
+     * Infer the most likely verified-link type for a URL.
+     */
     private static function guess_type_from_url( string $url ): string {
         $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
         $host = (string) preg_replace( '/^www\./', '', $host );
