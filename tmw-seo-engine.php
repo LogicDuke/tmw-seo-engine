@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.2.0 — Full-Audit Recall: (1) fixed direct-discovery miss on case-sensitive link hubs (Beacons, Linktr.ee, AllMyLinks) by generating bounded lowercase variants of the name-derived seed and making the probe URL/seed dedup case-sensitive. (2) New ModelOutboundHarvester: one-hop <a href> extraction from confirmed link-hub and Facebook pages, each extracted URL parsed through the strict PlatformProfiles gate, with handle-similarity guard, bounded fetch/link/size budgets, and full evidence trail (discovery_mode, discovered_on_platform, discovered_from_url, extracted_outbound_url, normalized_platform, normalized_url, parser_status, recursive_depth). Ships 30 new PHPUnit tests. Zero regressions against pre-existing baseline.
- * Version: 5.2.0
+ * Description: Intelligence Core v5.3.0 — Full-Audit Durability & Truthfulness: (1) Per-phase checkpointing — Full Audit now persists progress after each of its four phases (SERP pass-1, SERP pass-2, full-registry probe, outbound harvest) so a killed request never silently loses results. (2) New status state machine — adds 'running' and 'partial' so the metabox no longer mislabels an interrupted run as "Researched". (3) Durable background-job execution via the existing tmwseo_jobs queue (new model_full_audit job type) — Full Audit survives Cloudflare/proxy idle timeouts, browser disconnects, and PHP request limits. (4) Recall fix — SERP-surfaced link-hub URLs (Beacons, Linktree, AllMyLinks, solo.to, Carrd) are now seeded into the outbound harvester even when the probe phase missed them, closing the v5.2.0 Beacons-miss case. (5) Truthful UI — phase-aware status panel + audit-bounds disclosure (queries built/succeeded, probes attempted/accepted, platforms checked/confirmed, interruption reason). (6) Stops the eager delete_post_meta(META_PROPOSED) at start of audit — the previous good blob now survives an interrupted retry. Ships new tests in FullAuditDurabilityTest.php. Zero regressions to existing safety/trust guarantees.
+ * Version: 5.3.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.2.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.3.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 

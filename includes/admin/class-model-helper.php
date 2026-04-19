@@ -425,10 +425,36 @@ class ModelHelper {
 
     // ── Meta key constants ────────────────────────────────────────────────
 
-    /** Research workflow status: not_researched | queued | researched | error */
+    /**
+     * Research workflow status state machine:
+     *   not_researched | queued | running | researched | partial | error
+     *
+     * Added in v5.3.0 (Full-Audit Durability):
+     *   - 'running'  : a Full Audit phase is actively writing checkpoints.
+     *   - 'partial'  : the run was interrupted but at least one phase
+     *                  successfully wrote intermediate results.
+     */
     const META_STATUS       = '_tmwseo_research_status';
     /** ISO datetime of last completed research run. */
     const META_LAST_AT      = '_tmwseo_research_last_at';
+    /**
+     * v5.3.0 — Audit phase tracker.
+     * One of: '' | 'queued' | 'serp_pass1' | 'serp_pass2' | 'probe' |
+     *         'harvest' | 'finalizing' | 'done' | 'interrupted'
+     */
+    const META_AUDIT_PHASE  = '_tmwseo_research_audit_phase';
+    /**
+     * v5.3.0 — Audit progress / bounds blob (JSON).
+     * Persisted after each phase; surfaced in the metabox so operators
+     * can see exactly what was attempted, what succeeded, and what was
+     * skipped. Never overwritten with a stale or empty value.
+     */
+    const META_AUDIT_BOUNDS = '_tmwseo_research_audit_bounds';
+    /**
+     * v5.3.0 — Background job id (from wp_tmwseo_jobs) for the most
+     * recent durable audit run. Empty when the run is synchronous-only.
+     */
+    const META_AUDIT_JOB_ID = '_tmwseo_research_audit_job_id';
     /** Human-facing display name (may differ from post title). */
     const META_DISPLAY_NAME = '_tmwseo_research_display_name';
     /** Comma-separated known aliases / alternative names. */
@@ -493,6 +519,10 @@ class ModelHelper {
         add_action( 'wp_ajax_tmwseo_save_model_research',       [ __CLASS__, 'ajax_save_model_research' ] );
         // Full platform audit — synchronous exhaustive discovery
         add_action( 'wp_ajax_tmwseo_run_full_audit',            [ __CLASS__, 'ajax_run_full_audit' ] );
+        // v5.3.0: Durable Full Audit — enqueues a background job that runs
+        // inside the existing tmwseo_jobs worker. The browser only blocks for
+        // the enqueue (~50 ms), then polls for status via tmwseo_research_status_poll.
+        add_action( 'wp_ajax_tmwseo_enqueue_full_audit',        [ __CLASS__, 'ajax_enqueue_full_audit' ] );
         // WP-Cron hook — runs research in a completely independent PHP process
         add_action( 'tmwseo_bg_research_cron',              [ __CLASS__, 'run_research_now' ] );
 
@@ -727,30 +757,60 @@ class ModelHelper {
         echo '});}';
 
         // ── Full Audit button click handler ───────────────────────────────────
+        // v5.3.0: enqueue a durable background job (returns instantly) and
+        // poll status until the worker picks it up and finishes. This means
+        // the audit no longer dies if the browser closes or the proxy times
+        // out — the worker keeps writing per-phase checkpoints to post meta.
+        //
+        // Endpoint wiring:
+        //   primary:  tmwseo_enqueue_full_audit  → durable background job
+        //   fallback: tmwseo_run_full_audit      → synchronous in-request
+        //                                          (auto-triggered server-side
+        //                                          by ajax_enqueue_full_audit
+        //                                          when the JobWorker class
+        //                                          is unavailable).
         echo 'var auditBtn=document.getElementById("tmwseo-audit-btn");';
         echo 'var AUDIT_N="' . esc_js( $audit_nonce ) . '";';
         echo 'if(auditBtn){auditBtn.addEventListener("click",function(){';
         echo '  if(auditBtn.dataset.running)return;';
-        echo '  auditBtn.dataset.running="1";auditBtn.disabled=true;auditBtn.textContent="Running full audit…";';
+        echo '  auditBtn.dataset.running="1";auditBtn.disabled=true;auditBtn.textContent="Enqueuing full audit…";';
         echo '  if(box)box.style.display="block";';
         echo '  if(errBox)errBox.style.display="none";';
         echo '  if(staleNotice)staleNotice.style.display="none";';
-        echo '  if(sTxt)sTxt.textContent="Full audit — searching all platforms…";';
+        echo '  if(sTxt)sTxt.textContent="Full audit — enqueuing background job…";';
         echo '  startBarAnimation();';
-        echo '  var ax=new XMLHttpRequest();ax.timeout=290000;';
+        // STEP 1: enqueue the job (returns ~50ms with status:"queued").
+        echo '  var ax=new XMLHttpRequest();ax.timeout=20000;';
         echo '  ax.open("POST",AJAX,true);';
         echo '  ax.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
         echo '  ax.onload=function(){';
-        echo '    clearInterval(barTimer);';
         echo '    try{var d=JSON.parse(ax.responseText);';
-        echo '      if(d.success&&d.data&&d.data.status&&d.data.status!=="queued"){silentReload();return;}';
-        echo '      var msg=d.data&&d.data.message?d.data.message:"Full audit failed — check server logs.";';
-        echo '      showError(msg);';
-        echo '    }catch(e){silentReload();}';
+        echo '      if(!d.success){clearInterval(barTimer);showError(d.data&&d.data.message?d.data.message:"Could not enqueue Full Audit.");return;}';
+        // If the fallback path ran sync and returned a terminal status, just reload.
+        echo '      var st=d.data&&d.data.status?d.data.status:"queued";';
+        echo '      if(st==="researched"||st==="partial"||st==="error"){silentReload();return;}';
+        // STEP 2: poll until the worker picks it up and reaches a terminal state.
+        echo '      auditBtn.textContent="Running full audit…";';
+        echo '      if(sTxt)sTxt.textContent="Background job running — phase: queued";';
+        echo '      var pollAttempts=0;var maxPolls=180;var pt=setInterval(function(){';
+        echo '        pollAttempts++;if(pollAttempts>maxPolls){clearInterval(pt);clearInterval(barTimer);';
+        echo '          showError("Full Audit still running after "+(maxPolls*4)+"s. Refresh the page later — the worker will keep writing checkpoints.");return;}';
+        echo '        var p=new XMLHttpRequest();p.open("POST",AJAX,true);';
+        echo '        p.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
+        echo '        p.onreadystatechange=function(){if(p.readyState!==4)return;';
+        echo '          try{var pd=JSON.parse(p.responseText);';
+        echo '            if(pd.success&&pd.data){';
+        echo '              if(sTxt&&pd.data.phase_label)sTxt.textContent="Phase: "+pd.data.phase_label;';
+        echo '              if(pd.data.is_terminal){clearInterval(pt);clearInterval(barTimer);silentReload();}';
+        echo '            }';
+        echo '          }catch(e){}};';
+        echo '        p.send("action=tmwseo_research_status_poll&post_id="+PID+"&nonce="+POLL_N);';
+        echo '      },4000);';
+        echo '    }catch(e){clearInterval(barTimer);showError("Server returned malformed response.");}';
         echo '  };';
-        echo '  ax.ontimeout=function(){clearInterval(barTimer);if(sTxt)sTxt.textContent="Timed out — reload to check if results were saved.";};';
+        echo '  ax.ontimeout=function(){clearInterval(barTimer);showError("Enqueue request timed out — the worker may still pick it up. Refresh in 60s to check.");};';
         echo '  ax.onerror=function(){clearInterval(barTimer);showError("Network error.");auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;};';
-        echo '  ax.send("action=tmwseo_run_full_audit&post_id="+PID+"&nonce="+AUDIT_N);';
+        echo '  ax.send("action=tmwseo_enqueue_full_audit&post_id="+PID+"&nonce="+AUDIT_N);';
         echo '});}';
 
         echo '})();';
@@ -770,21 +830,54 @@ class ModelHelper {
             echo '</p></div>';
         }
 
-        // ── Phase 2: proposed-data debug notices ──────────────────────────────
-        // Surface an actionable message when status is 'researched' but the
-        // yellow proposed-data block would otherwise show nothing.
-        if ( $status === 'researched' ) {
+        // ── Phase 2 (v5.3.0): truthful audit status / proposed-data debug ───
+        // Replaces the v5.2.0 "Researched but no proposed data was saved"
+        // warning. The metabox now consults the durable phase tracker
+        // (META_AUDIT_PHASE) and bounds blob (META_AUDIT_BOUNDS), so it can
+        // tell the operator the truth about what happened — whether the run
+        // is currently still running, was interrupted, completed in bounds,
+        // or genuinely failed.
+        $audit_phase  = (string) get_post_meta( $post->ID, self::META_AUDIT_PHASE, true );
+        $audit_bounds = self::read_audit_bounds( $post->ID );
+
+        if ( $status === 'running' || $audit_phase === 'serp_pass1' || $audit_phase === 'serp_pass2'
+            || $audit_phase === 'probe' || $audit_phase === 'harvest' || $audit_phase === 'finalizing' ) {
+            $human_phase = self::audit_phase_label( $audit_phase );
+            echo '<div class="notice notice-info inline" style="margin:0 0 12px;">';
+            echo '<p><strong>[TMW-AUDIT]</strong> ';
+            /* translators: %s: phase label, e.g. "SERP pass 1" */
+            echo esc_html( sprintf( __( 'Full Audit is running — current phase: %s. The page will refresh automatically when results are ready.', 'tmwseo' ), $human_phase ) );
+            echo '</p></div>';
+        } elseif ( $status === 'partial' ) {
+            $reason   = (string) ( $audit_bounds['reason']  ?? '' );
+            $duration = (int)    ( $audit_bounds['duration_ms'] ?? 0 );
+            echo '<div class="notice notice-warning inline" style="margin:0 0 12px;">';
+            echo '<p><strong>[TMW-AUDIT]</strong> ';
+            echo esc_html__( 'Full Audit was interrupted before completion, but partial results are available below.', 'tmwseo' );
+            if ( $reason !== '' ) {
+                echo ' ' . esc_html( sprintf( __( 'Interruption reason: %s.', 'tmwseo' ), $reason ) );
+            }
+            if ( $duration > 0 ) {
+                echo ' ' . esc_html( sprintf( __( 'Ran for %d ms before stopping.', 'tmwseo' ), $duration ) );
+            }
+            echo ' ' . esc_html__( 'Click Full Audit to retry — completed phases will be re-run from scratch.', 'tmwseo' );
+            echo '</p></div>';
+        } elseif ( $status === 'researched' ) {
             if ( $proposed_raw === '' ) {
-                echo '<div class="notice notice-warning inline" style="margin:0 0 12px;">';
+                // v5.3.0: this state should now only occur if the post was
+                // marked researched manually (save_metabox edit) but no
+                // proposed blob was ever produced. The honest message says
+                // exactly that — no longer claims a timeout.
+                echo '<div class="notice notice-info inline" style="margin:0 0 12px;">';
                 echo '<p><strong>[TMW-RESEARCH]</strong> ';
-                echo esc_html__( 'Research status is "Researched" but no proposed data was saved. The request likely timed out before the pipeline could write results. Click Research Now to try again.', 'tmwseo' );
+                echo esc_html__( 'Status is "Researched" but no automated research blob is stored — fields were entered manually or applied directly. Click Research Now or Full Audit to populate proposed data.', 'tmwseo' );
                 echo '</p></div>';
             } elseif ( $proposed === null ) {
                 echo '<div class="notice notice-error inline" style="margin:0 0 12px;">';
                 echo '<p><strong>[TMW-RESEARCH]</strong> ';
                 /* translators: %d: byte length of raw proposed blob */
                 echo esc_html( sprintf(
-                    __( 'Proposed data blob exists (%d bytes) but could not be decoded as JSON — it may have been truncated by a timeout. Click Research Now to re-run.', 'tmwseo' ),
+                    __( 'Proposed data blob exists (%d bytes) but could not be decoded as JSON — it may have been truncated. Click Research Now to re-run.', 'tmwseo' ),
                     strlen( $proposed_raw )
                 ) );
                 echo '</p></div>';
@@ -814,6 +907,44 @@ class ModelHelper {
                 echo ' ' . esc_html__( 'Click Research Now to re-run.', 'tmwseo' );
                 echo '</p></div>';
             }
+        }
+
+        // ── Audit bounds panel — show actual coverage truthfully ─────────────
+        // Renders only when an audit has run (bounds blob is non-empty).
+        if ( ! empty( $audit_bounds ) && ( $status === 'researched' || $status === 'partial' ) ) {
+            $platforms_in_registry = (int) ( $audit_bounds['platforms_in_registry'] ?? 0 );
+            $platforms_checked     = (int) ( $audit_bounds['platforms_checked']     ?? 0 );
+            $platforms_confirmed   = (int) ( $audit_bounds['platforms_confirmed']   ?? 0 );
+            $probes_attempted      = (int) ( $audit_bounds['probes_attempted']      ?? 0 );
+            $probes_accepted       = (int) ( $audit_bounds['probes_accepted']       ?? 0 );
+            $queries_built         = (int) ( $audit_bounds['total_queries_built']   ?? 0 );
+            $queries_succeeded     = (int) ( $audit_bounds['queries_succeeded']     ?? 0 );
+            $duration_ms           = (int) ( $audit_bounds['duration_ms']           ?? 0 );
+
+            echo '<details style="margin:0 0 12px;border:1px solid #c3c4c7;border-radius:4px;background:#fafafa;">';
+            echo '<summary style="cursor:pointer;padding:8px 12px;font-weight:600;color:#1d2327;">';
+            echo '⚙ ' . esc_html__( 'Full Audit bounds (what was actually attempted)', 'tmwseo' );
+            echo '</summary>';
+            echo '<table class="widefat striped" style="margin:0;border:none;">';
+            $row = static function ( string $label, $value ) : void {
+                echo '<tr><th style="width:55%;font-weight:normal;color:#50575e;">' . esc_html( $label ) . '</th>';
+                echo '<td><code>' . esc_html( (string) $value ) . '</code></td></tr>';
+            };
+            $row( __( 'Platforms in registry',           'tmwseo' ), $platforms_in_registry );
+            $row( __( 'Platforms actually checked',      'tmwseo' ), $platforms_checked );
+            $row( __( 'Platforms confirmed',             'tmwseo' ), $platforms_confirmed );
+            $row( __( 'SERP queries built',              'tmwseo' ), $queries_built );
+            $row( __( 'SERP queries succeeded',          'tmwseo' ), $queries_succeeded );
+            $row( __( 'Direct probes attempted',         'tmwseo' ), $probes_attempted );
+            $row( __( 'Direct probes accepted',          'tmwseo' ), $probes_accepted );
+            $row( __( 'Duration (ms)',                   'tmwseo' ), $duration_ms );
+            $row( __( 'Final phase',                     'tmwseo' ), self::audit_phase_label( (string) ( $audit_bounds['phase'] ?? '' ) ) );
+            $row( __( 'Interrupted?',                    'tmwseo' ), ! empty( $audit_bounds['interrupted'] ) ? 'yes' : 'no' );
+            echo '</table>';
+            echo '<p style="padding:8px 12px;margin:0;font-size:11px;color:#7d7d7d;">';
+            echo esc_html__( '"Full Audit" is bounded by these per-phase budgets — it is not an unlimited crawl. Numbers above show what actually ran.', 'tmwseo' );
+            echo '</p>';
+            echo '</details>';
         }
 
         // ── Proposed data panel (if a pipeline run returned data pending review) ──
@@ -1904,6 +2035,92 @@ class ModelHelper {
     }
 
     /**
+     * v5.3.0 — Enqueue a Full Audit as a durable background job.
+     *
+     * Returns immediately after the row is inserted into wp_tmwseo_jobs.
+     * The actual audit then runs inside JobWorker::run_model_full_audit
+     * (triggered by the existing worker cron / pickup mechanism), which
+     * means the audit no longer depends on a single long browser-held
+     * request — it survives:
+     *
+     *   • Browser closes, tab refreshes, network drops.
+     *   • Cloudflare / LiteSpeed / nginx idle-read timeouts.
+     *   • PHP max_execution_time on FPM with short defaults.
+     *
+     * Per-phase checkpoints written by ModelHelper::run_full_audit_now()
+     * mean the operator can observe progress while the job is running and
+     * can recover partial results if a phase fails.
+     *
+     * Synchronous Full Audit (ajax_run_full_audit) is kept as a fallback
+     * for environments where the JobWorker cron is disabled.
+     */
+    public static function ajax_enqueue_full_audit(): void {
+        $post_id = (int) ( $_POST['post_id'] ?? 0 );
+        $nonce   = sanitize_text_field( wp_unslash( (string) ( $_POST['nonce'] ?? '' ) ) );
+
+        if ( $post_id <= 0 || ! wp_verify_nonce( $nonce, 'tmwseo_full_audit_' . $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
+        }
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
+        }
+
+        if ( ! class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
+            $f = TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php';
+            if ( file_exists( $f ) ) { require_once $f; }
+        }
+
+        if ( ! class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
+            // No worker available — fall back to synchronous so the
+            // operator's click is never silently dropped.
+            self::release_research_lock( $post_id );
+            self::run_full_audit_now( $post_id );
+            $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+            wp_send_json_success( [
+                'status'   => $final_status,
+                'mode'     => 'sync_fallback',
+                'message'  => 'Background worker unavailable; ran synchronously.',
+            ] );
+        }
+
+        $job_id = \TMWSEO\Engine\JobWorker::enqueue_job( 'model_full_audit', [
+            'post_id' => $post_id,
+        ] );
+
+        if ( $job_id <= 0 ) {
+            wp_send_json_error( [
+                'message' => 'Could not enqueue Full Audit job — DiscoveryGovernor budget exhausted or DB write failed.',
+            ] );
+        }
+
+        // Mark immediately so the metabox can show a truthful "queued"
+        // state even before the worker picks the job up.
+        update_post_meta( $post_id, self::META_STATUS,       'queued' );
+        update_post_meta( $post_id, self::META_AUDIT_PHASE,  'queued' );
+        update_post_meta( $post_id, self::META_AUDIT_JOB_ID, (string) $job_id );
+
+        // Kick the worker immediately rather than waiting up to 60s for
+        // the next cron tick. wp_schedule_single_event is debounced by
+        // WP — duplicate events with the same args are rejected, so this
+        // is safe to call on every enqueue.
+        if ( function_exists( 'wp_schedule_single_event' ) && class_exists( '\\TMWSEO\\Engine\\Cron' ) ) {
+            wp_schedule_single_event( time() + 1, \TMWSEO\Engine\Cron::HOOK_JOB_WORKER_TICK );
+        }
+
+        Logs::info( 'model_research', '[TMW-AUDIT] enqueued background full audit', [
+            'post_id' => $post_id,
+            'job_id'  => $job_id,
+        ] );
+
+        wp_send_json_success( [
+            'status'  => 'queued',
+            'job_id'  => $job_id,
+            'mode'    => 'background',
+            'message' => 'Full Audit job enqueued — page will refresh when it finishes.',
+        ] );
+    }
+
+    /**
      * Synchronous research executor — called directly by the browser button XHR.
      *
      * Runs the full pipeline in THIS request. No cron, no loopback, no background.
@@ -1972,8 +2189,18 @@ class ModelHelper {
             wp_send_json_error( [ 'status' => 'error' ], 403 );
         }
 
-        $status = (string) get_post_meta( $post_id, self::META_STATUS, true );
-        wp_send_json_success( [ 'status' => $status ?: 'not_researched' ] );
+        $status       = (string) get_post_meta( $post_id, self::META_STATUS, true );
+        $audit_phase  = (string) get_post_meta( $post_id, self::META_AUDIT_PHASE, true );
+        $audit_bounds = self::read_audit_bounds( $post_id );
+
+        wp_send_json_success( [
+            'status'       => $status ?: 'not_researched',
+            'phase'        => $audit_phase,
+            'phase_label'  => self::audit_phase_label( $audit_phase ),
+            'bounds'       => $audit_bounds,
+            // Tell the JS poller it is safe to reload the page.
+            'is_terminal'  => in_array( $status, [ 'researched', 'partial', 'error', 'not_researched' ], true ),
+        ] );
     }
 
     /**
@@ -2081,18 +2308,26 @@ class ModelHelper {
     }
 
     /**
-     * Run the full-audit pipeline for a single model.
+     * Run the full-audit pipeline for a single model with per-phase
+     * checkpointing and truthful status reporting.
      *
-     * Mirrors run_research_now() exactly — same lock, try/catch/finally,
-     * persistence, and status management — but uses
-     * ModelResearchPipeline::run_with_provider() with a ModelFullAuditProvider
-     * instance instead of run() with apply_filters.
+     * v5.3.0 — Durability rewrite. Differences vs v5.2.0:
      *
-     * This bypasses the shared tmwseo_research_providers filter so the
-     * priority-10 SERP provider and priority-20 direct probe provider do NOT
-     * append themselves and override the audit-mode results.
+     *   • Status is set to 'running' at start (not silently left in a stale
+     *     'researched' state from a previous run).
+     *   • META_PROPOSED is NOT eagerly deleted — it is replaced atomically
+     *     when the new run produces usable output. A killed request can no
+     *     longer leave the post in "Researched but no proposed data" state.
+     *   • A phase-tracker meta (META_AUDIT_PHASE) is updated as the
+     *     provider progresses, so the metabox/poller can show real progress.
+     *   • If the run is interrupted (timeout / proxy cut / fatal),
+     *     the previously-stored proposed data and status both survive.
+     *   • Bounds (queries built/succeeded, probes attempted/accepted, etc.)
+     *     are persisted to META_AUDIT_BOUNDS so operators see the truth
+     *     about what was actually attempted.
      *
-     * Called only by ajax_run_full_audit().
+     * Called by both the synchronous AJAX path (ajax_run_full_audit) and
+     * the durable background-job path (JobWorker::run_model_full_audit).
      */
     public static function run_full_audit_now( int $post_id ): void {
         @set_time_limit( 300 );
@@ -2104,10 +2339,30 @@ class ModelHelper {
             return;
         }
 
+        // Capture pre-run state so an interrupted run can be diagnosed
+        // and partial recovery is possible.
+        $prev_status      = (string) get_post_meta( $post_id, self::META_STATUS, true );
+        $prev_proposed    = (string) get_post_meta( $post_id, self::META_PROPOSED, true );
+        $prev_proposed_ok = ( $prev_proposed !== '' && is_array( json_decode( $prev_proposed, true ) ) );
+
+        // Mark the run as actively running and clear any stale phase value.
+        update_post_meta( $post_id, self::META_STATUS,      'running' );
+        update_post_meta( $post_id, self::META_AUDIT_PHASE, 'serp_pass1' );
+
+        // Initial bounds checkpoint — written immediately so the UI can
+        // show "Running…" with a timestamp even if the run dies in phase 1.
+        self::write_audit_bounds_checkpoint( $post_id, [
+            'started_at'        => current_time( 'mysql' ),
+            'phase'             => 'serp_pass1',
+            'phase_history'     => [ 'serp_pass1' ],
+            'completed_phases'  => 0,
+            'interrupted'       => false,
+            'previous_status'   => $prev_status,
+            'previous_proposed' => $prev_proposed_ok,
+        ] );
+
         $t_start = microtime( true );
         try {
-            delete_post_meta( $post_id, self::META_PROPOSED );
-
             Logs::info( 'model_research', '[TMW-AUDIT] run_full_audit_now started', [
                 'post_id' => $post_id,
             ] );
@@ -2117,10 +2372,25 @@ class ModelHelper {
             }
 
             $provider = \TMWSEO\Engine\Model\ModelFullAuditProvider::make();
-            $result   = ModelResearchPipeline::run_with_provider( $post_id, $provider );
+
+            // Pass a checkpoint callback so the provider can persist
+            // intermediate phase results as it runs. The callback writes
+            // to META_AUDIT_PHASE + META_AUDIT_BOUNDS only — never touches
+            // META_PROPOSED until the run produces a final, validated blob.
+            $provider->set_checkpoint_callback( static function ( string $phase, array $bounds ) use ( $post_id ) : void {
+                self::write_audit_phase_checkpoint( $post_id, $phase, $bounds );
+            } );
+
+            $result = ModelResearchPipeline::run_with_provider( $post_id, $provider );
 
             $pipeline_status = (string) ( $result['pipeline_status'] ?? 'error' );
             $merged          = $result['merged'] ?? [];
+            $run_completed   = (bool) ( $result['run_completed'] ?? false );
+
+            // Pull bounds enriched by the provider (audit_config block) into
+            // our durable checkpoint so the UI can keep showing them after
+            // the run is over.
+            $audit_config = (array) ( $merged['research_diagnostics']['audit_config'] ?? [] );
 
             $encoded = wp_json_encode( $result );
             if ( $encoded === false || $encoded === '' ) {
@@ -2129,43 +2399,81 @@ class ModelHelper {
                 ] );
                 update_post_meta( $post_id, self::META_STATUS, 'error' );
                 update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+                update_post_meta( $post_id, self::META_AUDIT_PHASE, 'interrupted' );
+                self::write_audit_bounds_checkpoint( $post_id, array_merge( $audit_config, [
+                    'phase'        => 'interrupted',
+                    'interrupted'  => true,
+                    'reason'       => 'json_encode_failed',
+                    'duration_ms'  => (int) round( ( microtime( true ) - $t_start ) * 1000 ),
+                ] ) );
                 return;
             }
 
+            // Atomic-ish update of META_PROPOSED:
+            // delete-then-write would leave a window where the post has
+            // no proposed data; instead overwrite directly. WordPress
+            // update_post_meta() is internally a single UPDATE, so the
+            // operator never observes an empty intermediate state.
             update_post_meta( $post_id, self::META_PROPOSED, wp_slash( $encoded ) );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
 
             if ( ! self::stored_proposed_blob_round_trip_ok( $post_id ) ) {
-                delete_post_meta( $post_id, self::META_PROPOSED );
+                // Round-trip failed — leave PROPOSED in place if it was already
+                // valid (i.e. previous good run); otherwise clear and report.
+                if ( ! $prev_proposed_ok ) {
+                    delete_post_meta( $post_id, self::META_PROPOSED );
+                }
                 update_post_meta( $post_id, self::META_STATUS, 'error' );
                 update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+                update_post_meta( $post_id, self::META_AUDIT_PHASE, 'interrupted' );
+                self::write_audit_bounds_checkpoint( $post_id, array_merge( $audit_config, [
+                    'phase'       => 'interrupted',
+                    'interrupted' => true,
+                    'reason'      => 'round_trip_decode_failed',
+                    'duration_ms' => (int) round( ( microtime( true ) - $t_start ) * 1000 ),
+                ] ) );
                 Logs::warn( 'model_research', '[TMW-AUDIT] round-trip decode failed', [
                     'post_id' => $post_id,
                 ] );
                 return;
             }
 
-            // A completed audit with zero candidates is STILL a completed audit.
-            // Only set 'error' for actual technical failures (exception, JSON corrupt,
-            // round-trip decode fail — all handled above). Here we only see 'ok',
-            // 'no_provider', or 'error' from the pipeline.
-            $run_completed = (bool) ( $result['run_completed'] ?? false );
+            // Determine final status with truthful semantics:
+            //   - 'no_provider'                  → not_researched (provider could not run)
+            //   - 'ok' OR run_completed=true     → researched (a completed audit
+            //                                      with zero candidates is STILL a
+            //                                      valid result — do not penalise it)
+            //   - provider returned 'partial'    → 'partial' so the operator knows
+            //                                      it is bounded
+            //   - everything else                → error
+            $provider_status_raw = (string) ( $result['provider_results']['full_audit']['status'] ?? '' );
 
             if ( $pipeline_status === 'no_provider' ) {
-                // Provider could not run (no API key, safe mode, etc.).
-                update_post_meta( $post_id, self::META_STATUS, 'not_researched' );
+                $final_status = 'not_researched';
+            } elseif ( $provider_status_raw === 'partial' ) {
+                $final_status = 'partial';
             } elseif ( $pipeline_status === 'ok' || $run_completed ) {
-                // Audit completed — even zero candidates is a valid result.
-                update_post_meta( $post_id, self::META_STATUS, 'researched' );
+                $final_status = 'researched';
             } else {
-                // Pipeline reported 'error' AND run_completed=false → genuine failure.
-                update_post_meta( $post_id, self::META_STATUS, 'error' );
+                $final_status = 'error';
             }
+            update_post_meta( $post_id, self::META_STATUS, $final_status );
+            update_post_meta( $post_id, self::META_AUDIT_PHASE, $final_status === 'error' ? 'interrupted' : 'done' );
 
             $t_ms = (int) round( ( microtime( true ) - $t_start ) * 1000 );
+            self::write_audit_bounds_checkpoint( $post_id, array_merge( $audit_config, [
+                'phase'           => $final_status === 'error' ? 'interrupted' : 'done',
+                'interrupted'     => $final_status === 'error',
+                'completed_at'    => current_time( 'mysql' ),
+                'duration_ms'     => $t_ms,
+                'final_status'    => $final_status,
+                'pipeline_status' => $pipeline_status,
+            ] ) );
+
             Logs::info( 'model_research', '[TMW-AUDIT] run_full_audit_now complete', [
                 'post_id'         => $post_id,
                 'pipeline_status' => $pipeline_status,
+                'final_status'    => $final_status,
                 'duration_ms'     => $t_ms,
             ] );
 
@@ -2176,11 +2484,83 @@ class ModelHelper {
                 'error'       => $e->getMessage(),
                 'duration_ms' => $t_ms,
             ] );
-            update_post_meta( $post_id, self::META_STATUS, 'error' );
+
+            // If a previous good proposed blob exists, downgrade to 'partial'
+            // instead of 'error' so the operator keeps that recovery info.
+            $has_prev_data = $prev_proposed_ok;
+            update_post_meta( $post_id, self::META_STATUS, $has_prev_data ? 'partial' : 'error' );
             update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
+            update_post_meta( $post_id, self::META_AUDIT_PHASE, 'interrupted' );
+            self::write_audit_bounds_checkpoint( $post_id, [
+                'phase'             => 'interrupted',
+                'interrupted'       => true,
+                'reason'            => 'exception',
+                'error'             => substr( $e->getMessage(), 0, 240 ),
+                'duration_ms'       => $t_ms,
+                'previous_proposed' => $has_prev_data,
+            ] );
         } finally {
             self::release_research_lock( $post_id );
         }
+    }
+
+    /**
+     * Persist a per-phase checkpoint update.
+     *
+     * Called by the provider's checkpoint callback after each major phase
+     * (serp_pass1, serp_pass2, probe, harvest, finalizing). Updates the
+     * phase tracker meta and merges the new bounds into the existing
+     * bounds blob so older fields are preserved.
+     *
+     * @internal
+     */
+    public static function write_audit_phase_checkpoint( int $post_id, string $phase, array $bounds ): void {
+        $phase = sanitize_key( $phase );
+        if ( $phase === '' ) { return; }
+        update_post_meta( $post_id, self::META_AUDIT_PHASE, $phase );
+        self::write_audit_bounds_checkpoint( $post_id, array_merge( $bounds, [ 'phase' => $phase ] ) );
+    }
+
+    /**
+     * Persist (merge) the audit bounds blob.
+     *
+     * Reads the current blob, merges the new fields on top, and writes
+     * back. Phase history is appended cumulatively. Never destroys keys
+     * that aren't present in $bounds.
+     *
+     * @internal
+     */
+    public static function write_audit_bounds_checkpoint( int $post_id, array $bounds ): void {
+        $existing_raw = (string) get_post_meta( $post_id, self::META_AUDIT_BOUNDS, true );
+        $existing     = $existing_raw !== '' ? json_decode( $existing_raw, true ) : [];
+        if ( ! is_array( $existing ) ) { $existing = []; }
+
+        $phase_history = (array) ( $existing['phase_history'] ?? [] );
+        $new_phase     = (string) ( $bounds['phase'] ?? '' );
+        if ( $new_phase !== '' && ( empty( $phase_history ) || end( $phase_history ) !== $new_phase ) ) {
+            $phase_history[] = $new_phase;
+        }
+
+        $merged = array_merge( $existing, $bounds );
+        $merged['phase_history']    = $phase_history;
+        $merged['completed_phases'] = count( array_unique( $phase_history ) );
+        $merged['updated_at']       = current_time( 'mysql' );
+
+        $encoded = wp_json_encode( $merged );
+        if ( $encoded === false ) { return; }
+        update_post_meta( $post_id, self::META_AUDIT_BOUNDS, wp_slash( $encoded ) );
+    }
+
+    /**
+     * Read the audit bounds blob as an array.
+     *
+     * @internal
+     */
+    public static function read_audit_bounds( int $post_id ): array {
+        $raw = (string) get_post_meta( $post_id, self::META_AUDIT_BOUNDS, true );
+        if ( $raw === '' ) { return []; }
+        $decoded = json_decode( $raw, true );
+        return is_array( $decoded ) ? $decoded : [];
     }
 
     /**
@@ -2501,7 +2881,9 @@ class ModelHelper {
         $map = [
             'not_researched' => __( 'Not Researched', 'tmwseo' ),
             'queued'         => __( 'Queued', 'tmwseo' ),
+            'running'        => __( 'Running…', 'tmwseo' ),
             'researched'     => __( 'Researched', 'tmwseo' ),
+            'partial'        => __( 'Partial', 'tmwseo' ),
             'error'          => __( 'Error', 'tmwseo' ),
         ];
         return $map[ $status ] ?? __( 'Not Researched', 'tmwseo' );
@@ -2511,7 +2893,9 @@ class ModelHelper {
         $map = [
             'not_researched' => 'tmwseo-research-status-none',
             'queued'         => 'tmwseo-research-status-queued',
+            'running'        => 'tmwseo-research-status-running',
             'researched'     => 'tmwseo-research-status-ok',
+            'partial'        => 'tmwseo-research-status-partial',
             'error'          => 'tmwseo-research-status-error',
         ];
         return $map[ $status ] ?? 'tmwseo-research-status-none';
@@ -2521,10 +2905,32 @@ class ModelHelper {
         $map = [
             'not_researched' => 'background:#f0f0f1;color:#50575e',
             'queued'         => 'background:#fcf9e8;color:#7d5c00',
+            'running'        => 'background:#e7f1fb;color:#1a5276',
             'researched'     => 'background:#edfaef;color:#1d6a2e',
+            'partial'        => 'background:#fff5e6;color:#7a4f00',
             'error'          => 'background:#fce8e8;color:#8a1a1a',
         ];
         return $map[ $status ] ?? 'background:#f0f0f1;color:#50575e';
+    }
+
+    /**
+     * Translate an internal audit phase key into a human-facing label.
+     *
+     * @internal
+     */
+    public static function audit_phase_label( string $phase ): string {
+        $map = [
+            ''             => __( '— not started —',          'tmwseo' ),
+            'queued'       => __( 'Queued (background job)',  'tmwseo' ),
+            'serp_pass1'   => __( 'SERP pass 1 (query pack)', 'tmwseo' ),
+            'serp_pass2'   => __( 'SERP pass 2 (handle confirmation)', 'tmwseo' ),
+            'probe'        => __( 'Direct probe (full registry)', 'tmwseo' ),
+            'harvest'      => __( 'Outbound harvest',         'tmwseo' ),
+            'finalizing'   => __( 'Finalizing',               'tmwseo' ),
+            'done'         => __( 'Completed',                'tmwseo' ),
+            'interrupted'  => __( 'Interrupted',              'tmwseo' ),
+        ];
+        return $map[ $phase ] ?? $phase;
     }
 
     private static function field_text(

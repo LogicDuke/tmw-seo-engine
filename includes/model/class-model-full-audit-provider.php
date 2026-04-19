@@ -68,6 +68,47 @@ if ( ! class_exists( ModelOutboundHarvester::class ) ) {
 class ModelFullAuditProvider extends ModelSerpResearchProvider {
 
     /**
+     * Optional callback invoked after each major audit phase to persist
+     * a checkpoint. Signature: function( string $phase, array $bounds ).
+     *
+     * Set by ModelHelper::run_full_audit_now() so the post meta
+     * (META_AUDIT_PHASE / META_AUDIT_BOUNDS) reflects real progress
+     * even if the request dies mid-pipeline.
+     *
+     * @var callable|null
+     */
+    private $checkpoint_callback = null;
+
+    /**
+     * Register the checkpoint callback.
+     *
+     * The callback receives ( string $phase, array $bounds ) and is
+     * expected to be side-effect-only (it should not return anything
+     * the provider acts on). All thrown exceptions are swallowed so
+     * a logging/persistence failure cannot abort the audit run.
+     */
+    public function set_checkpoint_callback( callable $callback ): void {
+        $this->checkpoint_callback = $callback;
+    }
+
+    /**
+     * Fire the checkpoint callback if one is registered. Safe to call
+     * from any phase; exceptions inside the callback are caught and
+     * logged but never propagate.
+     */
+    protected function checkpoint( string $phase, array $bounds ): void {
+        if ( $this->checkpoint_callback === null ) { return; }
+        try {
+            ( $this->checkpoint_callback )( $phase, $bounds );
+        } catch ( \Throwable $e ) {
+            Logs::warn( 'model_research', '[TMW-AUDIT] checkpoint callback threw', [
+                'phase' => $phase,
+                'error' => $e->getMessage(),
+            ] );
+        }
+    }
+
+    /**
      * {@inheritdoc}
      */
     public function provider_name(): string {
@@ -123,6 +164,14 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $queries_p1 = $this->build_query_pack_audit( $model_name, $aliases );
         $pack_p1    = $this->run_query_pack_pub( $queries_p1, parent::AUDIT_SERP_DEPTH, $post_id );
 
+        $this->checkpoint( 'serp_pass1', [
+            'total_queries_built' => count( $queries_p1 ),
+            'queries_succeeded'   => (int) $pack_p1['succeeded'],
+            'queries_failed'      => (int) $pack_p1['failed'],
+            'serp_items'          => count( $pack_p1['items'] ),
+            'aliases_used'        => count( $aliases ),
+        ] );
+
         if ( $pack_p1['succeeded'] === 0 ) {
             Logs::warn( 'model_research', '[TMW-AUDIT] All SERP queries failed — falling back to probe-only', [
                 'post_id' => $post_id,
@@ -146,16 +195,33 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         // ── PASS TWO: handle-seeded SERP confirmation (enabled in audit mode) ─
         $conf_log = [];
         $items_p2 = [];
+        $pass_two = [ 'items' => [], 'query_stats' => [], 'confirmation_log' => [] ];
         if ( parent::AUDIT_PASS_TWO ) {
             $pass_two = $this->run_confirmation_pass_audit( $handle_seeds, $already_confirmed, $post_id );
             $items_p2 = $pass_two['items'];
             $conf_log = $pass_two['confirmation_log'];
         }
 
+        $this->checkpoint( 'serp_pass2', [
+            'p2_items'              => count( $items_p2 ),
+            'p2_queries'            => count( $pass_two['query_stats'] ?? [] ),
+            'seeds_built'           => count( $handle_seeds ),
+            'platforms_already_confirmed' => count( $already_confirmed ),
+        ] );
+
         // ── PASS THREE: full-registry probe ───────────────────────────────────
         $probe_result      = $this->run_full_audit_probe( $handle_seeds, $post_id );
         $probe_urls        = array_keys( $probe_result['verified_urls'] );
         $probe_diagnostics = $probe_result['diagnostics'];
+
+        $this->checkpoint( 'probe', [
+            'probes_attempted'    => (int) ( $probe_diagnostics['probes_attempted'] ?? 0 ),
+            'probes_accepted'     => (int) ( $probe_diagnostics['probes_accepted']  ?? 0 ),
+            'platforms_confirmed' => count( array_filter(
+                $probe_diagnostics['platform_coverage'] ?? [],
+                static fn( $p ) => ( $p['status'] ?? '' ) === 'confirmed'
+            ) ),
+        ] );
 
         // ── PASS FOUR: outbound-link harvest (fallback recall) ───────────────
         // One-hop harvest of <a href> links from already-confirmed link-hub
@@ -187,9 +253,21 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         }
 
         // ── Merge and parse ───────────────────────────────────────────────────
+        $all_items    = [];
         $all_items    = array_merge( $pack_p1['items'], $items_p2 );
         $merged_all   = $this->merge_serp_items_pub( $all_items );
         $query_stats  = array_merge( $pack_p1['query_stats'], $pass_two['query_stats'] ?? [] );
+
+        $this->checkpoint( 'harvest', [
+            'harvest_seed_pages'  => count( $harvest_seed_pages ),
+            'harvest_discovered'  => count( $harvest_discovered ),
+            'harvest_diagnostics' => $harvest_diagnostics,
+        ] );
+
+        $this->checkpoint( 'finalizing', [
+            'total_items_to_parse' => count( $merged_all['items'] ?? [] ),
+            'probe_urls_total'     => count( $probe_urls ),
+        ] );
 
         $t_ms = (int) round( ( microtime( true ) - $t_start ) * 1000 );
         Logs::info( 'model_research', '[TMW-AUDIT] Full audit complete', [
@@ -526,7 +604,13 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
      * Sources, in order:
      *   1. Registry-confirmed link-hub pages from the probe phase
      *      (beacons, linktree, allmylinks, solo_to, carrd).
-     *   2. Facebook pages surfaced by SERP pass-one whose host is
+     *   2. SERP-surfaced link-hub URLs (v5.3.0 recall fix). The probe
+     *      phase can miss a link-hub URL when SERP returns it but the
+     *      probe synthesizes a different candidate URL for the same
+     *      slug. Treating SERP-surfaced link-hub URLs as harvest seeds
+     *      closes that recall gap (root cause of the missed Beacons
+     *      link reported in v5.2.0).
+     *   3. Facebook pages surfaced by SERP pass-one whose host is
      *      facebook.com / m.facebook.com / fb.com.
      *
      * Deduplication is applied on normalized URL (lowercased, trailing slash
@@ -541,8 +625,19 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
     protected function collect_harvest_seed_pages( array $probe_result, array $serp_items_p1 ): array {
         $pages = [];
 
-        // 1. Registry-confirmed link hubs from the probe phase.
+        // Hosts that map to link-hub slugs. Mirrors PlatformRegistry's
+        // 'group' => 'linkhub' set. Kept inline (not pulled from the
+        // registry) so the harvest-seed surface is auditable in one place.
+        static $linkhub_host_to_slug = [
+            'beacons.ai'      => 'beacons',
+            'linktr.ee'       => 'linktree',
+            'allmylinks.com'  => 'allmylinks',
+            'solo.to'         => 'solo_to',
+            'carrd.co'        => 'carrd',
+        ];
         static $link_hub_slugs = [ 'beacons', 'linktree', 'allmylinks', 'solo_to', 'carrd' ];
+
+        // 1. Registry-confirmed link hubs from the probe phase.
         $verified_urls = $probe_result['verified_urls'] ?? [];
         if ( is_array( $verified_urls ) ) {
             foreach ( $verified_urls as $url => $entry ) {
@@ -559,7 +654,37 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             }
         }
 
-        // 2. Facebook pages surfaced by SERP pass-one.
+        // 2. v5.3.0 — SERP-surfaced link-hub URLs.
+        // Recall fix: a SERP item pointing at beacons.ai/{handle} should
+        // become a harvest seed even when the probe phase missed it.
+        foreach ( $serp_items_p1 as $item ) {
+            if ( ! is_array( $item ) ) { continue; }
+            $candidate_url = (string) ( $item['url'] ?? $item['link'] ?? '' );
+            if ( $candidate_url === '' ) { continue; }
+            $host = strtolower( (string) ( parse_url( $candidate_url, PHP_URL_HOST ) ?? '' ) );
+            $host = (string) preg_replace( '/^www\./', '', $host );
+            if ( $host === '' ) { continue; }
+
+            // Match exact host or wildcard subdomain (e.g. {user}.carrd.co).
+            $matched_slug = $linkhub_host_to_slug[ $host ] ?? '';
+            if ( $matched_slug === '' ) {
+                foreach ( $linkhub_host_to_slug as $hub_host => $hub_slug ) {
+                    if ( str_ends_with( $host, '.' . $hub_host ) ) {
+                        $matched_slug = $hub_slug;
+                        break;
+                    }
+                }
+            }
+            if ( $matched_slug === '' ) { continue; }
+
+            $pages[] = [
+                'url'             => $candidate_url,
+                'source_type'     => 'linkhub_serp',
+                'source_platform' => $matched_slug,
+            ];
+        }
+
+        // 3. Facebook pages surfaced by SERP pass-one.
         foreach ( $serp_items_p1 as $item ) {
             if ( ! is_array( $item ) ) { continue; }
             $candidate_url = (string) ( $item['url'] ?? $item['link'] ?? '' );

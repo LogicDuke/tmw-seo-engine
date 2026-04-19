@@ -252,9 +252,40 @@ class JobWorker {
             case 'ai_content_brief_generation':
                 AIContentBriefGeneratorAdmin::run_background_brief_generation($payload);
                 return;
+            case 'model_full_audit':
+                self::run_model_full_audit($payload);
+                return;
             default:
                 throw new \RuntimeException('Unknown job type: ' . $job_type);
         }
+    }
+
+    /**
+     * v5.3.0 — Durable Full Audit handler.
+     *
+     * Runs ModelHelper::run_full_audit_now() inside the background job
+     * worker so the audit survives browser disconnects, reverse-proxy
+     * idle timeouts, and PHP request limits. The handler delegates to
+     * the same ModelHelper method called by the synchronous AJAX path,
+     * so checkpoint/persistence behavior is identical.
+     */
+    public static function run_model_full_audit(array $payload): void {
+        $post_id = (int) ($payload['post_id'] ?? 0);
+        if ($post_id <= 0) {
+            throw new \RuntimeException('Invalid model_full_audit payload: missing post_id.');
+        }
+
+        if (!class_exists('\\TMWSEO\\Engine\\Admin\\ModelHelper')) {
+            $f = TMWSEO_ENGINE_PATH . 'includes/admin/class-model-helper.php';
+            if (file_exists($f)) { require_once $f; }
+        }
+
+        if (class_exists('\\TMWSEO\\Engine\\Admin\\ModelHelper')) {
+            \TMWSEO\Engine\Admin\ModelHelper::run_full_audit_now($post_id);
+            return;
+        }
+
+        throw new \RuntimeException('model_full_audit handler missing ModelHelper class.');
     }
 
     private static function sanitize_payload(array $payload): array {
