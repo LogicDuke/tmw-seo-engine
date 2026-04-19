@@ -523,6 +523,11 @@ class ModelHelper {
         // inside the existing tmwseo_jobs worker. The browser only blocks for
         // the enqueue (~50 ms), then polls for status via tmwseo_research_status_poll.
         add_action( 'wp_ajax_tmwseo_enqueue_full_audit',        [ __CLASS__, 'ajax_enqueue_full_audit' ] );
+        // v5.4.0: Worker-kick endpoint. Fire-and-forget non-blocking
+        // loopback POST target that runs a single job cycle independently
+        // of WP-Cron. Auth is nonce-based, so nopriv is safe here.
+        add_action( 'wp_ajax_tmwseo_worker_kick',               [ __CLASS__, 'ajax_worker_kick' ] );
+        add_action( 'wp_ajax_nopriv_tmwseo_worker_kick',        [ __CLASS__, 'ajax_worker_kick' ] );
         // WP-Cron hook — runs research in a completely independent PHP process
         add_action( 'tmwseo_bg_research_cron',              [ __CLASS__, 'run_research_now' ] );
 
@@ -683,8 +688,26 @@ class ModelHelper {
 
         echo 'function setBar(p){if(bar)bar.style.width=Math.min(p,100)+"%";}';
         echo 'function showError(msg){';
-        echo '  if(errBox){errBox.textContent=msg;errBox.style.display="block";}';
+        echo '  if(errBox){errBox.textContent=msg;errBox.style.display="block";errBox.style.background="#fff5f5";errBox.style.borderColor="#f5c6cb";errBox.style.color="#721c24";}';
         echo '  if(sTxt)sTxt.textContent="Failed.";';
+        echo '  if(etaTxt)etaTxt.textContent="";';
+        echo '  setBar(0);';
+        echo '  if(btn){btn.disabled=false;btn.textContent="Research Now";delete btn.dataset.running;}';
+        echo '}';
+        // v5.4.0 — showInfo() paints a blue informational notice WITHOUT
+        // changing the main status text to "Failed.". Used for the
+        // "browser stopped waiting but the worker is still alive" case,
+        // which is NOT a failure.
+        echo 'function showInfo(msg){';
+        echo '  if(errBox){errBox.textContent=msg;errBox.style.display="block";errBox.style.background="#e7f1fb";errBox.style.borderColor="#aed6f1";errBox.style.color="#1a5276";}';
+        echo '  if(etaTxt)etaTxt.textContent="";';
+        echo '}';
+        // v5.4.0 — showStale() paints an orange/warning notice for the
+        // case where the worker is detected as stalled (no checkpoint
+        // advance). Distinct from both "failed" and "still running".
+        echo 'function showStale(msg){';
+        echo '  if(errBox){errBox.textContent=msg;errBox.style.display="block";errBox.style.background="#fff5e6";errBox.style.borderColor="#f0c37a";errBox.style.color="#7a4f00";}';
+        echo '  if(sTxt)sTxt.textContent="Stalled.";';
         echo '  if(etaTxt)etaTxt.textContent="";';
         echo '  setBar(0);';
         echo '  if(btn){btn.disabled=false;btn.textContent="Research Now";delete btn.dataset.running;}';
@@ -792,18 +815,45 @@ class ModelHelper {
         // STEP 2: poll until the worker picks it up and reaches a terminal state.
         echo '      auditBtn.textContent="Running full audit…";';
         echo '      if(sTxt)sTxt.textContent="Background job running — phase: queued";';
-        echo '      var pollAttempts=0;var maxPolls=180;var pt=setInterval(function(){';
-        echo '        pollAttempts++;if(pollAttempts>maxPolls){clearInterval(pt);clearInterval(barTimer);';
-        echo '          showError("Full Audit still running after "+(maxPolls*4)+"s. Refresh the page later — the worker will keep writing checkpoints.");return;}';
+        // v5.4.0 state machine:
+        //   - is_terminal=true  → reload immediately (success path)
+        //   - is_stale=true     → paint orange "stalled" notice, stop polling
+        //   - neither           → keep polling; if we cross the watchdog,
+        //                         show BLUE "still running in background"
+        //                         (never conflate long-running with failure)
+        echo '      var pollAttempts=0;';
+        echo '      var watchdogPolls=225;';     // 225 × 4s = 900s = 15 min of polling
+        echo '      var watchdogFired=false;';
+        echo '      var pt=setInterval(function(){';
+        echo '        pollAttempts++;';
         echo '        var p=new XMLHttpRequest();p.open("POST",AJAX,true);';
         echo '        p.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
         echo '        p.onreadystatechange=function(){if(p.readyState!==4)return;';
         echo '          try{var pd=JSON.parse(p.responseText);';
-        echo '            if(pd.success&&pd.data){';
-        echo '              if(sTxt&&pd.data.phase_label)sTxt.textContent="Phase: "+pd.data.phase_label;';
-        echo '              if(pd.data.is_terminal){clearInterval(pt);clearInterval(barTimer);silentReload();}';
+        echo '            if(!pd.success||!pd.data)return;';
+        echo '            var d2=pd.data;';
+        echo '            if(sTxt&&d2.phase_label&&!watchdogFired)sTxt.textContent="Phase: "+d2.phase_label;';
+        // Terminal — reload and let the page re-render with real state.
+        echo '            if(d2.is_terminal){clearInterval(pt);clearInterval(barTimer);';
+        echo '              if(d2.status==="error"){';
+        echo '                showError("Full Audit failed — see the metabox panel for details.");';
+        echo '              }else{silentReload();}';
+        echo '              return;';
         echo '            }';
-        echo '          }catch(e){}};';
+        // Stalled — server detected no checkpoint advance for > threshold.
+        echo '            if(d2.is_stale){clearInterval(pt);clearInterval(barTimer);';
+        echo '              showStale("Full Audit appears stalled — no checkpoint advanced for "+(d2.stale_seconds||0)+"s. The page will now reload so you can see the partial results.");';
+        echo '              setTimeout(function(){silentReload();},2500);';
+        echo '              return;';
+        echo '            }';
+        // Not terminal, not stale — either still healthy or past browser watchdog.
+        echo '            if(!watchdogFired&&pollAttempts>watchdogPolls){';
+        echo '              watchdogFired=true;';
+        echo '              showInfo("This audit is still running in the background. The page stopped live-watching after "+(watchdogPolls*4)+"s — you can close this tab and come back later; the worker keeps writing checkpoints.");';
+        echo '              if(sTxt)sTxt.textContent="Phase: "+(d2.phase_label||"(in progress)")+" — background continues";';
+        echo '            }';
+        echo '          }catch(e){}';
+        echo '        };';
         echo '        p.send("action=tmwseo_research_status_poll&post_id="+PID+"&nonce="+POLL_N);';
         echo '      },4000);';
         echo '    }catch(e){clearInterval(barTimer);showError("Server returned malformed response.");}';
@@ -2087,10 +2137,27 @@ class ModelHelper {
             'post_id' => $post_id,
         ] );
 
+        // v5.4.0 — If the enqueue failed because DiscoveryGovernor rate-limited
+        // the caller OR because a pending/running job for this post already
+        // exists, reuse the existing row instead of returning an error.
         if ( $job_id <= 0 ) {
-            wp_send_json_error( [
-                'message' => 'Could not enqueue Full Audit job — DiscoveryGovernor budget exhausted or DB write failed.',
-            ] );
+            $existing_id = self::find_in_flight_audit_job_id( $post_id );
+            if ( $existing_id > 0 ) {
+                $job_id = $existing_id;
+                Logs::info( 'model_research', '[TMW-AUDIT] reused existing in-flight audit job', [
+                    'post_id' => $post_id,
+                    'job_id'  => $job_id,
+                ] );
+            } else {
+                wp_send_json_error( [
+                    'message' => 'Could not enqueue Full Audit job — DiscoveryGovernor budget exhausted or DB write failed.',
+                ] );
+            }
+        } else {
+            // v5.4.0 — Even on a successful new enqueue, cancel any older
+            // pending rows for the same post so the worker cannot race the
+            // new job against a stale duplicate.
+            self::cancel_stale_audit_jobs( $post_id, $job_id );
         }
 
         // Mark immediately so the metabox can show a truthful "queued"
@@ -2099,13 +2166,28 @@ class ModelHelper {
         update_post_meta( $post_id, self::META_AUDIT_PHASE,  'queued' );
         update_post_meta( $post_id, self::META_AUDIT_JOB_ID, (string) $job_id );
 
-        // Kick the worker immediately rather than waiting up to 60s for
-        // the next cron tick. wp_schedule_single_event is debounced by
-        // WP — duplicate events with the same args are rejected, so this
-        // is safe to call on every enqueue.
+        // Write an initial bounds checkpoint so the staleness counter has
+        // something to tick against. Without this the poller's stale
+        // detection would never fire because 'updated_at' would be empty.
+        self::write_audit_bounds_checkpoint( $post_id, [
+            'phase'      => 'queued',
+            'enqueued_at'=> current_time( 'mysql' ),
+            'job_id'     => $job_id,
+        ] );
+
+        // Kick the worker IMMEDIATELY via two independent paths so at
+        // least one of them succeeds on low-traffic admin-only hosts:
+        //
+        //   (a) WP-Cron single-shot event — works when WP-Cron is
+        //       triggered by any upcoming request (including the next
+        //       poll from this same tab).
+        //   (b) Non-blocking loopback POST to admin-ajax.php — actually
+        //       forces a new PHP request right now. 0.01s timeout means
+        //       we return to the user immediately.
         if ( function_exists( 'wp_schedule_single_event' ) && class_exists( '\\TMWSEO\\Engine\\Cron' ) ) {
             wp_schedule_single_event( time() + 1, \TMWSEO\Engine\Cron::HOOK_JOB_WORKER_TICK );
         }
+        self::spawn_worker_loopback_kick();
 
         Logs::info( 'model_research', '[TMW-AUDIT] enqueued background full audit', [
             'post_id' => $post_id,
@@ -2189,18 +2271,325 @@ class ModelHelper {
             wp_send_json_error( [ 'status' => 'error' ], 403 );
         }
 
+        // v5.4.0 — Reconcile the job-queue row into META_STATUS before
+        // reading. Fixes the "job finished but META_STATUS still says
+        // running" limbo. Also computes stale-since-last-checkpoint so
+        // the UI can distinguish "healthy long run" from "dead worker".
+        self::reconcile_audit_job_state( $post_id );
+
         $status       = (string) get_post_meta( $post_id, self::META_STATUS, true );
         $audit_phase  = (string) get_post_meta( $post_id, self::META_AUDIT_PHASE, true );
         $audit_bounds = self::read_audit_bounds( $post_id );
 
+        // How long since the last checkpoint advanced? Bounds ['updated_at']
+        // is refreshed by every write_audit_bounds_checkpoint() call, so
+        // this is the authoritative "is the worker alive" signal.
+        $stale_seconds = self::audit_stale_since_seconds( $audit_bounds );
+
+        // Threshold: 300s with no checkpoint advance on a 'running' job
+        // means the worker is almost certainly dead. Full Audit's slowest
+        // phase (full-registry probe) takes <120s in the field — 300s
+        // buys a 2.5× margin before we declare it dead.
+        $stale_threshold = (int) apply_filters( 'tmwseo_audit_stale_threshold_seconds', 300 );
+        $is_running      = in_array( $status, [ 'running', 'queued' ], true );
+        $is_stale        = ( $is_running && $stale_seconds !== null && $stale_seconds > $stale_threshold );
+
+        // If stale, auto-mark as partial (prior data survived) or error.
+        // Writing here also means the NEXT poll sees a terminal state
+        // and the UI stops asking.
+        if ( $is_stale ) {
+            self::mark_audit_stalled( $post_id, $stale_seconds );
+            $status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+            $audit_phase = (string) get_post_meta( $post_id, self::META_AUDIT_PHASE, true );
+            $audit_bounds = self::read_audit_bounds( $post_id );
+        }
+
+        // The terminal set is AUTHORITATIVE. Anything else means the
+        // caller must keep polling (or accept an explicit stale flag).
+        $is_terminal = in_array( $status, [ 'researched', 'partial', 'error', 'not_researched' ], true );
+
         wp_send_json_success( [
-            'status'       => $status ?: 'not_researched',
-            'phase'        => $audit_phase,
-            'phase_label'  => self::audit_phase_label( $audit_phase ),
-            'bounds'       => $audit_bounds,
-            // Tell the JS poller it is safe to reload the page.
-            'is_terminal'  => in_array( $status, [ 'researched', 'partial', 'error', 'not_researched' ], true ),
+            'status'             => $status ?: 'not_researched',
+            'phase'              => $audit_phase,
+            'phase_label'        => self::audit_phase_label( $audit_phase ),
+            'bounds'             => $audit_bounds,
+            'is_terminal'        => $is_terminal,
+            // v5.4.0 fields — consumed by the metabox JS to distinguish
+            // "healthy still running" from "stalled / dead worker" and
+            // from "job finished successfully".
+            'is_stale'           => $is_stale,
+            'stale_seconds'      => $stale_seconds,
+            'stale_threshold'    => $stale_threshold,
         ] );
+    }
+
+    /**
+     * v5.4.0 — Reconcile the wp_tmwseo_jobs row for this post's most
+     * recent Full Audit job back into META_STATUS.
+     *
+     * Catches the case where the background worker crashed hard (fatal
+     * error, OOM) and JobWorker::process_next_job() marked the row
+     * 'failed' without ever reaching the inside of ModelHelper::
+     * run_full_audit_now() where META_STATUS would be updated.
+     *
+     * Idempotent: runs on every poll but only writes if there is a real
+     * mismatch.
+     *
+     * @internal
+     */
+    public static function reconcile_audit_job_state( int $post_id ): void {
+        $job_id = (int) get_post_meta( $post_id, self::META_AUDIT_JOB_ID, true );
+        if ( $job_id <= 0 ) { return; }
+
+        global $wpdb;
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) { return; }
+        $table = $wpdb->prefix . 'tmwseo_jobs';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $row = $wpdb->get_row( $wpdb->prepare( "SELECT status, error_message, finished_at FROM {$table} WHERE id = %d", $job_id ), ARRAY_A );
+        if ( ! is_array( $row ) ) { return; }
+
+        $job_status = (string) ( $row['status'] ?? '' );
+        $post_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+
+        // Only reconcile when the job is in a TERMINAL state but the
+        // post meta still shows it as in-flight.
+        if ( $job_status === 'failed' && in_array( $post_status, [ 'queued', 'running' ], true ) ) {
+            update_post_meta( $post_id, self::META_STATUS, 'error' );
+            update_post_meta( $post_id, self::META_AUDIT_PHASE, 'interrupted' );
+            self::write_audit_bounds_checkpoint( $post_id, [
+                'phase'       => 'interrupted',
+                'interrupted' => true,
+                'reason'      => 'worker_job_row_failed',
+                'error'       => substr( (string) ( $row['error_message'] ?? 'worker reported failure' ), 0, 240 ),
+            ] );
+            self::release_research_lock( $post_id );
+            Logs::warn( 'model_research', '[TMW-AUDIT] reconciled worker-failed job into error status', [
+                'post_id' => $post_id,
+                'job_id'  => $job_id,
+            ] );
+        } elseif ( $job_status === 'done' && in_array( $post_status, [ 'queued', 'running' ], true ) ) {
+            // Worker reached 'done' but never wrote terminal status to
+            // post meta — this should be rare (would require a crash
+            // between the last update_post_meta call inside
+            // run_full_audit_now and the job-row update). Best effort:
+            // if proposed data exists, trust it; otherwise mark error.
+            $proposed_raw = (string) get_post_meta( $post_id, self::META_PROPOSED, true );
+            $has_proposed = ( $proposed_raw !== '' && is_array( json_decode( $proposed_raw, true ) ) );
+            update_post_meta( $post_id, self::META_STATUS, $has_proposed ? 'researched' : 'error' );
+            update_post_meta( $post_id, self::META_AUDIT_PHASE, $has_proposed ? 'done' : 'interrupted' );
+            self::release_research_lock( $post_id );
+            Logs::info( 'model_research', '[TMW-AUDIT] reconciled worker-done job with missing status', [
+                'post_id'      => $post_id,
+                'job_id'       => $job_id,
+                'has_proposed' => $has_proposed,
+            ] );
+        }
+    }
+
+    /**
+     * v5.4.0 — Seconds since the bounds blob was last updated, or null
+     * if we cannot tell. Used for stale-worker detection.
+     *
+     * @internal
+     */
+    public static function audit_stale_since_seconds( array $bounds ): ?int {
+        $updated = (string) ( $bounds['updated_at'] ?? '' );
+        if ( $updated === '' ) { return null; }
+        $ts = strtotime( $updated );
+        if ( $ts === false ) { return null; }
+
+        // Prefer current_time('timestamp') when WP provides a real
+        // integer. Some stubs / edge cases return a mysql string when
+        // asked for 'timestamp' — guard with strtotime() and fall back
+        // to time() so we never return nonsense negative values.
+        $now = 0;
+        if ( function_exists( 'current_time' ) ) {
+            $candidate = current_time( 'timestamp' );
+            if ( is_int( $candidate ) && $candidate > 0 ) {
+                $now = $candidate;
+            } elseif ( is_string( $candidate ) && $candidate !== '' ) {
+                $parsed = strtotime( $candidate );
+                if ( $parsed !== false ) { $now = $parsed; }
+            }
+            if ( $now === 0 ) {
+                $mysql_now = (string) current_time( 'mysql' );
+                $parsed    = strtotime( $mysql_now );
+                if ( $parsed !== false ) { $now = $parsed; }
+            }
+        }
+        if ( $now === 0 ) { $now = time(); }
+
+        $diff = $now - $ts;
+        return $diff < 0 ? 0 : $diff;
+    }
+
+    /**
+     * v5.4.0 — Mark a silently-stalled audit as partial or error,
+     * preserving prior good proposed data when it exists.
+     *
+     * Called from the poll handler when the bounds blob has not been
+     * updated for longer than the stale threshold while status is
+     * still 'running' or 'queued' — i.e. the worker is almost
+     * certainly dead but never wrote a terminal state.
+     *
+     * @internal
+     */
+    public static function mark_audit_stalled( int $post_id, int $stale_seconds ): void {
+        $proposed_raw = (string) get_post_meta( $post_id, self::META_PROPOSED, true );
+        $has_prior    = ( $proposed_raw !== '' && is_array( json_decode( $proposed_raw, true ) ) );
+
+        $final_status = $has_prior ? 'partial' : 'error';
+        update_post_meta( $post_id, self::META_STATUS, $final_status );
+        update_post_meta( $post_id, self::META_AUDIT_PHASE, 'interrupted' );
+        self::write_audit_bounds_checkpoint( $post_id, [
+            'phase'         => 'interrupted',
+            'interrupted'   => true,
+            'reason'        => 'worker_stalled',
+            'stale_seconds' => $stale_seconds,
+        ] );
+        self::release_research_lock( $post_id );
+
+        Logs::warn( 'model_research', '[TMW-AUDIT] auto-marked stalled audit', [
+            'post_id'       => $post_id,
+            'stale_seconds' => $stale_seconds,
+            'final_status'  => $final_status,
+        ] );
+    }
+
+    /**
+     * v5.4.0 — Return the id of any pending/running model_full_audit
+     * job row for this post, or 0 if none exists.
+     *
+     * @internal
+     */
+    public static function find_in_flight_audit_job_id( int $post_id ): int {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) { return 0; }
+        $table = $wpdb->prefix . 'tmwseo_jobs';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $rows = (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, payload_json FROM {$table} WHERE job_type = %s AND status IN ('pending','running') ORDER BY id DESC LIMIT 50",
+            'model_full_audit'
+        ), ARRAY_A );
+
+        foreach ( $rows as $row ) {
+            $payload = json_decode( (string) ( $row['payload_json'] ?? '' ), true );
+            if ( is_array( $payload ) && (int) ( $payload['post_id'] ?? 0 ) === $post_id ) {
+                return (int) ( $row['id'] ?? 0 );
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * v5.4.0 — Mark older pending audit-job rows for this post as
+     * cancelled so the new job does not race them.
+     *
+     * @internal
+     */
+    public static function cancel_stale_audit_jobs( int $post_id, int $keep_job_id ): void {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) { return; }
+        $table = $wpdb->prefix . 'tmwseo_jobs';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $rows = (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, payload_json FROM {$table} WHERE job_type = %s AND status = 'pending' AND id != %d",
+            'model_full_audit',
+            $keep_job_id
+        ), ARRAY_A );
+
+        foreach ( $rows as $row ) {
+            $payload = json_decode( (string) ( $row['payload_json'] ?? '' ), true );
+            if ( ! is_array( $payload ) || (int) ( $payload['post_id'] ?? 0 ) !== $post_id ) {
+                continue;
+            }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            $wpdb->update(
+                $table,
+                [
+                    'status'        => 'failed',
+                    'finished_at'   => current_time( 'mysql' ),
+                    'error_message' => 'Superseded by newer Full Audit enqueue',
+                ],
+                [ 'id' => (int) ( $row['id'] ?? 0 ) ],
+                [ '%s', '%s', '%s' ],
+                [ '%d' ]
+            );
+        }
+    }
+
+    /**
+     * v5.4.0 — Fire a non-blocking loopback request that hits a
+     * no-priv ajax endpoint dedicated to running the next tmwseo_jobs
+     * job once.
+     *
+     * Rationale: on admin-only sites WP-Cron only runs when a real
+     * admin page view triggers it. If the operator is sitting on one
+     * tab polling, no new admin requests fire — the scheduled worker
+     * tick never runs. A 0.01s non-blocking POST is fire-and-forget
+     * and spawns a fresh PHP request that calls JobWorker::process_next_job
+     * independently of cron.
+     *
+     * @internal
+     */
+    public static function spawn_worker_loopback_kick(): void {
+        if ( ! function_exists( 'wp_remote_post' ) || ! function_exists( 'admin_url' ) ) {
+            return;
+        }
+        $nonce = wp_create_nonce( 'tmwseo_worker_kick' );
+        $url   = admin_url( 'admin-ajax.php?action=tmwseo_worker_kick&tmwseo_wk_nonce=' . $nonce );
+        // Fire-and-forget: 0.01s timeout is well below any sensible
+        // network RTT so wp_remote_post returns immediately while the
+        // upstream PHP request keeps running independently.
+        wp_remote_post( $url, [
+            'timeout'   => 0.01,
+            'blocking'  => false,
+            'sslverify' => false,
+            'cookies'   => [],
+        ] );
+    }
+
+    /**
+     * v5.4.0 — no-priv ajax handler: processes the next tmwseo_jobs
+     * row. Intentionally no-priv so the non-blocking loopback POST
+     * does not need a logged-in session; replay-safe because the
+     * nonce is verified against the 'tmwseo_worker_kick' action.
+     *
+     * Runs at most one job per request (same semantics as the cron
+     * tick) so there is no risk of runaway execution.
+     *
+     * @internal
+     */
+    public static function ajax_worker_kick(): void {
+        $nonce = sanitize_text_field( (string) ( $_REQUEST['tmwseo_wk_nonce'] ?? '' ) );
+        if ( ! wp_verify_nonce( $nonce, 'tmwseo_worker_kick' ) ) {
+            wp_die( '', '', [ 'response' => 403 ] );
+        }
+
+        @ignore_user_abort( true );
+        @set_time_limit( 300 );
+
+        // Detach from the HTTP connection so the caller never waits.
+        if ( function_exists( 'fastcgi_finish_request' ) ) {
+            fastcgi_finish_request();
+        } else {
+            header( 'Content-Length: 0' );
+            header( 'Connection: close' );
+            if ( ob_get_level() ) { ob_end_flush(); }
+            flush();
+        }
+
+        if ( ! class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
+            $f = TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php';
+            if ( file_exists( $f ) ) { require_once $f; }
+        }
+        if ( class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
+            \TMWSEO\Engine\JobWorker::process_next_job();
+        }
+        exit;
     }
 
     /**

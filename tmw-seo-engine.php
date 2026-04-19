@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.3.0 — Full-Audit Durability & Truthfulness: (1) Per-phase checkpointing — Full Audit now persists progress after each of its four phases (SERP pass-1, SERP pass-2, full-registry probe, outbound harvest) so a killed request never silently loses results. (2) New status state machine — adds 'running' and 'partial' so the metabox no longer mislabels an interrupted run as "Researched". (3) Durable background-job execution via the existing tmwseo_jobs queue (new model_full_audit job type) — Full Audit survives Cloudflare/proxy idle timeouts, browser disconnects, and PHP request limits. (4) Recall fix — SERP-surfaced link-hub URLs (Beacons, Linktree, AllMyLinks, solo.to, Carrd) are now seeded into the outbound harvester even when the probe phase missed them, closing the v5.2.0 Beacons-miss case. (5) Truthful UI — phase-aware status panel + audit-bounds disclosure (queries built/succeeded, probes attempted/accepted, platforms checked/confirmed, interruption reason). (6) Stops the eager delete_post_meta(META_PROPOSED) at start of audit — the previous good blob now survives an interrupted retry. Ships new tests in FullAuditDurabilityTest.php. Zero regressions to existing safety/trust guarantees.
- * Version: 5.3.0
+ * Description: Intelligence Core v5.4.0 — Full-Audit Stuck-Running Fix: (1) Eliminates the contradictory "Failed." / "worker still running" UI — the JS now distinguishes three post-watchdog states (success reload, stalled orange, still-running blue informational) instead of collapsing everything into a red "Failed" box. (2) Server-side stale-worker detection — the status poller computes seconds since the last bounds checkpoint and auto-marks the audit as partial/error if a 'running' job has made no progress for 300s. (3) Job-row reconciliation — the poller reconciles tmwseo_jobs terminal states (failed / done) back to META_STATUS so a dead worker can never leave the post in running limbo. (4) Dedupe — duplicate enqueues reuse the existing in-flight job row; older pending rows for the same post are cancelled. (5) Non-blocking loopback worker kick (wp_ajax_tmwseo_worker_kick, nonce-gated nopriv) so background execution works on admin-only hosts where WP-Cron does not fire without page views. (6) Front-end watchdog is now an informational notice, not a failure — "the page stopped live-watching" replaces the false "Failed" state. Ships 8 new tests in FullAuditStuckRunningTest.php. Zero regressions to v5.3.0 durability / recall guarantees.
+ * Version: 5.4.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.3.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.4.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 
