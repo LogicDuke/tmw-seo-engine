@@ -268,6 +268,20 @@ class JobWorker {
      * idle timeouts, and PHP request limits. The handler delegates to
      * the same ModelHelper method called by the synchronous AJAX path,
      * so checkpoint/persistence behavior is identical.
+     *
+     * v5.5.0 — Hardened against fatal errors before the first phase
+     * checkpoint:
+     *   • Writes a "worker_started" bounds checkpoint BEFORE calling
+     *     run_full_audit_now, so a fatal inside that method cannot
+     *     leave the bounds blob stuck at the "queued" snapshot with
+     *     all zeros. Stale-detection still works; operators see
+     *     "worker_started" → "interrupted" instead of "worker_stalled".
+     *   • Registers a register_shutdown_function catcher that writes
+     *     the PHP fatal error (type, message, file, line) into the
+     *     bounds blob and marks the post as error/partial. Without
+     *     this, a segfault / OOM / E_ERROR silently leaves META_STATUS
+     *     as 'running' forever (until 300s stale-detection kicks in
+     *     and collapses it to the uninformative 'worker_stalled').
      */
     public static function run_model_full_audit(array $payload): void {
         $post_id = (int) ($payload['post_id'] ?? 0);
@@ -280,12 +294,55 @@ class JobWorker {
             if (file_exists($f)) { require_once $f; }
         }
 
-        if (class_exists('\\TMWSEO\\Engine\\Admin\\ModelHelper')) {
-            \TMWSEO\Engine\Admin\ModelHelper::run_full_audit_now($post_id);
-            return;
+        if (!class_exists('\\TMWSEO\\Engine\\Admin\\ModelHelper')) {
+            throw new \RuntimeException('model_full_audit handler missing ModelHelper class.');
         }
 
-        throw new \RuntimeException('model_full_audit handler missing ModelHelper class.');
+        // v5.5.0 — First checkpoint: write BEFORE we call into the
+        // audit pipeline so a fatal inside run_full_audit_now cannot
+        // leave bounds stuck at "queued/0/0/0/0".
+        \TMWSEO\Engine\Admin\ModelHelper::write_audit_bounds_checkpoint($post_id, [
+            'phase'              => 'worker_started',
+            'worker_started_at'  => function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s'),
+            'worker_pid'         => function_exists('getmypid') ? (int) getmypid() : 0,
+            'execution_mode'     => 'background_job',
+        ]);
+
+        // v5.5.0 — Register a fatal-error catcher. If PHP crashes with
+        // an E_ERROR / E_PARSE / E_CORE_ERROR / E_COMPILE_ERROR, the
+        // catch(\Throwable) inside run_full_audit_now and the outer
+        // JobWorker catch both miss it. error_get_last() inside a
+        // shutdown callback is the only way to surface the real cause.
+        $fatal_catcher_armed = true;
+        register_shutdown_function(static function () use ($post_id, &$fatal_catcher_armed): void {
+            if (!$fatal_catcher_armed) { return; }
+            $err = error_get_last();
+            if (!is_array($err)) { return; }
+            $type = (int) ($err['type'] ?? 0);
+            // Only treat genuine fatals as "the reason".
+            $fatal_mask = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
+            if (($type & $fatal_mask) === 0) { return; }
+
+            if (!class_exists('\\TMWSEO\\Engine\\Admin\\ModelHelper')) { return; }
+
+            \TMWSEO\Engine\Admin\ModelHelper::mark_audit_fatal($post_id, [
+                'reason'  => 'php_fatal',
+                'type'    => $type,
+                'message' => substr((string) ($err['message'] ?? ''), 0, 240),
+                'file'    => basename((string) ($err['file'] ?? '')),
+                'line'    => (int) ($err['line'] ?? 0),
+            ]);
+        });
+
+        try {
+            \TMWSEO\Engine\Admin\ModelHelper::run_full_audit_now($post_id);
+        } finally {
+            // Normal completion (success OR caught Throwable) — disarm
+            // the shutdown catcher so it doesn't fire spuriously on a
+            // clean-exit request that happens to end with a non-fatal
+            // error_get_last() entry left from earlier in the request.
+            $fatal_catcher_armed = false;
+        }
     }
 
     private static function sanitize_payload(array $payload): array {

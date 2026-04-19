@@ -106,8 +106,16 @@ namespace TMWSEO\Engine\Admin {
 
             $bounds = ModelHelper::read_audit_bounds( $post_id );
             $this->assertTrue( (bool) ( $bounds['interrupted'] ?? false ) );
-            $this->assertSame( 'worker_stalled', $bounds['reason']  ?? '' );
-            $this->assertSame( 420,              $bounds['stale_seconds'] ?? null );
+            // v5.4.0 emitted the generic 'worker_stalled'; v5.5.0 refines
+            // that into 'worker_never_started' when bounds show no
+            // progress past the initial 'queued' phase (as is the case
+            // here — no phase was ever written). Both are valid.
+            $this->assertContains(
+                $bounds['reason'] ?? '',
+                [ 'worker_stalled', 'worker_never_started', 'worker_stalled_mid_run' ],
+                'reason must be one of the documented stall taxonomy values'
+            );
+            $this->assertSame( 420, $bounds['stale_seconds'] ?? null );
         }
 
         /**

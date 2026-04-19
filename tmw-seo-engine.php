@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.4.0 — Full-Audit Stuck-Running Fix: (1) Eliminates the contradictory "Failed." / "worker still running" UI — the JS now distinguishes three post-watchdog states (success reload, stalled orange, still-running blue informational) instead of collapsing everything into a red "Failed" box. (2) Server-side stale-worker detection — the status poller computes seconds since the last bounds checkpoint and auto-marks the audit as partial/error if a 'running' job has made no progress for 300s. (3) Job-row reconciliation — the poller reconciles tmwseo_jobs terminal states (failed / done) back to META_STATUS so a dead worker can never leave the post in running limbo. (4) Dedupe — duplicate enqueues reuse the existing in-flight job row; older pending rows for the same post are cancelled. (5) Non-blocking loopback worker kick (wp_ajax_tmwseo_worker_kick, nonce-gated nopriv) so background execution works on admin-only hosts where WP-Cron does not fire without page views. (6) Front-end watchdog is now an informational notice, not a failure — "the page stopped live-watching" replaces the false "Failed" state. Ships 8 new tests in FullAuditStuckRunningTest.php. Zero regressions to v5.3.0 durability / recall guarantees.
- * Version: 5.4.0
+ * Description: Intelligence Core v5.5.0 — Full-Audit Worker-Startup Diagnosability: (1) Loopback reachability probe — before enqueuing the background job, the plugin sends a 2s blocking GET to admin-ajax.php to verify PHP actually runs through the loopback. Probe result cached for 5 minutes. (2) Sync fallback — if the probe shows the loopback is blocked (WAF / mod_security / Cloudflare), the audit runs synchronously inside the enqueue request with the full v5.3.0 checkpoint machinery, so operators on restrictive hosts get real bounds instead of an all-zero "worker_stalled" state. (3) First-checkpoint safety — JobWorker writes a "worker_started" bounds checkpoint BEFORE calling into run_full_audit_now, so a fatal inside the pipeline cannot leave bounds stuck at queued/0. (4) PHP fatal-error catcher — register_shutdown_function in the job handler catches genuine fatals (E_ERROR, OOM, segfault) and writes type/message/file/line into the bounds blob. (5) Rich stall diagnostics — mark_audit_stalled differentiates worker_never_started from worker_stalled_mid_run and copies wp_tmwseo_jobs.error_message into the bounds. (6) UI shows loopback probe result, worker error_message, PHP fatal, last known phase, and a tailored remediation hint instead of a bare "worker_stalled". Ships 9 new tests. Zero regressions to v5.4.0 guarantees.
+ * Version: 5.5.0
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.4.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.5.0');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 
