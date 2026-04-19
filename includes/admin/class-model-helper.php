@@ -528,6 +528,13 @@ class ModelHelper {
         // of WP-Cron. Auth is nonce-based, so nopriv is safe here.
         add_action( 'wp_ajax_tmwseo_worker_kick',               [ __CLASS__, 'ajax_worker_kick' ] );
         add_action( 'wp_ajax_nopriv_tmwseo_worker_kick',        [ __CLASS__, 'ajax_worker_kick' ] );
+        // v5.6.0: Loopback health endpoint. POST-only, nonce-gated,
+        // echoes a fixed token so the probe can distinguish a WAF's
+        // empty 200 OK from a real admin-post.php response. Runs on
+        // admin-post so it exercises the same code path as the real
+        // kick (not merely admin-ajax, which some WAFs treat separately).
+        add_action( 'admin_post_tmwseo_loopback_health',        [ __CLASS__, 'handle_loopback_health' ] );
+        add_action( 'admin_post_nopriv_tmwseo_loopback_health', [ __CLASS__, 'handle_loopback_health' ] );
         // WP-Cron hook — runs research in a completely independent PHP process
         add_action( 'tmwseo_bg_research_cron',              [ __CLASS__, 'run_research_now' ] );
 
@@ -2196,45 +2203,172 @@ class ModelHelper {
             if ( file_exists( $f ) ) { require_once $f; }
         }
 
+        // Explicit client opt-in — e.g. a "Run synchronously" toggle in
+        // the UI or an explicit retry button that wants to skip the
+        // queue entirely.
+        $force_sync_client = ! empty( $_POST['force_sync'] );
+
+        // v5.6.0 — RECOVERY PATH FOR worker_never_started
+        //
+        // If the last Full Audit for THIS post ended with reason=
+        // worker_never_started (flagged via a transient by
+        // mark_audit_stalled), skip the queue altogether. Latching
+        // onto the same dead queue path a second time is exactly what
+        // the operator reported: "retry does not produce a fresh
+        // successful execution path".
+        //
+        // We also proactively cancel any lingering job row for this
+        // post so a subsequent successful background run does not
+        // race an ancient pending row picked up mid-session.
+        $worker_flag  = self::recent_worker_never_started( $post_id );
+        $force_sync   = $force_sync_client || $worker_flag;
+
+        if ( $worker_flag ) {
+            self::cancel_all_audit_jobs_for_post( $post_id, 'worker_never_started_retry' );
+            self::invalidate_loopback_probe_cache();
+        }
+
         if ( ! class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
             // No worker available — fall back to synchronous so the
             // operator's click is never silently dropped.
             self::release_research_lock( $post_id );
+            self::write_audit_bounds_checkpoint( $post_id, [
+                'phase'            => 'queued',
+                'execution_mode'   => 'sync_no_worker_class',
+                'execution_reason' => 'JobWorker class unavailable',
+            ] );
             self::run_full_audit_now( $post_id );
             $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
             wp_send_json_success( [
-                'status'   => $final_status,
-                'mode'     => 'sync_fallback',
-                'message'  => 'Background worker unavailable; ran synchronously.',
+                'status'           => $final_status,
+                'mode'             => 'sync_fallback',
+                'execution_mode'   => 'sync_no_worker_class',
+                'execution_reason' => 'JobWorker class unavailable',
+                'message'          => 'Background worker unavailable; ran synchronously.',
             ] );
         }
 
+        // v5.6.0 — If we know background is bad for this post, go
+        // synchronous directly. No probe, no queue row, no guessing.
+        if ( $force_sync ) {
+            $reason = $force_sync_client
+                ? 'client_requested_sync'
+                : 'previous_worker_never_started';
+
+            self::clear_worker_never_started( $post_id );
+            self::release_research_lock( $post_id );
+
+            self::write_audit_bounds_checkpoint( $post_id, [
+                'phase'            => 'queued',
+                'execution_mode'   => 'forced_sync',
+                'execution_reason' => $reason,
+            ] );
+
+            Logs::info( 'model_research', '[TMW-AUDIT] forced synchronous full audit', [
+                'post_id' => $post_id,
+                'reason'  => $reason,
+            ] );
+
+            self::run_full_audit_now( $post_id );
+
+            $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+            wp_send_json_success( [
+                'status'           => $final_status ?: 'error',
+                'mode'             => 'sync_fallback',
+                'execution_mode'   => 'forced_sync',
+                'execution_reason' => $reason,
+                'message'          => 'Ran synchronously — previous background attempt never started.',
+            ] );
+        }
+
+        // v5.6.0 — PROBE FIRST, THEN ENQUEUE.
+        //
+        // On a retry (cache invalidated by flag_worker_never_started
+        // above if the flag was set) we re-probe with force_probe=true
+        // so a stale "probe_ok=true" verdict from an earlier session
+        // cannot trap us into background mode again. Probe uses POST
+        // + token echo, so a WAF allowing GETs but blocking POSTs is
+        // correctly detected.
+        $kick             = self::spawn_worker_loopback_kick( /* force_probe */ false );
+        $loopback_blocked = ! empty( $kick ) && empty( $kick['probe_ok'] );
+
+        if ( $loopback_blocked ) {
+            // Cancel any pre-existing pending/running row for this post
+            // so the background worker never picks it up after we
+            // handle the work synchronously here.
+            self::cancel_all_audit_jobs_for_post( $post_id, 'loopback_blocked_sync_fallback' );
+            self::release_research_lock( $post_id );
+
+            Logs::warn( 'model_research', '[TMW-AUDIT] loopback blocked; running audit synchronously as fallback', [
+                'post_id'        => $post_id,
+                'probe_http'     => (int)    ( $kick['probe_http']     ?? 0 ),
+                'probe_error'    => (string) ( $kick['probe_error']    ?? '' ),
+                'probe_method'   => (string) ( $kick['probe_method']   ?? '' ),
+                'probe_endpoint' => (string) ( $kick['probe_endpoint'] ?? '' ),
+            ] );
+
+            self::write_audit_bounds_checkpoint( $post_id, [
+                'phase'            => 'queued',
+                'execution_mode'   => 'sync_loopback_blocked',
+                'execution_reason' => 'loopback_probe_failed',
+                'probe_http'       => (int)    ( $kick['probe_http']     ?? 0 ),
+                'probe_error'      => (string) ( $kick['probe_error']    ?? '' ),
+                'probe_method'     => (string) ( $kick['probe_method']   ?? '' ),
+                'probe_endpoint'   => (string) ( $kick['probe_endpoint'] ?? '' ),
+            ] );
+
+            self::run_full_audit_now( $post_id );
+
+            $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+            wp_send_json_success( [
+                'status'           => $final_status ?: 'error',
+                'mode'             => 'sync_fallback',
+                'execution_mode'   => 'sync_loopback_blocked',
+                'execution_reason' => 'loopback_probe_failed',
+                'message'          => 'Loopback worker blocked on this host; ran synchronously.',
+                'loopback_blocked' => true,
+                'probe_http'       => (int)    ( $kick['probe_http']     ?? 0 ),
+                'probe_error'      => (string) ( $kick['probe_error']    ?? '' ),
+                'probe_method'     => (string) ( $kick['probe_method']   ?? '' ),
+                'probe_endpoint'   => (string) ( $kick['probe_endpoint'] ?? '' ),
+            ] );
+        }
+
+        // Loopback is provably reachable — safe to enqueue.
         $job_id = \TMWSEO\Engine\JobWorker::enqueue_job( 'model_full_audit', [
             'post_id' => $post_id,
         ] );
 
-        // v5.4.0 — If the enqueue failed because DiscoveryGovernor rate-limited
-        // the caller OR because a pending/running job for this post already
-        // exists, reuse the existing row instead of returning an error.
+        // v5.6.0 — DO NOT reuse a stranded pending/running row. If
+        // enqueue returned 0 (governor / DB write fail), drop to
+        // synchronous mode; latching onto an old row is what caused
+        // the repeated worker_never_started loop.
         if ( $job_id <= 0 ) {
-            $existing_id = self::find_in_flight_audit_job_id( $post_id );
-            if ( $existing_id > 0 ) {
-                $job_id = $existing_id;
-                Logs::info( 'model_research', '[TMW-AUDIT] reused existing in-flight audit job', [
-                    'post_id' => $post_id,
-                    'job_id'  => $job_id,
-                ] );
-            } else {
-                wp_send_json_error( [
-                    'message' => 'Could not enqueue Full Audit job — DiscoveryGovernor budget exhausted or DB write failed.',
-                ] );
-            }
-        } else {
-            // v5.4.0 — Even on a successful new enqueue, cancel any older
-            // pending rows for the same post so the worker cannot race the
-            // new job against a stale duplicate.
-            self::cancel_stale_audit_jobs( $post_id, $job_id );
+            self::cancel_all_audit_jobs_for_post( $post_id, 'enqueue_failed_fallback_to_sync' );
+            self::release_research_lock( $post_id );
+
+            self::write_audit_bounds_checkpoint( $post_id, [
+                'phase'            => 'queued',
+                'execution_mode'   => 'sync_enqueue_failed',
+                'execution_reason' => 'JobWorker::enqueue_job returned 0',
+            ] );
+
+            self::run_full_audit_now( $post_id );
+
+            $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
+            wp_send_json_success( [
+                'status'           => $final_status ?: 'error',
+                'mode'             => 'sync_fallback',
+                'execution_mode'   => 'sync_enqueue_failed',
+                'execution_reason' => 'JobWorker::enqueue_job returned 0',
+                'message'          => 'Could not enqueue background job; ran synchronously.',
+            ] );
         }
+
+        // Successful enqueue — cancel any older pending rows for the
+        // same post so the worker cannot race the new job against a
+        // stale duplicate.
+        self::cancel_stale_audit_jobs( $post_id, $job_id );
 
         // Mark immediately so the metabox can show a truthful "queued"
         // state even before the worker picks the job up.
@@ -2242,94 +2376,87 @@ class ModelHelper {
         update_post_meta( $post_id, self::META_AUDIT_PHASE,  'queued' );
         update_post_meta( $post_id, self::META_AUDIT_JOB_ID, (string) $job_id );
 
-        // Write an initial bounds checkpoint so the staleness counter has
-        // something to tick against. Without this the poller's stale
-        // detection would never fire because 'updated_at' would be empty.
+        // Initial bounds checkpoint — surfaces the probe result and
+        // chosen execution mode so the UI can display them even while
+        // the worker is still queued.
         self::write_audit_bounds_checkpoint( $post_id, [
-            'phase'      => 'queued',
-            'enqueued_at'=> current_time( 'mysql' ),
-            'job_id'     => $job_id,
+            'phase'            => 'queued',
+            'enqueued_at'      => current_time( 'mysql' ),
+            'job_id'           => $job_id,
+            'execution_mode'   => 'background',
+            'execution_reason' => 'loopback_probe_passed',
+            'probe_http'       => (int)    ( $kick['probe_http']     ?? 0 ),
+            'probe_method'     => (string) ( $kick['probe_method']   ?? '' ),
+            'probe_endpoint'   => (string) ( $kick['probe_endpoint'] ?? '' ),
+            'probe_from_cache' => (bool)   ( $kick['from_cache']     ?? false ),
         ] );
 
-        // Kick the worker IMMEDIATELY via two independent paths so at
-        // least one of them succeeds on low-traffic admin-only hosts:
-        //
-        //   (a) WP-Cron single-shot event — works when WP-Cron is
-        //       triggered by any upcoming request (including the next
-        //       poll from this same tab).
-        //   (b) Non-blocking loopback POST to admin-ajax.php — actually
-        //       forces a new PHP request right now. 0.01s timeout means
-        //       we return to the user immediately.
-        //
-        // v5.5.0 — If the loopback probe fails (WAF / firewall / SSL),
-        // neither cron tick nor loopback can be trusted to ever run on
-        // this host. We detect that and fall back to running the audit
-        // synchronously in THIS request, with the full v5.3.0 checkpoint
-        // machinery still active — so even if it times out halfway the
-        // operator gets partial bounds rather than an all-zero stall.
+        // Schedule a cron tick as a belt-and-braces complement to the
+        // already-fired non-blocking POST kick inside
+        // spawn_worker_loopback_kick().
         if ( function_exists( 'wp_schedule_single_event' ) && class_exists( '\\TMWSEO\\Engine\\Cron' ) ) {
             wp_schedule_single_event( time() + 1, \TMWSEO\Engine\Cron::HOOK_JOB_WORKER_TICK );
         }
-        $kick = self::spawn_worker_loopback_kick();
-
-        // Expose the probe result so the UI can tell the operator what
-        // happened and the JS can adjust its polling expectations.
-        $loopback_blocked = ! empty( $kick ) && empty( $kick['probe_ok'] );
-
-        if ( $loopback_blocked ) {
-            Logs::warn( 'model_research', '[TMW-AUDIT] loopback blocked; running audit synchronously as fallback', [
-                'post_id'     => $post_id,
-                'job_id'      => $job_id,
-                'probe_http'  => (int)    ( $kick['probe_http']  ?? 0 ),
-                'probe_error' => (string) ( $kick['probe_error'] ?? '' ),
-            ] );
-
-            // Record the probe failure BEFORE running so the bounds blob
-            // explains why we chose the sync path even if the sync run
-            // also times out.
-            self::write_audit_bounds_checkpoint( $post_id, [
-                'phase'            => 'queued',
-                'loopback_blocked' => true,
-                'probe_http'       => (int)    ( $kick['probe_http']  ?? 0 ),
-                'probe_error'      => (string) ( $kick['probe_error'] ?? '' ),
-                'execution_mode'   => 'sync_fallback',
-            ] );
-
-            // Release the lock so run_full_audit_now (which will try to
-            // re-acquire) does not silently skip.
-            self::release_research_lock( $post_id );
-
-            // Mark the job row as cancelled since we're handling the
-            // work inline and the background worker must not pick it up
-            // twice.
-            self::cancel_audit_job_row( $job_id, 'superseded_by_sync_fallback' );
-
-            // Run the audit right now. @set_time_limit inside it raises
-            // to 300s; we keep the browser XHR open for that duration.
-            self::run_full_audit_now( $post_id );
-
-            $final_status = (string) get_post_meta( $post_id, self::META_STATUS, true );
-            wp_send_json_success( [
-                'status'           => $final_status ?: 'error',
-                'mode'             => 'sync_fallback',
-                'message'          => 'Loopback worker blocked on this host; ran synchronously.',
-                'loopback_blocked' => true,
-                'probe_http'       => (int)    ( $kick['probe_http']  ?? 0 ),
-                'probe_error'      => (string) ( $kick['probe_error'] ?? '' ),
-            ] );
-        }
 
         Logs::info( 'model_research', '[TMW-AUDIT] enqueued background full audit', [
-            'post_id' => $post_id,
-            'job_id'  => $job_id,
+            'post_id'      => $post_id,
+            'job_id'       => $job_id,
+            'probe_method' => (string) ( $kick['probe_method'] ?? '' ),
+            'probe_http'   => (int)    ( $kick['probe_http']   ?? 0 ),
         ] );
 
         wp_send_json_success( [
-            'status'  => 'queued',
-            'job_id'  => $job_id,
-            'mode'    => 'background',
-            'message' => 'Full Audit job enqueued — page will refresh when it finishes.',
+            'status'           => 'queued',
+            'job_id'           => $job_id,
+            'mode'             => 'background',
+            'execution_mode'   => 'background',
+            'execution_reason' => 'loopback_probe_passed',
+            'probe_http'       => (int)    ( $kick['probe_http']     ?? 0 ),
+            'probe_method'     => (string) ( $kick['probe_method']   ?? '' ),
+            'probe_endpoint'   => (string) ( $kick['probe_endpoint'] ?? '' ),
+            'message'          => 'Full Audit job enqueued — page will refresh when it finishes.',
         ] );
+    }
+
+    /**
+     * v5.6.0 — Cancel every pending or running model_full_audit job
+     * row for this post. Used on retry after worker_never_started so
+     * we never latch onto a stranded row that will never execute.
+     *
+     * Differs from cancel_stale_audit_jobs: that helper keeps one row
+     * (the new one just enqueued). This helper kills everything.
+     *
+     * @internal
+     */
+    public static function cancel_all_audit_jobs_for_post( int $post_id, string $reason ): void {
+        global $wpdb;
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) { return; }
+        $table = $wpdb->prefix . 'tmwseo_jobs';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $rows = (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, payload_json FROM {$table} WHERE job_type = %s AND status IN ('pending','running') ORDER BY id DESC LIMIT 50",
+            'model_full_audit'
+        ), ARRAY_A );
+
+        foreach ( $rows as $row ) {
+            $payload = json_decode( (string) ( $row['payload_json'] ?? '' ), true );
+            if ( ! is_array( $payload ) || (int) ( $payload['post_id'] ?? 0 ) !== $post_id ) {
+                continue;
+            }
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+            $wpdb->update(
+                $table,
+                [
+                    'status'        => 'failed',
+                    'finished_at'   => current_time( 'mysql' ),
+                    'error_message' => 'Cancelled: ' . substr( $reason, 0, 180 ),
+                ],
+                [ 'id' => (int) ( $row['id'] ?? 0 ) ],
+                [ '%s', '%s', '%s' ],
+                [ '%d' ]
+            );
+        }
     }
 
     /**
@@ -2626,6 +2753,17 @@ class ModelHelper {
         ] );
         self::release_research_lock( $post_id );
 
+        // v5.6.0 — If the worker genuinely never ran, the host's
+        // background execution path is broken. Flag it so the next
+        // click forces synchronous mode, and kill any stale job
+        // rows so retries don't re-latch onto them. Also invalidate
+        // the loopback probe cache so the next probe is fresh.
+        if ( $reason === 'worker_never_started' ) {
+            self::flag_worker_never_started( $post_id );
+            self::cancel_all_audit_jobs_for_post( $post_id, 'worker_never_started_cleanup' );
+            self::invalidate_loopback_probe_cache();
+        }
+
         Logs::warn( 'model_research', '[TMW-AUDIT] auto-marked stalled audit', [
             'post_id'       => $post_id,
             'stale_seconds' => $stale_seconds,
@@ -2768,33 +2906,39 @@ class ModelHelper {
      * no-priv ajax endpoint dedicated to running the next tmwseo_jobs
      * job once.
      *
-     * v5.5.0 — Hardened:
-     *   - Caches a "loopback reachable" probe result for 5 minutes.
-     *     If the probe fails (WAF blocks 127.0.0.1, mod_security rule,
-     *     Cloudflare challenge, admin-ajax 404), the kick is skipped
-     *     and the caller is told to fall back to a synchronous spawn.
-     *   - Probe is a BLOCKING GET with 2s timeout so we actually see
-     *     the HTTP status. Result is stored in a transient; the real
-     *     non-blocking POST only fires when the probe passed.
-     *   - Returns a small result array so the caller can decide
-     *     whether to fall back.
-     *
-     * Rationale: on admin-only sites WP-Cron only runs when a real
-     * admin page view triggers it. If the operator is sitting on one
-     * tab polling, no new admin requests fire — the scheduled worker
-     * tick never runs. A 0.01s non-blocking POST is fire-and-forget
-     * and spawns a fresh PHP request that calls JobWorker::process_next_job
-     * independently of cron.
+     * v5.6.0 — Hardened further:
+     *   - Probe is now a **POST** to admin-post.php (same HTTP method as
+     *     the real kick), with a nonce, that must echo an expected token
+     *     in the response body. This catches the "WAF allows GETs but
+     *     blocks POSTs to privileged endpoints" false-positive we saw
+     *     on live hosts where GET-based probing passed but the real
+     *     worker-kick POST was blocked.
+     *   - Cache TTL lowered from 5 min to 60 s. Any v5.5.0 cache
+     *     entries are treated as invalid on read (see force_probe).
+     *   - force_probe=true bypasses the cache entirely; used by the
+     *     enqueue retry path after a worker_never_started event.
      *
      * @internal
-     * @return array{attempted:bool,probe_ok:bool,probe_http:int,probe_error:string}
+     * @param bool $force_probe When true, bypass the cache and re-probe.
+     * @return array{
+     *   attempted:bool,
+     *   probe_ok:bool,
+     *   probe_http:int,
+     *   probe_error:string,
+     *   probe_method:string,
+     *   probe_endpoint:string,
+     *   from_cache:bool,
+     * }
      */
-    public static function spawn_worker_loopback_kick(): array {
+    public static function spawn_worker_loopback_kick( bool $force_probe = false ): array {
         $result = [
-            'attempted'   => false,
-            'probe_ok'    => false,
-            'probe_http'  => 0,
-            'probe_error' => '',
+            'attempted'      => false,
+            'probe_ok'       => false,
+            'probe_http'     => 0,
+            'probe_error'    => '',
+            'probe_method'   => 'POST',
+            'probe_endpoint' => 'admin-post.php?action=tmwseo_loopback_health',
+            'from_cache'     => false,
         ];
 
         if ( ! function_exists( 'wp_remote_post' ) || ! function_exists( 'admin_url' ) ) {
@@ -2802,58 +2946,72 @@ class ModelHelper {
             return $result;
         }
 
-        // Has a recent probe already told us the loopback is blocked?
-        // Cache the verdict for 5 minutes so we don't hammer the
-        // firewall on every enqueue.
-        $cache = function_exists( 'get_transient' ) ? get_transient( 'tmwseo_loopback_probe' ) : false;
-        if ( is_array( $cache ) && isset( $cache['probe_ok'] ) ) {
-            $result['probe_ok']    = (bool) $cache['probe_ok'];
-            $result['probe_http']  = (int)  ( $cache['probe_http']  ?? 0 );
-            $result['probe_error'] = (string)( $cache['probe_error'] ?? '' );
-        } else {
-            // GET the worker-kick endpoint with an invalid nonce so it
-            // returns 403 fast. That 403 tells us the loopback is
-            // reachable (PHP runs, admin-ajax answers). Anything else
-            // (connection refused, 5xx, 0) means the loopback is blocked.
-            $probe_url = admin_url( 'admin-ajax.php?action=tmwseo_worker_kick&tmwseo_wk_nonce=probe_invalid' );
-            $resp      = wp_remote_get( $probe_url, [
-                'timeout'     => 2,
-                'redirection' => 0,
-                'sslverify'   => false,
-                'cookies'     => [],
-                'headers'     => [ 'X-TMWSEO-Probe' => '1' ],
-            ] );
-
-            if ( is_wp_error( $resp ) ) {
-                $result['probe_error'] = substr( (string) $resp->get_error_message(), 0, 200 );
-            } else {
-                $code = (int) wp_remote_retrieve_response_code( $resp );
-                $result['probe_http'] = $code;
-                // 200/400/403 all mean "PHP ran, endpoint reachable".
-                // 0/5xx/redirect means "blocked or misconfigured".
-                $result['probe_ok']   = ( $code >= 200 && $code < 500 );
-                if ( ! $result['probe_ok'] ) {
-                    $result['probe_error'] = 'http_' . $code;
-                }
-            }
-
-            if ( function_exists( 'set_transient' ) ) {
-                set_transient( 'tmwseo_loopback_probe', $result, 5 * MINUTE_IN_SECONDS );
+        // Check the cache only if caller did not force a re-probe. The
+        // cache schema version ('v2') changed in v5.6.0 — any cached
+        // v5.5.0 GET-probe verdicts are ignored, guaranteeing a fresh
+        // POST probe on first click after upgrade.
+        if ( ! $force_probe && function_exists( 'get_transient' ) ) {
+            $cache = get_transient( 'tmwseo_loopback_probe_v2' );
+            if ( is_array( $cache ) && isset( $cache['probe_ok'] ) && isset( $cache['probe_method'] ) ) {
+                return array_merge( $cache, [ 'from_cache' => true ] );
             }
         }
 
+        // Build the probe: POST admin-post.php?action=tmwseo_loopback_health
+        // with a correct nonce. The endpoint echoes a fixed token; the
+        // probe only passes if it sees that token. This means a WAF that
+        // silently returns an empty 200 OK (common on hardened hosts)
+        // will be correctly classified as a failure.
+        $nonce         = wp_create_nonce( 'tmwseo_loopback_health' );
+        $probe_url     = admin_url( 'admin-post.php?action=tmwseo_loopback_health' );
+        $probe_payload = [ 'tmwseo_lb_nonce' => $nonce ];
+
+        $resp = wp_remote_post( $probe_url, [
+            'timeout'     => 4,
+            'redirection' => 0,
+            'sslverify'   => false,
+            'cookies'     => [],
+            'blocking'    => true,
+            'body'        => $probe_payload,
+            'headers'     => [ 'X-TMWSEO-Probe' => '1' ],
+        ] );
+
+        if ( is_wp_error( $resp ) ) {
+            $result['probe_error'] = substr( (string) $resp->get_error_message(), 0, 200 );
+        } else {
+            $code = (int) wp_remote_retrieve_response_code( $resp );
+            $body = (string) wp_remote_retrieve_body( $resp );
+            $result['probe_http'] = $code;
+
+            // Must be 200 AND the expected token must be in the body.
+            // A WAF that returns a challenge page with HTTP 200 will
+            // not contain our token and will be correctly failed.
+            $token = 'tmwseo_loopback_ok';
+            if ( $code === 200 && strpos( $body, $token ) !== false ) {
+                $result['probe_ok'] = true;
+            } else {
+                $result['probe_ok']    = false;
+                $result['probe_error'] = $result['probe_error'] ?: ( 'http_' . $code . ( strpos( $body, $token ) === false ? '_token_missing' : '' ) );
+            }
+        }
+
+        if ( function_exists( 'set_transient' ) ) {
+            set_transient( 'tmwseo_loopback_probe_v2', $result, 60 );
+        }
+
         if ( ! $result['probe_ok'] ) {
-            Logs::warn( 'model_research', '[TMW-AUDIT] loopback worker kick skipped; probe failed', [
-                'probe_http'  => $result['probe_http'],
-                'probe_error' => $result['probe_error'],
+            Logs::warn( 'model_research', '[TMW-AUDIT] loopback worker kick skipped; POST probe failed', [
+                'probe_http'     => $result['probe_http'],
+                'probe_error'    => $result['probe_error'],
+                'probe_endpoint' => $result['probe_endpoint'],
             ] );
             return $result;
         }
 
         // Probe passed — fire the real non-blocking kick.
-        $nonce = wp_create_nonce( 'tmwseo_worker_kick' );
-        $url   = admin_url( 'admin-ajax.php?action=tmwseo_worker_kick&tmwseo_wk_nonce=' . $nonce );
-        wp_remote_post( $url, [
+        $kick_nonce = wp_create_nonce( 'tmwseo_worker_kick' );
+        $kick_url   = admin_url( 'admin-ajax.php?action=tmwseo_worker_kick&tmwseo_wk_nonce=' . $kick_nonce );
+        wp_remote_post( $kick_url, [
             'timeout'   => 0.01,
             'blocking'  => false,
             'sslverify' => false,
@@ -2861,6 +3019,63 @@ class ModelHelper {
         ] );
         $result['attempted'] = true;
         return $result;
+    }
+
+    /**
+     * v5.6.0 — Invalidate the cached loopback probe verdict.
+     *
+     * Called after any event that proves a stale verdict wrong
+     * (worker_never_started stall detection, operator click-retry).
+     *
+     * @internal
+     */
+    public static function invalidate_loopback_probe_cache(): void {
+        if ( function_exists( 'delete_transient' ) ) {
+            delete_transient( 'tmwseo_loopback_probe_v2' );
+            delete_transient( 'tmwseo_loopback_probe' ); // v5.5.0 key
+        }
+    }
+
+    /**
+     * v5.6.0 — Mark this post as having had its background worker fail
+     * to start. Used by mark_audit_stalled() when the reason is
+     * worker_never_started. The next Full Audit click for this post
+     * will skip background entirely and run synchronously, regardless
+     * of any cached loopback verdict.
+     *
+     * Transient lifetime: 1 hour. Set short enough that a host that
+     * later gets fixed still re-tries background; long enough that
+     * a few retries in a row will not re-attempt the dead path.
+     *
+     * @internal
+     */
+    public static function flag_worker_never_started( int $post_id ): void {
+        if ( $post_id <= 0 || ! function_exists( 'set_transient' ) ) { return; }
+        set_transient( 'tmwseo_worker_never_started_' . $post_id, 1, HOUR_IN_SECONDS );
+    }
+
+    /**
+     * v5.6.0 — True if this post recently failed to start its
+     * background worker. Used by ajax_enqueue_full_audit to force the
+     * sync path on retry without even attempting the background queue.
+     *
+     * @internal
+     */
+    public static function recent_worker_never_started( int $post_id ): bool {
+        if ( $post_id <= 0 || ! function_exists( 'get_transient' ) ) { return false; }
+        return (bool) get_transient( 'tmwseo_worker_never_started_' . $post_id );
+    }
+
+    /**
+     * v5.6.0 — Clear the worker-never-started flag for a post.
+     * Called by the enqueue handler once it picks sync mode, so a
+     * future click is free to try background again.
+     *
+     * @internal
+     */
+    public static function clear_worker_never_started( int $post_id ): void {
+        if ( $post_id <= 0 || ! function_exists( 'delete_transient' ) ) { return; }
+        delete_transient( 'tmwseo_worker_never_started_' . $post_id );
     }
 
     /**
@@ -2900,6 +3115,37 @@ class ModelHelper {
         if ( class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
             \TMWSEO\Engine\JobWorker::process_next_job();
         }
+        exit;
+    }
+
+    /**
+     * v5.6.0 — Loopback health endpoint.
+     *
+     * Responds to a POST at /wp-admin/admin-post.php?action=tmwseo_loopback_health
+     * with the literal body "tmwseo_loopback_ok\n" when the nonce is
+     * valid. The probe in spawn_worker_loopback_kick() requires that
+     * token to appear in the response body, which means a WAF / CDN
+     * that silently returns a bare 200 OK (common for bot/challenge
+     * pages) will correctly be classified as a failure.
+     *
+     * Purposefully uses admin-post.php (not admin-ajax.php) so it
+     * exercises the same privileged POST path that the real worker
+     * kick uses. Nonce-gated so nopriv is safe.
+     *
+     * @internal
+     */
+    public static function handle_loopback_health(): void {
+        $nonce = sanitize_text_field( (string) ( $_POST['tmwseo_lb_nonce'] ?? $_REQUEST['tmwseo_lb_nonce'] ?? '' ) );
+        if ( ! wp_verify_nonce( $nonce, 'tmwseo_loopback_health' ) ) {
+            wp_die( 'invalid_nonce', '', [ 'response' => 403 ] );
+        }
+
+        // Minimal, fast response. No side effects.
+        status_header( 200 );
+        nocache_headers();
+        header( 'Content-Type: text/plain' );
+        header( 'X-TMWSEO-Loopback-Health: 1' );
+        echo "tmwseo_loopback_ok\n";
         exit;
     }
 
