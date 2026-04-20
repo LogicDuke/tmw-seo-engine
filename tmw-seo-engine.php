@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.6.0 — Full-Audit Retry Recovery: (1) Retry-after-worker_never_started now forces synchronous execution — the next Full Audit click after a stalled background run skips the queue entirely and runs in-request, instead of silently latching onto another dead queue path. (2) Loopback probe rewritten as a POST with token echo — replaces the v5.5.0 GET-based probe that produced false positives on WAFs that allow GETs but block POSTs to privileged endpoints. A new admin-post.php endpoint (tmwseo_loopback_health) echoes a fixed token; the probe only passes when that token is in the response body. (3) Aggressive cache invalidation — worker_never_started events clear the loopback probe cache AND set a per-post transient so subsequent retries cannot be trapped by a stale "probe_ok" verdict. Cache TTL lowered from 5 min to 60 s. (4) No more dead-job reuse — enqueue no longer latches onto pending/running rows from a failed prior attempt; cancel_all_audit_jobs_for_post() kills every pending row on retry. (5) Execution path surfaced in diagnostics — response JSON and bounds blob now carry execution_mode (background | forced_sync | sync_loopback_blocked | sync_enqueue_failed | sync_no_worker_class), execution_reason, probe_method, probe_endpoint, probe_http. Ships 9 new tests. Zero regressions to v5.5.0 guarantees.
- * Version: 5.6.0
+ * Description: Intelligence Core v5.6.0-merged — Surgical merge of v5.1.0 Research Now (byte-identical) with v5.6.0 Full Audit. No Research Now code changes — verified by method-by-method diff. Full Audit retains all v5.6.0 improvements. Full-Audit Retry Recovery: (1) Retry-after-worker_never_started now forces synchronous execution — the next Full Audit click after a stalled background run skips the queue entirely and runs in-request, instead of silently latching onto another dead queue path. (2) Loopback probe rewritten as a POST with token echo — replaces the v5.5.0 GET-based probe that produced false positives on WAFs that allow GETs but block POSTs to privileged endpoints. A new admin-post.php endpoint (tmwseo_loopback_health) echoes a fixed token; the probe only passes when that token is in the response body. (3) Aggressive cache invalidation — worker_never_started events clear the loopback probe cache AND set a per-post transient so subsequent retries cannot be trapped by a stale "probe_ok" verdict. Cache TTL lowered from 5 min to 60 s. (4) No more dead-job reuse — enqueue no longer latches onto pending/running rows from a failed prior attempt; cancel_all_audit_jobs_for_post() kills every pending row on retry. (5) Execution path surfaced in diagnostics — response JSON and bounds blob now carry execution_mode (background | forced_sync | sync_loopback_blocked | sync_enqueue_failed | sync_no_worker_class), execution_reason, probe_method, probe_endpoint, probe_http. Ships 9 new tests. Zero regressions to v5.5.0 guarantees.
+ * Version: 5.6.0-merged
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.6.0');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.6.0-merged');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 
