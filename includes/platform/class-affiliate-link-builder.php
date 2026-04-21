@@ -2,7 +2,6 @@
 namespace TMWSEO\Engine\Platform;
 
 use TMWSEO\Engine\Logs;
-use TMWSEO\Engine\Services\Settings;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -77,14 +76,6 @@ class AffiliateLinkBuilder {
             }
         }
 
-        $legacy_pattern = (string) Settings::get('affiliate_link_pattern', '');
-        if ($legacy_pattern !== '') {
-            $built = self::build_from_template($legacy_pattern, $platform_slug, $clean_username, $profile_url, []);
-            if ($built !== '') {
-                return $built;
-            }
-        }
-
         return $profile_url;
     }
 
@@ -116,7 +107,7 @@ class AffiliateLinkBuilder {
         $networks = get_option( 'tmwseo_affiliate_networks', [] );
         if ( is_array( $networks ) ) {
             foreach ( $networks as $slug => $cfg ) {
-                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) ) {
+                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) && trim( (string) ( $cfg['template'] ?? '' ) ) !== '' ) {
                     $label        = trim( (string) ( $cfg['label'] ?? $slug ) );
                     $keys[ $slug ] = $label !== '' ? $label : $slug;
                 }
@@ -127,7 +118,7 @@ class AffiliateLinkBuilder {
         $platforms = get_option( 'tmwseo_platform_affiliate_settings', [] );
         if ( is_array( $platforms ) ) {
             foreach ( $platforms as $slug => $cfg ) {
-                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) && ! isset( $keys[ $slug ] ) ) {
+                if ( is_array( $cfg ) && ! empty( $cfg['enabled'] ) && trim( (string) ( $cfg['template'] ?? '' ) ) !== '' && ! isset( $keys[ $slug ] ) ) {
                     $pd           = PlatformRegistry::get( $slug );
                     $label        = is_array( $pd ) ? (string) ( $pd['name'] ?? $slug ) : $slug;
                     $keys[ $slug ] = $label;

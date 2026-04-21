@@ -748,13 +748,6 @@ class Admin {
     public static function sanitize_settings($input): array {
         $input = is_array($input) ? $input : [];
 
-        if (($input['tmwseo_settings_section'] ?? '') === 'affiliate') {
-            $current = get_option('tmwseo_engine_settings', []);
-            $current = is_array($current) ? $current : [];
-            $current['affiliate'] = self::sanitize_affiliate_settings($input['affiliate'] ?? []);
-            return $current;
-        }
-
         // Preserve any existing settings keys not present in this form submission,
         // so that partial saves (e.g., tabbed Settings pages) don't wipe keys.
         $existing = get_option('tmwseo_engine_settings', []);
@@ -864,41 +857,17 @@ class Admin {
             'google_trends_locale'    => sanitize_text_field((string)($input['google_trends_locale'] ?? $existing['google_trends_locale'] ?? 'en-US')),
             'google_trends_timeframe' => sanitize_text_field((string)($input['google_trends_timeframe'] ?? $existing['google_trends_timeframe'] ?? 'today 3-m')),
 
-            // Affiliates (preserved from existing)
-            'affiliate' => self::sanitize_affiliate_settings($input['affiliate'] ?? ($existing['affiliate'] ?? [])),
         ];
 
         return $sanitized;
     }
 
-    private static function sanitize_affiliate_settings($input): array {
-        $input = is_array($input) ? $input : [];
-        $platforms_input = is_array($input['platforms'] ?? null) ? $input['platforms'] : [];
-
-        $platform_defaults = self::get_affiliate_platform_defaults();
-        $platforms = [];
-
-        foreach ($platform_defaults as $platform_key => $defaults) {
-            $platform_input = is_array($platforms_input[$platform_key] ?? null) ? $platforms_input[$platform_key] : [];
-
-            $platforms[$platform_key] = [
-                'enabled' => !empty($platform_input['enabled']) ? 1 : 0,
-                'affiliate_link_pattern' => sanitize_text_field((string)($platform_input['affiliate_link_pattern'] ?? $defaults['affiliate_link_pattern'])),
-                'campaign' => sanitize_text_field((string)($platform_input['campaign'] ?? '')),
-                'source' => sanitize_text_field((string)($platform_input['source'] ?? '')),
-            ];
-        }
-
-        return [
-            'platforms' => $platforms,
-        ];
-    }
-
     public static function sanitize_platform_affiliate_settings($input): array {
         $input = is_array($input) ? $input : [];
-        $sanitized = [];
+        $existing = get_option('tmwseo_platform_affiliate_settings', []);
+        $sanitized = is_array($existing) ? $existing : [];
 
-        foreach (self::get_affiliate_platform_defaults() as $platform_key => $defaults) {
+        foreach (self::get_affiliate_admin_platform_rows() as $platform_key => $defaults) {
             $row = is_array($input[$platform_key] ?? null) ? $input[$platform_key] : [];
             $sanitized[$platform_key] = [
                 'enabled' => !empty($row['enabled']) ? 1 : 0,
@@ -958,15 +927,32 @@ class Admin {
         return $sanitized;
     }
 
-    private static function get_affiliate_platform_defaults(): array {
-        $defaults = [];
+    /**
+     * Build affiliate admin rows for platforms eligible for affiliate routing setup.
+     *
+     * Prefers explicit PlatformRegistry `affiliate_supported` metadata.
+     * Falls back to excluding known non-affiliate groups for safety.
+     *
+     * @return array<string,array{label:string,affiliate_link_pattern:string,siteid:string,categoryname:string,pagename:string}>
+     */
+    private static function get_affiliate_admin_platform_rows(): array {
+        $rows = [];
         foreach (PlatformRegistry::get_platforms() as $platform) {
             $slug = sanitize_key((string) ($platform['slug'] ?? ''));
             if ($slug === '') {
                 continue;
             }
 
-            $defaults[$slug] = [
+            $group = sanitize_key((string) ($platform['group'] ?? ''));
+            $supported = !empty($platform['affiliate_supported']);
+            if (!$supported && in_array($group, ['social', 'linkhub'], true)) {
+                continue;
+            }
+            if (!$supported) {
+                continue;
+            }
+
+            $rows[$slug] = [
                 'label' => sanitize_text_field((string) ($platform['name'] ?? ucfirst($slug))),
                 'affiliate_link_pattern' => sanitize_text_field((string) ($platform['affiliate_link_pattern'] ?? '')),
                 'siteid' => $slug === 'livejasmin' ? 'jasmin' : '',
@@ -975,7 +961,11 @@ class Admin {
             ];
         }
 
-        return $defaults;
+        return $rows;
+    }
+
+    private static function get_affiliate_platform_defaults(): array {
+        return self::get_affiliate_admin_platform_rows();
     }
 
     public static function menu(): void {
@@ -3799,7 +3789,6 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
 
         echo '<form method="post" action="options.php">';
         settings_fields( 'tmwseo_settings_group' );
-        echo '<input type="hidden" name="tmwseo_engine_settings[tmwseo_settings_section]" value="affiliate">';
 
         echo '<h2>' . esc_html__( 'Affiliate Networks (URL-level routing)', 'tmwseo' ) . '</h2>';
         echo '<p class="description">'
@@ -3901,8 +3890,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
         // ── Per-platform affiliate templates ──────────────────────────────────
         echo '<form method="post" action="options.php">';
         settings_fields('tmwseo_settings_group');
-        echo '<input type="hidden" name="tmwseo_engine_settings[tmwseo_settings_section]" value="affiliate">';
-        echo '<h2>' . esc_html__('Affiliate Templates by Platform', 'tmwseo') . '</h2>';
+        echo '<h2>' . esc_html__('Affiliate-Capable Platforms', 'tmwseo') . '</h2>';
         echo '<p class="description">' . esc_html__('Use placeholders only. Do not paste hardcoded usernames into templates.', 'tmwseo') . '</p>';
 
         foreach ($platforms as $platform_key => $platform) {
