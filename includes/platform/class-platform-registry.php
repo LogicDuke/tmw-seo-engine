@@ -21,6 +21,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 5,
             'group'                  => 'linkhub',
+            'affiliate_supported'    => false,
         ],
         'allmylinks' => [
             'name'                   => 'AllMyLinks',
@@ -29,6 +30,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 6,
             'group'                  => 'linkhub',
+            'affiliate_supported'    => false,
         ],
         'beacons' => [
             'name'                   => 'Beacons',
@@ -37,6 +39,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 7,
             'group'                  => 'linkhub',
+            'affiliate_supported'    => false,
         ],
         'solo_to' => [
             'name'                   => 'solo.to',
@@ -45,6 +48,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 8,
             'group'                  => 'linkhub',
+            'affiliate_supported'    => false,
         ],
         'carrd' => [
             'name'                   => 'Carrd',
@@ -53,6 +57,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 9,
             'group'                  => 'linkhub',
+            'affiliate_supported'    => false,
         ],
         'twitter' => [
             'name'                   => 'X (Twitter)',
@@ -61,6 +66,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 12,
             'group'                  => 'social',
+            'affiliate_supported'    => false,
         ],
         'livejasmin' => [
             'name'                   => 'LiveJasmin',
@@ -69,6 +75,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 10,
             'group'                  => 'cam',
+            'affiliate_supported'    => true,
         ],
         'fansly' => [
             'name'                   => 'Fansly',
@@ -93,6 +100,7 @@ class PlatformRegistry {
             'affiliate_link_pattern' => '',
             'priority'               => 20,
             'group'                  => 'cam',
+            'affiliate_supported'    => true,
         ],
         'chaturbate' => [
             'name'                   => 'Chaturbate',
@@ -289,7 +297,7 @@ class PlatformRegistry {
     ];
 
     public static function get_platforms(): array {
-        return array_values(self::$platforms);
+        return array_map([__CLASS__, 'normalize_platform'], array_values(self::$platforms));
     }
 
     public static function get(string $slug): ?array {
@@ -298,7 +306,7 @@ class PlatformRegistry {
             return null;
         }
 
-        return self::$platforms[$slug];
+        return self::normalize_platform(self::$platforms[$slug]);
     }
 
     public static function get_slugs(): array {
@@ -315,5 +323,18 @@ class PlatformRegistry {
     public static function get_group( string $slug ): string {
         $slug = sanitize_key( $slug );
         return self::$platforms[ $slug ]['group'] ?? 'other';
+    }
+
+    /**
+     * Ensure stable metadata keys are always available.
+     *
+     * @param array<string,mixed> $platform
+     * @return array<string,mixed>
+     */
+    private static function normalize_platform(array $platform): array {
+        if (!array_key_exists('affiliate_supported', $platform)) {
+            $platform['affiliate_supported'] = false;
+        }
+        return $platform;
     }
 }
