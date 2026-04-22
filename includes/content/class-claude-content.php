@@ -211,6 +211,8 @@ KEYWORD DENSITY RULES
 • Avoid brochure phrasing, vague importance claims, and formulaic contrasts like "it's not just X, it's Y".
 • Avoid generic thesis openers like "The useful part of…", "The main advantage here is…",
   "What changes most…", or "People land here because…".
+• Also avoid transition-filler intros like "One practical detail is…", "What helps most is…",
+  or "The biggest shift…".
 • Use contractions where natural and vary sentence openers (do not repeatedly start with "The room…").
 • Do NOT use these fallback phrases more than once each across the entire output:
   "official profile links", "trusted room links", "official live profile".

@@ -194,7 +194,7 @@ class ModelPageRenderer {
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
         $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
         $html = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $html) ?: $html;
-        $html = preg_replace('/<p>\s*(People usually open a page like this.*?|This page keeps .*?practical bits together.*?|This page keeps .*?easy to follow.*?|The page is built to save time.*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?)\s*<\/p>/iu', '', $html) ?: $html;
+        $html = preg_replace('/<p>\s*(People usually open a page like this.*?|This page keeps .*?practical bits together.*?|This page keeps .*?easy to follow.*?|The page is built to save time.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?)\s*<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
