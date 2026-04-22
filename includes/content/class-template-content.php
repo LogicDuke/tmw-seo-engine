@@ -144,8 +144,8 @@ class TemplateContent {
             }
         }
         $second_intro_pool = [
-            'Finding the real room should not take five tabs. You will see current profiles first, followed by short notes that help with platform choice.',
-            'The links below lead straight to active profiles, then the rest of the page covers what usually matters before joining.',
+            'The links below lead straight to active profiles, followed by concise notes for choosing where to watch.',
+            'Start with verified profile links, then use the short sections below to compare practical platform differences.',
             'If you are here to find where ' . $name . ' is live, start with the buttons below and use the sections after that for quick comparison.',
             'Copied profile pages are common, so this page focuses on verified links and practical context you can use right away.',
             'Start with the active links, then scan the sections below if you want details on chat pace, features, and platform differences.',
@@ -186,6 +186,11 @@ class TemplateContent {
             ? $primary_platform_label
             : 'the platform';
 
+        $has_specific_about = self::has_specific_supporting_data($name, $bio, $active_platforms, $tags, $cta_links);
+        $features_intro = $model_data_gate['is_sufficient']
+            ? 'Watching ' . $name . ' live usually comes down to a few practical details: clear video, a chat that stays readable, and room tools that do not get in the way.'
+            : 'Platform features shown here are platform-level checks, not confirmed performer-specific traits.';
+
         $renderer_payload = array_merge($support_payload, [
             'focus_keyword' => $name,
             'intro_paragraphs' => [
@@ -195,12 +200,10 @@ class TemplateContent {
             'watch_section_paragraphs' => [
                 $watch_para,
             ],
-            'about_section_paragraphs' => [$bio],
-            'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name),
+            'about_section_paragraphs' => $has_specific_about ? [$bio] : [],
+            'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate),
             'features_section_paragraphs' => [
-                // No exact name in this paragraph — section headings already carry
-                // the name; repeating it here inflates keyword density unnecessarily.
-                'Watching ' . $name . ' live usually comes down to a few practical details: clear video, a chat that stays readable, and room tools that do not get in the way. The breakdown below covers the things worth checking before you join on ' . $platform_ref . '.',
+                $features_intro . ' The breakdown below covers what to check before joining on ' . $platform_ref . '.',
             ],
             'features_section_html' => self::join_html_blocks([
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
@@ -333,6 +336,7 @@ class TemplateContent {
             'questions_section_paragraphs' => [],
             'longtail_keywords' => $longtail,
             'model_data_gate' => $model_data_gate,
+            'active_platforms' => $active_platforms,
         ];
     }
 
@@ -348,15 +352,31 @@ class TemplateContent {
         $tags = is_array($tags) ? array_values(array_filter(array_map('strval', $tags), 'strlen')) : [];
         $faq_items = $pack['faq_items'] ?? [];
 
+        $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
+        $active_platforms = $pack['active_platforms'] ?? [];
+        $active_platforms = is_array($active_platforms) ? array_values(array_filter(array_map('strval', $active_platforms), 'strlen')) : [];
+
         $signals = [
             'platform_links' => count($cta_links),
             'tags' => count($tags),
             'additional_keywords' => count(is_array($pack['additional'] ?? null) ? $pack['additional'] : []),
             'faq_items' => count(is_array($faq_items) ? $faq_items : []),
+            'active_platforms' => count($active_platforms),
+            'comparison_copy' => ($comparison_copy !== '' ? 1 : 0),
         ];
+        $specific_fact_count =
+            min(3, $signals['platform_links']) +
+            min(2, $signals['active_platforms']) +
+            min(2, $signals['tags']) +
+            min(1, $signals['comparison_copy']) +
+            min(1, $signals['faq_items']);
 
-        $confidence = ($signals['platform_links'] * 32.0) + ($signals['tags'] * 9.0) + ($signals['additional_keywords'] * 5.0);
-        $is_sufficient = $signals['platform_links'] >= 1 && (($signals['tags'] >= 2) || ($signals['platform_links'] >= 2 && $signals['additional_keywords'] >= 2));
+        $confidence = ($signals['platform_links'] * 28.0) + ($signals['tags'] * 10.0) + ($signals['additional_keywords'] * 4.0) + ($signals['comparison_copy'] * 8.0);
+        $is_sufficient =
+            $signals['platform_links'] >= 1
+            && $signals['active_platforms'] >= 1
+            && $specific_fact_count >= 4
+            && ($signals['tags'] >= 1 || $signals['comparison_copy'] >= 1 || $signals['active_platforms'] >= 2);
 
         return [
             'is_sufficient' => $is_sufficient,
@@ -377,14 +397,12 @@ class TemplateContent {
         return [
             'intro_paragraphs' => [
                 $name . ' is listed, but verified performer details are still limited right now.',
-                'This page stays intentionally short until we have enough profile-specific data to avoid generic filler.',
+                'This page is intentionally concise until we have enough performer-specific signals for a full editorial profile.',
             ],
-            'about_section_paragraphs' => [
-                'Current coverage focuses on confirmed links and platform availability only.',
-            ],
+            'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
             'features_section_paragraphs' => [
-                'These are platform-level features, not confirmed performer-specific traits. Check room controls and stream settings directly before joining.',
+                'Platform notes below describe platform-level features only, not confirmed performer-specific traits.',
             ],
             'comparison_section_paragraphs' => [
                 'When multiple platforms are active (' . $platform_text . '), compare stream stability, chat pacing, and privacy controls before choosing.',
@@ -543,8 +561,50 @@ class TemplateContent {
         return $rows;
     }
 
+    /**
+     * @param array<int,string> $active_platforms
+     * @param array<int,string> $tags
+     * @param array<int,array<string,mixed>> $cta_links
+     */
+    private static function has_specific_supporting_data(string $name, string $text, array $active_platforms, array $tags, array $cta_links): bool {
+        $haystack = mb_strtolower($text, 'UTF-8');
+        $needles = [mb_strtolower($name, 'UTF-8')];
+
+        foreach (array_slice($active_platforms, 0, 3) as $platform) {
+            $platform = trim((string)$platform);
+            if ($platform !== '') {
+                $needles[] = mb_strtolower($platform, 'UTF-8');
+            }
+        }
+        foreach (array_slice($tags, 0, 3) as $tag) {
+            $tag = trim(str_replace('-', ' ', (string)$tag));
+            if ($tag !== '') {
+                $needles[] = mb_strtolower($tag, 'UTF-8');
+            }
+        }
+        foreach (array_slice($cta_links, 0, 3) as $row) {
+            $username = trim((string)($row['username'] ?? ''));
+            if ($username !== '') {
+                $needles[] = mb_strtolower($username, 'UTF-8');
+            }
+        }
+
+        $matches = 0;
+        foreach (array_unique($needles) as $needle) {
+            if ($needle !== '' && str_contains($haystack, $needle)) {
+                $matches++;
+            }
+        }
+
+        return $matches >= 2;
+    }
+
     /** @return string[] */
-    private static function build_fans_like_paragraphs(array $context, string $name): array {
+    private static function build_fans_like_paragraphs(array $context, string $name, array $model_data_gate = []): array {
+        if (empty($model_data_gate['is_sufficient'])) {
+            return [];
+        }
+
         $focuses = [
             trim((string)($context['extra_focus_1'] ?? '')),
             trim((string)($context['extra_focus_2'] ?? '')),
@@ -581,8 +641,8 @@ class TemplateContent {
             $focus = $clean_focuses[0];
             $pool = [
                 'If ' . $focus . ' is what brought someone here, the first difference they notice is responsiveness. There is real give-and-take instead of a one-way performance.',
-                'Viewers looking for ' . $focus . ' usually care about interaction quality. The room reacts in real time instead of feeling pre-scripted.',
                 'People arriving through ' . $focus . ' are usually looking for a room that feels active without turning chaotic. That balance tends to hold up well here.',
+                'Fans interested in ' . $focus . ' usually care about interaction quality. The room reacts in real time instead of feeling pre-scripted.',
             ];
             $paragraphs[] = $pool[self::stable_pick_index($seed . '|focus1', count($pool))];
         }
@@ -620,17 +680,7 @@ class TemplateContent {
             return '';
         }
 
-        $out  = '<p>Related searches people use before picking a room:</p><ul>';
-        foreach ($keywords as $keyword) {
-            // IMPORTANT: do NOT run literal keyword phrases through cleanup_visible_text().
-            // That function transforms token patterns in ways that corrupt the phrase —
-            // stripping "watch", replacing pronouns, etc. Keyword phrases must be preserved
-            // verbatim; only trim() and esc_html() are safe here.
-            $out .= '<li>' . esc_html(trim($keyword)) . '</li>';
-        }
-        $out .= '</ul>';
-
-        return $out;
+        return '';
     }
 
     /**
@@ -700,8 +750,10 @@ class TemplateContent {
         $labels = array_values(array_unique($labels));
         $prose = [];
         if (count($labels) >= 2) {
-            foreach (array_slice($labels, 0, 3) as $label) {
-                $prose[] = '<p>' . esc_html($label . ' offers a different room flow for ' . $name . ': check video stability, chat speed, and available private controls before you settle in.') . '</p>';
+            $balanced_labels = array_slice($labels, 0, 3);
+            $prose[] = '<p>' . esc_html($name . ' has active profiles on ' . implode(', ', $balanced_labels) . '. Each platform handles chat pacing, notifications, and private controls a bit differently, so compare based on your viewing habits instead of defaulting to one brand.') . '</p>';
+            foreach ($balanced_labels as $label) {
+                $prose[] = '<p>' . esc_html('On ' . $label . ', review room moderation, mobile playback, and how quickly chat responses surface during busier sessions.') . '</p>';
             }
         } else {
             $single = $labels[0] ?? 'the active platform';
@@ -1422,12 +1474,12 @@ class TemplateContent {
         $seed = $name . '|pad';
 
         $expansion_pool = [
-            'A page like this works best when it shortens the boring part. Instead of checking several aggregators, you can open the active profiles directly and choose the platform that fits your viewing style.',
+            'Direct profile access shortens the busywork. Instead of checking several aggregators, you can open active profiles and compare platforms quickly.',
             'The live format changes the experience more than it seems at first. A steady room with readable chat can turn a simple session into something people want to revisit.',
             'Most regular viewers end up caring about the small practical details: whether notifications are dependable, whether mobile playback behaves properly, and whether the room stays manageable once more people join.',
             $focus1 . ' matters because platform differences change how chat feels. Some viewers prefer quieter rooms, others want faster public conversation.',
             $focus2 . ' sounds broad, but it usually points to a simple expectation: a stream that feels active, not canned. That comes from pacing, quick reactions, and a room that does not ignore its own chat.',
-            $longtail_hint . ' matters for a practical reason. People would rather know when a room tends to open than keep refreshing random profile pages and hoping they got the right one.',
+            'Scheduling context can save time. ' . $longtail_hint . ' is most useful when it helps you avoid refreshing random profile pages.',
             $tags_text . ' themes help set expectations, but they do not lock every session into the same pattern. The better rooms leave space for mood changes and small detours.',
             'Privacy settings are not glamorous, but they matter. Good platforms make it easy to watch with a little distance, control account visibility, and keep payments separate from the rest of daily browsing.',
             'The best parts of live chat are usually the unscripted ones: a quick reply, a running joke, a shift in pace because the room steered it there.',
