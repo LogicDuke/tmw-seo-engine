@@ -6,31 +6,31 @@
  */
 
 $search_hooks = [
-    "{name} is easier to track when the active profiles on {active_platforms_text} are kept together in one place.",
-    "Most people landing here for {name} are trying to figure out which profile is current on {active_platforms_text} without opening a pile of stale pages.",
-    "People usually land here with a practical question: which room is live, and which platform feels like the better fit tonight.",
-    "The useful part of a multi-platform page is clarity. {name} has active profiles on {active_platforms_text}, and the links below point to the real rooms.",
-    "If {name} is already familiar, this page saves the step of hunting through copied profile listings across {active_platforms_text}.",
-    "Viewers comparing {active_platforms_text} generally want one clean list of current rooms and a quick sense of how each platform feels.",
+    "{name} has active profiles on {active_platforms_text}, so you can choose the room that fits how you like to watch.",
+    "If you are checking {name} across {active_platforms_text}, the links below go straight to the current rooms.",
+    "The goal is simple: make it easy to open the real profiles on {active_platforms_text} without digging through copied listings.",
+    "Viewers comparing {active_platforms_text} usually want current links first and a short sense of what each room is like.",
+    "When someone follows {name} on more than one site, having both active profiles together saves a lot of back-and-forth.",
+    "This guide keeps the active {active_platforms_text} profiles in one place so platform choice is easier.",
 ];
 
 $live_benefits = [
-    "Multiple platforms give viewers a choice between room styles without changing the core live-chat feel.",
-    "The main advantage here is flexibility. One platform may feel quieter, another may feel more open, and having both listed saves time.",
-    "Stable HD video, readable chat, and predictable room tools matter more when people are actively comparing platforms.",
-    "Following more than one room is useful when schedules rotate, especially for viewers checking in from different time zones.",
+    "Multiple platforms let you pick between different chat pace and interface style while following the same performer.",
+    "One room may move faster while the other stays more conversational, which is useful when you are deciding where to spend time.",
+    "When people compare platforms, they usually care about stream stability, chat readability, and how easy moderation tools are to use.",
+    "Following both profiles helps when schedules shift, especially if you check in from different time zones.",
 ];
 
 $style_notes = [
-    "The tone still depends on interaction, not just the platform. The room works best when chat stays engaged and the pace has room to breathe.",
-    "Even across different platforms, the stronger sessions usually keep the same qualities: clean reactions, steady pacing, and room awareness.",
-    "A good multi-platform setup gives people options without making the page harder to use. That is the idea here.",
-    "What changes most from platform to platform is the room feel, not the personality behind it.",
+    "The performer style stays familiar, but each platform can shape how fast chat moves and how visible messages feel.",
+    "Across both platforms, the strongest sessions keep responsive chat and clear pacing without turning noisy.",
+    "Good multi-platform pages are most helpful when they compare access and chat experience instead of repeating hype.",
+    "The differences are usually practical: navigation, moderation, and how easy it is to settle in once the room gets busy.",
 ];
 
 $cta_lines = [
     "Use the links below to compare the active profiles on {active_platforms_text} directly.",
-    "Start with the platform you already prefer, then use the second link if you want to compare room feel and features.",
+    "Start on the platform you use most, then open the second room if you want to compare chat flow and tools.",
     "The links below are the fastest way to check which room suits you best today.",
     "If you just want the current rooms without extra searching, the platform links below are the place to start.",
 ];

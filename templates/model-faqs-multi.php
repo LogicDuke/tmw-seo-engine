@@ -13,7 +13,7 @@ return [
     ],
     [
         'q' => 'Where should a first-time viewer start?',
-        'a' => '{platform_a} is usually the easiest first stop because the room tools and moderation are straightforward. After that, trying {platform_b} can help if you want to compare room feel or community pace.',
+        'a' => 'Start with {platform_a} if you want the quicker setup, then try {platform_b} to compare chat pace and community style. Both links here go to the active profiles.',
     ],
     [
         'q' => 'Can I watch on mobile?',
@@ -25,7 +25,7 @@ return [
     ],
     [
         'q' => 'Is the room experience very different from one platform to another?',
-        'a' => 'The personality stays the same, but the room feel can shift a little. One platform may feel calmer, while another may feel more public and fast-moving, so it is worth checking both if you care about chat style.',
+        'a' => 'The performer style is consistent, but platform tools can make each room feel different. One may feel calmer while another moves faster, so it is worth testing both if chat style matters to you.',
     ],
     [
         'q' => 'Are private options available on every platform?',
@@ -37,6 +37,6 @@ return [
     ],
     [
         'q' => 'Why bother keeping both profiles handy?',
-        'a' => 'Because schedules move and room feel can change from platform to platform. Having both saved means less searching and a better chance of catching the room that feels right on the day.',
+        'a' => 'Schedules move, and each platform can fit a different mood. Keeping both profiles saved makes it easier to catch a live room without extra searching.',
     ],
 ];

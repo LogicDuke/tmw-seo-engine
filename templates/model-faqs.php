@@ -33,7 +33,7 @@ return [
     ],
     [
         'q' => 'What usually keeps regular viewers coming back?',
-        'a' => 'It is usually the room feel more than any single gimmick. Steady pacing, readable chat, and small real-time reactions tend to matter most over repeat visits.',
+        'a' => 'Usually it is consistency, not a single gimmick. Steady pacing, readable chat, and small real-time reactions matter most over repeat visits.',
     ],
     [
         'q' => 'Do notifications matter that much?',
