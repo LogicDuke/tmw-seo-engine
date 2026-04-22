@@ -8,6 +8,8 @@ use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Keywords\ModelKeywordPack;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
+use TMWSEO\Engine\Model\VerifiedLinks;
+use TMWSEO\Engine\Model\VerifiedLinksFamilies;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -142,9 +144,9 @@ class TemplateContent {
             }
         }
         $second_intro_pool = [
-            'Most people land here because search results for live rooms are cluttered with copies, stale embeds, or half-finished profile pages. Keeping ' . $name . ' in one place makes the choice easier and cuts down on guesswork.',
-            'Finding the actual room should not take five tabs. The goal here is simple: point to the current profiles, explain the general room feel, and help you pick a platform for ' . $name . ' without wasting time.',
-            'A useful ' . $name . ' page does two jobs well. It shows the right links, and it gives a realistic sense of what the room feels like before you click through.',
+            'Search results for live rooms are usually packed with copied pages and stale embeds. This page keeps ' . $name . ' in one place so finding the right profile is quicker.',
+            'Finding the real room should not take five tabs. The goal here is straightforward: show current profiles and share practical context before you click through.',
+            'This ' . $name . ' page keeps the essentials together: working links first, then grounded notes on what sessions are typically like.',
             'If you are mainly trying to work out where ' . $name . ' is live, start with the buttons below. The rest of the page fills in the practical details that usually matter once someone is ready to join.',
             'Search results for live profiles are often noisy. Keeping the verified rooms for ' . $name . ' in one place saves time and makes the platform choice a lot easier.',
         ];
@@ -276,7 +278,9 @@ class TemplateContent {
         // section (primary anchor) and the explore-more section (secondary anchor)
         // so Rank Math can detect outbound links regardless of which section
         // the tool happens to scan first.
-        $guaranteed_outbound = self::render_guaranteed_external_platform_links($cta_links, $name);
+        $guaranteed_targets  = self::build_guaranteed_external_platform_targets($cta_links);
+        $guaranteed_outbound = self::render_guaranteed_external_platform_links_from_targets($guaranteed_targets);
+        $curated_external    = self::render_curated_verified_links_section((int) $post->ID, $name, $guaranteed_targets);
         $wikipedia_fallback_used = false;
 
         // Fallback to Wikipedia ONLY when cta_links is empty — meaning no
@@ -307,7 +311,10 @@ class TemplateContent {
         // produced two near-identical LiveJasmin + Stripchat link blocks.
         // Use only the guaranteed block so Rank Math sees exactly one outbound
         // link group at the end of content — no duplicates.
-        $ext_info_html = $guaranteed_outbound;
+        $ext_info_html = self::join_html_blocks([
+            $guaranteed_outbound,
+            $curated_external,
+        ]);
 
         return [
             'watch_section_html' => $watch_html,
@@ -319,6 +326,106 @@ class TemplateContent {
             'external_info_html' => $ext_info_html,
             'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
         ];
+    }
+
+    /**
+     * Render a natural "elsewhere online" section using editor-curated verified links.
+     * These links are saved on the post and must not depend on research ingestion.
+     */
+    /**
+     * @param array<int,array{platform:string,label:string,url:string}> $exclude_targets
+     */
+    private static function render_curated_verified_links_section(int $post_id, string $name, array $exclude_targets = []): string {
+        if (!class_exists(VerifiedLinks::class) || !class_exists(VerifiedLinksFamilies::class)) {
+            return '';
+        }
+
+        $links = VerifiedLinks::get_links($post_id);
+        if (empty($links) || !is_array($links)) {
+            return '';
+        }
+
+        $type_labels = VerifiedLinksFamilies::type_labels();
+        $family_labels = [
+            VerifiedLinksFamilies::FAMILY_CAM => 'Live platforms',
+            VerifiedLinksFamilies::FAMILY_PERSONAL => 'Official and personal sites',
+            VerifiedLinksFamilies::FAMILY_FANSITE => 'Fan platforms',
+            VerifiedLinksFamilies::FAMILY_SOCIAL => 'Social profiles',
+            VerifiedLinksFamilies::FAMILY_TUBE => 'Video and profile hubs',
+            VerifiedLinksFamilies::FAMILY_UNMAPPED => 'Elsewhere online',
+        ];
+
+        $exclude_urls = [];
+        foreach ($exclude_targets as $target) {
+            $url = strtolower(rtrim(trim((string) ($target['url'] ?? '')), '/'));
+            if ($url !== '') {
+                $exclude_urls[$url] = true;
+            }
+        }
+
+        $seen = [];
+        $grouped = [];
+        foreach ($links as $link) {
+            if (!is_array($link) || empty($link['is_active'])) {
+                continue;
+            }
+
+            $url = trim((string) VerifiedLinks::get_routed_url($link));
+            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+
+            $url_key = strtolower(rtrim($url, '/'));
+            if (isset($seen[$url_key])) {
+                continue;
+            }
+            $seen[$url_key] = true;
+
+            $type = sanitize_key((string) ($link['type'] ?? 'other'));
+            $family = VerifiedLinksFamilies::family_for($type);
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM && isset($exclude_urls[$url_key])) {
+                continue;
+            }
+            $label = trim((string) ($link['label'] ?? ''));
+            if ($label === '') {
+                $label = (string) ($type_labels[$type] ?? ucfirst(str_replace('_', ' ', $type)));
+            }
+            $grouped[$family][] = [
+                'label' => $label,
+                'url' => $url,
+            ];
+        }
+
+        if (empty($grouped)) {
+            return '';
+        }
+
+        $chunks = [];
+        foreach (VerifiedLinksFamilies::display_order() as $family) {
+            $rows = $grouped[$family] ?? [];
+            if (empty($rows)) {
+                continue;
+            }
+
+            $items = '';
+            foreach ($rows as $row) {
+                $items .= '<li><a href="' . esc_url((string) $row['url']) . '" target="_blank" rel="noopener external nofollow">' . esc_html((string) $row['label']) . '</a></li>';
+            }
+            if ($items === '') {
+                continue;
+            }
+
+            $family_heading = (string) ($family_labels[$family] ?? 'Elsewhere online');
+            $chunks[] = '<h3>' . esc_html($family_heading) . '</h3><ul>' . $items . '</ul>';
+        }
+
+        if (empty($chunks)) {
+            return '';
+        }
+
+        return '<h3>' . esc_html('Find ' . $name . ' elsewhere') . '</h3>'
+            . '<p>' . esc_html('These are editor-curated outbound links for official profiles and related pages.') . '</p>'
+            . implode('', $chunks);
     }
 
     /** @return string[] */
@@ -341,7 +448,7 @@ class TemplateContent {
             'The pull here is not a single gimmick. People stick around because the room stays attentive, the mood stays readable, and the live chat never feels like background noise.',
             'Across different sessions, the same qualities show up again: steady energy, clear reactions to the room, and a style that feels present instead of automatic.',
             $name . ' tends to hold attention through timing rather than noise. The room settles into a rhythm quickly, and that makes repeat visits feel easier instead of random.',
-            'What keeps viewers coming back is consistency. The room feels awake, the chat matters, and the overall tone does not swing wildly from one session to the next.',
+            'Regular viewers come back for consistency. Chat stays active, pacing stays steady, and sessions rarely feel phoned in.',
         ];
 
         $paragraphs = [$openers[self::stable_pick_index($seed . '|opener', count($openers))]];
@@ -357,7 +464,7 @@ class TemplateContent {
         if (!empty($clean_focuses)) {
             $focus = $clean_focuses[0];
             $pool = [
-                'If ' . $focus . ' is what brought someone here, the main difference they notice is responsiveness. The room has give-and-take, not just a performer pushing forward regardless of chat.',
+                'If ' . $focus . ' is what brought someone here, the first difference they notice is responsiveness. There is real give-and-take instead of a one-way performance.',
                 'A phrase like ' . $focus . ' usually sounds broad, but the real appeal is simple. The room reacts, adjusts, and keeps enough space for the audience to shape the mood a little.',
                 'People arriving through ' . $focus . ' are usually looking for a room that feels active without turning chaotic. That balance tends to hold up well here.',
             ];
@@ -818,8 +925,17 @@ class TemplateContent {
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
     private static function render_guaranteed_external_platform_links(array $links, string $name): string {
+        $targets = self::build_guaranteed_external_platform_targets($links);
+        return self::render_guaranteed_external_platform_links_from_targets($targets);
+    }
+
+    /**
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     * @return array<int,array{platform:string,label:string,url:string}>
+     */
+    private static function build_guaranteed_external_platform_targets(array $links): array {
         if (empty($links)) {
-            return '';
+            return [];
         }
 
         $priority = ['livejasmin' => 0, 'stripchat' => 1];
@@ -834,7 +950,7 @@ class TemplateContent {
             return $ai <=> $bi;
         });
 
-        $items = [];
+        $targets = [];
         $seen  = [];
         foreach ($links as $link) {
             $platform = sanitize_key((string) ($link['platform'] ?? ''));
@@ -863,13 +979,37 @@ class TemplateContent {
                 continue;
             }
 
-            $items[]         = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile') . '</a></li>';
+            $targets[]       = [
+                'platform' => $platform,
+                'label' => $label,
+                'url' => $external_url,
+            ];
             $seen[$platform] = true;
-            if (count($items) >= 2) {
+            if (count($targets) >= 2) {
                 break;
             }
         }
 
+        return $targets;
+    }
+
+    /**
+     * @param array<int,array{platform:string,label:string,url:string}> $targets
+     */
+    private static function render_guaranteed_external_platform_links_from_targets(array $targets): string {
+        if (empty($targets)) {
+            return '';
+        }
+
+        $items = [];
+        foreach ($targets as $target) {
+            $url   = trim((string) ($target['url'] ?? ''));
+            $label = trim((string) ($target['label'] ?? ''));
+            if ($url === '' || $label === '') {
+                continue;
+            }
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile') . '</a></li>';
+        }
         if (empty($items)) {
             return '';
         }

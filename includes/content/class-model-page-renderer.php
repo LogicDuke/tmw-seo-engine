@@ -194,6 +194,10 @@ class ModelPageRenderer {
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
         $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
         $html = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $html) ?: $html;
+        $html = preg_replace('/\bThe useful part of\b/iu', 'One practical detail is', $html) ?: $html;
+        $html = preg_replace('/\bThe main advantage here is\b/iu', 'What helps most is', $html) ?: $html;
+        $html = preg_replace('/\bWhat changes most\b/iu', 'The biggest shift', $html) ?: $html;
+        $html = preg_replace('/\bPeople land here because\b/iu', 'Most visitors come here because', $html) ?: $html;
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
 

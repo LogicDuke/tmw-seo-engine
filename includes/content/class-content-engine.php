@@ -351,6 +351,8 @@ class ContentEngine {
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
+                "- Avoid generic thesis openers like 'The useful part of', 'The main advantage here is', 'What changes most', or 'People land here because'.\n" .
+                "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
         ];
@@ -385,6 +387,7 @@ class ContentEngine {
                 "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
                 "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
+                "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
             $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
@@ -1194,6 +1197,8 @@ class ContentEngine {
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
+                "- Avoid generic thesis openers like 'The useful part of', 'The main advantage here is', 'What changes most', or 'People land here because'.\n" .
+                "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
         ];
@@ -1232,6 +1237,7 @@ class ContentEngine {
                 "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
                 "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
+                "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
         }
 
