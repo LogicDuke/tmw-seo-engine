@@ -387,6 +387,7 @@ class ContentEngine {
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
                 "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
+                "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
@@ -394,7 +395,8 @@ class ContentEngine {
                 "- Also avoid transition-filler intros like 'One practical detail is', 'What helps most is', or 'The biggest shift'.\n" .
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
-                "- Use 'official profile links' at most once across the entire output.\n"
+                "- Use 'official profile links' at most once across the entire output.\n" .
+                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n"
         ];
 
         $user_content =
@@ -430,6 +432,7 @@ class ContentEngine {
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
+            $user_content .= "- Affiliate priority must not influence editorial weighting in comparison prose.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
             $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
                 "- Purpose: help users compare and choose options within this category intent.\n" .
@@ -1240,6 +1243,7 @@ class ContentEngine {
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
                 "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
+                "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
@@ -1247,7 +1251,8 @@ class ContentEngine {
                 "- Also avoid transition-filler intros like 'One practical detail is', 'What helps most is', or 'The biggest shift'.\n" .
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
-                "- Use 'official profile links' at most once across the entire output.\n"
+                "- Use 'official profile links' at most once across the entire output.\n" .
+                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n"
         ];
 
         $user_content =
@@ -1297,6 +1302,7 @@ class ContentEngine {
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
+            $user_content .= "- Affiliate priority must not influence editorial weighting in comparison prose.\n";
         }
 
         $user = [

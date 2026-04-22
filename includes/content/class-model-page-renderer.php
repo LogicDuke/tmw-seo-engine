@@ -28,12 +28,18 @@ class ModelPageRenderer {
             $sections[] = $watch;
         }
 
-        $about = self::render_section('About ' . $name, $payload['about_section_paragraphs'] ?? [], $name, $payload['about_section_html'] ?? '');
+        $about_allowed = self::should_render_editorial_section('about', $payload, $name);
+        $about = $about_allowed
+            ? self::render_section('About ' . $name, $payload['about_section_paragraphs'] ?? [], $name, $payload['about_section_html'] ?? '')
+            : '';
         if ($about !== '') {
             $sections[] = $about;
         }
 
-        $fans_like = self::render_section('What Fans Like About ' . $name, $payload['fans_like_section_paragraphs'] ?? [], $name, $payload['fans_like_section_html'] ?? '');
+        $fans_allowed = self::should_render_editorial_section('fans_like', $payload, $name);
+        $fans_like = $fans_allowed
+            ? self::render_section('What Fans Like About ' . $name, $payload['fans_like_section_paragraphs'] ?? [], $name, $payload['fans_like_section_html'] ?? '')
+            : '';
         if ($fans_like !== '') {
             $sections[] = $fans_like;
         }
@@ -59,12 +65,12 @@ class ModelPageRenderer {
             $sections[] = $related;
         }
 
-        $explore = self::render_section('Explore More', $payload['explore_more_paragraphs'] ?? [], $name, self::join_html_blocks([
-            $payload['explore_more_html'] ?? '',
+        $links = self::render_section('Verified Links', [], $name, self::join_html_blocks([
             $payload['external_info_html'] ?? '',
+            $payload['explore_more_html'] ?? '',
         ]));
-        if ($explore !== '' && !self::looks_like_nav_chrome($explore)) {
-            $sections[] = $explore;
+        if ($links !== '' && !self::looks_like_nav_chrome($links)) {
+            $sections[] = $links;
         }
 
         $html = implode("\n\n", $sections);
@@ -194,19 +200,25 @@ class ModelPageRenderer {
     }
 
     private static function final_cleanup(string $html, string $name): string {
+        $html = preg_replace('/<h2>\s*Table of Contents\s*<\/h2>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
         $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/isu', '', $html) ?: $html;
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
         $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
         $html = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $html) ?: $html;
         $html = preg_replace('/<h2>\s*Related (?:search(?:es)?|queries|keywords)\s*<\/h2>\s*(?:<p>.*?<\/p>|<ul>.*?<\/ul>)/isu', '', $html) ?: $html;
-        $html = preg_replace('/<h2>\s*Explore More\s*<\/h2>\s*<ul>\s*(?:<li><a [^>]*>\s*(?:Models|Categories)\s*<\/a><\/li>\s*)+<\/ul>/isu', '', $html) ?: $html;
+        $html = preg_replace('/<h2>\s*(?:Explore More|Models|Categories)\s*<\/h2>\s*(?:<p>.*?<\/p>|<ul>.*?<\/ul>|<table>.*?<\/table>)*/isu', '', $html) ?: $html;
         $html = preg_replace('/<p>\s*(?:Related searches people use before picking a room:)\s*<\/p>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
         $html = preg_replace('/<h2>\s*Quick recap.*?<\/h2>\s*<p>.*?<\/p>/isu', '', $html) ?: $html;
-        $html = preg_replace('/<p>\s*(People usually open a page like this.*?|This page keeps .*?practical bits together.*?|This page keeps .*?easy to follow.*?|The page is built to save time.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?)\s*<\/p>/iu', '', $html) ?: $html;
+        $html = preg_replace('/<p>\s*(People usually open a page like this.*?|A page like this.*?|Finding the real room should not take.*?|This page keeps.*?|The room tends to work because.*?|The atmosphere is settled.*?|The practical side.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?)\s*<\/p>/iu', '', $html) ?: $html;
+        $html = preg_replace('/<p>\s*(?:Viewers looking for|A query like|How to join .*? usually|LiveJasmin live show schedule matters).*?<\/p>/iu', '', $html) ?: $html;
+        $html = preg_replace('/(<h2>\s*Verified Links\s*<\/h2>.*?)(?:<p>\s*(?:In short|Overall|To wrap up|That said|Finally).*?<\/p>)+$/isu', '$1', $html) ?: $html;
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
-
+        $toc = self::build_toc($html);
+        if ($toc !== '') {
+            $html = $toc . "\n\n" . trim($html);
+        }
         return trim($html);
     }
 
@@ -240,6 +252,41 @@ class ModelPageRenderer {
         }
 
         return '<h2>Table of Contents</h2><ul>' . implode('', $items) . '</ul>';
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private static function should_render_editorial_section(string $section, array $payload, string $name): bool {
+        $gate = is_array($payload['model_data_gate'] ?? null) ? $payload['model_data_gate'] : [];
+        if (isset($gate['is_sufficient']) && !$gate['is_sufficient']) {
+            return false;
+        }
+
+        $paragraphs = [];
+        if ($section === 'about') {
+            $paragraphs = self::normalize_lines($payload['about_section_paragraphs'] ?? [], $name);
+        } elseif ($section === 'fans_like') {
+            $paragraphs = self::normalize_lines($payload['fans_like_section_paragraphs'] ?? [], $name);
+        }
+        if (empty($paragraphs)) {
+            return false;
+        }
+
+        $text = mb_strtolower(implode(' ', $paragraphs), 'UTF-8');
+        $active_platforms = $payload['active_platforms'] ?? [];
+        $active_platforms = is_array($active_platforms) ? $active_platforms : [];
+        $has_platform_ref = false;
+        foreach ($active_platforms as $platform) {
+            $p = trim(mb_strtolower((string)$platform, 'UTF-8'));
+            if ($p !== '' && str_contains($text, $p)) {
+                $has_platform_ref = true;
+                break;
+            }
+        }
+
+        $has_name_ref = str_contains($text, mb_strtolower($name, 'UTF-8'));
+        return $has_name_ref || $has_platform_ref;
     }
 
     /** @param array<int,string> $blocks */

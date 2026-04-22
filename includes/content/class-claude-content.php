@@ -210,6 +210,7 @@ GENERATION CONTRACT — every response must satisfy all of these:
    mobile access, notification alerts. Be specific about {primary_platform}.
 7. comparison_section_paragraphs: 1–2 paragraphs that stay platform-balanced.
    If 2+ platforms are supplied, cover each platform fairly and avoid defaulting to one brand.
+   Affiliate priority must not influence editorial weighting.
    Do NOT invent platform names not supplied.
 8. faq_items: exactly 4 Q&A objects. Questions must be natural English questions a real
    fan would ask. Answers must be complete sentences (2–3 sentences each).
@@ -224,6 +225,8 @@ KEYWORD DENSITY RULES
   "What changes most…", or "People land here because…".
 • Also avoid transition-filler intros like "One practical detail is…", "What helps most is…",
   or "The biggest shift…".
+• Forbidden long-tail sentence starters include:
+  "Viewers looking for …", "A query like …", "How to join … usually …", or "<Platform> live show schedule …".
 • Use contractions where natural and vary sentence openers (do not repeatedly start with "The room…").
 • Do NOT use these fallback phrases more than once each across the entire output:
   "official profile links", "trusted room links", "official live profile".
@@ -254,6 +257,7 @@ SYSTEM
 			. "• Each individual section must contain at least 80 words.\n"
 			. "• Do NOT pad with repetitive filler — use concrete observations about pace, chat style, scheduling, privacy, and room features.\n"
 			. "• Weave secondary keywords lightly and naturally; never use raw long-tail phrases as paragraph sentence openers.\n"
+			. "• Do not include keyword-dump blocks or meta commentary about search queries.\n"
 			. "\n"
 			. "Write the profile page content now. Return only the JSON object.\n";
 
