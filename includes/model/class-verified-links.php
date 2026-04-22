@@ -1264,8 +1264,17 @@ class VerifiedLinks {
     public static function get_links( int $post_id ): array {
         $raw = (string) get_post_meta( $post_id, self::META_KEY, true );
         if ( $raw === '' ) { return []; }
+
+        // Preferred storage format (5.x+) is JSON.
         $decoded = json_decode( $raw, true );
-        return is_array( $decoded ) ? $decoded : [];
+        if ( is_array( $decoded ) ) {
+            return $decoded;
+        }
+
+        // Backward-compat: older installs may still have serialized arrays.
+        // Preserve editor-curated links regardless of historical storage shape.
+        $legacy = maybe_unserialize( $raw );
+        return is_array( $legacy ) ? $legacy : [];
     }
 
     // ── get_routed_url() ──────────────────────────────────────────────────
