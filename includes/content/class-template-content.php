@@ -144,11 +144,11 @@ class TemplateContent {
             }
         }
         $second_intro_pool = [
-            'Search results for live rooms are usually packed with copied pages and stale embeds. This page keeps ' . $name . ' in one place so finding the right profile is quicker.',
-            'Finding the real room should not take five tabs. The goal here is straightforward: show current profiles and share practical context before you click through.',
-            'This ' . $name . ' page keeps the essentials together: working links first, then grounded notes on what sessions are typically like.',
-            'If you are mainly trying to work out where ' . $name . ' is live, start with the buttons below. The rest of the page fills in the practical details that usually matter once someone is ready to join.',
-            'Search results for live profiles are often noisy. Keeping the verified rooms for ' . $name . ' in one place saves time and makes the platform choice a lot easier.',
+            'Finding the real room should not take five tabs. You will see current profiles first, followed by short notes that help with platform choice.',
+            'The links below lead straight to active profiles, then the rest of the page covers what usually matters before joining.',
+            'If you are here to find where ' . $name . ' is live, start with the buttons below and use the sections after that for quick comparison.',
+            'Copied profile pages are common, so this page focuses on verified links and practical context you can use right away.',
+            'Start with the active links, then scan the sections below if you want details on chat pace, features, and platform differences.',
         ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
@@ -206,7 +206,7 @@ class TemplateContent {
         $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
 
         if (self::similarity_score($content, (int)$post->ID) > 70.0) {
-            $content .= "\n\n" . '<h2>Why ' . esc_html($name) . ' stands out</h2><p>This page keeps the practical bits together: active platforms, a sense of the room style, and a quick way to compare verified options without extra searching.</p>';
+            $content .= "\n\n" . '<h2>Quick recap for ' . esc_html($name) . '</h2><p>Use the active profile links first, then pick the platform that matches your preferred chat style and room tools.</p>';
             $content = self::split_long_paragraphs($content);
         }
 
@@ -407,6 +407,8 @@ class TemplateContent {
                 continue;
             }
 
+            $rows = self::disambiguate_curated_link_labels($rows);
+
             $items = '';
             foreach ($rows as $row) {
                 $items .= '<li><a href="' . esc_url((string) $row['url']) . '" target="_blank" rel="noopener external nofollow">' . esc_html((string) $row['label']) . '</a></li>';
@@ -424,8 +426,45 @@ class TemplateContent {
         }
 
         return '<h3>' . esc_html('Find ' . $name . ' elsewhere') . '</h3>'
-            . '<p>' . esc_html('These are editor-curated outbound links for official profiles and related pages.') . '</p>'
+            . '<p>' . esc_html('Editor-curated links to official profiles, personal sites, and related pages.') . '</p>'
             . implode('', $chunks);
+    }
+
+    /**
+     * @param array<int,array{label:string,url:string}> $rows
+     * @return array<int,array{label:string,url:string}>
+     */
+    private static function disambiguate_curated_link_labels(array $rows): array {
+        $counts = [];
+        foreach ($rows as $row) {
+            $label = trim((string)($row['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $key = mb_strtolower($label, 'UTF-8');
+            $counts[$key] = (int)($counts[$key] ?? 0) + 1;
+        }
+
+        foreach ($rows as $idx => $row) {
+            $label = trim((string)($row['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+            $key = mb_strtolower($label, 'UTF-8');
+            if (($counts[$key] ?? 0) < 2) {
+                continue;
+            }
+
+            $host = (string)wp_parse_url((string)($row['url'] ?? ''), PHP_URL_HOST);
+            $host = strtolower(preg_replace('/^www\./', '', $host) ?? '');
+            if ($host === '') {
+                continue;
+            }
+
+            $rows[$idx]['label'] = $label . ' (' . $host . ')';
+        }
+
+        return $rows;
     }
 
     /** @return string[] */
@@ -437,6 +476,7 @@ class TemplateContent {
             trim((string)($context['extra_focus_4'] ?? '')),
         ];
         $platform = trim((string)($context['platform_a'] ?? ''));
+        $platform_b = trim((string)($context['platform_b'] ?? ''));
         if ($platform === '' || $platform === self::NEUTRAL_PLATFORM_FALLBACK) {
             $platform = 'the platform';
         }
@@ -445,8 +485,8 @@ class TemplateContent {
 
         $openers = [
             'Regulars usually talk about pacing before anything else. Nothing feels rushed, and the room has enough back-and-forth to keep even quieter sessions from going flat.',
-            'The pull here is not a single gimmick. People stick around because the room stays attentive, the mood stays readable, and the live chat never feels like background noise.',
-            'Across different sessions, the same qualities show up again: steady energy, clear reactions to the room, and a style that feels present instead of automatic.',
+            'The pull here is not a single gimmick. People stick around because chat stays responsive and the room avoids that autoplay, background-stream feeling.',
+            'Across different sessions, the same strengths show up: attentive replies, clear pacing, and a style that feels genuinely live instead of automatic.',
             $name . ' tends to hold attention through timing rather than noise. The room settles into a rhythm quickly, and that makes repeat visits feel easier instead of random.',
             'Regular viewers come back for consistency. Chat stays active, pacing stays steady, and sessions rarely feel phoned in.',
         ];
@@ -465,7 +505,7 @@ class TemplateContent {
             $focus = $clean_focuses[0];
             $pool = [
                 'If ' . $focus . ' is what brought someone here, the first difference they notice is responsiveness. There is real give-and-take instead of a one-way performance.',
-                'A phrase like ' . $focus . ' usually sounds broad, but the real appeal is simple. The room reacts, adjusts, and keeps enough space for the audience to shape the mood a little.',
+                'Viewers looking for ' . $focus . ' usually care about interaction quality. The room reacts in real time instead of feeling pre-scripted.',
                 'People arriving through ' . $focus . ' are usually looking for a room that feels active without turning chaotic. That balance tends to hold up well here.',
             ];
             $paragraphs[] = $pool[self::stable_pick_index($seed . '|focus1', count($pool))];
@@ -481,12 +521,21 @@ class TemplateContent {
 
         $platform_pool = [
             'That style translates well on ' . $platform . ' because the room tools stay manageable. Video is clear, chat stays readable, and the session does not get buried under clutter.',
-            'On ' . $platform . ', the practical side helps more than people expect. Stable playback, decent moderation, and useful alerts make it easier to enjoy the room over time.',
+            'On ' . $platform . ', stable playback, moderation, and alerts make repeat viewing simpler over time.',
             'People comparing platforms usually notice the same thing on ' . $platform . ': it keeps the room usable, which gives the performer more room to actually interact.',
         ];
         $paragraphs[] = $platform_pool[self::stable_pick_index($seed . '|platform', count($platform_pool))];
 
-        return array_values(array_slice(array_filter($paragraphs), 0, 4));
+        if ($platform_b !== '' && $platform_b !== self::NEUTRAL_PLATFORM_FALLBACK && strcasecmp($platform_b, $platform) !== 0) {
+            $compare_pool = [
+                'If you switch between ' . $platform . ' and ' . $platform_b . ', the core style is similar but chat speed and room controls can feel different.',
+                $platform . ' and ' . $platform_b . ' each have their own chat flow, so it is worth trying both before settling on one.',
+                'Viewers who use both ' . $platform . ' and ' . $platform_b . ' usually pick based on moderation style, mobile playback, and overall chat pace.',
+            ];
+            $paragraphs[] = $compare_pool[self::stable_pick_index($seed . '|platform-compare', count($compare_pool))];
+        }
+
+        return array_values(array_slice(array_filter($paragraphs), 0, 5));
     }
 
     private static function render_rankmath_keyword_coverage(array $keywords, string $name): string {
@@ -1241,16 +1290,16 @@ class TemplateContent {
 
         $patterns = [
             static function (string $kw): string {
-                return $kw . ' usually comes from people who want a straight answer on where to click and what kind of room they are opening. That is why the page keeps the live links, platform notes, and basic expectations together.';
+                return 'If you are checking ' . $kw . ', start with the active profile links and confirm which platform is live before you join.';
             },
             static function (string $kw): string {
-                return 'With ' . $kw . ', the useful questions are practical ones: does the stream load quickly, are notifications reliable, and is the room easy to follow on mobile? Those details matter more than hype once someone is ready to join.';
+                return $kw . ' usually points to practical questions: does the stream load cleanly, are alerts reliable, and is chat easy to follow on mobile.';
             },
             static function (string $kw): string {
-                return 'A query like ' . $kw . ' usually means the browsing stage is over. People want a cleaner route into the room, a sense of the schedule, and enough context to decide whether the platform fits.';
+                return 'Before clicking through for ' . $kw . ', it helps to compare platform tools, chat pace, and whether private options are available.';
             },
             static function (string $kw): string {
-                return 'When someone searches ' . $kw . ', they are often comparing convenience more than hype. Stable video, clear navigation, and a readable chat make more difference than flashy copy.';
+                return 'For ' . $kw . ', the useful check is simple: stable video, clear navigation, and a room that stays readable once chat gets busy.';
             },
         ];
 
@@ -1280,10 +1329,10 @@ class TemplateContent {
         $seed = $name . '|pad';
 
         $expansion_pool = [
-            'A page like this is most useful when it shortens the boring part of the process. Instead of checking several profile aggregators, you can see which platforms are active and go straight to ' . $name . ' on the platform that matches how you like to watch.',
+            'A page like this works best when it shortens the boring part. Instead of checking several aggregators, you can open the active profiles directly and choose the platform that fits your viewing style.',
             'The live format changes the experience more than it seems at first. A steady room with readable chat can turn a simple session into something people want to revisit.',
             'Most regular viewers end up caring about the small practical details: whether notifications are dependable, whether mobile playback behaves properly, and whether the room stays manageable once more people join.',
-            $focus1 . ' fits the page because the real choice usually comes down to interaction. Some viewers want a quieter room, some want more public chat, and platform differences matter once that preference becomes clear.',
+            $focus1 . ' matters because platform differences change how chat feels. Some viewers prefer quieter rooms, others want faster public conversation.',
             $focus2 . ' sounds broad, but it usually points to a simple expectation: a stream that feels active, not canned. That comes from pacing, quick reactions, and a room that does not ignore its own chat.',
             $longtail_hint . ' matters for a practical reason. People would rather know when a room tends to open than keep refreshing random profile pages and hoping they got the right one.',
             $tags_text . ' themes help set expectations, but they do not lock every session into the same pattern. The better rooms leave space for mood changes and small detours.',
@@ -1292,7 +1341,7 @@ class TemplateContent {
             'Comparing platforms is worth a minute or two, especially if you care about stream stability or private-room tools. Those differences do not sound exciting, but they shape the whole experience.',
             'HD video is nice, but it is not the only thing people notice. Clean audio, fast room loading, and moderation that keeps the chat readable do just as much for the overall feel.',
             'When the room has a clear rhythm, new viewers settle in faster. That is part of why consistent performers build repeat audiences even when plenty of other profiles are available.',
-            'For viewers moving between ' . $platform_text . ', the comparison usually comes down to room feel. One platform may feel quieter, another may feel busier, and having both listed saves time.',
+            'For viewers moving between ' . $platform_text . ', comparison is mostly about chat pace, controls, and how quickly you can settle into the room.',
         ];
 
         $pool_size  = count($expansion_pool);
@@ -1327,8 +1376,8 @@ class TemplateContent {
         if ($density < 1.15) {
             $anchor_pool = [
                 'Anyone landing here for ' . $focus_keyword . ' will find the essentials in one place. Keeping ' . $focus_keyword . ' tied to the current room links saves time and cuts down on guesswork.',
-                'This page keeps ' . $focus_keyword . ' easy to follow with live links, room notes, and scheduling cues. It also makes ' . $focus_keyword . ' easier to compare across the active platforms without extra searching.',
-                'If ' . $focus_keyword . ' is the reason you are here, the page is built to save time. The active profiles for ' . $focus_keyword . ' are listed first, with enough context to choose a room confidently.',
+                $focus_keyword . ' is easier to follow when active links and platform notes are in one place. It helps you compare options without extra searching.',
+                'If ' . $focus_keyword . ' is the reason you are here, start with the active profiles and then use the platform notes to pick where to watch.',
             ];
             $anchor = $anchor_pool[self::stable_pick_index($focus_keyword . '|anchor', count($anchor_pool))];
             $content .= "
@@ -1345,7 +1394,7 @@ class TemplateContent {
         if (self::keyword_density_percent($content, $focus_keyword) < 1.3) {
             $content .= "
 
-<p>" . esc_html('People usually open a page like this to find ' . $focus_keyword . ' quickly and compare the active rooms without guesswork. Keeping ' . $focus_keyword . ' tied to verified profiles makes ' . $focus_keyword . ' easier to follow across platforms.') . '</p>';
+<p>" . esc_html('For quick comparison, ' . $focus_keyword . ' is listed with active profiles so you can choose a platform without guesswork.') . '</p>';
         }
 
         return $content;
@@ -1709,7 +1758,7 @@ class TemplateContent {
 
         $content = preg_replace('/\bofficial live profile\b/iu', self::stable_fallback_variant($name . '|ofp'), $content) ?: $content;
         $content = str_replace('This guide covers the practical side:', 'This page focuses on the practical side:', $content);
-        $content = str_replace('This guide covers exactly that need:', 'That is why the page keeps the basics together:', $content);
+        $content = str_replace('This guide covers exactly that need:', 'This section covers those basics directly:', $content);
         $content = str_replace('The appeal extends beyond any single session.', 'There is more here than one good session.', $content);
         $content = preg_replace('/\bVisitors searching for\b/iu', 'People coming for', $content) ?: $content;
 
