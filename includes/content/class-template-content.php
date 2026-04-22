@@ -278,8 +278,9 @@ class TemplateContent {
         // section (primary anchor) and the explore-more section (secondary anchor)
         // so Rank Math can detect outbound links regardless of which section
         // the tool happens to scan first.
-        $guaranteed_outbound = self::render_guaranteed_external_platform_links($cta_links, $name);
-        $curated_external    = self::render_curated_verified_links_section((int) $post->ID, $name);
+        $guaranteed_targets  = self::build_guaranteed_external_platform_targets($cta_links);
+        $guaranteed_outbound = self::render_guaranteed_external_platform_links_from_targets($guaranteed_targets);
+        $curated_external    = self::render_curated_verified_links_section((int) $post->ID, $name, $guaranteed_targets);
         $wikipedia_fallback_used = false;
 
         // Fallback to Wikipedia ONLY when cta_links is empty — meaning no
@@ -331,7 +332,10 @@ class TemplateContent {
      * Render a natural "elsewhere online" section using editor-curated verified links.
      * These links are saved on the post and must not depend on research ingestion.
      */
-    private static function render_curated_verified_links_section(int $post_id, string $name): string {
+    /**
+     * @param array<int,array{platform:string,label:string,url:string}> $exclude_targets
+     */
+    private static function render_curated_verified_links_section(int $post_id, string $name, array $exclude_targets = []): string {
         if (!class_exists(VerifiedLinks::class) || !class_exists(VerifiedLinksFamilies::class)) {
             return '';
         }
@@ -351,6 +355,14 @@ class TemplateContent {
             VerifiedLinksFamilies::FAMILY_UNMAPPED => 'Elsewhere online',
         ];
 
+        $exclude_urls = [];
+        foreach ($exclude_targets as $target) {
+            $url = strtolower(rtrim(trim((string) ($target['url'] ?? '')), '/'));
+            if ($url !== '') {
+                $exclude_urls[$url] = true;
+            }
+        }
+
         $seen = [];
         $grouped = [];
         foreach ($links as $link) {
@@ -358,7 +370,7 @@ class TemplateContent {
                 continue;
             }
 
-            $url = trim((string) ($link['url'] ?? ''));
+            $url = trim((string) VerifiedLinks::get_routed_url($link));
             if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
                 continue;
             }
@@ -371,6 +383,9 @@ class TemplateContent {
 
             $type = sanitize_key((string) ($link['type'] ?? 'other'));
             $family = VerifiedLinksFamilies::family_for($type);
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM && isset($exclude_urls[$url_key])) {
+                continue;
+            }
             $label = trim((string) ($link['label'] ?? ''));
             if ($label === '') {
                 $label = (string) ($type_labels[$type] ?? ucfirst(str_replace('_', ' ', $type)));
@@ -910,8 +925,17 @@ class TemplateContent {
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
     private static function render_guaranteed_external_platform_links(array $links, string $name): string {
+        $targets = self::build_guaranteed_external_platform_targets($links);
+        return self::render_guaranteed_external_platform_links_from_targets($targets);
+    }
+
+    /**
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
+     * @return array<int,array{platform:string,label:string,url:string}>
+     */
+    private static function build_guaranteed_external_platform_targets(array $links): array {
         if (empty($links)) {
-            return '';
+            return [];
         }
 
         $priority = ['livejasmin' => 0, 'stripchat' => 1];
@@ -926,7 +950,7 @@ class TemplateContent {
             return $ai <=> $bi;
         });
 
-        $items = [];
+        $targets = [];
         $seen  = [];
         foreach ($links as $link) {
             $platform = sanitize_key((string) ($link['platform'] ?? ''));
@@ -955,13 +979,37 @@ class TemplateContent {
                 continue;
             }
 
-            $items[]         = '<li><a href="' . esc_url($external_url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile') . '</a></li>';
+            $targets[]       = [
+                'platform' => $platform,
+                'label' => $label,
+                'url' => $external_url,
+            ];
             $seen[$platform] = true;
-            if (count($items) >= 2) {
+            if (count($targets) >= 2) {
                 break;
             }
         }
 
+        return $targets;
+    }
+
+    /**
+     * @param array<int,array{platform:string,label:string,url:string}> $targets
+     */
+    private static function render_guaranteed_external_platform_links_from_targets(array $targets): string {
+        if (empty($targets)) {
+            return '';
+        }
+
+        $items = [];
+        foreach ($targets as $target) {
+            $url   = trim((string) ($target['url'] ?? ''));
+            $label = trim((string) ($target['label'] ?? ''));
+            if ($url === '' || $label === '') {
+                continue;
+            }
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile') . '</a></li>';
+        }
         if (empty($items)) {
             return '';
         }
