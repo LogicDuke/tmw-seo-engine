@@ -352,6 +352,7 @@ class ContentEngine {
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
                 "- Avoid generic thesis openers like 'The useful part of', 'The main advantage here is', 'What changes most', or 'People land here because'.\n" .
+                "- Also avoid transition-filler intros like 'One practical detail is', 'What helps most is', or 'The biggest shift'.\n" .
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
@@ -1198,6 +1199,7 @@ class ContentEngine {
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
                 "- Avoid generic thesis openers like 'The useful part of', 'The main advantage here is', 'What changes most', or 'People land here because'.\n" .
+                "- Also avoid transition-filler intros like 'One practical detail is', 'What helps most is', or 'The biggest shift'.\n" .
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n"
