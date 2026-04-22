@@ -63,11 +63,15 @@ class ModelPageRenderer {
             $payload['explore_more_html'] ?? '',
             $payload['external_info_html'] ?? '',
         ]));
-        if ($explore !== '') {
+        if ($explore !== '' && !self::looks_like_nav_chrome($explore)) {
             $sections[] = $explore;
         }
 
         $html = implode("\n\n", $sections);
+        $toc = self::build_toc($html);
+        if ($toc !== '') {
+            $html = $toc . "\n\n" . $html;
+        }
         return self::final_cleanup($html, $name);
     }
 
@@ -194,12 +198,48 @@ class ModelPageRenderer {
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
         $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
         $html = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $html) ?: $html;
+        $html = preg_replace('/<h2>\s*Related (?:search(?:es)?|queries|keywords)\s*<\/h2>\s*(?:<p>.*?<\/p>|<ul>.*?<\/ul>)/isu', '', $html) ?: $html;
+        $html = preg_replace('/<h2>\s*Explore More\s*<\/h2>\s*<ul>\s*(?:<li><a [^>]*>\s*(?:Models|Categories)\s*<\/a><\/li>\s*)+<\/ul>/isu', '', $html) ?: $html;
+        $html = preg_replace('/<p>\s*(?:Related searches people use before picking a room:)\s*<\/p>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
+        $html = preg_replace('/<h2>\s*Quick recap.*?<\/h2>\s*<p>.*?<\/p>/isu', '', $html) ?: $html;
         $html = preg_replace('/<p>\s*(People usually open a page like this.*?|This page keeps .*?practical bits together.*?|This page keeps .*?easy to follow.*?|The page is built to save time.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?)\s*<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
 
         return trim($html);
+    }
+
+    private static function looks_like_nav_chrome(string $html): bool {
+        $text = strtolower(trim((string) wp_strip_all_tags($html)));
+        if ($text === '') {
+            return true;
+        }
+
+        return (bool) preg_match('/^(explore more\s*)?(models|categories)(\s*(models|categories))*$/', $text);
+    }
+
+    private static function build_toc(string $html): string {
+        preg_match_all('/<h2>(.*?)<\/h2>/isu', $html, $matches);
+        $headings = isset($matches[1]) && is_array($matches[1]) ? $matches[1] : [];
+        if (count($headings) < 2) {
+            return '';
+        }
+
+        $items = [];
+        foreach ($headings as $heading) {
+            $label = trim((string) wp_strip_all_tags((string) $heading));
+            if ($label === '') {
+                continue;
+            }
+            $items[] = '<li>' . esc_html($label) . '</li>';
+        }
+
+        if (count($items) < 2) {
+            return '';
+        }
+
+        return '<h2>Table of Contents</h2><ul>' . implode('', $items) . '</ul>';
     }
 
     /** @param array<int,string> $blocks */

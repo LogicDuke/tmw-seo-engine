@@ -163,6 +163,15 @@ class TemplateContent {
         $watch_para = $watch_para_pool[self::stable_pick_index($seed . '|watch', count($watch_para_pool))];
         $keyword_coverage_html = self::render_rankmath_keyword_coverage($rankmath_keywords, $name);
 
+        $model_data_gate = self::evaluate_model_data_gate($post, array_merge($pack, [
+            'name' => $name,
+            'cta_links' => $cta_links,
+            'tags' => $tags,
+            'active_platforms' => $active_platforms,
+            'longtail' => $longtail,
+            'comparison_copy' => $comparison_copy,
+        ]));
+
         $support_payload = self::build_model_renderer_support_payload($post, array_merge($pack, [
             'name' => $name,
             'cta_links' => $cta_links,
@@ -170,6 +179,7 @@ class TemplateContent {
             'active_platforms' => $active_platforms,
             'longtail' => $longtail,
             'comparison_copy' => $comparison_copy,
+            'model_data_gate' => $model_data_gate,
         ]));
 
         $platform_ref = $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK
@@ -200,17 +210,12 @@ class TemplateContent {
             'faq_items' => $faqs_tpl,
         ]);
 
-        $content = ModelPageRenderer::render($name, $renderer_payload);
-        $content = self::split_long_paragraphs($content);
-        $content = self::balance_focus_density($content, $name, $active_platforms, $extra);
-        $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
-
-        if (self::similarity_score($content, (int)$post->ID) > 70.0) {
-            $content .= "\n\n" . '<h2>Quick recap for ' . esc_html($name) . '</h2><p>Use the active profile links first, then pick the platform that matches your preferred chat style and room tools.</p>';
-            $content = self::split_long_paragraphs($content);
+        if (!$model_data_gate['is_sufficient']) {
+            $renderer_payload = array_merge($renderer_payload, self::build_sparse_model_payload($name, $active_platforms, $model_data_gate));
         }
 
-        $content = self::pad_model_content($content, $name, $active_platforms, $extra, $longtail, $tags_text);
+        $content = ModelPageRenderer::render($name, $renderer_payload);
+        $content = self::split_long_paragraphs($content);
         $content = self::cleanup_model_content($content, $name);
 
         $seo_title = self::build_default_model_seo_title($name, $primary_platform_label, (int) $post->ID);
@@ -273,6 +278,7 @@ class TemplateContent {
         $longtail = $pack['longtail'] ?? ($pack['longtail_keywords'] ?? []);
         $longtail = is_array($longtail) ? $longtail : [];
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
+        $model_data_gate = is_array($pack['model_data_gate'] ?? null) ? $pack['model_data_gate'] : ['is_sufficient' => true];
 
         // Build guaranteed external link block once; inject into both the watch
         // section (primary anchor) and the explore-more section (secondary anchor)
@@ -320,11 +326,81 @@ class TemplateContent {
             'watch_section_html' => $watch_html,
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
             'related_models_html' => self::render_related_models($post, $name, $tags, $active_platforms),
-            'explore_more_html' => self::render_internal_links($post),
+            'explore_more_html' => '',
             // All visible outbound links consolidated here — Explore More is the
             // only place in rendered content where real external links appear.
             'external_info_html' => $ext_info_html,
-            'questions_section_paragraphs' => self::build_longtail_paragraphs($longtail, $name),
+            'questions_section_paragraphs' => [],
+            'longtail_keywords' => $longtail,
+            'model_data_gate' => $model_data_gate,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $pack
+     * @return array{is_sufficient:bool,confidence:float,signals:array<string,int>,reason:string}
+     */
+    public static function evaluate_model_data_gate(\WP_Post $post, array $pack): array {
+        $cta_links = isset($pack['cta_links']) && is_array($pack['cta_links'])
+            ? $pack['cta_links']
+            : self::build_platform_cta_links((int) $post->ID, is_array(PlatformProfiles::get_links($post->ID)) ? PlatformProfiles::get_links($post->ID) : []);
+        $tags = $pack['tags'] ?? ($pack['sources']['tags'] ?? []);
+        $tags = is_array($tags) ? array_values(array_filter(array_map('strval', $tags), 'strlen')) : [];
+        $faq_items = $pack['faq_items'] ?? [];
+
+        $signals = [
+            'platform_links' => count($cta_links),
+            'tags' => count($tags),
+            'additional_keywords' => count(is_array($pack['additional'] ?? null) ? $pack['additional'] : []),
+            'faq_items' => count(is_array($faq_items) ? $faq_items : []),
+        ];
+
+        $confidence = ($signals['platform_links'] * 32.0) + ($signals['tags'] * 9.0) + ($signals['additional_keywords'] * 5.0);
+        $is_sufficient = $signals['platform_links'] >= 1 && (($signals['tags'] >= 2) || ($signals['platform_links'] >= 2 && $signals['additional_keywords'] >= 2));
+
+        return [
+            'is_sufficient' => $is_sufficient,
+            'confidence' => min(100.0, $confidence),
+            'signals' => $signals,
+            'reason' => $is_sufficient ? 'sufficient_performer_data' : 'insufficient_performer_data',
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $gate
+     * @return array<string,mixed>
+     */
+    public static function build_sparse_model_payload(string $name, array $active_platforms, array $gate): array {
+        $platform_text = self::format_platform_list($active_platforms, 'available platforms');
+        $reason = (string) ($gate['reason'] ?? 'insufficient_performer_data');
+
+        return [
+            'intro_paragraphs' => [
+                $name . ' is listed, but verified performer details are still limited right now.',
+                'This page stays intentionally short until we have enough profile-specific data to avoid generic filler.',
+            ],
+            'about_section_paragraphs' => [
+                'Current coverage focuses on confirmed links and platform availability only.',
+            ],
+            'fans_like_section_paragraphs' => [],
+            'features_section_paragraphs' => [
+                'These are platform-level features, not confirmed performer-specific traits. Check room controls and stream settings directly before joining.',
+            ],
+            'comparison_section_paragraphs' => [
+                'When multiple platforms are active (' . $platform_text . '), compare stream stability, chat pacing, and privacy controls before choosing.',
+            ],
+            'questions_section_paragraphs' => [],
+            'faq_items' => [
+                [
+                    'q' => 'Why is this profile page short?',
+                    'a' => 'We only publish detailed editorial sections when performer data is strong enough. Right now, this page is intentionally concise to stay accurate.',
+                ],
+                [
+                    'q' => 'What is verified on this page?',
+                    'a' => 'Verified links and platform availability are prioritized first. Personality and style notes are held back until we have reliable performer-specific signals.',
+                ],
+            ],
+            'model_data_notice' => $reason,
         ];
     }
 
@@ -618,6 +694,23 @@ class TemplateContent {
             return $alt_username_note . '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>';
         }
 
+        $labels = array_values(array_filter(array_map(static function (array $link): string {
+            return trim((string)($link['label'] ?? ''));
+        }, $cta_links), 'strlen'));
+        $labels = array_values(array_unique($labels));
+        $prose = [];
+        if (count($labels) >= 2) {
+            foreach (array_slice($labels, 0, 3) as $label) {
+                $prose[] = '<p>' . esc_html($label . ' offers a different room flow for ' . $name . ': check video stability, chat speed, and available private controls before you settle in.') . '</p>';
+            }
+        } else {
+            $single = $labels[0] ?? 'the active platform';
+            $prose[] = '<p>' . esc_html('Only one active platform is currently confirmed (' . $single . '). This section lists profile access details instead of a forced multi-platform comparison.') . '</p>';
+        }
+        if ($comparison_copy !== '') {
+            $prose[] = '<p>' . esc_html($comparison_copy) . '</p>';
+        }
+
         $rows = '';
         foreach (array_slice($cta_links, 0, 4) as $link) {
             $label = trim((string)($link['label'] ?? ''));
@@ -638,7 +731,7 @@ class TemplateContent {
             $table = '<table><thead><tr><th>Platform</th><th>Profile</th><th>Link</th></tr></thead><tbody>' . $rows . '</tbody></table>';
         }
 
-        return $alt_username_note . $table;
+        return $alt_username_note . implode('', $prose) . $table;
     }
 
     private static function render_related_models(\WP_Post $post, string $name, array $tags, array $active_platforms): string {
@@ -1640,14 +1733,13 @@ class TemplateContent {
         $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
 
         $pool = [
-            '<li><strong>Live interaction:</strong> ' . esc_html($name) . ' responds to chat in real time, creating a personal feel.</li>',
-            '<li><strong>HD video quality:</strong> Streams on ' . esc_html($platform) . ' are delivered in high definition with stable audio.</li>',
+            '<li><strong>Platform feature — HD video quality:</strong> Streams on ' . esc_html($platform) . ' typically support high definition playback with stable audio.</li>',
             '<li><strong>Privacy-first browsing:</strong> Platform controls let you watch without sharing personal details.</li>',
             '<li><strong>Mobile-friendly:</strong> Join the live room from any device with a modern browser.</li>',
             '<li><strong>Notification alerts:</strong> Enable follow alerts on ' . esc_html($platform) . ' to get pinged when a new session starts.</li>',
-            '<li><strong>Schedule flexibility:</strong> Sessions rotate, so check back regularly for updated times.</li>',
+            '<li><strong>Platform feature — Schedule flexibility:</strong> Room availability changes throughout the week, so checking recent status helps.</li>',
             '<li><strong>Respectful community:</strong> Moderation keeps the chat positive and on-topic.</li>',
-            '<li><strong>Interactive features:</strong> Polls, tip-triggered actions, and two-way conversation keep sessions engaging.</li>',
+            '<li><strong>Platform feature — Interactive tools:</strong> Polls, tip-triggered actions, and two-way chat tools are available on supported rooms.</li>',
         ];
 
         foreach (array_slice($tag_phrases, 0, 2) as $tag) {

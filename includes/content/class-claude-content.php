@@ -72,6 +72,16 @@ class ClaudeContent {
 
 		$additional = self::resolve_additional( $keyword_pack, $name );
 		$longtail   = self::resolve_longtail( $keyword_pack, $name );
+		$model_data_gate = TemplateContent::evaluate_model_data_gate( $post, $keyword_pack );
+		if ( empty( $model_data_gate['is_sufficient'] ) ) {
+			return [
+				'ok'      => true,
+				'seo_title' => TemplateContent::build_default_model_seo_title( $name, $primary_platform, (int) $post->ID ),
+				'meta_description' => 'Verified links and platform availability for ' . $name . '. Detailed editorial sections are held until more performer data is confirmed.',
+				'focus_keyword' => $name,
+				'payload' => TemplateContent::build_sparse_model_payload( $name, $active_platforms, $model_data_gate ),
+			];
+		}
 
 		// ── Prompt ──────────────────────────────────────────────── //
 		[ $system_msg, $user_msg ] = self::build_prompt(
@@ -198,8 +208,9 @@ GENERATION CONTRACT — every response must satisfy all of these:
    — avoid repeated openers like "Viewers who", "People looking up", or "Searches for/around".
 6. features_section_paragraphs: 2–3 paragraphs. Cover HD quality, interaction, privacy,
    mobile access, notification alerts. Be specific about {primary_platform}.
-7. comparison_section_paragraphs: 1–2 paragraphs comparing why fans prefer this performer
-   over browsing generic feeds. Do NOT invent platform names not supplied.
+7. comparison_section_paragraphs: 1–2 paragraphs that stay platform-balanced.
+   If 2+ platforms are supplied, cover each platform fairly and avoid defaulting to one brand.
+   Do NOT invent platform names not supplied.
 8. faq_items: exactly 4 Q&A objects. Questions must be natural English questions a real
    fan would ask. Answers must be complete sentences (2–3 sentences each).
 
@@ -235,14 +246,14 @@ SYSTEM
 			. ( $platform_list !== $primary_platform ? "• Other platforms: {$platform_list}\n" : '' )
 			. ( $tags_text !== ''    ? "• Content tags / themes: {$tags_text}\n" : '' )
 			. ( $additional_text !== '' ? "• Secondary search phrases (use naturally): {$additional_text}\n" : '' )
-			. ( $longtail_text !== '' ? "• Long-tail queries to weave in: {$longtail_text}\n" : '' )
+			. ( $longtail_text !== '' ? "• Long-tail ideas for FAQ anchors only: {$longtail_text}\n" : '' )
 			. "\n"
 			. "WORD COUNT CONTRACT\n"
 			. "• Hard minimum: " . self::MODEL_MIN_WORDS . " words across all prose sections.\n"
 			. "• Preferred target: " . self::MODEL_PREFERRED_MIN . "–" . self::MODEL_PREFERRED_MAX . " words. Expand each section generously to reach this range.\n"
 			. "• Each individual section must contain at least 80 words.\n"
 			. "• Do NOT pad with repetitive filler — use concrete observations about pace, chat style, scheduling, privacy, and room features.\n"
-			. "• Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n"
+			. "• Weave secondary keywords lightly and naturally; never use raw long-tail phrases as paragraph sentence openers.\n"
 			. "\n"
 			. "Write the profile page content now. Return only the JSON object.\n";
 

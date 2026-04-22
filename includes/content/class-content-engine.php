@@ -241,6 +241,10 @@ class ContentEngine {
                 $secondary_keywords = AssistedDraftEnrichmentService::build_model_secondary_keywords($focus_kw);
             }
         }
+        $model_data_gate = null;
+        if ($post->post_type === 'model') {
+            $model_data_gate = TemplateContent::evaluate_model_data_gate($post, $keyword_pack);
+        }
 
         if ($strategy === 'template') {
             $template_preview = self::build_template_preview_payload($post, $keyword_pack, $focus_kw, $template_type);
@@ -279,6 +283,23 @@ class ContentEngine {
 
         // ── Claude (Anthropic) preview strategy ─────────────────────────────
         if ($strategy === 'claude' && $post->post_type === 'model') {
+            if (is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
+                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
+                $sparse_payload   = TemplateContent::build_sparse_model_payload((string)$post->post_title, (array)($keyword_pack['active_platforms'] ?? []), $model_data_gate);
+                $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+                return [
+                    'strategy'             => 'claude_sparse_fallback',
+                    'template_type'        => $template_type,
+                    'seo_title'            => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
+                    'meta_description'     => 'Verified links and platform availability for ' . trim((string)$post->post_title) . '. Detailed editorial sections are held until more performer data is confirmed.',
+                    'focus_keyword'        => (string)$post->post_title,
+                    'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
+                    'content_html'         => wp_kses_post(trim($html)),
+                    'outline'              => self::extract_outline_from_html($html),
+                    'quality_summary'      => [],
+                    'generated_at'         => current_time('mysql'),
+                ];
+            }
             $claude_result = ClaudeContent::build_model($post, $keyword_pack);
             if ($claude_result['ok']) {
                 $support_payload  = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
@@ -331,6 +352,23 @@ class ContentEngine {
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
         $model = Settings::openai_model_for_quality();
         $is_model_page = ($post->post_type === 'model');
+        if ($is_model_page && is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
+            $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
+            $sparse_payload   = TemplateContent::build_sparse_model_payload((string)$post->post_title, (array)($keyword_pack['active_platforms'] ?? []), $model_data_gate);
+            $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+            return [
+                'strategy' => 'openai_sparse_fallback',
+                'template_type' => $template_type,
+                'seo_title' => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
+                'meta_description' => 'Verified links and platform availability for ' . trim((string)$post->post_title) . '. Detailed editorial sections are held until more performer data is confirmed.',
+                'focus_keyword' => (string)$post->post_title,
+                'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
+                'content_html' => wp_kses_post(trim($html)),
+                'outline' => self::extract_outline_from_html($html),
+                'quality_summary' => [],
+                'generated_at' => current_time('mysql'),
+            ];
+        }
         $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '1200-1501 words' : '150-350 words');
 
         $system = [
@@ -348,6 +386,7 @@ class ContentEngine {
                 "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
@@ -365,7 +404,7 @@ class ContentEngine {
             "- Current title (cleaned): {$clean_title_short}\n" .
             ($focus_kw ? "- Primary keyword (must be used exactly): {$focus_kw}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
-            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail queries to cover: " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
             "- Target length: {$length_hint}\n\n" .
             "WRITE:\n" .
             "1) SEO title that matches the page and includes the keyword naturally.\n" .
@@ -390,6 +429,7 @@ class ContentEngine {
                 "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
+            $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
             $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
                 "- Purpose: help users compare and choose options within this category intent.\n" .
@@ -1041,6 +1081,10 @@ class ContentEngine {
             }
         }
 
+        $model_data_gate = ($post->post_type === 'model')
+            ? TemplateContent::evaluate_model_data_gate($post, $keyword_pack)
+            : null;
+
         // ── Claude (Anthropic) strategy ──────────────────────────────────────
         if ($strategy === 'claude' && $post->post_type === 'model' && Anthropic::is_configured()) {
             $focus_kw = !empty($keyword_pack['primary'])
@@ -1052,7 +1096,7 @@ class ContentEngine {
             $claude_result = ClaudeContent::build_model($post, $keyword_pack);
 
             if ($claude_result['ok']) {
-                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
                 $renderer_payload = array_merge($support_payload, $claude_result['payload']);
                 $generated_content = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
                 $generated_content = wp_kses_post($generated_content);
@@ -1195,6 +1239,7 @@ class ContentEngine {
                 "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
@@ -1212,7 +1257,7 @@ class ContentEngine {
             "- Current title (cleaned): {$clean_title_short}\n" .
             ($keyword ? "- Primary keyword (must be used exactly): {$keyword}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
-            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail queries to cover: " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
             "- Target length: {$length_hint}\n" .
             "\n" .
             "WRITE:\n" .
@@ -1222,6 +1267,16 @@ class ContentEngine {
             "4) Provide section paragraph arrays and faq_items (3-5 Q&As).\n";
 
         $is_model_page = ($post->post_type === 'model');
+        if ($is_model_page && is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
+            $support_payload = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
+            $sparse_payload = TemplateContent::build_sparse_model_payload((string)$post->post_title, (array)($keyword_pack['active_platforms'] ?? []), $model_data_gate);
+            $generated_content = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+            $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
+            wp_update_post(['ID' => $post_id, 'post_content' => $final_content]);
+            update_post_meta($post_id, '_tmwseo_optimize_done', 'sparse_data_fallback');
+            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            return;
+        }
 
         if ($is_model_page) {
             $primary_keyword = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
@@ -1241,6 +1296,7 @@ class ContentEngine {
                 "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
+            $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
         }
 
         $user = [
@@ -1285,7 +1341,7 @@ class ContentEngine {
         $focus_kw  = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
 
         if ($is_model_page) {
-            $support_payload = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+            $support_payload = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
             $renderer_payload = array_merge($support_payload, self::extract_model_renderer_payload($j));
             $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
             $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html, $j, (string)$post->post_title, $support_payload);
