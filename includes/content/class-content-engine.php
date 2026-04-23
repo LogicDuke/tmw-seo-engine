@@ -378,7 +378,7 @@ class ContentEngine {
                 "You are a professional SEO copywriter for top-models.webcam.\n" .
                 "Write informative, human-readable content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
-                "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
+                "Focus on real visitor problems (finding real rooms, choosing active platforms, avoiding fake profiles, and deciding what to click first).\n" .
                 "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
                 "seo_title <= 65 characters. meta_description 145-160 characters.\n" .
                 "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
@@ -388,6 +388,7 @@ class ContentEngine {
                 "- Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when the referent is unclear.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- faq_items questions must sound like natural spoken questions, not keyword-stuffed pseudo-questions.\n" .
                 "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
                 "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
                 "- Vary sentence length and opener across sections.\n" .
@@ -401,10 +402,12 @@ class ContentEngine {
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
                 "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
+                "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .
                 "- Keep intro and watch copy mobile-compact: lead with who the model is and where to find official links.\n" .
                 "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
                 "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
-                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n"
+                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
+                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n"
         ];
 
         $user_content =
@@ -438,6 +441,7 @@ class ContentEngine {
                 "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
                 "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
+                "- Open each section with the practical decision the visitor needs to make right now.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
             $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";
@@ -1249,7 +1253,7 @@ class ContentEngine {
                 "You are a professional SEO copywriter for top-models.webcam.\n" .
                 "Write informative, human-readable content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
-                "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
+                "Focus on real visitor problems (finding real rooms, choosing active platforms, avoiding fake profiles, and deciding what to click first).\n" .
                 "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
                 "seo_title <= 65 characters. meta_description 145-160 characters.\n" .
                 "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
@@ -1259,6 +1263,7 @@ class ContentEngine {
                 "- Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when the referent is unclear.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- faq_items questions must sound like natural spoken questions, not keyword-stuffed pseudo-questions.\n" .
                 "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
                 "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
                 "- Vary sentence length and opener across sections.\n" .
@@ -1272,10 +1277,12 @@ class ContentEngine {
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
                 "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
+                "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .
                 "- Keep intro and watch copy mobile-compact: lead with who the model is and where to find official links.\n" .
                 "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
                 "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
-                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n"
+                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
+                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n"
         ];
 
         $user_content =
@@ -1323,6 +1330,7 @@ class ContentEngine {
                 "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
                 "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
+                "- Open each section with the practical decision the visitor needs to make right now.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
             $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";

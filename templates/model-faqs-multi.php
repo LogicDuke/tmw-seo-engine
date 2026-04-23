@@ -5,27 +5,27 @@
 
 return [
     [
-        'q' => 'Which platforms are currently active?',
-        'a' => '{name} currently has active profiles on {active_platforms_text}. The links here point to confirmed profile destinations so you can check live status quickly.',
+        'q' => 'Which platforms are active right now?',
+        'a' => '{name} currently has active profiles on {active_platforms_text}. Use the official links here to confirm live status on each platform quickly.',
     ],
     [
-        'q' => 'Which platform should I open first?',
-        'a' => 'Start with the platform you already use, then compare the second room for chat controls and playback quality. A short side-by-side check usually makes the choice clear.',
+        'q' => 'Which platform should I start with?',
+        'a' => 'Start with the platform you already use most. Then test the second active platform if chat controls, playback quality, or moderation matters more to you.',
     ],
     [
         'q' => 'How do I compare platforms fairly?',
-        'a' => 'Use the same criteria on each platform: load speed, chat readability, moderation quality, and mobile usability. Avoid deciding from branding alone.',
+        'a' => 'Use the same checklist on both platforms: load speed, chat readability, moderation, and mobile usability. This keeps the choice practical instead of brand-driven.',
     ],
     [
-        'q' => 'Should I follow both profiles?',
-        'a' => 'Yes, if both are active. Dual follows help when schedules shift between platforms and reduce missed live sessions.',
+        'q' => 'Where else can I follow {name} online?',
+        'a' => 'Follow both active official profiles when possible. Dual follows help you catch schedule shifts without searching from scratch.',
     ],
     [
-        'q' => 'Are private features the same everywhere?',
-        'a' => 'No. Private-room controls vary by platform and by current room state. Open each official profile to verify what is available before joining.',
+        'q' => 'Are private features the same on every platform?',
+        'a' => 'No, private features vary by platform and current room state. Open each official profile to verify what is available before joining.',
     ],
     [
-        'q' => 'Is this page promoting one platform?',
-        'a' => 'No. Multi-platform pages are written to compare all active platforms evenly and help you choose based on your own viewing preferences.',
+        'q' => 'Is this page biased toward one platform?',
+        'a' => 'No, the page compares every active platform directly. Use it to pick the platform that best matches your speed, trust, and mobile needs.',
     ],
 ];

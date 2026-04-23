@@ -145,18 +145,18 @@ class TemplateContent {
             }
         }
         $second_intro_pool = [
-            'Start with the watch links, then use the comparison section to choose between active platforms.',
-            'This page is most useful as a quick access hub: confirmed links first, practical platform notes second.',
-            'Use the direct room buttons first; the rest of the page helps you compare where to click next.',
-            'The writing here focuses on confirmed access details, not filler about page structure.',
-            'If you are deciding where to watch, open one room first and use the platform comparison before switching.',
+            'Start with the official watch links first, then use the comparison section to choose between active platforms.',
+            'Use this page as a quick decision hub: official links first, platform choice notes second.',
+            'Use the direct room buttons first; then compare active platforms to decide where to stay.',
+            'Everything here is problem-first: real room access, trusted links, and practical platform choices.',
+            'If you are deciding where to watch, open your familiar platform first and then check the second active room.',
         ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
-            'Use the buttons below to open ' . $name . "'s" . ' current rooms directly.',
+            'Use the buttons below to open ' . $name . "'s" . ' official active rooms directly.',
             'Choose a platform below and you will land on ' . $name . "'s" . ' active room without bouncing through copied pages first.',
-            'Open the room from the verified profile link and check live status there before following third-party listings.',
+            'Open the room from the verified profile link first, then confirm live status before trusting third-party listings.',
         ];
         if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
@@ -192,8 +192,8 @@ class TemplateContent {
         $seed_about = self::build_seed_about_paragraphs($editor_seed, $name);
         $has_specific_about = !empty($seed_about) || self::has_specific_supporting_data($name, $bio, $active_platforms, $tags, $cta_links);
         $features_intro = $model_data_gate['is_sufficient']
-            ? 'Use this section as a platform checklist: playback stability, chat controls, alerts, mobile handling, and privacy settings.'
-            : 'Features listed here are platform/access capabilities, not confirmed performer-specific traits.';
+            ? 'Use this section to answer one question fast: which platform matches your speed, trust, and mobile needs.'
+            : 'Features listed here cover platform access checks only, not unverified performer-specific traits.';
         $intro_paragraphs = self::build_seed_intro_paragraphs($name, $editor_seed, $active_platforms, $intro, $second_intro);
         $comparison_paragraphs = self::build_seed_comparison_paragraphs($editor_seed, $comparison_copy);
         if (empty($comparison_paragraphs)) {
@@ -210,7 +210,7 @@ class TemplateContent {
             'about_section_paragraphs' => $has_specific_about ? (!empty($seed_about) ? $seed_about : [$bio]) : [],
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate, $editor_seed),
             'features_section_paragraphs' => [
-                $features_intro . ' The notes below explain what to verify before joining on ' . $platform_ref . '.',
+                $features_intro . ' Check playback, chat clarity, and account controls before joining on ' . $platform_ref . '.',
             ],
             'features_section_html' => self::join_html_blocks([
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
@@ -417,8 +417,8 @@ class TemplateContent {
 
         return [
             'intro_paragraphs' => [
-                $name . ' has active profiles on ' . $platform_text . ' plus official links across verified sources.',
-                'This page keeps confirmed links together so visitors can find the right profile quickly.',
+                $name . ' has active profiles on ' . $platform_text . ', and this page prioritizes official links first.',
+                'Use the verified links here to avoid copied profiles and reach the right room quickly.',
             ],
             'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
@@ -426,17 +426,17 @@ class TemplateContent {
                 'Platform notes below describe platform-level features only, not confirmed performer-specific traits.',
             ],
             'comparison_section_paragraphs' => [
-                'If multiple platforms are active, compare load speed, chat controls, and privacy settings before choosing where to watch.',
+                'If multiple platforms are active, start with your familiar platform and compare load speed, chat controls, and privacy settings before choosing where to watch.',
             ],
             'questions_section_paragraphs' => [],
             'faq_items' => [
                 [
-                    'q' => 'Why is this profile page short?',
-                    'a' => 'We only publish detailed editorial sections when performer data is strong enough. Right now, this page is intentionally concise to stay accurate.',
+                    'q' => 'Why is this page short right now?',
+                    'a' => 'It is short because only verified details are published here first. Deeper profile sections are added when performer-specific data is strong enough to trust.',
                 ],
                 [
-                    'q' => 'What is verified on this page?',
-                    'a' => 'Verified links and platform availability are prioritized first. Personality and style notes are held back until we have reliable performer-specific signals.',
+                    'q' => 'What is already verified on this page?',
+                    'a' => 'Verified links and active platform availability are confirmed here first. Personality and style claims stay out until reliable performer-specific signals are available.',
                 ],
             ],
             'model_data_notice' => $reason,
@@ -796,6 +796,8 @@ class TemplateContent {
         $answer = preg_replace('/\bA query like\b/iu', '', $answer) ?: $answer;
         $answer = preg_replace('/\bPeople looking for\b/iu', '', $answer) ?: $answer;
         $answer = preg_replace('/\bThis usually means\b/iu', '', $answer) ?: $answer;
+        $answer = preg_replace('/\bPeople looking up\b/iu', '', $answer) ?: $answer;
+        $answer = preg_replace('/\bSearches for\b/iu', '', $answer) ?: $answer;
         return trim((string) preg_replace('/\s+/', ' ', $answer));
     }
 
@@ -915,10 +917,10 @@ class TemplateContent {
         $prose = [];
         if (count($labels) >= 2) {
             $balanced_labels = array_slice($labels, 0, 3);
-            $prose[] = '<p>' . esc_html('Choose between ' . $balanced_labels[0] . ' and ' . $balanced_labels[1] . ' by testing chat readability, mobile playback, and room controls on each platform first.') . '</p>';
-            $prose[] = '<p>' . esc_html($name . ' has active profiles on ' . implode(', ', $balanced_labels) . '. Each platform handles chat pacing, notifications, and private controls differently.') . '</p>';
+            $prose[] = '<p>' . esc_html('Start with ' . $balanced_labels[0] . ' if it is your usual platform, then compare ' . $balanced_labels[1] . ' using chat readability, mobile playback, and room controls.') . '</p>';
+            $prose[] = '<p>' . esc_html($name . ' has active profiles on ' . implode(', ', $balanced_labels) . '. Compare both official rooms before deciding which one to use as your default.') . '</p>';
             foreach ($balanced_labels as $label) {
-                $prose[] = '<p>' . esc_html('On ' . $label . ', review room moderation, mobile playback, and how quickly chat responses surface during busier sessions.') . '</p>';
+                $prose[] = '<p>' . esc_html('On ' . $label . ', verify room moderation, mobile playback, and chat response speed during busier sessions.') . '</p>';
             }
         } else {
             $single = $labels[0] ?? 'the active platform';
