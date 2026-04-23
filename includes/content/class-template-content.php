@@ -43,6 +43,7 @@ class TemplateContent {
         }
 
         $seed = $name . '-' . $post->ID;
+        $editor_seed = self::get_editor_seed_data((int) $post->ID);
 
         PlatformProfiles::sync_to_table((int) $post->ID);
         $platform_links = PlatformProfiles::get_links($post->ID);
@@ -170,6 +171,7 @@ class TemplateContent {
             'active_platforms' => $active_platforms,
             'longtail' => $longtail,
             'comparison_copy' => $comparison_copy,
+            'editor_seed' => $editor_seed,
         ]));
 
         $support_payload = self::build_model_renderer_support_payload($post, array_merge($pack, [
@@ -180,28 +182,33 @@ class TemplateContent {
             'longtail' => $longtail,
             'comparison_copy' => $comparison_copy,
             'model_data_gate' => $model_data_gate,
+            'editor_seed' => $editor_seed,
         ]));
 
         $platform_ref = $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK
             ? $primary_platform_label
             : 'the platform';
 
-        $has_specific_about = self::has_specific_supporting_data($name, $bio, $active_platforms, $tags, $cta_links);
+        $seed_about = self::build_seed_about_paragraphs($editor_seed, $name);
+        $has_specific_about = !empty($seed_about) || self::has_specific_supporting_data($name, $bio, $active_platforms, $tags, $cta_links);
         $features_intro = $model_data_gate['is_sufficient']
             ? 'Use this section as a platform checklist: playback stability, chat controls, alerts, mobile handling, and privacy settings.'
             : 'Features listed here are platform/access capabilities, not confirmed performer-specific traits.';
+        $intro_paragraphs = self::build_seed_intro_paragraphs($name, $editor_seed, $active_platforms, $intro, $second_intro);
+        $comparison_paragraphs = self::build_seed_comparison_paragraphs($editor_seed, $comparison_copy);
+        if (empty($comparison_paragraphs)) {
+            $comparison_paragraphs = [$comparison_copy];
+        }
+        $faq_items = self::build_seed_faq_items($editor_seed, $faqs_tpl);
 
         $renderer_payload = array_merge($support_payload, [
             'focus_keyword' => $name,
-            'intro_paragraphs' => [
-                $intro,
-                $second_intro,
-            ],
+            'intro_paragraphs' => $intro_paragraphs,
             'watch_section_paragraphs' => [
                 $watch_para,
             ],
-            'about_section_paragraphs' => $has_specific_about ? [$bio] : [],
-            'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate),
+            'about_section_paragraphs' => $has_specific_about ? (!empty($seed_about) ? $seed_about : [$bio]) : [],
+            'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate, $editor_seed),
             'features_section_paragraphs' => [
                 $features_intro . ' The notes below explain what to verify before joining on ' . $platform_ref . '.',
             ],
@@ -209,8 +216,8 @@ class TemplateContent {
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
                 $keyword_coverage_html,
             ]),
-            'comparison_section_paragraphs' => [$comparison_copy],
-            'faq_items' => $faqs_tpl,
+            'comparison_section_paragraphs' => $comparison_paragraphs,
+            'faq_items' => $faq_items,
         ]);
 
         if (!$model_data_gate['is_sufficient']) {
@@ -282,6 +289,7 @@ class TemplateContent {
         $longtail = is_array($longtail) ? $longtail : [];
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
         $model_data_gate = is_array($pack['model_data_gate'] ?? null) ? $pack['model_data_gate'] : ['is_sufficient' => true];
+        $editor_seed = is_array($pack['editor_seed'] ?? null) ? $pack['editor_seed'] : self::get_editor_seed_data((int) $post->ID);
 
         // Build guaranteed external link block once; inject into both the watch
         // section (primary anchor) and the explore-more section (secondary anchor)
@@ -327,7 +335,7 @@ class TemplateContent {
 
         return [
             'watch_section_html' => $watch_html,
-            'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
+            'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy, $editor_seed),
             'related_models_html' => '',
             'explore_more_html' => '',
             // All visible outbound links consolidated here — Explore More is the
@@ -337,6 +345,8 @@ class TemplateContent {
             'longtail_keywords' => $longtail,
             'model_data_gate' => $model_data_gate,
             'active_platforms' => $active_platforms,
+            'editor_seed_summary' => (string) ($editor_seed['summary'] ?? ''),
+            'editor_seed_platform_notes' => (array) ($editor_seed['platform_notes'] ?? []),
         ];
     }
 
@@ -355,6 +365,12 @@ class TemplateContent {
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
         $active_platforms = $pack['active_platforms'] ?? [];
         $active_platforms = is_array($active_platforms) ? array_values(array_filter(array_map('strval', $active_platforms), 'strlen')) : [];
+        $editor_seed = isset($pack['editor_seed']) && is_array($pack['editor_seed'])
+            ? $pack['editor_seed']
+            : self::get_editor_seed_data((int) $post->ID);
+        $seed_fact_count = count((array)($editor_seed['confirmed_facts'] ?? []))
+            + count((array)($editor_seed['known_for_tags'] ?? []))
+            + (trim((string)($editor_seed['summary'] ?? '')) !== '' ? 1 : 0);
 
         $signals = [
             'platform_links' => count($cta_links),
@@ -363,15 +379,17 @@ class TemplateContent {
             'faq_items' => count(is_array($faq_items) ? $faq_items : []),
             'active_platforms' => count($active_platforms),
             'comparison_copy' => ($comparison_copy !== '' ? 1 : 0),
+            'editor_seed_facts' => $seed_fact_count,
         ];
         $specific_fact_count =
             min(3, $signals['platform_links']) +
             min(2, $signals['active_platforms']) +
             min(2, $signals['tags']) +
             min(1, $signals['comparison_copy']) +
-            min(1, $signals['faq_items']);
+            min(1, $signals['faq_items']) +
+            min(3, $signals['editor_seed_facts']);
 
-        $confidence = ($signals['platform_links'] * 28.0) + ($signals['tags'] * 10.0) + ($signals['additional_keywords'] * 4.0) + ($signals['comparison_copy'] * 8.0);
+        $confidence = ($signals['platform_links'] * 28.0) + ($signals['tags'] * 10.0) + ($signals['additional_keywords'] * 4.0) + ($signals['comparison_copy'] * 8.0) + ($signals['editor_seed_facts'] * 9.0);
         $is_sufficient =
             $signals['platform_links'] >= 1
             && $signals['active_platforms'] >= 1
@@ -420,6 +438,81 @@ class TemplateContent {
             ],
             'model_data_notice' => $reason,
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $pack
+     * @return array<string,mixed>
+     */
+    public static function hydrate_model_keyword_pack(\WP_Post $post, array $pack): array {
+        $pack['editor_seed'] = self::get_editor_seed_data((int) $post->ID);
+        return $pack;
+    }
+
+    public static function build_editor_seed_prompt_block(array $editor_seed): string {
+        if (empty($editor_seed)) {
+            return "Editor seed facts: none provided.\n";
+        }
+        $lines = [ "EDITOR SEED (authoritative, highest trust)" ];
+        $summary = trim((string)($editor_seed['summary'] ?? ''));
+        if ($summary !== '') {
+            $lines[] = '- Summary: ' . $summary;
+        }
+        $tags = isset($editor_seed['known_for_tags']) && is_array($editor_seed['known_for_tags']) ? $editor_seed['known_for_tags'] : [];
+        if (!empty($tags)) {
+            $lines[] = '- Known-for tags: ' . implode(', ', array_slice(array_map('strval', $tags), 0, 6));
+        }
+        $notes = isset($editor_seed['platform_notes']) && is_array($editor_seed['platform_notes']) ? $editor_seed['platform_notes'] : [];
+        if (!empty($notes)) {
+            $lines[] = '- Platform notes: ' . implode(' | ', array_slice(array_map('strval', $notes), 0, 6));
+        }
+        $facts = isset($editor_seed['confirmed_facts']) && is_array($editor_seed['confirmed_facts']) ? $editor_seed['confirmed_facts'] : [];
+        if (!empty($facts)) {
+            $lines[] = '- Confirmed facts: ' . implode(' | ', array_slice(array_map('strval', $facts), 0, 6));
+        }
+        $avoid = isset($editor_seed['avoid_claims']) && is_array($editor_seed['avoid_claims']) ? $editor_seed['avoid_claims'] : [];
+        if (!empty($avoid)) {
+            $lines[] = '- Claims to avoid / unknowns: ' . implode(' | ', array_slice(array_map('strval', $avoid), 0, 6));
+        }
+        $tone = trim((string)($editor_seed['tone_hint'] ?? ''));
+        if ($tone !== '') {
+            $lines[] = '- Tone hint: ' . $tone;
+        }
+        $lines[] = '- Safety rule: do not present any claim as true unless it appears in editor seed, reviewed research, or verified platform/link data.';
+        return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public static function get_editor_seed_data(int $post_id): array {
+        $summary = trim((string) get_post_meta($post_id, '_tmwseo_editor_seed_summary', true));
+        $tags_csv = (string) get_post_meta($post_id, '_tmwseo_editor_seed_tags', true);
+        $known_for_tags = array_values(array_filter(array_map('trim', explode(',', $tags_csv)), 'strlen'));
+        $platform_notes = self::normalize_multiline_list((string) get_post_meta($post_id, '_tmwseo_editor_seed_platform_notes', true));
+        $confirmed_facts = self::normalize_multiline_list((string) get_post_meta($post_id, '_tmwseo_editor_seed_confirmed_facts', true));
+        $avoid_claims = self::normalize_multiline_list((string) get_post_meta($post_id, '_tmwseo_editor_seed_avoid_claims', true));
+        $tone_hint = trim((string) get_post_meta($post_id, '_tmwseo_editor_seed_tone_hint', true));
+
+        return [
+            'summary' => $summary,
+            'known_for_tags' => $known_for_tags,
+            'platform_notes' => $platform_notes,
+            'confirmed_facts' => $confirmed_facts,
+            'avoid_claims' => $avoid_claims,
+            'tone_hint' => $tone_hint,
+            'is_populated' => ($summary !== '' || !empty($known_for_tags) || !empty($platform_notes) || !empty($confirmed_facts)),
+        ];
+    }
+
+    /** @return string[] */
+    private static function normalize_multiline_list(string $raw): array {
+        if (trim($raw) === '') {
+            return [];
+        }
+        $parts = preg_split('/\r\n|\r|\n/', $raw) ?: [];
+        $parts = array_map(static fn($v) => trim((string) $v), $parts);
+        return array_values(array_filter($parts, 'strlen'));
     }
 
     /**
@@ -600,9 +693,78 @@ class TemplateContent {
     }
 
     /** @return string[] */
-    private static function build_fans_like_paragraphs(array $context, string $name, array $model_data_gate = []): array {
+    private static function build_seed_intro_paragraphs(string $name, array $editor_seed, array $active_platforms, string $fallback_intro, string $fallback_second): array {
+        $summary = trim((string) ($editor_seed['summary'] ?? ''));
+        if ($summary === '') {
+            return [$fallback_intro, $fallback_second];
+        }
+        $platform_text = self::format_platform_list($active_platforms, 'active platforms');
+        return [
+            $summary,
+            $name . ' is currently active on ' . $platform_text . '. Use official links below to compare rooms quickly.',
+        ];
+    }
+
+    /** @return string[] */
+    private static function build_seed_about_paragraphs(array $editor_seed, string $name): array {
+        $summary = trim((string) ($editor_seed['summary'] ?? ''));
+        $facts = isset($editor_seed['confirmed_facts']) && is_array($editor_seed['confirmed_facts']) ? $editor_seed['confirmed_facts'] : [];
+        $paragraphs = [];
+        if ($summary !== '') {
+            $paragraphs[] = $summary;
+        }
+        if (!empty($facts)) {
+            $paragraphs[] = 'Confirmed details: ' . implode(' ', array_slice(array_map(static fn($f) => trim((string) $f) . '.', $facts), 0, 3));
+        }
+        return array_values(array_filter(array_map(static fn($p) => self::cleanup_visible_text((string) $p, $name, false), $paragraphs), 'strlen'));
+    }
+
+    /** @return string[] */
+    private static function build_seed_comparison_paragraphs(array $editor_seed, string $fallback_copy): array {
+        $notes = isset($editor_seed['platform_notes']) && is_array($editor_seed['platform_notes']) ? $editor_seed['platform_notes'] : [];
+        if (!empty($notes)) {
+            return array_slice(array_values(array_filter(array_map('strval', $notes), 'strlen')), 0, 3);
+        }
+        return $fallback_copy !== '' ? [$fallback_copy] : [];
+    }
+
+    /**
+     * @param array<int,array{q:string,a:string}> $fallback
+     * @return array<int,array{q:string,a:string}>
+     */
+    private static function build_seed_faq_items(array $editor_seed, array $fallback): array {
+        $facts = isset($editor_seed['confirmed_facts']) && is_array($editor_seed['confirmed_facts']) ? $editor_seed['confirmed_facts'] : [];
+        $avoid = isset($editor_seed['avoid_claims']) && is_array($editor_seed['avoid_claims']) ? $editor_seed['avoid_claims'] : [];
+        $items = [];
+        if (!empty($facts)) {
+            $items[] = [
+                'q' => 'What details are currently confirmed?',
+                'a' => 'Confirmed information includes: ' . implode('; ', array_slice(array_map('strval', $facts), 0, 3)) . '.',
+            ];
+        }
+        if (!empty($avoid)) {
+            $items[] = [
+                'q' => 'Are there details still unconfirmed?',
+                'a' => 'Yes. The following claims are treated as unconfirmed and are intentionally not presented as facts: ' . implode('; ', array_slice(array_map('strval', $avoid), 0, 2)) . '.',
+            ];
+        }
+        $merged = array_merge($items, $fallback);
+        return array_slice($merged, 0, 5);
+    }
+
+    /** @return string[] */
+    private static function build_fans_like_paragraphs(array $context, string $name, array $model_data_gate = [], array $editor_seed = []): array {
         if (empty($model_data_gate['is_sufficient'])) {
             return [];
+        }
+        $seed_tags = isset($editor_seed['known_for_tags']) && is_array($editor_seed['known_for_tags'])
+            ? array_values(array_filter(array_map('strval', $editor_seed['known_for_tags']), 'strlen'))
+            : [];
+        if (!empty($seed_tags)) {
+            $lead = array_slice($seed_tags, 0, 3);
+            return [
+                'Editors consistently tag ' . $name . ' for ' . implode(', ', $lead) . ', so those are the most reliable themes to check first when you join.',
+            ];
         }
         $platform = trim((string)($context['platform_a'] ?? ''));
         $platform_b = trim((string)($context['platform_b'] ?? ''));
@@ -663,8 +825,11 @@ class TemplateContent {
         return $out;
     }
 
-    private static function build_platform_comparison(\WP_Post $post, string $name, array $cta_links, string $comparison_copy): string {
+    private static function build_platform_comparison(\WP_Post $post, string $name, array $cta_links, string $comparison_copy, array $editor_seed = []): string {
         $comparison_copy = self::cleanup_visible_text($comparison_copy, $name, false);
+        $platform_notes = isset($editor_seed['platform_notes']) && is_array($editor_seed['platform_notes'])
+            ? array_values(array_filter(array_map('strval', $editor_seed['platform_notes']), 'strlen'))
+            : [];
 
         // ── Detect alternate Stripchat username ───────────────────────────────
         // When a model's Stripchat username differs from their primary (LiveJasmin)
@@ -711,7 +876,11 @@ class TemplateContent {
             $single = $labels[0] ?? 'the active platform';
             $prose[] = '<p>' . esc_html('Only one active platform is currently confirmed (' . $single . '). This section lists profile access details instead of a forced multi-platform comparison.') . '</p>';
         }
-        if ($comparison_copy !== '') {
+        if (!empty($platform_notes)) {
+            foreach (array_slice($platform_notes, 0, 3) as $note) {
+                $prose[] = '<p>' . esc_html($note) . '</p>';
+            }
+        } elseif ($comparison_copy !== '') {
             $prose[] = '<p>' . esc_html($comparison_copy) . '</p>';
         }
 
