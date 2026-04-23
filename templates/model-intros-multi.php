@@ -1,55 +1,29 @@
 <?php
 /**
  * Multi-platform intro template pool.
- *
- * Used when a model has profiles on two or more platforms.
  */
 
-$search_hooks = [
-    "{name} has active profiles on {active_platforms_text}, so you can choose the room that fits how you like to watch.",
-    "If you are checking {name} across {active_platforms_text}, the links below go straight to the current rooms.",
-    "The goal is simple: make it easy to open the real profiles on {active_platforms_text} without digging through copied listings.",
-    "Viewers comparing {active_platforms_text} usually want current links first and a short sense of what each room is like.",
-    "When someone follows {name} on more than one site, having both active profiles together saves a lot of back-and-forth.",
-    "This guide keeps the active {active_platforms_text} profiles in one place so platform choice is easier.",
+$openers = [
+    "{name} has active profiles on {active_platforms_text}, and this page keeps the confirmed room links together.",
+    "If you follow {name} across {active_platforms_text}, use the direct profile links here to avoid stale mirrors.",
+    "{name} is live across {active_platforms_text}; this page helps you pick the right room without extra searching.",
+    "For {name}, the fastest route to real profiles on {active_platforms_text} is the link set below.",
+    "This page tracks active profiles for {name} on {active_platforms_text} so you can compare options quickly.",
 ];
 
-$live_benefits = [
-    "Multiple platforms let you pick between different chat pace and interface style while following the same performer.",
-    "One room may move faster while the other stays more conversational, which is useful when you are deciding where to spend time.",
-    "When people compare platforms, they usually care about stream stability, chat readability, and how easy moderation tools are to use.",
-    "Following both profiles helps when schedules shift, especially if you check in from different time zones.",
-];
-
-$style_notes = [
-    "The performer style stays familiar, but each platform can shape how fast chat moves and how visible messages feel.",
-    "Across both platforms, the strongest sessions keep responsive chat and clear pacing without turning noisy.",
-    "Good multi-platform pages are most helpful when they compare access and chat experience instead of repeating hype.",
-    "The differences are usually practical: navigation, moderation, and how easy it is to settle in once the room gets busy.",
-];
-
-$cta_lines = [
-    "Use the links below to compare the active profiles on {active_platforms_text} directly.",
-    "Start on the platform you use most, then open the second room if you want to compare chat flow and tools.",
-    "The links below are the fastest way to check which room suits you best today.",
-    "If you just want the current rooms without extra searching, the platform links below are the place to start.",
+$utility_lines = [
+    "Start with your preferred platform, then compare the second room if chat tools or pacing matter to you.",
+    "Use the links to confirm which room is active first, then choose based on the platform features you prefer.",
+    "Both platform sections are written for side-by-side comparison rather than one-platform bias.",
+    "The sections below focus on practical differences: access flow, controls, and room behavior across platforms.",
+    "When schedules rotate, keeping both official profiles in one place makes check-ins faster.",
 ];
 
 $intros = [];
 for ($i = 0; $i < 60; $i++) {
-    shuffle($search_hooks);
-    shuffle($live_benefits);
-    shuffle($style_notes);
-    shuffle($cta_lines);
-
-    $sentences = array_merge(
-        array_slice($search_hooks, 0, 2),
-        array_slice($live_benefits, 0, 2),
-        array_slice($style_notes, 0, 1),
-        array_slice($cta_lines, 0, 1)
-    );
-
-    $intros[] = implode(' ', $sentences);
+    shuffle($openers);
+    shuffle($utility_lines);
+    $intros[] = $openers[0] . ' ' . $utility_lines[0];
 }
 
 return $intros;

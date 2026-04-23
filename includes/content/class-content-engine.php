@@ -26,13 +26,9 @@ class ContentEngine {
      */
     private const PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE = true;
 
-    // Audit fix 4.4.0: model page content floor for AI retry loop.
-    // Model page word count contract — all generation paths must respect this.
-    // Hard floor: 800 words (fail/retry gate).
-    // Preferred target: 1200–1501 words (what pad_model_content and LLM prompts aim for).
-    // This is NOT a universal target — actual scoring uses page-type-aware
-    // ranges in QualityScoreEngine::word_count_ranges().
-    private const MODEL_MIN_WORDS = 800;
+    // Model page floor for AI retry loop. Keep low enough to allow concise
+    // factual pages when performer-specific data is limited.
+    private const MODEL_MIN_WORDS = 260;
     private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
     private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
 
@@ -396,7 +392,9 @@ class ContentEngine {
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n" .
-                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n"
+                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
+                "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
+                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n"
         ];
 
         $user_content =
@@ -422,13 +420,13 @@ class ContentEngine {
                 "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
                 "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
                 "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Preferred target: 1200–1501 words — expand each section generously to reach this.\n" .
-                "- Each section must contain at least 80 words.\n" .
+                "- Preferred target: concise, high-signal copy; do not pad sections to hit arbitrary length.\n" .
+                "- If performer-specific facts are thin, keep about/fans-like short or empty instead of inventing detail.\n" .
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
-                "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
-                "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
+                "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
@@ -1252,7 +1250,9 @@ class ContentEngine {
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n" .
-                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n"
+                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
+                "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
+                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n"
         ];
 
         $user_content =
@@ -1292,13 +1292,13 @@ class ContentEngine {
                 "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
                 "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
                 "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Preferred target: 1200–1501 words — expand each section generously to reach this.\n" .
-                "- Each section must contain at least 80 words.\n" .
+                "- Preferred target: concise, high-signal copy; do not pad sections to hit arbitrary length.\n" .
+                "- If performer-specific facts are thin, keep about/fans-like short or empty instead of inventing detail.\n" .
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
-                "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
-                "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
+                "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";

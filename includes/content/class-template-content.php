@@ -144,18 +144,18 @@ class TemplateContent {
             }
         }
         $second_intro_pool = [
-            'The links below lead straight to active profiles, followed by concise notes for choosing where to watch.',
-            'Start with verified profile links, then use the short sections below to compare practical platform differences.',
-            'If you are here to find where ' . $name . ' is live, start with the buttons below and use the sections after that for quick comparison.',
-            'Copied profile pages are common, so this page focuses on verified links and practical context you can use right away.',
-            'Start with the active links, then scan the sections below if you want details on chat pace, features, and platform differences.',
+            'Start with the watch links, then use the comparison section to choose between active platforms.',
+            'This page is most useful as a quick access hub: confirmed links first, practical platform notes second.',
+            'Use the direct room buttons first; the rest of the page helps you compare where to click next.',
+            'The writing here focuses on confirmed access details, not filler about page structure.',
+            'If you are deciding where to watch, open one room first and use the platform comparison before switching.',
         ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
             'Use the buttons below to open ' . $name . "'s" . ' current rooms directly.',
             'Choose a platform below and you will land on ' . $name . "'s" . ' active room without bouncing through copied pages first.',
-            'Opening ' . $name . "'s" . ' room a few minutes early is usually the easiest way to catch the start and settle into chat before it gets busy.',
+            'Open the room from the verified profile link and check live status there before following third-party listings.',
         ];
         if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
@@ -188,8 +188,8 @@ class TemplateContent {
 
         $has_specific_about = self::has_specific_supporting_data($name, $bio, $active_platforms, $tags, $cta_links);
         $features_intro = $model_data_gate['is_sufficient']
-            ? 'Watching ' . $name . ' live usually comes down to a few practical details: clear video, a chat that stays readable, and room tools that do not get in the way.'
-            : 'Platform features shown here are platform-level checks, not confirmed performer-specific traits.';
+            ? 'Use this section as a platform checklist: playback stability, chat controls, alerts, mobile handling, and privacy settings.'
+            : 'Features listed here are platform/access capabilities, not confirmed performer-specific traits.';
 
         $renderer_payload = array_merge($support_payload, [
             'focus_keyword' => $name,
@@ -203,7 +203,7 @@ class TemplateContent {
             'about_section_paragraphs' => $has_specific_about ? [$bio] : [],
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate),
             'features_section_paragraphs' => [
-                $features_intro . ' The breakdown below covers what to check before joining on ' . $platform_ref . '.',
+                $features_intro . ' The notes below explain what to verify before joining on ' . $platform_ref . '.',
             ],
             'features_section_html' => self::join_html_blocks([
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
@@ -227,7 +227,7 @@ class TemplateContent {
         if ($primary_platform_label !== '' && $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $meta_description .= ' on ' . $primary_platform_label;
         }
-        $meta_description .= '. Find trusted links, top features, privacy tips, FAQs, and related searches to get started.';
+        $meta_description .= '. Find official links, platform comparisons, and practical FAQs to get started.';
 
         return [
             'content' => wp_kses_post($content),
@@ -328,7 +328,7 @@ class TemplateContent {
         return [
             'watch_section_html' => $watch_html,
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy),
-            'related_models_html' => self::render_related_models($post, $name, $tags, $active_platforms),
+            'related_models_html' => '',
             'explore_more_html' => '',
             // All visible outbound links consolidated here — Explore More is the
             // only place in rendered content where real external links appear.
@@ -396,8 +396,8 @@ class TemplateContent {
 
         return [
             'intro_paragraphs' => [
-                $name . ' is listed, but verified performer details are still limited right now.',
-                'This page is intentionally concise until we have enough performer-specific signals for a full editorial profile.',
+                $name . ' has active profiles on ' . $platform_text . ' plus official links across verified sources.',
+                'This page keeps confirmed links together so visitors can find the right profile quickly.',
             ],
             'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
@@ -405,7 +405,7 @@ class TemplateContent {
                 'Platform notes below describe platform-level features only, not confirmed performer-specific traits.',
             ],
             'comparison_section_paragraphs' => [
-                'When multiple platforms are active (' . $platform_text . '), compare stream stability, chat pacing, and privacy controls before choosing.',
+                'If multiple platforms are active, compare load speed, chat controls, and privacy settings before choosing where to watch.',
             ],
             'questions_section_paragraphs' => [],
             'faq_items' => [
@@ -604,74 +604,26 @@ class TemplateContent {
         if (empty($model_data_gate['is_sufficient'])) {
             return [];
         }
-
-        $focuses = [
-            trim((string)($context['extra_focus_1'] ?? '')),
-            trim((string)($context['extra_focus_2'] ?? '')),
-            trim((string)($context['extra_focus_3'] ?? '')),
-            trim((string)($context['extra_focus_4'] ?? '')),
-        ];
         $platform = trim((string)($context['platform_a'] ?? ''));
         $platform_b = trim((string)($context['platform_b'] ?? ''));
         if ($platform === '' || $platform === self::NEUTRAL_PLATFORM_FALLBACK) {
             $platform = 'the platform';
         }
-        $tags = trim((string)($context['tags'] ?? ''));
-        $seed = $name . '|fans';
+        $tags = array_values(array_filter(array_map('trim', explode(',', (string)($context['tags'] ?? ''))), 'strlen'));
+        $top_tags = array_slice($tags, 0, 2);
+        $paragraphs = [];
 
-        $openers = [
-            'Regulars usually talk about pacing before anything else. Nothing feels rushed, and the room has enough back-and-forth to keep even quieter sessions from going flat.',
-            'The pull here is not a single gimmick. People stick around because chat stays responsive and the room avoids that autoplay, background-stream feeling.',
-            'Across different sessions, the same strengths show up: attentive replies, clear pacing, and a style that feels genuinely live instead of automatic.',
-            $name . ' tends to hold attention through timing rather than noise. The room settles into a rhythm quickly, and that makes repeat visits feel easier instead of random.',
-            'Regular viewers come back for consistency. Chat stays active, pacing stays steady, and sessions rarely feel phoned in.',
-        ];
-
-        $paragraphs = [$openers[self::stable_pick_index($seed . '|opener', count($openers))]];
-
-        $clean_focuses = [];
-        foreach ($focuses as $focus) {
-            $focus = self::cleanup_visible_text($focus, $name, false);
-            if ($focus !== '' && mb_strlen($focus, 'UTF-8') > 4 && !in_array($focus, $clean_focuses, true)) {
-                $clean_focuses[] = $focus;
-            }
+        if (!empty($top_tags)) {
+            $paragraphs[] = 'Interest signals around ' . implode(' and ', $top_tags) . ' are consistently associated with this profile, so those are the most useful themes to check first in the live room.';
         }
 
-        if (!empty($clean_focuses)) {
-            $focus = $clean_focuses[0];
-            $pool = [
-                'If ' . $focus . ' is what brought someone here, the first difference they notice is responsiveness. There is real give-and-take instead of a one-way performance.',
-                'People arriving through ' . $focus . ' are usually looking for a room that feels active without turning chaotic. That balance tends to hold up well here.',
-                'Fans interested in ' . $focus . ' usually care about interaction quality. The room reacts in real time instead of feeling pre-scripted.',
-            ];
-            $paragraphs[] = $pool[self::stable_pick_index($seed . '|focus1', count($pool))];
-        }
-
-        $theme = $clean_focuses[1] ?? ($tags !== '' ? $tags : 'live room themes');
-        $theme_pool = [
-            'The mood around ' . $theme . ' comes through naturally rather than being pushed like a slogan. That makes the room easier to drop into at any point without feeling behind.',
-            $theme . ' works best here as part of the atmosphere. It sets expectations without locking every session into the exact same pattern.',
-            'Even when ' . $theme . ' is part of the draw, the room still leaves space for smaller detours, jokes, and quick shifts driven by chat.',
-        ];
-        $paragraphs[] = $theme_pool[self::stable_pick_index($seed . '|theme', count($theme_pool))];
-
-        $platform_pool = [
-            'That style translates well on ' . $platform . ' because the room tools stay manageable. Video is clear, chat stays readable, and the session does not get buried under clutter.',
-            'On ' . $platform . ', stable playback, moderation, and alerts make repeat viewing simpler over time.',
-            'People comparing platforms usually notice the same thing on ' . $platform . ': it keeps the room usable, which gives the performer more room to actually interact.',
-        ];
-        $paragraphs[] = $platform_pool[self::stable_pick_index($seed . '|platform', count($platform_pool))];
+        $paragraphs[] = 'Followers usually prioritize reliable access and consistent profile activity on ' . $platform . ', then decide whether to stay based on room controls and chat usability.';
 
         if ($platform_b !== '' && $platform_b !== self::NEUTRAL_PLATFORM_FALLBACK && strcasecmp($platform_b, $platform) !== 0) {
-            $compare_pool = [
-                'If you switch between ' . $platform . ' and ' . $platform_b . ', the core style is similar but chat speed and room controls can feel different.',
-                $platform . ' and ' . $platform_b . ' each have their own chat flow, so it is worth trying both before settling on one.',
-                'Viewers who use both ' . $platform . ' and ' . $platform_b . ' usually pick based on moderation style, mobile playback, and overall chat pace.',
-            ];
-            $paragraphs[] = $compare_pool[self::stable_pick_index($seed . '|platform-compare', count($compare_pool))];
+            $paragraphs[] = 'For multi-platform viewers, preferences often split between ' . $platform . ' and ' . $platform_b . ' depending on moderation style, mobile playback, and notification reliability.';
         }
 
-        return array_values(array_slice(array_filter($paragraphs), 0, 5));
+        return array_values(array_slice(array_filter($paragraphs), 0, 3));
     }
 
     private static function render_rankmath_keyword_coverage(array $keywords, string $name): string {
@@ -1435,16 +1387,16 @@ class TemplateContent {
 
         $patterns = [
             static function (string $kw): string {
-                return 'If you are checking ' . $kw . ', start with the active profile links and confirm which platform is live before you join.';
+                return 'A common question is ' . $kw . '. Start with confirmed profile links, then verify which room is currently live.';
             },
             static function (string $kw): string {
-                return $kw . ' usually points to practical questions: does the stream load cleanly, are alerts reliable, and is chat easy to follow on mobile.';
+                return 'For this topic (' . $kw . '), compare load speed, alert reliability, and chat controls before settling on one platform.';
             },
             static function (string $kw): string {
-                return 'Before clicking through for ' . $kw . ', it helps to compare platform tools, chat pace, and whether private options are available.';
+                return 'The useful check for ' . $kw . ' is platform-level: stable playback, readable chat, and clear profile routing.';
             },
             static function (string $kw): string {
-                return 'For ' . $kw . ', the useful check is simple: stable video, clear navigation, and a room that stays readable once chat gets busy.';
+                return 'When this query appears (' . $kw . '), treat it as a prompt to confirm official links and active room status first.';
             },
         ];
 
