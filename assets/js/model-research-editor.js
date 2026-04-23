@@ -22,6 +22,12 @@
  *   #tmwseo_research_source_urls
  *   #tmwseo_research_confidence
  *   #tmwseo_research_notes
+ *   #tmwseo_editor_seed_summary
+ *   #tmwseo_editor_seed_tags
+ *   #tmwseo_editor_seed_platform_notes
+ *   #tmwseo_editor_seed_confirmed_facts
+ *   #tmwseo_editor_seed_avoid_claims
+ *   #tmwseo_editor_seed_tone_hint
  */
 (function () {
   if (typeof wp === 'undefined' || !wp.data || !wp.data.select) return;
@@ -73,6 +79,12 @@
       source_urls:    val('tmwseo_research_source_urls'),
       confidence:     val('tmwseo_research_confidence'),
       notes:          val('tmwseo_research_notes'),
+      editor_seed_summary:         val('tmwseo_editor_seed_summary'),
+      editor_seed_tags:            val('tmwseo_editor_seed_tags'),
+      editor_seed_platform_notes:  val('tmwseo_editor_seed_platform_notes'),
+      editor_seed_confirmed_facts: val('tmwseo_editor_seed_confirmed_facts'),
+      editor_seed_avoid_claims:    val('tmwseo_editor_seed_avoid_claims'),
+      editor_seed_tone_hint:       val('tmwseo_editor_seed_tone_hint'),
     };
   }
 

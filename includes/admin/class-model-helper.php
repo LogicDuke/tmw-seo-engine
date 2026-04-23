@@ -475,6 +475,18 @@ class ModelHelper {
     const META_CONFIDENCE   = '_tmwseo_research_confidence';
     /** Free-form admin notes about this model's research state. */
     const META_NOTES        = '_tmwseo_research_notes';
+    /** Operator-seeded short summary used as high-trust generation anchor. */
+    const META_EDITOR_SEED_SUMMARY = '_tmwseo_editor_seed_summary';
+    /** Comma-separated "known for" tags maintained by editors. */
+    const META_EDITOR_SEED_TAGS = '_tmwseo_editor_seed_tags';
+    /** Operator platform notes (one note per line, optional "Platform: note"). */
+    const META_EDITOR_SEED_PLATFORM_NOTES = '_tmwseo_editor_seed_platform_notes';
+    /** Confirmed fact bullets provided by operators (one per line). */
+    const META_EDITOR_SEED_CONFIRMED_FACTS = '_tmwseo_editor_seed_confirmed_facts';
+    /** Unknowns/claims to avoid (one per line). */
+    const META_EDITOR_SEED_AVOID_CLAIMS = '_tmwseo_editor_seed_avoid_claims';
+    /** Optional writing guidance / tone hint for generation prompts. */
+    const META_EDITOR_SEED_TONE_HINT = '_tmwseo_editor_seed_tone_hint';
     /**
      * JSON blob of proposed (un-applied) data from the last pipeline run.
      * Admins review this before applying anything.
@@ -600,6 +612,12 @@ class ModelHelper {
         $source_urls  = $sources_raw !== '' ? implode( "\n", (array) json_decode( $sources_raw, true ) ) : '';
         $confidence   = (string) get_post_meta( $post->ID, self::META_CONFIDENCE, true );
         $notes        = (string) get_post_meta( $post->ID, self::META_NOTES, true );
+        $seed_summary = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_SUMMARY, true );
+        $seed_tags    = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_TAGS, true );
+        $seed_platform_notes = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_PLATFORM_NOTES, true );
+        $seed_confirmed_facts = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_CONFIRMED_FACTS, true );
+        $seed_avoid_claims = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_AVOID_CLAIMS, true );
+        $seed_tone_hint = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_TONE_HINT, true );
         $proposed_raw = (string) get_post_meta( $post->ID, self::META_PROPOSED, true );
         $proposed     = $proposed_raw !== '' ? json_decode( $proposed_raw, true ) : null;
 
@@ -1332,6 +1350,40 @@ class ModelHelper {
             __( 'Free-form notes about this model\'s research state. For internal use only.', 'tmwseo' ),
             3
         );
+        self::field_textarea(
+            'tmwseo_editor_seed_summary', $seed_summary,
+            __( 'Editor Seed: Short Summary', 'tmwseo' ),
+            __( 'High-trust operator summary used as the primary content anchor for intro/about sections.', 'tmwseo' ),
+            3
+        );
+        self::field_text(
+            'tmwseo_editor_seed_tags', $seed_tags,
+            __( 'Editor Seed: Known-for / Tags', 'tmwseo' ),
+            __( 'Comma-separated known-for tags (e.g. friendly chat, cosplay nights, bilingual streams).', 'tmwseo' )
+        );
+        self::field_textarea(
+            'tmwseo_editor_seed_platform_notes', $seed_platform_notes,
+            __( 'Editor Seed: Platform Notes', 'tmwseo' ),
+            __( 'One note per line. Optional format: Platform: note. Used in platform comparison and feature framing.', 'tmwseo' ),
+            4
+        );
+        self::field_textarea(
+            'tmwseo_editor_seed_confirmed_facts', $seed_confirmed_facts,
+            __( 'Editor Seed: Confirmed Facts', 'tmwseo' ),
+            __( 'One confirmed fact per line. These facts are treated as trusted for About/FAQ generation.', 'tmwseo' ),
+            4
+        );
+        self::field_textarea(
+            'tmwseo_editor_seed_avoid_claims', $seed_avoid_claims,
+            __( 'Editor Seed: Claims to Avoid / Unknowns', 'tmwseo' ),
+            __( 'One line per claim that is unknown or should not be asserted as true.', 'tmwseo' ),
+            3
+        );
+        self::field_text(
+            'tmwseo_editor_seed_tone_hint', $seed_tone_hint,
+            __( 'Editor Seed: Tone Hint (Optional)', 'tmwseo' ),
+            __( 'Optional writing guidance for AI output, e.g. concise and neutral, warm and practical.', 'tmwseo' )
+        );
         echo '</table>';
 
         // ── Save button ───────────────────────────────────────────────────
@@ -1796,6 +1848,8 @@ class ModelHelper {
             'platform_names' => self::META_PLATFORMS,
             'country'        => self::META_COUNTRY,
             'language'       => self::META_LANGUAGE,
+            'editor_seed_tags' => self::META_EDITOR_SEED_TAGS,
+            'editor_seed_tone_hint' => self::META_EDITOR_SEED_TONE_HINT,
         ];
         foreach ( $scalar_map as $key => $meta_key ) {
             $val = isset( $_POST[ $key ] )
@@ -1808,6 +1862,10 @@ class ModelHelper {
         foreach ( [
             'bio'   => self::META_BIO,
             'notes' => self::META_NOTES,
+            'editor_seed_summary' => self::META_EDITOR_SEED_SUMMARY,
+            'editor_seed_platform_notes' => self::META_EDITOR_SEED_PLATFORM_NOTES,
+            'editor_seed_confirmed_facts' => self::META_EDITOR_SEED_CONFIRMED_FACTS,
+            'editor_seed_avoid_claims' => self::META_EDITOR_SEED_AVOID_CLAIMS,
         ] as $key => $meta_key ) {
             $val = isset( $_POST[ $key ] )
                 ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $key ] ) )
@@ -1836,7 +1894,8 @@ class ModelHelper {
         if ( $current_status === '' || $current_status === 'not_researched' ) {
             $aliases_val = isset( $_POST['aliases'] ) ? trim( (string) $_POST['aliases'] ) : '';
             $bio_val     = isset( $_POST['bio'] )     ? trim( (string) $_POST['bio'] )     : '';
-            if ( $confidence > 0 || $bio_val !== '' || $aliases_val !== '' ) {
+            $seed_val    = isset( $_POST['editor_seed_summary'] ) ? trim( (string) $_POST['editor_seed_summary'] ) : '';
+            if ( $confidence > 0 || $bio_val !== '' || $aliases_val !== '' || $seed_val !== '' ) {
                 update_post_meta( $post_id, self::META_STATUS, 'researched' );
                 update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
             }
@@ -1866,6 +1925,8 @@ class ModelHelper {
             'tmwseo_research_platform_names'  => self::META_PLATFORMS,
             'tmwseo_research_country'         => self::META_COUNTRY,
             'tmwseo_research_language'        => self::META_LANGUAGE,
+            'tmwseo_editor_seed_tags'         => self::META_EDITOR_SEED_TAGS,
+            'tmwseo_editor_seed_tone_hint'    => self::META_EDITOR_SEED_TONE_HINT,
         ];
 
         foreach ( $scalar_map as $post_key => $meta_key ) {
@@ -1879,6 +1940,10 @@ class ModelHelper {
         foreach ( [
             'tmwseo_research_bio'   => self::META_BIO,
             'tmwseo_research_notes' => self::META_NOTES,
+            'tmwseo_editor_seed_summary' => self::META_EDITOR_SEED_SUMMARY,
+            'tmwseo_editor_seed_platform_notes' => self::META_EDITOR_SEED_PLATFORM_NOTES,
+            'tmwseo_editor_seed_confirmed_facts' => self::META_EDITOR_SEED_CONFIRMED_FACTS,
+            'tmwseo_editor_seed_avoid_claims' => self::META_EDITOR_SEED_AVOID_CLAIMS,
         ] as $post_key => $meta_key ) {
             $val = isset( $_POST[ $post_key ] )
                 ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $post_key ] ) )
@@ -1907,7 +1972,8 @@ class ModelHelper {
         if ( $current_status === '' || $current_status === 'not_researched' ) {
             $has_data = $confidence > 0
                 || ( isset( $_POST['tmwseo_research_bio'] ) && trim( (string) $_POST['tmwseo_research_bio'] ) !== '' )
-                || ( isset( $_POST['tmwseo_research_aliases'] ) && trim( (string) $_POST['tmwseo_research_aliases'] ) !== '' );
+                || ( isset( $_POST['tmwseo_research_aliases'] ) && trim( (string) $_POST['tmwseo_research_aliases'] ) !== '' )
+                || ( isset( $_POST['tmwseo_editor_seed_summary'] ) && trim( (string) $_POST['tmwseo_editor_seed_summary'] ) !== '' );
             if ( $has_data ) {
                 update_post_meta( $post_id, self::META_STATUS, 'researched' );
                 update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );

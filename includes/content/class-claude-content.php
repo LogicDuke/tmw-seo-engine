@@ -69,6 +69,9 @@ class ClaudeContent {
 
 		$tags = self::resolve_tags( $post, $keyword_pack );
 		$tags_text = implode( ', ', array_slice( $tags, 0, 6 ) );
+		$editor_seed = is_array( $keyword_pack['editor_seed'] ?? null )
+			? $keyword_pack['editor_seed']
+			: TemplateContent::get_editor_seed_data( (int) $post->ID );
 
 		$additional = self::resolve_additional( $keyword_pack, $name );
 		$longtail   = self::resolve_longtail( $keyword_pack, $name );
@@ -90,7 +93,8 @@ class ClaudeContent {
 			$active_platforms,
 			$tags_text,
 			$additional,
-			$longtail
+			$longtail,
+			$editor_seed
 		);
 
 		$messages = [
@@ -167,7 +171,8 @@ class ClaudeContent {
 		array  $active_platforms,
 		string $tags_text,
 		array  $additional,
-		array  $longtail
+		array  $longtail,
+		array  $editor_seed
 	): array {
 
 		$platform_list = implode( ' and ', array_filter( array_slice( $active_platforms, 0, 3 ), 'strlen' ) );
@@ -233,6 +238,8 @@ KEYWORD DENSITY RULES
 • Section jobs are strict: intro = model + official/live link context + why useful; watch = direct room access;
   about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing;
   comparison = balanced across every active platform; FAQ = natural user questions.
+• Editor seed facts are authoritative and must be used before any inferred fallback.
+• Never present unseeded/unsupported biographical claims as true.
 • Reject generic interchangeable filler (atmosphere/energy/rhythm/tone prose) unless tied to concrete evidence.
 
 SYSTEM
@@ -254,6 +261,8 @@ SYSTEM
 			. ( $tags_text !== ''    ? "• Content tags / themes: {$tags_text}\n" : '' )
 			. ( $additional_text !== '' ? "• Secondary search phrases (use naturally): {$additional_text}\n" : '' )
 			. ( $longtail_text !== '' ? "• Long-tail ideas for FAQ anchors only: {$longtail_text}\n" : '' )
+			. "\n"
+			. TemplateContent::build_editor_seed_prompt_block( $editor_seed )
 			. "\n"
 			. "WORD COUNT CONTRACT\n"
 			. "• Hard minimum: " . self::MODEL_MIN_WORDS . " words across all prose sections.\n"

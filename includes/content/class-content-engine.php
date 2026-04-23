@@ -346,6 +346,11 @@ class ContentEngine {
         // before building $clean_title_short for the OpenAI system prompt.
         $clean_title       = TitleFixer::fix((string) $post->post_title);
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
+        $editor_seed = is_array($keyword_pack['editor_seed'] ?? null)
+            ? $keyword_pack['editor_seed']
+            : (class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'get_editor_seed_data')
+                ? TemplateContent::get_editor_seed_data((int) $post->ID)
+                : []);
         $model = Settings::openai_model_for_quality();
         $is_model_page = ($post->post_type === 'model');
         if ($is_model_page && is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
@@ -394,6 +399,8 @@ class ContentEngine {
                 "- Use 'official profile links' at most once across the entire output.\n" .
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
+                "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
+                "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
                 "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n"
         ];
 
@@ -405,6 +412,7 @@ class ContentEngine {
             ($focus_kw ? "- Primary keyword (must be used exactly): {$focus_kw}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
             (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (($is_model_page && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed) : '') .
             "- Target length: {$length_hint}\n\n" .
             "WRITE:\n" .
             "1) SEO title that matches the page and includes the keyword naturally.\n" .
@@ -1220,6 +1228,11 @@ class ContentEngine {
 
         $clean_title = TitleFixer::fix((string)$post->post_title);
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
+        $editor_seed = is_array($keyword_pack['editor_seed'] ?? null)
+            ? $keyword_pack['editor_seed']
+            : (class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'get_editor_seed_data')
+                ? TemplateContent::get_editor_seed_data((int) $post->ID)
+                : []);
 
         $model = Settings::openai_model_for_quality();
 
@@ -1252,6 +1265,8 @@ class ContentEngine {
                 "- Use 'official profile links' at most once across the entire output.\n" .
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
+                "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
+                "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
                 "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n"
         ];
 
@@ -1263,6 +1278,7 @@ class ContentEngine {
             ($keyword ? "- Primary keyword (must be used exactly): {$keyword}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
             (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (($post->post_type === 'model' && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed) : '') .
             "- Target length: {$length_hint}\n" .
             "\n" .
             "WRITE:\n" .

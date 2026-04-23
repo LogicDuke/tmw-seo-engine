@@ -18,7 +18,12 @@ class ModelPageRenderer {
 
         $sections = [];
 
-        $intro = self::render_paragraphs($payload['intro_paragraphs'] ?? [], $name);
+        $intro_paragraphs = $payload['intro_paragraphs'] ?? [];
+        $seed_summary = trim((string)($payload['editor_seed_summary'] ?? ''));
+        if ($seed_summary !== '') {
+            array_unshift($intro_paragraphs, $seed_summary);
+        }
+        $intro = self::render_paragraphs($intro_paragraphs, $name);
         if ($intro !== '') {
             $sections[] = $intro;
         }
@@ -50,7 +55,12 @@ class ModelPageRenderer {
             $sections[] = $features;
         }
 
-        $compare = self::render_section('Compare Platforms', $payload['comparison_section_paragraphs'] ?? [], $name, $payload['comparison_section_html'] ?? '');
+        $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
+        $seed_notes = is_array($payload['editor_seed_platform_notes'] ?? null) ? $payload['editor_seed_platform_notes'] : [];
+        if (!empty($seed_notes)) {
+            $comparison_paragraphs = array_merge(array_slice($seed_notes, 0, 3), $comparison_paragraphs);
+        }
+        $compare = self::render_section('Compare Platforms', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
             $sections[] = $compare;
         }
@@ -250,7 +260,12 @@ class ModelPageRenderer {
         }
 
         $has_name_ref = str_contains($text, mb_strtolower($name, 'UTF-8'));
-        return $has_name_ref || $has_platform_ref;
+        if ($has_name_ref || $has_platform_ref) {
+            return true;
+        }
+
+        $seed_summary = trim((string)($payload['editor_seed_summary'] ?? ''));
+        return $seed_summary !== '';
     }
 
     /** @param array<int,string> $blocks */
