@@ -23,6 +23,7 @@ class ModelPageRenderer {
         if ($seed_summary !== '') {
             array_unshift($intro_paragraphs, $seed_summary);
         }
+        $intro_paragraphs = self::with_direct_intro_answer($intro_paragraphs, $name, $payload);
         $intro = self::render_paragraphs($intro_paragraphs, $name);
         if ($intro !== '') {
             $sections[] = $intro;
@@ -60,6 +61,7 @@ class ModelPageRenderer {
         if (!empty($seed_notes)) {
             $comparison_paragraphs = array_merge(array_slice($seed_notes, 0, 3), $comparison_paragraphs);
         }
+        $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
         $compare = self::render_section('Compare Platforms', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
             $sections[] = $compare;
@@ -70,7 +72,7 @@ class ModelPageRenderer {
             $sections[] = $questions;
         }
 
-        $links = self::render_section('Official Links and Elsewhere Online', [], $name, self::join_html_blocks([
+        $links = self::render_section('Official Links and Elsewhere Online', $payload['official_links_section_paragraphs'] ?? [], $name, self::join_html_blocks([
             $payload['external_info_html'] ?? '',
             $payload['explore_more_html'] ?? '',
         ]));
@@ -198,6 +200,45 @@ class ModelPageRenderer {
         }
 
         return $text;
+    }
+
+    /** @param mixed $paragraphs @return string[] */
+    private static function with_direct_intro_answer($paragraphs, string $name, array $payload): array {
+        $lines = self::normalize_lines($paragraphs, $name);
+        $active = is_array($payload['active_platforms'] ?? null) ? $payload['active_platforms'] : [];
+        $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
+        $platform_text = !empty($active) ? self::format_list($active) : 'verified platforms';
+        $answer = $name . ' is available via official profile links on ' . $platform_text . '.';
+        if (empty($lines)) {
+            return [$answer];
+        }
+        array_unshift($lines, $answer);
+        return array_values(array_unique($lines));
+    }
+
+    /** @param mixed $paragraphs @return string[] */
+    private static function with_direct_compare_answer($paragraphs, array $payload, string $name): array {
+        $lines = self::normalize_lines($paragraphs, $name);
+        $active = is_array($payload['active_platforms'] ?? null) ? $payload['active_platforms'] : [];
+        $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
+        if (count($active) >= 2) {
+            $answer = 'Start with ' . $active[0] . ' if you already use it, then compare ' . $active[1] . ' for chat controls, mobile playback, and room pacing.';
+        } elseif (count($active) === 1) {
+            $answer = $name . ' is currently confirmed on ' . $active[0] . ', so use that official profile first.';
+        } else {
+            $answer = 'Compare confirmed platforms by room stability, chat readability, and mobile usability before choosing a default room.';
+        }
+        array_unshift($lines, $answer);
+        return array_values(array_unique($lines));
+    }
+
+    /** @param array<int,string> $items */
+    private static function format_list(array $items): string {
+        $items = array_values(array_filter(array_map('trim', $items), 'strlen'));
+        if (empty($items)) return '';
+        if (count($items) === 1) return $items[0];
+        $last = array_pop($items);
+        return implode(', ', $items) . ' and ' . $last;
     }
 
     private static function final_cleanup(string $html, string $name): string {

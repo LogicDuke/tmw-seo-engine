@@ -341,6 +341,9 @@ class TemplateContent {
             // All visible outbound links consolidated here — Explore More is the
             // only place in rendered content where real external links appear.
             'external_info_html' => $ext_info_html,
+            'official_links_section_paragraphs' => [
+                self::build_official_links_summary($name, $cta_links, (int) $post->ID),
+            ],
             'questions_section_paragraphs' => [],
             'longtail_keywords' => $longtail,
             'model_data_gate' => $model_data_gate,
@@ -655,6 +658,33 @@ class TemplateContent {
     }
 
     /**
+     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $cta_links
+     */
+    private static function build_official_links_summary(string $name, array $cta_links, int $post_id): string {
+        $types = [];
+        if (!empty($cta_links)) {
+            $types[] = 'live platforms';
+        }
+        if (class_exists(VerifiedLinks::class)) {
+            $links = VerifiedLinks::get_links($post_id);
+            if (is_array($links)) {
+                foreach ($links as $link) {
+                    $family = VerifiedLinksFamilies::family_for(sanitize_key((string) ($link['type'] ?? '')));
+                    if ($family === VerifiedLinksFamilies::FAMILY_PERSONAL) { $types[] = 'official or personal sites'; }
+                    if ($family === VerifiedLinksFamilies::FAMILY_FANSITE) { $types[] = 'fan platforms'; }
+                    if ($family === VerifiedLinksFamilies::FAMILY_TUBE) { $types[] = 'video/profile hubs'; }
+                    if ($family === VerifiedLinksFamilies::FAMILY_SOCIAL) { $types[] = 'social profiles'; }
+                }
+            }
+        }
+        $types = array_values(array_unique($types));
+        if (empty($types)) {
+            return 'This section lists official destinations for ' . $name . ' so visitors can open verified profiles quickly.';
+        }
+        return 'This section lists official destinations for ' . $name . ', including ' . self::format_platform_list($types, 'verified sources') . '.';
+    }
+
+    /**
      * @param array<int,string> $active_platforms
      * @param array<int,string> $tags
      * @param array<int,array<string,mixed>> $cta_links
@@ -695,13 +725,14 @@ class TemplateContent {
     /** @return string[] */
     private static function build_seed_intro_paragraphs(string $name, array $editor_seed, array $active_platforms, string $fallback_intro, string $fallback_second): array {
         $summary = trim((string) ($editor_seed['summary'] ?? ''));
-        if ($summary === '') {
-            return [$fallback_intro, $fallback_second];
-        }
         $platform_text = self::format_platform_list($active_platforms, 'active platforms');
+        $answer_line = $name . ' is currently active on ' . $platform_text . '. Use the official room links below to open the real profiles first.';
+        if ($summary === '') {
+            return [$answer_line, $fallback_intro, $fallback_second];
+        }
         return [
+            $answer_line,
             $summary,
-            $name . ' is currently active on ' . $platform_text . '. Use official links below to compare rooms quickly.',
         ];
     }
 
@@ -739,7 +770,7 @@ class TemplateContent {
         if (!empty($facts)) {
             $items[] = [
                 'q' => 'What details are currently confirmed?',
-                'a' => 'Confirmed information includes: ' . implode('; ', array_slice(array_map('strval', $facts), 0, 3)) . '.',
+                'a' => 'Confirmed details for this model are: ' . implode('; ', array_slice(array_map('strval', $facts), 0, 3)) . '.',
             ];
         }
         if (!empty($avoid)) {
@@ -749,7 +780,23 @@ class TemplateContent {
             ];
         }
         $merged = array_merge($items, $fallback);
-        return array_slice($merged, 0, 5);
+        $merged = array_slice($merged, 0, 5);
+        foreach ($merged as $idx => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $merged[$idx]['a'] = self::normalize_faq_answer((string) ($item['a'] ?? ''));
+        }
+        return $merged;
+    }
+
+    private static function normalize_faq_answer(string $answer): string {
+        $answer = trim($answer);
+        $answer = preg_replace('/\bIf you are checking\b/iu', '', $answer) ?: $answer;
+        $answer = preg_replace('/\bA query like\b/iu', '', $answer) ?: $answer;
+        $answer = preg_replace('/\bPeople looking for\b/iu', '', $answer) ?: $answer;
+        $answer = preg_replace('/\bThis usually means\b/iu', '', $answer) ?: $answer;
+        return trim((string) preg_replace('/\s+/', ' ', $answer));
     }
 
     /** @return string[] */
@@ -868,13 +915,15 @@ class TemplateContent {
         $prose = [];
         if (count($labels) >= 2) {
             $balanced_labels = array_slice($labels, 0, 3);
-            $prose[] = '<p>' . esc_html($name . ' has active profiles on ' . implode(', ', $balanced_labels) . '. Each platform handles chat pacing, notifications, and private controls a bit differently, so compare based on your viewing habits instead of defaulting to one brand.') . '</p>';
+            $prose[] = '<p>' . esc_html('Choose between ' . $balanced_labels[0] . ' and ' . $balanced_labels[1] . ' by testing chat readability, mobile playback, and room controls on each platform first.') . '</p>';
+            $prose[] = '<p>' . esc_html($name . ' has active profiles on ' . implode(', ', $balanced_labels) . '. Each platform handles chat pacing, notifications, and private controls differently.') . '</p>';
             foreach ($balanced_labels as $label) {
                 $prose[] = '<p>' . esc_html('On ' . $label . ', review room moderation, mobile playback, and how quickly chat responses surface during busier sessions.') . '</p>';
             }
         } else {
             $single = $labels[0] ?? 'the active platform';
-            $prose[] = '<p>' . esc_html('Only one active platform is currently confirmed (' . $single . '). This section lists profile access details instead of a forced multi-platform comparison.') . '</p>';
+            $prose[] = '<p>' . esc_html('Start on ' . $single . ' because it is the only currently confirmed active platform for ' . $name . '.') . '</p>';
+            $prose[] = '<p>' . esc_html('This section lists profile access details instead of a forced multi-platform comparison.') . '</p>';
         }
         if (!empty($platform_notes)) {
             foreach (array_slice($platform_notes, 0, 3) as $note) {

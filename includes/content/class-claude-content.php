@@ -217,13 +217,16 @@ GENERATION CONTRACT — every response must satisfy all of these:
    If 2+ platforms are supplied, cover each platform fairly and avoid defaulting to one brand.
    Affiliate priority must not influence editorial weighting.
    Do NOT invent platform names not supplied.
+   First comparison sentence must state how a visitor should choose between named platforms.
 8. faq_items: exactly 4 Q&A objects. Questions must be natural English questions a real
    fan would ask. Answers must be complete sentences (2–3 sentences each).
+   The first FAQ sentence must directly answer the question without setup phrasing.
 
 KEYWORD DENSITY RULES
 • Use the exact model name between {min_density}% and {max_density}% of the total word count.
 • Do NOT repeat the exact model name more than twice in any single paragraph.
 • Keep the exact model name natural; do not force pronouns as a density fix.
+• Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when meaning could be unclear.
 • Avoid signposting such as "This guide covers", "Here's what to know", or "Let's dive in".
 • Avoid brochure phrasing, vague importance claims, and formulaic contrasts like "it's not just X, it's Y".
 • Avoid generic thesis openers like "The useful part of…", "The main advantage here is…",
@@ -238,6 +241,8 @@ KEYWORD DENSITY RULES
 • Section jobs are strict: intro = model + official/live link context + why useful; watch = direct room access;
   about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing;
   comparison = balanced across every active platform; FAQ = natural user questions.
+• Answer-first rule: each section's first sentence must answer that section's implied user question directly.
+• Keep intros mobile-compact: no soft lead-ins before stating who the model is and where official links are.
 • Editor seed facts are authoritative and must be used before any inferred fallback.
 • Never present unseeded/unsupported biographical claims as true.
 • Reject generic interchangeable filler (atmosphere/energy/rhythm/tone prose) unless tied to concrete evidence.
