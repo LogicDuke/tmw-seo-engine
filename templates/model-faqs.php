@@ -6,26 +6,26 @@
 return [
     [
         'q' => 'Where is the official live profile?',
-        'a' => 'Use the {live_brand} links on this page to open the confirmed profile directly. This is usually faster and safer than following copied aggregator listings.',
+        'a' => 'The official profile is the {live_brand} link shown on this page. Use that link first to avoid copied or stale listings.',
     ],
     [
         'q' => 'How can I catch the next live session?',
-        'a' => 'Follow {name} on {live_brand} and enable platform alerts. Notification alerts are more reliable than manually refreshing multiple pages.',
+        'a' => 'Follow {name} on {live_brand} and turn on alerts. Alerts are usually faster than manually checking multiple pages.',
     ],
     [
-        'q' => 'Does the room work on mobile?',
-        'a' => 'Yes, {live_brand} supports modern mobile browsers. If you watch on phone often, test chat controls and playback first to confirm the experience you want.',
+        'q' => 'Can I watch on mobile?',
+        'a' => 'Yes, {live_brand} works on current mobile browsers. Open the room once on your phone to confirm playback and chat controls feel usable for you.',
     ],
     [
         'q' => 'How do I verify I clicked the right profile?',
-        'a' => 'Start from the direct links here and confirm the same username and profile branding on the destination page. Avoid mirrors that reuse photos but change profile handles.',
+        'a' => 'Match the username and profile branding after you open the link from this page. Leave the page if the handle differs or the profile looks copied.',
     ],
     [
         'q' => 'Are private options available?',
-        'a' => 'Private access depends on current room status and platform controls on {live_brand}. Open the live room to check availability in real time.',
+        'a' => 'Private options depend on current room status and platform controls. Open the live room to confirm what is available right now.',
     ],
     [
-        'q' => 'Why is this page useful if I already know the model name?',
-        'a' => 'Name searches often surface stale or copied pages. This page keeps confirmed links and access notes together so you can reach the right room quickly.',
+        'q' => 'Why use this page if I already know the model name?',
+        'a' => 'Use this page to get a trusted route to the correct room quickly. Name searches often surface fake, stale, or duplicate profiles first.',
     ],
 ];

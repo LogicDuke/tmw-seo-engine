@@ -4,19 +4,19 @@
  */
 
 $openers = [
-    "{name} has active profiles on {active_platforms_text}, and this page keeps the confirmed room links together.",
-    "If you follow {name} across {active_platforms_text}, use the direct profile links here to avoid stale mirrors.",
-    "{name} is live across {active_platforms_text}; this page helps you pick the right room without extra searching.",
-    "For {name}, the fastest route to real profiles on {active_platforms_text} is the link set below.",
-    "This page tracks active profiles for {name} on {active_platforms_text} so you can compare options quickly.",
+    "{name} has active profiles on {active_platforms_text}, and this page keeps the official links in one trusted place.",
+    "Trying to find the real {name} room across {active_platforms_text}? Start with the confirmed profile links here.",
+    "{name} is active on {active_platforms_text}; use this page to avoid copied profiles and reach official rooms faster.",
+    "For {name}, the fastest trusted route across {active_platforms_text} is the verified link set below.",
+    "When {name} is live on {active_platforms_text}, this page helps you identify which official room to open first.",
 ];
 
 $utility_lines = [
-    "Start with your preferred platform, then compare the second room if chat tools or pacing matter to you.",
-    "Use the links to confirm which room is active first, then choose based on the platform features you prefer.",
-    "Both platform sections are written for side-by-side comparison rather than one-platform bias.",
-    "The sections below focus on practical differences: access flow, controls, and room behavior across platforms.",
-    "When schedules rotate, keeping both official profiles in one place makes check-ins faster.",
+    "Start on the platform you already use, then compare the second active room if chat tools or mobile playback matter more.",
+    "Check both active profiles with the same checklist: load speed, chat clarity, and room controls.",
+    "Both platform sections are decision-focused so you can choose where to watch first without one-platform bias.",
+    "If one room is inactive, the second official profile gives you a quick fallback without extra searching.",
+    "Use this as a decision page: identify active platforms, verify official links, then click the best starting room.",
 ];
 
 $intros = [];

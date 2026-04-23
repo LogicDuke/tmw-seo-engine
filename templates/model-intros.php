@@ -2,24 +2,24 @@
 /**
  * Single-platform intro template pool.
  *
- * Each intro should immediately help the reader find the real profile and
- * understand why this page is useful.
+ * Each intro should immediately help the reader solve the first problem:
+ * finding the real room quickly and avoiding copied profiles.
  */
 
 $openers = [
-    "{name} is currently active on {live_brand}, and the direct room links on this page help you skip copied profile mirrors.",
-    "To watch {name} without hunting through reposted listings, start with the confirmed {live_brand} profile links below.",
-    "If you want the official room for {name}, this page keeps the current {live_brand} profile access in one place.",
-    "{name} has an active profile on {live_brand}; this page is built to get you to the live room quickly.",
-    "Looking for {name} live on {live_brand}? Use the verified room links here instead of third-party copies.",
+    "{name} is active on {live_brand}, and the verified links on this page point to the real profile first.",
+    "Need the official {name} room on {live_brand}? Start with the confirmed links below instead of mirror listings.",
+    "{name} is currently available on {live_brand}; use this page to open the trusted profile without guesswork.",
+    "To find the real {name} room on {live_brand}, use the direct verified profile links here first.",
+    "The quickest trusted route to {name} on {live_brand} is the official profile set listed below.",
 ];
 
 $utility_lines = [
-    "You can check profile status first, then open the room directly when the stream is live.",
-    "The goal is simple: reduce wrong clicks and send you to the confirmed profile fast.",
-    "Use the watch buttons first, then the comparison notes if you want to review access details.",
-    "Everything below is focused on practical access: where to click, what is active, and which links are official.",
-    "When listings conflict, the verified links here are the quickest way to confirm the correct room.",
+    "Check live status on the official profile first, then decide whether to stay or come back later.",
+    "This page is built for fast decisions: real profile first, platform details second.",
+    "If you are on mobile, open the room first and quickly confirm playback and chat controls.",
+    "Use the watch links first when speed matters; they reduce wrong clicks from copied profiles.",
+    "You can verify the same username and branding after click-through to avoid fake or stale pages.",
 ];
 
 $intros = [];

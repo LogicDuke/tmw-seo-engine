@@ -62,17 +62,17 @@ class ModelPageRenderer {
             $comparison_paragraphs = array_merge(array_slice($seed_notes, 0, 3), $comparison_paragraphs);
         }
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
-        $compare = self::render_section('Compare Platforms', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
+        $compare = self::render_section('Which Platform Should You Start With?', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
             $sections[] = $compare;
         }
 
-        $questions = self::render_questions('Questions About ' . $name, $payload['questions_section_paragraphs'] ?? [], $payload['faq_items'] ?? [], $name);
+        $questions = self::render_questions('Common Questions Before You Click', $payload['questions_section_paragraphs'] ?? [], $payload['faq_items'] ?? [], $name);
         if ($questions !== '') {
             $sections[] = $questions;
         }
 
-        $links = self::render_section('Official Links and Elsewhere Online', $payload['official_links_section_paragraphs'] ?? [], $name, self::join_html_blocks([
+        $links = self::render_section('Where Are the Official Links and Other Profiles?', $payload['official_links_section_paragraphs'] ?? [], $name, self::join_html_blocks([
             $payload['external_info_html'] ?? '',
             $payload['explore_more_html'] ?? '',
         ]));
@@ -208,7 +208,7 @@ class ModelPageRenderer {
         $active = is_array($payload['active_platforms'] ?? null) ? $payload['active_platforms'] : [];
         $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
         $platform_text = !empty($active) ? self::format_list($active) : 'verified platforms';
-        $answer = $name . ' is available via official profile links on ' . $platform_text . '.';
+        $answer = 'The quickest trusted route to ' . $name . ' is through official profile links on ' . $platform_text . '.';
         if (empty($lines)) {
             return [$answer];
         }
@@ -222,11 +222,11 @@ class ModelPageRenderer {
         $active = is_array($payload['active_platforms'] ?? null) ? $payload['active_platforms'] : [];
         $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
         if (count($active) >= 2) {
-            $answer = 'Start with ' . $active[0] . ' if you already use it, then compare ' . $active[1] . ' for chat controls, mobile playback, and room pacing.';
+            $answer = 'Start with ' . $active[0] . ' if it is your usual platform, then compare ' . $active[1] . ' for chat controls, mobile playback, and moderation flow.';
         } elseif (count($active) === 1) {
             $answer = $name . ' is currently confirmed on ' . $active[0] . ', so use that official profile first.';
         } else {
-            $answer = 'Compare confirmed platforms by room stability, chat readability, and mobile usability before choosing a default room.';
+            $answer = 'Compare confirmed platforms by room stability, chat readability, trust signals, and mobile usability before choosing a default room.';
         }
         array_unshift($lines, $answer);
         return array_values(array_unique($lines));
@@ -251,7 +251,7 @@ class ModelPageRenderer {
         $html = preg_replace('/<h2>\s*(?:Explore More|Models|Categories)\s*<\/h2>\s*(?:<p>.*?<\/p>|<ul>.*?<\/ul>|<table>.*?<\/table>)*/isu', '', $html) ?: $html;
         $html = preg_replace('/<p>\s*(?:Related searches people use before picking a room:)\s*<\/p>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
         $html = preg_replace('/<h2>\s*Quick recap.*?<\/h2>\s*<p>.*?<\/p>/isu', '', $html) ?: $html;
-        $html = preg_replace('/<p>\s*(People usually open a page like this.*?|A page like this.*?|Finding the real room should not take.*?|This page keeps.*?|The room tends to work because.*?|The atmosphere is settled.*?|The practical side.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?)\s*<\/p>/iu', '', $html) ?: $html;
+        $html = preg_replace('/<p>\s*(People usually open a page like this.*?|A page like this.*?|Finding the real room should not take.*?|This page keeps.*?|The room tends to work because.*?|The atmosphere is settled.*?|The practical side.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?|The room feel.*?|The tone.*?|The rhythm.*?|The energy.*?)\s*<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/<p>\s*(?:Viewers looking for|A query like|How to join .*? usually|LiveJasmin live show schedule matters).*?<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/(<h2>\s*Verified Links\s*<\/h2>.*?)(?:<p>\s*(?:In short|Overall|To wrap up|That said|Finally).*?<\/p>)+$/isu', '$1', $html) ?: $html;
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
