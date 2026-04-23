@@ -350,6 +350,8 @@ class TemplateContent {
             'active_platforms' => $active_platforms,
             'editor_seed_summary' => (string) ($editor_seed['summary'] ?? ''),
             'editor_seed_platform_notes' => (array) ($editor_seed['platform_notes'] ?? []),
+            'editor_seed_confirmed_facts' => (array) ($editor_seed['confirmed_facts'] ?? []),
+            'editor_seed_known_for_tags' => (array) ($editor_seed['known_for_tags'] ?? []),
         ];
     }
 
@@ -616,7 +618,7 @@ class TemplateContent {
         }
 
         return '<h3>' . esc_html('Find ' . $name . ' elsewhere') . '</h3>'
-            . '<p>' . esc_html('Editor-curated links to official profiles, personal sites, and related pages.') . '</p>'
+            . '<p>' . esc_html('Verified destinations for official profiles, personal sites, and related channels.') . '</p>'
             . implode('', $chunks);
     }
 
@@ -815,26 +817,7 @@ class TemplateContent {
                 'Editors consistently tag ' . $name . ' for ' . implode(', ', $lead) . ', so those are the most reliable themes to check first when you join.',
             ];
         }
-        $platform = trim((string)($context['platform_a'] ?? ''));
-        $platform_b = trim((string)($context['platform_b'] ?? ''));
-        if ($platform === '' || $platform === self::NEUTRAL_PLATFORM_FALLBACK) {
-            $platform = 'the platform';
-        }
-        $tags = array_values(array_filter(array_map('trim', explode(',', (string)($context['tags'] ?? ''))), 'strlen'));
-        $top_tags = array_slice($tags, 0, 2);
-        $paragraphs = [];
-
-        if (!empty($top_tags)) {
-            $paragraphs[] = 'Interest signals around ' . implode(' and ', $top_tags) . ' are consistently associated with this profile, so those are the most useful themes to check first in the live room.';
-        }
-
-        $paragraphs[] = 'Followers usually prioritize reliable access and consistent profile activity on ' . $platform . ', then decide whether to stay based on room controls and chat usability.';
-
-        if ($platform_b !== '' && $platform_b !== self::NEUTRAL_PLATFORM_FALLBACK && strcasecmp($platform_b, $platform) !== 0) {
-            $paragraphs[] = 'For multi-platform viewers, preferences often split between ' . $platform . ' and ' . $platform_b . ' depending on moderation style, mobile playback, and notification reliability.';
-        }
-
-        return array_values(array_slice(array_filter($paragraphs), 0, 3));
+        return [];
     }
 
     private static function render_rankmath_keyword_coverage(array $keywords, string $name): string {
@@ -876,9 +859,6 @@ class TemplateContent {
 
     private static function build_platform_comparison(\WP_Post $post, string $name, array $cta_links, string $comparison_copy, array $editor_seed = []): string {
         $comparison_copy = self::cleanup_visible_text($comparison_copy, $name, false);
-        $platform_notes = isset($editor_seed['platform_notes']) && is_array($editor_seed['platform_notes'])
-            ? array_values(array_filter(array_map('strval', $editor_seed['platform_notes']), 'strlen'))
-            : [];
 
         // ── Detect alternate Stripchat username ───────────────────────────────
         // When a model's Stripchat username differs from their primary (LiveJasmin)
@@ -910,31 +890,6 @@ class TemplateContent {
             return $alt_username_note . '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>';
         }
 
-        $labels = array_values(array_filter(array_map(static function (array $link): string {
-            return trim((string)($link['label'] ?? ''));
-        }, $cta_links), 'strlen'));
-        $labels = array_values(array_unique($labels));
-        $prose = [];
-        if (count($labels) >= 2) {
-            $balanced_labels = array_slice($labels, 0, 3);
-            $prose[] = '<p>' . esc_html('Start with ' . $balanced_labels[0] . ' if it is your usual platform, then compare ' . $balanced_labels[1] . ' using chat readability, mobile playback, and room controls.') . '</p>';
-            $prose[] = '<p>' . esc_html($name . ' has active profiles on ' . implode(', ', $balanced_labels) . '. Compare both official rooms before deciding which one to use as your default.') . '</p>';
-            foreach ($balanced_labels as $label) {
-                $prose[] = '<p>' . esc_html('On ' . $label . ', verify room moderation, mobile playback, and chat response speed during busier sessions.') . '</p>';
-            }
-        } else {
-            $single = $labels[0] ?? 'the active platform';
-            $prose[] = '<p>' . esc_html('Start on ' . $single . ' because it is the only currently confirmed active platform for ' . $name . '.') . '</p>';
-            $prose[] = '<p>' . esc_html('This section lists profile access details instead of a forced multi-platform comparison.') . '</p>';
-        }
-        if (!empty($platform_notes)) {
-            foreach (array_slice($platform_notes, 0, 3) as $note) {
-                $prose[] = '<p>' . esc_html($note) . '</p>';
-            }
-        } elseif ($comparison_copy !== '') {
-            $prose[] = '<p>' . esc_html($comparison_copy) . '</p>';
-        }
-
         $rows = '';
         foreach (array_slice($cta_links, 0, 4) as $link) {
             $label = trim((string)($link['label'] ?? ''));
@@ -955,7 +910,7 @@ class TemplateContent {
             $table = '<table><thead><tr><th>Platform</th><th>Profile</th><th>Link</th></tr></thead><tbody>' . $rows . '</tbody></table>';
         }
 
-        return $alt_username_note . implode('', $prose) . $table;
+        return $alt_username_note . $table;
     }
 
     private static function render_related_models(\WP_Post $post, string $name, array $tags, array $active_platforms): string {
