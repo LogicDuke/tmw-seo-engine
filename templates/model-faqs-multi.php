@@ -1,42 +1,31 @@
 <?php
 /**
  * Multi-platform FAQ template pool.
- *
- * Questions and answers stay paired and should sound like practical replies,
- * not stiff SEO filler.
  */
 
 return [
     [
-        'q' => 'Which platforms are active right now?',
-        'a' => '{name} currently has active profiles on {active_platforms_text}. The links on this page point to the current rooms, which is usually faster than checking aggregator pages one by one.',
+        'q' => 'Which platforms are currently active?',
+        'a' => '{name} currently has active profiles on {active_platforms_text}. The links here point to confirmed profile destinations so you can check live status quickly.',
     ],
     [
-        'q' => 'Where should a first-time viewer start?',
-        'a' => 'Start with {platform_a} if you want the quicker setup, then try {platform_b} to compare chat pace and community style. Both links here go to the active profiles.',
+        'q' => 'Which platform should I open first?',
+        'a' => 'Start with the platform you already use, then compare the second room for chat controls and playback quality. A short side-by-side check usually makes the choice clear.',
     ],
     [
-        'q' => 'Can I watch on mobile?',
-        'a' => 'Yes. The main platforms listed here support modern mobile browsers with the room view and chat features intact, so the choice usually comes down to platform preference rather than device limits.',
+        'q' => 'How do I compare platforms fairly?',
+        'a' => 'Use the same criteria on each platform: load speed, chat readability, moderation quality, and mobile usability. Avoid deciding from branding alone.',
     ],
     [
-        'q' => 'How do alerts and schedules work across platforms?',
-        'a' => 'Following both profiles is the safest option when sessions rotate. Alerts are usually more reliable than trying to remember which room tends to open on which day.',
+        'q' => 'Should I follow both profiles?',
+        'a' => 'Yes, if both are active. Dual follows help when schedules shift between platforms and reduce missed live sessions.',
     ],
     [
-        'q' => 'Is the room experience very different from one platform to another?',
-        'a' => 'The performer style is consistent, but platform tools can make each room feel different. One may feel calmer while another moves faster, so it is worth testing both if chat style matters to you.',
+        'q' => 'Are private features the same everywhere?',
+        'a' => 'No. Private-room controls vary by platform and by current room state. Open each official profile to verify what is available before joining.',
     ],
     [
-        'q' => 'Are private options available on every platform?',
-        'a' => 'Private features depend on the platform tools and the status of the room at that moment. The cleanest way to check is to open the official profile and look at the live room controls directly.',
-    ],
-    [
-        'q' => 'What should a new viewer expect from the room?',
-        'a' => 'Expect a session that opens gradually and responds to chat instead of rushing straight into noise. That usually makes it easier to decide which platform fits your preferences after a few minutes.',
-    ],
-    [
-        'q' => 'Why bother keeping both profiles handy?',
-        'a' => 'Schedules move, and each platform can fit a different mood. Keeping both profiles saved makes it easier to catch a live room without extra searching.',
+        'q' => 'Is this page promoting one platform?',
+        'a' => 'No. Multi-platform pages are written to compare all active platforms evenly and help you choose based on your own viewing preferences.',
     ],
 ];

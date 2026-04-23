@@ -60,12 +60,7 @@ class ModelPageRenderer {
             $sections[] = $questions;
         }
 
-        $related = self::render_section('Related Models', $payload['related_models_paragraphs'] ?? [], $name, $payload['related_models_html'] ?? '');
-        if ($related !== '') {
-            $sections[] = $related;
-        }
-
-        $links = self::render_section('Verified Links', [], $name, self::join_html_blocks([
+        $links = self::render_section('Official Links and Elsewhere Online', [], $name, self::join_html_blocks([
             $payload['external_info_html'] ?? '',
             $payload['explore_more_html'] ?? '',
         ]));
@@ -74,10 +69,6 @@ class ModelPageRenderer {
         }
 
         $html = implode("\n\n", $sections);
-        $toc = self::build_toc($html);
-        if ($toc !== '') {
-            $html = $toc . "\n\n" . $html;
-        }
         return self::final_cleanup($html, $name);
     }
 
@@ -215,10 +206,6 @@ class ModelPageRenderer {
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
-        $toc = self::build_toc($html);
-        if ($toc !== '') {
-            $html = $toc . "\n\n" . trim($html);
-        }
         return trim($html);
     }
 
@@ -229,29 +216,6 @@ class ModelPageRenderer {
         }
 
         return (bool) preg_match('/^(explore more\s*)?(models|categories)(\s*(models|categories))*$/', $text);
-    }
-
-    private static function build_toc(string $html): string {
-        preg_match_all('/<h2>(.*?)<\/h2>/isu', $html, $matches);
-        $headings = isset($matches[1]) && is_array($matches[1]) ? $matches[1] : [];
-        if (count($headings) < 2) {
-            return '';
-        }
-
-        $items = [];
-        foreach ($headings as $heading) {
-            $label = trim((string) wp_strip_all_tags((string) $heading));
-            if ($label === '') {
-                continue;
-            }
-            $items[] = '<li>' . esc_html($label) . '</li>';
-        }
-
-        if (count($items) < 2) {
-            return '';
-        }
-
-        return '<h2>Table of Contents</h2><ul>' . implode('', $items) . '</ul>';
     }
 
     /**

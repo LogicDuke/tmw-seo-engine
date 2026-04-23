@@ -23,9 +23,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ClaudeContent {
 
 	// ── Generation contract constants (must stay in sync with ContentEngine) ──
-	public const MODEL_MIN_WORDS         = 800;
-	public const MODEL_PREFERRED_MIN     = 1200;   // soft target — expand to reach this
-	public const MODEL_PREFERRED_MAX     = 1501;   // natural ceiling — stop here
+	public const MODEL_MIN_WORDS         = 260;
+	public const MODEL_PREFERRED_MIN     = 320;
+	public const MODEL_PREFERRED_MAX     = 900;
 	public const MODEL_MIN_KW_DENSITY    = 1.0;
 	public const MODEL_MAX_KW_DENSITY    = 2.0;
 
@@ -141,7 +141,7 @@ class ClaudeContent {
 		if ( $meta_desc === '' ) {
 			$meta_desc = 'Join ' . $name . "'s live chat"
 				. ( $primary_platform !== 'the platform' ? ' on ' . $primary_platform : '' )
-				. '. Find trusted links, top features, privacy tips, FAQs, and related searches to get started.';
+				. '. Find official links, platform comparisons, and practical FAQs to get started.';
 		}
 		$meta_desc = TitleFixer::shorten( $meta_desc, 160 );
 
@@ -204,10 +204,10 @@ GENERATION CONTRACT — every response must satisfy all of these:
 2. intro_paragraphs: 2–3 paragraphs. Mention the model name in the first sentence.
 3. watch_section_paragraphs: 1–2 paragraphs about how to find/join live shows.
 4. about_section_paragraphs: 2–3 paragraphs. Describe style, personality, community feel.
-5. fans_like_section_paragraphs: 2–3 paragraphs covering what makes the model stand out
-   — avoid repeated openers like "Viewers who", "People looking up", or "Searches for/around".
-6. features_section_paragraphs: 2–3 paragraphs. Cover HD quality, interaction, privacy,
-   mobile access, notification alerts. Be specific about {primary_platform}.
+5. fans_like_section_paragraphs: include only evidence-backed points from provided tags/platform data.
+   If support is weak, keep this section short.
+6. features_section_paragraphs: frame as platform/access checks (HD quality, interaction tools, privacy,
+   mobile access, notification alerts). Do not imply performer-specific claims unless supported.
 7. comparison_section_paragraphs: 1–2 paragraphs that stay platform-balanced.
    If 2+ platforms are supplied, cover each platform fairly and avoid defaulting to one brand.
    Affiliate priority must not influence editorial weighting.
@@ -230,6 +230,10 @@ KEYWORD DENSITY RULES
 • Use contractions where natural and vary sentence openers (do not repeatedly start with "The room…").
 • Do NOT use these fallback phrases more than once each across the entire output:
   "official profile links", "trusted room links", "official live profile".
+• Section jobs are strict: intro = model + official/live link context + why useful; watch = direct room access;
+  about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing;
+  comparison = balanced across every active platform; FAQ = natural user questions.
+• Reject generic interchangeable filler (atmosphere/energy/rhythm/tone prose) unless tied to concrete evidence.
 
 SYSTEM
 ;
@@ -253,9 +257,9 @@ SYSTEM
 			. "\n"
 			. "WORD COUNT CONTRACT\n"
 			. "• Hard minimum: " . self::MODEL_MIN_WORDS . " words across all prose sections.\n"
-			. "• Preferred target: " . self::MODEL_PREFERRED_MIN . "–" . self::MODEL_PREFERRED_MAX . " words. Expand each section generously to reach this range.\n"
-			. "• Each individual section must contain at least 80 words.\n"
-			. "• Do NOT pad with repetitive filler — use concrete observations about pace, chat style, scheduling, privacy, and room features.\n"
+			. "• Preferred target: " . self::MODEL_PREFERRED_MIN . "–" . self::MODEL_PREFERRED_MAX . " words when data supports it.\n"
+			. "• Keep sparse-data pages short and factual instead of padding.\n"
+			. "• Do NOT pad with repetitive filler — use concrete observations about access, scheduling, platform differences, and verified links.\n"
 			. "• Weave secondary keywords lightly and naturally; never use raw long-tail phrases as paragraph sentence openers.\n"
 			. "• Do not include keyword-dump blocks or meta commentary about search queries.\n"
 			. "\n"
@@ -272,7 +276,7 @@ SYSTEM
 			. "Current word count: {$wc} (hard minimum: " . self::MODEL_MIN_WORDS . "; preferred target: " . self::MODEL_PREFERRED_MIN . "–" . self::MODEL_PREFERRED_MAX . ").\n"
 			. "Current keyword density: " . round( $density, 2 ) . "% "
 			. "(target: " . self::MODEL_MIN_KW_DENSITY . "–" . self::MODEL_MAX_KW_DENSITY . "%).\n"
-			. "Please expand each section with additional direct, concrete sentences until the preferred target is reached. Avoid signposting, brochure copy, and mechanical keyword repetition.\n"
+			. "Please revise with direct, concrete sentences only. Keep sparse sections short rather than padded. Avoid signposting, brochure copy, and mechanical keyword repetition.\n"
 			. "Return the full corrected JSON object only.";
 	}
 

@@ -1,42 +1,31 @@
 <?php
 /**
  * Single-platform FAQ template pool.
- *
- * Keep the Q&A direct and natural. The section heading already names the model,
- * so the questions do not need to repeat it unless clarity really requires it.
  */
 
 return [
     [
-        'q' => 'How do I watch on {live_brand}?',
-        'a' => 'Use the {live_brand} link on this page and sign in to your account there. Opening the room a few minutes early is the easiest way to catch the start and get settled before chat speeds up.',
+        'q' => 'Where is the official live profile?',
+        'a' => 'Use the {live_brand} links on this page to open the confirmed profile directly. This is usually faster and safer than following copied aggregator listings.',
     ],
     [
-        'q' => 'Can I watch on a phone or tablet?',
-        'a' => '{live_brand} works well on modern mobile browsers, including the full room view and chat tools. If you prefer a smaller screen, notifications are still worth enabling because they make it easier to catch live starts on time.',
+        'q' => 'How can I catch the next live session?',
+        'a' => 'Follow {name} on {live_brand} and enable platform alerts. Notification alerts are more reliable than manually refreshing multiple pages.',
     ],
     [
-        'q' => 'What is the room like for a first-time visitor?',
-        'a' => 'Expect a live room that settles in gradually rather than trying to impress all at once. {name} usually gives new viewers enough context to understand the mood before the session fully opens up.',
+        'q' => 'Does the room work on mobile?',
+        'a' => 'Yes, {live_brand} supports modern mobile browsers. If you watch on phone often, test chat controls and playback first to confirm the experience you want.',
     ],
     [
-        'q' => 'How do alerts and scheduling usually work?',
-        'a' => 'Following the profile on {live_brand} is the most reliable option. Session timing can move around, so alerts tend to be more useful than checking back manually.',
+        'q' => 'How do I verify I clicked the right profile?',
+        'a' => 'Start from the direct links here and confirm the same username and profile branding on the destination page. Avoid mirrors that reuse photos but change profile handles.',
     ],
     [
-        'q' => 'Are private sessions available?',
-        'a' => 'Private options are usually handled through the room tools on {live_brand}. Availability can shift from session to session, so the clearest answer is to check the live room or the profile status directly.',
+        'q' => 'Are private options available?',
+        'a' => 'Private access depends on current room status and platform controls on {live_brand}. Open the live room to check availability in real time.',
     ],
     [
-        'q' => 'Is the platform easy for new viewers to use?',
-        'a' => '{live_brand} is straightforward once you land on the correct profile. The main thing that helps is using the direct room link instead of third-party copies or embedded mirrors.',
-    ],
-    [
-        'q' => 'What usually keeps regular viewers coming back?',
-        'a' => 'Usually it is consistency, not a single gimmick. Steady pacing, readable chat, and small real-time reactions matter most over repeat visits.',
-    ],
-    [
-        'q' => 'Do notifications matter that much?',
-        'a' => 'They do if you do not want to keep guessing when the room will open. A simple follow alert often saves more time than checking several pages by hand.',
+        'q' => 'Why is this page useful if I already know the model name?',
+        'a' => 'Name searches often surface stale or copied pages. This page keeps confirmed links and access notes together so you can reach the right room quickly.',
     ],
 ];
