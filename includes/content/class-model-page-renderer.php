@@ -57,10 +57,6 @@ class ModelPageRenderer {
         }
 
         $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
-        $seed_notes = is_array($payload['editor_seed_platform_notes'] ?? null) ? $payload['editor_seed_platform_notes'] : [];
-        if (!empty($seed_notes)) {
-            $comparison_paragraphs = array_merge(array_slice($seed_notes, 0, 3), $comparison_paragraphs);
-        }
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
         $compare = self::render_section('Which Platform Should You Start With?', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
@@ -288,6 +284,36 @@ class ModelPageRenderer {
             return false;
         }
 
+        $seed_summary = trim((string)($payload['editor_seed_summary'] ?? ''));
+        $seed_facts = is_array($payload['editor_seed_confirmed_facts'] ?? null) ? $payload['editor_seed_confirmed_facts'] : [];
+        $seed_tags = is_array($payload['editor_seed_known_for_tags'] ?? null) ? $payload['editor_seed_known_for_tags'] : [];
+        $platform_notes = is_array($payload['editor_seed_platform_notes'] ?? null) ? $payload['editor_seed_platform_notes'] : [];
+        $signals = is_array($gate['signals'] ?? null) ? $gate['signals'] : [];
+        $platform_links = (int)($signals['platform_links'] ?? 0);
+        $active_platforms_signal = (int)($signals['active_platforms'] ?? 0);
+        $editor_seed_fact_signal = (int)($signals['editor_seed_facts'] ?? 0);
+
+        $evidence_points = 0;
+        if ($platform_links > 0) { $evidence_points++; }
+        if ($active_platforms_signal > 0) { $evidence_points++; }
+        if ($editor_seed_fact_signal > 0 || !empty($seed_facts)) { $evidence_points++; }
+        if ($seed_summary !== '') { $evidence_points++; }
+        if (!empty($platform_notes)) { $evidence_points++; }
+
+        if ($section === 'fans_like') {
+            if (empty($seed_tags)) {
+                return false;
+            }
+            return $evidence_points >= 2;
+        }
+
+        if ($section === 'about') {
+            if ($seed_summary === '' && empty($seed_facts)) {
+                return false;
+            }
+            return $evidence_points >= 2;
+        }
+
         $text = mb_strtolower(implode(' ', $paragraphs), 'UTF-8');
         $active_platforms = $payload['active_platforms'] ?? [];
         $active_platforms = is_array($active_platforms) ? $active_platforms : [];
@@ -305,7 +331,6 @@ class ModelPageRenderer {
             return true;
         }
 
-        $seed_summary = trim((string)($payload['editor_seed_summary'] ?? ''));
         return $seed_summary !== '';
     }
 
