@@ -177,8 +177,8 @@ class VerifiedLinks {
     // ── Metabox render ────────────────────────────────────────────────────
 
     /**
-     * Render the Verified External Links metabox as 5 grouped family blocks
-     * (Cam Platforms / Personal Website / Fansites / Tube Sites / Social Media)
+     * Render the Verified External Links metabox as grouped family blocks
+     * (Cam Platforms / Personal Website / Fansites / Tube Sites / Social Media / Link Hubs)
      * plus an Other / Legacy block that only appears when populated.
      *
      * @since 5.1.0 Replaced flat-table renderer with grouped <details> blocks.
@@ -267,7 +267,7 @@ class VerifiedLinks {
         </style>
         <?php
 
-        // ── Render the 5 visible blocks + optional Other/Legacy ───────────
+        // ── Render the visible blocks + optional Other/Legacy ─────────────
         foreach ( VerifiedLinksFamilies::display_order() as $family_slug ) {
             $family_rows = $by_family[ $family_slug ];
 
