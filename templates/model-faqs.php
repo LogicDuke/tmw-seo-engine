@@ -5,27 +5,27 @@
 
 return [
     [
-        'q' => 'Where is the official live profile?',
-        'a' => 'The official profile is the {live_brand} link shown on this page. Use that link first to avoid copied or stale listings.',
+        'q' => 'Which link should I open first?',
+        'a' => 'Open the destination listed in the live section first. That list is reserved for verified live-room access, while other sections cover follow, support, and archive links.',
     ],
     [
-        'q' => 'How can I catch the next live session?',
-        'a' => 'Follow {name} on {live_brand} and turn on alerts. Alerts are usually faster than manually checking multiple pages.',
+        'q' => 'What does non-active mean on this page?',
+        'a' => 'Non-active means the destination exists but is not currently confirmed as a live-room entry point in this review snapshot. It can still be useful for profile access or future checks.',
     ],
     [
-        'q' => 'Can I watch on mobile?',
-        'a' => 'Yes, {live_brand} works on current mobile browsers. Open the room once on your phone to confirm playback and chat controls feel usable for you.',
+        'q' => 'How can I avoid fake or copied pages?',
+        'a' => 'Use links from this page first, then confirm the handle and branding after click-through. Leave immediately if names, logos, or room history look mismatched.',
     ],
     [
-        'q' => 'How do I verify I clicked the right profile?',
-        'a' => 'Match the username and profile branding after you open the link from this page. Leave the page if the handle differs or the profile looks copied.',
+        'q' => 'Why are some official links outside the live section?',
+        'a' => 'Those destinations are still official but serve different goals like following updates, support pages, or archived content. They are intentionally separated from live-room routing.',
     ],
     [
-        'q' => 'Are private options available?',
-        'a' => 'Private options depend on current room status and platform controls. Open the live room to confirm what is available right now.',
+        'q' => 'How should I evaluate the room after opening it?',
+        'a' => 'Check recent activity, playback consistency, chat readability, and moderation tone in the first minute. That quick audit is more reliable than marketing copy.',
     ],
     [
-        'q' => 'Why use this page if I already know the model name?',
-        'a' => 'Use this page to get a trusted route to the correct room quickly. Name searches often surface fake, stale, or duplicate profiles first.',
+        'q' => 'Why might status change later?',
+        'a' => 'Activity labels reflect a point-in-time review. Platforms and operators can change room status quickly, so rechecking before each visit is recommended.',
     ],
 ];

@@ -20,7 +20,7 @@ class TemplateEngine {
      * The version is appended to every transient key, forcing a cache miss
      * on the next load after a deploy — no manual cache flush required.
      */
-    private const TEMPLATE_VERSION = 'v2.4';
+    private const TEMPLATE_VERSION = 'v2.5';
 
     /**
      * Flush all template transients. Call after plugin updates or bulk regeneration.
