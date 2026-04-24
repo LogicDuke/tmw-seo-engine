@@ -86,6 +86,30 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertCount(2, $resolved['all_verified_destinations']);
     }
 
+    public function test_extended_link_hub_types_map_to_link_hub_destinations_and_more_links_heading(): void {
+        $post = new \WP_Post();
+        $post->ID = 503;
+        $resolved = ModelDestinationResolver::resolve(503, [], [
+            ['type' => 'solo_to', 'url' => 'https://solo.to/alice', 'is_active' => true, 'label' => 'Solo.to'],
+            ['type' => 'carrd', 'url' => 'https://alice.carrd.co', 'is_active' => true, 'label' => 'Carrd'],
+            ['type' => 'link_me', 'url' => 'https://link.me/alice', 'is_active' => true, 'label' => 'Link.me'],
+            ['type' => 'friendsbio', 'url' => 'https://friendsbio.com/alice', 'is_active' => true, 'label' => 'Friends Bio'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(4, $resolved['link_hub_destinations']);
+        $this->assertCount(0, $resolved['social_destinations']);
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $this->assertStringContainsString('<h3>More Links</h3>', (string) ($payload['external_info_html'] ?? ''));
+    }
+
     public function test_fansites_are_never_watch_ctas_even_when_marked_active(): void {
         $resolved = ModelDestinationResolver::resolve(
             82,

@@ -105,6 +105,10 @@ class VerifiedLinksFamilies {
             'linktree'     => self::FAMILY_LINK_HUB,
             'beacons'      => self::FAMILY_LINK_HUB,
             'allmylinks'   => self::FAMILY_LINK_HUB,
+            'solo_to'      => self::FAMILY_LINK_HUB,
+            'carrd'        => self::FAMILY_LINK_HUB,
+            'link_me'      => self::FAMILY_LINK_HUB,
+            'friendsbio'   => self::FAMILY_LINK_HUB,
 
             // Catch-all for legacy data — rendered in the Unmapped block.
             'other'        => self::FAMILY_UNMAPPED,
@@ -222,6 +226,10 @@ class VerifiedLinksFamilies {
             'linktree'      => 'Linktree',
             'beacons'       => 'Beacons',
             'allmylinks'    => 'AllMyLinks',
+            'solo_to'       => 'Solo.to',
+            'carrd'         => 'Carrd',
+            'link_me'       => 'Link.me',
+            'friendsbio'    => 'Friends Bio',
             'other'         => 'Other',
         ];
     }

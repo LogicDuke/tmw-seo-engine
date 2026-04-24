@@ -137,6 +137,17 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'linktree' ) );
         $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'beacons' ) );
         $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'allmylinks' ) );
+        $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'solo_to' ) );
+        $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'carrd' ) );
+        $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'link_me' ) );
+        $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'friendsbio' ) );
+    }
+
+    public function test_link_hub_family_contains_extended_services_in_dropdown_order(): void {
+        $this->assertSame(
+            [ 'linktree', 'beacons', 'allmylinks', 'solo_to', 'carrd', 'link_me', 'friendsbio' ],
+            array_keys( VerifiedLinksFamilies::types_in_family( VerifiedLinksFamilies::FAMILY_LINK_HUB ) )
+        );
     }
 
     public function test_social_family_excludes_link_hub_types(): void {
@@ -145,6 +156,10 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         $this->assertNotContains( 'linktree', $social );
         $this->assertNotContains( 'beacons', $social );
         $this->assertNotContains( 'allmylinks', $social );
+        $this->assertNotContains( 'solo_to', $social );
+        $this->assertNotContains( 'carrd', $social );
+        $this->assertNotContains( 'link_me', $social );
+        $this->assertNotContains( 'friendsbio', $social );
     }
 
     /**
