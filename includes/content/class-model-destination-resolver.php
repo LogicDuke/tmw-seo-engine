@@ -85,10 +85,10 @@ class ModelDestinationResolver {
             ];
             $families['all_verified_destinations'][] = $entry;
 
-            if (in_array($type, ['linktree', 'beacons', 'allmylinks'], true)) {
+            if ($family === VerifiedLinksFamilies::FAMILY_LINK_HUB) {
                 $families['link_hub_destinations'][] = $entry;
             }
-            if ($family === VerifiedLinksFamilies::FAMILY_SOCIAL && !in_array($type, ['linktree', 'beacons', 'allmylinks'], true)) {
+            if ($family === VerifiedLinksFamilies::FAMILY_SOCIAL) {
                 $families['social_destinations'][] = $entry;
             }
             if ($family === VerifiedLinksFamilies::FAMILY_PERSONAL) {

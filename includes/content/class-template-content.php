@@ -572,7 +572,7 @@ class TemplateContent {
             VerifiedLinksFamilies::FAMILY_PERSONAL => 'Official and personal sites',
             VerifiedLinksFamilies::FAMILY_FANSITE => 'Fan pages',
             VerifiedLinksFamilies::FAMILY_SOCIAL => 'Social profiles',
-            VerifiedLinksFamilies::FAMILY_LINK_HUB => 'Link hubs',
+            VerifiedLinksFamilies::FAMILY_LINK_HUB => 'More Links',
             VerifiedLinksFamilies::FAMILY_TUBE => 'Video channels',
             VerifiedLinksFamilies::FAMILY_UNMAPPED => 'Elsewhere online',
         ];

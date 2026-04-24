@@ -113,6 +113,10 @@ class VerifiedLinks {
         'linktree',
         'beacons',
         'allmylinks',
+        'solo_to',
+        'carrd',
+        'link_me',
+        'friendsbio',
         // Catch-all (Other / Legacy block)
         'other',
     ];
@@ -139,6 +143,10 @@ class VerifiedLinks {
         'linktree'      => 'Linktree',
         'beacons'       => 'Beacons',
         'allmylinks'    => 'AllMyLinks',
+        'solo_to'       => 'Solo.to',
+        'carrd'         => 'Carrd',
+        'link_me'       => 'Link.me',
+        'friendsbio'    => 'Friends Bio',
         'other'         => 'Other',
     ];
 
@@ -1775,8 +1783,14 @@ class VerifiedLinks {
             'allmylinks.com' => 'AllMyLinks',
             'beacons.ai'     => 'Beacons',
             'solo.to'        => 'solo.to',
+            'link.me'        => 'Link.me',
+            'friendsbio.com' => 'Friends Bio',
             'pornhub.com'    => 'Pornhub',
         ];
+
+        if ( str_ends_with( $host, '.carrd.co' ) ) {
+            return 'Carrd';
+        }
 
         if ( isset( $map[ $host ] ) ) {
             return $map[ $host ];
@@ -1807,12 +1821,21 @@ class VerifiedLinks {
             'youtu.be'      => 'youtube',
             'linktr.ee'     => 'linktree',
             'linktree.com'  => 'linktree',
+            'allmylinks.com'=> 'allmylinks',
+            'beacons.ai'    => 'beacons',
+            'solo.to'       => 'solo_to',
+            'link.me'       => 'link_me',
+            'friendsbio.com'=> 'friendsbio',
             'onlyfans.com'  => 'onlyfans',
             'fansly.com'    => 'fansly',
             'fancentro.com' => 'fancentro',
             'streamate.com' => 'streamate',
             'pornhub.com'   => 'pornhub',
         ];
+
+        if ( str_ends_with( $host, '.carrd.co' ) ) {
+            return 'carrd';
+        }
 
         return $map[ $host ] ?? 'other';
     }
