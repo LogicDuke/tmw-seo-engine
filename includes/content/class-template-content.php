@@ -157,7 +157,7 @@ class TemplateContent {
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
-            'Use the links below to open verified live-room destinations currently marked active. This section intentionally excludes fan pages, social channels, and link hubs.',
+            'Use the links below to open verified live-room destinations currently confirmed active in this review. This section intentionally excludes fan pages, social channels, and link hubs.',
             'Choose a live platform below to reach a verified destination first, then confirm room status before joining. Listings outside this section are for follow/support access.',
             'Open a verified live profile first, then treat aggregators and copied listings as secondary references only.',
         ];
@@ -451,7 +451,7 @@ class TemplateContent {
             );
 
         if ($active_platform_count === 1) {
-            $intro_first = 'One verified live-room destination is currently active on ' . $platform_text . '. Start there for room entry first.';
+            $intro_first = 'This review currently confirms one active live-room destination: ' . $platform_text . '. Start there first for room entry.';
             $comparison_lines = [
                 'Use this checklist before you join: verify handle match, confirm recent room activity, check chat readability, and confirm mobile playback stability.',
             ];
@@ -461,7 +461,7 @@ class TemplateContent {
                 'If multiple platforms are active, start with your familiar platform and compare load speed, chat controls, and privacy settings before choosing where to watch.',
             ];
         } else {
-            $intro_first = 'Verified destinations exist, but no live-room destination is currently marked active in this review snapshot.';
+            $intro_first = 'Verified destinations exist, but no live-room destination is currently confirmed active in this review snapshot.';
             $comparison_lines = [
                 'When live-room status is unclear, verify the handle first and use official destinations for follow and backup access until activity updates.',
             ];
@@ -844,12 +844,12 @@ class TemplateContent {
         $active_platform_count = count($active_platforms);
         if ($active_platform_count === 1) {
             $platform_text = self::format_platform_list($active_platforms, 'the active platform');
-            $answer_line = 'Right now, one verified live-room destination is active on ' . $platform_text . '. Start there first, then use verified non-live destinations for backup and profile checks.';
+            $answer_line = 'In this review, one live-room destination is currently confirmed active: ' . $platform_text . '. Start there first, then use verified non-live destinations for backup and profile checks.';
         } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
-            $answer_line = 'Verified live-room destinations are currently active on ' . $platform_text . '. Open those links first, then use other sections for follow and backup access.';
+            $answer_line = 'This review currently confirms active live-room destinations on ' . $platform_text . '. Open those links first, then use other sections for follow and backup access.';
         } else {
-            $answer_line = 'Verified destinations exist, but no live-room entry is currently marked active in this review snapshot.';
+            $answer_line = 'Verified destinations exist, but no live-room entry is currently confirmed active in this review snapshot.';
         }
         if ($summary === '') {
             return [
@@ -1102,7 +1102,7 @@ class TemplateContent {
                 $cta = '<p><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">Open ' . esc_html($platform) . ' profile</a></p>';
             }
             return $alt_username_note
-                . '<p>' . esc_html('Only one live platform is currently marked active: ' . $platform . '. Use this quick pre-click checklist before joining.') . '</p>'
+                . '<p>' . esc_html('Only one live-room destination is currently confirmed active in this review: ' . $platform . '. Use this quick pre-click checklist before joining.') . '</p>'
                 . $checklist
                 . $cta;
         }
@@ -2221,7 +2221,7 @@ class TemplateContent {
         $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
 
         $pool = [
-            '<li><strong>Truth-first routing:</strong> Live-room links are limited to destinations currently marked active; follow/support pages stay in separate sections.</li>',
+            '<li><strong>Truth-first routing:</strong> Live-room links are limited to destinations currently confirmed active in this review; follow/support pages stay in separate sections.</li>',
             '<li><strong>Pre-click verification:</strong> Compare handle spelling, profile branding, and room freshness before spending credits or tips.</li>',
             '<li><strong>Fair platform testing:</strong> Run a one-minute check for playback stability, chat readability, moderation tone, and login friction.</li>',
             '<li><strong>Backup strategy:</strong> Keep one alternate verified destination ready in case your primary room is offline or geo-limited.</li>',
@@ -2399,7 +2399,7 @@ class TemplateContent {
         $summary = (array) ($resolved_destinations['source_of_truth_summary'] ?? []);
         $verified_total = (int) ($summary['verified_count'] ?? 0);
         $active_live = (int) ($summary['watch_cta_count'] ?? 0);
-        return 'Verification notes: this page prioritizes checked destinations (' . $verified_total . ' verified links total, ' . $active_live . ' currently marked active for live-room routing). Status can change, so recheck before each session.';
+        return 'Verification notes: this page prioritizes checked destinations (' . $verified_total . ' verified links total, ' . $active_live . ' currently confirmed active for live-room routing in this review). Status can change, so recheck before each session.';
     }
 
     private static function stable_fallback_variant(string $seed): string {
