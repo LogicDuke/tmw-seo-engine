@@ -306,7 +306,7 @@ class TemplateContent {
             ? array_values(array_filter(array_map('strval', $pack['secondary_visible_phrases']), 'strlen'))
             : self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
         $secondary_heading_slots = isset($pack['secondary_heading_slots']) && is_array($pack['secondary_heading_slots'])
-            ? array_filter(array_map('strval', $pack['secondary_heading_slots']), 'strlen')
+            ? self::normalize_secondary_heading_slot_payload($pack['secondary_heading_slots'])
             : self::build_secondary_heading_slots(self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra));
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
         $model_data_gate = is_array($pack['model_data_gate'] ?? null) ? $pack['model_data_gate'] : ['is_sufficient' => true];
@@ -576,17 +576,22 @@ class TemplateContent {
     }
 
     /**
-     * Deterministically choose up to two heading-safe secondary keyword phrases.
+     * Deterministically build heading plans for secondary keyword phrases.
      *
      * @param string[] $rankmath_additional
      * @param string[] $extra
-     * @return string[]
+     * @return array<int,array{keyword:string,normalized:string,slot:string,status:string,reason:string}>
      */
     private static function select_heading_safe_secondary_keyword_phrases(string $name, array $rankmath_additional, array $extra): array {
         $combined = array_merge($rankmath_additional, $extra);
         $selected = [];
         $seen = [];
-        $name_lower = function_exists('mb_strtolower') ? mb_strtolower(trim($name), 'UTF-8') : strtolower(trim($name));
+        $slot_counters = [
+            'features' => 0,
+            'official_links' => 0,
+            'comparison' => 0,
+            'faq' => 0,
+        ];
 
         foreach ($combined as $phrase) {
             $candidate = trim((string) $phrase);
@@ -594,19 +599,37 @@ class TemplateContent {
                 continue;
             }
             $candidate = (string) preg_replace('/\s+/u', ' ', $candidate);
-            $candidate = self::cleanup_visible_text($candidate, $name, true);
             $candidate_lower = function_exists('mb_strtolower') ? mb_strtolower($candidate, 'UTF-8') : strtolower($candidate);
             if ($candidate_lower === '' || isset($seen[$candidate_lower])) {
                 continue;
             }
             $seen[$candidate_lower] = true;
-            if (!self::is_heading_safe_secondary_phrase($candidate, $candidate_lower, $name_lower)) {
+
+            $normalized = self::normalize_secondary_heading_phrase($candidate, $name);
+            if ($normalized === '') {
+                $selected[] = [
+                    'keyword' => $candidate,
+                    'normalized' => '',
+                    'slot' => 'unusable',
+                    'status' => 'unusable',
+                    'reason' => 'unsafe_or_unreadable',
+                ];
                 continue;
             }
-            $selected[] = $candidate;
-            if (count($selected) >= 2) {
-                break;
+
+            $slot = self::resolve_secondary_heading_slot($normalized);
+            if ($slot_counters[$slot] >= 2) {
+                $slot = self::next_available_secondary_slot($slot_counters);
             }
+            $slot_counters[$slot]++;
+
+            $selected[] = [
+                'keyword' => $candidate,
+                'normalized' => $normalized,
+                'slot' => $slot,
+                'status' => 'placed',
+                'reason' => '',
+            ];
         }
 
         return $selected;
@@ -614,10 +637,10 @@ class TemplateContent {
 
     private static function is_heading_safe_secondary_phrase(string $phrase, string $phrase_lower, string $name_lower): bool {
         $word_count = preg_match_all('/[\p{L}\p{N}]+/u', $phrase);
-        if ($word_count === false || $word_count < 2 || $word_count > 5) {
+        if ($word_count === false || $word_count < 2 || $word_count > 10) {
             return false;
         }
-        if (mb_strlen($phrase, 'UTF-8') > 42) {
+        if (mb_strlen($phrase, 'UTF-8') > 72) {
             return false;
         }
         if (preg_match('/[,;:|\/]/u', $phrase)) {
@@ -632,30 +655,112 @@ class TemplateContent {
         if ($name_lower !== '' && preg_match('/\b' . preg_quote($name_lower, '/') . '\b/u', $phrase_lower)) {
             return false;
         }
+        return true;
+    }
 
-        return (bool) preg_match('/\b(chat|profile|links?|verified|live|stream|schedule|status|platform|access|backup)\b/iu', $phrase);
+    private static function normalize_secondary_heading_phrase(string $phrase, string $name): string {
+        $candidate = self::cleanup_visible_text($phrase, $name, true);
+        $candidate = (string) preg_replace('/\s+/u', ' ', trim($candidate));
+        if ($candidate === '') {
+            return '';
+        }
+
+        $candidate = (string) preg_replace('/\b(today|now|instantly)\b/iu', '', $candidate);
+        $candidate = (string) preg_replace('/\s+/u', ' ', trim($candidate));
+        if ($candidate === '') {
+            return '';
+        }
+
+        $candidate_lower = function_exists('mb_strtolower') ? mb_strtolower($candidate, 'UTF-8') : strtolower($candidate);
+        $name_lower = function_exists('mb_strtolower') ? mb_strtolower(trim($name), 'UTF-8') : strtolower(trim($name));
+
+        if (!self::is_heading_safe_secondary_phrase($candidate, $candidate_lower, $name_lower)) {
+            return '';
+        }
+
+        return $candidate;
     }
 
     /**
-     * @param string[] $phrases
-     * @return array<string,string>
+     * @param array<string,int> $slot_counters
+     */
+    private static function next_available_secondary_slot(array $slot_counters): string {
+        $slot_order = ['features', 'official_links', 'comparison', 'faq'];
+        foreach ($slot_order as $slot) {
+            if (($slot_counters[$slot] ?? 0) < 2) {
+                return $slot;
+            }
+        }
+        return 'faq';
+    }
+
+    /**
+     * @param array<int,array{keyword:string,normalized:string,slot:string,status:string,reason:string}> $phrases
+     * @return array<string,mixed>
      */
     private static function build_secondary_heading_slots(array $phrases): array {
         $slots = [];
-        $used_slots = [];
+        $unusable = [];
         foreach ($phrases as $phrase) {
-            $slot = self::resolve_secondary_heading_slot($phrase);
-            if (isset($used_slots[$slot])) {
-                $slot = 'features';
-            }
-            if (isset($used_slots[$slot])) {
+            if (!is_array($phrase)) {
                 continue;
             }
-            $slots[$slot] = $phrase;
-            $used_slots[$slot] = true;
+            $status = (string) ($phrase['status'] ?? '');
+            $slot = (string) ($phrase['slot'] ?? '');
+            $normalized = trim((string) ($phrase['normalized'] ?? ''));
+            $keyword = trim((string) ($phrase['keyword'] ?? ''));
+
+            if ($status !== 'placed' || $slot === '' || $normalized === '') {
+                if ($keyword !== '') {
+                    $unusable[] = $keyword;
+                }
+                continue;
+            }
+            if (!isset($slots[$slot])) {
+                $slots[$slot] = [];
+            }
+            if (!is_array($slots[$slot])) {
+                $slots[$slot] = [(string) $slots[$slot]];
+            }
+            if (!in_array($normalized, $slots[$slot], true)) {
+                $slots[$slot][] = $normalized;
+            }
+        }
+
+        if (!empty($unusable)) {
+            $slots['unusable'] = array_values(array_unique($unusable));
         }
 
         return $slots;
+    }
+
+    /**
+     * @param array<string,mixed> $slots
+     * @return array<string,mixed>
+     */
+    private static function normalize_secondary_heading_slot_payload(array $slots): array {
+        $normalized = [];
+        foreach ($slots as $slot => $phrases) {
+            if (!is_string($slot)) {
+                continue;
+            }
+            if (is_string($phrases)) {
+                $phrase = trim($phrases);
+                if ($phrase !== '') {
+                    $normalized[$slot] = [$phrase];
+                }
+                continue;
+            }
+            if (!is_array($phrases)) {
+                continue;
+            }
+            $clean = array_values(array_filter(array_map('strval', $phrases), 'strlen'));
+            if (!empty($clean)) {
+                $normalized[$slot] = $clean;
+            }
+        }
+
+        return $normalized;
     }
 
     private static function resolve_secondary_heading_slot(string $phrase): string {

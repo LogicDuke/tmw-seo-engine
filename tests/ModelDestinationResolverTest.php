@@ -258,15 +258,21 @@ class ModelDestinationResolverTest extends TestCase {
             'Alice',
             ['Chaturbate'],
             ['reason' => 'insufficient_performer_data'],
-            ['private live chat', 'verified profile links', 'best alice free stream links'],
+            ['private live chat', 'verified profile links', 'alice stream schedule checks', 'best alice free stream links'],
             ['fallback']
         );
 
         $slots = (array) ($payload['secondary_heading_slots'] ?? []);
         $this->assertNotEmpty($slots);
-        $this->assertStringContainsString('private live chat', implode(' ', $slots));
-        $this->assertStringContainsString('verified profile links', implode(' ', $slots));
-        $this->assertStringNotContainsString('best alice free stream links', implode(' ', $slots));
+        $flattened = [];
+        array_walk_recursive($slots, static function ($value) use (&$flattened): void {
+            $flattened[] = (string) $value;
+        });
+        $joined = implode(' ', $flattened);
+        $this->assertStringContainsString('private live chat', $joined);
+        $this->assertStringContainsString('verified profile links', $joined);
+        $this->assertStringContainsString('alice stream schedule checks', $joined);
+        $this->assertContains('best alice free stream links', (array) ($slots['unusable'] ?? []));
     }
 
     public function test_support_payload_adds_secondary_keyword_to_verification_copy(): void {
@@ -412,19 +418,24 @@ class ModelDestinationResolverTest extends TestCase {
             'active_platforms' => ['Chaturbate'],
             'features_section_paragraphs' => ['Feature details'],
             'comparison_section_paragraphs' => ['Compare before joining.'],
+            'questions_section_paragraphs' => ['FAQ intro.'],
+            'faq_items' => [['q' => 'How do I verify links?', 'a' => 'Use verified links first.']],
             'official_links_section_paragraphs' => ['Links summary'],
             'secondary_heading_slots' => [
-                'features' => 'private live chat',
-                'official_links' => 'verified profile links',
+                'features' => ['private live chat', 'alice stream schedule checks'],
+                'official_links' => ['verified profile links'],
+                'faq' => ['alice backup profile access'],
             ],
         ]);
 
         $this->assertStringContainsString('<h2>Features and Platform Experience for Alice and private live chat</h2>', $html);
+        $this->assertStringContainsString('<h3>Feature check for alice stream schedule checks</h3>', $html);
         $this->assertStringContainsString('<h2>Where Are the Official Links and Other Profiles? and verified profile links</h2>', $html);
+        $this->assertStringContainsString('<h3>Verification steps for alice backup profile access</h3>', $html);
         $this->assertStringNotContainsString('related keywords', strtolower($html));
     }
 
-    public function test_support_payload_selects_limited_heading_safe_secondary_keywords(): void {
+    public function test_support_payload_builds_heading_paths_for_each_usable_secondary_keyword(): void {
         $post = new \WP_Post();
         $post->ID = 95;
         $post->post_title = 'Alice';
@@ -447,8 +458,15 @@ class ModelDestinationResolverTest extends TestCase {
 
         $slots = (array) ($payload['secondary_heading_slots'] ?? []);
         $this->assertNotEmpty($slots);
-        $this->assertLessThanOrEqual(2, count($slots));
-        $this->assertStringNotContainsString('best free alice stream links', implode(' ', $slots));
+        $flattened = [];
+        array_walk_recursive($slots, static function ($value) use (&$flattened): void {
+            $flattened[] = (string) $value;
+        });
+        $joined = implode(' ', $flattened);
+        $this->assertStringContainsString('alice private live chat', $joined);
+        $this->assertStringContainsString('verified profile links', $joined);
+        $this->assertStringContainsString('live stream schedule and status checks for this performer', $joined);
+        $this->assertContains('best free alice stream links', (array) ($slots['unusable'] ?? []));
     }
 
     public function test_depth_guardrail_target_is_raised_for_rank_math_alignment(): void {

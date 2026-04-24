@@ -17,9 +17,7 @@ class ModelPageRenderer {
         }
 
         $sections = [];
-        $secondary_heading_slots = is_array($payload['secondary_heading_slots'] ?? null)
-            ? array_filter(array_map('strval', $payload['secondary_heading_slots']), 'strlen')
-            : [];
+        $secondary_heading_slots = self::normalize_secondary_heading_slots($payload['secondary_heading_slots'] ?? []);
 
         $intro_paragraphs = $payload['intro_paragraphs'] ?? [];
         $seed_summary = trim((string)($payload['editor_seed_summary'] ?? ''));
@@ -74,8 +72,14 @@ class ModelPageRenderer {
         }
 
         $features_heading = self::heading_with_focus('Features and Platform Experience', $focus_keyword, $name);
-        $features_heading = self::append_secondary_heading_phrase($features_heading, $secondary_heading_slots['features'] ?? '');
-        $features = self::render_section($features_heading, $payload['features_section_paragraphs'] ?? [], $name, $payload['features_section_html'] ?? '');
+        $features_heading = self::append_secondary_heading_phrase($features_heading, $secondary_heading_slots['features'][0] ?? '');
+        $features = self::render_section(
+            $features_heading,
+            $payload['features_section_paragraphs'] ?? [],
+            $name,
+            $payload['features_section_html'] ?? '',
+            self::build_secondary_subheadings($secondary_heading_slots['features'] ?? [], 1, 'Feature check for')
+        );
         if ($features !== '') {
             $sections[] = $features;
         }
@@ -90,22 +94,40 @@ class ModelPageRenderer {
         } else {
             $comparison_heading = 'Platform Access Notes';
         }
-        $comparison_heading = self::append_secondary_heading_phrase($comparison_heading, $secondary_heading_slots['comparison'] ?? '');
-        $compare = self::render_section($comparison_heading, $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
+        $comparison_heading = self::append_secondary_heading_phrase($comparison_heading, $secondary_heading_slots['comparison'][0] ?? '');
+        $compare = self::render_section(
+            $comparison_heading,
+            $comparison_paragraphs,
+            $name,
+            $payload['comparison_section_html'] ?? '',
+            self::build_secondary_subheadings($secondary_heading_slots['comparison'] ?? [], 1, 'Before you click:')
+        );
         if ($compare !== '') {
             $sections[] = $compare;
         }
 
-        $questions = self::render_questions('Common Questions Before You Click', $payload['questions_section_paragraphs'] ?? [], $payload['faq_items'] ?? [], $name);
+        $questions = self::render_questions(
+            'Common Questions Before You Click',
+            $payload['questions_section_paragraphs'] ?? [],
+            $payload['faq_items'] ?? [],
+            $name,
+            self::build_secondary_subheadings($secondary_heading_slots['faq'] ?? [], 0, 'Verification steps for')
+        );
         if ($questions !== '') {
             $sections[] = $questions;
         }
 
-        $official_links_heading = self::append_secondary_heading_phrase('Where Are the Official Links and Other Profiles?', $secondary_heading_slots['official_links'] ?? '');
-        $links = self::render_section($official_links_heading, $payload['official_links_section_paragraphs'] ?? [], $name, self::join_html_blocks([
-            $payload['external_info_html'] ?? '',
-            $payload['explore_more_html'] ?? '',
-        ]));
+        $official_links_heading = self::append_secondary_heading_phrase('Where Are the Official Links and Other Profiles?', $secondary_heading_slots['official_links'][0] ?? '');
+        $links = self::render_section(
+            $official_links_heading,
+            $payload['official_links_section_paragraphs'] ?? [],
+            $name,
+            self::join_html_blocks([
+                $payload['external_info_html'] ?? '',
+                $payload['explore_more_html'] ?? '',
+            ]),
+            self::build_secondary_subheadings($secondary_heading_slots['official_links'] ?? [], 1, 'Official-link check for')
+        );
         if ($links !== '' && !self::looks_like_nav_chrome($links)) {
             $sections[] = $links;
         }
@@ -133,6 +155,47 @@ class ModelPageRenderer {
         return $heading . ' and ' . $phrase;
     }
 
+    /**
+     * @param mixed $raw
+     * @return array<string,array<int,string>>
+     */
+    private static function normalize_secondary_heading_slots($raw): array {
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $slot => $phrases) {
+            if (!is_string($slot)) {
+                continue;
+            }
+            if (is_string($phrases)) {
+                $phrases = [$phrases];
+            }
+            if (!is_array($phrases)) {
+                continue;
+            }
+            $clean = array_values(array_filter(array_map(static fn($phrase): string => trim((string) $phrase), $phrases), 'strlen'));
+            if (!empty($clean)) {
+                $out[$slot] = array_values(array_unique($clean));
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param string[] $phrases
+     * @return string[]
+     */
+    private static function build_secondary_subheadings(array $phrases, int $offset, string $prefix): array {
+        $out = [];
+        foreach (array_slice($phrases, $offset) as $phrase) {
+            $out[] = trim($prefix . ' ' . $phrase);
+        }
+        return $out;
+    }
+
     /** @param mixed $paragraphs */
     private static function render_paragraphs($paragraphs, string $name): string {
         $normalized = self::normalize_lines($paragraphs, $name);
@@ -148,9 +211,12 @@ class ModelPageRenderer {
         return implode("\n", $out);
     }
 
-    /** @param mixed $paragraphs */
-    private static function render_section(string $heading, $paragraphs, string $name, string $html_block = ''): string {
+    /** @param mixed $paragraphs @param string[] $secondary_subheadings */
+    private static function render_section(string $heading, $paragraphs, string $name, string $html_block = '', array $secondary_subheadings = []): string {
         $parts = [];
+        foreach ($secondary_subheadings as $subheading) {
+            $parts[] = '<h3>' . esc_html(self::clean_text($subheading, $name, true)) . '</h3>';
+        }
         $paras = self::render_paragraphs($paragraphs, $name);
         if ($paras !== '') {
             $parts[] = $paras;
@@ -168,9 +234,12 @@ class ModelPageRenderer {
         return '<h2>' . esc_html(self::clean_text($heading, $name, true)) . '</h2>' . "\n" . implode("\n", $parts);
     }
 
-    /** @param mixed $paragraphs @param mixed $faq_items */
-    private static function render_questions(string $heading, $paragraphs, $faq_items, string $name): string {
+    /** @param mixed $paragraphs @param mixed $faq_items @param string[] $secondary_subheadings */
+    private static function render_questions(string $heading, $paragraphs, $faq_items, string $name, array $secondary_subheadings = []): string {
         $parts = [];
+        foreach ($secondary_subheadings as $subheading) {
+            $parts[] = '<h3>' . esc_html(self::clean_text($subheading, $name, true)) . '</h3>';
+        }
 
         $paras = self::render_paragraphs($paragraphs, $name);
         if ($paras !== '') {
