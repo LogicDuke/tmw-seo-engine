@@ -246,8 +246,25 @@ class ModelDestinationResolverTest extends TestCase {
         $lines = $method->invoke(null, 'Alice', [], ['Chaturbate'], 'Fallback intro', 'Fallback second');
         $intro = implode(' ', $lines);
 
-        $this->assertStringContainsString('one verified live-room destination is active on Chaturbate', $intro);
+        $this->assertStringContainsString('one live-room destination is currently confirmed active: Chaturbate', $intro);
+        $this->assertStringContainsString('In this review', $intro);
+        $this->assertStringNotContainsString('is active on Chaturbate', $intro);
         $this->assertStringNotContainsString('has active profiles on', $intro);
+    }
+
+    public function test_verification_notes_use_review_scoped_active_language(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_verification_process_paragraph');
+        $method->setAccessible(true);
+
+        $line = $method->invoke(null, [
+            'source_of_truth_summary' => [
+                'verified_count' => 4,
+                'watch_cta_count' => 1,
+            ],
+        ]);
+
+        $this->assertStringContainsString('1 currently confirmed active for live-room routing in this review', (string) $line);
+        $this->assertStringNotContainsString('currently marked active for live-room routing', (string) $line);
     }
 
     public function test_support_payload_includes_truthful_guidance_sections(): void {
