@@ -35,8 +35,58 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertCount(1, $resolved['personal_site_destinations']);
     }
 
-    public function test_resolver_maps_legacy_activity_to_is_active_state(): void {
+    public function test_inactive_verified_links_survive_all_verified_destinations(): void {
         $resolved = ModelDestinationResolver::resolve(77, [], [
+            ['type' => 'x', 'url' => 'https://x.com/alice', 'is_active' => true],
+            ['type' => 'youtube', 'url' => 'https://youtube.com/@alice', 'is_active' => false],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(2, $resolved['all_verified_destinations']);
+        $this->assertSame('active', $resolved['all_verified_destinations'][0]['activity_level']);
+        $this->assertSame('inactive', $resolved['all_verified_destinations'][1]['activity_level']);
+        $this->assertSame(2, (int) ($resolved['source_of_truth_summary']['verified_count'] ?? 0));
+    }
+
+    public function test_inactive_verified_cam_rows_do_not_become_watch_ctas(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            78,
+            [['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1]],
+            [['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => false]],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertCount(1, $resolved['all_verified_destinations']);
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+    }
+
+    public function test_verified_active_cam_row_overrides_platform_profiles_watch_destination(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            79,
+            [['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1]],
+            [['type' => 'chaturbate', 'url' => 'https://chaturbate.com/aliceofficial', 'is_active' => true, 'label' => 'Chaturbate Official']],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertCount(1, $resolved['watch_cta_destinations']);
+        $this->assertSame('verified_links', $resolved['watch_cta_destinations'][0]['source'] ?? '');
+    }
+
+    public function test_social_and_link_hub_are_never_watch_ctas(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            80,
+            [],
+            [
+                ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'is_active' => true],
+                ['type' => 'linktree', 'url' => 'https://linktr.ee/alice', 'is_active' => true],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertCount(2, $resolved['all_verified_destinations']);
+    }
+
+    public function test_resolver_maps_legacy_activity_to_is_active_state(): void {
+        $resolved = ModelDestinationResolver::resolve(81, [], [
             ['type' => 'x', 'url' => 'https://x.com/alice', 'is_active' => true],
             ['type' => 'youtube', 'url' => 'https://youtube.com/@alice', 'is_active' => false],
         ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);

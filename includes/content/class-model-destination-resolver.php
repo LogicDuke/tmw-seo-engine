@@ -37,8 +37,7 @@ class ModelDestinationResolver {
             $editor_seed = TemplateContent::get_editor_seed_data($post_id);
         }
 
-        $watch_cta = self::build_watch_cta_destinations($post_id, $platform_links);
-        $active_labels = array_values(array_unique(array_filter(array_map(static fn(array $r): string => trim((string)($r['label'] ?? '')), $watch_cta), 'strlen')));
+        $platform_fallback = self::build_platform_watch_fallback_destinations($post_id, $platform_links);
 
         $families = [
             'social_destinations' => [],
@@ -50,7 +49,7 @@ class ModelDestinationResolver {
         ];
 
         foreach ($verified_links as $link) {
-            if (!is_array($link) || empty($link['is_active'])) {
+            if (!is_array($link)) {
                 continue;
             }
             $url = trim((string)($link['url'] ?? ''));
@@ -65,13 +64,21 @@ class ModelDestinationResolver {
                 $label = (string)($labels[$type] ?? ucfirst(str_replace('_', ' ', $type)));
             }
             $activity = self::normalize_activity_state($link);
+            $is_active_legacy = !empty($link['is_active']);
+            $is_cta_eligible = in_array($family, [VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE], true)
+                && in_array($activity['activity_level'], ['active', 'very_active'], true);
             $entry = [
                 'type' => $type,
                 'family' => $family,
                 'label' => $label,
                 'url' => $url,
                 'routed_url' => class_exists(VerifiedLinks::class) ? (string) VerifiedLinks::get_routed_url($link) : $url,
+                'platform_key' => $type,
                 'is_primary' => !empty($link['is_primary']),
+                'is_active_legacy' => $is_active_legacy,
+                'is_cta_eligible' => $is_cta_eligible,
+                'is_verified_curated' => true,
+                'source' => 'verified_links',
                 'activity_level' => $activity['activity_level'],
                 'activity_note' => $activity['activity_note'],
                 'activity_checked_at' => $activity['activity_checked_at'],
@@ -96,9 +103,26 @@ class ModelDestinationResolver {
             }
         }
 
+        $watch_cta = self::build_watch_cta_destinations($post_id, $platform_fallback, (array) $families['all_verified_destinations']);
+        $active_labels = array_values(array_unique(array_filter(array_map(static fn(array $r): string => trim((string)($r['label'] ?? '')), $watch_cta), 'strlen')));
+
+        $verified_active = 0;
+        $verified_inactive = 0;
+        foreach ($families['all_verified_destinations'] as $entry) {
+            $level = (string) ($entry['activity_level'] ?? 'unknown');
+            if (in_array($level, ['active', 'very_active'], true)) {
+                $verified_active++;
+            } else {
+                $verified_inactive++;
+            }
+        }
+
         $summary = [
             'watch_cta_count' => count($watch_cta),
             'verified_count' => count($families['all_verified_destinations']),
+            'verified_active_count' => $verified_active,
+            'verified_inactive_or_unknown_count' => $verified_inactive,
+            'verified_watch_eligible_count' => count(array_filter($families['all_verified_destinations'], static fn(array $entry): bool => !empty($entry['is_cta_eligible']))),
             'social_count' => count($families['social_destinations']),
             'link_hub_count' => count($families['link_hub_destinations']),
             'personal_site_count' => count($families['personal_site_destinations']),
@@ -117,7 +141,90 @@ class ModelDestinationResolver {
     }
 
     /** @return array<int,array<string,mixed>> */
-    private static function build_watch_cta_destinations(int $post_id, array $platform_links): array {
+    private static function build_watch_cta_destinations(int $post_id, array $platform_fallback, array $all_verified_destinations): array {
+        $resolved = [];
+        $blocked_platforms = [];
+        $primary_platform = '';
+
+        foreach ($all_verified_destinations as $entry) {
+            if (!is_array($entry)) { continue; }
+            $platform = sanitize_key((string)($entry['platform_key'] ?? $entry['type'] ?? ''));
+            $family = (string)($entry['family'] ?? '');
+            if ($platform === '' || !in_array($family, [VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE], true)) {
+                continue;
+            }
+
+            if (empty($entry['is_cta_eligible'])) {
+                $blocked_platforms[$platform] = true;
+                continue;
+            }
+
+            $username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
+            if ($username === '') {
+                $username = PlatformProfiles::extract_username_from_profile_url($platform, (string)($entry['url'] ?? ''));
+            }
+
+            $fallback_go = '';
+            foreach ($platform_fallback as $row) {
+                if (sanitize_key((string)($row['platform'] ?? '')) === $platform) {
+                    $fallback_go = trim((string)($row['go_url'] ?? ''));
+                    if ($username === '') {
+                        $username = trim((string)($row['username'] ?? ''));
+                    }
+                    break;
+                }
+            }
+
+            $go = $fallback_go;
+            if ($go === '' && $username !== '') {
+                $go = AffiliateLinkBuilder::go_url($platform, $username);
+            }
+            if ($go === '') {
+                $go = trim((string)($entry['routed_url'] ?? $entry['url'] ?? ''));
+            }
+            if ($go === '') {
+                continue;
+            }
+
+            $label = (string)(PlatformRegistry::get($platform)['name'] ?? trim((string)($entry['label'] ?? ucfirst($platform))));
+            $is_primary = !empty($entry['is_primary']);
+            if ($primary_platform === '' && $is_primary) {
+                $primary_platform = $platform;
+            }
+
+            $resolved[$platform] = [
+                'platform' => $platform,
+                'label' => $label,
+                'go_url' => $go,
+                'is_primary' => $is_primary,
+                'username' => $username,
+                'source' => 'verified_links',
+                'verified_url' => (string)($entry['url'] ?? ''),
+            ];
+        }
+
+        foreach ($platform_fallback as $row) {
+            $platform = sanitize_key((string)($row['platform'] ?? ''));
+            if ($platform === '' || isset($resolved[$platform]) || isset($blocked_platforms[$platform])) {
+                continue;
+            }
+            $resolved[$platform] = $row;
+        }
+
+        $out = array_values($resolved);
+        if (!empty($out) && $primary_platform === '') {
+            $out[0]['is_primary'] = true;
+        } elseif ($primary_platform !== '') {
+            foreach ($out as $idx => $row) {
+                $out[$idx]['is_primary'] = (sanitize_key((string)($row['platform'] ?? '')) === $primary_platform);
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private static function build_platform_watch_fallback_destinations(int $post_id, array $platform_links): array {
         $out = [];
         $seen = [];
 

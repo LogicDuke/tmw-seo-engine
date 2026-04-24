@@ -478,7 +478,9 @@ class TemplateContent {
             $summary = (array) ($resolved_destinations['source_of_truth_summary'] ?? []);
             $watch_count = (int) ($summary['watch_cta_count'] ?? 0);
             $verified_count = (int) ($summary['verified_count'] ?? 0);
-            $lines[] = '- Verified destination summary: ' . $watch_count . ' watch/live CTA destination(s), ' . $verified_count . ' verified external destination(s).';
+            $verified_active = (int) ($summary['verified_active_count'] ?? 0);
+            $verified_inactive = (int) ($summary['verified_inactive_or_unknown_count'] ?? 0);
+            $lines[] = '- Verified destination summary: ' . $watch_count . ' active watch/live CTA destination(s), ' . $verified_count . ' verified external destination(s) total (' . $verified_active . ' active, ' . $verified_inactive . ' inactive/unknown).';
             $activity_notes = [];
             foreach (array_slice((array) ($resolved_destinations['all_verified_destinations'] ?? []), 0, 8) as $dest) {
                 if (!is_array($dest)) { continue; }
