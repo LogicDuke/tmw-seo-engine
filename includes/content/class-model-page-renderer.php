@@ -249,7 +249,7 @@ class ModelPageRenderer {
         if (count($active) >= 2) {
             $answer = 'Start with ' . $active[0] . ' if it is your usual platform, then compare ' . $active[1] . ' for chat controls, mobile playback, and moderation flow.';
         } elseif (count($active) === 1) {
-            $answer = 'Only one live-room destination is currently confirmed active in this review (' . $active[0] . '), so focus on pre-click checks like username match, room freshness, and privacy controls.';
+            $answer = 'This review pass found one confirmed active live-room destination (' . $active[0] . '), so focus on pre-click checks like username match, room freshness, and privacy controls.';
         } else {
             $answer = 'Compare confirmed platforms by room stability, chat readability, trust signals, and mobile usability before choosing a default room.';
         }

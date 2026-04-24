@@ -246,8 +246,8 @@ class ModelDestinationResolverTest extends TestCase {
         $lines = $method->invoke(null, 'Alice', [], ['Chaturbate'], 'Fallback intro', 'Fallback second');
         $intro = implode(' ', $lines);
 
-        $this->assertStringContainsString('one live-room destination is currently confirmed active: Chaturbate', $intro);
-        $this->assertStringContainsString('In this review', $intro);
+        $this->assertStringContainsString('In this review pass, Chaturbate was the only live-room destination confirmed active.', $intro);
+        $this->assertStringNotContainsString('one live-room destination is currently confirmed active:', $intro);
         $this->assertStringNotContainsString('is active on Chaturbate', $intro);
         $this->assertStringNotContainsString('has active profiles on', $intro);
     }
@@ -263,8 +263,35 @@ class ModelDestinationResolverTest extends TestCase {
             ],
         ]);
 
-        $this->assertStringContainsString('1 currently confirmed active for live-room routing in this review', (string) $line);
-        $this->assertStringNotContainsString('currently marked active for live-room routing', (string) $line);
+        $this->assertStringContainsString('1 live-room destination confirmed active in the latest review pass', (string) $line);
+        $this->assertStringNotContainsString('currently confirmed active for live-room routing in this review', (string) $line);
+    }
+
+    public function test_single_platform_checklist_intro_uses_review_pass_wording(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_platform_comparison');
+        $method->setAccessible(true);
+
+        $post = new \WP_Post();
+        $post->ID = 811;
+
+        $html = (string) $method->invoke(
+            null,
+            $post,
+            'Alice',
+            [
+                [
+                    'label' => 'LiveJasmin',
+                    'go_url' => 'https://www.livejasmin.com/en/chat/Alice',
+                    'platform' => 'livejasmin',
+                    'username' => 'alice',
+                ],
+            ],
+            '',
+            []
+        );
+
+        $this->assertStringContainsString('This review pass found one confirmed active live-room destination (LiveJasmin)', $html);
+        $this->assertStringNotContainsString('Only one live-room destination is currently confirmed active in this review', $html);
     }
 
     public function test_support_payload_includes_truthful_guidance_sections(): void {
