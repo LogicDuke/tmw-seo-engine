@@ -4,7 +4,6 @@ namespace TMWSEO\Engine\Content;
 use TMWSEO\Engine\Services\Anthropic;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
-use TMWSEO\Engine\Platform\PlatformProfiles;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -59,12 +58,8 @@ class ClaudeContent {
 
 		$name = self::resolve_name( $post, $keyword_pack );
 
-		// Gather platform context (same as TemplateContent does).
-		PlatformProfiles::sync_to_table( (int) $post->ID );
-		$platform_links = PlatformProfiles::get_links( $post->ID );
-		$platform_links = is_array( $platform_links ) ? $platform_links : [];
-
-		$active_platforms  = self::extract_platform_labels( $platform_links );
+		$resolved_destinations = ModelDestinationResolver::resolve( (int) $post->ID );
+		$active_platforms  = array_values( array_filter( array_map( 'strval', (array) ( $resolved_destinations['active_platform_labels'] ?? [] ) ), 'strlen' ) );
 		$primary_platform  = $active_platforms[0] ?? 'the platform';
 
 		$tags = self::resolve_tags( $post, $keyword_pack );
@@ -94,7 +89,8 @@ class ClaudeContent {
 			$tags_text,
 			$additional,
 			$longtail,
-			$editor_seed
+			$editor_seed,
+			$resolved_destinations
 		);
 
 		$messages = [
@@ -172,7 +168,8 @@ class ClaudeContent {
 		string $tags_text,
 		array  $additional,
 		array  $longtail,
-		array  $editor_seed
+		array  $editor_seed,
+		array  $resolved_destinations
 	): array {
 
 		$platform_list = implode( ' and ', array_filter( array_slice( $active_platforms, 0, 3 ), 'strlen' ) );
@@ -271,7 +268,7 @@ SYSTEM
 			. ( $additional_text !== '' ? "• Secondary search phrases (use naturally): {$additional_text}\n" : '' )
 			. ( $longtail_text !== '' ? "• Long-tail ideas for FAQ anchors only: {$longtail_text}\n" : '' )
 			. "\n"
-			. TemplateContent::build_editor_seed_prompt_block( $editor_seed )
+			. TemplateContent::build_editor_seed_prompt_block( $editor_seed, $resolved_destinations )
 			. "\n"
 			. "WORD COUNT CONTRACT\n"
 			. "• Hard minimum: " . self::MODEL_MIN_WORDS . " words across all prose sections.\n"

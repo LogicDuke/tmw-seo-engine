@@ -410,6 +410,10 @@ class ContentEngine {
                 "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n"
         ];
 
+        $resolved_destinations = ($is_model_page && class_exists(ModelDestinationResolver::class))
+            ? ModelDestinationResolver::resolve((int) $post->ID)
+            : [];
+
         $user_content =
             "PAGE CONTEXT\n" .
             "- Post type: {$post->post_type}\n" .
@@ -418,7 +422,7 @@ class ContentEngine {
             ($focus_kw ? "- Primary keyword (must be used exactly): {$focus_kw}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
             (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
-            (($is_model_page && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed) : '') .
+            (($is_model_page && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed, (array) $resolved_destinations) : '') .
             "- Target length: {$length_hint}\n\n" .
             "WRITE:\n" .
             "1) SEO title that matches the page and includes the keyword naturally.\n" .
@@ -1293,7 +1297,7 @@ class ContentEngine {
             ($keyword ? "- Primary keyword (must be used exactly): {$keyword}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
             (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
-            (($post->post_type === 'model' && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed) : '') .
+            (($post->post_type === 'model' && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed, class_exists(ModelDestinationResolver::class) ? (array) ModelDestinationResolver::resolve((int) $post->ID) : []) : '') .
             "- Target length: {$length_hint}\n" .
             "\n" .
             "WRITE:\n" .
