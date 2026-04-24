@@ -281,7 +281,13 @@ class ContentEngine {
         if ($strategy === 'claude' && $post->post_type === 'model') {
             if (is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
                 $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
-                $sparse_payload   = TemplateContent::build_sparse_model_payload((string)$post->post_title, (array)($keyword_pack['active_platforms'] ?? []), $model_data_gate);
+                $sparse_payload   = TemplateContent::build_sparse_model_payload(
+                    (string)$post->post_title,
+                    (array)($keyword_pack['active_platforms'] ?? []),
+                    $model_data_gate,
+                    (array)($keyword_pack['rankmath_additional'] ?? []),
+                    (array)($keyword_pack['additional'] ?? [])
+                );
                 $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
                 return [
                     'strategy'             => 'claude_sparse_fallback',
@@ -355,7 +361,13 @@ class ContentEngine {
         $is_model_page = ($post->post_type === 'model');
         if ($is_model_page && is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
             $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
-            $sparse_payload   = TemplateContent::build_sparse_model_payload((string)$post->post_title, (array)($keyword_pack['active_platforms'] ?? []), $model_data_gate);
+            $sparse_payload   = TemplateContent::build_sparse_model_payload(
+                (string)$post->post_title,
+                (array)($keyword_pack['active_platforms'] ?? []),
+                $model_data_gate,
+                (array)($keyword_pack['rankmath_additional'] ?? []),
+                (array)($keyword_pack['additional'] ?? [])
+            );
             $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
             return [
                 'strategy' => 'openai_sparse_fallback',
@@ -1309,7 +1321,13 @@ class ContentEngine {
         $is_model_page = ($post->post_type === 'model');
         if ($is_model_page && is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
             $support_payload = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
-            $sparse_payload = TemplateContent::build_sparse_model_payload((string)$post->post_title, (array)($keyword_pack['active_platforms'] ?? []), $model_data_gate);
+            $sparse_payload = TemplateContent::build_sparse_model_payload(
+                (string)$post->post_title,
+                (array)($keyword_pack['active_platforms'] ?? []),
+                $model_data_gate,
+                (array)($keyword_pack['rankmath_additional'] ?? []),
+                (array)($keyword_pack['additional'] ?? [])
+            );
             $generated_content = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
             $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
             wp_update_post(['ID' => $post_id, 'post_content' => $final_content]);

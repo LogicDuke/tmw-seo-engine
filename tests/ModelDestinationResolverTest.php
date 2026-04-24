@@ -238,6 +238,42 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertContains('What is already verified on this page?', $faq_questions);
     }
 
+    public function test_sparse_payload_weaves_secondary_keywords_into_visible_sections(): void {
+        $payload = TemplateContent::build_sparse_model_payload(
+            'Alice',
+            ['Chaturbate'],
+            ['reason' => 'insufficient_performer_data'],
+            ['alice private live chat', 'alice verified profile links', 'alice live stream schedule'],
+            ['fallback phrase']
+        );
+
+        $this->assertStringContainsString('alice private live chat', (string) ($payload['intro_paragraphs'][1] ?? ''));
+        $this->assertStringContainsString('alice verified profile links', (string) ($payload['features_section_paragraphs'][0] ?? ''));
+        $faq_answers = array_map(static fn(array $item): string => (string) ($item['a'] ?? ''), (array) ($payload['faq_items'] ?? []));
+        $this->assertStringContainsString('alice live stream schedule', implode(' ', $faq_answers));
+    }
+
+    public function test_support_payload_adds_secondary_keyword_to_verification_copy(): void {
+        $post = new \WP_Post();
+        $post->ID = 94;
+        $post->post_title = 'Alice';
+        $post->post_type = 'model';
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => [
+                'watch_cta_destinations' => [],
+                'active_platform_labels' => [],
+                'source_of_truth_summary' => [],
+            ],
+            'rankmath_additional' => ['alice verified profile links', 'alice private live chat', 'alice stream updates'],
+        ]);
+
+        $paragraphs = (array) ($payload['official_links_section_paragraphs'] ?? []);
+        $this->assertNotEmpty($paragraphs);
+        $this->assertStringContainsString('alice stream updates', implode(' ', $paragraphs));
+    }
+
     public function test_single_platform_intro_wording_drops_old_fallback_pattern(): void {
         $method = new \ReflectionMethod(TemplateContent::class, 'build_seed_intro_paragraphs');
         $method->setAccessible(true);
