@@ -78,7 +78,15 @@ class ModelPageRenderer {
 
         $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
-        $compare = self::render_section('Live Platform Comparison', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
+        $active_platform_count = count(array_values(array_filter(array_map('strval', (array) ($payload['active_platforms'] ?? [])), 'strlen')));
+        if ($active_platform_count >= 2) {
+            $comparison_heading = 'Live Platform Comparison';
+        } elseif ($active_platform_count === 1) {
+            $comparison_heading = 'Before You Click';
+        } else {
+            $comparison_heading = 'Platform Access Notes';
+        }
+        $compare = self::render_section($comparison_heading, $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
             $sections[] = $compare;
         }

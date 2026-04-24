@@ -188,6 +188,68 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertSame('insufficient_performer_data', $payload['model_data_notice']);
     }
 
+    public function test_single_active_platform_uses_before_you_click_heading(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'active_platforms' => ['Chaturbate'],
+            'comparison_section_paragraphs' => ['Run checks before joining.'],
+        ]);
+
+        $this->assertStringContainsString('<h2>Before You Click</h2>', $html);
+        $this->assertStringNotContainsString('<h2>Live Platform Comparison</h2>', $html);
+    }
+
+    public function test_multi_active_platform_keeps_comparison_heading(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'active_platforms' => ['Chaturbate', 'Stripchat'],
+            'comparison_section_paragraphs' => ['Compare both active rooms.'],
+        ]);
+
+        $this->assertStringContainsString('<h2>Live Platform Comparison</h2>', $html);
+    }
+
+    public function test_structurally_rich_sparse_payload_uses_practical_faq_items(): void {
+        $payload = TemplateContent::build_sparse_model_payload('Alice', ['Chaturbate'], [
+            'reason' => 'insufficient_performer_data',
+            'signals' => [
+                'platform_links' => 1,
+                'active_platforms' => 1,
+                'tags' => 1,
+            ],
+        ]);
+
+        $faq_questions = array_map(static fn(array $item): string => (string) ($item['q'] ?? ''), (array) ($payload['faq_items'] ?? []));
+        $this->assertContains('Which link should I open first?', $faq_questions);
+        $this->assertNotContains('Why is this page short right now?', $faq_questions);
+        $this->assertNotContains('What is already verified on this page?', $faq_questions);
+    }
+
+    public function test_truly_sparse_payload_keeps_diagnostic_faq_fallback(): void {
+        $payload = TemplateContent::build_sparse_model_payload('Alice', [], [
+            'reason' => 'insufficient_performer_data',
+            'signals' => [
+                'platform_links' => 0,
+                'active_platforms' => 0,
+                'tags' => 0,
+            ],
+        ]);
+
+        $faq_questions = array_map(static fn(array $item): string => (string) ($item['q'] ?? ''), (array) ($payload['faq_items'] ?? []));
+        $this->assertContains('Why is this page short right now?', $faq_questions);
+        $this->assertContains('What is already verified on this page?', $faq_questions);
+    }
+
+    public function test_single_platform_intro_wording_drops_old_fallback_pattern(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_seed_intro_paragraphs');
+        $method->setAccessible(true);
+
+        /** @var array<int,string> $lines */
+        $lines = $method->invoke(null, 'Alice', [], ['Chaturbate'], 'Fallback intro', 'Fallback second');
+        $intro = implode(' ', $lines);
+
+        $this->assertStringContainsString('one verified live-room destination is active on Chaturbate', $intro);
+        $this->assertStringNotContainsString('has active profiles on', $intro);
+    }
+
     public function test_support_payload_includes_truthful_guidance_sections(): void {
         $post = new \WP_Post();
         $post->ID = 502;

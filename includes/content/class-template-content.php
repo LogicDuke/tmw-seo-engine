@@ -138,13 +138,22 @@ class TemplateContent {
                 $faqs_tpl[] = ['q' => $q, 'a' => $a];
             }
         }
-        $second_intro_pool = [
-            'Start with the official watch links first, then use the comparison section to choose between active platforms.',
-            'Use this page as a quick decision hub: official links first, platform choice notes second.',
-            'Use the direct room buttons first; then compare active platforms to decide where to stay.',
-            'Everything here is problem-first: real room access, trusted links, and practical platform choices.',
-            'If you are deciding where to watch, open your familiar platform first and then check the second active room.',
-        ];
+        $active_platform_count = count($active_platforms);
+        $second_intro_pool = $active_platform_count === 1
+            ? [
+                'Start with the active live-room destination first, then use other verified destinations for follow, backup, and profile checks.',
+                'Use this page as a quick routing guide: live-room entry first, then verified non-live destinations for status checks and backup paths.',
+                'Open the active room first, and keep verified backup destinations nearby in case status changes before you join.',
+                'Everything here is practical: one active room, verified backup destinations, and a quick checklist before you commit.',
+                'Use the live-room link for entry, then cross-check the handle on verified non-live destinations if anything looks off.',
+            ]
+            : [
+                'Start with the official watch links first, then use the comparison section to choose between active platforms.',
+                'Use this page as a quick decision hub: official links first, platform choice notes second.',
+                'Use the direct room buttons first; then compare active platforms to decide where to stay.',
+                'Everything here is problem-first: real room access, trusted links, and practical platform choices.',
+                'If you are deciding where to watch, open your familiar platform first and then check the second active room.',
+            ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
@@ -432,22 +441,52 @@ class TemplateContent {
     public static function build_sparse_model_payload(string $name, array $active_platforms, array $gate): array {
         $platform_text = self::format_platform_list($active_platforms, 'available platforms');
         $reason = (string) ($gate['reason'] ?? 'insufficient_performer_data');
+        $signals = is_array($gate['signals'] ?? null) ? $gate['signals'] : [];
+        $active_platform_count = count($active_platforms);
+        $has_meaningful_structure = ((int) ($signals['platform_links'] ?? 0) >= 1)
+            && (
+                (int) ($signals['active_platforms'] ?? 0) >= 1
+                || (int) ($signals['comparison_copy'] ?? 0) >= 1
+                || (int) ($signals['tags'] ?? 0) >= 1
+            );
 
-        return [
-            'intro_paragraphs' => [
-                $name . ' has active profiles on ' . $platform_text . ', and this page prioritizes official links first.',
-                'Use the verified links here to avoid copied profiles and reach the right room quickly.',
-            ],
-            'about_section_paragraphs' => [],
-            'fans_like_section_paragraphs' => [],
-            'features_section_paragraphs' => [
-                'Platform notes below describe platform-level features only, not confirmed performer-specific traits.',
-            ],
-            'comparison_section_paragraphs' => [
+        if ($active_platform_count === 1) {
+            $intro_first = 'One verified live-room destination is currently active on ' . $platform_text . '. Start there for room entry first.';
+            $comparison_lines = [
+                'Use this checklist before you join: verify handle match, confirm recent room activity, check chat readability, and confirm mobile playback stability.',
+            ];
+        } elseif ($active_platform_count >= 2) {
+            $intro_first = $name . ' currently has verified active live-room destinations on ' . $platform_text . '.';
+            $comparison_lines = [
                 'If multiple platforms are active, start with your familiar platform and compare load speed, chat controls, and privacy settings before choosing where to watch.',
-            ],
-            'questions_section_paragraphs' => [],
-            'faq_items' => [
+            ];
+        } else {
+            $intro_first = 'Verified destinations exist, but no live-room destination is currently marked active in this review snapshot.';
+            $comparison_lines = [
+                'When live-room status is unclear, verify the handle first and use official destinations for follow and backup access until activity updates.',
+            ];
+        }
+
+        $faq_items = $has_meaningful_structure
+            ? [
+                [
+                    'q' => 'Which link should I open first?',
+                    'a' => 'Open an active live-room destination first. If room status changes, use verified non-live destinations for follow, backup, and handle verification.',
+                ],
+                [
+                    'q' => 'What does non-active mean on this page?',
+                    'a' => 'It means the destination is verified but not currently treated as an active room entry. It can still be useful for profile checks, support, or backup navigation.',
+                ],
+                [
+                    'q' => 'Why are fan pages not in the live section?',
+                    'a' => 'Fan pages and support platforms are kept separate so live-room routing stays truthful. They are verified destinations, but not direct room-entry links.',
+                ],
+                [
+                    'q' => 'Why should I recheck status before joining?',
+                    'a' => 'Room availability can change quickly. A fast recheck helps you avoid stale links and land on the right destination.',
+                ],
+            ]
+            : [
                 [
                     'q' => 'Why is this page short right now?',
                     'a' => 'It is short because only verified details are published here first. Deeper profile sections are added when performer-specific data is strong enough to trust.',
@@ -456,7 +495,22 @@ class TemplateContent {
                     'q' => 'What is already verified on this page?',
                     'a' => 'Verified links and active platform availability are confirmed here first. Personality and style claims stay out until reliable performer-specific signals are available.',
                 ],
+            ];
+
+        return [
+            'intro_paragraphs' => [
+                $intro_first,
+                'Use verified destinations in priority order: live-room entry first, then official non-live links for backup and profile checks.',
+                'Status can change between visits, so recheck activity right before joining.',
             ],
+            'about_section_paragraphs' => [],
+            'fans_like_section_paragraphs' => [],
+            'features_section_paragraphs' => [
+                'Platform notes below describe platform-level features only, not confirmed performer-specific traits.',
+            ],
+            'comparison_section_paragraphs' => $comparison_lines,
+            'questions_section_paragraphs' => [],
+            'faq_items' => $faq_items,
             'model_data_notice' => $reason,
         ];
     }
@@ -787,9 +841,13 @@ class TemplateContent {
     /** @return string[] */
     private static function build_seed_intro_paragraphs(string $name, array $editor_seed, array $active_platforms, string $fallback_intro, string $fallback_second): array {
         $summary = trim((string) ($editor_seed['summary'] ?? ''));
-        if (!empty($active_platforms)) {
+        $active_platform_count = count($active_platforms);
+        if ($active_platform_count === 1) {
+            $platform_text = self::format_platform_list($active_platforms, 'the active platform');
+            $answer_line = 'Right now, one verified live-room destination is active on ' . $platform_text . '. Start there first, then use verified non-live destinations for backup and profile checks.';
+        } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
-            $answer_line = 'Current review status shows active live-room destinations on ' . $platform_text . '. Open those links first, then use other sections for follow and backup access.';
+            $answer_line = 'Verified live-room destinations are currently active on ' . $platform_text . '. Open those links first, then use other sections for follow and backup access.';
         } else {
             $answer_line = 'Verified destinations exist, but no live-room entry is currently marked active in this review snapshot.';
         }
