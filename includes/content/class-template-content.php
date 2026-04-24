@@ -96,6 +96,8 @@ class TemplateContent {
             : array_slice($extra, 0, 4);
 
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
+        $secondary_heading_phrases = self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra);
+        $secondary_heading_slots = self::build_secondary_heading_slots($secondary_heading_phrases);
 
         $context = [
             'name' => $name,
@@ -194,6 +196,7 @@ class TemplateContent {
             'editor_seed' => $editor_seed,
             'resolved_destinations' => $resolved_destinations,
             'secondary_visible_phrases' => $secondary_visible_phrases,
+            'secondary_heading_slots' => $secondary_heading_slots,
         ]));
 
         $platform_ref = $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK
@@ -231,6 +234,7 @@ class TemplateContent {
             ]),
             'comparison_section_paragraphs' => $comparison_paragraphs,
             'faq_items' => $faq_items,
+            'secondary_heading_slots' => $secondary_heading_slots,
         ]);
 
         if (!$model_data_gate['is_sufficient']) {
@@ -301,6 +305,9 @@ class TemplateContent {
         $secondary_visible_phrases = isset($pack['secondary_visible_phrases']) && is_array($pack['secondary_visible_phrases'])
             ? array_values(array_filter(array_map('strval', $pack['secondary_visible_phrases']), 'strlen'))
             : self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
+        $secondary_heading_slots = isset($pack['secondary_heading_slots']) && is_array($pack['secondary_heading_slots'])
+            ? array_filter(array_map('strval', $pack['secondary_heading_slots']), 'strlen')
+            : self::build_secondary_heading_slots(self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra));
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
         $model_data_gate = is_array($pack['model_data_gate'] ?? null) ? $pack['model_data_gate'] : ['is_sufficient' => true];
         $editor_seed = is_array($pack['editor_seed'] ?? null) ? $pack['editor_seed'] : self::get_editor_seed_data((int) $post->ID);
@@ -374,6 +381,7 @@ class TemplateContent {
                 self::build_verification_process_paragraph($resolved_destinations)
                     . (!empty($secondary_visible_phrases[2]) ? ' This also helps when checking ' . $secondary_visible_phrases[2] . ' across verified destinations.' : ''),
             ],
+            'secondary_heading_slots' => $secondary_heading_slots,
             'questions_section_paragraphs' => [],
             'longtail_keywords' => $longtail,
             'model_data_gate' => $model_data_gate,
@@ -457,6 +465,7 @@ class TemplateContent {
     public static function build_sparse_model_payload(string $name, array $active_platforms, array $gate, array $rankmath_additional = [], array $extra = []): array {
         $platform_text = self::format_platform_list($active_platforms, 'available platforms');
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_additional, $extra);
+        $secondary_heading_slots = self::build_secondary_heading_slots(self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_additional, $extra));
         $reason = (string) ($gate['reason'] ?? 'insufficient_performer_data');
         $signals = is_array($gate['signals'] ?? null) ? $gate['signals'] : [];
         $active_platform_count = count($active_platforms);
@@ -531,6 +540,7 @@ class TemplateContent {
             'questions_section_paragraphs' => [],
             'faq_items' => self::inject_sparse_secondary_keyword_into_faq($faq_items, $secondary_visible_phrases[2] ?? ''),
             'model_data_notice' => $reason,
+            'secondary_heading_slots' => $secondary_heading_slots,
         ];
     }
 
@@ -563,6 +573,100 @@ class TemplateContent {
         }
 
         return $selected;
+    }
+
+    /**
+     * Deterministically choose up to two heading-safe secondary keyword phrases.
+     *
+     * @param string[] $rankmath_additional
+     * @param string[] $extra
+     * @return string[]
+     */
+    private static function select_heading_safe_secondary_keyword_phrases(string $name, array $rankmath_additional, array $extra): array {
+        $combined = array_merge($rankmath_additional, $extra);
+        $selected = [];
+        $seen = [];
+        $name_lower = function_exists('mb_strtolower') ? mb_strtolower(trim($name), 'UTF-8') : strtolower(trim($name));
+
+        foreach ($combined as $phrase) {
+            $candidate = trim((string) $phrase);
+            if ($candidate === '') {
+                continue;
+            }
+            $candidate = (string) preg_replace('/\s+/u', ' ', $candidate);
+            $candidate = self::cleanup_visible_text($candidate, $name, true);
+            $candidate_lower = function_exists('mb_strtolower') ? mb_strtolower($candidate, 'UTF-8') : strtolower($candidate);
+            if ($candidate_lower === '' || isset($seen[$candidate_lower])) {
+                continue;
+            }
+            $seen[$candidate_lower] = true;
+            if (!self::is_heading_safe_secondary_phrase($candidate, $candidate_lower, $name_lower)) {
+                continue;
+            }
+            $selected[] = $candidate;
+            if (count($selected) >= 2) {
+                break;
+            }
+        }
+
+        return $selected;
+    }
+
+    private static function is_heading_safe_secondary_phrase(string $phrase, string $phrase_lower, string $name_lower): bool {
+        $word_count = preg_match_all('/[\p{L}\p{N}]+/u', $phrase);
+        if ($word_count === false || $word_count < 2 || $word_count > 5) {
+            return false;
+        }
+        if (mb_strlen($phrase, 'UTF-8') > 42) {
+            return false;
+        }
+        if (preg_match('/[,;:|\/]/u', $phrase)) {
+            return false;
+        }
+        if (preg_match('/\b(and|or|with|for|the|a|an)\b(?:\s+\1){1,}/iu', $phrase)) {
+            return false;
+        }
+        if (preg_match('/\b(?:free|cheap|best|top|ultimate|instant|no\s+1|guaranteed|xxx|porn|sex)\b/iu', $phrase_lower)) {
+            return false;
+        }
+        if ($name_lower !== '' && preg_match('/\b' . preg_quote($name_lower, '/') . '\b/u', $phrase_lower)) {
+            return false;
+        }
+
+        return (bool) preg_match('/\b(chat|profile|links?|verified|live|stream|schedule|status|platform|access|backup)\b/iu', $phrase);
+    }
+
+    /**
+     * @param string[] $phrases
+     * @return array<string,string>
+     */
+    private static function build_secondary_heading_slots(array $phrases): array {
+        $slots = [];
+        $used_slots = [];
+        foreach ($phrases as $phrase) {
+            $slot = self::resolve_secondary_heading_slot($phrase);
+            if (isset($used_slots[$slot])) {
+                $slot = 'features';
+            }
+            if (isset($used_slots[$slot])) {
+                continue;
+            }
+            $slots[$slot] = $phrase;
+            $used_slots[$slot] = true;
+        }
+
+        return $slots;
+    }
+
+    private static function resolve_secondary_heading_slot(string $phrase): string {
+        if (preg_match('/\b(profile|links?|verified|official|backup|access)\b/iu', $phrase)) {
+            return 'official_links';
+        }
+        if (preg_match('/\b(schedule|status|updates?|stream)\b/iu', $phrase)) {
+            return 'comparison';
+        }
+
+        return 'features';
     }
 
     /**

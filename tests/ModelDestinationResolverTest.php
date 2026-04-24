@@ -253,6 +253,22 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringContainsString('alice live stream schedule', implode(' ', $faq_answers));
     }
 
+    public function test_sparse_payload_adds_heading_safe_secondary_keyword_slots(): void {
+        $payload = TemplateContent::build_sparse_model_payload(
+            'Alice',
+            ['Chaturbate'],
+            ['reason' => 'insufficient_performer_data'],
+            ['private live chat', 'verified profile links', 'best alice free stream links'],
+            ['fallback']
+        );
+
+        $slots = (array) ($payload['secondary_heading_slots'] ?? []);
+        $this->assertNotEmpty($slots);
+        $this->assertStringContainsString('private live chat', implode(' ', $slots));
+        $this->assertStringContainsString('verified profile links', implode(' ', $slots));
+        $this->assertStringNotContainsString('best alice free stream links', implode(' ', $slots));
+    }
+
     public function test_support_payload_adds_secondary_keyword_to_verification_copy(): void {
         $post = new \WP_Post();
         $post->ID = 94;
@@ -388,6 +404,51 @@ class ModelDestinationResolverTest extends TestCase {
         ]);
 
         $this->assertStringContainsString('<h2>Features and Platform Experience for Alice</h2>', $html);
+    }
+
+    public function test_renderer_weaves_secondary_keyword_into_subheadings_without_dumping_all_keywords(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'focus_keyword' => 'Alice',
+            'active_platforms' => ['Chaturbate'],
+            'features_section_paragraphs' => ['Feature details'],
+            'comparison_section_paragraphs' => ['Compare before joining.'],
+            'official_links_section_paragraphs' => ['Links summary'],
+            'secondary_heading_slots' => [
+                'features' => 'private live chat',
+                'official_links' => 'verified profile links',
+            ],
+        ]);
+
+        $this->assertStringContainsString('<h2>Features and Platform Experience for Alice and private live chat</h2>', $html);
+        $this->assertStringContainsString('<h2>Where Are the Official Links and Other Profiles? and verified profile links</h2>', $html);
+        $this->assertStringNotContainsString('related keywords', strtolower($html));
+    }
+
+    public function test_support_payload_selects_limited_heading_safe_secondary_keywords(): void {
+        $post = new \WP_Post();
+        $post->ID = 95;
+        $post->post_title = 'Alice';
+        $post->post_type = 'model';
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => [
+                'watch_cta_destinations' => [],
+                'active_platform_labels' => [],
+                'source_of_truth_summary' => [],
+            ],
+            'rankmath_additional' => [
+                'alice private live chat',
+                'verified profile links',
+                'live stream schedule and status checks for this performer today',
+                'best free alice stream links',
+            ],
+        ]);
+
+        $slots = (array) ($payload['secondary_heading_slots'] ?? []);
+        $this->assertNotEmpty($slots);
+        $this->assertLessThanOrEqual(2, count($slots));
+        $this->assertStringNotContainsString('best free alice stream links', implode(' ', $slots));
     }
 
     public function test_depth_guardrail_target_is_raised_for_rank_math_alignment(): void {
