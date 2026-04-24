@@ -490,6 +490,26 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         $this->assertSame( 'Posted twice this week', $stored[0]['activity_note'] ?? '' );
     }
 
+    public function test_save_persists_activity_audit_fields_when_provided(): void {
+        $post_id = 4013;
+        $this->seed_post_for_save( $post_id );
+
+        $_POST['tmwseo_vl'] = [
+            0 => [
+                'type' => 'instagram',
+                'url' => 'https://instagram.com/a',
+                'is_active' => '1',
+                'activity_level' => 'active',
+                'activity_checked_at' => '2026-04-24',
+                'activity_evidence_url' => 'https://evidence.example/audit',
+            ],
+        ];
+        VerifiedLinks::save_metabox( $post_id, $this->fake_post( $post_id ) );
+        $stored = $this->read_stored( $post_id );
+        $this->assertSame( '2026-04-24', $stored[0]['activity_checked_at'] ?? '' );
+        $this->assertSame( 'https://evidence.example/audit', $stored[0]['activity_evidence_url'] ?? '' );
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     /**

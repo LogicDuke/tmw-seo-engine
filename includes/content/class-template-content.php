@@ -330,7 +330,7 @@ class TemplateContent {
             // only place in rendered content where real external links appear.
             'external_info_html' => $ext_info_html,
             'official_links_section_paragraphs' => [
-                self::build_official_links_summary($name, $cta_links, (int) $post->ID),
+                self::build_official_links_summary($name, $cta_links, (int) $post->ID, $resolved_destinations),
             ],
             'questions_section_paragraphs' => [],
             'longtail_keywords' => $longtail,
@@ -662,16 +662,16 @@ class TemplateContent {
     /**
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $cta_links
      */
-    private static function build_official_links_summary(string $name, array $cta_links, int $post_id): string {
+    private static function build_official_links_summary(string $name, array $cta_links, int $post_id, array $resolved_destinations = []): string {
         $types = [];
         if (!empty($cta_links)) {
             $types[] = 'live platforms';
         }
-        $resolved = ModelDestinationResolver::resolve($post_id);
+        $resolved = !empty($resolved_destinations) ? $resolved_destinations : ModelDestinationResolver::resolve($post_id);
         if (!empty($resolved['personal_site_destinations'])) { $types[] = 'official or personal sites'; }
         if (!empty($resolved['fan_platform_destinations'])) { $types[] = 'fan platforms'; }
         if (!empty($resolved['tube_destinations'])) { $types[] = 'video/profile hubs'; }
-        if (!empty($resolved['social_destinations']) || !empty($resolved['link_hub_destinations'])) { $types[] = 'social profiles'; }
+        if (!empty($resolved['social_destinations'])) { $types[] = 'social profiles'; }
         if (!empty($resolved['link_hub_destinations'])) { $types[] = 'link hubs'; }
         if (!empty($resolved['source_of_truth_summary']['seed_platform_notes'])) {
             $types[] = 'editor platform notes';

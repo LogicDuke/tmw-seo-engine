@@ -500,6 +500,8 @@ class VerifiedLinks {
                         '<input type="hidden" name="tmwseo_vl[' + n + '][promoted_from]" value="manual" />' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][source_url]"    value="" />' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][outbound_type]" value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][activity_checked_at]" value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][activity_evidence_url]" value="" />' +
                     '</td>';
 
                 var affTr = document.createElement('tr');
@@ -693,6 +695,8 @@ class VerifiedLinks {
             $activity_level = $is_active ? 'active' : 'inactive';
         }
         $activity_note      = (string) ( $entry['activity_note'] ?? '' );
+        $activity_checked_at = (string) ( $entry['activity_checked_at'] ?? '' );
+        $activity_evidence_url = (string) ( $entry['activity_evidence_url'] ?? '' );
 
         // Resolve family if caller didn't pass one (defensive).
         if ( $family === '' ) {
@@ -803,6 +807,8 @@ class VerifiedLinks {
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][promoted_from]" value="' . esc_attr( $prom_from ) . '" />';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][source_url]"    value="' . esc_attr( $source_url ) . '" />';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][outbound_type]" value="' . esc_attr( $outbound_type ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][activity_checked_at]" value="' . esc_attr( $activity_checked_at ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][activity_evidence_url]" value="' . esc_attr( $activity_evidence_url ) . '" />';
         echo '</td></tr>';
 
         // Affiliate routing — sub-row directly below the main entry row.
