@@ -29,7 +29,7 @@ class ModelPageRenderer {
             $sections[] = $intro;
         }
 
-        $watch = self::render_section('Watch ' . $name . ' Live', $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
+        $watch = self::render_section('Where to Watch Live', $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
         if ($watch !== '') {
             $sections[] = $watch;
         }
@@ -58,7 +58,7 @@ class ModelPageRenderer {
 
         $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
-        $compare = self::render_section('Which Platform Should You Start With?', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
+        $compare = self::render_section('Compare Active Live Platforms', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
             $sections[] = $compare;
         }

@@ -17,7 +17,6 @@ class ModelDestinationResolver {
     private const KNOWN_PLATFORM_SLUGS = [
         'livejasmin', 'stripchat', 'chaturbate',
         'myfreecams', 'camsoda', 'bonga', 'cam4', 'streamate',
-        'onlyfans', 'fansly', 'fancentro',
     ];
 
     /** @return array<string,mixed> */
@@ -65,7 +64,7 @@ class ModelDestinationResolver {
             }
             $activity = self::normalize_activity_state($link);
             $is_active_legacy = !empty($link['is_active']);
-            $is_cta_eligible = in_array($family, [VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE], true)
+            $is_cta_eligible = $family === VerifiedLinksFamilies::FAMILY_CAM
                 && in_array($activity['activity_level'], ['active', 'very_active'], true);
             $entry = [
                 'type' => $type,
@@ -150,7 +149,7 @@ class ModelDestinationResolver {
             if (!is_array($entry)) { continue; }
             $platform = sanitize_key((string)($entry['platform_key'] ?? $entry['type'] ?? ''));
             $family = (string)($entry['family'] ?? '');
-            if ($platform === '' || !in_array($family, [VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE], true)) {
+            if ($platform === '' || $family !== VerifiedLinksFamilies::FAMILY_CAM) {
                 continue;
             }
 
@@ -234,7 +233,7 @@ class ModelDestinationResolver {
                 continue;
             }
             $group = (string)(PlatformRegistry::get($platform)['group'] ?? '');
-            if (!in_array($group, ['cam', 'fansite'], true)) {
+            if ($group !== 'cam') {
                 continue;
             }
             $username = trim((string)get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
@@ -273,7 +272,7 @@ class ModelDestinationResolver {
                 $meta_username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
                 if ($meta_username === '') { continue; }
                 $group = (string)(PlatformRegistry::get($platform)['group'] ?? '');
-                if (!in_array($group, ['cam', 'fansite'], true)) { continue; }
+                if ($group !== 'cam') { continue; }
                 $go = AffiliateLinkBuilder::go_url($platform, $meta_username);
                 if ($go === '') { continue; }
                 $label = (string)(PlatformRegistry::get($platform)['name'] ?? ucfirst($platform));
