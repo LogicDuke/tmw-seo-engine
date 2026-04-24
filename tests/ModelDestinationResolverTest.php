@@ -26,10 +26,10 @@ class ModelDestinationResolverTest extends TestCase {
 
         $resolved = ModelDestinationResolver::resolve(55, $platform_links, $verified, ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
 
-        $this->assertCount(2, $resolved['watch_cta_destinations']);
+        $this->assertCount(1, $resolved['watch_cta_destinations']);
         $watchPlatforms = array_map(static fn(array $r): string => (string)($r['platform'] ?? ''), $resolved['watch_cta_destinations']);
-        $this->assertSame(['chaturbate', 'fansly'], $watchPlatforms);
-        $this->assertSame(['Chaturbate', 'Fansly'], $resolved['active_platform_labels']);
+        $this->assertSame(['chaturbate'], $watchPlatforms);
+        $this->assertSame(['Chaturbate'], $resolved['active_platform_labels']);
         $this->assertCount(1, $resolved['social_destinations']);
         $this->assertCount(1, $resolved['link_hub_destinations']);
         $this->assertCount(1, $resolved['personal_site_destinations']);
@@ -83,6 +83,20 @@ class ModelDestinationResolverTest extends TestCase {
         );
         $this->assertCount(0, $resolved['watch_cta_destinations']);
         $this->assertCount(2, $resolved['all_verified_destinations']);
+    }
+
+    public function test_fansites_are_never_watch_ctas_even_when_marked_active(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            82,
+            [],
+            [
+                ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertCount(1, $resolved['fan_platform_destinations']);
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
     }
 
     public function test_resolver_maps_legacy_activity_to_is_active_state(): void {

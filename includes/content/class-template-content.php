@@ -551,11 +551,12 @@ class TemplateContent {
 
         $type_labels = VerifiedLinksFamilies::type_labels();
         $family_labels = [
-            VerifiedLinksFamilies::FAMILY_CAM => 'Live platforms',
+            VerifiedLinksFamilies::FAMILY_CAM => 'Cam platform profiles',
             VerifiedLinksFamilies::FAMILY_PERSONAL => 'Official and personal sites',
-            VerifiedLinksFamilies::FAMILY_FANSITE => 'Fan platforms',
+            VerifiedLinksFamilies::FAMILY_FANSITE => 'Fan pages',
             VerifiedLinksFamilies::FAMILY_SOCIAL => 'Social profiles',
-            VerifiedLinksFamilies::FAMILY_TUBE => 'Video and profile hubs',
+            VerifiedLinksFamilies::FAMILY_LINK_HUB => 'Link hubs',
+            VerifiedLinksFamilies::FAMILY_TUBE => 'Video channels',
             VerifiedLinksFamilies::FAMILY_UNMAPPED => 'Elsewhere online',
         ];
 
@@ -585,7 +586,12 @@ class TemplateContent {
             if ($activity_note !== '') {
                 $label .= ' — ' . $activity_note;
             }
-            $grouped[$family][] = ['label' => $label, 'url' => $url];
+            $grouped[$family][] = [
+                'label' => $label,
+                'url' => $url,
+                'family' => $family,
+                'activity_level' => sanitize_key((string) ($entry['activity_level'] ?? 'unknown')),
+            ];
         }
 
         if (empty($grouped)) {
@@ -603,7 +609,11 @@ class TemplateContent {
 
             $items = '';
             foreach ($rows as $row) {
-                $items .= '<li><a href="' . esc_url((string) $row['url']) . '" target="_blank" rel="noopener external nofollow">' . esc_html((string) $row['label']) . '</a></li>';
+                $anchor_text = self::build_family_specific_cta_text($row);
+                if ($anchor_text === '') {
+                    continue;
+                }
+                $items .= '<li><a href="' . esc_url((string) $row['url']) . '" target="_blank" rel="noopener external nofollow">' . esc_html($anchor_text) . '</a></li>';
             }
             if ($items === '') {
                 continue;
@@ -618,13 +628,49 @@ class TemplateContent {
         }
 
         return '<h3>' . esc_html('Find ' . $name . ' elsewhere') . '</h3>'
-            . '<p>' . esc_html('Verified destinations for official profiles, personal sites, and related channels.') . '</p>'
+            . '<p>' . esc_html('Verified destinations grouped by platform family so each link reflects its real purpose.') . '</p>'
             . implode('', $chunks);
     }
 
     /**
-     * @param array<int,array{label:string,url:string}> $rows
-     * @return array<int,array{label:string,url:string}>
+     * @param array{label?:string,family?:string,activity_level?:string} $row
+     */
+    private static function build_family_specific_cta_text(array $row): string {
+        $label = trim((string) ($row['label'] ?? ''));
+        if ($label === '') {
+            return '';
+        }
+        $family = sanitize_key((string) ($row['family'] ?? VerifiedLinksFamilies::FAMILY_UNMAPPED));
+        $activity = sanitize_key((string) ($row['activity_level'] ?? 'unknown'));
+
+        if ($family === VerifiedLinksFamilies::FAMILY_CAM) {
+            if (in_array($activity, ['active', 'very_active'], true)) {
+                return 'Watch Live on ' . $label;
+            }
+            return 'Visit Profile on ' . $label;
+        }
+        if ($family === VerifiedLinksFamilies::FAMILY_FANSITE) {
+            return 'Visit Fan Page on ' . $label;
+        }
+        if ($family === VerifiedLinksFamilies::FAMILY_PERSONAL) {
+            return 'Visit Official Site: ' . $label;
+        }
+        if ($family === VerifiedLinksFamilies::FAMILY_SOCIAL) {
+            return 'Follow on ' . $label;
+        }
+        if ($family === VerifiedLinksFamilies::FAMILY_LINK_HUB) {
+            return 'Open Link Hub: ' . $label;
+        }
+        if ($family === VerifiedLinksFamilies::FAMILY_TUBE) {
+            return 'Visit Channel on ' . $label;
+        }
+
+        return 'Open Profile: ' . $label;
+    }
+
+    /**
+     * @param array<int,array{label:string,url:string,family?:string,activity_level?:string}> $rows
+     * @return array<int,array{label:string,url:string,family?:string,activity_level?:string}>
      */
     private static function disambiguate_curated_link_labels(array $rows): array {
         $counts = [];
@@ -665,12 +711,12 @@ class TemplateContent {
     private static function build_official_links_summary(string $name, array $cta_links, int $post_id, array $resolved_destinations = []): string {
         $types = [];
         if (!empty($cta_links)) {
-            $types[] = 'live platforms';
+            $types[] = 'active live cam platforms';
         }
         $resolved = !empty($resolved_destinations) ? $resolved_destinations : ModelDestinationResolver::resolve($post_id);
-        if (!empty($resolved['personal_site_destinations'])) { $types[] = 'official or personal sites'; }
-        if (!empty($resolved['fan_platform_destinations'])) { $types[] = 'fan platforms'; }
-        if (!empty($resolved['tube_destinations'])) { $types[] = 'video/profile hubs'; }
+        if (!empty($resolved['personal_site_destinations'])) { $types[] = 'official and personal sites'; }
+        if (!empty($resolved['fan_platform_destinations'])) { $types[] = 'fan pages'; }
+        if (!empty($resolved['tube_destinations'])) { $types[] = 'video channels'; }
         if (!empty($resolved['social_destinations'])) { $types[] = 'social profiles'; }
         if (!empty($resolved['link_hub_destinations'])) { $types[] = 'link hubs'; }
         if (!empty($resolved['source_of_truth_summary']['seed_platform_notes'])) {
@@ -678,9 +724,9 @@ class TemplateContent {
         }
         $types = array_values(array_unique($types));
         if (empty($types)) {
-            return 'This section lists official destinations for ' . $name . ' so visitors can open verified profiles quickly.';
+            return 'This section lists verified destinations for ' . $name . ' so visitors can open accurate profile links quickly.';
         }
-        return 'This section lists official destinations for ' . $name . ', including ' . self::format_platform_list($types, 'verified sources') . '.';
+        return 'This section lists verified destinations for ' . $name . ', including ' . self::format_platform_list($types, 'verified sources') . '.';
     }
 
     /**
@@ -898,7 +944,7 @@ class TemplateContent {
             $rows .= '<tr>'
                 . '<td>' . esc_html($label) . '</td>'
                 . '<td>@' . esc_html($username) . '</td>'
-                . '<td><a href="' . esc_url($url) . '" target="_blank" rel="' . esc_attr(!empty($link['is_primary']) ? 'sponsored noopener' : 'sponsored nofollow noopener') . '">Watch live</a></td>'
+                . '<td><a href="' . esc_url($url) . '" target="_blank" rel="' . esc_attr(!empty($link['is_primary']) ? 'sponsored noopener' : 'sponsored nofollow noopener') . '">Watch Live</a></td>'
                 . '</tr>';
         }
 
@@ -961,7 +1007,7 @@ class TemplateContent {
                 $label = 'live cam';
             }
 
-            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored noopener">' . esc_html('Watch on ' . $label) . '</a></p>';
+            return '<p><a href="' . esc_url($go_url) . '" target="_blank" rel="sponsored noopener">' . esc_html('Watch Live on ' . $label) . '</a></p>';
         }
 
         return '';
@@ -1179,7 +1225,7 @@ class TemplateContent {
                 continue;
             }
 
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch on ' . $platform) . '</a></li>';
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch Live on ' . $platform) . '</a></li>';
 
             if (count($items) >= 4) {
                 break;
