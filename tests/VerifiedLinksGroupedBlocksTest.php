@@ -1,6 +1,6 @@
 <?php
 /**
- * TMW SEO Engine — Verified External Links: Grouped Blocks Tests (5.1.0)
+ * TMW SEO Engine — Verified External Links: Grouped Blocks Tests (5.1.0+)
  *
  * Pattern note
  * ────────────
@@ -114,13 +114,13 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
     // ── A. Family registry ────────────────────────────────────────────
 
     /**
-     * Ensures the five visible family blocks remain in fixed UI order.
+     * Ensures visible family blocks remain in fixed UI order.
      */
-    public function test_block_order_is_fixed_5_blocks(): void {
+    public function test_block_order_is_fixed_with_link_hubs_block(): void {
         $this->assertSame(
-            [ 'cam_platform', 'personal_site', 'fansite', 'tube_site', 'social' ],
+            [ 'cam_platform', 'personal_site', 'fansite', 'tube_site', 'social', 'link_hub' ],
             VerifiedLinksFamilies::block_order(),
-            'Block display order must be exactly these 5 families in this order.'
+            'Block display order must include the dedicated Link Hubs family in this order.'
         );
     }
 
@@ -129,8 +129,22 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
      */
     public function test_display_order_appends_unmapped_last(): void {
         $order = VerifiedLinksFamilies::display_order();
-        $this->assertCount( 6, $order );
+        $this->assertCount( 7, $order );
         $this->assertSame( 'unmapped', end( $order ) );
+    }
+
+    public function test_link_hub_types_resolve_to_link_hub_family(): void {
+        $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'linktree' ) );
+        $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'beacons' ) );
+        $this->assertSame( 'link_hub', VerifiedLinksFamilies::family_for( 'allmylinks' ) );
+    }
+
+    public function test_social_family_excludes_link_hub_types(): void {
+        $social = array_keys( VerifiedLinksFamilies::types_in_family( VerifiedLinksFamilies::FAMILY_SOCIAL ) );
+        $this->assertSame( [ 'instagram', 'tiktok', 'x', 'facebook', 'youtube' ], $social );
+        $this->assertNotContains( 'linktree', $social );
+        $this->assertNotContains( 'beacons', $social );
+        $this->assertNotContains( 'allmylinks', $social );
     }
 
     /**
@@ -269,6 +283,26 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         );
     }
 
+    /**
+     * Saved link-hub rows should be bucketed into the dedicated Link Hubs block.
+     */
+    public function test_save_places_link_hub_rows_after_social_block(): void {
+        $post_id = 4014;
+        $this->seed_post_for_save( $post_id );
+
+        $_POST['tmwseo_vl'] = [
+            0 => [ 'type' => 'linktree',  'url' => 'https://linktr.ee/a',   'is_active' => '1' ],
+            1 => [ 'type' => 'instagram', 'url' => 'https://instagram.com/a','is_active' => '1' ],
+            2 => [ 'type' => 'beacons',   'url' => 'https://beacons.ai/a',  'is_active' => '1' ],
+            3 => [ 'type' => 'youtube',   'url' => 'https://youtube.com/@a','is_active' => '1' ],
+        ];
+
+        VerifiedLinks::save_metabox( $post_id, $this->fake_post( $post_id ) );
+
+        $types = array_map( static fn( $r ) => $r['type'], $this->read_stored( $post_id ) );
+        $this->assertSame( [ 'instagram', 'youtube', 'linktree', 'beacons' ], $types );
+    }
+
     // ── D. Legacy flat data still resolves correctly ─────────────────
 
     /**
@@ -277,6 +311,7 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
     public function test_legacy_flat_post_meta_resolves_to_correct_families(): void {
         $legacy = [
             [ 'type' => 'youtube',       'url' => 'https://youtube.com/x',   'is_active' => true ],
+            [ 'type' => 'linktree',      'url' => 'https://linktr.ee/x',     'is_active' => true ],
             [ 'type' => 'fancentro',     'url' => 'https://fancentro.com/x', 'is_active' => true ],
             [ 'type' => 'pornhub',       'url' => 'https://pornhub.com/x',   'is_active' => true ],
             [ 'type' => 'personal_site', 'url' => 'https://example.com',     'is_active' => true ],
@@ -293,6 +328,7 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         $this->assertSame(
             [
                 [ 'type' => 'youtube',       'family' => 'social' ],
+                [ 'type' => 'linktree',      'family' => 'link_hub' ],
                 [ 'type' => 'fancentro',     'family' => 'fansite' ],
                 [ 'type' => 'pornhub',       'family' => 'tube_site' ],
                 [ 'type' => 'personal_site', 'family' => 'personal_site' ],
