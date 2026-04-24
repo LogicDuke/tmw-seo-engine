@@ -17,6 +17,9 @@ class ModelPageRenderer {
         }
 
         $sections = [];
+        $secondary_heading_slots = is_array($payload['secondary_heading_slots'] ?? null)
+            ? array_filter(array_map('strval', $payload['secondary_heading_slots']), 'strlen')
+            : [];
 
         $intro_paragraphs = $payload['intro_paragraphs'] ?? [];
         $seed_summary = trim((string)($payload['editor_seed_summary'] ?? ''));
@@ -71,6 +74,7 @@ class ModelPageRenderer {
         }
 
         $features_heading = self::heading_with_focus('Features and Platform Experience', $focus_keyword, $name);
+        $features_heading = self::append_secondary_heading_phrase($features_heading, $secondary_heading_slots['features'] ?? '');
         $features = self::render_section($features_heading, $payload['features_section_paragraphs'] ?? [], $name, $payload['features_section_html'] ?? '');
         if ($features !== '') {
             $sections[] = $features;
@@ -86,6 +90,7 @@ class ModelPageRenderer {
         } else {
             $comparison_heading = 'Platform Access Notes';
         }
+        $comparison_heading = self::append_secondary_heading_phrase($comparison_heading, $secondary_heading_slots['comparison'] ?? '');
         $compare = self::render_section($comparison_heading, $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
             $sections[] = $compare;
@@ -96,7 +101,8 @@ class ModelPageRenderer {
             $sections[] = $questions;
         }
 
-        $links = self::render_section('Where Are the Official Links and Other Profiles?', $payload['official_links_section_paragraphs'] ?? [], $name, self::join_html_blocks([
+        $official_links_heading = self::append_secondary_heading_phrase('Where Are the Official Links and Other Profiles?', $secondary_heading_slots['official_links'] ?? '');
+        $links = self::render_section($official_links_heading, $payload['official_links_section_paragraphs'] ?? [], $name, self::join_html_blocks([
             $payload['external_info_html'] ?? '',
             $payload['explore_more_html'] ?? '',
         ]));
@@ -114,6 +120,17 @@ class ModelPageRenderer {
             return $base . ' for ' . $name;
         }
         return $base . ' for ' . $focus_keyword;
+    }
+
+    private static function append_secondary_heading_phrase(string $heading, string $phrase): string {
+        $phrase = trim($phrase);
+        if ($phrase === '') {
+            return $heading;
+        }
+        if (preg_match('/\b' . preg_quote($phrase, '/') . '\b/iu', $heading)) {
+            return $heading;
+        }
+        return $heading . ' and ' . $phrase;
     }
 
     /** @param mixed $paragraphs */
