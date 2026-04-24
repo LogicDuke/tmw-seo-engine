@@ -77,7 +77,13 @@ class ClaudeContent {
 				'seo_title' => TemplateContent::build_default_model_seo_title( $name, $primary_platform, (int) $post->ID ),
 				'meta_description' => 'Verified links and platform availability for ' . $name . '. Detailed editorial sections are held until more performer data is confirmed.',
 				'focus_keyword' => $name,
-				'payload' => TemplateContent::build_sparse_model_payload( $name, $active_platforms, $model_data_gate ),
+				'payload' => TemplateContent::build_sparse_model_payload(
+					$name,
+					$active_platforms,
+					$model_data_gate,
+					(array) ( $keyword_pack['rankmath_additional'] ?? [] ),
+					(array) ( $keyword_pack['additional'] ?? [] )
+				),
 			];
 		}
 

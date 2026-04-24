@@ -95,6 +95,8 @@ class TemplateContent {
             ? array_slice((array) $pack['rankmath_additional'], 0, 4)
             : array_slice($extra, 0, 4);
 
+        $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
+
         $context = [
             'name' => $name,
             'site' => get_bloginfo('name'),
@@ -155,6 +157,9 @@ class TemplateContent {
                 'If you are deciding where to watch, open your familiar platform first and then check the second active room.',
             ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
+        if (!empty($secondary_visible_phrases[0])) {
+            $second_intro .= ' Visitors looking for ' . $secondary_visible_phrases[0] . ' can use this guide to stay on verified destinations.';
+        }
 
         $watch_para_pool = [
             'Use the links below to open live-room destinations found active in the latest review pass. This section intentionally excludes fan pages, social channels, and link hubs.',
@@ -188,6 +193,7 @@ class TemplateContent {
             'model_data_gate' => $model_data_gate,
             'editor_seed' => $editor_seed,
             'resolved_destinations' => $resolved_destinations,
+            'secondary_visible_phrases' => $secondary_visible_phrases,
         ]));
 
         $platform_ref = $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK
@@ -215,7 +221,9 @@ class TemplateContent {
             'about_section_paragraphs' => $has_specific_about ? (!empty($seed_about) ? $seed_about : [$bio]) : [],
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate, $editor_seed),
             'features_section_paragraphs' => [
-                $features_intro . ' Check playback, chat clarity, and account controls before joining on ' . $platform_ref . '.',
+                $features_intro
+                . ' Check playback, chat clarity, and account controls before joining on ' . $platform_ref . '.'
+                . (!empty($secondary_visible_phrases[1]) ? ' If you are comparing ' . $secondary_visible_phrases[1] . ', use verified platform labels before opening a room.' : ''),
             ],
             'features_section_html' => self::join_html_blocks([
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
@@ -226,7 +234,7 @@ class TemplateContent {
         ]);
 
         if (!$model_data_gate['is_sufficient']) {
-            $renderer_payload = array_merge($renderer_payload, self::build_sparse_model_payload($name, $active_platforms, $model_data_gate));
+            $renderer_payload = array_merge($renderer_payload, self::build_sparse_model_payload($name, $active_platforms, $model_data_gate, $rankmath_keywords, $extra));
         }
 
         $content = ModelPageRenderer::render($name, $renderer_payload);
@@ -286,6 +294,13 @@ class TemplateContent {
 
         $longtail = $pack['longtail'] ?? ($pack['longtail_keywords'] ?? []);
         $longtail = is_array($longtail) ? $longtail : [];
+        $extra = is_array($pack['additional'] ?? null) ? $pack['additional'] : [];
+        $rankmath_keywords = !empty($pack['rankmath_additional']) && is_array($pack['rankmath_additional'])
+            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
+            : array_slice($extra, 0, 4);
+        $secondary_visible_phrases = isset($pack['secondary_visible_phrases']) && is_array($pack['secondary_visible_phrases'])
+            ? array_values(array_filter(array_map('strval', $pack['secondary_visible_phrases']), 'strlen'))
+            : self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
         $model_data_gate = is_array($pack['model_data_gate'] ?? null) ? $pack['model_data_gate'] : ['is_sufficient' => true];
         $editor_seed = is_array($pack['editor_seed'] ?? null) ? $pack['editor_seed'] : self::get_editor_seed_data((int) $post->ID);
@@ -356,7 +371,8 @@ class TemplateContent {
             'external_info_html' => $ext_info_html,
             'official_links_section_paragraphs' => [
                 self::build_official_links_summary($name, $cta_links, (int) $post->ID, $resolved_destinations),
-                self::build_verification_process_paragraph($resolved_destinations),
+                self::build_verification_process_paragraph($resolved_destinations)
+                    . (!empty($secondary_visible_phrases[2]) ? ' This also helps when checking ' . $secondary_visible_phrases[2] . ' across verified destinations.' : ''),
             ],
             'questions_section_paragraphs' => [],
             'longtail_keywords' => $longtail,
@@ -438,8 +454,9 @@ class TemplateContent {
      * @param array<string,mixed> $gate
      * @return array<string,mixed>
      */
-    public static function build_sparse_model_payload(string $name, array $active_platforms, array $gate): array {
+    public static function build_sparse_model_payload(string $name, array $active_platforms, array $gate, array $rankmath_additional = [], array $extra = []): array {
         $platform_text = self::format_platform_list($active_platforms, 'available platforms');
+        $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_additional, $extra);
         $reason = (string) ($gate['reason'] ?? 'insufficient_performer_data');
         $signals = is_array($gate['signals'] ?? null) ? $gate['signals'] : [];
         $active_platform_count = count($active_platforms);
@@ -500,19 +517,77 @@ class TemplateContent {
         return [
             'intro_paragraphs' => [
                 $intro_first,
-                'Use verified destinations in priority order: live-room entry first, then official non-live links for backup and profile checks.',
+                'Use verified destinations in priority order: live-room entry first, then official non-live links for backup and profile checks.'
+                    . (!empty($secondary_visible_phrases[0]) ? ' This is especially useful when you are researching ' . $secondary_visible_phrases[0] . '.' : ''),
                 'Status can change between visits, so recheck activity right before joining.',
             ],
             'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
             'features_section_paragraphs' => [
-                'Platform notes below describe platform-level features only, not confirmed performer-specific traits.',
+                'Platform notes below describe platform-level features only, not confirmed performer-specific traits.'
+                    . (!empty($secondary_visible_phrases[1]) ? ' Keep ' . $secondary_visible_phrases[1] . ' comparisons anchored to verified platform behavior.' : ''),
             ],
             'comparison_section_paragraphs' => $comparison_lines,
             'questions_section_paragraphs' => [],
-            'faq_items' => $faq_items,
+            'faq_items' => self::inject_sparse_secondary_keyword_into_faq($faq_items, $secondary_visible_phrases[2] ?? ''),
             'model_data_notice' => $reason,
         ];
+    }
+
+    /**
+     * Deterministically choose up to four secondary keyword phrases for visible prose.
+     *
+     * @param string[] $rankmath_additional
+     * @param string[] $extra
+     * @return string[]
+     */
+    private static function select_visible_secondary_keyword_phrases(array $rankmath_additional, array $extra): array {
+        $combined = array_merge($rankmath_additional, $extra);
+        $selected = [];
+        $seen = [];
+        foreach ($combined as $phrase) {
+            $phrase = trim((string) $phrase);
+            if ($phrase === '') {
+                continue;
+            }
+            $phrase = (string) preg_replace('/\s+/u', ' ', $phrase);
+            $key = function_exists('mb_strtolower') ? mb_strtolower($phrase, 'UTF-8') : strtolower($phrase);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $selected[] = $phrase;
+            if (count($selected) >= 4) {
+                break;
+            }
+        }
+
+        return $selected;
+    }
+
+    /**
+     * @param array<int,array<string,string>> $faq_items
+     * @return array<int,array<string,string>>
+     */
+    private static function inject_sparse_secondary_keyword_into_faq(array $faq_items, string $keyword_phrase): array {
+        $keyword_phrase = trim($keyword_phrase);
+        if ($keyword_phrase === '' || empty($faq_items)) {
+            return $faq_items;
+        }
+
+        foreach ($faq_items as $index => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $answer = trim((string) ($item['a'] ?? ''));
+            if ($answer === '') {
+                continue;
+            }
+            $faq_items[$index]['a'] = $answer . ' That includes quick checks for ' . $keyword_phrase . ' using verified destinations only.';
+            break;
+        }
+
+        return $faq_items;
     }
 
     /**
