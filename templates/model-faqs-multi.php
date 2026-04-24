@@ -5,27 +5,27 @@
 
 return [
     [
-        'q' => 'Which platforms are active right now?',
-        'a' => '{name} currently has active profiles on {active_platforms_text}. Use the official links here to confirm live status on each platform quickly.',
+        'q' => 'Which link should I test first when multiple rooms are active?',
+        'a' => 'Start with the platform you already trust, then open the second active option with the same checklist so you can compare speed, chat clarity, and controls fairly.',
     ],
     [
-        'q' => 'Which platform should I start with?',
-        'a' => 'Start with the platform you already use most. Then test the second active platform if chat controls, playback quality, or moderation matters more to you.',
+        'q' => 'How do I compare two live platforms fairly?',
+        'a' => 'Run a one-minute check on each room: uptime signals, mobile playback, chat readability, moderation feel, and login friction. Keep the room that best fits your priorities.',
     ],
     [
-        'q' => 'How do I compare platforms fairly?',
-        'a' => 'Use the same checklist on both platforms: load speed, chat readability, moderation, and mobile usability. This keeps the choice practical instead of brand-driven.',
+        'q' => 'Why are fan pages listed separately from live rooms?',
+        'a' => 'Fan platforms can be official but are not always direct live-room entries. They are listed in a separate section for follow/support access so live routing remains accurate.',
     ],
     [
-        'q' => 'Where else can I follow {name} online?',
-        'a' => 'Follow both active official profiles when possible. Dual follows help you catch schedule shifts without searching from scratch.',
+        'q' => 'What does inactive or unclear mean for a verified destination?',
+        'a' => 'It means the destination is verified but not currently confirmed as a usable live-room entry in this snapshot. It may still help with updates or profile verification.',
     ],
     [
-        'q' => 'Are private features the same on every platform?',
-        'a' => 'No, private features vary by platform and current room state. Open each official profile to verify what is available before joining.',
+        'q' => 'Why can a verified profile still be marked non-active?',
+        'a' => 'Verification confirms ownership, not continuous uptime. A real profile can be temporarily offline, region-limited, or not streaming at the moment.',
     ],
     [
-        'q' => 'Is this page biased toward one platform?',
-        'a' => 'No, the page compares every active platform directly. Use it to pick the platform that best matches your speed, trust, and mobile needs.',
+        'q' => 'What should I do if both active rooms are unavailable later?',
+        'a' => 'Use the other official destinations on this page to confirm current handles, follow updates, and return when activity resumes.',
     ],
 ];

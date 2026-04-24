@@ -163,4 +163,53 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertNotEmpty($payload['intro_paragraphs']);
         $this->assertSame('insufficient_performer_data', $payload['model_data_notice']);
     }
+
+    public function test_support_payload_includes_truthful_guidance_sections(): void {
+        $post = new \WP_Post();
+        $post->ID = 502;
+        $resolved = ModelDestinationResolver::resolve(502, [], [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => false, 'label' => 'Chaturbate'],
+            ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true, 'label' => 'Fansly'],
+            ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'is_active' => true, 'label' => 'Instagram'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $official_lines = implode(' ', (array) ($payload['official_destinations_section_paragraphs'] ?? []));
+        $community_lines = implode(' ', (array) ($payload['community_destinations_section_paragraphs'] ?? []));
+        $links_lines = implode(' ', (array) ($payload['official_links_section_paragraphs'] ?? []));
+
+        $this->assertStringContainsString('not currently treated as active live-room links', $official_lines);
+        $this->assertStringContainsString('not presented as direct live-room shortcuts', $community_lines);
+        $this->assertStringContainsString('Verification notes:', $links_lines);
+    }
+
+    public function test_depth_guardrail_expands_short_content_with_practical_sections(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'ensure_minimum_useful_depth');
+        $method->setAccessible(true);
+
+        $short_html = '<p>Short page body.</p>';
+        $expanded = (string) $method->invoke(null, $short_html, 'Alice', ['Chaturbate', 'Stripchat'], [], 'Chaturbate', 'seed-1');
+        $plain = trim(strip_tags($expanded));
+        $word_count = str_word_count($plain);
+
+        $this->assertGreaterThanOrEqual(620, $word_count);
+        $this->assertStringContainsString('How to Decide Where to Start', $expanded);
+        $this->assertStringContainsString('Verification and Review Method', $expanded);
+    }
+
+    public function test_varied_features_are_utility_focused_not_boilerplate_hype(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'render_varied_features');
+        $method->setAccessible(true);
+        $html = (string) $method->invoke(null, 'Alice', ['chatty'], 'Chaturbate', 'seed-utility');
+
+        $this->assertStringContainsString('Truth-first routing', $html);
+        $this->assertStringNotContainsString('Respectful community', $html);
+        $this->assertStringNotContainsString('HD video quality', $html);
+    }
 }

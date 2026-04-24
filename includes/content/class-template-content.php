@@ -148,9 +148,9 @@ class TemplateContent {
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
-            'Use the links below to open verified live-room destinations currently marked active.',
-            'Choose a live platform below to reach the official profile first, then confirm room status before joining.',
-            'Open a verified live profile first, then use aggregator listings only as secondary references.',
+            'Use the links below to open verified live-room destinations currently marked active. This section intentionally excludes fan pages, social channels, and link hubs.',
+            'Choose a live platform below to reach a verified destination first, then confirm room status before joining. Listings outside this section are for follow/support access.',
+            'Open a verified live profile first, then treat aggregators and copied listings as secondary references only.',
         ];
         if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
@@ -223,6 +223,7 @@ class TemplateContent {
         $content = ModelPageRenderer::render($name, $renderer_payload);
         $content = self::split_long_paragraphs($content);
         $content = self::cleanup_model_content($content, $name);
+        $content = self::ensure_minimum_useful_depth($content, $name, $active_platforms, $resolved_destinations, $primary_platform_label, $seed);
 
         $seo_title = self::build_default_model_seo_title($name, $primary_platform_label, (int) $post->ID);
 
@@ -329,11 +330,14 @@ class TemplateContent {
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy, $editor_seed),
             'official_destinations_section_html' => $official_destinations_html,
             'official_destinations_section_paragraphs' => [
-                'These official destinations are verified, but they are not currently listed as active live-room links.',
+                'These destinations are official and verified, but they are not currently treated as active live-room links.',
+                'Use this section for profile verification, follow paths, support pages, and backup navigation when live-room status is inactive or unclear.',
+                'Separating these links from the live section keeps routing truthful: a verified destination can be real without being active for room entry right now.',
             ],
             'community_destinations_section_html' => $community_destinations_html,
             'community_destinations_section_paragraphs' => [
-                'Use verified social profiles, link hubs, and channels for updates, archives, and profile verification.',
+                'Use verified social profiles, link hubs, and channels for updates, archives, and cross-checking handles.',
+                'These links are useful for identity verification and schedule tracking, but they are not presented as direct live-room shortcuts.',
             ],
             'related_models_html' => '',
             'explore_more_html' => '',
@@ -342,6 +346,7 @@ class TemplateContent {
             'external_info_html' => $ext_info_html,
             'official_links_section_paragraphs' => [
                 self::build_official_links_summary($name, $cta_links, (int) $post->ID, $resolved_destinations),
+                self::build_verification_process_paragraph($resolved_destinations),
             ],
             'questions_section_paragraphs' => [],
             'longtail_keywords' => $longtail,
@@ -783,16 +788,22 @@ class TemplateContent {
         $summary = trim((string) ($editor_seed['summary'] ?? ''));
         if (!empty($active_platforms)) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
-            $answer_line = $name . ' is currently marked active on ' . $platform_text . '. Use the official live links below to open real profiles first.';
+            $answer_line = 'Current review status shows active live-room destinations on ' . $platform_text . '. Open those links first, then use other sections for follow and backup access.';
         } else {
-            $answer_line = 'Verified profiles exist for ' . $name . ', but no live-room destination is currently marked active in this review snapshot.';
+            $answer_line = 'Verified destinations exist, but no live-room entry is currently marked active in this review snapshot.';
         }
         if ($summary === '') {
-            return [$answer_line, $fallback_intro, $fallback_second];
+            return [
+                $answer_line,
+                $fallback_intro,
+                $fallback_second,
+                'Before you commit to one room, run a quick check: username match, recent room activity, chat readability, and mobile playback stability.',
+            ];
         }
         return [
             $answer_line,
             $summary,
+            'Use this page as a routing layer: live destinations for room entry first, then official non-live destinations for follow, support, or verification tasks.',
         ];
     }
 
@@ -814,9 +825,18 @@ class TemplateContent {
     private static function build_seed_comparison_paragraphs(array $editor_seed, string $fallback_copy): array {
         $notes = isset($editor_seed['platform_notes']) && is_array($editor_seed['platform_notes']) ? $editor_seed['platform_notes'] : [];
         if (!empty($notes)) {
-            return array_slice(array_values(array_filter(array_map('strval', $notes), 'strlen')), 0, 3);
+            $base = array_slice(array_values(array_filter(array_map('strval', $notes), 'strlen')), 0, 3);
+            $base[] = 'Compare platforms with one repeatable method: room uptime, mobile playback, chat readability, moderation tone, and account/login friction.';
+            return $base;
         }
-        return $fallback_copy !== '' ? [$fallback_copy] : [];
+        if ($fallback_copy === '') {
+            return [];
+        }
+        return [
+            $fallback_copy,
+            'Run the same one-minute test on each active room so platform choice is based on practical use rather than brand familiarity.',
+            'If one room is inactive later, use verified backup destinations and recheck status instead of relying on scraped mirror pages.',
+        ];
     }
 
     /**
@@ -839,7 +859,27 @@ class TemplateContent {
                 'a' => 'Yes. The following claims are treated as unconfirmed and are intentionally not presented as facts: ' . implode('; ', array_slice(array_map('strval', $avoid), 0, 2)) . '.',
             ];
         }
-        $merged = array_merge($items, $fallback);
+        $utility = self::default_utility_faq_items();
+        $merged = array_merge($items, $fallback, $utility);
+        $seen_questions = [];
+        $deduped = [];
+        foreach ($merged as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $q = trim((string) ($item['q'] ?? ''));
+            $a = trim((string) ($item['a'] ?? ''));
+            if ($q === '' || $a === '') {
+                continue;
+            }
+            $fingerprint = strtolower(preg_replace('/[^a-z0-9]+/', ' ', $q) ?? $q);
+            if (isset($seen_questions[$fingerprint])) {
+                continue;
+            }
+            $seen_questions[$fingerprint] = true;
+            $deduped[] = ['q' => $q, 'a' => $a];
+        }
+        $merged = $deduped;
         $merged = array_slice($merged, 0, 5);
         foreach ($merged as $idx => $item) {
             if (!is_array($item)) {
@@ -848,6 +888,26 @@ class TemplateContent {
             $merged[$idx]['a'] = self::normalize_faq_answer((string) ($item['a'] ?? ''));
         }
         return $merged;
+    }
+
+    /**
+     * @return array<int,array{q:string,a:string}>
+     */
+    private static function default_utility_faq_items(): array {
+        return [
+            [
+                'q' => 'How should I compare two platforms without bias?',
+                'a' => 'Use the same checklist on each room: uptime signals, mobile playback, chat readability, moderation tone, and login friction. Keep whichever room performs better for your setup.',
+            ],
+            [
+                'q' => 'Why are some verified links outside the live section?',
+                'a' => 'Because verification and live availability are different states. A destination can be official and still be better for follow/support access than direct room entry.',
+            ],
+            [
+                'q' => 'What is the safest way to avoid copied profiles?',
+                'a' => 'Start from verified links on this page, confirm the handle after click-through, and leave immediately when usernames or branding do not match.',
+            ],
+        ];
     }
 
     private static function normalize_faq_answer(string $answer): string {
@@ -2081,13 +2141,13 @@ class TemplateContent {
         $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
 
         $pool = [
-            '<li><strong>Platform feature — HD video quality:</strong> Streams on ' . esc_html($platform) . ' typically support high definition playback with stable audio.</li>',
-            '<li><strong>Privacy-first browsing:</strong> Platform controls let you watch without sharing personal details.</li>',
-            '<li><strong>Mobile-friendly:</strong> Join the live room from any device with a modern browser.</li>',
-            '<li><strong>Notification alerts:</strong> Enable follow alerts on ' . esc_html($platform) . ' to get pinged when a new session starts.</li>',
-            '<li><strong>Platform feature — Schedule flexibility:</strong> Room availability changes throughout the week, so checking recent status helps.</li>',
-            '<li><strong>Respectful community:</strong> Moderation keeps the chat positive and on-topic.</li>',
-            '<li><strong>Platform feature — Interactive tools:</strong> Polls, tip-triggered actions, and two-way chat tools are available on supported rooms.</li>',
+            '<li><strong>Truth-first routing:</strong> Live-room links are limited to destinations currently marked active; follow/support pages stay in separate sections.</li>',
+            '<li><strong>Pre-click verification:</strong> Compare handle spelling, profile branding, and room freshness before spending credits or tips.</li>',
+            '<li><strong>Fair platform testing:</strong> Run a one-minute check for playback stability, chat readability, moderation tone, and login friction.</li>',
+            '<li><strong>Backup strategy:</strong> Keep one alternate verified destination ready in case your primary room is offline or geo-limited.</li>',
+            '<li><strong>Status can change:</strong> Activity labels reflect a review snapshot, so rechecking before each session prevents stale clicks.</li>',
+            '<li><strong>Identity safety:</strong> Avoid mirror listings and copied pages by starting from verified destinations on this page.</li>',
+            '<li><strong>Decision clarity:</strong> Platform notes describe utility tradeoffs rather than performer-specific claims that are not verified.</li>',
         ];
 
         foreach (array_slice($tag_phrases, 0, 2) as $tag) {
@@ -2197,6 +2257,8 @@ class TemplateContent {
         }
 
         $content = preg_replace('/\bofficial live profile\b/iu', self::stable_fallback_variant($name . '|ofp'), $content) ?: $content;
+        $content = preg_replace('/\bWatch\s+' . preg_quote($name, '/') . '\b/iu', 'Open the verified live destination', $content) ?: $content;
+        $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+is currently active on\b/iu', 'Current review status shows active access on', $content) ?: $content;
         $content = str_replace('This guide covers the practical side:', 'This page focuses on the practical side:', $content);
         $content = str_replace('This guide covers exactly that need:', 'This section covers those basics directly:', $content);
         $content = str_replace('The appeal extends beyond any single session.', 'There is more here than one good session.', $content);
@@ -2206,6 +2268,47 @@ class TemplateContent {
         $content = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $content) ?: $content;
 
         return $content;
+    }
+
+    private static function ensure_minimum_useful_depth(string $content, string $name, array $active_platforms, array $resolved_destinations, string $primary_platform_label, string $seed): string {
+        $plain = trim((string) wp_strip_all_tags($content));
+        $word_count = str_word_count($plain);
+        if ($word_count >= 620) {
+            return $content;
+        }
+
+        $platform_text = self::format_platform_list($active_platforms, $primary_platform_label !== '' ? $primary_platform_label : 'verified platforms');
+        $extra_blocks = [
+            '<h2>How to Decide Where to Start</h2>'
+            . '<p>Start with the platform you already trust, then test one alternate room with the same checklist: uptime signals, chat readability, playback stability, moderation flow, and login friction. A repeatable method prevents brand bias and makes it easier to pick the better room for your device and connection.</p>'
+            . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. If neither room works well, use the other verified destinations on this page to confirm handles and return later when status changes.</p>',
+            '<h2>Verification and Review Method</h2>'
+            . '<p>This page prioritizes verified destinations and manual review notes. Verification confirms ownership and routing quality; it does not guarantee continuous uptime. Activity labels represent a snapshot and can change after platform updates or schedule shifts.</p>'
+            . '<p>For that reason, recheck status each time you visit. Starting from a verified destination is still the safest path to avoid copied pages, stale mirrors, or impersonation profiles.</p>',
+            '<h2>Practical Use of Non-Live Destinations</h2>'
+            . '<p>Non-live destinations remain useful even when they are not room-entry links. Use them for follow actions, backup profile validation, archived media, and link-hub navigation when the live section is temporarily inactive.</p>'
+            . '<p>This separation keeps the page truthful: live access appears only in the live section, while other official destinations support planning and verification tasks.</p>',
+        ];
+
+        $need = min(3, (int) ceil((620 - $word_count) / 110));
+        $selected = [];
+        for ($i = 0; $i < $need; $i++) {
+            $idx = self::stable_pick_index($seed . '|depth|' . $i . '|' . $platform_text, count($extra_blocks));
+            while (in_array($idx, $selected, true)) {
+                $idx = ($idx + 1) % count($extra_blocks);
+            }
+            $selected[] = $idx;
+            $content .= "\n\n" . $extra_blocks[$idx];
+        }
+
+        return $content;
+    }
+
+    private static function build_verification_process_paragraph(array $resolved_destinations): string {
+        $summary = (array) ($resolved_destinations['source_of_truth_summary'] ?? []);
+        $verified_total = (int) ($summary['verified_count'] ?? 0);
+        $active_live = (int) ($summary['watch_cta_count'] ?? 0);
+        return 'Verification notes: this page prioritizes checked destinations (' . $verified_total . ' verified links total, ' . $active_live . ' currently marked active for live-room routing). Status can change, so recheck before each session.';
     }
 
     private static function stable_fallback_variant(string $seed): string {

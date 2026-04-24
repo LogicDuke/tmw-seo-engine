@@ -4,19 +4,19 @@
  */
 
 $openers = [
-    "{name} has active profiles on {active_platforms_text}, and this page keeps the official links in one trusted place.",
-    "Trying to find the real {name} room across {active_platforms_text}? Start with the confirmed profile links here.",
-    "{name} is active on {active_platforms_text}; use this page to avoid copied profiles and reach official rooms faster.",
-    "For {name}, the fastest trusted route across {active_platforms_text} is the verified link set below.",
-    "When {name} is live on {active_platforms_text}, this page helps you identify which official room to open first.",
+    "Active live-room destinations are currently mapped across {active_platforms_text}, with verified links grouped in one place.",
+    "When several rooms are available, this page keeps the first-click options practical and reviewable.",
+    "Use the verified list to compare active platforms without jumping between copied listings.",
+    "This page separates live access from follow/support destinations so platform choices stay clear.",
+    "The goal is quick, trustworthy routing across {active_platforms_text} with less search friction.",
 ];
 
 $utility_lines = [
-    "Start on the platform you already use, then compare the second active room if chat tools or mobile playback matter more.",
-    "Check both active profiles with the same checklist: load speed, chat clarity, and room controls.",
-    "Both platform sections are decision-focused so you can choose where to watch first without one-platform bias.",
-    "If one room is inactive, the second official profile gives you a quick fallback without extra searching.",
-    "Use this as a decision page: identify active platforms, verify official links, then click the best starting room.",
+    "Use the same checklist on each room: uptime signals, playback stability, chat readability, and moderation comfort.",
+    "Start on your familiar platform, then test the second option as a fallback when one room is slow or offline.",
+    "Non-live destinations are listed separately for follow and support actions, not as room-entry shortcuts.",
+    "This structure helps you compare platforms fairly before choosing a default room.",
+    "If status changes later, re-check the verified links section because activity snapshots can shift.",
 ];
 
 $intros = [];
