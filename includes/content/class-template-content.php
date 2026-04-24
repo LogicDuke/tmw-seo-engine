@@ -157,7 +157,7 @@ class TemplateContent {
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
-            'Use the links below to open verified live-room destinations currently confirmed active in this review. This section intentionally excludes fan pages, social channels, and link hubs.',
+            'Use the links below to open live-room destinations found active in the latest review pass. This section intentionally excludes fan pages, social channels, and link hubs.',
             'Choose a live platform below to reach a verified destination first, then confirm room status before joining. Listings outside this section are for follow/support access.',
             'Open a verified live profile first, then treat aggregators and copied listings as secondary references only.',
         ];
@@ -451,7 +451,7 @@ class TemplateContent {
             );
 
         if ($active_platform_count === 1) {
-            $intro_first = 'This review currently confirms one active live-room destination: ' . $platform_text . '. Start there first for room entry.';
+            $intro_first = 'In this review pass, ' . $platform_text . ' was the only live-room destination confirmed active. Start there first for room entry.';
             $comparison_lines = [
                 'Use this checklist before you join: verify handle match, confirm recent room activity, check chat readability, and confirm mobile playback stability.',
             ];
@@ -844,7 +844,7 @@ class TemplateContent {
         $active_platform_count = count($active_platforms);
         if ($active_platform_count === 1) {
             $platform_text = self::format_platform_list($active_platforms, 'the active platform');
-            $answer_line = 'In this review, one live-room destination is currently confirmed active: ' . $platform_text . '. Start there first, then use verified non-live destinations for backup and profile checks.';
+            $answer_line = 'In this review pass, ' . $platform_text . ' was the only live-room destination confirmed active. Start there first, then use verified non-live destinations for backup and profile checks.';
         } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
             $answer_line = 'This review currently confirms active live-room destinations on ' . $platform_text . '. Open those links first, then use other sections for follow and backup access.';
@@ -1102,7 +1102,7 @@ class TemplateContent {
                 $cta = '<p><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">Open ' . esc_html($platform) . ' profile</a></p>';
             }
             return $alt_username_note
-                . '<p>' . esc_html('Only one live-room destination is currently confirmed active in this review: ' . $platform . '. Use this quick pre-click checklist before joining.') . '</p>'
+                . '<p>' . esc_html('This review pass found one confirmed active live-room destination (' . $platform . '), so use this quick pre-click checklist before joining.') . '</p>'
                 . $checklist
                 . $cta;
         }
@@ -2399,7 +2399,8 @@ class TemplateContent {
         $summary = (array) ($resolved_destinations['source_of_truth_summary'] ?? []);
         $verified_total = (int) ($summary['verified_count'] ?? 0);
         $active_live = (int) ($summary['watch_cta_count'] ?? 0);
-        return 'Verification notes: this page prioritizes checked destinations (' . $verified_total . ' verified links total, ' . $active_live . ' currently confirmed active for live-room routing in this review). Status can change, so recheck before each session.';
+        $active_label = $active_live === 1 ? 'live-room destination' : 'live-room destinations';
+        return 'Verification notes: this page prioritizes checked destinations (' . $verified_total . ' verified links total, ' . $active_live . ' ' . $active_label . ' confirmed active in the latest review pass). Status can change, so recheck before each session.';
     }
 
     private static function stable_fallback_variant(string $seed): string {
