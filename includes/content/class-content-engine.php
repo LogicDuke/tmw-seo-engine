@@ -26,13 +26,9 @@ class ContentEngine {
      */
     private const PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE = true;
 
-    // Audit fix 4.4.0: model page content floor for AI retry loop.
-    // Model page word count contract — all generation paths must respect this.
-    // Hard floor: 800 words (fail/retry gate).
-    // Preferred target: 1200–1501 words (what pad_model_content and LLM prompts aim for).
-    // This is NOT a universal target — actual scoring uses page-type-aware
-    // ranges in QualityScoreEngine::word_count_ranges().
-    private const MODEL_MIN_WORDS = 800;
+    // Model page floor for AI retry loop. Keep low enough to allow concise
+    // factual pages when performer-specific data is limited.
+    private const MODEL_MIN_WORDS = 260;
     private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
     private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
 
@@ -241,6 +237,10 @@ class ContentEngine {
                 $secondary_keywords = AssistedDraftEnrichmentService::build_model_secondary_keywords($focus_kw);
             }
         }
+        $model_data_gate = null;
+        if ($post->post_type === 'model') {
+            $model_data_gate = TemplateContent::evaluate_model_data_gate($post, $keyword_pack);
+        }
 
         if ($strategy === 'template') {
             $template_preview = self::build_template_preview_payload($post, $keyword_pack, $focus_kw, $template_type);
@@ -279,6 +279,29 @@ class ContentEngine {
 
         // ── Claude (Anthropic) preview strategy ─────────────────────────────
         if ($strategy === 'claude' && $post->post_type === 'model') {
+            if (is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
+                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
+                $sparse_payload   = TemplateContent::build_sparse_model_payload(
+                    (string)$post->post_title,
+                    (array)($keyword_pack['active_platforms'] ?? []),
+                    $model_data_gate,
+                    (array)($keyword_pack['rankmath_additional'] ?? []),
+                    (array)($keyword_pack['additional'] ?? [])
+                );
+                $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+                return [
+                    'strategy'             => 'claude_sparse_fallback',
+                    'template_type'        => $template_type,
+                    'seo_title'            => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
+                    'meta_description'     => 'Verified links and platform availability for ' . trim((string)$post->post_title) . '. Detailed editorial sections are held until more performer data is confirmed.',
+                    'focus_keyword'        => (string)$post->post_title,
+                    'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
+                    'content_html'         => wp_kses_post(trim($html)),
+                    'outline'              => self::extract_outline_from_html($html),
+                    'quality_summary'      => [],
+                    'generated_at'         => current_time('mysql'),
+                ];
+            }
             $claude_result = ClaudeContent::build_model($post, $keyword_pack);
             if ($claude_result['ok']) {
                 $support_payload  = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
@@ -329,8 +352,36 @@ class ContentEngine {
         // before building $clean_title_short for the OpenAI system prompt.
         $clean_title       = TitleFixer::fix((string) $post->post_title);
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
+        $editor_seed = is_array($keyword_pack['editor_seed'] ?? null)
+            ? $keyword_pack['editor_seed']
+            : (class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'get_editor_seed_data')
+                ? TemplateContent::get_editor_seed_data((int) $post->ID)
+                : []);
         $model = Settings::openai_model_for_quality();
         $is_model_page = ($post->post_type === 'model');
+        if ($is_model_page && is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
+            $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
+            $sparse_payload   = TemplateContent::build_sparse_model_payload(
+                (string)$post->post_title,
+                (array)($keyword_pack['active_platforms'] ?? []),
+                $model_data_gate,
+                (array)($keyword_pack['rankmath_additional'] ?? []),
+                (array)($keyword_pack['additional'] ?? [])
+            );
+            $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+            return [
+                'strategy' => 'openai_sparse_fallback',
+                'template_type' => $template_type,
+                'seo_title' => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
+                'meta_description' => 'Verified links and platform availability for ' . trim((string)$post->post_title) . '. Detailed editorial sections are held until more performer data is confirmed.',
+                'focus_keyword' => (string)$post->post_title,
+                'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
+                'content_html' => wp_kses_post(trim($html)),
+                'outline' => self::extract_outline_from_html($html),
+                'quality_summary' => [],
+                'generated_at' => current_time('mysql'),
+            ];
+        }
         $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '1200-1501 words' : '150-350 words');
 
         $system = [
@@ -339,21 +390,85 @@ class ContentEngine {
                 "You are a professional SEO copywriter for top-models.webcam.\n" .
                 "Write informative, human-readable content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
-                "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
+                "Focus on real visitor problems (finding real rooms, choosing active platforms, avoiding fake profiles, and deciding what to click first).\n" .
                 "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
                 "seo_title <= 65 characters. meta_description 145-160 characters.\n" .
                 "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
+                "CANONICAL PAGE STRUCTURE (10 sections — you supply 1-7 via JSON; 8-10 rendered from verified link data):\n" .
+                "  1. Short reviewed bio/intro  — injected by system if evidence exists; do NOT write this\n" .
+                "  2. Verified route intro       — first sentence of intro_paragraphs. NEVER say 'official profile links on [platform]'; links are on THIS page\n" .
+                "  3. Where to Watch Live        — your watch_section_paragraphs\n" .
+                "  4. Other Official Destinations — rendered from verified links, not in your JSON\n" .
+                "  5. Social Profiles            — rendered from verified links, not in your JSON\n" .
+                "  6. More Links                 — rendered from verified links, not in your JSON\n" .
+                "  7. Before You Click / Platform Experience — your features + comparison paragraphs\n" .
+                "  8. FAQ                        — your faq_items\n" .
+                "  9. Official Links and Other Profiles — rendered separately\n" .
+                " 10. Grouped verified destination output  — rendered separately\n" .
+                "You may enrich within your assigned sections but must NOT redesign, reorder, or duplicate the structure above.\n" .
                 "PROSE QUALITY RULES (non-negotiable):\n" .
                 "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
                 "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
+                "- Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when the referent is unclear.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- faq_items questions must sound like natural spoken questions, not keyword-stuffed pseudo-questions.\n" .
+                "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
+                "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
                 "- Vary sentence length and opener across sections.\n" .
-                "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
-                "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
+                "- Avoid signposting such as 'This guide covers', 'Here\\'s what to know', or 'Let\\'s dive in'.\n" .
+                "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\\'s not just X, it\\'s Y'. Use direct sentences.\n" .
+                "- Avoid generic thesis openers like 'The useful part of', 'The main advantage here is', 'What changes most', or 'People land here because'.\n" .
+                "- Also avoid transition-filler intros like 'One practical detail is', 'What helps most is', or 'The biggest shift'.\n" .
+                "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
-                "- Use 'official profile links' at most once across the entire output.\n"
+                "- Use 'official profile links' at most once across the entire output.\n" .
+                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
+                "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
+                "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
+                "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .
+                "- Keep intro and watch copy mobile-compact: lead with who the model is and where to find official links.\n" .
+                "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
+                "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
+                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
+                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n"
         ];
+
+        $resolved_destinations = ($is_model_page && class_exists(ModelDestinationResolver::class))
+            ? ModelDestinationResolver::resolve((int) $post->ID)
+            : [];
+
+        // ── Pre-compute heading-slot plan and bio evidence for model pages ─
+        $openai_heading_slot_block = '';
+        $openai_bio_evidence_block = '';
+        if ($is_model_page && class_exists(TemplateContent::class)) {
+            $rankmath_kws_for_prompt = !empty($keyword_pack['rankmath_additional']) && is_array($keyword_pack['rankmath_additional'])
+                ? array_slice((array)$keyword_pack['rankmath_additional'], 0, 4)
+                : array_slice((array)($keyword_pack['additional'] ?? []), 0, 4);
+            if (!empty($rankmath_kws_for_prompt)) {
+                try {
+                    $rc     = new \ReflectionClass(TemplateContent::class);
+                    $sel    = $rc->getMethod('select_heading_safe_secondary_keyword_phrases');
+                    $sel->setAccessible(true);
+                    $phrases = $sel->invoke(null, (string)$post->post_title, $rankmath_kws_for_prompt, (array)($keyword_pack['additional'] ?? []));
+                    $bld    = $rc->getMethod('build_secondary_heading_slots');
+                    $bld->setAccessible(true);
+                    $slots_for_prompt = (array)$bld->invoke(null, $phrases);
+                    $openai_heading_slot_block = TemplateContent::build_keyword_heading_slot_prompt_block($slots_for_prompt);
+                } catch (\Throwable $ignored) {}
+            }
+            if (method_exists(TemplateContent::class, 'get_bio_evidence_data')) {
+                $bio_ev = TemplateContent::get_bio_evidence_data((int)$post->ID);
+                if (!empty($bio_ev['is_reviewable']) && !empty($bio_ev['summary'])) {
+                    $openai_bio_evidence_block  = "REVIEWED BIO EVIDENCE (use as intro context; do not copy verbatim)\n";
+                    $openai_bio_evidence_block .= '• Reviewed summary: ' . $bio_ev['summary'] . "\n";
+                    if (!empty($bio_ev['source_facts'])) {
+                        $openai_bio_evidence_block .= '• Source facts: ' . implode(' | ', array_slice($bio_ev['source_facts'], 0, 5)) . "\n";
+                    }
+                    $openai_bio_evidence_block .= "• Safety rule: editor-reviewed. Do not copy verbatim — use as evidence to write original intro prose.\n";
+                }
+            }
+        }
 
         $user_content =
             "PAGE CONTEXT\n" .
@@ -362,7 +477,10 @@ class ContentEngine {
             "- Current title (cleaned): {$clean_title_short}\n" .
             ($focus_kw ? "- Primary keyword (must be used exactly): {$focus_kw}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
-            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail queries to cover: " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (($is_model_page && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed, (array) $resolved_destinations) : '') .
+            ($openai_bio_evidence_block !== '' ? "\n" . $openai_bio_evidence_block : '') .
+            ($openai_heading_slot_block !== '' ? "\n" . $openai_heading_slot_block : '') .
             "- Target length: {$length_hint}\n\n" .
             "WRITE:\n" .
             "1) SEO title that matches the page and includes the keyword naturally.\n" .
@@ -378,14 +496,20 @@ class ContentEngine {
                 "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
                 "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
                 "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Preferred target: 1200–1501 words — expand each section generously to reach this.\n" .
-                "- Each section must contain at least 80 words.\n" .
+                "- Preferred target: concise, high-signal copy; do not pad sections to hit arbitrary length.\n" .
+                "- If performer-specific facts are thin, keep about/fans-like short or empty instead of inventing detail.\n" .
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
-                "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
-                "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
+                "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
+                "- Open each section with the practical decision the visitor needs to make right now.\n" .
+                "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
+            $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";
+            $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
+            $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";
+            $user_content .= "- Affiliate priority must not influence editorial weighting in comparison prose.\n";
         } elseif ($template_type === self::PREVIEW_TEMPLATE_CATEGORY_PAGE) {
             $user_content .= "\nCATEGORY PAGE TEMPLATE (required):\n" .
                 "- Purpose: help users compare and choose options within this category intent.\n" .
@@ -444,6 +568,11 @@ class ContentEngine {
             $support_payload = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
             $renderer_payload = array_merge($support_payload, self::extract_model_renderer_payload($j));
             $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
+            // ── Post-render keyword heading enforcement (OpenAI path) ─────────
+            if (!empty($rankmath_kws_for_prompt) && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'enforce_keyword_heading_placement')) {
+                $enf  = TemplateContent::enforce_keyword_heading_placement($html, $rankmath_kws_for_prompt, (string)$post->post_title);
+                $html = (string)($enf['html'] ?? $html);
+            }
             $validated = self::enforce_model_content_constraints([$system, ['role' => 'user', 'content' => $user_content]], $model, 3200, $generated_focus_kw, $html, $j, (string)$post->post_title, $support_payload);
             $html = (string) ($validated['html'] ?? $html);
             $generated_focus_kw = trim((string) ($validated['focus_keyword'] ?? $generated_focus_kw));
@@ -1037,6 +1166,10 @@ class ContentEngine {
             }
         }
 
+        $model_data_gate = ($post->post_type === 'model')
+            ? TemplateContent::evaluate_model_data_gate($post, $keyword_pack)
+            : null;
+
         // ── Claude (Anthropic) strategy ──────────────────────────────────────
         if ($strategy === 'claude' && $post->post_type === 'model' && Anthropic::is_configured()) {
             $focus_kw = !empty($keyword_pack['primary'])
@@ -1048,7 +1181,7 @@ class ContentEngine {
             $claude_result = ClaudeContent::build_model($post, $keyword_pack);
 
             if ($claude_result['ok']) {
-                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+                $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
                 $renderer_payload = array_merge($support_payload, $claude_result['payload']);
                 $generated_content = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
                 $generated_content = wp_kses_post($generated_content);
@@ -1171,6 +1304,11 @@ class ContentEngine {
 
         $clean_title = TitleFixer::fix((string)$post->post_title);
         $clean_title_short = TitleFixer::shorten($clean_title, 70);
+        $editor_seed = is_array($keyword_pack['editor_seed'] ?? null)
+            ? $keyword_pack['editor_seed']
+            : (class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'get_editor_seed_data')
+                ? TemplateContent::get_editor_seed_data((int) $post->ID)
+                : []);
 
         $model = Settings::openai_model_for_quality();
 
@@ -1182,20 +1320,36 @@ class ContentEngine {
                 "You are a professional SEO copywriter for top-models.webcam.\n" .
                 "Write informative, human-readable content about adult webcam / live video chat.\n" .
                 "Keep language non-explicit and safe: do NOT describe graphic sexual acts.\n" .
-                "Focus on user intent (features, safety, privacy, etiquette, what to expect).\n" .
+                "Focus on real visitor problems (finding real rooms, choosing active platforms, avoiding fake profiles, and deciding what to click first).\n" .
                 "Output STRICT JSON with keys: seo_title, meta_description, focus_keyword, intro_paragraphs, watch_section_paragraphs, about_section_paragraphs, fans_like_section_paragraphs, features_section_paragraphs, comparison_section_paragraphs, faq_items.\n" .
                 "seo_title <= 65 characters. meta_description 145-160 characters.\n" .
                 "Do not include h1 or raw section HTML architecture in any JSON value.\n" .
                 "PROSE QUALITY RULES (non-negotiable):\n" .
                 "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
                 "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
+                "- Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when the referent is unclear.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
                 "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- faq_items questions must sound like natural spoken questions, not keyword-stuffed pseudo-questions.\n" .
+                "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
+                "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
                 "- Vary sentence length and opener across sections.\n" .
                 "- Avoid signposting such as 'This guide covers', 'Here\'s what to know', or 'Let\'s dive in'.\n" .
                 "- Avoid brochure phrasing, vague importance claims, and formulaic contrasts like 'it\'s not just X, it\'s Y'. Use direct sentences.\n" .
+                "- Avoid generic thesis openers like 'The useful part of', 'The main advantage here is', 'What changes most', or 'People land here because'.\n" .
+                "- Also avoid transition-filler intros like 'One practical detail is', 'What helps most is', or 'The biggest shift'.\n" .
+                "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
-                "- Use 'official profile links' at most once across the entire output.\n"
+                "- Use 'official profile links' at most once across the entire output.\n" .
+                "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
+                "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
+                "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
+                "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .
+                "- Keep intro and watch copy mobile-compact: lead with who the model is and where to find official links.\n" .
+                "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
+                "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
+                "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
+                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n"
         ];
 
         $user_content =
@@ -1205,7 +1359,8 @@ class ContentEngine {
             "- Current title (cleaned): {$clean_title_short}\n" .
             ($keyword ? "- Primary keyword (must be used exactly): {$keyword}\n" : '') .
             (!empty($secondary_keywords) ? "- Secondary keywords (sprinkle naturally): " . implode(', ', $secondary_keywords) . "\n" : '') .
-            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail queries to cover: " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (!empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail']) ? "- Long-tail FAQ anchor ideas (do not use as paragraph openers): " . implode('; ', array_slice($keyword_pack['longtail'], 0, 6)) . "\n" : '') .
+            (($post->post_type === 'model' && class_exists(TemplateContent::class) && method_exists(TemplateContent::class, 'build_editor_seed_prompt_block')) ? TemplateContent::build_editor_seed_prompt_block($editor_seed, class_exists(ModelDestinationResolver::class) ? (array) ModelDestinationResolver::resolve((int) $post->ID) : []) : '') .
             "- Target length: {$length_hint}\n" .
             "\n" .
             "WRITE:\n" .
@@ -1215,6 +1370,22 @@ class ContentEngine {
             "4) Provide section paragraph arrays and faq_items (3-5 Q&As).\n";
 
         $is_model_page = ($post->post_type === 'model');
+        if ($is_model_page && is_array($model_data_gate) && empty($model_data_gate['is_sufficient'])) {
+            $support_payload = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
+            $sparse_payload = TemplateContent::build_sparse_model_payload(
+                (string)$post->post_title,
+                (array)($keyword_pack['active_platforms'] ?? []),
+                $model_data_gate,
+                (array)($keyword_pack['rankmath_additional'] ?? []),
+                (array)($keyword_pack['additional'] ?? [])
+            );
+            $generated_content = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+            $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
+            wp_update_post(['ID' => $post_id, 'post_content' => $final_content]);
+            update_post_meta($post_id, '_tmwseo_optimize_done', 'sparse_data_fallback');
+            delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
+            return;
+        }
 
         if ($is_model_page) {
             $primary_keyword = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $keyword !== '' ? $keyword : (string)$post->post_title);
@@ -1225,14 +1396,20 @@ class ContentEngine {
                 "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
                 "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
                 "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Preferred target: 1200–1501 words — expand each section generously to reach this.\n" .
-                "- Each section must contain at least 80 words.\n" .
+                "- Preferred target: concise, high-signal copy; do not pad sections to hit arbitrary length.\n" .
+                "- If performer-specific facts are thin, keep about/fans-like short or empty instead of inventing detail.\n" .
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
                 "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
-                "- fans_like_section_paragraphs: describe what keeps viewers coming back — use varied sentence structures, not a repeated formula.\n" .
+                "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
                 "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
-                "- Use concrete observations about pace, chat style, scheduling, privacy, or room features instead of generic filler.\n" .
+                "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
+                "- Open each section with the practical decision the visitor needs to make right now.\n" .
+                "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
                 "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
+            $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";
+            $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
+            $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";
+            $user_content .= "- Affiliate priority must not influence editorial weighting in comparison prose.\n";
         }
 
         $user = [
@@ -1277,7 +1454,7 @@ class ContentEngine {
         $focus_kw  = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
 
         if ($is_model_page) {
-            $support_payload = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
+            $support_payload = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
             $renderer_payload = array_merge($support_payload, self::extract_model_renderer_payload($j));
             $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
             $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html, $j, (string)$post->post_title, $support_payload);

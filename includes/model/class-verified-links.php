@@ -48,6 +48,10 @@
  *   "label"            : string  — optional display override, max 80 chars.
  *   "is_active"        : bool    — default true; inactive entries excluded from output.
  *   "is_primary"       : bool    — at most one entry may be true.
+ *   "activity_level"   : string  — optional: unknown|inactive|active|very_active
+ *   "activity_note"    : string  — optional short operator note (<=140 chars)
+ *   "activity_checked_at": string — optional Y-m-d audit date
+ *   "activity_evidence_url": string — optional audit evidence URL
  *   "added_at"         : string  — Y-m-d, set on creation, never overwritten.
  *   "promoted_from"    : string  — "manual" | "research" (audit trail only).
  * }
@@ -109,6 +113,10 @@ class VerifiedLinks {
         'linktree',
         'beacons',
         'allmylinks',
+        'solo_to',
+        'carrd',
+        'link_me',
+        'friendsbio',
         // Catch-all (Other / Legacy block)
         'other',
     ];
@@ -135,6 +143,10 @@ class VerifiedLinks {
         'linktree'      => 'Linktree',
         'beacons'       => 'Beacons',
         'allmylinks'    => 'AllMyLinks',
+        'solo_to'       => 'Solo.to',
+        'carrd'         => 'Carrd',
+        'link_me'       => 'Link.me',
+        'friendsbio'    => 'Friends Bio',
         'other'         => 'Other',
     ];
 
@@ -173,8 +185,8 @@ class VerifiedLinks {
     // ── Metabox render ────────────────────────────────────────────────────
 
     /**
-     * Render the Verified External Links metabox as 5 grouped family blocks
-     * (Cam Platforms / Personal Website / Fansites / Tube Sites / Social Media)
+     * Render the Verified External Links metabox as grouped family blocks
+     * (Cam Platforms / Personal Website / Fansites / Tube Sites / Social Media / Link Hubs)
      * plus an Other / Legacy block that only appears when populated.
      *
      * @since 5.1.0 Replaced flat-table renderer with grouped <details> blocks.
@@ -263,7 +275,7 @@ class VerifiedLinks {
         </style>
         <?php
 
-        // ── Render the 5 visible blocks + optional Other/Legacy ───────────
+        // ── Render the visible blocks + optional Other/Legacy ─────────────
         foreach ( VerifiedLinksFamilies::display_order() as $family_slug ) {
             $family_rows = $by_family[ $family_slug ];
 
@@ -313,6 +325,7 @@ class VerifiedLinks {
             . '<col style="width:130px;">'  // type
             . '<col>'                       // url
             . '<col style="width:130px;">'  // label
+            . '<col style="width:120px;">'  // activity level
             . '<col style="width:56px;">'   // active
             . '<col style="width:60px;">'   // primary
             . '<col style="width:36px;">'   // remove
@@ -322,6 +335,7 @@ class VerifiedLinks {
         echo '<th>'                              . esc_html__( 'Type',    'tmwseo' ) . '</th>';
         echo '<th>'                              . esc_html__( 'URL',     'tmwseo' ) . '</th>';
         echo '<th>'                              . esc_html__( 'Label',   'tmwseo' ) . '</th>';
+        echo '<th>'                              . esc_html__( 'Activity','tmwseo' ) . '</th>';
         echo '<th class="tmwseo-vl-th-center">' . esc_html__( 'Active',  'tmwseo' ) . '</th>';
         echo '<th class="tmwseo-vl-th-center">' . esc_html__( 'Primary', 'tmwseo' ) . '</th>';
         echo '<th></th>';
@@ -329,7 +343,7 @@ class VerifiedLinks {
         echo '<tbody id="' . esc_attr( $tbody_id ) . '" data-family="' . esc_attr( $family_slug ) . '">';
 
         if ( empty( $rows ) ) {
-            echo '<tr class="tmwseo-vl-empty-row"><td colspan="7" class="tmwseo-vl-empty">'
+            echo '<tr class="tmwseo-vl-empty-row"><td colspan="8" class="tmwseo-vl-empty">'
                 . esc_html__( 'No links in this block yet. Click "+ Add Link" below to add one.', 'tmwseo' )
                 . '</td></tr>';
         } else {
@@ -428,7 +442,11 @@ class VerifiedLinks {
                 moveDown:     <?php echo wp_json_encode( __( 'Move down', 'tmwseo' ) ); ?>,
                 affRoute:     <?php echo wp_json_encode( __( 'Route through affiliate', 'tmwseo' ) ); ?>,
                 networkLabel: <?php echo wp_json_encode( __( 'Network:', 'tmwseo' ) ); ?>,
-                schemaNote:   <?php echo wp_json_encode( __( '(schema sameAs always uses the outbound URL above)', 'tmwseo' ) ); ?>
+                schemaNote:   <?php echo wp_json_encode( __( '(schema sameAs always uses the outbound URL above)', 'tmwseo' ) ); ?>,
+                activityUnknown: <?php echo wp_json_encode( __( 'Unknown', 'tmwseo' ) ); ?>,
+                activityInactive: <?php echo wp_json_encode( __( 'Inactive', 'tmwseo' ) ); ?>,
+                activityActive: <?php echo wp_json_encode( __( 'Active', 'tmwseo' ) ); ?>,
+                activityVeryActive: <?php echo wp_json_encode( __( 'Very active', 'tmwseo' ) ); ?>
             };
 
             function buildRow(n, family) {
@@ -459,6 +477,15 @@ class VerifiedLinks {
                     '<td>' +
                         '<input type="text" name="tmwseo_vl[' + n + '][label]" value="" style="width:100%;" placeholder="' + labels.placeholder + '" />' +
                     '</td>' +
+                    '<td>' +
+                        '<select name="tmwseo_vl[' + n + '][activity_level]" style="width:100%;">' +
+                            '<option value="unknown">' + labels.activityUnknown + '</option>' +
+                            '<option value="inactive">' + labels.activityInactive + '</option>' +
+                            '<option value="active" selected>' + labels.activityActive + '</option>' +
+                            '<option value="very_active">' + labels.activityVeryActive + '</option>' +
+                        '</select>' +
+                        '<input type="text" name="tmwseo_vl[' + n + '][activity_note]" value="" style="width:100%;margin-top:4px;" placeholder="Optional note" />' +
+                    '</td>' +
                     '<td style="text-align:center;">' +
                         '<input type="checkbox" name="tmwseo_vl[' + n + '][is_active]" value="1" checked />' +
                     '</td>' +
@@ -476,11 +503,13 @@ class VerifiedLinks {
                 hiddenHolder.className = 'tmwseo-vl-hidden-holder';
                 hiddenHolder.setAttribute('data-parent-idx', n);
                 hiddenHolder.innerHTML =
-                    '<td colspan="7">' +
+                    '<td colspan="8">' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][added_at]"      value="" />' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][promoted_from]" value="manual" />' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][source_url]"    value="" />' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][outbound_type]" value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][activity_checked_at]" value="" />' +
+                        '<input type="hidden" name="tmwseo_vl[' + n + '][activity_evidence_url]" value="" />' +
                     '</td>';
 
                 var affTr = document.createElement('tr');
@@ -490,7 +519,7 @@ class VerifiedLinks {
                     ? '<select name="tmwseo_vl[' + n + '][affiliate_network]" style="font-size:11px;margin-left:4px;">' + networkSelectHtml + '</select>'
                     : '<span style="font-size:11px;color:#888;margin-left:4px;">' + configureAffHtml + '</span>';
                 affTr.innerHTML =
-                    '<td colspan="7" style="padding:4px 8px;">' +
+                    '<td colspan="8" style="padding:4px 8px;">' +
                         '<label style="font-size:11px;color:#555;cursor:pointer;">' +
                             '<input type="checkbox" name="tmwseo_vl[' + n + '][use_affiliate]" value="1" style="margin-right:4px;" />' +
                             labels.affRoute +
@@ -528,7 +557,7 @@ class VerifiedLinks {
                 if (rows.length === 0 && !emptyRow) {
                     var er = document.createElement('tr');
                     er.className = 'tmwseo-vl-empty-row';
-                    er.innerHTML = '<td colspan="7" class="tmwseo-vl-empty">' + labels.empty + '</td>';
+                    er.innerHTML = '<td colspan="8" class="tmwseo-vl-empty">' + labels.empty + '</td>';
                     tbody.appendChild(er);
                 } else if (rows.length > 0 && emptyRow) {
                     emptyRow.parentNode.removeChild(emptyRow);
@@ -669,6 +698,13 @@ class VerifiedLinks {
         $outbound_type     = (string) ( $entry['outbound_type']     ?? '' );
         $use_affiliate     = ! empty( $entry['use_affiliate'] );
         $affiliate_network = (string) ( $entry['affiliate_network'] ?? '' );
+        $activity_level    = (string) ( $entry['activity_level'] ?? ( $is_active ? 'active' : 'inactive' ) );
+        if ( ! in_array( $activity_level, [ 'unknown', 'inactive', 'active', 'very_active' ], true ) ) {
+            $activity_level = $is_active ? 'active' : 'inactive';
+        }
+        $activity_note      = (string) ( $entry['activity_note'] ?? '' );
+        $activity_checked_at = (string) ( $entry['activity_checked_at'] ?? '' );
+        $activity_evidence_url = (string) ( $entry['activity_evidence_url'] ?? '' );
 
         // Resolve family if caller didn't pass one (defensive).
         if ( $family === '' ) {
@@ -738,6 +774,19 @@ class VerifiedLinks {
             . ' placeholder="' . esc_attr__( 'Optional label', 'tmwseo' ) . '" />';
         echo '</td>';
 
+        // Activity
+        echo '<td>';
+        echo '<select name="tmwseo_vl[' . (int) $n . '][activity_level]" style="width:100%;">';
+        echo '<option value="unknown"' . selected( $activity_level, 'unknown', false ) . '>' . esc_html__( 'Unknown', 'tmwseo' ) . '</option>';
+        echo '<option value="inactive"' . selected( $activity_level, 'inactive', false ) . '>' . esc_html__( 'Inactive', 'tmwseo' ) . '</option>';
+        echo '<option value="active"' . selected( $activity_level, 'active', false ) . '>' . esc_html__( 'Active', 'tmwseo' ) . '</option>';
+        echo '<option value="very_active"' . selected( $activity_level, 'very_active', false ) . '>' . esc_html__( 'Very active', 'tmwseo' ) . '</option>';
+        echo '</select>';
+        echo '<input type="text" name="tmwseo_vl[' . (int) $n . '][activity_note]"'
+            . ' value="' . esc_attr( $activity_note ) . '" style="width:100%;margin-top:4px;"'
+            . ' placeholder="' . esc_attr__( 'Optional note', 'tmwseo' ) . '" />';
+        echo '</td>';
+
         // Active
         echo '<td style="text-align:center;">';
         echo '<input type="checkbox" name="tmwseo_vl[' . (int) $n . '][is_active]"'
@@ -761,16 +810,18 @@ class VerifiedLinks {
         // Hidden audit-trail fields in a hidden sibling row so the table
         // continues to lay out correctly.
         echo '<tr class="tmwseo-vl-hidden-holder" data-parent-idx="' . (int) $n . '" style="display:none;">';
-        echo '<td colspan="7">';
+        echo '<td colspan="8">';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][added_at]"      value="' . esc_attr( $added_at ) . '" />';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][promoted_from]" value="' . esc_attr( $prom_from ) . '" />';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][source_url]"    value="' . esc_attr( $source_url ) . '" />';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][outbound_type]" value="' . esc_attr( $outbound_type ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][activity_checked_at]" value="' . esc_attr( $activity_checked_at ) . '" />';
+        echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][activity_evidence_url]" value="' . esc_attr( $activity_evidence_url ) . '" />';
         echo '</td></tr>';
 
         // Affiliate routing — sub-row directly below the main entry row.
         echo '<tr class="tmwseo-vl-aff-row" data-parent-idx="' . (int) $n . '">';
-        echo '<td colspan="7" style="padding:4px 8px;">';
+        echo '<td colspan="8" style="padding:4px 8px;">';
         echo '<label style="font-size:11px;color:#555;cursor:pointer;">';
         echo '<input type="checkbox"'
             . ' name="tmwseo_vl[' . (int) $n . '][use_affiliate]"'
@@ -1262,10 +1313,49 @@ class VerifiedLinks {
      * @return array<int,array<string,mixed>>
      */
     public static function get_links( int $post_id ): array {
-        $raw = (string) get_post_meta( $post_id, self::META_KEY, true );
-        if ( $raw === '' ) { return []; }
+        $raw = get_post_meta( $post_id, self::META_KEY, true );
+        if ( $raw === '' || $raw === null || $raw === false ) { return []; }
+
+        // Backward-compat: some legacy saves may already be stored as arrays.
+        if ( is_array( $raw ) ) {
+            return $raw;
+        }
+
+        if ( ! is_string( $raw ) ) {
+            return [];
+        }
+
+        // Preferred storage format (5.x+) is JSON.
         $decoded = json_decode( $raw, true );
-        return is_array( $decoded ) ? $decoded : [];
+        if ( is_array( $decoded ) ) {
+            $mapped = [];
+            foreach ( $decoded as $row ) {
+                if ( ! is_array( $row ) ) { continue; }
+                if ( ! isset( $row['activity_level'] ) ) {
+                    $row['activity_level'] = ! empty( $row['is_active'] ) ? 'active' : 'inactive';
+                }
+                $row['activity_note'] = substr( sanitize_text_field( (string) ( $row['activity_note'] ?? '' ) ), 0, 140 );
+                $mapped[] = $row;
+            }
+            return $mapped;
+        }
+
+        // Backward-compat: older installs may still have serialized arrays.
+        // Preserve editor-curated links regardless of historical storage shape.
+        $legacy = maybe_unserialize( $raw );
+        if ( ! is_array( $legacy ) ) {
+            return [];
+        }
+        $mapped = [];
+        foreach ( $legacy as $row ) {
+            if ( ! is_array( $row ) ) { continue; }
+            if ( ! isset( $row['activity_level'] ) ) {
+                $row['activity_level'] = ! empty( $row['is_active'] ) ? 'active' : 'inactive';
+            }
+            $row['activity_note'] = substr( sanitize_text_field( (string) ( $row['activity_note'] ?? '' ) ), 0, 140 );
+            $mapped[] = $row;
+        }
+        return $mapped;
     }
 
     // ── get_routed_url() ──────────────────────────────────────────────────
@@ -1582,6 +1672,15 @@ class VerifiedLinks {
 
         // affiliate_network — sanitized key; empty string = no network configured
         $affiliate_network = sanitize_key( (string) ( $raw['affiliate_network'] ?? '' ) );
+        $activity_level_raw = sanitize_key( (string) ( $raw['activity_level'] ?? '' ) );
+        $activity_level = in_array( $activity_level_raw, [ 'unknown', 'inactive', 'active', 'very_active' ], true )
+            ? $activity_level_raw
+            : ( $is_active ? 'active' : 'inactive' );
+        $activity_note = substr( sanitize_text_field( (string) ( $raw['activity_note'] ?? '' ) ), 0, 140 );
+        $activity_checked_at_raw = trim( (string) ( $raw['activity_checked_at'] ?? '' ) );
+        $activity_checked_at = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $activity_checked_at_raw ) ? $activity_checked_at_raw : '';
+        $activity_evidence_url_raw = trim( (string) ( $raw['activity_evidence_url'] ?? '' ) );
+        $activity_evidence_url = $activity_evidence_url_raw !== '' ? esc_url_raw( $activity_evidence_url_raw ) : '';
 
         $entry = [
             'url'               => $url,
@@ -1591,7 +1690,17 @@ class VerifiedLinks {
             'is_primary'        => $is_primary,
             'added_at'          => $added_at,
             'promoted_from'     => $promoted_from,
+            'activity_level'    => $activity_level,
         ];
+        if ( $activity_note !== '' ) {
+            $entry['activity_note'] = $activity_note;
+        }
+        if ( $activity_checked_at !== '' ) {
+            $entry['activity_checked_at'] = $activity_checked_at;
+        }
+        if ( $activity_evidence_url !== '' ) {
+            $entry['activity_evidence_url'] = $activity_evidence_url;
+        }
 
         // Store optional audit/routing fields only when non-empty
         // to keep the JSON compact for entries that don't use them.
@@ -1674,8 +1783,14 @@ class VerifiedLinks {
             'allmylinks.com' => 'AllMyLinks',
             'beacons.ai'     => 'Beacons',
             'solo.to'        => 'solo.to',
+            'link.me'        => 'Link.me',
+            'friendsbio.com' => 'Friends Bio',
             'pornhub.com'    => 'Pornhub',
         ];
+
+        if ( str_ends_with( $host, '.carrd.co' ) ) {
+            return 'Carrd';
+        }
 
         if ( isset( $map[ $host ] ) ) {
             return $map[ $host ];
@@ -1706,12 +1821,21 @@ class VerifiedLinks {
             'youtu.be'      => 'youtube',
             'linktr.ee'     => 'linktree',
             'linktree.com'  => 'linktree',
+            'allmylinks.com'=> 'allmylinks',
+            'beacons.ai'    => 'beacons',
+            'solo.to'       => 'solo_to',
+            'link.me'       => 'link_me',
+            'friendsbio.com'=> 'friendsbio',
             'onlyfans.com'  => 'onlyfans',
             'fansly.com'    => 'fansly',
             'fancentro.com' => 'fancentro',
             'streamate.com' => 'streamate',
             'pornhub.com'   => 'pornhub',
         ];
+
+        if ( str_ends_with( $host, '.carrd.co' ) ) {
+            return 'carrd';
+        }
 
         return $map[ $host ] ?? 'other';
     }

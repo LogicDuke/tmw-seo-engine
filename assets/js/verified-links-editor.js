@@ -49,6 +49,8 @@
         type: rowValue(row, idx, 'type'),
         url: rowValue(row, idx, 'url'),
         label: rowValue(row, idx, 'label'),
+        activity_level: rowValue(row, idx, 'activity_level'),
+        activity_note: rowValue(row, idx, 'activity_note'),
         is_active: rowValue(row, idx, 'is_active'),
         is_primary: rowValue(row, idx, 'is_primary'),
         use_affiliate: rowValue(row, idx, 'use_affiliate'),
@@ -56,7 +58,9 @@
         added_at: rowValue(row, idx, 'added_at'),
         promoted_from: rowValue(row, idx, 'promoted_from'),
         source_url: rowValue(row, idx, 'source_url'),
-        outbound_type: rowValue(row, idx, 'outbound_type')
+        outbound_type: rowValue(row, idx, 'outbound_type'),
+        activity_checked_at: rowValue(row, idx, 'activity_checked_at'),
+        activity_evidence_url: rowValue(row, idx, 'activity_evidence_url')
       });
     });
 

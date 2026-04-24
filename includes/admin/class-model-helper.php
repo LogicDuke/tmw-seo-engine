@@ -475,6 +475,31 @@ class ModelHelper {
     const META_CONFIDENCE   = '_tmwseo_research_confidence';
     /** Free-form admin notes about this model's research state. */
     const META_NOTES        = '_tmwseo_research_notes';
+    /** Operator-seeded short summary used as high-trust generation anchor. */
+    const META_EDITOR_SEED_SUMMARY = '_tmwseo_editor_seed_summary';
+    /** Comma-separated "known for" tags maintained by editors. */
+    const META_EDITOR_SEED_TAGS = '_tmwseo_editor_seed_tags';
+    /** Operator platform notes (one note per line, optional "Platform: note"). */
+    const META_EDITOR_SEED_PLATFORM_NOTES = '_tmwseo_editor_seed_platform_notes';
+    /** Confirmed fact bullets provided by operators (one per line). */
+    const META_EDITOR_SEED_CONFIRMED_FACTS = '_tmwseo_editor_seed_confirmed_facts';
+    /** Unknowns/claims to avoid (one per line). */
+    const META_EDITOR_SEED_AVOID_CLAIMS = '_tmwseo_editor_seed_avoid_claims';
+    /** Optional writing guidance / tone hint for generation prompts. */
+    const META_EDITOR_SEED_TONE_HINT = '_tmwseo_editor_seed_tone_hint';
+
+    // ── Bio Evidence meta keys ────────────────────────────────────────────
+    // Gate: bio appears on page ONLY when bio_review_status === 'reviewed'
+    // AND bio_summary is non-empty. All other states = no bio shown.
+    // Never auto-publish raw third-party text. Editor writes original prose here.
+    const META_BIO_SUMMARY       = '_tmwseo_bio_summary';
+    const META_BIO_SOURCE_TYPE   = '_tmwseo_bio_source_type';
+    const META_BIO_REVIEW_STATUS = '_tmwseo_bio_review_status';
+    const META_BIO_REVIEWED_AT   = '_tmwseo_bio_reviewed_at';
+    const META_BIO_SOURCE_URL    = '_tmwseo_bio_source_url';
+    const META_BIO_SOURCE_LABEL  = '_tmwseo_bio_source_label';
+    const META_BIO_SOURCE_FACTS  = '_tmwseo_bio_source_facts';
+
     /**
      * JSON blob of proposed (un-applied) data from the last pipeline run.
      * Admins review this before applying anything.
@@ -600,6 +625,20 @@ class ModelHelper {
         $source_urls  = $sources_raw !== '' ? implode( "\n", (array) json_decode( $sources_raw, true ) ) : '';
         $confidence   = (string) get_post_meta( $post->ID, self::META_CONFIDENCE, true );
         $notes        = (string) get_post_meta( $post->ID, self::META_NOTES, true );
+        $seed_summary = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_SUMMARY, true );
+        $seed_tags    = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_TAGS, true );
+        $seed_platform_notes = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_PLATFORM_NOTES, true );
+        $seed_confirmed_facts = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_CONFIRMED_FACTS, true );
+        $seed_avoid_claims = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_AVOID_CLAIMS, true );
+        $seed_tone_hint = (string) get_post_meta( $post->ID, self::META_EDITOR_SEED_TONE_HINT, true );
+        // Bio evidence fields
+        $bio_summary       = (string) get_post_meta( $post->ID, self::META_BIO_SUMMARY, true );
+        $bio_source_type   = (string) get_post_meta( $post->ID, self::META_BIO_SOURCE_TYPE, true );
+        $bio_review_status = (string) get_post_meta( $post->ID, self::META_BIO_REVIEW_STATUS, true );
+        $bio_reviewed_at   = (string) get_post_meta( $post->ID, self::META_BIO_REVIEWED_AT, true );
+        $bio_source_url    = (string) get_post_meta( $post->ID, self::META_BIO_SOURCE_URL, true );
+        $bio_source_label  = (string) get_post_meta( $post->ID, self::META_BIO_SOURCE_LABEL, true );
+        $bio_source_facts  = (string) get_post_meta( $post->ID, self::META_BIO_SOURCE_FACTS, true );
         $proposed_raw = (string) get_post_meta( $post->ID, self::META_PROPOSED, true );
         $proposed     = $proposed_raw !== '' ? json_decode( $proposed_raw, true ) : null;
 
@@ -1332,6 +1371,120 @@ class ModelHelper {
             __( 'Free-form notes about this model\'s research state. For internal use only.', 'tmwseo' ),
             3
         );
+        self::field_textarea(
+            'tmwseo_editor_seed_summary', $seed_summary,
+            __( 'Editor Seed: Short Summary', 'tmwseo' ),
+            __( 'High-trust operator summary used as the primary content anchor for intro/about sections.', 'tmwseo' ),
+            3
+        );
+        self::field_text(
+            'tmwseo_editor_seed_tags', $seed_tags,
+            __( 'Editor Seed: Known-for / Tags', 'tmwseo' ),
+            __( 'Comma-separated known-for tags (e.g. friendly chat, cosplay nights, bilingual streams).', 'tmwseo' )
+        );
+        self::field_textarea(
+            'tmwseo_editor_seed_platform_notes', $seed_platform_notes,
+            __( 'Editor Seed: Platform Notes', 'tmwseo' ),
+            __( 'One note per line. Optional format: Platform: note. Used in platform comparison and feature framing.', 'tmwseo' ),
+            4
+        );
+        self::field_textarea(
+            'tmwseo_editor_seed_confirmed_facts', $seed_confirmed_facts,
+            __( 'Editor Seed: Confirmed Facts', 'tmwseo' ),
+            __( 'One confirmed fact per line. These facts are treated as trusted for About/FAQ generation.', 'tmwseo' ),
+            4
+        );
+        self::field_textarea(
+            'tmwseo_editor_seed_avoid_claims', $seed_avoid_claims,
+            __( 'Editor Seed: Claims to Avoid / Unknowns', 'tmwseo' ),
+            __( 'One line per claim that is unknown or should not be asserted as true.', 'tmwseo' ),
+            3
+        );
+        self::field_text(
+            'tmwseo_editor_seed_tone_hint', $seed_tone_hint,
+            __( 'Editor Seed: Tone Hint (Optional)', 'tmwseo' ),
+            __( 'Optional writing guidance for AI output, e.g. concise and neutral, warm and practical.', 'tmwseo' )
+        );
+        echo '</table>';
+
+        // ── Bio Evidence sub-panel ────────────────────────────────────────
+        // Gate: bio appears on page ONLY when Review Status = reviewed AND
+        // Bio Summary is not empty. All other states = no bio shown.
+        // Write original prose here — never paste raw third-party text.
+        // WPS LiveJasmin data (if available) should be manually reviewed and
+        // paraphrased into Bio Summary by an editor, not pasted verbatim.
+        echo '<hr style="margin:18px 0 14px;">';
+        echo '<h4 style="margin:0 0 10px;font-size:13px;color:#1e293b;">' . esc_html__( 'Bio Evidence', 'tmwseo' ) . '</h4>';
+        echo '<p style="font-size:11px;color:#6b7280;margin:0 0 12px;line-height:1.45;">';
+        echo esc_html__( 'Bio appears on the model page only when Review Status = Reviewed and Bio Summary is filled. Write original prose — never paste copied third-party text here.', 'tmwseo' );
+        echo '</p>';
+        echo '<table class="form-table" style="margin-top:0;">';
+
+        // Review Status (gate field — must be set last after reviewing content)
+        echo '<tr>';
+        echo '<th scope="row" style="width:160px;"><label for="tmwseo_bio_review_status">' . esc_html__( 'Review Status', 'tmwseo' ) . '</label></th>';
+        echo '<td>';
+        echo '<select name="tmwseo_bio_review_status" id="tmwseo_bio_review_status">';
+        $statuses = [ '' => '— Not set —', 'draft' => 'Draft', 'reviewed' => 'Reviewed (live)' ];
+        foreach ( $statuses as $val => $label ) {
+            $selected = selected( $bio_review_status, $val, false );
+            echo '<option value="' . esc_attr( $val ) . '"' . $selected . '>' . esc_html( $label ) . '</option>';
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__( 'Set to Reviewed to enable the bio on the public page. Draft = saved but not shown.', 'tmwseo' ) . '</p>';
+        echo '</td></tr>';
+
+        // Bio Summary (the actual on-page text — must be original, 60-110 words)
+        self::field_textarea(
+            'tmwseo_bio_summary', $bio_summary,
+            __( 'Bio Summary', 'tmwseo' ),
+            __( 'Original, editor-written bio (60–110 words). Non-explicit. No copied third-party text. Only published when Review Status = Reviewed.', 'tmwseo' ),
+            4
+        );
+
+        // Source Type
+        echo '<tr>';
+        echo '<th scope="row" style="width:160px;"><label for="tmwseo_bio_source_type">' . esc_html__( 'Source Type', 'tmwseo' ) . '</label></th>';
+        echo '<td>';
+        echo '<select name="tmwseo_bio_source_type" id="tmwseo_bio_source_type">';
+        $source_types = [ '' => '— Not set —', 'editor' => 'Editor-written', 'platform_page' => 'Platform page (reviewed)', 'press' => 'Press / interview', 'wps_import' => 'WPS LiveJasmin import (reviewed)', 'none' => 'None / unknown' ];
+        foreach ( $source_types as $val => $label ) {
+            $selected = selected( $bio_source_type, $val, false );
+            echo '<option value="' . esc_attr( $val ) . '"' . $selected . '>' . esc_html( $label ) . '</option>';
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__( 'What kind of source backed this bio? For audit trail only — not shown publicly.', 'tmwseo' ) . '</p>';
+        echo '</td></tr>';
+
+        // Source Label
+        self::field_text(
+            'tmwseo_bio_source_label', $bio_source_label,
+            __( 'Source Label', 'tmwseo' ),
+            __( 'Short human label for the source (e.g. "LiveJasmin profile page"). For audit trail only.', 'tmwseo' )
+        );
+
+        // Source URL
+        self::field_text(
+            'tmwseo_bio_source_url', $bio_source_url,
+            __( 'Source URL', 'tmwseo' ),
+            __( 'URL of the source page reviewed. For audit trail only — never auto-linked.', 'tmwseo' )
+        );
+
+        // Source Facts (raw evidence notes — not published)
+        self::field_textarea(
+            'tmwseo_bio_source_facts', $bio_source_facts,
+            __( 'Source Facts / Evidence Notes', 'tmwseo' ),
+            __( 'One fact per line from the source page (e.g. "Active since 2019", "Speaks English and Spanish"). Used as AI prompt evidence — never published raw.', 'tmwseo' ),
+            4
+        );
+
+        // Reviewed At (date stamp for audit trail)
+        self::field_text(
+            'tmwseo_bio_reviewed_at', $bio_reviewed_at,
+            __( 'Reviewed At', 'tmwseo' ),
+            __( 'Date the bio was last reviewed (e.g. 2025-04-25). For audit trail only.', 'tmwseo' )
+        );
+
         echo '</table>';
 
         // ── Save button ───────────────────────────────────────────────────
@@ -1796,6 +1949,8 @@ class ModelHelper {
             'platform_names' => self::META_PLATFORMS,
             'country'        => self::META_COUNTRY,
             'language'       => self::META_LANGUAGE,
+            'editor_seed_tags' => self::META_EDITOR_SEED_TAGS,
+            'editor_seed_tone_hint' => self::META_EDITOR_SEED_TONE_HINT,
         ];
         foreach ( $scalar_map as $key => $meta_key ) {
             $val = isset( $_POST[ $key ] )
@@ -1808,6 +1963,10 @@ class ModelHelper {
         foreach ( [
             'bio'   => self::META_BIO,
             'notes' => self::META_NOTES,
+            'editor_seed_summary' => self::META_EDITOR_SEED_SUMMARY,
+            'editor_seed_platform_notes' => self::META_EDITOR_SEED_PLATFORM_NOTES,
+            'editor_seed_confirmed_facts' => self::META_EDITOR_SEED_CONFIRMED_FACTS,
+            'editor_seed_avoid_claims' => self::META_EDITOR_SEED_AVOID_CLAIMS,
         ] as $key => $meta_key ) {
             $val = isset( $_POST[ $key ] )
                 ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $key ] ) )
@@ -1836,7 +1995,8 @@ class ModelHelper {
         if ( $current_status === '' || $current_status === 'not_researched' ) {
             $aliases_val = isset( $_POST['aliases'] ) ? trim( (string) $_POST['aliases'] ) : '';
             $bio_val     = isset( $_POST['bio'] )     ? trim( (string) $_POST['bio'] )     : '';
-            if ( $confidence > 0 || $bio_val !== '' || $aliases_val !== '' ) {
+            $seed_val    = isset( $_POST['editor_seed_summary'] ) ? trim( (string) $_POST['editor_seed_summary'] ) : '';
+            if ( $confidence > 0 || $bio_val !== '' || $aliases_val !== '' || $seed_val !== '' ) {
                 update_post_meta( $post_id, self::META_STATUS, 'researched' );
                 update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
             }
@@ -1866,6 +2026,8 @@ class ModelHelper {
             'tmwseo_research_platform_names'  => self::META_PLATFORMS,
             'tmwseo_research_country'         => self::META_COUNTRY,
             'tmwseo_research_language'        => self::META_LANGUAGE,
+            'tmwseo_editor_seed_tags'         => self::META_EDITOR_SEED_TAGS,
+            'tmwseo_editor_seed_tone_hint'    => self::META_EDITOR_SEED_TONE_HINT,
         ];
 
         foreach ( $scalar_map as $post_key => $meta_key ) {
@@ -1879,10 +2041,43 @@ class ModelHelper {
         foreach ( [
             'tmwseo_research_bio'   => self::META_BIO,
             'tmwseo_research_notes' => self::META_NOTES,
+            'tmwseo_editor_seed_summary' => self::META_EDITOR_SEED_SUMMARY,
+            'tmwseo_editor_seed_platform_notes' => self::META_EDITOR_SEED_PLATFORM_NOTES,
+            'tmwseo_editor_seed_confirmed_facts' => self::META_EDITOR_SEED_CONFIRMED_FACTS,
+            'tmwseo_editor_seed_avoid_claims' => self::META_EDITOR_SEED_AVOID_CLAIMS,
+            // Bio evidence textarea fields
+            'tmwseo_bio_summary'      => self::META_BIO_SUMMARY,
+            'tmwseo_bio_source_facts' => self::META_BIO_SOURCE_FACTS,
         ] as $post_key => $meta_key ) {
             $val = isset( $_POST[ $post_key ] )
                 ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $post_key ] ) )
                 : '';
+            update_post_meta( $post_id, $meta_key, $val );
+        }
+
+        // Bio evidence — text / select / URL fields
+        foreach ( [
+            'tmwseo_bio_source_type'   => self::META_BIO_SOURCE_TYPE,
+            'tmwseo_bio_review_status' => self::META_BIO_REVIEW_STATUS,
+            'tmwseo_bio_reviewed_at'   => self::META_BIO_REVIEWED_AT,
+            'tmwseo_bio_source_label'  => self::META_BIO_SOURCE_LABEL,
+            'tmwseo_bio_source_url'    => self::META_BIO_SOURCE_URL,
+        ] as $post_key => $meta_key ) {
+            $val = isset( $_POST[ $post_key ] )
+                ? sanitize_text_field( wp_unslash( (string) $_POST[ $post_key ] ) )
+                : '';
+            // Allowlist for review status to prevent arbitrary values.
+            if ( $post_key === 'tmwseo_bio_review_status' && ! in_array( $val, [ '', 'draft', 'reviewed' ], true ) ) {
+                $val = '';
+            }
+            // Allowlist for source type.
+            if ( $post_key === 'tmwseo_bio_source_type' && ! in_array( $val, [ '', 'editor', 'platform_page', 'press', 'wps_import', 'none' ], true ) ) {
+                $val = '';
+            }
+            // Validate URL field.
+            if ( $post_key === 'tmwseo_bio_source_url' && $val !== '' ) {
+                $val = esc_url_raw( $val );
+            }
             update_post_meta( $post_id, $meta_key, $val );
         }
 
@@ -1907,7 +2102,8 @@ class ModelHelper {
         if ( $current_status === '' || $current_status === 'not_researched' ) {
             $has_data = $confidence > 0
                 || ( isset( $_POST['tmwseo_research_bio'] ) && trim( (string) $_POST['tmwseo_research_bio'] ) !== '' )
-                || ( isset( $_POST['tmwseo_research_aliases'] ) && trim( (string) $_POST['tmwseo_research_aliases'] ) !== '' );
+                || ( isset( $_POST['tmwseo_research_aliases'] ) && trim( (string) $_POST['tmwseo_research_aliases'] ) !== '' )
+                || ( isset( $_POST['tmwseo_editor_seed_summary'] ) && trim( (string) $_POST['tmwseo_editor_seed_summary'] ) !== '' );
             if ( $has_data ) {
                 update_post_meta( $post_id, self::META_STATUS, 'researched' );
                 update_post_meta( $post_id, self::META_LAST_AT, current_time( 'mysql' ) );
