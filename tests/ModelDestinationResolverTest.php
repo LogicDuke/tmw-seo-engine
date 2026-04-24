@@ -212,4 +212,43 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringNotContainsString('Respectful community', $html);
         $this->assertStringNotContainsString('HD video quality', $html);
     }
+
+    public function test_renderer_adds_focus_keyword_to_meaningful_subheading(): void {
+        $html = ModelPageRenderer::render('Alice', [
+            'focus_keyword' => 'Alice',
+            'intro_paragraphs' => ['Intro line'],
+            'features_section_paragraphs' => ['Feature details'],
+            'official_links_section_paragraphs' => ['Links summary'],
+        ]);
+
+        $this->assertStringContainsString('<h2>Features and Platform Experience for Alice</h2>', $html);
+    }
+
+    public function test_depth_guardrail_target_is_raised_for_rank_math_alignment(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'ensure_minimum_useful_depth');
+        $method->setAccessible(true);
+
+        $short_html = '<p>Short page body.</p>';
+        $expanded = (string) $method->invoke(null, $short_html, 'Alice', ['Chaturbate', 'Stripchat'], [], 'Chaturbate', 'seed-2');
+        $plain = trim(strip_tags($expanded));
+        $word_count = str_word_count($plain);
+
+        $this->assertGreaterThanOrEqual(640, $word_count);
+        $this->assertStringContainsString('How to Use Backup Destinations Safely', $expanded);
+    }
+
+    public function test_faq_name_mentions_are_limited_to_reduce_density_spikes(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'build_seed_faq_items');
+        $method->setAccessible(true);
+
+        $items = (array) $method->invoke(null, [], [[
+            'q' => 'How do I find Alice quickly?',
+            'a' => 'Alice is easiest to find when Alice uses verified links and Alice keeps one handle.',
+        ]], 'Alice');
+
+        $answer = (string) ($items[0]['a'] ?? '');
+        $this->assertStringContainsString('Alice is easiest to find', $answer);
+        $this->assertStringContainsString('this performer uses verified links', $answer);
+        $this->assertSame(1, substr_count($answer, 'Alice'));
+    }
 }

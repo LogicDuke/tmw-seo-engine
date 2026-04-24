@@ -195,7 +195,7 @@ class TemplateContent {
         if (empty($comparison_paragraphs)) {
             $comparison_paragraphs = [$comparison_copy];
         }
-        $faq_items = self::build_seed_faq_items($editor_seed, $faqs_tpl);
+        $faq_items = self::build_seed_faq_items($editor_seed, $faqs_tpl, $name);
 
         $renderer_payload = array_merge($support_payload, [
             'focus_keyword' => $name,
@@ -224,6 +224,7 @@ class TemplateContent {
         $content = self::split_long_paragraphs($content);
         $content = self::cleanup_model_content($content, $name);
         $content = self::ensure_minimum_useful_depth($content, $name, $active_platforms, $resolved_destinations, $primary_platform_label, $seed);
+        $content = self::apply_lightweight_content_guardrails($content, $name);
 
         $seo_title = self::build_default_model_seo_title($name, $primary_platform_label, (int) $post->ID);
 
@@ -798,12 +799,14 @@ class TemplateContent {
                 $fallback_intro,
                 $fallback_second,
                 'Before you commit to one room, run a quick check: username match, recent room activity, chat readability, and mobile playback stability.',
+                'Use the live section for room entry, then use non-live verified destinations for schedule checks, backup access, and handle verification.',
             ];
         }
         return [
             $answer_line,
             $summary,
             'Use this page as a routing layer: live destinations for room entry first, then official non-live destinations for follow, support, or verification tasks.',
+            'When activity changes, keep the same workflow: verify handle match, compare room quality, and use backup destinations instead of copied mirrors.',
         ];
     }
 
@@ -827,6 +830,7 @@ class TemplateContent {
         if (!empty($notes)) {
             $base = array_slice(array_values(array_filter(array_map('strval', $notes), 'strlen')), 0, 3);
             $base[] = 'Compare platforms with one repeatable method: room uptime, mobile playback, chat readability, moderation tone, and account/login friction.';
+            $base[] = 'Keep the same checklist each visit so platform choice stays evidence-based even when a room goes inactive later.';
             return $base;
         }
         if ($fallback_copy === '') {
@@ -836,6 +840,7 @@ class TemplateContent {
             $fallback_copy,
             'Run the same one-minute test on each active room so platform choice is based on practical use rather than brand familiarity.',
             'If one room is inactive later, use verified backup destinations and recheck status instead of relying on scraped mirror pages.',
+            'Fair comparison starts with equal conditions: same device, similar time window, and the same trust checks before spending.',
         ];
     }
 
@@ -843,7 +848,7 @@ class TemplateContent {
      * @param array<int,array{q:string,a:string}> $fallback
      * @return array<int,array{q:string,a:string}>
      */
-    private static function build_seed_faq_items(array $editor_seed, array $fallback): array {
+    private static function build_seed_faq_items(array $editor_seed, array $fallback, string $name): array {
         $facts = isset($editor_seed['confirmed_facts']) && is_array($editor_seed['confirmed_facts']) ? $editor_seed['confirmed_facts'] : [];
         $avoid = isset($editor_seed['avoid_claims']) && is_array($editor_seed['avoid_claims']) ? $editor_seed['avoid_claims'] : [];
         $items = [];
@@ -885,7 +890,8 @@ class TemplateContent {
             if (!is_array($item)) {
                 continue;
             }
-            $merged[$idx]['a'] = self::normalize_faq_answer((string) ($item['a'] ?? ''));
+            $answer = self::normalize_faq_answer((string) ($item['a'] ?? ''));
+            $merged[$idx]['a'] = self::limit_exact_name_mentions($answer, $name, 1);
         }
         return $merged;
     }
@@ -919,6 +925,22 @@ class TemplateContent {
         $answer = preg_replace('/\bPeople looking up\b/iu', '', $answer) ?: $answer;
         $answer = preg_replace('/\bSearches for\b/iu', '', $answer) ?: $answer;
         return trim((string) preg_replace('/\s+/', ' ', $answer));
+    }
+
+    private static function limit_exact_name_mentions(string $text, string $name, int $max_mentions): string {
+        $name = trim($name);
+        if ($name === '') {
+            return $text;
+        }
+        $count = 0;
+        return preg_replace_callback(
+            '/\b' . preg_quote($name, '/') . '\b/iu',
+            static function (array $m) use (&$count, $max_mentions): string {
+                $count++;
+                return $count <= $max_mentions ? $m[0] : 'this performer';
+            },
+            $text
+        ) ?: $text;
     }
 
     /** @return string[] */
@@ -2259,6 +2281,7 @@ class TemplateContent {
         $content = preg_replace('/\bofficial live profile\b/iu', self::stable_fallback_variant($name . '|ofp'), $content) ?: $content;
         $content = preg_replace('/\bWatch\s+' . preg_quote($name, '/') . '\b/iu', 'Open the verified live destination', $content) ?: $content;
         $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+is currently active on\b/iu', 'Current review status shows active access on', $content) ?: $content;
+        $content = preg_replace('/\bthe profile\b/iu', 'this profile', $content) ?: $content;
         $content = str_replace('This guide covers the practical side:', 'This page focuses on the practical side:', $content);
         $content = str_replace('This guide covers exactly that need:', 'This section covers those basics directly:', $content);
         $content = str_replace('The appeal extends beyond any single session.', 'There is more here than one good session.', $content);
@@ -2273,7 +2296,7 @@ class TemplateContent {
     private static function ensure_minimum_useful_depth(string $content, string $name, array $active_platforms, array $resolved_destinations, string $primary_platform_label, string $seed): string {
         $plain = trim((string) wp_strip_all_tags($content));
         $word_count = str_word_count($plain);
-        if ($word_count >= 620) {
+        if ($word_count >= 640) {
             return $content;
         }
 
@@ -2288,9 +2311,12 @@ class TemplateContent {
             '<h2>Practical Use of Non-Live Destinations</h2>'
             . '<p>Non-live destinations remain useful even when they are not room-entry links. Use them for follow actions, backup profile validation, archived media, and link-hub navigation when the live section is temporarily inactive.</p>'
             . '<p>This separation keeps the page truthful: live access appears only in the live section, while other official destinations support planning and verification tasks.</p>',
+            '<h2>How to Use Backup Destinations Safely</h2>'
+            . '<p>When a preferred room is offline, move to a verified backup destination instead of random search results. Confirm handle spelling, brand cues, and profile history before clicking onward to any paid flow.</p>'
+            . '<p>This approach reduces impersonation risk and keeps your routing consistent: trusted destination first, status check second, and spending decisions only after room quality is clear.</p>',
         ];
 
-        $need = min(3, (int) ceil((620 - $word_count) / 110));
+        $need = min(4, (int) ceil((640 - $word_count) / 110));
         $selected = [];
         for ($i = 0; $i < $need; $i++) {
             $idx = self::stable_pick_index($seed . '|depth|' . $i . '|' . $platform_text, count($extra_blocks));
@@ -2301,6 +2327,13 @@ class TemplateContent {
             $content .= "\n\n" . $extra_blocks[$idx];
         }
 
+        return $content;
+    }
+
+    private static function apply_lightweight_content_guardrails(string $content, string $name): string {
+        $content = preg_replace('/<p>\s*Watch Live on\s+([^<]+)\.<\/p>/iu', '<p>Open the verified live room on $1.</p>', $content) ?: $content;
+        $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+' . preg_quote($name, '/') . '\b/iu', $name, $content) ?: $content;
+        $content = preg_replace('/(<p>\s*Use this section\b[^<]*<\/p>)(\s*<p>\s*Use this section\b[^<]*<\/p>)+/iu', '$1', $content) ?: $content;
         return $content;
     }
 
@@ -2324,7 +2357,7 @@ class TemplateContent {
     private static function cleanup_visible_text(string $text, string $name, bool $for_heading): string {
         $text = wp_strip_all_tags(html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $text = preg_replace('/\bthis model\b/iu', $name !== '' ? $name : 'this profile', $text) ?: $text;
-        $text = preg_replace('/\bthe profile\b/iu', $name . ' profile', $text) ?: $text;
+        $text = preg_replace('/\bthe profile\b/iu', 'this profile', $text) ?: $text;
         $text = preg_replace('/\s+/', ' ', trim($text)) ?: trim($text);
 
         if ($for_heading) {

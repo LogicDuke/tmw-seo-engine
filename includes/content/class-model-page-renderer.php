@@ -101,10 +101,11 @@ class ModelPageRenderer {
     }
 
     private static function heading_with_focus(string $base, string $focus_keyword, string $name): string {
-        // Do not append "for {name}" to the heading — it inflates exact-name density
-        // and makes the Features section heading look machine-generated.
-        // The section heading "Features and Platform Experience" is already descriptive.
-        return $base;
+        $focus_keyword = trim($focus_keyword);
+        if ($focus_keyword === '' || mb_strtolower($focus_keyword, 'UTF-8') === mb_strtolower($name, 'UTF-8')) {
+            return $base . ' for ' . $name;
+        }
+        return $base . ' for ' . $focus_keyword;
     }
 
     /** @param mixed $paragraphs */
@@ -204,7 +205,7 @@ class ModelPageRenderer {
     private static function clean_text(string $text, string $name, bool $heading): string {
         $text = wp_strip_all_tags(html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $text = preg_replace('/\bthis model\b/iu', $name, $text) ?: $text;
-        $text = preg_replace('/\bthe profile\b/iu', $name . ' profile', $text) ?: $text;
+        $text = preg_replace('/\bthe profile\b/iu', 'this profile', $text) ?: $text;
         $text = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $text) ?: $text;
         $text = preg_replace('/\s+/', ' ', trim($text)) ?: trim($text);
 
@@ -261,7 +262,7 @@ class ModelPageRenderer {
         $html = preg_replace('/<h2>\s*Table of Contents\s*<\/h2>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
         $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/isu', '', $html) ?: $html;
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
-        $html = preg_replace('/\bthe profile\b/iu', $name . ' profile', $html) ?: $html;
+        $html = preg_replace('/\bthe profile\b/iu', 'this profile', $html) ?: $html;
         $html = preg_replace('/&lt;\/?h[1-6]&gt;/iu', '', $html) ?: $html;
         $html = preg_replace('/<h2>\s*Related (?:search(?:es)?|queries|keywords)\s*<\/h2>\s*(?:<p>.*?<\/p>|<ul>.*?<\/ul>)/isu', '', $html) ?: $html;
         $html = preg_replace('/<h2>\s*(?:Explore More|Models|Categories)\s*<\/h2>\s*(?:<p>.*?<\/p>|<ul>.*?<\/ul>|<table>.*?<\/table>)*/isu', '', $html) ?: $html;
