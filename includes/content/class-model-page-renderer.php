@@ -34,6 +34,26 @@ class ModelPageRenderer {
             $sections[] = $watch;
         }
 
+        $other_official = self::render_section(
+            'Other Official Destinations',
+            $payload['official_destinations_section_paragraphs'] ?? [],
+            $name,
+            $payload['official_destinations_section_html'] ?? ''
+        );
+        if ($other_official !== '') {
+            $sections[] = $other_official;
+        }
+
+        $social_channels = self::render_section(
+            'Social Profiles, Link Hubs, and Channels',
+            $payload['community_destinations_section_paragraphs'] ?? [],
+            $name,
+            $payload['community_destinations_section_html'] ?? ''
+        );
+        if ($social_channels !== '') {
+            $sections[] = $social_channels;
+        }
+
         $about_allowed = self::should_render_editorial_section('about', $payload, $name);
         $about = $about_allowed
             ? self::render_section('About ' . $name, $payload['about_section_paragraphs'] ?? [], $name, $payload['about_section_html'] ?? '')
@@ -58,7 +78,7 @@ class ModelPageRenderer {
 
         $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
-        $compare = self::render_section('Compare Active Live Platforms', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
+        $compare = self::render_section('Live Platform Comparison', $comparison_paragraphs, $name, $payload['comparison_section_html'] ?? '');
         if ($compare !== '') {
             $sections[] = $compare;
         }
@@ -220,7 +240,7 @@ class ModelPageRenderer {
         if (count($active) >= 2) {
             $answer = 'Start with ' . $active[0] . ' if it is your usual platform, then compare ' . $active[1] . ' for chat controls, mobile playback, and moderation flow.';
         } elseif (count($active) === 1) {
-            $answer = $name . ' is currently confirmed on ' . $active[0] . ', so use that official profile first.';
+            $answer = 'Only one live platform is currently marked active (' . $active[0] . '), so focus on pre-click checks like username match, room freshness, and privacy controls.';
         } else {
             $answer = 'Compare confirmed platforms by room stability, chat readability, trust signals, and mobile usability before choosing a default room.';
         }

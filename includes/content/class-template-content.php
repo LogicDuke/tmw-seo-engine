@@ -148,9 +148,9 @@ class TemplateContent {
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
 
         $watch_para_pool = [
-            'Use the buttons below to open ' . $name . "'s" . ' official active rooms directly.',
-            'Choose a platform below and you will land on ' . $name . "'s" . ' active room without bouncing through copied pages first.',
-            'Open the room from the verified profile link first, then confirm live status before trusting third-party listings.',
+            'Use the links below to open verified live-room destinations currently marked active.',
+            'Choose a live platform below to reach the official profile first, then confirm room status before joining.',
+            'Open a verified live profile first, then use aggregator listings only as secondary references.',
         ];
         if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
@@ -321,9 +321,20 @@ class TemplateContent {
             $curated_external,
         ]);
 
+        $official_destinations_html = self::render_other_official_destinations_section($resolved_destinations);
+        $community_destinations_html = self::render_social_channel_destinations_section($resolved_destinations);
+
         return [
             'watch_section_html' => $watch_html,
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy, $editor_seed),
+            'official_destinations_section_html' => $official_destinations_html,
+            'official_destinations_section_paragraphs' => [
+                'These official destinations are verified, but they are not currently listed as active live-room links.',
+            ],
+            'community_destinations_section_html' => $community_destinations_html,
+            'community_destinations_section_paragraphs' => [
+                'Use verified social profiles, link hubs, and channels for updates, archives, and profile verification.',
+            ],
             'related_models_html' => '',
             'explore_more_html' => '',
             // All visible outbound links consolidated here — Explore More is the
@@ -653,13 +664,13 @@ class TemplateContent {
             return 'Visit Fan Page on ' . $label;
         }
         if ($family === VerifiedLinksFamilies::FAMILY_PERSONAL) {
-            return 'Visit Official Site: ' . $label;
+            return 'Visit Official Site on ' . $label;
         }
         if ($family === VerifiedLinksFamilies::FAMILY_SOCIAL) {
             return 'Follow on ' . $label;
         }
         if ($family === VerifiedLinksFamilies::FAMILY_LINK_HUB) {
-            return 'Open Link Hub: ' . $label;
+            return 'Open Link Hub on ' . $label;
         }
         if ($family === VerifiedLinksFamilies::FAMILY_TUBE) {
             return 'Visit Channel on ' . $label;
@@ -770,8 +781,12 @@ class TemplateContent {
     /** @return string[] */
     private static function build_seed_intro_paragraphs(string $name, array $editor_seed, array $active_platforms, string $fallback_intro, string $fallback_second): array {
         $summary = trim((string) ($editor_seed['summary'] ?? ''));
-        $platform_text = self::format_platform_list($active_platforms, 'active platforms');
-        $answer_line = $name . ' is currently active on ' . $platform_text . '. Use the official room links below to open the real profiles first.';
+        if (!empty($active_platforms)) {
+            $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
+            $answer_line = $name . ' is currently marked active on ' . $platform_text . '. Use the official live links below to open real profiles first.';
+        } else {
+            $answer_line = 'Verified profiles exist for ' . $name . ', but no live-room destination is currently marked active in this review snapshot.';
+        }
         if ($summary === '') {
             return [$answer_line, $fallback_intro, $fallback_second];
         }
@@ -933,6 +948,25 @@ class TemplateContent {
             return $alt_username_note . '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>';
         }
 
+        if (count($cta_links) === 1) {
+            $single = $cta_links[0];
+            $platform = trim((string) ($single['label'] ?? 'the active platform'));
+            $url = trim((string) ($single['go_url'] ?? ''));
+            $checklist = '<ul>'
+                . '<li>Confirm the username shown on the platform matches the verified profile handle.</li>'
+                . '<li>Check recent room activity markers before spending credits or tips.</li>'
+                . '<li>Review payment and privacy controls before starting chat.</li>'
+                . '</ul>';
+            $cta = '';
+            if ($url !== '') {
+                $cta = '<p><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">Open ' . esc_html($platform) . ' profile</a></p>';
+            }
+            return $alt_username_note
+                . '<p>' . esc_html('Only one live platform is currently marked active: ' . $platform . '. Use this quick pre-click checklist before joining.') . '</p>'
+                . $checklist
+                . $cta;
+        }
+
         $rows = '';
         foreach (array_slice($cta_links, 0, 4) as $link) {
             $label = trim((string)($link['label'] ?? ''));
@@ -954,6 +988,98 @@ class TemplateContent {
         }
 
         return $alt_username_note . $table;
+    }
+
+    /**
+     * @param array<string,mixed> $resolved_destinations
+     */
+    private static function render_other_official_destinations_section(array $resolved_destinations): string {
+        $rows = [];
+        foreach ((array) ($resolved_destinations['all_verified_destinations'] ?? []) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $family = sanitize_key((string) ($entry['family'] ?? ''));
+            if (!in_array($family, [VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE, VerifiedLinksFamilies::FAMILY_PERSONAL], true)) {
+                continue;
+            }
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM && !empty($entry['is_cta_eligible'])) {
+                continue;
+            }
+            $url = trim((string) ($entry['routed_url'] ?? $entry['url'] ?? ''));
+            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+            $rows[] = [
+                'label' => (string) ($entry['label'] ?? ''),
+                'url' => $url,
+                'family' => $family,
+                'activity_level' => (string) ($entry['activity_level'] ?? 'unknown'),
+            ];
+        }
+
+        return self::render_truthful_destination_list($rows, true);
+    }
+
+    /**
+     * @param array<string,mixed> $resolved_destinations
+     */
+    private static function render_social_channel_destinations_section(array $resolved_destinations): string {
+        $rows = [];
+        foreach ((array) ($resolved_destinations['all_verified_destinations'] ?? []) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $family = sanitize_key((string) ($entry['family'] ?? ''));
+            if (!in_array($family, [VerifiedLinksFamilies::FAMILY_SOCIAL, VerifiedLinksFamilies::FAMILY_LINK_HUB, VerifiedLinksFamilies::FAMILY_TUBE], true)) {
+                continue;
+            }
+            $url = trim((string) ($entry['routed_url'] ?? $entry['url'] ?? ''));
+            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+            $rows[] = [
+                'label' => (string) ($entry['label'] ?? ''),
+                'url' => $url,
+                'family' => $family,
+                'activity_level' => (string) ($entry['activity_level'] ?? 'unknown'),
+            ];
+        }
+
+        return self::render_truthful_destination_list($rows);
+    }
+
+    /**
+     * @param array<int,array{label?:string,url?:string,family?:string,activity_level?:string}> $rows
+     */
+    private static function render_truthful_destination_list(array $rows, bool $include_non_active_note = false): string {
+        if (empty($rows)) {
+            return '';
+        }
+
+        $items = '';
+        foreach (self::disambiguate_curated_link_labels($rows) as $row) {
+            $url = trim((string) ($row['url'] ?? ''));
+            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+                continue;
+            }
+            $text = self::build_family_specific_cta_text($row);
+            if ($text === '') {
+                continue;
+            }
+            $items .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="noopener external nofollow">' . esc_html($text) . '</a></li>';
+        }
+
+        if ($items === '') {
+            return '';
+        }
+
+        $note = '';
+        if ($include_non_active_note) {
+            $note = '<p>' . esc_html('Where shown as non-active, the latest operator review marked that destination as not currently active.') . '</p>';
+        }
+
+        return $note . '<ul>' . $items . '</ul>';
     }
 
     private static function render_related_models(\WP_Post $post, string $name, array $tags, array $active_platforms): string {

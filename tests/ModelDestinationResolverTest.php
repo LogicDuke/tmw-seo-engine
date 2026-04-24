@@ -57,6 +57,7 @@ class ModelDestinationResolverTest extends TestCase {
 
         $this->assertCount(1, $resolved['all_verified_destinations']);
         $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertFalse((bool) ($resolved['all_verified_destinations'][0]['is_cta_eligible'] ?? true));
     }
 
     public function test_verified_active_cam_row_overrides_platform_profiles_watch_destination(): void {
@@ -97,6 +98,54 @@ class ModelDestinationResolverTest extends TestCase {
 
         $this->assertCount(1, $resolved['fan_platform_destinations']);
         $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertFalse((bool) ($resolved['fan_platform_destinations'][0]['is_cta_eligible'] ?? true));
+    }
+
+    public function test_template_payload_splits_non_live_and_social_destinations(): void {
+        $post = new \WP_Post();
+        $post->ID = 500;
+        $resolved = ModelDestinationResolver::resolve(500, [], [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => false, 'label' => 'Chaturbate'],
+            ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true, 'label' => 'Fansly'],
+            ['type' => 'personal_site', 'url' => 'https://alice.example', 'is_active' => true, 'label' => 'Alice Site'],
+            ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'is_active' => true, 'label' => 'Instagram'],
+            ['type' => 'linktree', 'url' => 'https://linktr.ee/alice', 'is_active' => true, 'label' => 'Linktree'],
+            ['type' => 'youtube', 'url' => 'https://youtube.com/@alice', 'is_active' => true, 'label' => 'YouTube'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $this->assertStringContainsString('Visit Profile on Chaturbate', (string) ($payload['official_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Visit Fan Page on Fansly', (string) ($payload['official_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Visit Official Site on Alice Site', (string) ($payload['official_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Follow on Instagram', (string) ($payload['community_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Open Link Hub on Linktree', (string) ($payload['community_destinations_section_html'] ?? ''));
+        $this->assertStringContainsString('Visit Channel on YouTube', (string) ($payload['community_destinations_section_html'] ?? ''));
+    }
+
+    public function test_comparison_html_uses_only_live_cam_destinations(): void {
+        $post = new \WP_Post();
+        $post->ID = 501;
+        $resolved = ModelDestinationResolver::resolve(501, [], [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/alice', 'is_active' => true, 'label' => 'Chaturbate'],
+            ['type' => 'fansly', 'url' => 'https://fansly.com/alice', 'is_active' => true, 'label' => 'Fansly'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Alice',
+            'resolved_destinations' => $resolved,
+            'cta_links' => (array) ($resolved['watch_cta_destinations'] ?? []),
+            'comparison_copy' => 'Comparison seed',
+        ]);
+
+        $this->assertStringContainsString('Chaturbate', (string) ($payload['comparison_section_html'] ?? ''));
+        $this->assertStringNotContainsString('Fansly', (string) ($payload['comparison_section_html'] ?? ''));
+        $this->assertStringNotContainsString('Watch Live on Fansly', (string) ($payload['comparison_section_html'] ?? ''));
     }
 
     public function test_resolver_maps_legacy_activity_to_is_active_state(): void {
