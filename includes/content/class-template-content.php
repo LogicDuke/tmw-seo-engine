@@ -45,22 +45,16 @@ class TemplateContent {
         $seed = $name . '-' . $post->ID;
         $editor_seed = self::get_editor_seed_data((int) $post->ID);
 
-        PlatformProfiles::sync_to_table((int) $post->ID);
-        $platform_links = PlatformProfiles::get_links($post->ID);
-        $cta_links = self::build_platform_cta_links($post->ID, is_array($platform_links) ? $platform_links : []);
-        $active_platforms = [];
+        $resolved_destinations = ModelDestinationResolver::resolve((int) $post->ID);
+        $cta_links = (array) ($resolved_destinations['watch_cta_destinations'] ?? []);
+        $active_platforms = array_values(array_filter(array_map('strval', (array)($resolved_destinations['active_platform_labels'] ?? [])), 'strlen'));
         $primary_platform_label = '';
         foreach ($cta_links as $row) {
             $label = trim((string)($row['label'] ?? ''));
-            if ($label === '') {
-                continue;
-            }
-            $active_platforms[] = $label;
-            if ($primary_platform_label === '' && !empty($row['is_primary'])) {
+            if ($primary_platform_label === '' && !empty($row['is_primary']) && $label !== '') {
                 $primary_platform_label = $label;
             }
         }
-        $active_platforms = array_values(array_unique($active_platforms));
         if ($primary_platform_label === '' && !empty($active_platforms)) {
             $primary_platform_label = $active_platforms[0];
         }
@@ -172,6 +166,7 @@ class TemplateContent {
             'longtail' => $longtail,
             'comparison_copy' => $comparison_copy,
             'editor_seed' => $editor_seed,
+            'resolved_destinations' => $resolved_destinations,
         ]));
 
         $support_payload = self::build_model_renderer_support_payload($post, array_merge($pack, [
@@ -183,6 +178,7 @@ class TemplateContent {
             'comparison_copy' => $comparison_copy,
             'model_data_gate' => $model_data_gate,
             'editor_seed' => $editor_seed,
+            'resolved_destinations' => $resolved_destinations,
         ]));
 
         $platform_ref = $primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK
@@ -256,26 +252,18 @@ class TemplateContent {
             $name = 'Live Cam Model';
         }
 
-        // When cta_links are not pre-built (OpenAI/Claude paths), sync the
-        // platform table first so get_links() returns up-to-date rows.
-        if (isset($pack['cta_links'])) {
-            $source_links = $pack['cta_links'];
-        } else {
-            PlatformProfiles::sync_to_table((int) $post->ID);
-            $source_links = PlatformProfiles::get_links($post->ID);
-        }
+        $resolved_destinations = is_array($pack['resolved_destinations'] ?? null)
+            ? (array) $pack['resolved_destinations']
+            : ModelDestinationResolver::resolve((int) $post->ID);
 
-        $cta_links = self::build_platform_cta_links((int) $post->ID, is_array($source_links) ? $source_links : []);
+        $cta_links = isset($pack['cta_links']) && is_array($pack['cta_links'])
+            ? $pack['cta_links']
+            : (array) ($resolved_destinations['watch_cta_destinations'] ?? []);
 
         $active_platforms = $pack['active_platforms'] ?? [];
         if (!is_array($active_platforms) || empty($active_platforms)) {
             $active_platforms = [];
-            foreach ($cta_links as $row) {
-                $label = trim((string)($row['label'] ?? ''));
-                if ($label !== '') {
-                    $active_platforms[] = $label;
-                }
-            }
+            $active_platforms = array_values(array_filter(array_map('strval', (array)($resolved_destinations['active_platform_labels'] ?? [])), 'strlen'));
         }
         $active_platforms = array_values(array_unique(array_filter(array_map('strval', $active_platforms), 'strlen')));
 
@@ -297,7 +285,7 @@ class TemplateContent {
         // the tool happens to scan first.
         $guaranteed_targets  = self::build_guaranteed_external_platform_targets($cta_links);
         $guaranteed_outbound = self::render_guaranteed_external_platform_links_from_targets($guaranteed_targets);
-        $curated_external    = self::render_curated_verified_links_section((int) $post->ID, $name, $guaranteed_targets);
+        $curated_external    = self::render_curated_verified_links_section((int) $post->ID, $name, $guaranteed_targets, $resolved_destinations);
         $wikipedia_fallback_used = false;
 
         // Fallback to Wikipedia ONLY when cta_links is empty — meaning no
@@ -352,6 +340,14 @@ class TemplateContent {
             'editor_seed_platform_notes' => (array) ($editor_seed['platform_notes'] ?? []),
             'editor_seed_confirmed_facts' => (array) ($editor_seed['confirmed_facts'] ?? []),
             'editor_seed_known_for_tags' => (array) ($editor_seed['known_for_tags'] ?? []),
+            'resolved_destination_summary' => (array) ($resolved_destinations['source_of_truth_summary'] ?? []),
+            'verified_destination_families' => [
+                'social' => (array) ($resolved_destinations['social_destinations'] ?? []),
+                'link_hubs' => (array) ($resolved_destinations['link_hub_destinations'] ?? []),
+                'personal' => (array) ($resolved_destinations['personal_site_destinations'] ?? []),
+                'fan_platforms' => (array) ($resolved_destinations['fan_platform_destinations'] ?? []),
+                'tube' => (array) ($resolved_destinations['tube_destinations'] ?? []),
+            ],
         ];
     }
 
@@ -362,14 +358,17 @@ class TemplateContent {
     public static function evaluate_model_data_gate(\WP_Post $post, array $pack): array {
         $cta_links = isset($pack['cta_links']) && is_array($pack['cta_links'])
             ? $pack['cta_links']
-            : self::build_platform_cta_links((int) $post->ID, is_array(PlatformProfiles::get_links($post->ID)) ? PlatformProfiles::get_links($post->ID) : []);
+            : (array) ((is_array($pack['resolved_destinations'] ?? null) ? $pack['resolved_destinations'] : ModelDestinationResolver::resolve((int) $post->ID))['watch_cta_destinations'] ?? []);
         $tags = $pack['tags'] ?? ($pack['sources']['tags'] ?? []);
         $tags = is_array($tags) ? array_values(array_filter(array_map('strval', $tags), 'strlen')) : [];
         $faq_items = $pack['faq_items'] ?? [];
 
         $comparison_copy = trim((string)($pack['comparison_copy'] ?? ''));
         $active_platforms = $pack['active_platforms'] ?? [];
-        $active_platforms = is_array($active_platforms) ? array_values(array_filter(array_map('strval', $active_platforms), 'strlen')) : [];
+        if (!is_array($active_platforms) || empty($active_platforms)) {
+            $active_platforms = (array) ((is_array($pack['resolved_destinations'] ?? null) ? $pack['resolved_destinations'] : ModelDestinationResolver::resolve((int) $post->ID))['active_platform_labels'] ?? []);
+        }
+        $active_platforms = array_values(array_filter(array_map('strval', $active_platforms), 'strlen'));
         $editor_seed = isset($pack['editor_seed']) && is_array($pack['editor_seed'])
             ? $pack['editor_seed']
             : self::get_editor_seed_data((int) $post->ID);
@@ -454,7 +453,7 @@ class TemplateContent {
         return $pack;
     }
 
-    public static function build_editor_seed_prompt_block(array $editor_seed): string {
+    public static function build_editor_seed_prompt_block(array $editor_seed, array $resolved_destinations = []): string {
         if (empty($editor_seed)) {
             return "Editor seed facts: none provided.\n";
         }
@@ -474,6 +473,22 @@ class TemplateContent {
         $facts = isset($editor_seed['confirmed_facts']) && is_array($editor_seed['confirmed_facts']) ? $editor_seed['confirmed_facts'] : [];
         if (!empty($facts)) {
             $lines[] = '- Confirmed facts: ' . implode(' | ', array_slice(array_map('strval', $facts), 0, 6));
+        }
+        if (!empty($resolved_destinations)) {
+            $summary = (array) ($resolved_destinations['source_of_truth_summary'] ?? []);
+            $watch_count = (int) ($summary['watch_cta_count'] ?? 0);
+            $verified_count = (int) ($summary['verified_count'] ?? 0);
+            $lines[] = '- Verified destination summary: ' . $watch_count . ' watch/live CTA destination(s), ' . $verified_count . ' verified external destination(s).';
+            $activity_notes = [];
+            foreach (array_slice((array) ($resolved_destinations['all_verified_destinations'] ?? []), 0, 8) as $dest) {
+                if (!is_array($dest)) { continue; }
+                $note = trim((string)($dest['activity_note'] ?? ''));
+                if ($note === '') { continue; }
+                $activity_notes[] = trim((string)($dest['label'] ?? 'link')) . ': ' . $note;
+            }
+            if (!empty($activity_notes)) {
+                $lines[] = '- Operator activity notes: ' . implode(' | ', array_slice($activity_notes, 0, 5));
+            }
         }
         $avoid = isset($editor_seed['avoid_claims']) && is_array($editor_seed['avoid_claims']) ? $editor_seed['avoid_claims'] : [];
         if (!empty($avoid)) {
@@ -527,14 +542,9 @@ class TemplateContent {
     /**
      * @param array<int,array{platform:string,label:string,url:string}> $exclude_targets
      */
-    private static function render_curated_verified_links_section(int $post_id, string $name, array $exclude_targets = []): string {
-        if (!class_exists(VerifiedLinks::class) || !class_exists(VerifiedLinksFamilies::class)) {
-            return '';
-        }
-
-        $links = VerifiedLinks::get_links($post_id);
-        if (empty($links) || !is_array($links)) {
-            return '';
+    private static function render_curated_verified_links_section(int $post_id, string $name, array $exclude_targets = [], array $resolved_destinations = []): string {
+        if (empty($resolved_destinations)) {
+            $resolved_destinations = ModelDestinationResolver::resolve($post_id);
         }
 
         $type_labels = VerifiedLinksFamilies::type_labels();
@@ -555,37 +565,25 @@ class TemplateContent {
             }
         }
 
-        $seen = [];
         $grouped = [];
-        foreach ($links as $link) {
-            if (!is_array($link) || empty($link['is_active'])) {
-                continue;
-            }
-
-            $url = trim((string) VerifiedLinks::get_routed_url($link));
-            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
-                continue;
-            }
-
+        $seen = [];
+        foreach ((array) ($resolved_destinations['all_verified_destinations'] ?? []) as $entry) {
+            if (!is_array($entry)) { continue; }
+            $url = trim((string)($entry['routed_url'] ?? $entry['url'] ?? ''));
+            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) { continue; }
             $url_key = strtolower(rtrim($url, '/'));
-            if (isset($seen[$url_key])) {
-                continue;
-            }
+            if (isset($seen[$url_key])) { continue; }
             $seen[$url_key] = true;
-
-            $type = sanitize_key((string) ($link['type'] ?? 'other'));
+            $type = sanitize_key((string)($entry['type'] ?? 'other'));
             $family = VerifiedLinksFamilies::family_for($type);
-            if ($family === VerifiedLinksFamilies::FAMILY_CAM && isset($exclude_urls[$url_key])) {
-                continue;
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM && isset($exclude_urls[$url_key])) { continue; }
+            $label = trim((string)($entry['label'] ?? ''));
+            if ($label === '') { $label = (string) ($type_labels[$type] ?? ucfirst(str_replace('_', ' ', $type))); }
+            $activity_note = trim((string)($entry['activity_note'] ?? ''));
+            if ($activity_note !== '') {
+                $label .= ' — ' . $activity_note;
             }
-            $label = trim((string) ($link['label'] ?? ''));
-            if ($label === '') {
-                $label = (string) ($type_labels[$type] ?? ucfirst(str_replace('_', ' ', $type)));
-            }
-            $grouped[$family][] = [
-                'label' => $label,
-                'url' => $url,
-            ];
+            $grouped[$family][] = ['label' => $label, 'url' => $url];
         }
 
         if (empty($grouped)) {
@@ -667,17 +665,14 @@ class TemplateContent {
         if (!empty($cta_links)) {
             $types[] = 'live platforms';
         }
-        if (class_exists(VerifiedLinks::class)) {
-            $links = VerifiedLinks::get_links($post_id);
-            if (is_array($links)) {
-                foreach ($links as $link) {
-                    $family = VerifiedLinksFamilies::family_for(sanitize_key((string) ($link['type'] ?? '')));
-                    if ($family === VerifiedLinksFamilies::FAMILY_PERSONAL) { $types[] = 'official or personal sites'; }
-                    if ($family === VerifiedLinksFamilies::FAMILY_FANSITE) { $types[] = 'fan platforms'; }
-                    if ($family === VerifiedLinksFamilies::FAMILY_TUBE) { $types[] = 'video/profile hubs'; }
-                    if ($family === VerifiedLinksFamilies::FAMILY_SOCIAL) { $types[] = 'social profiles'; }
-                }
-            }
+        $resolved = ModelDestinationResolver::resolve($post_id);
+        if (!empty($resolved['personal_site_destinations'])) { $types[] = 'official or personal sites'; }
+        if (!empty($resolved['fan_platform_destinations'])) { $types[] = 'fan platforms'; }
+        if (!empty($resolved['tube_destinations'])) { $types[] = 'video/profile hubs'; }
+        if (!empty($resolved['social_destinations']) || !empty($resolved['link_hub_destinations'])) { $types[] = 'social profiles'; }
+        if (!empty($resolved['link_hub_destinations'])) { $types[] = 'link hubs'; }
+        if (!empty($resolved['source_of_truth_summary']['seed_platform_notes'])) {
+            $types[] = 'editor platform notes';
         }
         $types = array_values(array_unique($types));
         if (empty($types)) {

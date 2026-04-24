@@ -155,6 +155,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-rank-math-checklist.php' );
         tmwseo_safe_require( $p . 'class-content-generation-gate.php' );
         tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
+        tmwseo_safe_require( $p . 'class-model-destination-resolver.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
         tmwseo_safe_require( $p . 'class-assisted-draft-enrichment-service.php' );
         tmwseo_safe_require( $p . 'class-quality-score-engine.php' );

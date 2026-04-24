@@ -49,6 +49,8 @@
         type: rowValue(row, idx, 'type'),
         url: rowValue(row, idx, 'url'),
         label: rowValue(row, idx, 'label'),
+        activity_level: rowValue(row, idx, 'activity_level'),
+        activity_note: rowValue(row, idx, 'activity_note'),
         is_active: rowValue(row, idx, 'is_active'),
         is_primary: rowValue(row, idx, 'is_primary'),
         use_affiliate: rowValue(row, idx, 'use_affiliate'),

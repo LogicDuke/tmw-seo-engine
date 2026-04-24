@@ -320,7 +320,8 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         ];
         $GLOBALS['_tmw_vl_grouped_meta'][ $post_id ][ VerifiedLinks::META_KEY ] = json_encode( $legacy );
 
-        $this->assertSame( $legacy, VerifiedLinks::get_links( $post_id ) );
+        $links = VerifiedLinks::get_links( $post_id );
+        $this->assertSame( 'active', $links[0]['activity_level'] ?? '' );
     }
 
     // ── E. Unknown legacy types never dropped ────────────────────────
@@ -468,6 +469,25 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         }
 
         $this->assertSame( [], $this->read_stored( $post_id ) );
+    }
+
+    public function test_save_persists_activity_fields_when_provided(): void {
+        $post_id = 4012;
+        $this->seed_post_for_save( $post_id );
+
+        $_POST['tmwseo_vl'] = [
+            0 => [
+                'type' => 'instagram',
+                'url' => 'https://instagram.com/a',
+                'is_active' => '1',
+                'activity_level' => 'very_active',
+                'activity_note' => 'Posted twice this week',
+            ],
+        ];
+        VerifiedLinks::save_metabox( $post_id, $this->fake_post( $post_id ) );
+        $stored = $this->read_stored( $post_id );
+        $this->assertSame( 'very_active', $stored[0]['activity_level'] ?? '' );
+        $this->assertSame( 'Posted twice this week', $stored[0]['activity_note'] ?? '' );
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
