@@ -238,6 +238,49 @@ $ref_priv = ModelResearchEvidence::humanize_private_chat(
 );
 echo "  Priv OUT:  {$ref_priv}\n";
 
+// G section follows below — do not exit here.
+
 // ─────────────────────────────────────────────────────────────────────────────
-echo "\n\033[1m=== Results: {$pass} passed, {$fail} failed ===\033[0m\n\n";
+// G. Save-wiring static checks (catches v5.8.7 reload bug)
+// ─────────────────────────────────────────────────────────────────────────────
+echo "\n\033[1m=== G. Save-wiring static checks ===\033[0m\n";
+
+$helper_path = dirname( __DIR__ ) . '/includes/admin/class-model-helper.php';
+$helper_src  = file_get_contents( $helper_path );
+
+// Classic save_metabox path
+ok( strpos( $helper_src, "'tmwseo_seed_external_bio'           => self::META_SEED_EXTERNAL_BIO" ) !== false,
+    'G1: save_metabox() saves tmwseo_seed_external_bio' );
+ok( strpos( $helper_src, "'tmwseo_seed_external_turn_ons'      => self::META_SEED_EXTERNAL_TURN_ONS" ) !== false,
+    'G2: save_metabox() saves tmwseo_seed_external_turn_ons' );
+ok( strpos( $helper_src, "'tmwseo_seed_external_private_chat'  => self::META_SEED_EXTERNAL_PRIVATE_CHAT" ) !== false,
+    'G3: save_metabox() saves tmwseo_seed_external_private_chat' );
+
+// Block-editor ajax path — short keys (no tmwseo_ prefix because the JS strips it).
+ok( strpos( $helper_src, "'seed_external_bio'           => self::META_SEED_EXTERNAL_BIO" ) !== false,
+    'G4: ajax_save_model_research() saves seed_external_bio' );
+ok( strpos( $helper_src, "'seed_external_turn_ons'      => self::META_SEED_EXTERNAL_TURN_ONS" ) !== false,
+    'G5: ajax_save_model_research() saves seed_external_turn_ons' );
+ok( strpos( $helper_src, "'seed_external_private_chat'  => self::META_SEED_EXTERNAL_PRIVATE_CHAT" ) !== false,
+    'G6: ajax_save_model_research() saves seed_external_private_chat' );
+
+// JS payload assembly
+$js_path = dirname( __DIR__ ) . '/assets/js/model-research-editor.js';
+$js_src  = file_get_contents( $js_path );
+ok( strpos( $js_src, "seed_external_bio:" ) !== false           && strpos( $js_src, "val('tmwseo_seed_external_bio')" ) !== false,
+    'G7: JS reads #tmwseo_seed_external_bio and posts as seed_external_bio' );
+ok( strpos( $js_src, "seed_external_turn_ons:" ) !== false      && strpos( $js_src, "val('tmwseo_seed_external_turn_ons')" ) !== false,
+    'G8: JS reads #tmwseo_seed_external_turn_ons and posts as seed_external_turn_ons' );
+ok( strpos( $js_src, "seed_external_private_chat:" ) !== false  && strpos( $js_src, "val('tmwseo_seed_external_private_chat')" ) !== false,
+    'G9: JS reads #tmwseo_seed_external_private_chat and posts as seed_external_private_chat' );
+
+// Reload path: render reads from same meta keys
+ok( strpos( $helper_src, "get_post_meta( \$post->ID, self::META_SEED_EXTERNAL_BIO, true )" ) !== false,
+    'G10: render reloads bio from META_SEED_EXTERNAL_BIO' );
+ok( strpos( $helper_src, "get_post_meta( \$post->ID, self::META_SEED_EXTERNAL_TURN_ONS, true )" ) !== false,
+    'G11: render reloads turn_ons from META_SEED_EXTERNAL_TURN_ONS' );
+ok( strpos( $helper_src, "get_post_meta( \$post->ID, self::META_SEED_EXTERNAL_PRIVATE_CHAT, true )" ) !== false,
+    'G12: render reloads private_chat from META_SEED_EXTERNAL_PRIVATE_CHAT' );
+
+echo "\n\033[1m=== Final results: " . ($pass) . " passed, " . ($fail) . " failed ===\033[0m\n\n";
 exit( $fail === 0 ? 0 : 1 );

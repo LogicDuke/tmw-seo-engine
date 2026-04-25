@@ -28,6 +28,9 @@
  *   #tmwseo_editor_seed_confirmed_facts
  *   #tmwseo_editor_seed_avoid_claims
  *   #tmwseo_editor_seed_tone_hint
+ *   #tmwseo_seed_external_bio              (v5.8.7)
+ *   #tmwseo_seed_external_turn_ons         (v5.8.7)
+ *   #tmwseo_seed_external_private_chat     (v5.8.7)
  */
 (function () {
   if (typeof wp === 'undefined' || !wp.data || !wp.data.select) return;
@@ -85,6 +88,10 @@
       editor_seed_confirmed_facts: val('tmwseo_editor_seed_confirmed_facts'),
       editor_seed_avoid_claims:    val('tmwseo_editor_seed_avoid_claims'),
       editor_seed_tone_hint:       val('tmwseo_editor_seed_tone_hint'),
+      // v5.8.7: 3 simple Model Research evidence textareas (humanized at generation time).
+      seed_external_bio:           val('tmwseo_seed_external_bio'),
+      seed_external_turn_ons:      val('tmwseo_seed_external_turn_ons'),
+      seed_external_private_chat:  val('tmwseo_seed_external_private_chat'),
     };
   }
 

@@ -2007,6 +2007,10 @@ class ModelHelper {
             'editor_seed_platform_notes' => self::META_EDITOR_SEED_PLATFORM_NOTES,
             'editor_seed_confirmed_facts' => self::META_EDITOR_SEED_CONFIRMED_FACTS,
             'editor_seed_avoid_claims' => self::META_EDITOR_SEED_AVOID_CLAIMS,
+            // v5.8.7: 3 simple Model Research evidence textareas — block-editor parity.
+            'seed_external_bio'           => self::META_SEED_EXTERNAL_BIO,
+            'seed_external_turn_ons'      => self::META_SEED_EXTERNAL_TURN_ONS,
+            'seed_external_private_chat'  => self::META_SEED_EXTERNAL_PRIVATE_CHAT,
         ] as $key => $meta_key ) {
             $val = isset( $_POST[ $key ] )
                 ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $key ] ) )
