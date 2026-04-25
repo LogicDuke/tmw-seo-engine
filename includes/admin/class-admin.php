@@ -48,7 +48,6 @@ class Admin {
         add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('wp_ajax_tmwseo_rerun_model_preview_phrases', [__CLASS__, 'ajax_rerun_model_preview_phrases']);
-        add_action('wp_ajax_tmwseo_awe_test_connection', [__CLASS__, 'ajax_awe_test_connection']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
@@ -858,22 +857,6 @@ class Admin {
             'google_trends_locale'    => sanitize_text_field((string)($input['google_trends_locale'] ?? $existing['google_trends_locale'] ?? 'en-US')),
             'google_trends_timeframe' => sanitize_text_field((string)($input['google_trends_timeframe'] ?? $existing['google_trends_timeframe'] ?? 'today 3-m')),
 
-            // ── AWE / AWEmpire Direct Connector (v5.7.0) ─────────────────────
-            // access_key: only overwrite when a new value is explicitly submitted.
-            // Never echo the stored key back into admin HTML.
-            'tmwseo_awe_enabled'   => !empty($input['tmwseo_awe_enabled']) ? 1 : 0,
-            'tmwseo_awe_psid'      => sanitize_text_field((string)($input['tmwseo_awe_psid'] ?? $existing['tmwseo_awe_psid'] ?? '')),
-            'tmwseo_awe_access_key' => (function() use ($input, $existing): string {
-                $new = sanitize_text_field((string)($input['tmwseo_awe_access_key'] ?? ''));
-                // Empty submission = keep current key (blank-on-render pattern).
-                return ($new !== '') ? $new : (string)($existing['tmwseo_awe_access_key'] ?? '');
-            })(),
-            'tmwseo_awe_base_url'  => esc_url_raw((string)($input['tmwseo_awe_base_url'] ?? $existing['tmwseo_awe_base_url'] ?? 'https://pt.ptawe.com')),
-            'tmwseo_awe_language'  => sanitize_text_field((string)($input['tmwseo_awe_language'] ?? $existing['tmwseo_awe_language'] ?? 'en')),
-            'tmwseo_awe_psprogram' => sanitize_text_field((string)($input['tmwseo_awe_psprogram'] ?? $existing['tmwseo_awe_psprogram'] ?? 'PPL')),
-            'tmwseo_awe_timeout'   => max(5, min(60, (int)($input['tmwseo_awe_timeout'] ?? $existing['tmwseo_awe_timeout'] ?? 15))),
-            'tmwseo_awe_cache_ttl' => max(60, min(86400, (int)($input['tmwseo_awe_cache_ttl'] ?? $existing['tmwseo_awe_cache_ttl'] ?? 3600))),
-
         ];
 
         return $sanitized;
@@ -1548,49 +1531,6 @@ class Admin {
         AdminAjaxHandlers::ajax_rerun_model_preview_phrases();
     }
 
-    /**
-     * AJAX: Test AWE API connection.
-     *
-     * Returns a JSON response safe for admin display.
-     * Access key is NEVER included in the response.
-     * Requires manage_options capability and valid nonce.
-     */
-    public static function ajax_awe_test_connection(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( [ 'message' => 'Insufficient permissions.' ], 403 );
-        }
-
-        $nonce = sanitize_text_field( wp_unslash( (string) ( $_POST['_wpnonce'] ?? '' ) ) );
-        if ( ! wp_verify_nonce( $nonce, 'tmwseo_awe_test_connection' ) ) {
-            wp_send_json_error( [ 'message' => 'Invalid or expired nonce.' ], 403 );
-        }
-
-        if ( ! class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class ) ) {
-            wp_send_json_error( [ 'message' => 'AWE connector class not loaded.' ], 500 );
-        }
-
-        if ( ! \TMWSEO\Engine\Integrations\AweApiClient::is_configured() ) {
-            wp_send_json_error( [
-                'message' => 'AWE connector is not configured. Enter and save your PSID and Access Key first.',
-            ] );
-            return;
-        }
-
-        $result = \TMWSEO\Engine\Integrations\AweApiClient::test();
-
-        // Return only the safe fields — never status details that could leak creds.
-        if ( $result['ok'] ) {
-            wp_send_json_success( [
-                'message' => esc_html( $result['message'] ),
-                'status'  => $result['status'],
-            ] );
-        } else {
-            wp_send_json_error( [
-                'message' => esc_html( $result['message'] ),
-                'status'  => $result['status'],
-            ] );
-        }
-    }
 
     public static function handle_refresh_keywords_now(): void {
         AdminFormHandlers::handle_refresh_keywords_now();
@@ -3678,109 +3618,6 @@ private static function header(string $title): void {
         echo '<input type="password" name="tmwseo_engine_settings[tmwseo_anthropic_api_key]" value="' . $anthropic_key . '" class="regular-text" autocomplete="off">';
         echo '<p class="description">' . esc_html__('Required if Anthropic is your primary or fallback provider.', 'tmwseo') . '</p>';
         echo '</td></tr></table>';
-
-        // ── AWE / AWEmpire Direct Connector ──────────────────────────────
-        $awe_enabled    = !empty($opts['tmwseo_awe_enabled']);
-        $awe_psid       = esc_attr((string)($opts['tmwseo_awe_psid'] ?? ''));
-        $awe_base_url   = esc_attr((string)($opts['tmwseo_awe_base_url'] ?? 'https://pt.ptawe.com'));
-        $awe_language   = esc_attr((string)($opts['tmwseo_awe_language'] ?? 'en'));
-        $awe_psprogram  = esc_attr((string)($opts['tmwseo_awe_psprogram'] ?? 'PPL'));
-        $awe_timeout    = esc_attr((string)($opts['tmwseo_awe_timeout'] ?? 15));
-        $awe_cache_ttl  = esc_attr((string)($opts['tmwseo_awe_cache_ttl'] ?? 3600));
-        $awe_has_key    = trim((string)($opts['tmwseo_awe_access_key'] ?? '')) !== '';
-
-        echo '<h2>' . esc_html__('AWE / AWEmpire API', 'tmwseo') . '</h2>';
-        echo '<div style="background:#fefce8;border-left:4px solid #eab308;padding:10px 14px;margin-bottom:12px;">';
-        echo esc_html__('Direct AWE connector for model profile evidence. Credentials are stored server-side and never echoed into page HTML. Access key is write-only once saved.', 'tmwseo');
-        echo '</div>';
-        echo '<table class="form-table">';
-
-        // Enabled toggle
-        echo '<tr><th>' . esc_html__('Enable AWE connector', 'tmwseo') . '</th><td>';
-        echo '<label><input type="checkbox" name="tmwseo_engine_settings[tmwseo_awe_enabled]" value="1" ' . checked($awe_enabled, true, false) . '> ';
-        echo esc_html__('Enable direct AWE API requests for model profile evidence', 'tmwseo') . '</label>';
-        echo '</td></tr>';
-
-        // PSID (less sensitive — visible in affiliate URLs)
-        echo '<tr><th>' . esc_html__('PSID', 'tmwseo') . '</th><td>';
-        echo '<input type="text" name="tmwseo_engine_settings[tmwseo_awe_psid]" value="' . $awe_psid . '" class="regular-text" autocomplete="off">';
-        echo '<p class="description">' . esc_html__('Your AWE publisher/affiliate PSID.', 'tmwseo') . '</p>';
-        echo '</td></tr>';
-
-        // Access key — NEVER echoed back. Blank-on-render pattern.
-        echo '<tr><th>' . esc_html__('Access Key', 'tmwseo') . '</th><td>';
-        if ($awe_has_key) {
-            echo '<div style="margin-bottom:6px;color:#16a34a;">✓ ' . esc_html__('Access key is saved.', 'tmwseo') . '</div>';
-        }
-        echo '<input type="password" name="tmwseo_engine_settings[tmwseo_awe_access_key]" value="" class="regular-text" autocomplete="off" placeholder="' . esc_attr__('Saved — leave blank to keep current key', 'tmwseo') . '">';
-        echo '<p class="description">' . esc_html__('Your AWE API access key. Leave blank to keep the current saved key. This field is write-only and is never displayed.', 'tmwseo') . '</p>';
-        echo '</td></tr>';
-
-        // Base URL
-        echo '<tr><th>' . esc_html__('API Base URL', 'tmwseo') . '</th><td>';
-        echo '<input type="text" name="tmwseo_engine_settings[tmwseo_awe_base_url]" value="' . $awe_base_url . '" class="regular-text">';
-        echo '<p class="description">' . esc_html__('Default: https://pt.ptawe.com', 'tmwseo') . '</p>';
-        echo '</td></tr>';
-
-        // Language
-        echo '<tr><th>' . esc_html__('Language', 'tmwseo') . '</th><td>';
-        echo '<input type="text" name="tmwseo_engine_settings[tmwseo_awe_language]" value="' . $awe_language . '" class="small-text">';
-        echo '<p class="description">' . esc_html__('Default: en', 'tmwseo') . '</p>';
-        echo '</td></tr>';
-
-        // PS Program
-        echo '<tr><th>' . esc_html__('PS Program', 'tmwseo') . '</th><td>';
-        echo '<input type="text" name="tmwseo_engine_settings[tmwseo_awe_psprogram]" value="' . $awe_psprogram . '" class="small-text">';
-        echo '<p class="description">' . esc_html__('Default: PPL', 'tmwseo') . '</p>';
-        echo '</td></tr>';
-
-        // Timeout
-        echo '<tr><th>' . esc_html__('Timeout (seconds)', 'tmwseo') . '</th><td>';
-        echo '<input type="number" name="tmwseo_engine_settings[tmwseo_awe_timeout]" value="' . $awe_timeout . '" class="small-text" min="5" max="60">';
-        echo '</td></tr>';
-
-        // Cache TTL
-        echo '<tr><th>' . esc_html__('Cache TTL (seconds)', 'tmwseo') . '</th><td>';
-        echo '<input type="number" name="tmwseo_engine_settings[tmwseo_awe_cache_ttl]" value="' . $awe_cache_ttl . '" class="small-text" min="60" max="86400">';
-        echo '<p class="description">' . esc_html__('How long to cache AWE API responses. Default: 3600 (1 hour).', 'tmwseo') . '</p>';
-        echo '</td></tr>';
-
-        // Test Connection button
-        echo '<tr><th>' . esc_html__('Test Connection', 'tmwseo') . '</th><td>';
-        echo '<button type="button" id="tmwseo-awe-test-btn" class="button">' . esc_html__('Test AWE Connection', 'tmwseo') . '</button>';
-        echo ' <span id="tmwseo-awe-test-result" style="margin-left:10px;display:none;"></span>';
-        echo '<p class="description">' . esc_html__('Sends a lightweight request to the AWE API. Credentials must be saved first.', 'tmwseo') . '</p>';
-        echo '</td></tr>';
-
-        echo '</table>';
-
-        // Inline JS for Test Connection (admin page only — no credential exposure)
-        $test_nonce = wp_create_nonce('tmwseo_awe_test_connection');
-        echo '<script>
-        (function(){
-            var btn = document.getElementById("tmwseo-awe-test-btn");
-            var result = document.getElementById("tmwseo-awe-test-result");
-            if (!btn) return;
-            btn.addEventListener("click", function(){
-                btn.disabled = true;
-                result.style.display = "inline";
-                result.style.color = "#555";
-                result.textContent = "Testing\u2026";
-                fetch(ajaxurl, {
-                    method: "POST",
-                    headers: {"Content-Type":"application/x-www-form-urlencoded"},
-                    body: "action=tmwseo_awe_test_connection&_wpnonce=" + encodeURIComponent(' . wp_json_encode($test_nonce) . ')
-                })
-                .then(function(r){ return r.json(); })
-                .then(function(d){
-                    result.textContent = d.data && d.data.message ? d.data.message : (d.success ? "OK" : "Failed");
-                    result.style.color = d.success ? "#16a34a" : "#dc2626";
-                    btn.disabled = false;
-                })
-                .catch(function(){ result.textContent = "Request failed."; result.style.color="#dc2626"; btn.disabled=false; });
-            });
-        })();
-        </script>';
 
         // ── Google Search Console ─────────────────────────────────────────
         echo '<h2>' . esc_html__('Google Search Console (OAuth2)', 'tmwseo') . '</h2>';

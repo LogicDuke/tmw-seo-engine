@@ -154,11 +154,9 @@ class Loader {
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );
         tmwseo_safe_require( $p . 'class-rank-math-checklist.php' );
         tmwseo_safe_require( $p . 'class-content-generation-gate.php' );
-        // External profile evidence layer (v5.8.0) — webcamexchange.com actor pages.
-        // Must load before model-page-renderer so the renderer can reference the class.
-        tmwseo_safe_require( $p . 'class-external-profile-evidence.php' );
-        // Canonical evidence-block prepender (v5.8.6) — single insertion point.
-        tmwseo_safe_require( $p . 'class-external-profile-evidence-renderer.php' );
+        // Model Research Evidence helper (v5.8.7) — simple 3-field evidence flow.
+        // Replaces v5.8.0–v5.8.6 ExternalProfileEvidence + ExternalProfileEvidenceRenderer.
+        tmwseo_safe_require( $p . 'class-model-research-evidence.php' );
         tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
         tmwseo_safe_require( $p . 'class-model-destination-resolver.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
@@ -207,9 +205,8 @@ class Loader {
         tmwseo_safe_require( $p . 'class-gsc-cluster-importer.php' );
         tmwseo_safe_require( $p . 'class-google-indexing-api.php' );
         tmwseo_safe_require( $p . 'class-google-ads-keyword-planner-api.php' );
-        // AWE / AWEmpire direct connector (v5.7.0) — independent of WPS LiveJasmin.
-        tmwseo_safe_require( $p . 'class-awe-api-client.php' );
-        tmwseo_safe_require( $p . 'class-awe-profile-evidence.php' );
+        // AWE / AWEmpire connector REMOVED in v5.8.7 — operator pastes evidence
+        // directly into the 3 Model Research textareas; no API fetch needed.
     }
 
     // ── SEO Engine (seo-engine/ subtree) ──────────────────────────────────────

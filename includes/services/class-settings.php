@@ -121,18 +121,6 @@ class Settings {
             'google_trends_locale'   => 'en-US',
             'google_trends_timeframe'=> 'today 3-m',
 
-            // ── AWE / AWEmpire Direct Connector (v5.7.0) ───────────────────
-            // Independent of WPS LiveJasmin. Credentials stored here, in
-            // tmwseo_engine_settings. access_key is never echoed in admin HTML.
-            'tmwseo_awe_enabled'    => 0,
-            'tmwseo_awe_psid'       => '',
-            'tmwseo_awe_access_key' => '', // never echo back to admin HTML
-            'tmwseo_awe_base_url'   => 'https://pt.ptawe.com',
-            'tmwseo_awe_language'   => 'en',
-            'tmwseo_awe_psprogram'  => 'PPL',
-            'tmwseo_awe_timeout'    => 15,
-            'tmwseo_awe_cache_ttl'  => 3600,
-
             // Keyword discovery governor
             'max_keywords_per_run' => 500,
             'max_keywords_per_day' => 5000,

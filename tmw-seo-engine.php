@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.8.6-evidence-production — External Profile Evidence production rebuild. (1) New canonical ExternalProfileEvidenceRenderer with prepend_to_content() and idempotent <!-- tmwseo-external-evidence:start --> wrapper markers — single insertion point applied to all six generation save paths (Template, OpenAI main, OpenAI sparse, OpenAI optimize, Claude main, Claude assisted-draft, Claude sparse). (2) Bio transformer rewritten to use curated NOUN PHRASES instead of bare adjective tokens, eliminating "built around lingerie, fashion, and warm" and similar grammatical breakage. (3) final_humanize() decodes HTML entities on every transformer output, killing the &#039; leakage shown in the audit PDF. (4) Turn Ons rewritten with deterministic varied openers ("Her turn-on notes lean toward...", "The profile points to...", "Her highlighted turn-ons centre on..."). (5) Private Chat now passes every cleaned item through is_explicit_chat_item() denylist before the 14-item cap; canonicalise_chat_item() normalises strap-on / love-beads / etc. JOI/POV/ASMR/C2C acronyms preserved. (6) AWE Evidence panel removed from model editor (AWE provides no useful bio data; wps-livejasmin handles video metadata). (7) External Evidence panel wrapped in <details> for compactness — readiness banner stays outside, panel auto-opens on yellow/red status. (8) Recovery hack at template-content.php removed in favour of the single canonical prepend. Inherits all v5.8.5 mbstring-safe behaviour.
- * Version: 5.8.6-evidence-production
+ * Description: Intelligence Core v5.8.7-simple-model-research-evidence — Drastic simplification of the External Profile Evidence flow. (1) AWE / AWEmpire connector deleted entirely (classes, AJAX handlers, settings UI, defaults, source-type allowlist entries) — was unused for bio data; wps-livejasmin handles video metadata. (2) Old External Profile Evidence subsystem deleted (source URL, raw/transformed split, review states, AJAX Generate Suggestions flow, readiness banner, ~250-line model-editor panel). (3) New simple flow: 3 textareas inside the existing Model Research / Editor Seed area — "External Bio Evidence", "External Turn Ons Evidence", "External Private Chat Evidence". Saved with normal post update. (4) New ModelResearchEvidence helper humanizes the 3 fields at generation time and prepends "About {Model}" / "Turn Ons" / "Private Chat Options" sections above the existing generated body using <!-- tmwseo-seed-evidence:start --> wrapper markers (idempotent — re-generation never duplicates). Legacy v5.8.6 markers and heading-trio also stripped. (5) Bio uses curated noun-phrase map ("a warm room presence", "lingerie looks", "fashion-inspired posing") — no bare adjective dumps. (6) Private Chat denylist removes anal/anal sex/deepthroat/double penetration/squirt/cum/etc.; canonicaliser normalises strap-on/love-beads; JOI/POV/ASMR/C2C preserved uppercase; capped at 14 items. (7) Renderer-payload bridge (reviewed_bio_section_paragraphs etc.) and build_external_evidence_payload removed — single insertion point at all 7 model-content save sites (Template + 6 OpenAI/Claude paths). (8) Empty fields cleanly produce no section; un-pasting and re-generating cleanly removes the block.
+ * Version: 5.8.7-simple-model-research-evidence
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.6-evidence-production');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.7-simple-model-research-evidence');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 

@@ -500,29 +500,14 @@ class ModelHelper {
     const META_BIO_SOURCE_LABEL  = '_tmwseo_bio_source_label';
     const META_BIO_SOURCE_FACTS  = '_tmwseo_bio_source_facts';
 
-    // ── AWE evidence traceability keys (v5.7.0) ───────────────────────────────
-    // Written by AweProfileEvidence::save_evidence_meta() after a fetch.
-    // Read-only from ModelHelper — never written here directly.
-    const META_AWE_FETCHED_AT       = '_tmwseo_awe_evidence_fetched_at';
-    const META_AWE_AVAILABLE_FIELDS = '_tmwseo_awe_available_fields';
-    const META_AWE_CONFIDENCE       = '_tmwseo_awe_evidence_confidence';
-    const META_AWE_EVIDENCE_HASH    = '_tmwseo_bio_raw_evidence_hash';
-
-    // ── External profile evidence keys (v5.8.0) ───────────────────────────────
-    // Maps to ExternalProfileEvidence::META_* constants.
-    // Written directly by the model-helper save handler after operator review.
-    const META_EXT_SOURCE_URL           = '_tmwseo_ext_source_url';
-    const META_EXT_SOURCE_TITLE         = '_tmwseo_ext_source_title';
-    const META_EXT_FETCHED_AT           = '_tmwseo_ext_fetched_at';
-    const META_EXT_RAW_BIO              = '_tmwseo_ext_raw_bio';
-    const META_EXT_RAW_TURN_ONS         = '_tmwseo_ext_raw_turn_ons';
-    const META_EXT_RAW_PRIVATE_CHAT     = '_tmwseo_ext_raw_private_chat';
-    const META_EXT_TRANSFORMED_BIO      = '_tmwseo_ext_transformed_bio';
-    const META_EXT_TRANSFORMED_TURN_ONS = '_tmwseo_ext_transformed_turn_ons';
-    const META_EXT_TRANSFORMED_PRIVATE  = '_tmwseo_ext_transformed_private_chat';
-    const META_EXT_REVIEW_STATUS        = '_tmwseo_ext_review_status';
-    const META_EXT_REVIEWER_NOTES       = '_tmwseo_ext_reviewer_notes';
-    const META_EXT_REVIEWED_AT          = '_tmwseo_ext_reviewed_at';
+    // ── Model Research external evidence keys (v5.8.7) ────────────────────────
+    // Operator-pasted seed evidence used by ModelResearchEvidence at generation
+    // time to prepend humanized About/Turn Ons/Private Chat Options sections
+    // above the existing generated body. Replaces v5.7.0 AWE meta and
+    // v5.8.0–v5.8.6 External Profile Evidence meta (both removed).
+    const META_SEED_EXTERNAL_BIO          = '_tmwseo_seed_external_bio';
+    const META_SEED_EXTERNAL_TURN_ONS     = '_tmwseo_seed_external_turn_ons';
+    const META_SEED_EXTERNAL_PRIVATE_CHAT = '_tmwseo_seed_external_private_chat';
 
     /**
      * JSON blob of proposed (un-applied) data from the last pipeline run.
@@ -593,11 +578,9 @@ class ModelHelper {
         add_action( 'admin_post_tmwseo_discard_research',     [ __CLASS__, 'handle_discard_research' ] );
         add_action( 'admin_post_tmwseo_bulk_research_page',   [ __CLASS__, 'handle_page_bulk_research' ] );
 
-        // ── AWE evidence fetch (v5.7.0) ──────────────────────────────────────
-        add_action( 'wp_ajax_tmwseo_awe_fetch_evidence', [ __CLASS__, 'ajax_awe_fetch_evidence' ] );
-
-        // ── External profile evidence: generate transform suggestions (v5.8.0) ──
-        add_action( 'wp_ajax_tmwseo_ext_generate_suggestions', [ __CLASS__, 'ajax_ext_generate_suggestions' ] );
+        // AWE + External Profile Evidence AJAX endpoints REMOVED in v5.8.7.
+        // The simple 3-textarea Model Research evidence flow does not need
+        // any AJAX — fields save with the standard post update.
 
         // ── Register DataForSEO SERP provider if credentials present ──────────
         // 4.6.1: Auto-registers ModelSerpResearchProvider when DataForSEO is configured.
@@ -1435,6 +1418,32 @@ class ModelHelper {
             __( 'Editor Seed: Tone Hint (Optional)', 'tmwseo' ),
             __( 'Optional writing guidance for AI output, e.g. concise and neutral, warm and practical.', 'tmwseo' )
         );
+        // ── External evidence textareas (v5.8.7) ──────────────────────────────
+        // Operator-pasted evidence used to seed the 3 sections that prepend
+        // above the generated model body: About / Turn Ons / Private Chat
+        // Options. Saved as plain text; humanized at generation time by
+        // \TMWSEO\Engine\Content\ModelResearchEvidence.
+        $seed_ext_bio        = (string) get_post_meta( $post->ID, self::META_SEED_EXTERNAL_BIO, true );
+        $seed_ext_turn_ons   = (string) get_post_meta( $post->ID, self::META_SEED_EXTERNAL_TURN_ONS, true );
+        $seed_ext_priv_chat  = (string) get_post_meta( $post->ID, self::META_SEED_EXTERNAL_PRIVATE_CHAT, true );
+        self::field_textarea(
+            'tmwseo_seed_external_bio', $seed_ext_bio,
+            __( 'Editor Seed: External Bio Evidence', 'tmwseo' ),
+            __( 'Paste raw bio evidence from external profile pages. The plugin will rewrite this into a humanized "About {Model}" section above the generated content. Never copied verbatim. First-person and HTML entities are stripped automatically.', 'tmwseo' ),
+            5
+        );
+        self::field_textarea(
+            'tmwseo_seed_external_turn_ons', $seed_ext_turn_ons,
+            __( 'Editor Seed: External Turn Ons Evidence', 'tmwseo' ),
+            __( 'Paste raw turn-ons evidence from external profile pages. The plugin will rewrite this into a safe "Turn Ons" section above the generated content. Crude phrasing ("darling", "horny", first-person) is stripped automatically.', 'tmwseo' ),
+            4
+        );
+        self::field_textarea(
+            'tmwseo_seed_external_private_chat', $seed_ext_priv_chat,
+            __( 'Editor Seed: External Private Chat Evidence', 'tmwseo' ),
+            __( 'Paste raw private-chat option list (commas, lines, or bullets all work). Explicit terms (anal sex, deepthroat, double penetration, squirt, cum, etc.) are removed automatically. Acronyms (JOI, POV, ASMR, C2C) preserved uppercase. Capped at 14 items.', 'tmwseo' ),
+            4
+        );
         echo '</table>';
 
         // ── Bio Evidence sub-panel ────────────────────────────────────────
@@ -1477,7 +1486,7 @@ class ModelHelper {
         echo '<th scope="row" style="width:160px;"><label for="tmwseo_bio_source_type">' . esc_html__( 'Source Type', 'tmwseo' ) . '</label></th>';
         echo '<td>';
         echo '<select name="tmwseo_bio_source_type" id="tmwseo_bio_source_type">';
-        $source_types = [ '' => '— Not set —', 'editor' => 'Editor-written', 'platform_page' => 'Platform page (reviewed)', 'press' => 'Press / interview', 'awe_api' => 'AWE API (reviewed)', 'wps_import' => 'WPS LiveJasmin import (reviewed)', 'none' => 'None / unknown' ];
+        $source_types = [ '' => '— Not set —', 'editor' => 'Editor-written', 'platform_page' => 'Platform page (reviewed)', 'press' => 'Press / interview', 'wps_import' => 'WPS LiveJasmin import (reviewed)', 'none' => 'None / unknown' ];
         foreach ( $source_types as $val => $label ) {
             $selected = selected( $bio_source_type, $val, false );
             echo '<option value="' . esc_attr( $val ) . '"' . $selected . '>' . esc_html( $label ) . '</option>';
@@ -1517,273 +1526,6 @@ class ModelHelper {
 
         echo '</table>';
 
-        // ── AWE Evidence Panel — REMOVED in v5.8.6 ────────────────────────────
-        // Per spec: AWE API does not provide useful model bio data, and
-        // wps-livejasmin already provides video metadata. The AWE Evidence UI
-        // was making the model editor messy without delivering bio value, so
-        // it has been removed from the model editor. The AweApiClient class
-        // remains loaded for any video-metadata callers that depend on it.
-        if ( false && class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class )
-            && \TMWSEO\Engine\Integrations\AweApiClient::is_active() ) {
-            // Disabled — see note above.
-        }
-        // ── End AWE Evidence Panel removal ───────────────────────────────────
-
-        // ── External Profile Evidence Panel (v5.8.0) ─────────────────────────
-        // Reviewed evidence from approved external sources (webcamexchange.com).
-        // Raw source text is stored for audit only — never rendered.
-        // Only 'approved' transformed text renders on the model page.
-        $ext_source_url      = (string) get_post_meta( $post->ID, self::META_EXT_SOURCE_URL, true );
-        $ext_source_title    = (string) get_post_meta( $post->ID, self::META_EXT_SOURCE_TITLE, true );
-        $ext_fetched_at      = (string) get_post_meta( $post->ID, self::META_EXT_FETCHED_AT, true );
-        $ext_raw_bio         = (string) get_post_meta( $post->ID, self::META_EXT_RAW_BIO, true );
-        $ext_raw_turn_ons    = (string) get_post_meta( $post->ID, self::META_EXT_RAW_TURN_ONS, true );
-        $ext_raw_priv_chat   = (string) get_post_meta( $post->ID, self::META_EXT_RAW_PRIVATE_CHAT, true );
-        $ext_trans_bio       = (string) get_post_meta( $post->ID, self::META_EXT_TRANSFORMED_BIO, true );
-        $ext_trans_turns     = (string) get_post_meta( $post->ID, self::META_EXT_TRANSFORMED_TURN_ONS, true );
-        $ext_trans_priv      = (string) get_post_meta( $post->ID, self::META_EXT_TRANSFORMED_PRIVATE, true );
-        $ext_review_status   = (string) get_post_meta( $post->ID, self::META_EXT_REVIEW_STATUS, true );
-        $ext_reviewer_notes  = (string) get_post_meta( $post->ID, self::META_EXT_REVIEWER_NOTES, true );
-        $ext_reviewed_at     = (string) get_post_meta( $post->ID, self::META_EXT_REVIEWED_AT, true );
-
-        echo '<hr style="margin:22px 0 14px;">';
-        echo '<h4 style="margin:0 0 8px;font-size:13px;color:#1e293b;">' . esc_html__( 'External Profile Evidence (webcamexchange.com)', 'tmwseo' ) . '</h4>';
-
-        // ── Readiness notice (v5.8.3, repositioned v5.8.6) ────────────────────
-        // Always visible above the collapsible details so operators see status
-        // at a glance even when the panel is collapsed.
-        if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
-            $readiness = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_admin_readiness_message( (int) $post->ID );
-        } else {
-            $has_any = trim( $ext_trans_bio ) !== '' || trim( $ext_trans_turns ) !== '' || trim( $ext_trans_priv ) !== '';
-            if ( $ext_review_status === 'approved' && $has_any ) {
-                $readiness = [ 'status' => 'green', 'message' => 'Approved evidence is ready and will be added above generated content.' ];
-            } elseif ( $has_any ) {
-                $readiness = [ 'status' => 'yellow', 'message' => 'Transformed evidence exists but will not appear until Review Status is Approved and the post is saved.' ];
-            } else {
-                $readiness = [ 'status' => 'red', 'message' => 'No transformed evidence available yet.' ];
-            }
-        }
-
-        $readiness_styles = [
-            'green'  => 'background:#f0fdf4;border-left:4px solid #16a34a;color:#14532d;',
-            'yellow' => 'background:#fefce8;border-left:4px solid #ca8a04;color:#713f12;',
-            'red'    => 'background:#fef2f2;border-left:4px solid #dc2626;color:#7f1d1d;',
-        ];
-        $readiness_icons = [ 'green' => '✓', 'yellow' => '⚠', 'red' => '✕' ];
-        $r_status = (string) ( $readiness['status'] ?? 'red' );
-        $r_style  = $readiness_styles[ $r_status ] ?? $readiness_styles['red'];
-        $r_icon   = $readiness_icons[ $r_status ] ?? '✕';
-        echo '<div id="tmwseo-ext-readiness-notice" style="' . esc_attr( $r_style ) . 'padding:9px 14px;margin-bottom:10px;font-size:12px;line-height:1.5;border-radius:0 4px 4px 0;">';
-        echo '<strong>' . esc_html( $r_icon . ' Evidence status: ' ) . '</strong>';
-        echo esc_html( (string) ( $readiness['message'] ?? '' ) );
-        echo '</div>';
-
-        // ── Collapsible panel (v5.8.6) ─────────────────────────────────────────
-        // Open by default when status is yellow/red so operators see what needs
-        // attention. Collapsed when green so the editor stays compact.
-        $details_open = ( $r_status === 'green' ) ? '' : ' open';
-        echo '<details class="tmwseo-ext-evidence-panel"' . $details_open . ' style="border:1px solid #e5e7eb;border-radius:4px;padding:10px 14px;margin-bottom:10px;background:#fafafa;">';
-        echo '<summary style="cursor:pointer;font-weight:600;font-size:12px;color:#374151;padding:2px 0;">';
-        echo esc_html__( 'Source URL, raw excerpts, transformed text, review status', 'tmwseo' );
-        echo '</summary>';
-
-        echo '<div style="background:#f0f9ff;border-left:4px solid #0284c7;padding:10px 14px;margin:10px 0 12px;font-size:11px;color:#374151;line-height:1.5;">';
-        echo '<strong>' . esc_html__( 'How to use:', 'tmwseo' ) . '</strong> ';
-        echo esc_html__( '1. Paste the source URL. 2. Paste raw text from the Bio, Turn Ons, and In Private Chat sections. 3. Click "Generate Suggestions" to auto-suggest third-person transformations. 4. Review and edit the transformed fields. 5. Set Review Status to Approved to enable rendering. Only approved transformed text is published — raw excerpts are audit-only.', 'tmwseo' );
-        echo '</div>';
-
-        echo '<table class="form-table" style="margin-top:0;">';
-
-        // Review Status (gate — set last after reviewing transformed content)
-        echo '<tr>';
-        echo '<th scope="row" style="width:160px;"><label for="tmwseo_ext_review_status">' . esc_html__( 'Review Status', 'tmwseo' ) . '</label></th>';
-        echo '<td>';
-        $ext_statuses = [ '' => '— Not set —', 'unreviewed' => 'Unreviewed', 'approved' => 'Approved (renders on page)', 'rejected' => 'Rejected (hidden)' ];
-        echo '<select name="tmwseo_ext_review_status" id="tmwseo_ext_review_status">';
-        foreach ( $ext_statuses as $val => $label ) {
-            echo '<option value="' . esc_attr( $val ) . '"' . selected( $ext_review_status, $val, false ) . '>' . esc_html( $label ) . '</option>';
-        }
-        echo '</select>';
-        echo '<p class="description">' . esc_html__( 'Only "Approved" evidence renders above generated content. Set this after reviewing and editing the transformed fields below.', 'tmwseo' ) . '</p>';
-        echo '</td></tr>';
-
-        // Source URL
-        self::field_text(
-            'tmwseo_ext_source_url', $ext_source_url,
-            __( 'Source URL', 'tmwseo' ),
-            __( 'Approved source: webcamexchange.com/actor/{slug}/  — audit trail only, never auto-linked.', 'tmwseo' )
-        );
-
-        // Source title
-        self::field_text(
-            'tmwseo_ext_source_title', $ext_source_title,
-            __( 'Source Title', 'tmwseo' ),
-            __( 'Page title or heading from source, for audit trail.', 'tmwseo' )
-        );
-
-        // Fetched At
-        self::field_text(
-            'tmwseo_ext_fetched_at', $ext_fetched_at,
-            __( 'Fetched / Pasted At', 'tmwseo' ),
-            __( 'Date source was checked (e.g. 2025-04-25). Audit trail only.', 'tmwseo' )
-        );
-
-        echo '</table>';
-
-        // Raw excerpts (audit only — separated by a warning banner)
-        echo '<div style="background:#fef9c3;border-left:4px solid #ca8a04;padding:8px 14px;margin:10px 0 8px;font-size:11px;color:#78350f;">';
-        echo '<strong>' . esc_html__( '⚠ Raw source excerpts — AUDIT ONLY. Never rendered on the public page.', 'tmwseo' ) . '</strong><br>';
-        echo esc_html__( 'Paste the exact text from the source page here for the audit trail. Do not edit — the raw fields should match the source exactly so any future compliance check can compare against the transformed versions.', 'tmwseo' );
-        echo '</div>';
-
-        echo '<table class="form-table" style="margin-top:0;">';
-
-        self::field_textarea(
-            'tmwseo_ext_raw_bio', $ext_raw_bio,
-            __( 'Raw Bio (source excerpt)', 'tmwseo' ),
-            __( 'Paste verbatim bio text from source. NEVER rendered. Audit trail only.', 'tmwseo' ),
-            4
-        );
-
-        self::field_textarea(
-            'tmwseo_ext_raw_turn_ons', $ext_raw_turn_ons,
-            __( 'Raw Turn Ons (source excerpt)', 'tmwseo' ),
-            __( 'Paste verbatim Turn Ons text from source. NEVER rendered. Audit trail only.', 'tmwseo' ),
-            3
-        );
-
-        self::field_textarea(
-            'tmwseo_ext_raw_private_chat', $ext_raw_priv_chat,
-            __( '"In Private Chat" excerpt (source)', 'tmwseo' ),
-            __( 'Paste verbatim "In Private Chat, I\'m willing to perform" text from source. NEVER rendered.', 'tmwseo' ),
-            3
-        );
-
-        echo '</table>';
-
-        // Generate Suggestions button
-        $gen_nonce = wp_create_nonce( 'tmwseo_ext_generate_suggestions_' . $post->ID );
-        echo '<p style="margin:8px 0 12px;">';
-        echo '<button type="button" id="tmwseo-ext-gen-btn" class="button" '
-           . 'data-post-id="' . esc_attr( (string) $post->ID ) . '" '
-           . 'data-nonce="' . esc_attr( $gen_nonce ) . '">';
-        echo esc_html__( 'Generate Suggestions', 'tmwseo' );
-        echo '</button>';
-        echo ' <span id="tmwseo-ext-gen-result" style="margin-left:10px;font-size:12px;display:none;"></span>';
-        echo '<span style="margin-left:12px;font-size:11px;color:#6b7280;">'
-           . esc_html__( 'Auto-suggests third-person transformed versions from the raw excerpts above. Review and edit before approving.', 'tmwseo' )
-           . '</span>';
-        echo '</p>';
-
-        // Transformed fields (operator edits these)
-        echo '<div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:8px 14px;margin:0 0 8px;font-size:11px;color:#14532d;">';
-        echo '<strong>' . esc_html__( '✓ Transformed fields — operator-reviewed; these render when status = Approved.', 'tmwseo' ) . '</strong><br>';
-        echo esc_html__( 'Edit until wording is accurate, third-person, editorial, and non-explicit. One paragraph per line.', 'tmwseo' );
-        echo '</div>';
-
-        echo '<table class="form-table" style="margin-top:0;">';
-
-        self::field_textarea(
-            'tmwseo_ext_transformed_bio', $ext_trans_bio,
-            __( 'Transformed Bio (renders on page)', 'tmwseo' ),
-            __( 'Third-person editorial bio. One paragraph per line. No first-person phrasing. No copied source text. 60–150 words recommended.', 'tmwseo' ),
-            5
-        );
-
-        self::field_textarea(
-            'tmwseo_ext_transformed_turn_ons', $ext_trans_turns,
-            __( 'Transformed Turn Ons (renders on page)', 'tmwseo' ),
-            __( 'Third-person editorial wording. E.g. "Turn-ons mentioned on the reviewed source include: ..."', 'tmwseo' ),
-            3
-        );
-
-        self::field_textarea(
-            'tmwseo_ext_transformed_private_chat', $ext_trans_priv,
-            __( 'Transformed Private Chat Options (renders on page)', 'tmwseo' ),
-            __( 'Third-person safe wording. E.g. "Private-chat options listed on the reviewed source include: ..." Include the session-change disclaimer.', 'tmwseo' ),
-            3
-        );
-
-        // Reviewer notes
-        self::field_textarea(
-            'tmwseo_ext_reviewer_notes', $ext_reviewer_notes,
-            __( 'Reviewer Notes', 'tmwseo' ),
-            __( 'Internal reviewer notes. Never rendered publicly.', 'tmwseo' ),
-            2
-        );
-
-        // Reviewed At
-        self::field_text(
-            'tmwseo_ext_reviewed_at', $ext_reviewed_at,
-            __( 'Reviewed At', 'tmwseo' ),
-            __( 'Date evidence was last reviewed (e.g. 2025-04-25). Audit trail only.', 'tmwseo' )
-        );
-
-        echo '</table>';
-
-        // Inline JS for Generate Suggestions button.
-        // Sends current textarea values directly — no post save required.
-        echo '<script>
-        (function(){
-            var btn = document.getElementById("tmwseo-ext-gen-btn");
-            var res = document.getElementById("tmwseo-ext-gen-result");
-            if (!btn) return;
-            btn.addEventListener("click", function(){
-                btn.disabled = true;
-                res.style.display = "inline";
-                res.style.color = "#555";
-                res.textContent = "Generating\u2026";
-
-                // Read current textarea values from the DOM — no save required.
-                var rawBio      = (document.querySelector("[name=tmwseo_ext_raw_bio]") || {}).value || "";
-                var rawTurnOns  = (document.querySelector("[name=tmwseo_ext_raw_turn_ons]") || {}).value || "";
-                var rawPriv     = (document.querySelector("[name=tmwseo_ext_raw_private_chat]") || {}).value || "";
-                var postTitle   = (document.getElementById("title") || document.getElementById("post_title") || {}).value || "";
-
-                fetch(ajaxurl, {
-                    method: "POST",
-                    headers: {"Content-Type":"application/x-www-form-urlencoded"},
-                    body: "action=tmwseo_ext_generate_suggestions"
-                        + "&post_id="        + encodeURIComponent(btn.dataset.postId)
-                        + "&_wpnonce="       + encodeURIComponent(btn.dataset.nonce)
-                        + "&raw_bio="        + encodeURIComponent(rawBio)
-                        + "&raw_turn_ons="   + encodeURIComponent(rawTurnOns)
-                        + "&raw_private_chat=" + encodeURIComponent(rawPriv)
-                        + "&model_name="     + encodeURIComponent(postTitle)
-                })
-                .then(function(r){ return r.json(); })
-                .then(function(d){
-                    if (d.success && d.data) {
-                        // Populate transformed fields — operator still reviews/edits/saves.
-                        // Review status is NOT changed here.
-                        if (d.data.bio)          document.querySelector("[name=tmwseo_ext_transformed_bio]").value = d.data.bio;
-                        if (d.data.turn_ons)     document.querySelector("[name=tmwseo_ext_transformed_turn_ons]").value = d.data.turn_ons;
-                        if (d.data.private_chat) document.querySelector("[name=tmwseo_ext_transformed_private_chat]").value = d.data.private_chat;
-                        var hasWarnings = d.data.warnings && d.data.warnings.length > 0;
-                        res.textContent = d.data.message || "Suggestions generated.";
-                        res.style.color = hasWarnings ? "#b45309" : "#16a34a";
-                        // Update readiness notice to yellow (suggestions exist, not yet approved).
-                        var notice = document.getElementById("tmwseo-ext-readiness-notice");
-                        if (notice) {
-                            notice.style.cssText = "background:#fefce8;border-left:4px solid #ca8a04;color:#713f12;padding:9px 14px;margin-bottom:12px;font-size:12px;line-height:1.5;border-radius:0 4px 4px 0;";
-                            notice.innerHTML = "<strong>⚠ Evidence status: </strong>" + (hasWarnings
-                                ? "Suggestions generated, but some text needed cleanup. Review carefully before approving."
-                                : "Transformed evidence exists but will not appear until Review Status is Approved and the post is saved.");
-                        }
-                    } else {
-                        res.textContent = (d.data && d.data.message) ? d.data.message : "Generation failed.";
-                        res.style.color = "#dc2626";
-                    }
-                    btn.disabled = false;
-                })
-                .catch(function(){ res.textContent = "Request failed."; res.style.color="#dc2626"; btn.disabled=false; });
-            });
-        })();
-        </script>';
-
-        // Close the collapsible <details> wrapper opened above (v5.8.6).
-        echo '</details>';
 
         // ── Save button ───────────────────────────────────────────────────
         echo '<p>';
@@ -2346,16 +2088,10 @@ class ModelHelper {
             // Bio evidence textarea fields
             'tmwseo_bio_summary'      => self::META_BIO_SUMMARY,
             'tmwseo_bio_source_facts' => self::META_BIO_SOURCE_FACTS,
-            // External profile evidence — raw excerpts (audit-only; stored, never rendered)
-            'tmwseo_ext_raw_bio'              => self::META_EXT_RAW_BIO,
-            'tmwseo_ext_raw_turn_ons'         => self::META_EXT_RAW_TURN_ONS,
-            'tmwseo_ext_raw_private_chat'     => self::META_EXT_RAW_PRIVATE_CHAT,
-            // External profile evidence — transformed fields (operator-reviewed; render when approved)
-            'tmwseo_ext_transformed_bio'          => self::META_EXT_TRANSFORMED_BIO,
-            'tmwseo_ext_transformed_turn_ons'     => self::META_EXT_TRANSFORMED_TURN_ONS,
-            'tmwseo_ext_transformed_private_chat' => self::META_EXT_TRANSFORMED_PRIVATE,
-            // Reviewer notes (internal)
-            'tmwseo_ext_reviewer_notes'       => self::META_EXT_REVIEWER_NOTES,
+            // Model Research external evidence (v5.8.7) — 3 simple textareas
+            'tmwseo_seed_external_bio'           => self::META_SEED_EXTERNAL_BIO,
+            'tmwseo_seed_external_turn_ons'      => self::META_SEED_EXTERNAL_TURN_ONS,
+            'tmwseo_seed_external_private_chat'  => self::META_SEED_EXTERNAL_PRIVATE_CHAT,
         ] as $post_key => $meta_key ) {
             $val = isset( $_POST[ $post_key ] )
                 ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $post_key ] ) )
@@ -2378,8 +2114,8 @@ class ModelHelper {
             if ( $post_key === 'tmwseo_bio_review_status' && ! in_array( $val, [ '', 'draft', 'reviewed' ], true ) ) {
                 $val = '';
             }
-            // Allowlist for source type.
-            if ( $post_key === 'tmwseo_bio_source_type' && ! in_array( $val, [ '', 'editor', 'platform_page', 'press', 'awe_api', 'wps_import', 'none' ], true ) ) {
+            // Allowlist for source type. v5.8.7: 'awe_api' removed.
+            if ( $post_key === 'tmwseo_bio_source_type' && ! in_array( $val, [ '', 'editor', 'platform_page', 'press', 'wps_import', 'none' ], true ) ) {
                 $val = '';
             }
             // Validate URL field.
@@ -2389,33 +2125,10 @@ class ModelHelper {
             update_post_meta( $post_id, $meta_key, $val );
         }
 
-        // External profile evidence — text / select / URL fields (v5.8.0)
-        foreach ( [
-            'tmwseo_ext_review_status' => self::META_EXT_REVIEW_STATUS,
-            'tmwseo_ext_source_title'  => self::META_EXT_SOURCE_TITLE,
-            'tmwseo_ext_fetched_at'    => self::META_EXT_FETCHED_AT,
-            'tmwseo_ext_reviewed_at'   => self::META_EXT_REVIEWED_AT,
-            'tmwseo_ext_source_url'    => self::META_EXT_SOURCE_URL,
-        ] as $post_key => $meta_key ) {
-            $val = isset( $_POST[ $post_key ] )
-                ? sanitize_text_field( wp_unslash( (string) $_POST[ $post_key ] ) )
-                : '';
-            // Allowlist for ext review status.
-            if ( $post_key === 'tmwseo_ext_review_status'
-                && ! in_array( $val, [ '', 'unreviewed', 'approved', 'rejected' ], true ) ) {
-                $val = '';
-            }
-            // Validate the source URL against approved host list.
-            if ( $post_key === 'tmwseo_ext_source_url' && $val !== '' ) {
-                $val = esc_url_raw( $val );
-                if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class )
-                    && ! \TMWSEO\Engine\Content\ExternalProfileEvidence::is_approved_source_url( $val ) ) {
-                    // Store but mark as non-approved host so reviewer is aware.
-                    // We do not block saving — operator may still use the audit trail.
-                }
-            }
-            update_post_meta( $post_id, $meta_key, $val );
-        }
+        // External profile evidence text/URL save block REMOVED in v5.8.7 —
+        // the simple 3-field flow uses sanitize_textarea_field on the 3
+        // META_SEED_EXTERNAL_* keys above. No source URL, review status,
+        // reviewed_at, or reviewer notes meta to persist.
 
         // URL fields — one per line → JSON array
         foreach ( [
@@ -2574,174 +2287,6 @@ class ModelHelper {
         echo '</p></div>';
     }
 
-    // ── AJAX handlers ────────────────────────────────────────────────────
-
-    /**
-     * AJAX: Fetch AWE evidence for a model post.
-     *
-     * Security:
-     *  - manage_options capability required.
-     *  - Post-specific nonce verified.
-     *  - Access key NEVER included in response.
-     *  - Raw AWE text NOT returned to browser.
-     */
-    public static function ajax_awe_fetch_evidence(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( [ 'message' => 'Insufficient permissions.' ], 403 );
-        }
-
-        $post_id = (int) ( $_POST['post_id'] ?? 0 );
-        if ( $post_id < 1 ) {
-            wp_send_json_error( [ 'message' => 'Invalid post ID.' ] );
-        }
-
-        $nonce = sanitize_text_field( wp_unslash( (string) ( $_POST['_wpnonce'] ?? '' ) ) );
-        if ( ! wp_verify_nonce( $nonce, 'tmwseo_awe_fetch_evidence_' . $post_id ) ) {
-            wp_send_json_error( [ 'message' => 'Invalid or expired nonce.' ], 403 );
-        }
-
-        $post = get_post( $post_id );
-        if ( ! $post ) {
-            wp_send_json_error( [ 'message' => 'Post not found.' ] );
-        }
-
-        if ( ! class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class )
-            || ! class_exists( \TMWSEO\Engine\Integrations\AweProfileEvidence::class ) ) {
-            wp_send_json_error( [ 'message' => 'AWE classes not loaded.' ], 500 );
-        }
-
-        if ( ! \TMWSEO\Engine\Integrations\AweApiClient::is_configured() ) {
-            wp_send_json_error( [ 'message' => 'AWE connector not configured. Add PSID and Access Key in Settings → AWE / AWEmpire API.' ] );
-        }
-
-        $performer_name = trim( (string) $post->post_title );
-        // Check for a verified LiveJasmin URL to extract username.
-        $platform_url = '';
-        $verified_lj  = (string) get_post_meta( $post_id, '_tmwseo_verified_url_livejasmin', true );
-        if ( $verified_lj === '' ) {
-            // Fallback: check social_urls for a LJ entry.
-            $social_raw = get_post_meta( $post_id, '_tmwseo_social_urls', true );
-            if ( is_array( $social_raw ) ) {
-                $platform_url = (string) ( $social_raw['livejasmin'] ?? '' );
-            }
-        } else {
-            $platform_url = $verified_lj;
-        }
-
-        $result = \TMWSEO\Engine\Integrations\AweProfileEvidence::fetch_evidence(
-            $post_id,
-            $performer_name,
-            $platform_url
-        );
-
-        if ( ! $result['ok'] ) {
-            wp_send_json_error( [
-                'message' => 'AWE fetch failed: ' . esc_html( $result['error'] ),
-            ] );
-        }
-
-        $ev = $result['evidence'];
-
-        // Return only safe, non-sensitive summary to the browser.
-        wp_send_json_success( [
-            'message'          => 'AWE evidence fetched. Confidence: ' . esc_html( $ev['confidence'] ?? 'unknown' ) . '. Fields found: ' . count( $ev['available_fields'] ?? [] ) . '.',
-            'confidence'       => esc_html( $ev['confidence'] ?? '' ),
-            'has_bio'          => ! empty( $ev['has_bio'] ),
-            'available_fields' => array_map( 'esc_html', (array) ( $ev['available_fields'] ?? [] ) ),
-            'fetched_at'       => esc_html( $ev['fetched_at'] ?? '' ),
-            // bio_excerpt_admin: short admin-only excerpt (≤200 chars). Never front-end.
-            'bio_excerpt_admin'=> ! empty( $ev['bio_excerpt_admin'] )
-                ? esc_html( mb_substr( $ev['bio_excerpt_admin'], 0, 200 ) )
-                : '',
-            // access_key is NEVER included here.
-        ] );
-    }
-
-    /**
-     * AJAX: Generate third-person transformation suggestions from raw source excerpts.
-     *
-     * Priority: $_POST raw values (current textarea content — no save needed) →
-     *           saved post meta (fallback when POST values are empty).
-     *
-     * Does NOT write to post meta. Does NOT change review_status.
-     * Suggestions are returned to the editor only; operator reviews, edits, and
-     * saves via the normal metabox save flow before approving.
-     *
-     * Security: manage_options + post-specific nonce.
-     */
-    public static function ajax_ext_generate_suggestions(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( [ 'message' => 'Insufficient permissions.' ], 403 );
-        }
-
-        $post_id = (int) ( $_POST['post_id'] ?? 0 );
-        if ( $post_id < 1 ) {
-            wp_send_json_error( [ 'message' => 'Invalid post ID.' ] );
-        }
-
-        $nonce = sanitize_text_field( wp_unslash( (string) ( $_POST['_wpnonce'] ?? '' ) ) );
-        if ( ! wp_verify_nonce( $nonce, 'tmwseo_ext_generate_suggestions_' . $post_id ) ) {
-            wp_send_json_error( [ 'message' => 'Invalid or expired nonce.' ], 403 );
-        }
-
-        if ( ! class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
-            wp_send_json_error( [ 'message' => 'ExternalProfileEvidence class not loaded.' ], 500 );
-        }
-
-        // ── Resolve raw values: POST first (current textarea) → saved meta fallback ──
-        $raw_bio      = sanitize_textarea_field( wp_unslash( (string) ( $_POST['raw_bio']          ?? '' ) ) );
-        $raw_turn_ons = sanitize_textarea_field( wp_unslash( (string) ( $_POST['raw_turn_ons']      ?? '' ) ) );
-        $raw_priv     = sanitize_textarea_field( wp_unslash( (string) ( $_POST['raw_private_chat']  ?? '' ) ) );
-        $model_name   = sanitize_text_field(    wp_unslash( (string) ( $_POST['model_name']         ?? '' ) ) );
-
-        if ( $raw_bio === '' ) {
-            $raw_bio = (string) get_post_meta( $post_id, self::META_EXT_RAW_BIO, true );
-        }
-        if ( $raw_turn_ons === '' ) {
-            $raw_turn_ons = (string) get_post_meta( $post_id, self::META_EXT_RAW_TURN_ONS, true );
-        }
-        if ( $raw_priv === '' ) {
-            $raw_priv = (string) get_post_meta( $post_id, self::META_EXT_RAW_PRIVATE_CHAT, true );
-        }
-
-        if ( $raw_bio === '' && $raw_turn_ons === '' && $raw_priv === '' ) {
-            wp_send_json_error( [ 'message' => 'No raw excerpts found. Paste raw Bio, Turn Ons, or Private Chat text first.' ] );
-        }
-
-        if ( $model_name === '' ) {
-            $post = get_post( $post_id );
-            $model_name = $post ? trim( (string) $post->post_title ) : '';
-        }
-
-        $ev = \TMWSEO\Engine\Content\ExternalProfileEvidence::class;
-
-        $suggested_bio   = $raw_bio      !== '' ? $ev::transform_bio( $raw_bio, $model_name )  : '';
-        $suggested_turns = $raw_turn_ons !== '' ? $ev::transform_turn_ons( $raw_turn_ons )      : '';
-        $suggested_priv  = $raw_priv     !== '' ? $ev::transform_private_chat( $raw_priv )      : '';
-
-        // Run the output sanitizer to catch any first-person remnants or broken tokens.
-        // Accumulate warnings so the operator knows if manual cleanup is needed.
-        $all_warnings = [];
-        [ 'text' => $suggested_bio,   'warnings' => $w ] = $ev::sanitize_output( $suggested_bio,   'Bio' );
-        $all_warnings = array_merge( $all_warnings, $w );
-        [ 'text' => $suggested_turns, 'warnings' => $w ] = $ev::sanitize_output( $suggested_turns, 'Turn Ons' );
-        $all_warnings = array_merge( $all_warnings, $w );
-        [ 'text' => $suggested_priv,  'warnings' => $w ] = $ev::sanitize_output( $suggested_priv,  'Private Chat' );
-        $all_warnings = array_merge( $all_warnings, $w );
-
-        $message = empty( $all_warnings )
-            ? 'Suggestions generated from current raw excerpts. Review and save before approving.'
-            : 'Suggestions generated, but please review warnings: ' . implode( ' | ', $all_warnings );
-
-        // Return suggestions to the editor only. No meta writes. No status change.
-        wp_send_json_success( [
-            'bio'          => esc_textarea( $suggested_bio ),
-            'turn_ons'     => esc_textarea( $suggested_turns ),
-            'private_chat' => esc_textarea( $suggested_priv ),
-            'message'      => $message,
-            'warnings'     => array_map( 'esc_html', $all_warnings ),
-        ] );
-    }
 
     public static function ajax_queue_research(): void {
         check_ajax_referer( 'tmwseo_queue_research_nonce', 'nonce' );

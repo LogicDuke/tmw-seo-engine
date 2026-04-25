@@ -113,6 +113,14 @@ class ClaudeContent {
 			$bio_evidence
 		);
 
+		// v5.8.7: append operator-pasted Model Research evidence as trusted context.
+		if ( class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class ) ) {
+			$seed_block = \TMWSEO\Engine\Content\ModelResearchEvidence::build_prompt_block( (int) $post->ID );
+			if ( $seed_block !== '' ) {
+				$user_msg .= "\n\n" . $seed_block . "\n";
+			}
+		}
+
 		$messages = [
 			[ 'role' => 'system', 'content' => $system_msg ],
 			[ 'role' => 'user',   'content' => $user_msg   ],

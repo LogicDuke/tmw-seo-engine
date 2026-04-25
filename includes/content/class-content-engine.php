@@ -290,8 +290,8 @@ class ContentEngine {
                 );
                 $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
                 // External Profile Evidence canonical prepend (v5.8.6) — Claude sparse fallback path.
-                if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
-                    $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+                if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
+                    $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
                 }
                 return [
                     'strategy'             => 'claude_sparse_fallback',
@@ -312,8 +312,8 @@ class ContentEngine {
                 $renderer_payload = array_merge($support_payload, $claude_result['payload']);
                 $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
                 // External Profile Evidence canonical prepend (v5.8.6) — Claude main path.
-                if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
-                    $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+                if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
+                    $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
                 }
                 $html = wp_kses_post(trim($html));
 
@@ -378,8 +378,8 @@ class ContentEngine {
             );
             $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
             // External Profile Evidence canonical prepend (v5.8.6) — OpenAI sparse fallback path.
-            if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
-                $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+            if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
+                $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
             }
             return [
                 'strategy' => 'openai_sparse_fallback',
@@ -542,6 +542,13 @@ class ContentEngine {
             $user_content .= "\nGENERIC POST TEMPLATE (required):\n" .
                 "- Provide an informative explainer structure with H1, 3-4 H2 sections, and FAQ.\n";
         }
+        // v5.8.7: append operator-pasted Model Research evidence as trusted context.
+        if ($is_model_page && class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)) {
+            $seed_block = \TMWSEO\Engine\Content\ModelResearchEvidence::build_prompt_block($post_id);
+            if ($seed_block !== '') {
+                $user_content .= "\n\n" . $seed_block . "\n";
+            }
+        }
         $res = OpenAI::chat_json([
             $system,
             ['role' => 'user', 'content' => $user_content],
@@ -589,8 +596,8 @@ class ContentEngine {
             $html = (string) ($validated['html'] ?? $html);
             $generated_focus_kw = trim((string) ($validated['focus_keyword'] ?? $generated_focus_kw));
             // External Profile Evidence canonical prepend (v5.8.6) — OpenAI main path.
-            if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
-                $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+            if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
+                $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
             }
         }
 
@@ -1201,8 +1208,8 @@ class ContentEngine {
                 $renderer_payload = array_merge($support_payload, $claude_result['payload']);
                 $generated_content = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
                 // External Profile Evidence canonical prepend (v5.8.6) — Claude assisted-draft path.
-                if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
-                    $generated_content = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $generated_content);
+                if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
+                    $generated_content = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $generated_content, (string) $post->post_title );
                 }
                 $generated_content = wp_kses_post($generated_content);
                 // Always use canonical builder for model pages — provider titles
@@ -1281,17 +1288,10 @@ class ContentEngine {
                 'post_content' => $final_content,
             ]);
 
-            // ── Evidence inclusion diagnostic (Part A / v5.8.3) ─────────────
-            // After saving, check if approved evidence was expected but missing.
-            if ( $post->post_type === 'model' && class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
-                $ev_diag = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_evidence_data( $post_id );
-                if ( $ev_diag['is_renderable'] ) {
-                    $saved = (string) get_post_field( 'post_content', $post_id );
-                    if ( stripos( $saved, '>Turn Ons<' ) === false && stripos( $saved, '>In Private Chat<' ) === false ) {
-                        error_log( '[TMW-EXT-EVIDENCE] Approved evidence exists but was not found in saved template content. post_id=' . $post_id );
-                    }
-                }
-            }
+            // Evidence inclusion diagnostic REMOVED in v5.8.7 — Model Research
+            // Evidence is applied through ModelResearchEvidence::prepend_sections()
+            // before save, so a post-save miss check is no longer meaningful.
+
             if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
             if ($focus_kw !== '') {
                 // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
@@ -1441,6 +1441,13 @@ class ContentEngine {
             $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";
             $user_content .= "- Affiliate priority must not influence editorial weighting in comparison prose.\n";
         }
+        // v5.8.7: append operator-pasted Model Research evidence as trusted context.
+        if ($is_model_page && class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)) {
+            $seed_block = \TMWSEO\Engine\Content\ModelResearchEvidence::build_prompt_block($post_id);
+            if ($seed_block !== '') {
+                $user_content .= "\n\n" . $seed_block . "\n";
+            }
+        }
 
         $user = [
             'role' => 'user',
@@ -1491,8 +1498,8 @@ class ContentEngine {
             $html = $validated['html'];
             $focus_kw = $validated['focus_keyword'];
             // External Profile Evidence canonical prepend (v5.8.6) — OpenAI optimize_job path.
-            if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
-                $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+            if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
+                $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
             }
         }
 

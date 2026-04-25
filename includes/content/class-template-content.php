@@ -281,17 +281,18 @@ class TemplateContent {
         $content = self::ensure_minimum_useful_depth($content, $name, $active_platforms, $resolved_destinations, $primary_platform_label, $seed);
         $content = self::apply_lightweight_content_guardrails($content, $name);
 
-        // ── External Profile Evidence (v5.8.6) — canonical prepend ───────────
-        // Single insertion point for the 3 reviewed-evidence sections (About /
-        // Turn Ons / Private Chat Options). The renderer:
-        //   - reads approved evidence via ExternalProfileEvidence::get_evidence_data()
+        // ── Model Research Evidence prepend (v5.8.7) ────────────────────────
+        // Single insertion point for the 3 operator-pasted seed sections
+        // (About / Turn Ons / Private Chat Options). The helper:
+        //   - reads the 3 _tmwseo_seed_external_* meta fields
+        //   - humanizes them (denylist + canonicaliser + entity decode)
         //   - strips any prior wrapper-marker block (idempotent re-generation)
         //   - prepends a fresh block above the existing generated body
         // Existing body is NEVER modified — this is purely additive.
-        if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class ) ) {
-            $content = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content( (int) $post->ID, $content );
+        if ( class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class ) ) {
+            $content = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( (int) $post->ID, $content, (string) $post->post_title );
         }
-        // ── End external profile evidence prepend ───────────────────────────
+        // ── End Model Research Evidence prepend ─────────────────────────────
 
         // ── Keyword heading enforcement (all modes share this post-render step) ─
         $enforcement = self::enforce_keyword_heading_placement($content, $rankmath_keywords, $name);
@@ -448,7 +449,10 @@ class TemplateContent {
                 'fan_platforms' => (array) ($resolved_destinations['fan_platform_destinations'] ?? []),
                 'tube' => (array) ($resolved_destinations['tube_destinations'] ?? []),
             ],
-        ] + self::build_external_evidence_payload( (int) $post->ID );
+        ];
+        // External evidence payload bridge REMOVED in v5.8.7 — Model Research
+        // Evidence is now applied via ModelResearchEvidence::prepend_sections()
+        // at the generation save points, not via renderer-payload keys.
     }
 
     /**
@@ -982,48 +986,11 @@ class TemplateContent {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // EXTERNAL PROFILE EVIDENCE (v5.8.0) — reviewed webcamexchange.com sections
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Build the 3 reviewed-evidence payload keys for the renderer.
-     *
-     * Returns empty arrays when no approved evidence exists — the renderer
-     * simply skips those sections. This is the sole bridge between the
-     * ExternalProfileEvidence store and the renderer payload, called from
-     * build_model_renderer_support_payload() so ALL 3 generation strategies
-     * (Template, OpenAI, Claude) benefit automatically.
-     *
-     * Keys returned:
-     *   reviewed_bio_section_paragraphs    — rendered if non-empty
-     *   turn_ons_section_paragraphs        — rendered if non-empty
-     *   private_chat_section_paragraphs    — rendered if non-empty
-     *
-     * @return array{reviewed_bio_section_paragraphs:string[],turn_ons_section_paragraphs:string[],private_chat_section_paragraphs:string[]}
-     */
-    public static function build_external_evidence_payload( int $post_id ): array {
-        $empty = [
-            'reviewed_bio_section_paragraphs'     => [],
-            'turn_ons_section_paragraphs'         => [],
-            'private_chat_section_paragraphs'     => [],
-        ];
-
-        if ( ! class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
-            return $empty;
-        }
-
-        $ev = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_evidence_data( $post_id );
-        if ( ! $ev['is_renderable'] ) {
-            return $empty;
-        }
-
-        return [
-            'reviewed_bio_section_paragraphs'     => $ev['bio_paragraphs'],
-            'turn_ons_section_paragraphs'         => $ev['turn_ons_paragraphs'],
-            'private_chat_section_paragraphs'     => $ev['private_chat_paragraphs'],
-        ];
-    }
-
+    // EXTERNAL PROFILE EVIDENCE (v5.8.0–v5.8.6) — REMOVED in v5.8.7.
+    // The 3-field model-research evidence flow is now handled directly by
+    // \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections() called
+    // from each generation save path. There is no longer a renderer-payload
+    // bridge.
     // ─────────────────────────────────────────────────────────────────────────
     // KEYWORD HEADING ENFORCEMENT  (post-render, all modes)
     // ─────────────────────────────────────────────────────────────────────────

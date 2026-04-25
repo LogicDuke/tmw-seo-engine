@@ -19,48 +19,10 @@ class ModelPageRenderer {
         $sections = [];
         $secondary_heading_slots = self::normalize_secondary_heading_slots($payload['secondary_heading_slots'] ?? []);
 
-        // ── Reviewed external-evidence sections (v5.8.0) ──────────────────────
-        // Prepended above the generated page body when approved evidence exists.
-        // These sections are additive — they do NOT replace intro or any other section.
-        // Raw source text and first-person phrasing are never in these arrays;
-        // ExternalProfileEvidence::get_evidence_data() gates on 'approved' status only.
-
-        $reviewed_bio_ps = $payload['reviewed_bio_section_paragraphs'] ?? [];
-        if ( ! empty( $reviewed_bio_ps ) ) {
-            $reviewed_bio = self::render_section(
-                'About ' . $name,
-                $reviewed_bio_ps,
-                $name
-            );
-            if ( $reviewed_bio !== '' ) {
-                $sections[] = $reviewed_bio;
-            }
-        }
-
-        $turn_ons_ps = $payload['turn_ons_section_paragraphs'] ?? [];
-        if ( ! empty( $turn_ons_ps ) ) {
-            $turn_ons = self::render_section(
-                'Turn Ons',
-                $turn_ons_ps,
-                $name
-            );
-            if ( $turn_ons !== '' ) {
-                $sections[] = $turn_ons;
-            }
-        }
-
-        $private_chat_ps = $payload['private_chat_section_paragraphs'] ?? [];
-        if ( ! empty( $private_chat_ps ) ) {
-            $private_chat = self::render_section(
-                'In Private Chat',
-                $private_chat_ps,
-                $name
-            );
-            if ( $private_chat !== '' ) {
-                $sections[] = $private_chat;
-            }
-        }
-        // ── End reviewed-evidence sections ──────────────────────────────────
+        // External evidence sections (v5.8.0–v5.8.6) REMOVED in v5.8.7.
+        // Model Research Evidence is now applied at the generation save points
+        // via ModelResearchEvidence::prepend_sections() — the renderer no
+        // longer reads evidence-payload keys.
 
         $intro_paragraphs = $payload['intro_paragraphs'] ?? [];
         $seed_summary = trim((string)($payload['editor_seed_summary'] ?? ''));
