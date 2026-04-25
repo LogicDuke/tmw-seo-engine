@@ -128,7 +128,7 @@ class ModelResearchEvidence {
 		if ( $f['bio'] !== '' ) {
 			$bio_text = self::humanize_bio( $f['bio'], $name );
 			if ( $bio_text !== '' ) {
-				$parts[] = '<h2>' . esc_html( 'About ' . $name ) . "</h2>\n" . '<p>' . esc_html( $bio_text ) . "</p>";
+				$parts[] = '<p>' . esc_html( $bio_text ) . '</p>';
 			}
 		}
 
@@ -188,10 +188,11 @@ class ModelResearchEvidence {
 		// Stage 3: legacy heading-trio strip (best-effort).
 		// Only run when the document clearly leads with one of the recognised
 		// evidence headings — never strip body content.
-		if ( preg_match( '#^\s*<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#i', $html ) ) {
+		if ( preg_match( '#^\s*(?:<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>|<p[^>]*>.*?</p>\s*<h2[^>]*>\s*(?:Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>)#is', $html ) ) {
 			$heading_pattern =
 				'#^\s*'
 				. '(?:<h2[^>]*>\s*About\s+[^<]+</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
+				. '(?:<p[^>]*>.*?</p>\s*)?'
 				. '(?:<h2[^>]*>\s*Turn\s+Ons\s*</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
 				. '(?:<h2[^>]*>\s*(?:Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
 				. '#is';
