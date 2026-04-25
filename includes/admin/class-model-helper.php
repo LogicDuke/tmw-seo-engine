@@ -1748,7 +1748,8 @@ class ModelHelper {
 
         echo '</table>';
 
-        // Inline JS for Generate Suggestions button
+        // Inline JS for Generate Suggestions button.
+        // Sends current textarea values directly — no post save required.
         echo '<script>
         (function(){
             var btn = document.getElementById("tmwseo-ext-gen-btn");
@@ -1759,21 +1760,33 @@ class ModelHelper {
                 res.style.display = "inline";
                 res.style.color = "#555";
                 res.textContent = "Generating\u2026";
+
+                // Read current textarea values from the DOM — no save required.
+                var rawBio      = (document.querySelector("[name=tmwseo_ext_raw_bio]") || {}).value || "";
+                var rawTurnOns  = (document.querySelector("[name=tmwseo_ext_raw_turn_ons]") || {}).value || "";
+                var rawPriv     = (document.querySelector("[name=tmwseo_ext_raw_private_chat]") || {}).value || "";
+                var postTitle   = (document.getElementById("title") || document.getElementById("post_title") || {}).value || "";
+
                 fetch(ajaxurl, {
                     method: "POST",
                     headers: {"Content-Type":"application/x-www-form-urlencoded"},
                     body: "action=tmwseo_ext_generate_suggestions"
-                        + "&post_id=" + encodeURIComponent(btn.dataset.postId)
-                        + "&_wpnonce=" + encodeURIComponent(btn.dataset.nonce)
+                        + "&post_id="        + encodeURIComponent(btn.dataset.postId)
+                        + "&_wpnonce="       + encodeURIComponent(btn.dataset.nonce)
+                        + "&raw_bio="        + encodeURIComponent(rawBio)
+                        + "&raw_turn_ons="   + encodeURIComponent(rawTurnOns)
+                        + "&raw_private_chat=" + encodeURIComponent(rawPriv)
+                        + "&model_name="     + encodeURIComponent(postTitle)
                 })
                 .then(function(r){ return r.json(); })
                 .then(function(d){
                     if (d.success && d.data) {
-                        // Populate transformed fields with suggestions (operator still edits).
-                        if (d.data.bio) document.querySelector("[name=tmwseo_ext_transformed_bio]").value = d.data.bio;
-                        if (d.data.turn_ons) document.querySelector("[name=tmwseo_ext_transformed_turn_ons]").value = d.data.turn_ons;
+                        // Populate transformed fields — operator still reviews/edits/saves.
+                        // Review status is NOT changed here.
+                        if (d.data.bio)          document.querySelector("[name=tmwseo_ext_transformed_bio]").value = d.data.bio;
+                        if (d.data.turn_ons)     document.querySelector("[name=tmwseo_ext_transformed_turn_ons]").value = d.data.turn_ons;
                         if (d.data.private_chat) document.querySelector("[name=tmwseo_ext_transformed_private_chat]").value = d.data.private_chat;
-                        res.textContent = "Suggestions generated — review and edit before approving.";
+                        res.textContent = "Suggestions generated from current raw excerpts. Review and save before approving.";
                         res.style.color = "#16a34a";
                     } else {
                         res.textContent = (d.data && d.data.message) ? d.data.message : "Generation failed.";
@@ -2661,12 +2674,14 @@ class ModelHelper {
     /**
      * AJAX: Generate third-person transformation suggestions from raw source excerpts.
      *
-     * Reads raw excerpts already saved in post meta (operator pasted them),
-     * runs ExternalProfileEvidence transformer methods, and returns suggested
-     * third-person copy that the operator must review and edit before approving.
+     * Priority: $_POST raw values (current textarea content — no save needed) →
+     *           saved post meta (fallback when POST values are empty).
      *
-     * Security: manage_options + post-specific nonce. No raw text in response
-     * beyond the transformed suggestions (raw excerpts stay server-side).
+     * Does NOT write to post meta. Does NOT change review_status.
+     * Suggestions are returned to the editor only; operator reviews, edits, and
+     * saves via the normal metabox save flow before approving.
+     *
+     * Security: manage_options + post-specific nonce.
      */
     public static function ajax_ext_generate_suggestions(): void {
         if ( ! current_user_can( 'manage_options' ) ) {
@@ -2687,31 +2702,43 @@ class ModelHelper {
             wp_send_json_error( [ 'message' => 'ExternalProfileEvidence class not loaded.' ], 500 );
         }
 
-        $post = get_post( $post_id );
-        if ( ! $post ) {
-            wp_send_json_error( [ 'message' => 'Post not found.' ] );
+        // ── Resolve raw values: POST first (current textarea) → saved meta fallback ──
+        $raw_bio      = sanitize_textarea_field( wp_unslash( (string) ( $_POST['raw_bio']          ?? '' ) ) );
+        $raw_turn_ons = sanitize_textarea_field( wp_unslash( (string) ( $_POST['raw_turn_ons']      ?? '' ) ) );
+        $raw_priv     = sanitize_textarea_field( wp_unslash( (string) ( $_POST['raw_private_chat']  ?? '' ) ) );
+        $model_name   = sanitize_text_field(    wp_unslash( (string) ( $_POST['model_name']         ?? '' ) ) );
+
+        if ( $raw_bio === '' ) {
+            $raw_bio = (string) get_post_meta( $post_id, self::META_EXT_RAW_BIO, true );
+        }
+        if ( $raw_turn_ons === '' ) {
+            $raw_turn_ons = (string) get_post_meta( $post_id, self::META_EXT_RAW_TURN_ONS, true );
+        }
+        if ( $raw_priv === '' ) {
+            $raw_priv = (string) get_post_meta( $post_id, self::META_EXT_RAW_PRIVATE_CHAT, true );
         }
 
-        $model_name    = trim( (string) $post->post_title );
-        $raw_bio       = (string) get_post_meta( $post_id, self::META_EXT_RAW_BIO, true );
-        $raw_turn_ons  = (string) get_post_meta( $post_id, self::META_EXT_RAW_TURN_ONS, true );
-        $raw_priv      = (string) get_post_meta( $post_id, self::META_EXT_RAW_PRIVATE_CHAT, true );
-
         if ( $raw_bio === '' && $raw_turn_ons === '' && $raw_priv === '' ) {
-            wp_send_json_error( [ 'message' => 'No raw excerpts found. Paste and save raw source text first.' ] );
+            wp_send_json_error( [ 'message' => 'No raw excerpts found. Paste raw Bio, Turn Ons, or Private Chat text first.' ] );
+        }
+
+        if ( $model_name === '' ) {
+            $post = get_post( $post_id );
+            $model_name = $post ? trim( (string) $post->post_title ) : '';
         }
 
         $ev = \TMWSEO\Engine\Content\ExternalProfileEvidence::class;
 
-        $suggested_bio   = $raw_bio      !== '' ? $ev::transform_bio( $raw_bio, $model_name )        : '';
-        $suggested_turns = $raw_turn_ons !== '' ? $ev::transform_turn_ons( $raw_turn_ons )            : '';
-        $suggested_priv  = $raw_priv     !== '' ? $ev::transform_private_chat( $raw_priv )            : '';
+        $suggested_bio   = $raw_bio      !== '' ? $ev::transform_bio( $raw_bio, $model_name )  : '';
+        $suggested_turns = $raw_turn_ons !== '' ? $ev::transform_turn_ons( $raw_turn_ons )      : '';
+        $suggested_priv  = $raw_priv     !== '' ? $ev::transform_private_chat( $raw_priv )      : '';
 
+        // Return suggestions to the editor only. No meta writes. No status change.
         wp_send_json_success( [
-            'bio'          => esc_html( $suggested_bio ),
-            'turn_ons'     => esc_html( $suggested_turns ),
-            'private_chat' => esc_html( $suggested_priv ),
-            'message'      => 'Suggestions generated. Review, edit, and then set status to Approved.',
+            'bio'          => esc_textarea( $suggested_bio ),
+            'turn_ons'     => esc_textarea( $suggested_turns ),
+            'private_chat' => esc_textarea( $suggested_priv ),
+            'message'      => 'Suggestions generated from current raw excerpts. Review and save before approving.',
         ] );
     }
 

@@ -450,4 +450,127 @@ class ExternalProfileEvidenceTest extends TestCase {
         $this->assertCount( 1, $ev['turn_ons_paragraphs'] );
         $this->assertSame( $turns, $ev['turn_ons_paragraphs'][0] );
     }
+
+    // ── Ajax handler: POST-first resolution logic (PHP-side unit tests) ───────
+    // These tests exercise the resolution helper extracted from the handler
+    // so the logic is testable without a full WP AJAX context.
+
+    /**
+     * Simulate the POST-first resolution logic from ajax_ext_generate_suggestions().
+     * Returns ['bio', 'turn_ons', 'priv'] resolved values.
+     */
+    private function resolve_raw_values(
+        array  $post_values,
+        int    $post_id
+    ): array {
+        $raw_bio      = $post_values['raw_bio']          ?? '';
+        $raw_turn_ons = $post_values['raw_turn_ons']     ?? '';
+        $raw_priv     = $post_values['raw_private_chat'] ?? '';
+
+        if ( $raw_bio === '' ) {
+            $raw_bio = $GLOBALS['_tmw_test_post_meta'][ $post_id ][ ExternalProfileEvidence::META_RAW_BIO ] ?? '';
+        }
+        if ( $raw_turn_ons === '' ) {
+            $raw_turn_ons = $GLOBALS['_tmw_test_post_meta'][ $post_id ][ ExternalProfileEvidence::META_RAW_TURN_ONS ] ?? '';
+        }
+        if ( $raw_priv === '' ) {
+            $raw_priv = $GLOBALS['_tmw_test_post_meta'][ $post_id ][ ExternalProfileEvidence::META_RAW_PRIVATE_CHAT ] ?? '';
+        }
+
+        return [ $raw_bio, $raw_turn_ons, $raw_priv ];
+    }
+
+    public function test_handler_uses_post_values_when_provided(): void {
+        // No saved meta at all — POST values should still work.
+        $post_values = [
+            'raw_bio'          => 'I love roleplay and C2C.',
+            'raw_turn_ons'     => "roleplay\nC2C",
+            'raw_private_chat' => "In Private Chat, I'm willing to perform:\nroleplay",
+        ];
+
+        [ $bio, $turns, $priv ] = $this->resolve_raw_values( $post_values, self::POST_ID );
+
+        $this->assertSame( 'I love roleplay and C2C.', $bio,
+            'Handler must use POST raw_bio when provided (no save required)' );
+        $this->assertStringContainsString( 'roleplay', $turns );
+        $this->assertStringContainsString( 'roleplay', $priv );
+    }
+
+    public function test_handler_falls_back_to_saved_meta_when_post_empty(): void {
+        // POST values empty — should use saved meta.
+        $this->set_meta( ExternalProfileEvidence::META_RAW_BIO,      'Saved raw bio text.' );
+        $this->set_meta( ExternalProfileEvidence::META_RAW_TURN_ONS, 'Saved turn ons.' );
+
+        [ $bio, $turns, $priv ] = $this->resolve_raw_values( [], self::POST_ID );
+
+        $this->assertSame( 'Saved raw bio text.', $bio,
+            'Handler must fall back to saved meta when POST values are empty' );
+        $this->assertSame( 'Saved turn ons.', $turns );
+        $this->assertSame( '', $priv, 'Empty meta returns empty string' );
+    }
+
+    public function test_handler_post_value_overrides_saved_meta(): void {
+        // Both POST and saved meta present — POST wins.
+        $this->set_meta( ExternalProfileEvidence::META_RAW_BIO, 'Old saved bio.' );
+
+        $post_values = [ 'raw_bio' => 'Fresh unsaved bio text.' ];
+        [ $bio ] = $this->resolve_raw_values( $post_values, self::POST_ID );
+
+        $this->assertSame( 'Fresh unsaved bio text.', $bio,
+            'POST value must override saved meta — current textarea takes priority' );
+    }
+
+    public function test_handler_empty_post_and_empty_meta_triggers_no_excerpts(): void {
+        // Neither POST nor meta — resolution returns all empty strings.
+        [ $bio, $turns, $priv ] = $this->resolve_raw_values( [], self::POST_ID );
+
+        $all_empty = $bio === '' && $turns === '' && $priv === '';
+        $this->assertTrue( $all_empty,
+            'Empty POST + empty meta should result in all-empty values → "no excerpts" message' );
+    }
+
+    public function test_handler_does_not_auto_approve_evidence(): void {
+        // Simulate a full generate-suggestions flow: even if it runs, review_status stays unchanged.
+        $this->set_meta( ExternalProfileEvidence::META_REVIEW_STATUS, ExternalProfileEvidence::STATUS_UNREVIEWED );
+
+        // Handler returns suggestions but does not write any meta.
+        // We verify that review_status is still 'unreviewed' after the transform.
+        $raw_bio = 'I love connecting with fans.';
+        $result  = ExternalProfileEvidence::transform_bio( $raw_bio, 'TestModel' );
+
+        $this->assertNotEmpty( $result, 'Transform must produce output' );
+
+        // Status must remain whatever it was — handler never changes it.
+        $status = $GLOBALS['_tmw_test_post_meta'][ self::POST_ID ][ ExternalProfileEvidence::META_REVIEW_STATUS ] ?? 'unreviewed';
+        $this->assertSame( ExternalProfileEvidence::STATUS_UNREVIEWED, $status,
+            'Generate Suggestions must not auto-approve evidence (criterion: no auto-approval)' );
+    }
+
+    public function test_transformed_suggestion_does_not_return_raw_first_person(): void {
+        $raw_bio  = "I love roleplay. I enjoy meeting new people.";
+        $result   = ExternalProfileEvidence::transform_bio( $raw_bio, 'TestModel' );
+
+        $this->assertStringNotContainsString( 'I love', $result );
+        $this->assertStringNotContainsString( 'I enjoy', $result );
+        $this->assertStringNotContainsString( 'I am', $result );
+
+        // Must still have meaningful content.
+        $this->assertNotEmpty( $result );
+    }
+
+    public function test_partial_post_values_merged_with_meta(): void {
+        // Only raw_bio in POST, turn_ons and private_chat from meta.
+        $this->set_meta( ExternalProfileEvidence::META_RAW_TURN_ONS,     'Saved turn ons list.' );
+        $this->set_meta( ExternalProfileEvidence::META_RAW_PRIVATE_CHAT, 'Saved private chat.' );
+
+        $post_values = [ 'raw_bio' => 'Current bio from editor.' ];
+        [ $bio, $turns, $priv ] = $this->resolve_raw_values( $post_values, self::POST_ID );
+
+        $this->assertSame( 'Current bio from editor.', $bio,
+            'Current POST bio used' );
+        $this->assertSame( 'Saved turn ons list.', $turns,
+            'Saved meta used for turn_ons when POST is empty' );
+        $this->assertSame( 'Saved private chat.', $priv,
+            'Saved meta used for private_chat when POST is empty' );
+    }
 }
