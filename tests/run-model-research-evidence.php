@@ -191,20 +191,31 @@ $legacy_cleaned = ModelResearchEvidence::prepend_sections( $post_id, $legacy_hea
 ok( strpos( $legacy_cleaned, '<h2>About Anisyia</h2>' ) === false,   'E13: old heading-only About block stripped on regeneration' );
 ok( substr_count( $legacy_cleaned, ModelResearchEvidence::MARKER_START ) === 1, 'E14: regeneration inserts one modern marker block' );
 
+$paragraph_first_legacy = '<p>Anisyia\'s profile evidence points to a style built around lingerie looks. Treat these notes as profile-based context rather than a guarantee.</p>'
+	. '<h2>Turn Ons</h2><p>old turns</p><h2>Private Chat Options</h2><p>old priv</p>'
+	. $base_body;
+$paragraph_first_cleaned = ModelResearchEvidence::prepend_sections( $post_id, $paragraph_first_legacy, 'Anisyia' );
+ok( strpos( $paragraph_first_cleaned, 'old turns' ) === false && strpos( $paragraph_first_cleaned, 'old priv' ) === false, 'E15: paragraph-first evidence block stripped on regeneration' );
+ok( substr_count( $paragraph_first_cleaned, ModelResearchEvidence::MARKER_START ) === 1, 'E16: paragraph-first regeneration remains single-marker idempotent' );
+
+$normal_intro = '<p>Normal intro</p><h2>Turn Ons</h2><p>Site navigation summary only.</p>' . $base_body;
+$normal_intro_cleaned = ModelResearchEvidence::strip_existing_sections( $normal_intro );
+ok( $normal_intro_cleaned === $normal_intro, 'E17: normal intro + Turn Ons is not stripped without markers/evidence wording' );
+
 // Empty fields → no section, nothing prepended
 update_post_meta( $post_id, ModelResearchEvidence::META_BIO,          '' );
 update_post_meta( $post_id, ModelResearchEvidence::META_TURN_ONS,     '' );
 update_post_meta( $post_id, ModelResearchEvidence::META_PRIVATE_CHAT, '' );
 $out_empty = ModelResearchEvidence::prepend_sections( $post_id, $base_body, 'Anisyia' );
-ok( strpos( $out_empty, ModelResearchEvidence::MARKER_START ) === false, 'E15: empty evidence produces no marker' );
-ok( $out_empty === $base_body,                                            'E16: empty evidence returns body unchanged' );
+ok( strpos( $out_empty, ModelResearchEvidence::MARKER_START ) === false, 'E18: empty evidence produces no marker' );
+ok( $out_empty === $base_body,                                            'E19: empty evidence returns body unchanged' );
 
 // Partial evidence (only bio): only the bio section renders
 update_post_meta( $post_id, ModelResearchEvidence::META_BIO,      'Anisyia loves lingerie and fashion shows.' );
 $out_partial = ModelResearchEvidence::prepend_sections( $post_id, $base_body, 'Anisyia' );
-ok( preg_match( '#<!-- tmwseo-seed-evidence:start -->\s*<p>.*?</p>#s', $out_partial ) === 1, 'E17: partial evidence: bio paragraph present without About heading' );
-ok( strpos( $out_partial, '<h2>Turn Ons</h2>' ) === false,         'E18: partial evidence: empty Turn Ons skipped' );
-ok( strpos( $out_partial, '<h2>Private Chat Options</h2>' ) === false, 'E19: partial evidence: empty Priv Chat skipped' );
+ok( preg_match( '#<!-- tmwseo-seed-evidence:start -->\s*<p>.*?</p>#s', $out_partial ) === 1, 'E20: partial evidence: bio paragraph present without About heading' );
+ok( strpos( $out_partial, '<h2>Turn Ons</h2>' ) === false,         'E21: partial evidence: empty Turn Ons skipped' );
+ok( strpos( $out_partial, '<h2>Private Chat Options</h2>' ) === false, 'E22: partial evidence: empty Priv Chat skipped' );
 
 // ─────────────────────────────────────────────────────────────────────────────
 echo "\n\033[1m=== F. Prompt block ===\033[0m\n";
