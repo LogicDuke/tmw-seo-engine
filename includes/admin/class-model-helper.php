@@ -1786,8 +1786,9 @@ class ModelHelper {
                         if (d.data.bio)          document.querySelector("[name=tmwseo_ext_transformed_bio]").value = d.data.bio;
                         if (d.data.turn_ons)     document.querySelector("[name=tmwseo_ext_transformed_turn_ons]").value = d.data.turn_ons;
                         if (d.data.private_chat) document.querySelector("[name=tmwseo_ext_transformed_private_chat]").value = d.data.private_chat;
-                        res.textContent = "Suggestions generated from current raw excerpts. Review and save before approving.";
-                        res.style.color = "#16a34a";
+                        var hasWarnings = d.data.warnings && d.data.warnings.length > 0;
+                        res.textContent = d.data.message || "Suggestions generated.";
+                        res.style.color = hasWarnings ? "#b45309" : "#16a34a";
                     } else {
                         res.textContent = (d.data && d.data.message) ? d.data.message : "Generation failed.";
                         res.style.color = "#dc2626";
@@ -2733,12 +2734,27 @@ class ModelHelper {
         $suggested_turns = $raw_turn_ons !== '' ? $ev::transform_turn_ons( $raw_turn_ons )      : '';
         $suggested_priv  = $raw_priv     !== '' ? $ev::transform_private_chat( $raw_priv )      : '';
 
+        // Run the output sanitizer to catch any first-person remnants or broken tokens.
+        // Accumulate warnings so the operator knows if manual cleanup is needed.
+        $all_warnings = [];
+        [ 'text' => $suggested_bio,   'warnings' => $w ] = $ev::sanitize_output( $suggested_bio,   'Bio' );
+        $all_warnings = array_merge( $all_warnings, $w );
+        [ 'text' => $suggested_turns, 'warnings' => $w ] = $ev::sanitize_output( $suggested_turns, 'Turn Ons' );
+        $all_warnings = array_merge( $all_warnings, $w );
+        [ 'text' => $suggested_priv,  'warnings' => $w ] = $ev::sanitize_output( $suggested_priv,  'Private Chat' );
+        $all_warnings = array_merge( $all_warnings, $w );
+
+        $message = empty( $all_warnings )
+            ? 'Suggestions generated from current raw excerpts. Review and save before approving.'
+            : 'Suggestions generated, but please review warnings: ' . implode( ' | ', $all_warnings );
+
         // Return suggestions to the editor only. No meta writes. No status change.
         wp_send_json_success( [
             'bio'          => esc_textarea( $suggested_bio ),
             'turn_ons'     => esc_textarea( $suggested_turns ),
             'private_chat' => esc_textarea( $suggested_priv ),
-            'message'      => 'Suggestions generated from current raw excerpts. Review and save before approving.',
+            'message'      => $message,
+            'warnings'     => array_map( 'esc_html', $all_warnings ),
         ] );
     }
 
