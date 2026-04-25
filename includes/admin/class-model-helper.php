@@ -500,6 +500,14 @@ class ModelHelper {
     const META_BIO_SOURCE_LABEL  = '_tmwseo_bio_source_label';
     const META_BIO_SOURCE_FACTS  = '_tmwseo_bio_source_facts';
 
+    // ── AWE evidence traceability keys (v5.7.0) ───────────────────────────────
+    // Written by AweProfileEvidence::save_evidence_meta() after a fetch.
+    // Read-only from ModelHelper — never written here directly.
+    const META_AWE_FETCHED_AT       = '_tmwseo_awe_evidence_fetched_at';
+    const META_AWE_AVAILABLE_FIELDS = '_tmwseo_awe_available_fields';
+    const META_AWE_CONFIDENCE       = '_tmwseo_awe_evidence_confidence';
+    const META_AWE_EVIDENCE_HASH    = '_tmwseo_bio_raw_evidence_hash';
+
     /**
      * JSON blob of proposed (un-applied) data from the last pipeline run.
      * Admins review this before applying anything.
@@ -568,6 +576,9 @@ class ModelHelper {
         add_action( 'admin_post_tmwseo_apply_model_research', [ __CLASS__, 'handle_apply_research' ] );
         add_action( 'admin_post_tmwseo_discard_research',     [ __CLASS__, 'handle_discard_research' ] );
         add_action( 'admin_post_tmwseo_bulk_research_page',   [ __CLASS__, 'handle_page_bulk_research' ] );
+
+        // ── AWE evidence fetch (v5.7.0) ──────────────────────────────────────
+        add_action( 'wp_ajax_tmwseo_awe_fetch_evidence', [ __CLASS__, 'ajax_awe_fetch_evidence' ] );
 
         // ── Register DataForSEO SERP provider if credentials present ──────────
         // 4.6.1: Auto-registers ModelSerpResearchProvider when DataForSEO is configured.
@@ -1447,7 +1458,7 @@ class ModelHelper {
         echo '<th scope="row" style="width:160px;"><label for="tmwseo_bio_source_type">' . esc_html__( 'Source Type', 'tmwseo' ) . '</label></th>';
         echo '<td>';
         echo '<select name="tmwseo_bio_source_type" id="tmwseo_bio_source_type">';
-        $source_types = [ '' => '— Not set —', 'editor' => 'Editor-written', 'platform_page' => 'Platform page (reviewed)', 'press' => 'Press / interview', 'wps_import' => 'WPS LiveJasmin import (reviewed)', 'none' => 'None / unknown' ];
+        $source_types = [ '' => '— Not set —', 'editor' => 'Editor-written', 'platform_page' => 'Platform page (reviewed)', 'press' => 'Press / interview', 'awe_api' => 'AWE API (reviewed)', 'wps_import' => 'WPS LiveJasmin import (reviewed)', 'none' => 'None / unknown' ];
         foreach ( $source_types as $val => $label ) {
             $selected = selected( $bio_source_type, $val, false );
             echo '<option value="' . esc_attr( $val ) . '"' . $selected . '>' . esc_html( $label ) . '</option>';
@@ -1486,6 +1497,84 @@ class ModelHelper {
         );
 
         echo '</table>';
+
+        // ── AWE Evidence Panel (v5.7.0) ───────────────────────────────────────
+        // Allows operators to fetch AWE API profile evidence for this model.
+        // Evidence is stored as post meta for review — never auto-published.
+        // Access key is never exposed here; only the result is shown.
+        if ( class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class )
+            && \TMWSEO\Engine\Integrations\AweApiClient::is_active() ) {
+
+            $awe_fetched_at  = (string) get_post_meta( $post->ID, self::META_AWE_FETCHED_AT, true );
+            $awe_confidence  = (string) get_post_meta( $post->ID, self::META_AWE_CONFIDENCE, true );
+            $awe_avail_raw   = (string) get_post_meta( $post->ID, self::META_AWE_AVAILABLE_FIELDS, true );
+            $awe_avail       = $awe_avail_raw ? (array) json_decode( $awe_avail_raw, true ) : [];
+            $awe_nonce       = wp_create_nonce( 'tmwseo_awe_fetch_evidence_' . $post->ID );
+
+            echo '<hr style="margin:18px 0 14px;">';
+            echo '<h4 style="margin:0 0 8px;font-size:13px;color:#1e293b;">' . esc_html__( 'AWE API Evidence', 'tmwseo' ) . '</h4>';
+            echo '<p style="font-size:11px;color:#6b7280;margin:0 0 10px;line-height:1.45;">';
+            echo esc_html__( 'Fetches profile evidence from the AWE API. Evidence is stored for review only — never auto-published. Write your own original Bio Summary above after reviewing the results.', 'tmwseo' );
+            echo '</p>';
+
+            if ( $awe_fetched_at ) {
+                echo '<p style="font-size:11px;margin:0 0 8px;">';
+                echo '<strong>' . esc_html__( 'Last fetch:', 'tmwseo' ) . '</strong> ' . esc_html( $awe_fetched_at );
+                if ( $awe_confidence ) {
+                    $conf_colours = [ 'high' => '#16a34a', 'medium' => '#b45309', 'low' => '#6b7280', 'none' => '#dc2626' ];
+                    $conf_col = $conf_colours[ $awe_confidence ] ?? '#555';
+                    echo ' &nbsp; <strong>' . esc_html__( 'Confidence:', 'tmwseo' ) . '</strong> <span style="color:' . esc_attr( $conf_col ) . ';">' . esc_html( ucfirst( $awe_confidence ) ) . '</span>';
+                }
+                echo '</p>';
+                if ( ! empty( $awe_avail ) ) {
+                    echo '<p style="font-size:11px;margin:0 0 8px;color:#374151;">';
+                    echo '<strong>' . esc_html__( 'Available AWE fields:', 'tmwseo' ) . '</strong> ';
+                    echo esc_html( implode( ', ', array_map( 'sanitize_text_field', $awe_avail ) ) );
+                    echo '</p>';
+                }
+            }
+
+            echo '<button type="button" id="tmwseo-awe-evidence-btn" class="button" '
+               . 'data-post-id="' . esc_attr( (string) $post->ID ) . '" '
+               . 'data-nonce="' . esc_attr( $awe_nonce ) . '">';
+            echo esc_html__( 'Fetch AWE Evidence', 'tmwseo' );
+            echo '</button>';
+            echo ' <span id="tmwseo-awe-evidence-result" style="margin-left:10px;font-size:12px;display:none;"></span>';
+
+            // Inline JS — no credential exposure, admin context only.
+            echo '<script>
+            (function(){
+                var btn = document.getElementById("tmwseo-awe-evidence-btn");
+                var res = document.getElementById("tmwseo-awe-evidence-result");
+                if (!btn) return;
+                btn.addEventListener("click", function(){
+                    btn.disabled = true;
+                    res.style.display = "inline";
+                    res.style.color = "#555";
+                    res.textContent = "Fetching\u2026";
+                    fetch(ajaxurl, {
+                        method: "POST",
+                        headers: {"Content-Type":"application/x-www-form-urlencoded"},
+                        body: "action=tmwseo_awe_fetch_evidence"
+                            + "&post_id=" + encodeURIComponent(btn.dataset.postId)
+                            + "&_wpnonce=" + encodeURIComponent(btn.dataset.nonce)
+                    })
+                    .then(function(r){ return r.json(); })
+                    .then(function(d){
+                        if (d.success && d.data) {
+                            res.textContent = d.data.message || "Done.";
+                            res.style.color = "#16a34a";
+                        } else {
+                            res.textContent = (d.data && d.data.message) ? d.data.message : "Fetch failed.";
+                            res.style.color = "#dc2626";
+                        }
+                        btn.disabled = false;
+                    })
+                    .catch(function(){ res.textContent = "Request failed."; res.style.color="#dc2626"; btn.disabled=false; });
+                });
+            })();
+            </script>';
+        }
 
         // ── Save button ───────────────────────────────────────────────────
         echo '<p>';
@@ -2071,7 +2160,7 @@ class ModelHelper {
                 $val = '';
             }
             // Allowlist for source type.
-            if ( $post_key === 'tmwseo_bio_source_type' && ! in_array( $val, [ '', 'editor', 'platform_page', 'press', 'wps_import', 'none' ], true ) ) {
+            if ( $post_key === 'tmwseo_bio_source_type' && ! in_array( $val, [ '', 'editor', 'platform_page', 'press', 'awe_api', 'wps_import', 'none' ], true ) ) {
                 $val = '';
             }
             // Validate URL field.
@@ -2239,6 +2328,87 @@ class ModelHelper {
     }
 
     // ── AJAX handlers ────────────────────────────────────────────────────
+
+    /**
+     * AJAX: Fetch AWE evidence for a model post.
+     *
+     * Security:
+     *  - manage_options capability required.
+     *  - Post-specific nonce verified.
+     *  - Access key NEVER included in response.
+     *  - Raw AWE text NOT returned to browser.
+     */
+    public static function ajax_awe_fetch_evidence(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Insufficient permissions.' ], 403 );
+        }
+
+        $post_id = (int) ( $_POST['post_id'] ?? 0 );
+        if ( $post_id < 1 ) {
+            wp_send_json_error( [ 'message' => 'Invalid post ID.' ] );
+        }
+
+        $nonce = sanitize_text_field( wp_unslash( (string) ( $_POST['_wpnonce'] ?? '' ) ) );
+        if ( ! wp_verify_nonce( $nonce, 'tmwseo_awe_fetch_evidence_' . $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid or expired nonce.' ], 403 );
+        }
+
+        $post = get_post( $post_id );
+        if ( ! $post ) {
+            wp_send_json_error( [ 'message' => 'Post not found.' ] );
+        }
+
+        if ( ! class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class )
+            || ! class_exists( \TMWSEO\Engine\Integrations\AweProfileEvidence::class ) ) {
+            wp_send_json_error( [ 'message' => 'AWE classes not loaded.' ], 500 );
+        }
+
+        if ( ! \TMWSEO\Engine\Integrations\AweApiClient::is_configured() ) {
+            wp_send_json_error( [ 'message' => 'AWE connector not configured. Add PSID and Access Key in Settings → AWE / AWEmpire API.' ] );
+        }
+
+        $performer_name = trim( (string) $post->post_title );
+        // Check for a verified LiveJasmin URL to extract username.
+        $platform_url = '';
+        $verified_lj  = (string) get_post_meta( $post_id, '_tmwseo_verified_url_livejasmin', true );
+        if ( $verified_lj === '' ) {
+            // Fallback: check social_urls for a LJ entry.
+            $social_raw = get_post_meta( $post_id, '_tmwseo_social_urls', true );
+            if ( is_array( $social_raw ) ) {
+                $platform_url = (string) ( $social_raw['livejasmin'] ?? '' );
+            }
+        } else {
+            $platform_url = $verified_lj;
+        }
+
+        $result = \TMWSEO\Engine\Integrations\AweProfileEvidence::fetch_evidence(
+            $post_id,
+            $performer_name,
+            $platform_url
+        );
+
+        if ( ! $result['ok'] ) {
+            wp_send_json_error( [
+                'message' => 'AWE fetch failed: ' . esc_html( $result['error'] ),
+            ] );
+        }
+
+        $ev = $result['evidence'];
+
+        // Return only safe, non-sensitive summary to the browser.
+        wp_send_json_success( [
+            'message'          => 'AWE evidence fetched. Confidence: ' . esc_html( $ev['confidence'] ?? 'unknown' ) . '. Fields found: ' . count( $ev['available_fields'] ?? [] ) . '.',
+            'confidence'       => esc_html( $ev['confidence'] ?? '' ),
+            'has_bio'          => ! empty( $ev['has_bio'] ),
+            'available_fields' => array_map( 'esc_html', (array) ( $ev['available_fields'] ?? [] ) ),
+            'fetched_at'       => esc_html( $ev['fetched_at'] ?? '' ),
+            // bio_excerpt_admin: short admin-only excerpt (≤200 chars). Never front-end.
+            'bio_excerpt_admin'=> ! empty( $ev['bio_excerpt_admin'] )
+                ? esc_html( mb_substr( $ev['bio_excerpt_admin'], 0, 200 ) )
+                : '',
+            // access_key is NEVER included here.
+        ] );
+    }
 
     public static function ajax_queue_research(): void {
         check_ajax_referer( 'tmwseo_queue_research_nonce', 'nonce' );

@@ -272,3 +272,18 @@ if ( ! class_exists( 'WP_Post' ) ) {
 }
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links-families.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links.php';
+
+
+// ── AWE connector test stubs (v5.7.0) ──────────────────────────────────────────
+// Split into two files: global functions first, then namespaced overrides.
+// Order matters: global stubs must be declared before the namespace file loads.
+require_once __DIR__ . '/awe-global-stubs.php';
+require_once __DIR__ . '/awe-namespace-stubs.php';
+
+// Load AWE connector classes after stubs so they pick up namespaced functions.
+if ( ! class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class ) ) {
+    require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-awe-api-client.php';
+}
+if ( ! class_exists( \TMWSEO\Engine\Integrations\AweProfileEvidence::class ) ) {
+    require_once TMWSEO_ENGINE_PATH . 'includes/integrations/class-awe-profile-evidence.php';
+}
