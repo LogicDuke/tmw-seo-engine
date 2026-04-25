@@ -128,7 +128,7 @@ class ModelResearchEvidence {
 		if ( $f['bio'] !== '' ) {
 			$bio_text = self::humanize_bio( $f['bio'], $name );
 			if ( $bio_text !== '' ) {
-				$parts[] = '<h2>' . esc_html( 'About ' . $name ) . "</h2>\n" . '<p>' . esc_html( $bio_text ) . "</p>";
+				$parts[] = '<p>' . esc_html( $bio_text ) . '</p>';
 			}
 		}
 
@@ -186,12 +186,22 @@ class ModelResearchEvidence {
 		$html = (string) preg_replace( $legacy_pattern, '', $html );
 
 		// Stage 3: legacy heading-trio strip (best-effort).
-		// Only run when the document clearly leads with one of the recognised
-		// evidence headings — never strip body content.
-		if ( preg_match( '#^\s*<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#i', $html ) ) {
+		// Keep this conservative: only strip paragraph-first blocks when the
+		// opening paragraph clearly looks like evidence wording.
+		$legacy_heading_start = preg_match(
+			'#^\s*<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#i',
+			$html
+		) === 1;
+		$paragraph_first_evidence = preg_match(
+			'#^\s*<p[^>]*>.*?(?:profile evidence points to|Treat these notes as profile-based context|profile-based context|Private chat options listed in the evidence).*?</p>\s*<h2[^>]*>\s*(?:Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#is',
+			$html
+		) === 1;
+
+		if ( $legacy_heading_start || $paragraph_first_evidence ) {
 			$heading_pattern =
 				'#^\s*'
 				. '(?:<h2[^>]*>\s*About\s+[^<]+</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
+				. '(?:<p[^>]*>.*?</p>\s*)?'
 				. '(?:<h2[^>]*>\s*Turn\s+Ons\s*</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
 				. '(?:<h2[^>]*>\s*(?:Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
 				. '#is';

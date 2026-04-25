@@ -30,7 +30,7 @@ class ModelPageRenderer {
             array_unshift($intro_paragraphs, $seed_summary);
         }
         $intro_paragraphs = self::with_direct_intro_answer($intro_paragraphs, $name, $payload);
-        $intro = self::render_paragraphs($intro_paragraphs, $name);
+        $intro = self::render_section('Official Profile Access', $intro_paragraphs, $name);
         if ($intro !== '') {
             $sections[] = $intro;
         }

@@ -408,6 +408,7 @@ class ModelPageRendererTest extends TestCase {
     public function test_T13_canonical_h2_sections_present(): void {
         $html = self::render(self::base_payload());
         $required_patterns = [
+            'Official Profile Access',
             'Where to Watch Live',
             'Other Official Destinations',
             'Social Profiles',
