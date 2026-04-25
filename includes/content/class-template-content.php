@@ -436,7 +436,7 @@ class TemplateContent {
                 'fan_platforms' => (array) ($resolved_destinations['fan_platform_destinations'] ?? []),
                 'tube' => (array) ($resolved_destinations['tube_destinations'] ?? []),
             ],
-        ];
+        ] + self::build_external_evidence_payload( (int) $post->ID );
     }
 
     /**
@@ -966,6 +966,49 @@ class TemplateContent {
             'source_label'  => $source_label,
             'source_facts'  => $source_facts,
             'is_reviewable' => $is_reviewable,
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // EXTERNAL PROFILE EVIDENCE (v5.8.0) — reviewed webcamexchange.com sections
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Build the 3 reviewed-evidence payload keys for the renderer.
+     *
+     * Returns empty arrays when no approved evidence exists — the renderer
+     * simply skips those sections. This is the sole bridge between the
+     * ExternalProfileEvidence store and the renderer payload, called from
+     * build_model_renderer_support_payload() so ALL 3 generation strategies
+     * (Template, OpenAI, Claude) benefit automatically.
+     *
+     * Keys returned:
+     *   reviewed_bio_section_paragraphs    — rendered if non-empty
+     *   turn_ons_section_paragraphs        — rendered if non-empty
+     *   private_chat_section_paragraphs    — rendered if non-empty
+     *
+     * @return array{reviewed_bio_section_paragraphs:string[],turn_ons_section_paragraphs:string[],private_chat_section_paragraphs:string[]}
+     */
+    public static function build_external_evidence_payload( int $post_id ): array {
+        $empty = [
+            'reviewed_bio_section_paragraphs'     => [],
+            'turn_ons_section_paragraphs'         => [],
+            'private_chat_section_paragraphs'     => [],
+        ];
+
+        if ( ! class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
+            return $empty;
+        }
+
+        $ev = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_evidence_data( $post_id );
+        if ( ! $ev['is_renderable'] ) {
+            return $empty;
+        }
+
+        return [
+            'reviewed_bio_section_paragraphs'     => $ev['bio_paragraphs'],
+            'turn_ons_section_paragraphs'         => $ev['turn_ons_paragraphs'],
+            'private_chat_section_paragraphs'     => $ev['private_chat_paragraphs'],
         ];
     }
 

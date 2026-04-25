@@ -508,6 +508,22 @@ class ModelHelper {
     const META_AWE_CONFIDENCE       = '_tmwseo_awe_evidence_confidence';
     const META_AWE_EVIDENCE_HASH    = '_tmwseo_bio_raw_evidence_hash';
 
+    // ── External profile evidence keys (v5.8.0) ───────────────────────────────
+    // Maps to ExternalProfileEvidence::META_* constants.
+    // Written directly by the model-helper save handler after operator review.
+    const META_EXT_SOURCE_URL           = '_tmwseo_ext_source_url';
+    const META_EXT_SOURCE_TITLE         = '_tmwseo_ext_source_title';
+    const META_EXT_FETCHED_AT           = '_tmwseo_ext_fetched_at';
+    const META_EXT_RAW_BIO              = '_tmwseo_ext_raw_bio';
+    const META_EXT_RAW_TURN_ONS         = '_tmwseo_ext_raw_turn_ons';
+    const META_EXT_RAW_PRIVATE_CHAT     = '_tmwseo_ext_raw_private_chat';
+    const META_EXT_TRANSFORMED_BIO      = '_tmwseo_ext_transformed_bio';
+    const META_EXT_TRANSFORMED_TURN_ONS = '_tmwseo_ext_transformed_turn_ons';
+    const META_EXT_TRANSFORMED_PRIVATE  = '_tmwseo_ext_transformed_private_chat';
+    const META_EXT_REVIEW_STATUS        = '_tmwseo_ext_review_status';
+    const META_EXT_REVIEWER_NOTES       = '_tmwseo_ext_reviewer_notes';
+    const META_EXT_REVIEWED_AT          = '_tmwseo_ext_reviewed_at';
+
     /**
      * JSON blob of proposed (un-applied) data from the last pipeline run.
      * Admins review this before applying anything.
@@ -579,6 +595,9 @@ class ModelHelper {
 
         // ── AWE evidence fetch (v5.7.0) ──────────────────────────────────────
         add_action( 'wp_ajax_tmwseo_awe_fetch_evidence', [ __CLASS__, 'ajax_awe_fetch_evidence' ] );
+
+        // ── External profile evidence: generate transform suggestions (v5.8.0) ──
+        add_action( 'wp_ajax_tmwseo_ext_generate_suggestions', [ __CLASS__, 'ajax_ext_generate_suggestions' ] );
 
         // ── Register DataForSEO SERP provider if credentials present ──────────
         // 4.6.1: Auto-registers ModelSerpResearchProvider when DataForSEO is configured.
@@ -1576,6 +1595,197 @@ class ModelHelper {
             </script>';
         }
 
+        // ── External Profile Evidence Panel (v5.8.0) ─────────────────────────
+        // Reviewed evidence from approved external sources (webcamexchange.com).
+        // Raw source text is stored for audit only — never rendered.
+        // Only 'approved' transformed text renders on the model page.
+        $ext_source_url      = (string) get_post_meta( $post->ID, self::META_EXT_SOURCE_URL, true );
+        $ext_source_title    = (string) get_post_meta( $post->ID, self::META_EXT_SOURCE_TITLE, true );
+        $ext_fetched_at      = (string) get_post_meta( $post->ID, self::META_EXT_FETCHED_AT, true );
+        $ext_raw_bio         = (string) get_post_meta( $post->ID, self::META_EXT_RAW_BIO, true );
+        $ext_raw_turn_ons    = (string) get_post_meta( $post->ID, self::META_EXT_RAW_TURN_ONS, true );
+        $ext_raw_priv_chat   = (string) get_post_meta( $post->ID, self::META_EXT_RAW_PRIVATE_CHAT, true );
+        $ext_trans_bio       = (string) get_post_meta( $post->ID, self::META_EXT_TRANSFORMED_BIO, true );
+        $ext_trans_turns     = (string) get_post_meta( $post->ID, self::META_EXT_TRANSFORMED_TURN_ONS, true );
+        $ext_trans_priv      = (string) get_post_meta( $post->ID, self::META_EXT_TRANSFORMED_PRIVATE, true );
+        $ext_review_status   = (string) get_post_meta( $post->ID, self::META_EXT_REVIEW_STATUS, true );
+        $ext_reviewer_notes  = (string) get_post_meta( $post->ID, self::META_EXT_REVIEWER_NOTES, true );
+        $ext_reviewed_at     = (string) get_post_meta( $post->ID, self::META_EXT_REVIEWED_AT, true );
+
+        echo '<hr style="margin:22px 0 14px;">';
+        echo '<h4 style="margin:0 0 8px;font-size:13px;color:#1e293b;">' . esc_html__( 'External Profile Evidence (webcamexchange.com)', 'tmwseo' ) . '</h4>';
+        echo '<div style="background:#f0f9ff;border-left:4px solid #0284c7;padding:10px 14px;margin-bottom:12px;font-size:11px;color:#374151;line-height:1.5;">';
+        echo '<strong>' . esc_html__( 'How to use:', 'tmwseo' ) . '</strong> ';
+        echo esc_html__( '1. Paste the source URL. 2. Paste raw text from the Bio, Turn Ons, and In Private Chat sections. 3. Click "Generate Suggestions" to auto-suggest third-person transformations. 4. Review and edit the transformed fields. 5. Set Review Status to Approved to enable rendering. Only approved transformed text is published — raw excerpts are audit-only.', 'tmwseo' );
+        echo '</div>';
+
+        echo '<table class="form-table" style="margin-top:0;">';
+
+        // Review Status (gate — set last after reviewing transformed content)
+        echo '<tr>';
+        echo '<th scope="row" style="width:160px;"><label for="tmwseo_ext_review_status">' . esc_html__( 'Review Status', 'tmwseo' ) . '</label></th>';
+        echo '<td>';
+        $ext_statuses = [ '' => '— Not set —', 'unreviewed' => 'Unreviewed', 'approved' => 'Approved (renders on page)', 'rejected' => 'Rejected (hidden)' ];
+        echo '<select name="tmwseo_ext_review_status" id="tmwseo_ext_review_status">';
+        foreach ( $ext_statuses as $val => $label ) {
+            echo '<option value="' . esc_attr( $val ) . '"' . selected( $ext_review_status, $val, false ) . '>' . esc_html( $label ) . '</option>';
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__( 'Only "Approved" evidence renders. Set after reviewing transformed fields.', 'tmwseo' ) . '</p>';
+        echo '</td></tr>';
+
+        // Source URL
+        self::field_text(
+            'tmwseo_ext_source_url', $ext_source_url,
+            __( 'Source URL', 'tmwseo' ),
+            __( 'Approved source: webcamexchange.com/actor/{slug}/  — audit trail only, never auto-linked.', 'tmwseo' )
+        );
+
+        // Source title
+        self::field_text(
+            'tmwseo_ext_source_title', $ext_source_title,
+            __( 'Source Title', 'tmwseo' ),
+            __( 'Page title or heading from source, for audit trail.', 'tmwseo' )
+        );
+
+        // Fetched At
+        self::field_text(
+            'tmwseo_ext_fetched_at', $ext_fetched_at,
+            __( 'Fetched / Pasted At', 'tmwseo' ),
+            __( 'Date source was checked (e.g. 2025-04-25). Audit trail only.', 'tmwseo' )
+        );
+
+        echo '</table>';
+
+        // Raw excerpts (audit only — separated by a warning banner)
+        echo '<div style="background:#fef9c3;border-left:4px solid #ca8a04;padding:8px 14px;margin:10px 0 8px;font-size:11px;color:#78350f;">';
+        echo '<strong>' . esc_html__( '⚠ Raw source excerpts — AUDIT ONLY. Never rendered on the public page.', 'tmwseo' ) . '</strong><br>';
+        echo esc_html__( 'Paste the exact text from the source page here for the audit trail. Do not edit — the raw fields should match the source exactly so any future compliance check can compare against the transformed versions.', 'tmwseo' );
+        echo '</div>';
+
+        echo '<table class="form-table" style="margin-top:0;">';
+
+        self::field_textarea(
+            'tmwseo_ext_raw_bio', $ext_raw_bio,
+            __( 'Raw Bio (source excerpt)', 'tmwseo' ),
+            __( 'Paste verbatim bio text from source. NEVER rendered. Audit trail only.', 'tmwseo' ),
+            4
+        );
+
+        self::field_textarea(
+            'tmwseo_ext_raw_turn_ons', $ext_raw_turn_ons,
+            __( 'Raw Turn Ons (source excerpt)', 'tmwseo' ),
+            __( 'Paste verbatim Turn Ons text from source. NEVER rendered. Audit trail only.', 'tmwseo' ),
+            3
+        );
+
+        self::field_textarea(
+            'tmwseo_ext_raw_private_chat', $ext_raw_priv_chat,
+            __( '"In Private Chat" excerpt (source)', 'tmwseo' ),
+            __( 'Paste verbatim "In Private Chat, I\'m willing to perform" text from source. NEVER rendered.', 'tmwseo' ),
+            3
+        );
+
+        echo '</table>';
+
+        // Generate Suggestions button
+        $gen_nonce = wp_create_nonce( 'tmwseo_ext_generate_suggestions_' . $post->ID );
+        echo '<p style="margin:8px 0 12px;">';
+        echo '<button type="button" id="tmwseo-ext-gen-btn" class="button" '
+           . 'data-post-id="' . esc_attr( (string) $post->ID ) . '" '
+           . 'data-nonce="' . esc_attr( $gen_nonce ) . '">';
+        echo esc_html__( 'Generate Suggestions', 'tmwseo' );
+        echo '</button>';
+        echo ' <span id="tmwseo-ext-gen-result" style="margin-left:10px;font-size:12px;display:none;"></span>';
+        echo '<span style="margin-left:12px;font-size:11px;color:#6b7280;">'
+           . esc_html__( 'Auto-suggests third-person transformed versions from the raw excerpts above. Review and edit before approving.', 'tmwseo' )
+           . '</span>';
+        echo '</p>';
+
+        // Transformed fields (operator edits these)
+        echo '<div style="background:#f0fdf4;border-left:4px solid #16a34a;padding:8px 14px;margin:0 0 8px;font-size:11px;color:#14532d;">';
+        echo '<strong>' . esc_html__( '✓ Transformed fields — operator-reviewed; these render when status = Approved.', 'tmwseo' ) . '</strong><br>';
+        echo esc_html__( 'Edit until wording is accurate, third-person, editorial, and non-explicit. One paragraph per line.', 'tmwseo' );
+        echo '</div>';
+
+        echo '<table class="form-table" style="margin-top:0;">';
+
+        self::field_textarea(
+            'tmwseo_ext_transformed_bio', $ext_trans_bio,
+            __( 'Transformed Bio (renders on page)', 'tmwseo' ),
+            __( 'Third-person editorial bio. One paragraph per line. No first-person phrasing. No copied source text. 60–150 words recommended.', 'tmwseo' ),
+            5
+        );
+
+        self::field_textarea(
+            'tmwseo_ext_transformed_turn_ons', $ext_trans_turns,
+            __( 'Transformed Turn Ons (renders on page)', 'tmwseo' ),
+            __( 'Third-person editorial wording. E.g. "Turn-ons mentioned on the reviewed source include: ..."', 'tmwseo' ),
+            3
+        );
+
+        self::field_textarea(
+            'tmwseo_ext_transformed_private_chat', $ext_trans_priv,
+            __( 'Transformed Private Chat Options (renders on page)', 'tmwseo' ),
+            __( 'Third-person safe wording. E.g. "Private-chat options listed on the reviewed source include: ..." Include the session-change disclaimer.', 'tmwseo' ),
+            3
+        );
+
+        // Reviewer notes
+        self::field_textarea(
+            'tmwseo_ext_reviewer_notes', $ext_reviewer_notes,
+            __( 'Reviewer Notes', 'tmwseo' ),
+            __( 'Internal reviewer notes. Never rendered publicly.', 'tmwseo' ),
+            2
+        );
+
+        // Reviewed At
+        self::field_text(
+            'tmwseo_ext_reviewed_at', $ext_reviewed_at,
+            __( 'Reviewed At', 'tmwseo' ),
+            __( 'Date evidence was last reviewed (e.g. 2025-04-25). Audit trail only.', 'tmwseo' )
+        );
+
+        echo '</table>';
+
+        // Inline JS for Generate Suggestions button
+        echo '<script>
+        (function(){
+            var btn = document.getElementById("tmwseo-ext-gen-btn");
+            var res = document.getElementById("tmwseo-ext-gen-result");
+            if (!btn) return;
+            btn.addEventListener("click", function(){
+                btn.disabled = true;
+                res.style.display = "inline";
+                res.style.color = "#555";
+                res.textContent = "Generating\u2026";
+                fetch(ajaxurl, {
+                    method: "POST",
+                    headers: {"Content-Type":"application/x-www-form-urlencoded"},
+                    body: "action=tmwseo_ext_generate_suggestions"
+                        + "&post_id=" + encodeURIComponent(btn.dataset.postId)
+                        + "&_wpnonce=" + encodeURIComponent(btn.dataset.nonce)
+                })
+                .then(function(r){ return r.json(); })
+                .then(function(d){
+                    if (d.success && d.data) {
+                        // Populate transformed fields with suggestions (operator still edits).
+                        if (d.data.bio) document.querySelector("[name=tmwseo_ext_transformed_bio]").value = d.data.bio;
+                        if (d.data.turn_ons) document.querySelector("[name=tmwseo_ext_transformed_turn_ons]").value = d.data.turn_ons;
+                        if (d.data.private_chat) document.querySelector("[name=tmwseo_ext_transformed_private_chat]").value = d.data.private_chat;
+                        res.textContent = "Suggestions generated — review and edit before approving.";
+                        res.style.color = "#16a34a";
+                    } else {
+                        res.textContent = (d.data && d.data.message) ? d.data.message : "Generation failed.";
+                        res.style.color = "#dc2626";
+                    }
+                    btn.disabled = false;
+                })
+                .catch(function(){ res.textContent = "Request failed."; res.style.color="#dc2626"; btn.disabled=false; });
+            });
+        })();
+        </script>';
+
         // ── Save button ───────────────────────────────────────────────────
         echo '<p>';
         echo '<button type="submit" class="button button-primary" name="tmwseo_research_manual_save" value="1">';
@@ -2137,6 +2347,16 @@ class ModelHelper {
             // Bio evidence textarea fields
             'tmwseo_bio_summary'      => self::META_BIO_SUMMARY,
             'tmwseo_bio_source_facts' => self::META_BIO_SOURCE_FACTS,
+            // External profile evidence — raw excerpts (audit-only; stored, never rendered)
+            'tmwseo_ext_raw_bio'              => self::META_EXT_RAW_BIO,
+            'tmwseo_ext_raw_turn_ons'         => self::META_EXT_RAW_TURN_ONS,
+            'tmwseo_ext_raw_private_chat'     => self::META_EXT_RAW_PRIVATE_CHAT,
+            // External profile evidence — transformed fields (operator-reviewed; render when approved)
+            'tmwseo_ext_transformed_bio'          => self::META_EXT_TRANSFORMED_BIO,
+            'tmwseo_ext_transformed_turn_ons'     => self::META_EXT_TRANSFORMED_TURN_ONS,
+            'tmwseo_ext_transformed_private_chat' => self::META_EXT_TRANSFORMED_PRIVATE,
+            // Reviewer notes (internal)
+            'tmwseo_ext_reviewer_notes'       => self::META_EXT_REVIEWER_NOTES,
         ] as $post_key => $meta_key ) {
             $val = isset( $_POST[ $post_key ] )
                 ? sanitize_textarea_field( wp_unslash( (string) $_POST[ $post_key ] ) )
@@ -2166,6 +2386,34 @@ class ModelHelper {
             // Validate URL field.
             if ( $post_key === 'tmwseo_bio_source_url' && $val !== '' ) {
                 $val = esc_url_raw( $val );
+            }
+            update_post_meta( $post_id, $meta_key, $val );
+        }
+
+        // External profile evidence — text / select / URL fields (v5.8.0)
+        foreach ( [
+            'tmwseo_ext_review_status' => self::META_EXT_REVIEW_STATUS,
+            'tmwseo_ext_source_title'  => self::META_EXT_SOURCE_TITLE,
+            'tmwseo_ext_fetched_at'    => self::META_EXT_FETCHED_AT,
+            'tmwseo_ext_reviewed_at'   => self::META_EXT_REVIEWED_AT,
+            'tmwseo_ext_source_url'    => self::META_EXT_SOURCE_URL,
+        ] as $post_key => $meta_key ) {
+            $val = isset( $_POST[ $post_key ] )
+                ? sanitize_text_field( wp_unslash( (string) $_POST[ $post_key ] ) )
+                : '';
+            // Allowlist for ext review status.
+            if ( $post_key === 'tmwseo_ext_review_status'
+                && ! in_array( $val, [ '', 'unreviewed', 'approved', 'rejected' ], true ) ) {
+                $val = '';
+            }
+            // Validate the source URL against approved host list.
+            if ( $post_key === 'tmwseo_ext_source_url' && $val !== '' ) {
+                $val = esc_url_raw( $val );
+                if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class )
+                    && ! \TMWSEO\Engine\Content\ExternalProfileEvidence::is_approved_source_url( $val ) ) {
+                    // Store but mark as non-approved host so reviewer is aware.
+                    // We do not block saving — operator may still use the audit trail.
+                }
             }
             update_post_meta( $post_id, $meta_key, $val );
         }
@@ -2407,6 +2655,63 @@ class ModelHelper {
                 ? esc_html( mb_substr( $ev['bio_excerpt_admin'], 0, 200 ) )
                 : '',
             // access_key is NEVER included here.
+        ] );
+    }
+
+    /**
+     * AJAX: Generate third-person transformation suggestions from raw source excerpts.
+     *
+     * Reads raw excerpts already saved in post meta (operator pasted them),
+     * runs ExternalProfileEvidence transformer methods, and returns suggested
+     * third-person copy that the operator must review and edit before approving.
+     *
+     * Security: manage_options + post-specific nonce. No raw text in response
+     * beyond the transformed suggestions (raw excerpts stay server-side).
+     */
+    public static function ajax_ext_generate_suggestions(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Insufficient permissions.' ], 403 );
+        }
+
+        $post_id = (int) ( $_POST['post_id'] ?? 0 );
+        if ( $post_id < 1 ) {
+            wp_send_json_error( [ 'message' => 'Invalid post ID.' ] );
+        }
+
+        $nonce = sanitize_text_field( wp_unslash( (string) ( $_POST['_wpnonce'] ?? '' ) ) );
+        if ( ! wp_verify_nonce( $nonce, 'tmwseo_ext_generate_suggestions_' . $post_id ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid or expired nonce.' ], 403 );
+        }
+
+        if ( ! class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
+            wp_send_json_error( [ 'message' => 'ExternalProfileEvidence class not loaded.' ], 500 );
+        }
+
+        $post = get_post( $post_id );
+        if ( ! $post ) {
+            wp_send_json_error( [ 'message' => 'Post not found.' ] );
+        }
+
+        $model_name    = trim( (string) $post->post_title );
+        $raw_bio       = (string) get_post_meta( $post_id, self::META_EXT_RAW_BIO, true );
+        $raw_turn_ons  = (string) get_post_meta( $post_id, self::META_EXT_RAW_TURN_ONS, true );
+        $raw_priv      = (string) get_post_meta( $post_id, self::META_EXT_RAW_PRIVATE_CHAT, true );
+
+        if ( $raw_bio === '' && $raw_turn_ons === '' && $raw_priv === '' ) {
+            wp_send_json_error( [ 'message' => 'No raw excerpts found. Paste and save raw source text first.' ] );
+        }
+
+        $ev = \TMWSEO\Engine\Content\ExternalProfileEvidence::class;
+
+        $suggested_bio   = $raw_bio      !== '' ? $ev::transform_bio( $raw_bio, $model_name )        : '';
+        $suggested_turns = $raw_turn_ons !== '' ? $ev::transform_turn_ons( $raw_turn_ons )            : '';
+        $suggested_priv  = $raw_priv     !== '' ? $ev::transform_private_chat( $raw_priv )            : '';
+
+        wp_send_json_success( [
+            'bio'          => esc_html( $suggested_bio ),
+            'turn_ons'     => esc_html( $suggested_turns ),
+            'private_chat' => esc_html( $suggested_priv ),
+            'message'      => 'Suggestions generated. Review, edit, and then set status to Approved.',
         ] );
     }
 

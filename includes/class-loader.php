@@ -154,6 +154,9 @@ class Loader {
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );
         tmwseo_safe_require( $p . 'class-rank-math-checklist.php' );
         tmwseo_safe_require( $p . 'class-content-generation-gate.php' );
+        // External profile evidence layer (v5.8.0) — webcamexchange.com actor pages.
+        // Must load before model-page-renderer so the renderer can reference the class.
+        tmwseo_safe_require( $p . 'class-external-profile-evidence.php' );
         tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
         tmwseo_safe_require( $p . 'class-model-destination-resolver.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
