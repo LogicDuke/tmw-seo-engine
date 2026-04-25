@@ -1261,7 +1261,17 @@ class ContentEngine {
                 'post_content' => $final_content,
             ]);
 
-            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+            // ── Evidence inclusion diagnostic (Part A / v5.8.3) ─────────────
+            // After saving, check if approved evidence was expected but missing.
+            if ( $post->post_type === 'model' && class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
+                $ev_diag = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_evidence_data( $post_id );
+                if ( $ev_diag['is_renderable'] ) {
+                    $saved = (string) get_post_field( 'post_content', $post_id );
+                    if ( stripos( $saved, '>Turn Ons<' ) === false && stripos( $saved, '>In Private Chat<' ) === false ) {
+                        error_log( '[TMW-EXT-EVIDENCE] Approved evidence exists but was not found in saved template content. post_id=' . $post_id );
+                    }
+                }
+            }
             if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
             if ($focus_kw !== '') {
                 // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).

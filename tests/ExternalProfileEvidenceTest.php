@@ -47,9 +47,9 @@ class ExternalProfileEvidenceTest extends TestCase {
     }
 
     private function approve_evidence(
-        string $bio          = 'The reviewed source describes her as experienced and engaging.',
-        string $turn_ons     = 'Turn-ons mentioned on the reviewed source include: conversation and roleplay.',
-        string $private_chat = 'Private-chat options listed on the reviewed source include: roleplay, C2C.'
+        string $bio          = "TestModel's reviewed profile copy points to a style built around interactive shows and fan connection. These notes are treated as profile evidence, not as guarantees for every live session.",
+        string $turn_ons     = 'Her reviewed turn-ons focus on fantasy play and close-view interaction.',
+        string $private_chat = 'Private-chat options listed on the reviewed profile include: roleplay, C2C. Availability can change by session, so check the official room before assuming a specific option is offered.'
     ): void {
         $this->set_meta( ExternalProfileEvidence::META_REVIEW_STATUS,        ExternalProfileEvidence::STATUS_APPROVED );
         $this->set_meta( ExternalProfileEvidence::META_TRANSFORMED_BIO,      $bio );
@@ -204,7 +204,8 @@ class ExternalProfileEvidenceTest extends TestCase {
         // Set RAW bio (first-person) and APPROVED status — but only transformed renders.
         $this->set_meta( ExternalProfileEvidence::META_REVIEW_STATUS,   ExternalProfileEvidence::STATUS_APPROVED );
         $this->set_meta( ExternalProfileEvidence::META_RAW_BIO,         'I love roleplay and C2C sessions.' );
-        $this->set_meta( ExternalProfileEvidence::META_TRANSFORMED_BIO, 'The reviewed source describes her as interested in roleplay.' );
+        $this->set_meta( ExternalProfileEvidence::META_TRANSFORMED_BIO,
+            "TestModel's reviewed profile copy points to a style built around roleplay and interactive sessions. These notes are treated as profile evidence, not as guarantees for every live session." );
 
         $ev = ExternalProfileEvidence::get_evidence_data( self::POST_ID );
 
@@ -212,7 +213,9 @@ class ExternalProfileEvidenceTest extends TestCase {
         $all_text = implode( ' ', $ev['bio_paragraphs'] );
         $this->assertStringNotContainsString( 'I love', $all_text,
             'Raw first-person text must not appear in rendered evidence (criterion 6)' );
-        $this->assertStringContainsString( 'reviewed source describes', $all_text );
+        // Transformed text should be present.
+        $this->assertStringContainsString( 'reviewed profile copy', $all_text,
+            'Stored transformed text must be present in rendered evidence' );
     }
 
     // ── 7: "In Private Chat, I'm willing to perform" not verbatim ────────────
@@ -224,23 +227,87 @@ class ExternalProfileEvidenceTest extends TestCase {
         $this->assertStringNotContainsString( "In Private Chat, I'm willing to perform", $result,
             'Verbatim "In Private Chat, I\'m willing to perform" must not appear in output (criterion 7)' );
         $this->assertStringNotContainsString( "I'm willing to", $result );
-        // Should contain transformed safe wording.
-        $this->assertStringContainsString( 'reviewed source', $result );
+        // Should contain the spec-compliant framing.
+        $this->assertStringContainsString( 'Private-chat options listed on the reviewed profile include', $result );
     }
 
     // ── 8: Output uses third-person wording ──────────────────────────────────
 
     public function test_transform_bio_produces_third_person(): void {
-        $raw    = 'I love connecting with my fans through live sessions.';
-        $result = ExternalProfileEvidence::transform_bio( $raw, 'TestModel' );
+        $raw    = "I'm Anisyia, a 35-year-old petite brunette standing 5'1\" with an amazing, athletic body that's always ready for you...";
+        $result = ExternalProfileEvidence::transform_bio( $raw, 'Anisyia' );
 
         // Must not contain first-person.
-        $this->assertStringNotContainsString( ' I ', $result,
+        $this->assertStringNotContainsString( " I ", $result,
             'Transformed bio must not contain bare first-person "I" (criterion 8)' );
         $this->assertStringNotContainsString( "I'm", $result );
-        $this->assertStringNotContainsString( "I love", $result );
-        // Must contain third-person attribution.
-        $this->assertMatchesRegularExpression( '/\b(she|her|reviewed source|describes|source)\b/i', $result );
+        // Must not contain the old bad lead phrase.
+        $this->assertStringNotContainsString( 'The reviewed source describes Anisyia as follows', $result,
+            'Frontend bio must not start with "The reviewed source describes … as follows"' );
+        // Must not say "She is Anisyia".
+        $this->assertStringNotContainsString( 'She is Anisyia', $result,
+            '"She is [Name]" style must not appear' );
+        // Must not leak HTML entities.
+        $this->assertStringNotContainsString( '&#039;', $result,
+            'HTML entities must not appear in transformed output' );
+        // Must not contain sales copy.
+        $this->assertStringNotContainsString( 'ready for you', $result );
+        $this->assertStringNotContainsString( "can't wait to meet you", $result );
+        // Must not be empty.
+        $this->assertNotEmpty( $result );
+    }
+
+    public function test_transform_bio_strips_bad_lead_phrase(): void {
+        $raw    = 'I love connecting with my fans through live sessions. I enjoy lingerie and glamour shows.';
+        $result = ExternalProfileEvidence::transform_bio( $raw, 'TestModel' );
+
+        $this->assertStringNotContainsString( 'The reviewed source describes TestModel as follows', $result );
+        $this->assertStringNotContainsString( 'She is TestModel', $result );
+        $this->assertStringNotContainsString( 'I love', $result );
+        $this->assertStringNotContainsString( 'I enjoy', $result );
+        $this->assertNotEmpty( $result );
+    }
+
+    public function test_transform_bio_no_broken_grammar(): void {
+        $raw    = 'I love roleplay. I aim to please. I bring my best energy every show.';
+        $result = ExternalProfileEvidence::transform_bio( $raw, 'TestModel' );
+
+        $this->assertStringNotContainsString( 'she love', $result,
+            'Grammar error "she love" must not appear — use "she loves"' );
+        $this->assertStringNotContainsString( 'she aim', $result,
+            'Grammar error "she aim" must not appear — use "she aims"' );
+        $this->assertStringNotContainsString( 'she bring', $result,
+            'Grammar error "she bring" must not appear — use "she brings"' );
+        $this->assertStringNotContainsString( "she'm", $result,
+            'Broken pronoun "she\'m" must not appear' );
+        $this->assertStringNotContainsString( 'she am', $result,
+            'Broken pronoun "she am" must not appear' );
+    }
+
+    public function test_transform_bio_no_html_entity_leak(): void {
+        $raw    = "I'm a brunette model who love's roleplay and lingerie shows. Can&#039;t wait to meet you!";
+        $result = ExternalProfileEvidence::transform_bio( $raw, 'TestModel' );
+
+        $this->assertStringNotContainsString( '&#039;', $result,
+            'HTML entities must be decoded before transformation' );
+        $this->assertStringNotContainsString( "can't wait to meet you", strtolower( $result ) );
+    }
+
+    public function test_transform_turn_ons_editorial_not_fragment(): void {
+        $raw    = "I like to see that you really love and enjoy with me our fantasy, how hard and horny you are for me darling...";
+        $result = ExternalProfileEvidence::transform_turn_ons( $raw );
+
+        // Must not output the problematic raw fragment.
+        $this->assertStringNotContainsString( 'how hard and horny', $result,
+            'Crude phrasing must be removed from turn-ons output' );
+        $this->assertStringNotContainsString( 'how horny you are', $result );
+        $this->assertStringNotContainsString( 'darling', $result );
+        $this->assertStringNotContainsString( 'I like', $result );
+        $this->assertStringNotContainsString( 'with me', $result );
+        // Must be a natural editorial sentence.
+        $this->assertNotEmpty( $result );
+        $this->assertStringNotContainsString( 'Turn-ons mentioned on the reviewed source include:', $result,
+            'Old fragment-list framing must not appear in output' );
     }
 
     public function test_transform_turn_ons_produces_third_person(): void {
@@ -249,7 +316,44 @@ class ExternalProfileEvidenceTest extends TestCase {
 
         $this->assertStringNotContainsString( 'I love', $result );
         $this->assertStringNotContainsString( "I'm", $result );
-        $this->assertStringContainsString( 'reviewed source', $result );
+        // Must be a complete sentence.
+        $this->assertMatchesRegularExpression( '/\.$/', $result );
+    }
+
+    public function test_transform_turn_ons_removes_filler_words(): void {
+        $raw    = "I like roleplay with me and enjoy fantasy darling";
+        $result = ExternalProfileEvidence::transform_turn_ons( $raw );
+
+        $this->assertStringNotContainsString( 'darling', $result );
+        $this->assertStringNotContainsString( 'with me', $result );
+        $this->assertStringNotContainsString( 'I like', $result );
+        $this->assertNotEmpty( $result );
+    }
+
+    public function test_transform_private_chat_spec_framing(): void {
+        $raw    = "Anal Sex, Dildo, Vibrator, Love balls/beads, Striptease, Dancing, Roleplay, POV, Close-up, JOI, Teasing, Stockings, Latex, High Heels";
+        $result = ExternalProfileEvidence::transform_private_chat( $raw );
+
+        // Must use the exact spec framing.
+        $this->assertStringContainsString( 'Private-chat options listed on the reviewed profile include', $result,
+            'Private chat must use spec-compliant framing' );
+        // Must include the session-change disclaimer.
+        $this->assertStringContainsString( 'Availability can change by session', $result,
+            'Session-change disclaimer must be present' );
+        // Must not contain first-person.
+        $this->assertStringNotContainsString( "I'm", $result );
+        $this->assertStringNotContainsString( 'I will', $result );
+    }
+
+    public function test_transform_private_chat_capped_at_14(): void {
+        $items = implode( "\n", array_map( fn( $i ) => "Item $i", range( 1, 25 ) ) );
+        $result = ExternalProfileEvidence::transform_private_chat( $items );
+
+        // Count commas in the items list portion (rough proxy for item count).
+        $list_part = str_replace( 'Availability can change by session, so check the official room before assuming a specific option is offered.', '', $result );
+        $item_count = substr_count( $list_part, ',' ) + 1;
+        $this->assertLessThanOrEqual( 15, $item_count,
+            'Private chat list must be capped at 14 items (allow 1 extra for "and additional options")' );
     }
 
     public function test_transform_private_chat_produces_safe_third_person(): void {
@@ -257,9 +361,8 @@ class ExternalProfileEvidenceTest extends TestCase {
         $result = ExternalProfileEvidence::transform_private_chat( $raw );
 
         $this->assertStringNotContainsString( "I'm willing", $result );
-        $this->assertStringContainsString( 'reviewed source', $result );
-        // Should include the session-change disclaimer.
-        $this->assertMatchesRegularExpression( '/session|verify|check/i', $result );
+        $this->assertStringContainsString( 'Private-chat options listed on the reviewed profile include', $result );
+        $this->assertMatchesRegularExpression( '/(?:Availability|session|check)/i', $result );
     }
 
     // ── 9: Unreviewed evidence does not render ────────────────────────────────
@@ -434,9 +537,9 @@ class ExternalProfileEvidenceTest extends TestCase {
     }
 
     public function test_approved_evidence_has_correct_paragraphs(): void {
-        $bio   = "Line one of bio.\nLine two of bio.";
-        $turns = 'Turn-ons mentioned on the reviewed source include: roleplay.';
-        $priv  = 'Private-chat options listed on the reviewed source include: C2C.';
+        $bio   = "TestModel's reviewed profile copy points to a style built around lingerie and confident posing.\nThese notes are treated as profile evidence, not as guarantees for every live session.";
+        $turns = 'Her reviewed turn-ons focus on fantasy play and close-view interaction.';
+        $priv  = 'Private-chat options listed on the reviewed profile include: roleplay, C2C. Availability can change by session, so check the official room before assuming a specific option is offered.';
 
         $this->set_meta( ExternalProfileEvidence::META_REVIEW_STATUS,            ExternalProfileEvidence::STATUS_APPROVED );
         $this->set_meta( ExternalProfileEvidence::META_TRANSFORMED_BIO,          $bio );
@@ -572,5 +675,268 @@ class ExternalProfileEvidenceTest extends TestCase {
             'Saved meta used for turn_ons when POST is empty' );
         $this->assertSame( 'Saved private chat.', $priv,
             'Saved meta used for private_chat when POST is empty' );
+    }
+
+    // ── Quality gate (Part F) ─────────────────────────────────────────────────
+
+    public function test_sanitize_output_decodes_html_entities(): void {
+        $input  = "She loves roleplay &#039;n&#039; more. Can&#039;t stop now.";
+        $result = ExternalProfileEvidence::sanitize_output( $input, 'bio' );
+
+        $this->assertStringNotContainsString( '&#039;', $result['text'],
+            'HTML entities must be decoded by sanitize_output' );
+    }
+
+    public function test_sanitize_output_warns_on_bad_lead_phrase(): void {
+        $input  = 'The reviewed source describes TestModel as follows. She is great.';
+        $result = ExternalProfileEvidence::sanitize_output( $input, 'bio' );
+
+        $this->assertFalse( $result['passed'],
+            'sanitize_output must fail when "The reviewed source describes" prefix present' );
+        $this->assertNotEmpty( $result['warnings'] );
+    }
+
+    public function test_sanitize_output_warns_on_she_is_name(): void {
+        $input  = 'She is Anisyia, a brunette model.';
+        $result = ExternalProfileEvidence::sanitize_output( $input, 'bio' );
+
+        $this->assertFalse( $result['passed'] );
+        $found = false;
+        foreach ( $result['warnings'] as $w ) {
+            if ( str_contains( $w, '"She is [Name]"' ) ) {
+                $found = true;
+                break;
+            }
+        }
+        $this->assertTrue( $found, 'sanitize_output must warn on "She is [Name]" pattern' );
+    }
+
+    public function test_sanitize_output_warns_on_grammar_errors(): void {
+        $input  = 'She love roleplay. She aim to please. She bring energy.';
+        $result = ExternalProfileEvidence::sanitize_output( $input, 'bio' );
+
+        $this->assertFalse( $result['passed'] );
+        $warning_text = implode( ' ', $result['warnings'] );
+        $this->assertStringContainsString( 'she love', $warning_text );
+        $this->assertStringContainsString( 'she aim', $warning_text );
+        $this->assertStringContainsString( 'she bring', $warning_text );
+    }
+
+    public function test_sanitize_output_auto_removes_first_person(): void {
+        $input  = "I'm really enjoying this. Join me for a show.";
+        $result = ExternalProfileEvidence::sanitize_output( $input, 'bio' );
+
+        $this->assertStringNotContainsString( "I'm", $result['text'],
+            'sanitize_output must auto-remove I\'m' );
+        $this->assertStringNotContainsString( 'join me', strtolower( $result['text'] ),
+            'sanitize_output must auto-remove "join me"' );
+    }
+
+    public function test_sanitize_output_passes_clean_text(): void {
+        $input  = "Anisyia's reviewed profile copy points to a glamour-focused cam style built around lingerie and confident posing. These notes are treated as profile evidence, not as guarantees for every live session.";
+        $result = ExternalProfileEvidence::sanitize_output( $input, 'bio' );
+
+        $this->assertTrue( $result['passed'],
+            'Clean editorial text must pass the quality gate' );
+        $this->assertEmpty( $result['warnings'],
+            'Clean editorial text must produce no warnings' );
+    }
+
+    // ── Admin readiness messages (Part G) ─────────────────────────────────────
+
+    public function test_readiness_green_when_approved_with_content(): void {
+        $this->set_meta( ExternalProfileEvidence::META_REVIEW_STATUS,   ExternalProfileEvidence::STATUS_APPROVED );
+        $this->set_meta( ExternalProfileEvidence::META_TRANSFORMED_BIO, 'Some editorial bio text.' );
+
+        $msg = ExternalProfileEvidence::get_admin_readiness_message( self::POST_ID );
+
+        $this->assertSame( 'green', $msg['status'],
+            'Readiness must be green when evidence is approved and has content' );
+        $this->assertStringContainsString( 'Approved evidence is ready', $msg['message'] );
+    }
+
+    public function test_readiness_yellow_when_not_approved_but_has_content(): void {
+        $this->set_meta( ExternalProfileEvidence::META_REVIEW_STATUS,   ExternalProfileEvidence::STATUS_UNREVIEWED );
+        $this->set_meta( ExternalProfileEvidence::META_TRANSFORMED_BIO, 'Some editorial bio text.' );
+
+        $msg = ExternalProfileEvidence::get_admin_readiness_message( self::POST_ID );
+
+        $this->assertSame( 'yellow', $msg['status'],
+            'Readiness must be yellow when evidence exists but is not approved' );
+        $this->assertStringContainsString( 'will not appear until Review Status is Approved', $msg['message'] );
+    }
+
+    public function test_readiness_red_when_no_content(): void {
+        // No transformed fields set at all.
+        $msg = ExternalProfileEvidence::get_admin_readiness_message( self::POST_ID );
+
+        $this->assertSame( 'red', $msg['status'],
+            'Readiness must be red when no transformed evidence exists' );
+        $this->assertStringContainsString( 'No transformed evidence available yet', $msg['message'] );
+    }
+
+    // ── Generation inclusion (Part A — rendering path) ────────────────────────
+
+    public function test_approved_evidence_prepended_above_generated_body(): void {
+        $this->approve_evidence(
+            'Anisyia\'s reviewed profile copy points to a glamour-focused cam style built around lingerie and confident posing. These notes are treated as profile evidence, not as guarantees for every live session.',
+            'Her reviewed turn-ons focus on fantasy play and close-view interaction.',
+            'Private-chat options listed on the reviewed profile include: roleplay, striptease, dancing. Availability can change by session, so check the official room before assuming a specific option is offered.'
+        );
+
+        $payload = $this->simulate_evidence_payload();
+        $html    = $this->simulate_full_render( $payload );
+
+        // All 3 sections must be above the generated body.
+        $bio_pos  = strpos( $html, 'About TestModel' );
+        $turn_pos = strpos( $html, 'Turn Ons' );
+        $priv_pos = strpos( $html, 'In Private Chat' );
+        $body_pos = strpos( $html, 'Where to Watch Live' );
+
+        $this->assertNotFalse( $bio_pos );
+        $this->assertNotFalse( $turn_pos );
+        $this->assertNotFalse( $priv_pos );
+        $this->assertLessThan( $body_pos, $bio_pos );
+        $this->assertLessThan( $body_pos, $turn_pos );
+        $this->assertLessThan( $body_pos, $priv_pos );
+    }
+
+    public function test_unapproved_evidence_not_in_render(): void {
+        $this->set_meta( ExternalProfileEvidence::META_REVIEW_STATUS,   ExternalProfileEvidence::STATUS_UNREVIEWED );
+        $this->set_meta( ExternalProfileEvidence::META_TRANSFORMED_BIO, 'Should not render.' );
+
+        $payload = $this->simulate_evidence_payload();
+        $html    = $this->simulate_full_render( $payload );
+
+        $this->assertStringNotContainsString( 'Should not render', $html,
+            'Unapproved evidence must never render' );
+        $this->assertStringNotContainsString( 'Turn Ons', $html );
+    }
+
+    public function test_word_count_higher_with_approved_evidence(): void {
+        $no_ev_payload = [
+            'reviewed_bio_section_paragraphs'  => [],
+            'turn_ons_section_paragraphs'      => [],
+            'private_chat_section_paragraphs'  => [],
+        ];
+        $without = str_word_count( strip_tags( $this->simulate_full_render( $no_ev_payload ) ) );
+
+        $this->approve_evidence();
+        $with_payload = $this->simulate_evidence_payload();
+        $with = str_word_count( strip_tags( $this->simulate_full_render( $with_payload ) ) );
+
+        $this->assertGreaterThan( $without, $with,
+            'Word count must be higher when approved evidence is present' );
+    }
+
+    // ── Acronym preservation in private-chat output (Fix 2 / v5.8.4) ─────────
+
+    public function test_joi_stays_uppercase_in_private_chat(): void {
+        $raw    = "In Private Chat, I'm willing to perform:\nJOI\nroleplay\nstriptease";
+        $result = ExternalProfileEvidence::transform_private_chat( $raw );
+
+        $this->assertStringContainsString( 'JOI', $result,
+            'JOI must remain uppercase in private-chat output' );
+        $this->assertStringNotContainsString( 'joi', $result,
+            'Lowercase "joi" must not appear — JOI must be preserved' );
+    }
+
+    public function test_c2c_stays_uppercase_in_private_chat(): void {
+        $raw    = "roleplay\nC2C\ndancing";
+        $result = ExternalProfileEvidence::transform_private_chat( $raw );
+
+        $this->assertStringContainsString( 'C2C', $result,
+            'C2C must remain uppercase in private-chat output' );
+        $this->assertStringNotContainsString( 'c2c', $result,
+            'Lowercase "c2c" must not appear — C2C must be preserved' );
+    }
+
+    public function test_pov_stays_uppercase_in_private_chat(): void {
+        $raw    = "Anal Sex, POV, Striptease, Dancing";
+        $result = ExternalProfileEvidence::transform_private_chat( $raw );
+
+        $this->assertStringContainsString( 'POV', $result,
+            'POV must remain uppercase in private-chat output' );
+    }
+
+    public function test_sph_stays_uppercase_in_private_chat(): void {
+        $raw    = "SPH\nASMR\nroleplay\nstriptease";
+        $result = ExternalProfileEvidence::transform_private_chat( $raw );
+
+        $this->assertStringContainsString( 'SPH', $result,
+            'SPH must remain uppercase in private-chat output' );
+        $this->assertStringContainsString( 'ASMR', $result,
+            'ASMR must remain uppercase in private-chat output' );
+    }
+
+    public function test_normal_words_stay_lowercase_in_private_chat(): void {
+        $raw    = "Roleplay\nDancing\nStriptease\nFootwear";
+        $result = ExternalProfileEvidence::transform_private_chat( $raw );
+
+        // Normal words must NOT be uppercased by the acronym restore pass.
+        $this->assertStringNotContainsString( 'ROLEPLAY', $result,
+            'Normal words must not be uppercased by the acronym restore pass' );
+        $this->assertStringNotContainsString( 'DANCING', $result );
+    }
+
+    public function test_mixed_list_acronyms_and_words(): void {
+        $raw    = "JOI, C2C, POV, BDSM, HD, roleplay, striptease, dancing";
+        $result = ExternalProfileEvidence::transform_private_chat( $raw );
+
+        $this->assertStringContainsString( 'JOI', $result );
+        $this->assertStringContainsString( 'C2C', $result );
+        $this->assertStringContainsString( 'POV', $result );
+        $this->assertStringContainsString( 'BDSM', $result );
+        $this->assertStringContainsString( 'HD', $result );
+        // Normal words must still be lowercase.
+        $this->assertStringContainsString( 'roleplay', $result );
+        $this->assertStringContainsString( 'striptease', $result );
+    }
+
+    // ── Metabox readiness source assertion ────────────────────────────────────
+
+    public function test_model_helper_source_contains_readiness_notice(): void {
+        $src = file_get_contents( dirname( __DIR__ ) . '/includes/admin/class-model-helper.php' );
+        $this->assertNotFalse( $src, 'class-model-helper.php must be readable' );
+
+        $this->assertStringContainsString( 'tmwseo-ext-readiness-notice', $src,
+            'Model helper must contain the readiness notice element ID' );
+        $this->assertStringContainsString( 'get_admin_readiness_message', $src,
+            'Model helper must call get_admin_readiness_message()' );
+        $this->assertStringContainsString( 'Approved evidence is ready', $src,
+            'Model helper must reference the green readiness message text' );
+        $this->assertStringContainsString( 'will not appear until Review Status is Approved', $src,
+            'Model helper must reference the yellow readiness message text' );
+    }
+
+    // ── No old robotic frontend wording from transformer ─────────────────────
+
+    public function test_no_old_reviewed_source_describes_as_follows_from_transformer(): void {
+        $inputs = [
+            "I'm Anisyia, a 35-year-old petite brunette with an amazing body.",
+            'I love connecting with my fans and doing roleplay.',
+            'I am a professional model who loves glamour and lingerie.',
+        ];
+        foreach ( $inputs as $raw ) {
+            $result = ExternalProfileEvidence::transform_bio( $raw, 'Anisyia' );
+            $this->assertStringNotContainsString(
+                'The reviewed source describes Anisyia as follows',
+                $result,
+                'transform_bio must never produce the old "The reviewed source describes … as follows" phrasing'
+            );
+            $this->assertStringNotContainsString(
+                'as follows',
+                $result,
+                'transform_bio must never produce "as follows" on the frontend'
+            );
+        }
+    }
+
+    public function test_transform_bio_never_outputs_she_is_name(): void {
+        $raw    = "I am Anisyia. I love lingerie and glamour shows.";
+        $result = ExternalProfileEvidence::transform_bio( $raw, 'Anisyia' );
+
+        $this->assertStringNotContainsString( 'She is Anisyia', $result,
+            '"She is [Name]" must not appear in transformer output' );
     }
 }

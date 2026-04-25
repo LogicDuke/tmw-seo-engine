@@ -1619,6 +1619,37 @@ class ModelHelper {
         echo esc_html__( '1. Paste the source URL. 2. Paste raw text from the Bio, Turn Ons, and In Private Chat sections. 3. Click "Generate Suggestions" to auto-suggest third-person transformations. 4. Review and edit the transformed fields. 5. Set Review Status to Approved to enable rendering. Only approved transformed text is published — raw excerpts are audit-only.', 'tmwseo' );
         echo '</div>';
 
+        // ── Readiness notice (v5.8.3) ─────────────────────────────────────────
+        // Shows operators whether evidence is ready to render, pending approval,
+        // or not yet generated. Uses ExternalProfileEvidence::get_admin_readiness_message()
+        // when available; falls back to direct meta reads if the class is not loaded.
+        if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
+            $readiness = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_admin_readiness_message( (int) $post->ID );
+        } else {
+            $has_any = trim( $ext_trans_bio ) !== '' || trim( $ext_trans_turns ) !== '' || trim( $ext_trans_priv ) !== '';
+            if ( $ext_review_status === 'approved' && $has_any ) {
+                $readiness = [ 'status' => 'green', 'message' => 'Approved evidence is ready and will be added above generated content.' ];
+            } elseif ( $has_any ) {
+                $readiness = [ 'status' => 'yellow', 'message' => 'Transformed evidence exists but will not appear until Review Status is Approved and the post is saved.' ];
+            } else {
+                $readiness = [ 'status' => 'red', 'message' => 'No transformed evidence available yet.' ];
+            }
+        }
+
+        $readiness_styles = [
+            'green'  => 'background:#f0fdf4;border-left:4px solid #16a34a;color:#14532d;',
+            'yellow' => 'background:#fefce8;border-left:4px solid #ca8a04;color:#713f12;',
+            'red'    => 'background:#fef2f2;border-left:4px solid #dc2626;color:#7f1d1d;',
+        ];
+        $readiness_icons = [ 'green' => '✓', 'yellow' => '⚠', 'red' => '✕' ];
+        $r_status = (string) ( $readiness['status'] ?? 'red' );
+        $r_style  = $readiness_styles[ $r_status ] ?? $readiness_styles['red'];
+        $r_icon   = $readiness_icons[ $r_status ] ?? '✕';
+        echo '<div id="tmwseo-ext-readiness-notice" style="' . esc_attr( $r_style ) . 'padding:9px 14px;margin-bottom:12px;font-size:12px;line-height:1.5;border-radius:0 4px 4px 0;">';
+        echo '<strong>' . esc_html( $r_icon . ' Evidence status: ' ) . '</strong>';
+        echo esc_html( (string) ( $readiness['message'] ?? '' ) );
+        echo '</div>';
+
         echo '<table class="form-table" style="margin-top:0;">';
 
         // Review Status (gate — set last after reviewing transformed content)
@@ -1631,7 +1662,7 @@ class ModelHelper {
             echo '<option value="' . esc_attr( $val ) . '"' . selected( $ext_review_status, $val, false ) . '>' . esc_html( $label ) . '</option>';
         }
         echo '</select>';
-        echo '<p class="description">' . esc_html__( 'Only "Approved" evidence renders. Set after reviewing transformed fields.', 'tmwseo' ) . '</p>';
+        echo '<p class="description">' . esc_html__( 'Only "Approved" evidence renders above generated content. Set this after reviewing and editing the transformed fields below.', 'tmwseo' ) . '</p>';
         echo '</td></tr>';
 
         // Source URL
@@ -1789,6 +1820,14 @@ class ModelHelper {
                         var hasWarnings = d.data.warnings && d.data.warnings.length > 0;
                         res.textContent = d.data.message || "Suggestions generated.";
                         res.style.color = hasWarnings ? "#b45309" : "#16a34a";
+                        // Update readiness notice to yellow (suggestions exist, not yet approved).
+                        var notice = document.getElementById("tmwseo-ext-readiness-notice");
+                        if (notice) {
+                            notice.style.cssText = "background:#fefce8;border-left:4px solid #ca8a04;color:#713f12;padding:9px 14px;margin-bottom:12px;font-size:12px;line-height:1.5;border-radius:0 4px 4px 0;";
+                            notice.innerHTML = "<strong>⚠ Evidence status: </strong>" + (hasWarnings
+                                ? "Suggestions generated, but some text needed cleanup. Review carefully before approving."
+                                : "Transformed evidence exists but will not appear until Review Status is Approved and the post is saved.");
+                        }
                     } else {
                         res.textContent = (d.data && d.data.message) ? d.data.message : "Generation failed.";
                         res.style.color = "#dc2626";

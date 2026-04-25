@@ -169,14 +169,22 @@ class ExternalProfileEvidence {
 
 
 	/**
-	 * Transform a raw first-person bio excerpt into third-person editorial copy.
+	 * Transform a raw first-person bio into a concise editorial summary.
 	 *
-	 * Strips source labels, normalises apostrophes, converts first→third person,
-	 * wraps in editorial framing. Caps output at 180 words.
+	 * v5.8.3: Rewritten to summarise rather than do sentence-by-sentence pronoun swap.
+	 * Extracts style/appearance/activity signals and builds 2–3 editorial sentences.
+	 *
+	 * Rules:
+	 * - No "The reviewed source describes [name] as follows." on the frontend.
+	 * - No "She is [name]" output.
+	 * - No broken grammar (she love / she aim / she bring).
+	 * - No first-person remnants.
+	 * - No sales/hype copy (ready for you, amazing time, can't wait to meet you).
+	 * - Output is 2–4 editorial sentences, third-person.
 	 *
 	 * @param string $raw_bio    Raw excerpt from source page.
 	 * @param string $model_name Performer name for attribution.
-	 * @return string  Transformed paragraph.
+	 * @return string  Transformed editorial paragraph.
 	 */
 	public static function transform_bio( string $raw_bio, string $model_name = '' ): string {
 		$raw = self::prepare_raw( $raw_bio );
@@ -185,40 +193,152 @@ class ExternalProfileEvidence {
 			return '';
 		}
 
+		$name = $model_name !== '' ? $model_name : 'the model';
+
+		// ── Step 1: strip sales/imperative/hype copy ─────────────────────────
+		$drop_patterns = [
+			"#can'?t\\s+wait\\s+to\\s+meet\\s+you#i",
+			'#ready\\s+for\\s+you#i',
+			'#amazing\\s+time#i',
+			'#join\\s+me\\b#i',
+			'#come\\s+(?:see|find|visit|chat\\s+with)\\s+me#i',
+			"#don'?t\\s+miss#i",
+			'#follow\\s+me\\b#i',
+			"#you\\s+won'?t\\s+regret#i",
+			'#book\\s+a\\s+session#i',
+			'#add\\s+me\\s+to#i',
+			'#send\\s+me\\s+a#i',
+			'#click\\s+(?:here|to\\s+join)#i',
+		];
+		foreach ( $drop_patterns as $p ) {
+			$raw = (string) preg_replace( $p, '', $raw );
+		}
+		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
+
+		// ── Step 2: extract factual/style signals ─────────────────────────────
+		$signals = self::extract_bio_signals( $raw );
+
+		// ── Step 3: build editorial sentences ─────────────────────────────────
+		$parts = [];
+
+		if ( ! empty( $signals['style_traits'] ) ) {
+			$traits  = self::natural_list( array_slice( $signals['style_traits'], 0, 4 ) );
+			$parts[] = $name . '\'s reviewed profile copy points to a style built around ' . $traits . '.';
+		} elseif ( ! empty( $signals['appearance'] ) ) {
+			$app     = self::natural_list( array_slice( $signals['appearance'], 0, 3 ) );
+			$parts[] = $name . '\'s reviewed profile description highlights ' . $app . '.';
+		}
+
+		if ( ! empty( $signals['activities'] ) ) {
+			$acts    = self::natural_list( array_slice( $signals['activities'], 0, 4 ) );
+			$parts[] = 'The source also highlights ' . $acts . '.';
+		}
+
+		// Always close with a truth disclaimer.
+		$parts[] = 'These notes are treated as profile evidence, not as guarantees for every live session.';
+
+		// If no signals were detected, fall back to a safe minimal sentence.
+		if ( empty( $signals['style_traits'] ) && empty( $signals['appearance'] ) && empty( $signals['activities'] ) ) {
+			$fallback = self::safe_bio_fallback( $raw, $name );
+			if ( $fallback === '' ) {
+				return '';
+			}
+			return $fallback . ' These notes are treated as profile evidence, not as guarantees for every live session.';
+		}
+
+		return implode( ' ', $parts );
+	}
+
+	/**
+	 * Extract bio signal buckets from cleaned raw text.
+	 *
+	 * @return array{appearance:string[], style_traits:string[], activities:string[]}
+	 */
+	private static function extract_bio_signals( string $text ): array {
+		$signals = [ 'appearance' => [], 'style_traits' => [], 'activities' => [] ];
+
+		// Appearance tokens (physical descriptors that survive in third-person).
+		$appearance_patterns = [
+			'#\\b(brunette|blonde|redhead|dark[- ]haired|petite|tall|curvy|athletic|slim|plus[- ]size|tattooed|toned|fit)\\b#i',
+			'#\\b(\\d+[\'″\']?\\d*[″"\']?\\s*(?:tall)?|\\d+\\s*(?:cm|ft|feet))\\b#',
+			'#\\b(\\d+[- ]year[- ]old)\\b#i',
+		];
+		foreach ( $appearance_patterns as $p ) {
+			if ( preg_match_all( $p, $text, $m ) ) {
+				foreach ( $m[1] as $v ) {
+					$v = self::safe_lower( trim( $v ) );
+					if ( $v !== '' && ! in_array( $v, $signals['appearance'], true ) ) {
+						$signals['appearance'][] = $v;
+					}
+				}
+			}
+		}
+
+		// Style / cam-style trait keywords.
+		$style_terms = [
+			'lingerie', 'glamour', 'fashion', 'elegant', 'playful', 'sensual', 'teasing',
+			'confident', 'interactive', 'social', 'warm', 'friendly', 'fetish', 'roleplay',
+			'cosplay', 'latex', 'leather', 'stockings', 'heels', 'outdoor', 'solo',
+			'girl-next-door', 'dominant', 'submissive', 'art', 'music', 'dance', 'fitness',
+		];
+		foreach ( $style_terms as $term ) {
+			if ( stripos( $text, $term ) !== false && ! in_array( $term, $signals['style_traits'], true ) ) {
+				$signals['style_traits'][] = $term;
+			}
+		}
+
+		// Activity signals.
+		$activity_terms = [
+			'private chat', 'private session', 'fan connection', 'fan interaction',
+			'live show', 'cam session', 'posing', 'dancing', 'striptease',
+			'c2c', 'cam-to-cam', 'close-up', 'toy play', 'oil show',
+		];
+		foreach ( $activity_terms as $term ) {
+			if ( stripos( $text, $term ) !== false && ! in_array( $term, $signals['activities'], true ) ) {
+				$signals['activities'][] = $term;
+			}
+		}
+
+		return $signals;
+	}
+
+	/**
+	 * Last-resort bio fallback.
+	 *
+	 * Takes the first non-imperative sentence from the raw text, converts it to
+	 * safe third-person and wraps it with a minimal attribution prefix.
+	 * Used only when signal extraction finds nothing.
+	 */
+	private static function safe_bio_fallback( string $raw, string $name ): string {
 		$sentences = self::split_sentences( $raw );
-		$kept      = [];
 		foreach ( $sentences as $s ) {
 			if ( self::is_imperative_drop( $s ) ) {
 				continue;
 			}
 			$t = self::first_to_third( $s );
-			if ( $t !== '' ) {
-				$kept[] = $t;
+			if ( $t !== '' && str_word_count( $t ) >= 5 ) {
+				// Never start with "She is [name]".
+				$t = (string) preg_replace( '#^She\\s+is\\s+' . preg_quote( $name, '#' ) . '[,.]?\\s*#i', '', $t );
+				$t = trim( $t );
+				if ( $t === '' ) {
+					continue;
+				}
+				return $name . '\'s reviewed profile description notes: ' . lcfirst( $t );
 			}
 		}
-
-		if ( empty( $kept ) ) {
-			return '';
-		}
-
-		$name_phrase = $model_name !== '' ? $model_name : 'the model';
-		$lead        = 'The reviewed source describes ' . $name_phrase . ' as follows. ';
-		$body        = implode( ' ', $kept );
-		$result      = $lead . $body;
-
-		// Trim to 150 words if over 180.
-		if ( str_word_count( $result ) > 180 ) {
-			$words  = explode( ' ', $result );
-			$result = implode( ' ', array_slice( $words, 0, 150 ) ) . '…';
-		}
-
-		return $result;
+		return '';
 	}
 
 	/**
 	 * Transform a raw turn-ons excerpt into third-person editorial copy.
 	 *
-	 * Long first-person sentences are decomposed into thematic keywords.
+	 * v5.8.3: Rewrites to broad editorial themes instead of raw fragment extraction.
+	 *
+	 * Rules:
+	 * - No "Turn-ons mentioned on the reviewed source include: [fragments]".
+	 * - No raw first-person copy ("I like", "with me", "darling", etc.).
+	 * - No crude sexual phrasing.
+	 * - Output: 1 natural editorial sentence.
 	 *
 	 * @param string $raw_turn_ons Raw excerpt from source page.
 	 * @return string  Transformed paragraph.
@@ -230,48 +350,100 @@ class ExternalProfileEvidence {
 			return '';
 		}
 
-		$items   = self::extract_list_items( $raw );
-		$cleaned = [];
+		// ── Strip crude/personal/sales language ───────────────────────────────
+		$drop = [
+			'#\\b(darling|honey|baby|babe|dear|sweetheart|cutie|lover|sexy|handsome|stud)\\b#i',
+			'#how\\s+hard\\s+and\\s+horny\\b#i',
+			'#how\\s+horny\\b#i',
+			'#horny\\s+you\\s+are\\b#i',
+			'#you\\s+are\\s+for\\s+(?:me|her)\\b#i',
+			'#I\\s+like\\s+to\\s+see\\b#i',
+			'#that\\s+you\\s+really\\b#i',
+			'#\\bwith\\s+(?:me|her)\\b#i',
+			'#\\bfor\\s+(?:me|her)\\b#i',
+			'#\\bI\\s+really\\b#i',
+			"#\\bI'?m\\b#i",
+			'#\\bI\\s+(?:love|like|enjoy|want|am)\\b#i',
+			'#\\bmy\\s+\\w#i',
+			'#\\bme\\b#',
+		];
+		foreach ( $drop as $p ) {
+			$raw = (string) preg_replace( $p, '', $raw );
+		}
+		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
 
-		foreach ( $items as $item ) {
-			$item = trim( self::strip_source_labels( $item ) );
-			if ( $item === '' ) {
-				continue;
-			}
-			// Long first-person sentence — extract themes, don't convert verbatim.
-			if ( str_word_count( $item ) > 8 && self::has_first_person( $item ) ) {
-				foreach ( self::extract_themes_from_sentence( $item ) as $theme ) {
-					$cleaned[] = $theme;
+		// ── Map to broad editorial themes ─────────────────────────────────────
+		$themes = self::extract_turn_on_themes( $raw );
+
+		// ── Fallback: clean list extraction ───────────────────────────────────
+		if ( empty( $themes ) ) {
+			$items   = self::extract_list_items( $raw );
+			$cleaned = [];
+			foreach ( $items as $item ) {
+				$c = self::clean_list_item( trim( self::strip_source_labels( $item ) ) );
+				if ( $c !== '' && str_word_count( $c ) <= 6 ) {
+					$cleaned[] = $c;
 				}
-				continue;
 			}
-			$c = self::clean_list_item( $item );
-			if ( $c !== '' ) {
-				$cleaned[] = $c;
+			$cleaned = array_unique( $cleaned );
+			if ( ! empty( $cleaned ) ) {
+				$themes = array_slice( array_values( $cleaned ), 0, 4 );
 			}
 		}
 
-		$cleaned = array_values( array_unique( $cleaned ) );
-
-		if ( empty( $cleaned ) ) {
-			$converted = self::first_to_third( $raw );
-			return $converted !== ''
-				? 'Turn-ons mentioned on the reviewed source include: ' . lcfirst( $converted ) . '.'
-				: '';
+		// ── Safe default if nothing usable found ──────────────────────────────
+		if ( empty( $themes ) ) {
+			return 'Her reviewed turn-ons focus on fantasy-driven interaction and private-session energy.';
 		}
 
-		if ( count( $cleaned ) > 12 ) {
-			$cleaned = array_slice( $cleaned, 0, 12 );
+		return 'Her reviewed turn-ons focus on ' . self::natural_list( $themes ) . '.';
+	}
+
+	/**
+	 * Map raw turn-on text to broad editorial theme labels.
+	 *
+	 * @return string[]
+	 */
+	private static function extract_turn_on_themes( string $text ): array {
+		$map = [
+			'fantasy play'           => [ 'fantasy', 'role.?play', 'scenario', 'cosplay' ],
+			'close-view interaction' => [ 'close.?up', 'close view', 'c2c', 'cam.?to.?cam', 'face cam' ],
+			'interactive energy'     => [ 'interact', 'together', 'mutual', 'energy', 'enjoy' ],
+			'private-session focus'  => [ 'private', 'exclusive', 'one.?on.?one' ],
+			'toy play'               => [ '\\btoy\\b', 'vibrat', 'dildo', 'lush', 'domi' ],
+			'striptease and dancing' => [ 'strip', '\\bdanc', 'tease' ],
+			'foot fetish'            => [ '\\bfoot\\b', '\\bfeet\\b', 'sole' ],
+			'lingerie and fashion'   => [ 'lingerie', 'outfit', 'fashion', 'stockings', 'latex', 'heels' ],
+			'dirty talk'             => [ 'dirty talk', 'talk dirty', 'whisper' ],
+			'domination'             => [ 'dominant', 'dominat', 'control', 'command' ],
+			'submission'             => [ 'submissiv', 'obey' ],
+			'exhibition'             => [ 'voyeur', 'exhib' ],
+		];
+
+		$found = [];
+		foreach ( $map as $theme => $patterns ) {
+			foreach ( $patterns as $p ) {
+				if ( preg_match( '#' . $p . '#i', $text ) ) {
+					$found[] = $theme;
+					break;
+				}
+			}
 		}
 
-		return 'Turn-ons mentioned on the reviewed source include: '
-			. rtrim( implode( ', ', $cleaned ), '.' ) . '.';
+		return array_unique( $found );
 	}
 
 	/**
 	 * Transform a raw private-chat excerpt into third-person editorial copy.
 	 *
-	 * Strips header labels, extracts list items, caps at 20, appends disclaimer.
+	 * v5.8.3: Cap at 14 items. Exact spec framing. Session-change disclaimer.
+	 *
+	 * Rules:
+	 * - Strip "In Private Chat, I'm willing to perform" and all source labels.
+	 * - Dedupe and normalise capitalisation.
+	 * - Cap visible list at 14 items.
+	 * - No first-person.
+	 * - End with session-change disclaimer.
 	 *
 	 * @param string $raw_private_chat Raw excerpt from source page.
 	 * @return string  Transformed paragraph.
@@ -292,22 +464,18 @@ class ExternalProfileEvidence {
 			}
 		}
 
-		$cleaned    = array_values( array_unique( $cleaned ) );
-		$disclaimer = 'Offerings can change by session, so check the official room before assuming a specific option is available.';
+		$cleaned = array_values( array_unique( $cleaned ) );
 
-		if ( count( $cleaned ) > 20 ) {
-			$cleaned = array_slice( $cleaned, 0, 20 );
+		// Cap at 14 items (spec: 12–16).
+		if ( count( $cleaned ) > 14 ) {
+			$cleaned = array_slice( $cleaned, 0, 14 );
 		}
+
+		$disclaimer = 'Availability can change by session, so check the official room before assuming a specific option is offered.';
 
 		if ( ! empty( $cleaned ) ) {
-			return 'Private-chat options listed on the reviewed source include: '
+			return 'Private-chat options listed on the reviewed profile include: '
 				. implode( ', ', $cleaned ) . '. ' . $disclaimer;
-		}
-
-		$converted = self::first_to_third( $raw );
-		if ( $converted !== '' ) {
-			return 'Private-chat options listed on the reviewed source include: '
-				. lcfirst( $converted ) . '. ' . $disclaimer;
 		}
 
 		return '';
@@ -318,54 +486,113 @@ class ExternalProfileEvidence {
 	/**
 	 * Run a final quality gate over a transformed output string.
 	 *
-	 * Fixes broken tokens, removes first-person remnants, cleans spacing.
-	 * Returns the cleaned text and a list of human-readable warnings.
+	 * v5.8.3: Decodes HTML entities, removes first-person remnants, enforces
+	 * all hard-reject checks, returns warnings per failing field.
 	 *
-	 * @return array{text:string, warnings:string[]}
+	 * @return array{text:string, warnings:string[], passed:bool}
 	 */
 	public static function sanitize_output( string $text, string $field_label = '' ): array {
 		$warnings = [];
-		$t        = $text;
+		$prefix   = $field_label !== '' ? $field_label . ': ' : '';
 
+		// Step 1: decode HTML entities (fixes &#039; leakage).
+		$t = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		// Step 2: strip source labels.
 		$t = self::strip_source_labels( $t );
 
-		// Fix broken tokens.
+		// Step 3: fix broken tokens.
 		foreach ( [
-			"#\\bshe'?m\\b#i"  => 'she is',
-			'#\bshe\s+am\b#i'  => 'she is',
-			'#\bher\s+am\b#i'  => 'she is',
+			"#\\bshe'?m\\b#i"    => 'she is',
+			'#\\bshe\\s+am\\b#i' => 'she is',
+			'#\\bher\\s+am\\b#i' => 'she is',
 		] as $pattern => $fix ) {
 			if ( preg_match( $pattern, $t ) ) {
-				$t          = preg_replace( $pattern, $fix, $t );
-				$warnings[] = ( $field_label ? $field_label . ': ' : '' ) . 'Broken pronoun form auto-corrected.';
+				$t          = (string) preg_replace( $pattern, $fix, $t );
+				$warnings[] = $prefix . 'Broken pronoun form auto-corrected.';
 			}
 		}
 
-		// Remove first-person remnants.
-		foreach ( [
-			"#\\bI'?m\\b#i"                                                    => "I'm",
-			'#\bI\s+am\b#i'                                                    => 'I am',
-			'#(?<!\w)I\s+(love|like|enjoy|prefer|want|do|perform|am|have)\b#i' => '"I [verb]"',
-			'#\bJoin\s+me\b#i'                                                 => 'join me',
-			'#\bwith\s+me\b#i'                                                 => 'with me',
-			'#\bmy\s+\w#i'                                                     => '"my …"',
-			'#(?<!\w)I\s+will\b#i'                                             => 'I will',
-		] as $pattern => $label ) {
+		// Step 4: reject/warn patterns.
+		$has_failure = false;
+
+		// Warn-only patterns (field must be edited by operator).
+		$warn_only = [
+			'#\\bThe\\s+reviewed\\s+source\\s+describes\\b#i'  => '"The reviewed source describes" detected — rephrase.',
+			'#\\bas\\s+follows\\.?\\s*$#im'                    => '"as follows" suffix detected — rephrase.',
+			'#\\bShe\\s+is\\s+[A-Z][a-z]#'                    => '"She is [Name]" style detected — rephrase.',
+			'#\\bshe\\s+love\\b#i'                             => 'Grammar "she love" — use "she loves".',
+			'#\\bshe\\s+aim\\b#i'                              => 'Grammar "she aim" — use "she aims".',
+			'#\\bshe\\s+bring\\b#i'                            => 'Grammar "she bring" — use "she brings".',
+		];
+		foreach ( $warn_only as $pattern => $msg ) {
 			if ( preg_match( $pattern, $t ) ) {
-				$t          = preg_replace( $pattern, '', $t );
-				$warnings[] = ( $field_label ? $field_label . ': ' : '' )
-					. 'First-person text (' . $label . ') removed — please review.';
+				$warnings[]  = $prefix . $msg;
+				$has_failure = true;
 			}
 		}
 
-		// Clean spacing.
-		$t = preg_replace( '#\s{2,}#', ' ', $t );
-		$t = preg_replace( '#\s+([,.])\s*#', '$1 ', $t );
-		$t = preg_replace( '#[.]{2,}#', '…', $t );
-		$t = preg_replace( '#([.!?])\s*([.!?])#', '$1', $t );
+		// Auto-remove patterns (silently strip and warn).
+		$auto_remove = [
+			"#\\bI'?m\\b#i"                                             => 'First-person "I\'m" removed.',
+			'#\\bI\\s+am\\b#i'                                          => 'First-person "I am" removed.',
+			'#(?<!\\w)I\\s+(love|like|enjoy|want|do|perform|have)\\b#i' => 'First-person "I [verb]" removed.',
+			'#\\bjoin\\s+me\\b#i'                                        => '"join me" removed.',
+			'#\\bwith\\s+me\\b#i'                                        => '"with me" removed.',
+			'#(?<!\\w)\\bmy\\s+\\w#i'                                   => 'First-person "my …" removed.',
+			'#\\bI\\s+will\\b#i'                                         => 'First-person "I will" removed.',
+		];
+		foreach ( $auto_remove as $pattern => $msg ) {
+			if ( preg_match( $pattern, $t ) ) {
+				$t           = (string) preg_replace( $pattern, '', $t );
+				$warnings[]  = $prefix . $msg . ' Please review.';
+				$has_failure = true;
+			}
+		}
+
+		// Step 5: clean spacing.
+		$t = (string) preg_replace( '#\\s{2,}#', ' ', $t );
+		$t = (string) preg_replace( '#\\s+([,.])#', '$1', $t );
+		$t = (string) preg_replace( '#[.]{2,}#', '…', $t );
+		$t = (string) preg_replace( '#([.!?])\\s*([.!?])#', '$1', $t );
 		$t = trim( $t );
 
-		return [ 'text' => $t, 'warnings' => $warnings ];
+		return [ 'text' => $t, 'warnings' => $warnings, 'passed' => ! $has_failure ];
+	}
+
+	/**
+	 * Get the admin readiness message for the evidence state of a given post.
+	 *
+	 * Returns a status string ('green'|'yellow'|'red') and a human-readable
+	 * message suitable for display in the Model Helper admin metabox.
+	 *
+	 * @return array{status:string, message:string}
+	 */
+	public static function get_admin_readiness_message( int $post_id ): array {
+		$review_status = trim( (string) get_post_meta( $post_id, self::META_REVIEW_STATUS, true ) );
+		$has_bio       = trim( (string) get_post_meta( $post_id, self::META_TRANSFORMED_BIO, true ) ) !== '';
+		$has_turns     = trim( (string) get_post_meta( $post_id, self::META_TRANSFORMED_TURN_ONS, true ) ) !== '';
+		$has_priv      = trim( (string) get_post_meta( $post_id, self::META_TRANSFORMED_PRIVATE_CHAT, true ) ) !== '';
+		$has_any       = $has_bio || $has_turns || $has_priv;
+
+		if ( $review_status === self::STATUS_APPROVED && $has_any ) {
+			return [
+				'status'  => 'green',
+				'message' => 'Approved evidence is ready and will be added above generated content.',
+			];
+		}
+
+		if ( $has_any ) {
+			return [
+				'status'  => 'yellow',
+				'message' => 'Transformed evidence exists but will not appear until Review Status is Approved and the post is saved.',
+			];
+		}
+
+		return [
+			'status'  => 'red',
+			'message' => 'No transformed evidence available yet.',
+		];
 	}
 
 	// ── Core first-person → third-person converter (v5.8.2) ──────────────────
@@ -467,13 +694,51 @@ class ExternalProfileEvidence {
 		$t = trim( $t );
 
 		if ( $t !== '' ) {
-			$t = mb_strtoupper( mb_substr( $t, 0, 1 ) ) . mb_substr( $t, 1 );
+			$t = self::safe_upper( self::safe_substr( $t, 0, 1 ) ) . self::safe_substr( $t, 1 );
 		}
 
 		return $t;
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	// ── mbstring-safe wrappers (v5.8.5) ───────────────────────────────────────
+	// Hosts without the mbstring extension produce a fatal error if mb_* functions
+	// are called directly inside a namespace. These three wrappers guard every call
+	// in this class so the transformer degrades gracefully instead of crashing.
+
+	/** UTF-8-safe strtolower. Falls back to strtolower when mbstring is absent. */
+	private static function safe_lower( string $text ): string {
+		return function_exists( 'mb_strtolower' )
+			? mb_strtolower( $text, 'UTF-8' )
+			: strtolower( $text );
+	}
+
+	/** UTF-8-safe strtoupper. Falls back to strtoupper when mbstring is absent. */
+	private static function safe_upper( string $text ): string {
+		return function_exists( 'mb_strtoupper' )
+			? mb_strtoupper( $text, 'UTF-8' )
+			: strtoupper( $text );
+	}
+
+	/**
+	 * UTF-8-safe substr. Falls back to substr when mbstring is absent.
+	 *
+	 * @param int      $start  Start position.
+	 * @param int|null $length Optional length.
+	 */
+	private static function safe_substr( string $text, int $start, ?int $length = null ): string {
+		if ( function_exists( 'mb_substr' ) ) {
+			return $length === null
+				? mb_substr( $text, $start, null, 'UTF-8' )
+				: mb_substr( $text, $start, $length, 'UTF-8' );
+		}
+		return $length === null
+			? substr( $text, $start )
+			: (string) substr( $text, $start, $length );
+	}
+
+	// ── End mbstring-safe wrappers ────────────────────────────────────────────
 
 	/** Prepare and normalise raw input: strip HTML, normalise apostrophes, trim. */
 	private static function prepare_raw( string $text ): string {
@@ -526,23 +791,42 @@ class ExternalProfileEvidence {
 	}
 
 	/**
-	 * Extract thematic keywords from a long first-person sentence.
-	 * Used when Turn Ons contains narrative copy rather than a clean list.
+	 * Format a list of strings as natural English prose (Oxford comma style).
 	 *
+	 * @param string[] $items
+	 */
+	private static function natural_list( array $items ): string {
+		$items = array_values( array_filter( $items ) );
+		if ( empty( $items ) ) {
+			return '';
+		}
+		if ( count( $items ) === 1 ) {
+			return $items[0];
+		}
+		if ( count( $items ) === 2 ) {
+			return $items[0] . ' and ' . $items[1];
+		}
+		$last = array_pop( $items );
+		return implode( ', ', $items ) . ', and ' . $last;
+	}
+
+	/**
+	 * Extract thematic keywords from a long first-person sentence.
+	 *
+	 * @deprecated 5.8.3 Replaced by extract_turn_on_themes(). Kept for backwards compat.
 	 * @return string[]
 	 */
 	private static function extract_themes_from_sentence( string $sentence ): array {
-		// Strip first-person noise and common salesy/filler words.
-		$s = preg_replace( "#\\b(I'?m?|I\\s+am|I\\s+love|I\\s+like|I\\s+enjoy|I\\s+want|my|me|with\\s+me|for\\s+me|darling|dear|sweetheart|honey|baby|babe|sexy|boo|cutie|lover)\\b#i", '', $sentence );
-		$s = preg_replace( '#\s{2,}#', ' ', $s );
+		$s = (string) preg_replace( "#\\b(I'?m?|I\\s+am|I\\s+love|I\\s+like|I\\s+enjoy|I\\s+want|my|me|with\\s+me|for\\s+me|darling|dear|sweetheart|honey|baby|babe|sexy|boo|cutie|lover)\\b#i", '', $sentence );
+		$s = (string) preg_replace( '#\\s{2,}#', ' ', $s );
 		$s = trim( $s );
 
 		$parts  = preg_split( '#[,;/&]|\\band\\b#i', $s, -1, PREG_SPLIT_NO_EMPTY );
 		$themes = [];
-		foreach ( $parts as $part ) {
-			$part = trim( preg_replace( '#^(to\s+|that\s+|really\s+|very\s+|so\s+|get\s+)#i', '', trim( $part ) ) );
+		foreach ( (array) $parts as $part ) {
+			$part = trim( (string) preg_replace( '#^(to\\s+|that\\s+|really\\s+|very\\s+|so\\s+|get\\s+)#i', '', trim( (string) $part ) ) );
 			if ( $part !== '' && str_word_count( $part ) >= 1 && str_word_count( $part ) <= 6 ) {
-				$themes[] = mb_strtolower( mb_substr( $part, 0, 1 ) ) . mb_substr( $part, 1 );
+				$themes[] = self::safe_lower( self::safe_substr( $part, 0, 1 ) ) . self::safe_substr( $part, 1 );
 			}
 		}
 		return array_filter( $themes );
@@ -620,8 +904,25 @@ class ExternalProfileEvidence {
 			return '';
 		}
 
-		// Lowercase entire item for list consistency (roleplay, c2c, joi, etc.).
-		return mb_strtolower( $item );
+		// Lowercase entire item for list consistency.
+		$item = self::safe_lower( $item );
+
+		// Restore industry acronyms that must stay uppercase.
+		// Applied after lowercasing so the match is always against the known lowercase form.
+		static $acronym_allowlist = [
+			'JOI', 'C2C', 'POV', 'SPH', 'ASMR', 'BBC', 'BDSM', 'HD', 'VR',
+			'GFE', 'OWO', 'CIM', 'CBT', 'CEI', 'DT', 'DP', 'BJ', 'HJ',
+		];
+		$item = (string) preg_replace_callback(
+			'/[a-z][a-z0-9]*/u',
+			static function ( array $m ) use ( $acronym_allowlist ): string {
+				$upper = strtoupper( $m[0] );
+				return in_array( $upper, $acronym_allowlist, true ) ? $upper : $m[0];
+			},
+			$item
+		);
+
+		return $item;
 	}
 
 	/**

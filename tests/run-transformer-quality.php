@@ -61,8 +61,8 @@ ok( no_first_person( $r ),                              'A2: no first-person in 
 // A3: no broken token "she'm"
 ok( strpos( $r, "she'm" ) === false,                    'A3: no she\'m broken token' );
 
-// A4: third-person reviewed-source framing
-ok( stripos( $r, 'reviewed source' ) !== false,         'A4: attribution framing present' );
+// A4: editorial attribution framing present (v5.8.3: "reviewed profile copy" or similar)
+ok( stripos( $r, 'reviewed' ) !== false,                'A4: "reviewed" editorial framing present' );
 
 // A5: Unicode apostrophe ("smart quote" I'm) does not produce she'm
 $unicode_bio = "I\u{2019}m Anisyia. I\u{2019}m always playful and confident.";
@@ -98,12 +98,14 @@ ok( strpos( $r2, 'I like' ) === false,                  'B2: no raw "I like" in 
 ok( strpos( $r2, 'darling' ) === false,                 'B2: filler word "darling" removed' );
 ok( no_first_person( $r2 ),                             'B2: no first-person in long-sentence output' );
 
-// B3: produces "Turn-ons mentioned on the reviewed source include..." framing
-ok( stripos( $r2, 'Turn-ons mentioned on the reviewed source include' ) !== false, 'B3: correct framing present' );
+// B3: v5.8.3 editorial output — NOT old fragment-list framing
+ok( strpos( $r2, 'Turn-ons mentioned on the reviewed source include' ) === false,
+    'B3: old fragment-list framing removed from output' );
+ok( strlen( $r2 ) > 10, 'B3: editorial output produced for narrative turn-ons' );
 
-// B4: clean list items preserved
+// B4: list-type input produces a natural editorial sentence
 $r4 = ExternalProfileEvidence::transform_turn_ons( "roleplay\nC2C\ndirty talk\nfetish" );
-ok( stripos( $r4, 'roleplay' ) !== false,               'B4: list items preserved' );
+ok( strlen( $r4 ) > 10,                                 'B4: output produced for list items' );
 ok( strpos( $r4, '.' ) !== false,                       'B4: sentence ends with period' );
 // No double period
 ok( strpos( $r4, '..' ) === false,                      'B4: no double period artifact' );
@@ -122,8 +124,8 @@ $r    = ExternalProfileEvidence::transform_private_chat( $priv );
 ok( strpos( $r, "In Private Chat, I'm willing to perform" ) === false, 'C1: full header stripped' );
 ok( strpos( $r, "I'm willing" ) === false,              'C1: no "I\'m willing" remnant' );
 
-// C2: correct safe framing
-ok( stripos( $r, 'Private-chat options listed on the reviewed source include' ) !== false, 'C2: safe framing used' );
+// C2: correct safe framing — "reviewed profile" (spec v5.8.3)
+ok( stripos( $r, 'Private-chat options listed on the reviewed profile include' ) !== false, 'C2: spec-compliant framing used' );
 
 // C3: session-change disclaimer present
 ok( stripos( $r, 'session' ) !== false,                 'C3: session disclaimer present' );
@@ -135,7 +137,7 @@ ok( stripos( $r, 'roleplay' ) !== false,                'C4: list items preserve
 $priv_comma = "In Private Chat, I'm willing to perform: anal sex, dildo, vibrator, roleplay, JOI, striptease, dancing";
 $r5 = ExternalProfileEvidence::transform_private_chat( $priv_comma );
 ok( strpos( $r5, "I'm willing" ) === false,             'C5: comma list: no "I\'m willing"' );
-ok( stripos( $r5, 'Private-chat options listed' ) !== false, 'C5: comma list: safe framing' );
+ok( stripos( $r5, 'Private-chat options listed on the reviewed profile include' ) !== false, 'C5: comma list: spec-compliant framing' );
 ok( stripos( $r5, 'roleplay' ) !== false,               'C5: comma list: items preserved' );
 
 // C6: standalone "I'm willing to perform:" variant
@@ -157,9 +159,13 @@ ok( ! empty( $w ),                                      'D1: warning generated f
 [ 'text' => $t, 'warnings' => $w ] = ExternalProfileEvidence::sanitize_output( "she am always confident.", 'Bio' );
 ok( strpos( $t, 'she am' ) === false,                   'D2: sanitize_output fixes "she am"' );
 
-// D3: clean text produces no warnings
-[ 'text' => $t, 'warnings' => $w ] = ExternalProfileEvidence::sanitize_output( 'The reviewed source describes her as engaging and professional.', 'Bio' );
-ok( empty( $w ),                                        'D3: clean text → no warnings' );
+// D3: clean editorial text (no bad patterns) produces no warnings
+[ 'text' => $t, 'warnings' => $w ] = ExternalProfileEvidence::sanitize_output( "Anisyia's reviewed profile copy points to a glamour-focused cam style. These notes are treated as profile evidence.", 'Bio' );
+ok( empty( $w ),                                        'D3: clean editorial text → no warnings' );
+
+// D3b: "The reviewed source describes … as follows" triggers a warning
+[ 'text' => $t, 'warnings' => $w3b ] = ExternalProfileEvidence::sanitize_output( 'The reviewed source describes TestModel as follows. She loves roleplay.', 'Bio' );
+ok( ! empty( $w3b ),                                    'D3b: "The reviewed source describes" prefix triggers warning' );
 
 // D4: first-person remnant removed with warning
 [ 'text' => $t, 'warnings' => $w ] = ExternalProfileEvidence::sanitize_output( "She is great. I'm so happy with my work.", 'Bio' );
@@ -182,12 +188,12 @@ $ev = ExternalProfileEvidence::get_evidence_data( 42 );
 ok( ! $ev['is_renderable'],                             'D7: unreviewed evidence not renderable after transform' );
 
 // D8: approved evidence still renders
-$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_REVIEW_STATUS ]      = ExternalProfileEvidence::STATUS_APPROVED;
-$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_TRANSFORMED_BIO ]    = 'The reviewed source describes her as experienced.';
-$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_TRANSFORMED_TURN_ONS ]    = 'Turn-ons include roleplay.';
-$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_TRANSFORMED_PRIVATE_CHAT ] = 'Private-chat options include C2C.';
+$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_REVIEW_STATUS ]           = ExternalProfileEvidence::STATUS_APPROVED;
+$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_TRANSFORMED_BIO ]         = "Anisyia's reviewed profile copy points to a glamour-focused cam style built around lingerie and confident posing. These notes are treated as profile evidence, not as guarantees for every live session.";
+$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_TRANSFORMED_TURN_ONS ]    = 'Her reviewed turn-ons focus on fantasy play and close-view interaction.';
+$GLOBALS['_tmw_test_post_meta'][99][ ExternalProfileEvidence::META_TRANSFORMED_PRIVATE_CHAT ] = 'Private-chat options listed on the reviewed profile include: roleplay, striptease. Availability can change by session, so check the official room before assuming a specific option is offered.';
 $ev2 = ExternalProfileEvidence::get_evidence_data( 99 );
-ok( $ev2['is_renderable'],                              'D8: approved evidence still renders after rewrite' );
+ok( $ev2['is_renderable'],                              'D8: approved evidence still renders after v5.8.3 rewrite' );
 
 // ── Before / after examples (printed for reference) ──────────────────────────
 echo "\n\033[1m=== Before/After Reference Examples ===\033[0m\n";
