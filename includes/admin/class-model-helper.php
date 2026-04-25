@@ -1517,83 +1517,17 @@ class ModelHelper {
 
         echo '</table>';
 
-        // ── AWE Evidence Panel (v5.7.0) ───────────────────────────────────────
-        // Allows operators to fetch AWE API profile evidence for this model.
-        // Evidence is stored as post meta for review — never auto-published.
-        // Access key is never exposed here; only the result is shown.
-        if ( class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class )
+        // ── AWE Evidence Panel — REMOVED in v5.8.6 ────────────────────────────
+        // Per spec: AWE API does not provide useful model bio data, and
+        // wps-livejasmin already provides video metadata. The AWE Evidence UI
+        // was making the model editor messy without delivering bio value, so
+        // it has been removed from the model editor. The AweApiClient class
+        // remains loaded for any video-metadata callers that depend on it.
+        if ( false && class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class )
             && \TMWSEO\Engine\Integrations\AweApiClient::is_active() ) {
-
-            $awe_fetched_at  = (string) get_post_meta( $post->ID, self::META_AWE_FETCHED_AT, true );
-            $awe_confidence  = (string) get_post_meta( $post->ID, self::META_AWE_CONFIDENCE, true );
-            $awe_avail_raw   = (string) get_post_meta( $post->ID, self::META_AWE_AVAILABLE_FIELDS, true );
-            $awe_avail       = $awe_avail_raw ? (array) json_decode( $awe_avail_raw, true ) : [];
-            $awe_nonce       = wp_create_nonce( 'tmwseo_awe_fetch_evidence_' . $post->ID );
-
-            echo '<hr style="margin:18px 0 14px;">';
-            echo '<h4 style="margin:0 0 8px;font-size:13px;color:#1e293b;">' . esc_html__( 'AWE API Evidence', 'tmwseo' ) . '</h4>';
-            echo '<p style="font-size:11px;color:#6b7280;margin:0 0 10px;line-height:1.45;">';
-            echo esc_html__( 'Fetches profile evidence from the AWE API. Evidence is stored for review only — never auto-published. Write your own original Bio Summary above after reviewing the results.', 'tmwseo' );
-            echo '</p>';
-
-            if ( $awe_fetched_at ) {
-                echo '<p style="font-size:11px;margin:0 0 8px;">';
-                echo '<strong>' . esc_html__( 'Last fetch:', 'tmwseo' ) . '</strong> ' . esc_html( $awe_fetched_at );
-                if ( $awe_confidence ) {
-                    $conf_colours = [ 'high' => '#16a34a', 'medium' => '#b45309', 'low' => '#6b7280', 'none' => '#dc2626' ];
-                    $conf_col = $conf_colours[ $awe_confidence ] ?? '#555';
-                    echo ' &nbsp; <strong>' . esc_html__( 'Confidence:', 'tmwseo' ) . '</strong> <span style="color:' . esc_attr( $conf_col ) . ';">' . esc_html( ucfirst( $awe_confidence ) ) . '</span>';
-                }
-                echo '</p>';
-                if ( ! empty( $awe_avail ) ) {
-                    echo '<p style="font-size:11px;margin:0 0 8px;color:#374151;">';
-                    echo '<strong>' . esc_html__( 'Available AWE fields:', 'tmwseo' ) . '</strong> ';
-                    echo esc_html( implode( ', ', array_map( 'sanitize_text_field', $awe_avail ) ) );
-                    echo '</p>';
-                }
-            }
-
-            echo '<button type="button" id="tmwseo-awe-evidence-btn" class="button" '
-               . 'data-post-id="' . esc_attr( (string) $post->ID ) . '" '
-               . 'data-nonce="' . esc_attr( $awe_nonce ) . '">';
-            echo esc_html__( 'Fetch AWE Evidence', 'tmwseo' );
-            echo '</button>';
-            echo ' <span id="tmwseo-awe-evidence-result" style="margin-left:10px;font-size:12px;display:none;"></span>';
-
-            // Inline JS — no credential exposure, admin context only.
-            echo '<script>
-            (function(){
-                var btn = document.getElementById("tmwseo-awe-evidence-btn");
-                var res = document.getElementById("tmwseo-awe-evidence-result");
-                if (!btn) return;
-                btn.addEventListener("click", function(){
-                    btn.disabled = true;
-                    res.style.display = "inline";
-                    res.style.color = "#555";
-                    res.textContent = "Fetching\u2026";
-                    fetch(ajaxurl, {
-                        method: "POST",
-                        headers: {"Content-Type":"application/x-www-form-urlencoded"},
-                        body: "action=tmwseo_awe_fetch_evidence"
-                            + "&post_id=" + encodeURIComponent(btn.dataset.postId)
-                            + "&_wpnonce=" + encodeURIComponent(btn.dataset.nonce)
-                    })
-                    .then(function(r){ return r.json(); })
-                    .then(function(d){
-                        if (d.success && d.data) {
-                            res.textContent = d.data.message || "Done.";
-                            res.style.color = "#16a34a";
-                        } else {
-                            res.textContent = (d.data && d.data.message) ? d.data.message : "Fetch failed.";
-                            res.style.color = "#dc2626";
-                        }
-                        btn.disabled = false;
-                    })
-                    .catch(function(){ res.textContent = "Request failed."; res.style.color="#dc2626"; btn.disabled=false; });
-                });
-            })();
-            </script>';
+            // Disabled — see note above.
         }
+        // ── End AWE Evidence Panel removal ───────────────────────────────────
 
         // ── External Profile Evidence Panel (v5.8.0) ─────────────────────────
         // Reviewed evidence from approved external sources (webcamexchange.com).
@@ -1614,15 +1548,10 @@ class ModelHelper {
 
         echo '<hr style="margin:22px 0 14px;">';
         echo '<h4 style="margin:0 0 8px;font-size:13px;color:#1e293b;">' . esc_html__( 'External Profile Evidence (webcamexchange.com)', 'tmwseo' ) . '</h4>';
-        echo '<div style="background:#f0f9ff;border-left:4px solid #0284c7;padding:10px 14px;margin-bottom:12px;font-size:11px;color:#374151;line-height:1.5;">';
-        echo '<strong>' . esc_html__( 'How to use:', 'tmwseo' ) . '</strong> ';
-        echo esc_html__( '1. Paste the source URL. 2. Paste raw text from the Bio, Turn Ons, and In Private Chat sections. 3. Click "Generate Suggestions" to auto-suggest third-person transformations. 4. Review and edit the transformed fields. 5. Set Review Status to Approved to enable rendering. Only approved transformed text is published — raw excerpts are audit-only.', 'tmwseo' );
-        echo '</div>';
 
-        // ── Readiness notice (v5.8.3) ─────────────────────────────────────────
-        // Shows operators whether evidence is ready to render, pending approval,
-        // or not yet generated. Uses ExternalProfileEvidence::get_admin_readiness_message()
-        // when available; falls back to direct meta reads if the class is not loaded.
+        // ── Readiness notice (v5.8.3, repositioned v5.8.6) ────────────────────
+        // Always visible above the collapsible details so operators see status
+        // at a glance even when the panel is collapsed.
         if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
             $readiness = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_admin_readiness_message( (int) $post->ID );
         } else {
@@ -1645,9 +1574,23 @@ class ModelHelper {
         $r_status = (string) ( $readiness['status'] ?? 'red' );
         $r_style  = $readiness_styles[ $r_status ] ?? $readiness_styles['red'];
         $r_icon   = $readiness_icons[ $r_status ] ?? '✕';
-        echo '<div id="tmwseo-ext-readiness-notice" style="' . esc_attr( $r_style ) . 'padding:9px 14px;margin-bottom:12px;font-size:12px;line-height:1.5;border-radius:0 4px 4px 0;">';
+        echo '<div id="tmwseo-ext-readiness-notice" style="' . esc_attr( $r_style ) . 'padding:9px 14px;margin-bottom:10px;font-size:12px;line-height:1.5;border-radius:0 4px 4px 0;">';
         echo '<strong>' . esc_html( $r_icon . ' Evidence status: ' ) . '</strong>';
         echo esc_html( (string) ( $readiness['message'] ?? '' ) );
+        echo '</div>';
+
+        // ── Collapsible panel (v5.8.6) ─────────────────────────────────────────
+        // Open by default when status is yellow/red so operators see what needs
+        // attention. Collapsed when green so the editor stays compact.
+        $details_open = ( $r_status === 'green' ) ? '' : ' open';
+        echo '<details class="tmwseo-ext-evidence-panel"' . $details_open . ' style="border:1px solid #e5e7eb;border-radius:4px;padding:10px 14px;margin-bottom:10px;background:#fafafa;">';
+        echo '<summary style="cursor:pointer;font-weight:600;font-size:12px;color:#374151;padding:2px 0;">';
+        echo esc_html__( 'Source URL, raw excerpts, transformed text, review status', 'tmwseo' );
+        echo '</summary>';
+
+        echo '<div style="background:#f0f9ff;border-left:4px solid #0284c7;padding:10px 14px;margin:10px 0 12px;font-size:11px;color:#374151;line-height:1.5;">';
+        echo '<strong>' . esc_html__( 'How to use:', 'tmwseo' ) . '</strong> ';
+        echo esc_html__( '1. Paste the source URL. 2. Paste raw text from the Bio, Turn Ons, and In Private Chat sections. 3. Click "Generate Suggestions" to auto-suggest third-person transformations. 4. Review and edit the transformed fields. 5. Set Review Status to Approved to enable rendering. Only approved transformed text is published — raw excerpts are audit-only.', 'tmwseo' );
         echo '</div>';
 
         echo '<table class="form-table" style="margin-top:0;">';
@@ -1838,6 +1781,9 @@ class ModelHelper {
             });
         })();
         </script>';
+
+        // Close the collapsible <details> wrapper opened above (v5.8.6).
+        echo '</details>';
 
         // ── Save button ───────────────────────────────────────────────────
         echo '<p>';

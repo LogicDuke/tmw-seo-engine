@@ -157,6 +157,8 @@ class Loader {
         // External profile evidence layer (v5.8.0) — webcamexchange.com actor pages.
         // Must load before model-page-renderer so the renderer can reference the class.
         tmwseo_safe_require( $p . 'class-external-profile-evidence.php' );
+        // Canonical evidence-block prepender (v5.8.6) — single insertion point.
+        tmwseo_safe_require( $p . 'class-external-profile-evidence-renderer.php' );
         tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
         tmwseo_safe_require( $p . 'class-model-destination-resolver.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );

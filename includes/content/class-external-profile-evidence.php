@@ -193,7 +193,7 @@ class ExternalProfileEvidence {
 			return '';
 		}
 
-		$name = $model_name !== '' ? $model_name : 'the model';
+		$name = $model_name !== '' ? trim( $model_name ) : 'the model';
 
 		// ── Step 1: strip sales/imperative/hype copy ─────────────────────────
 		$drop_patterns = [
@@ -215,87 +215,131 @@ class ExternalProfileEvidence {
 		}
 		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
 
-		// ── Step 2: extract factual/style signals ─────────────────────────────
+		// ── Step 2: extract noun-phrase style signals ─────────────────────────
+		// v5.8.6: switched from raw adjective tokens (which produced
+		// "built around lingerie, fashion, and warm") to curated noun phrases
+		// so the output reads as natural editorial English.
 		$signals = self::extract_bio_signals( $raw );
 
 		// ── Step 3: build editorial sentences ─────────────────────────────────
-		$parts = [];
+		$parts        = [];
+		$opening_done = false;
 
-		if ( ! empty( $signals['style_traits'] ) ) {
-			$traits  = self::natural_list( array_slice( $signals['style_traits'], 0, 4 ) );
-			$parts[] = $name . '\'s reviewed profile copy points to a style built around ' . $traits . '.';
+		if ( ! empty( $signals['style_phrases'] ) ) {
+			$phrases       = self::natural_list( array_slice( $signals['style_phrases'], 0, 3 ) );
+			$parts[]       = $name . "'s profile evidence points to a cam style built around " . $phrases . '.';
+			$opening_done  = true;
 		} elseif ( ! empty( $signals['appearance'] ) ) {
-			$app     = self::natural_list( array_slice( $signals['appearance'], 0, 3 ) );
-			$parts[] = $name . '\'s reviewed profile description highlights ' . $app . '.';
+			$app           = self::natural_list( array_slice( $signals['appearance'], 0, 3 ) );
+			$parts[]       = $name . "'s profile description highlights " . $app . '.';
+			$opening_done  = true;
 		}
 
-		if ( ! empty( $signals['activities'] ) ) {
-			$acts    = self::natural_list( array_slice( $signals['activities'], 0, 4 ) );
-			$parts[] = 'The source also highlights ' . $acts . '.';
+		if ( ! empty( $signals['activity_phrases'] ) ) {
+			$acts    = self::natural_list( array_slice( $signals['activity_phrases'], 0, 3 ) );
+			$parts[] = ( $opening_done ? 'The source also highlights ' : 'The source highlights ' ) . $acts . '.';
 		}
 
 		// Always close with a truth disclaimer.
-		$parts[] = 'These notes are treated as profile evidence, not as guarantees for every live session.';
+		$parts[] = 'Treat these notes as profile-based context rather than a guarantee of what will happen in every live session.';
 
 		// If no signals were detected, fall back to a safe minimal sentence.
-		if ( empty( $signals['style_traits'] ) && empty( $signals['appearance'] ) && empty( $signals['activities'] ) ) {
+		if ( empty( $signals['style_phrases'] ) && empty( $signals['appearance'] ) && empty( $signals['activity_phrases'] ) ) {
 			$fallback = self::safe_bio_fallback( $raw, $name );
 			if ( $fallback === '' ) {
 				return '';
 			}
-			return $fallback . ' These notes are treated as profile evidence, not as guarantees for every live session.';
+			return self::final_humanize( $fallback . ' Treat these notes as profile-based context rather than a guarantee of what will happen in every live session.' );
 		}
 
-		return implode( ' ', $parts );
+		return self::final_humanize( implode( ' ', $parts ) );
 	}
 
 	/**
 	 * Extract bio signal buckets from cleaned raw text.
 	 *
-	 * @return array{appearance:string[], style_traits:string[], activities:string[]}
+	 * v5.8.6: rewritten to return human-readable NOUN PHRASES rather than bare
+	 * adjective tokens. The earlier version produced "built around lingerie,
+	 * fashion, and warm" because it inserted single adjectives ("warm",
+	 * "friendly") into a noun-list slot. The new version uses a curated map of
+	 * (regex → noun-phrase) pairs so every emitted item reads as a proper
+	 * editorial noun phrase.
+	 *
+	 * @return array{appearance:string[], style_phrases:string[], activity_phrases:string[]}
 	 */
 	private static function extract_bio_signals( string $text ): array {
-		$signals = [ 'appearance' => [], 'style_traits' => [], 'activities' => [] ];
+		$signals = [ 'appearance' => [], 'style_phrases' => [], 'activity_phrases' => [] ];
 
-		// Appearance tokens (physical descriptors that survive in third-person).
-		$appearance_patterns = [
-			'#\\b(brunette|blonde|redhead|dark[- ]haired|petite|tall|curvy|athletic|slim|plus[- ]size|tattooed|toned|fit)\\b#i',
-			'#\\b(\\d+[\'″\']?\\d*[″"\']?\\s*(?:tall)?|\\d+\\s*(?:cm|ft|feet))\\b#',
-			'#\\b(\\d+[- ]year[- ]old)\\b#i',
+		// ── Appearance noun phrases ─────────────────────────────────────────
+		$appearance_map = [
+			'#\\b(petite|tiny|short)\\b#i'                                   => 'a petite frame',
+			'#\\btall\\b#i'                                                  => 'a tall frame',
+			'#\\b(curvy|voluptuous)\\b#i'                                    => 'a curvy figure',
+			'#\\b(athletic|toned|fit)\\b#i'                                  => 'an athletic build',
+			'#\\b(brunette|dark[- ]haired)\\b#i'                             => 'brunette hair',
+			'#\\b(blonde)\\b#i'                                              => 'blonde hair',
+			'#\\b(redhead|ginger)\\b#i'                                      => 'red hair',
+			'#\\b(tattooed|inked|tattoos?)\\b#i'                             => 'tattoo work',
+			'#\\b(slim|slender)\\b#i'                                        => 'a slim build',
 		];
-		foreach ( $appearance_patterns as $p ) {
-			if ( preg_match_all( $p, $text, $m ) ) {
-				foreach ( $m[1] as $v ) {
-					$v = self::safe_lower( trim( $v ) );
-					if ( $v !== '' && ! in_array( $v, $signals['appearance'], true ) ) {
-						$signals['appearance'][] = $v;
-					}
-				}
+		foreach ( $appearance_map as $pattern => $phrase ) {
+			if ( preg_match( $pattern, $text ) && ! in_array( $phrase, $signals['appearance'], true ) ) {
+				$signals['appearance'][] = $phrase;
 			}
 		}
 
-		// Style / cam-style trait keywords.
-		$style_terms = [
-			'lingerie', 'glamour', 'fashion', 'elegant', 'playful', 'sensual', 'teasing',
-			'confident', 'interactive', 'social', 'warm', 'friendly', 'fetish', 'roleplay',
-			'cosplay', 'latex', 'leather', 'stockings', 'heels', 'outdoor', 'solo',
-			'girl-next-door', 'dominant', 'submissive', 'art', 'music', 'dance', 'fitness',
+		// ── Style noun phrases (always grammatical inside "built around X") ──
+		// IMPORTANT: every value here must read naturally in the slot
+		// "built around ___, ___, and ___." — single adjectives are forbidden.
+		$style_map = [
+			// Wardrobe / aesthetic ─────────────
+			'#\\blingerie\\b#i'                                              => 'lingerie sets',
+			'#\\b(fashion|high\\s*fashion)\\b#i'                             => 'fashion-inspired posing',
+			'#\\bglamou?r(?:ous)?\\b#i'                                      => 'a glamour-focused look',
+			'#\\belegan(?:t|ce)\\b#i'                                        => 'an elegant on-camera presence',
+			'#\\b(stockings|fishnets)\\b#i'                                  => 'stockings and hosiery looks',
+			'#\\b(latex|leather|pvc)\\b#i'                                   => 'latex and leather wardrobes',
+			'#\\b(high[\\s-]?heels?|heels?)\\b#i'                            => 'high-heel styling',
+			'#\\b(cosplay|costume)\\b#i'                                     => 'cosplay outfits',
+
+			// Personality / room presence ──────
+			'#\\bwarm\\b#i'                                                  => 'a warm room presence',
+			'#\\b(friendly|inviting|welcoming)\\b#i'                         => 'a welcoming on-camera tone',
+			'#\\b(playful|teasing)\\b#i'                                     => 'a playful, teasing energy',
+			'#\\b(confident|assertive)\\b#i'                                 => 'a confident stage presence',
+			'#\\b(captivating|engaging)\\b#i'                                => 'an engaging show style',
+			'#\\b(sensual|seductive)\\b#i'                                   => 'a sensual delivery',
+
+			// Niche cues ───────────────────────
+			'#\\b(fetish|kink)\\b#i'                                         => 'fetish-friendly content',
+			'#\\b(role[- ]?play)\\b#i'                                       => 'roleplay scenes',
+			'#\\b(domina(?:nt|tion)|domme?)\\b#i'                            => 'a dominant style',
+			'#\\b(submissive|sub\\b)#i'                                      => 'a submissive style',
+			'#\\b(art|artistic|model(?:ling|ing))\\b#i'                      => 'a modelling-influenced aesthetic',
+			'#\\b(dance|dancing)\\b#i'                                       => 'dance-led shows',
 		];
-		foreach ( $style_terms as $term ) {
-			if ( stripos( $text, $term ) !== false && ! in_array( $term, $signals['style_traits'], true ) ) {
-				$signals['style_traits'][] = $term;
+		foreach ( $style_map as $pattern => $phrase ) {
+			if ( preg_match( $pattern, $text ) && ! in_array( $phrase, $signals['style_phrases'], true ) ) {
+				$signals['style_phrases'][] = $phrase;
 			}
 		}
 
-		// Activity signals.
-		$activity_terms = [
-			'private chat', 'private session', 'fan connection', 'fan interaction',
-			'live show', 'cam session', 'posing', 'dancing', 'striptease',
-			'c2c', 'cam-to-cam', 'close-up', 'toy play', 'oil show',
+		// ── Activity noun phrases ───────────────────────────────────────────
+		$activity_map = [
+			'#\\bprivate\\s+(?:chat|session)s?\\b#i'                        => 'private-chat interaction',
+			'#\\b(?:live|cam)\\s+session#i'                                  => 'live cam sessions',
+			'#\\bfan(?:s)?\\s+(?:connect|interact)#i'                       => 'fan connection',
+			'#\\bgenuine\\s+connection#i'                                    => 'genuine viewer connection',
+			'#\\bposing\\b#i'                                                => 'on-camera posing',
+			'#\\b(?:strip\\s*tease|striptease)\\b#i'                         => 'striptease segments',
+			'#\\b(c2c|cam[\\s-]?to[\\s-]?cam|close[\\s-]?up)\\b#i'           => 'close-up and cam-to-cam moments',
+			'#\\btoy\\s*(?:show|play)\\b#i'                                  => 'toy-led performances',
+			'#\\boil\\s+show#i'                                              => 'oil-show segments',
+			'#\\b(?:share|sharing)\\s+stories\\b#i'                          => 'conversational, story-led time',
 		];
-		foreach ( $activity_terms as $term ) {
-			if ( stripos( $text, $term ) !== false && ! in_array( $term, $signals['activities'], true ) ) {
-				$signals['activities'][] = $term;
+		foreach ( $activity_map as $pattern => $phrase ) {
+			if ( preg_match( $pattern, $text ) && ! in_array( $phrase, $signals['activity_phrases'], true ) ) {
+				$signals['activity_phrases'][] = $phrase;
 			}
 		}
 
@@ -393,10 +437,25 @@ class ExternalProfileEvidence {
 
 		// ── Safe default if nothing usable found ──────────────────────────────
 		if ( empty( $themes ) ) {
-			return 'Her reviewed turn-ons focus on fantasy-driven interaction and private-session energy.';
+			return self::final_humanize(
+				'Her turn-on notes lean toward fantasy-driven interaction, close-camera attention, and shared private-session energy.'
+			);
 		}
 
-		return 'Her reviewed turn-ons focus on ' . self::natural_list( $themes ) . '.';
+		// v5.8.6: vary attribution to avoid the repeated "Her reviewed turn-ons focus on …" robotic opener.
+		// Build a single rich editorial sentence anchored on the detected themes.
+		$themes = array_slice( array_values( $themes ), 0, 4 );
+		$list   = self::natural_list( $themes );
+
+		// Pick opener deterministically from the first theme so output is stable for the same input.
+		$openers = [
+			'Her turn-on notes lean toward ',
+			'The profile points to ',
+			'Her highlighted turn-ons centre on ',
+		];
+		$opener = $openers[ ( strlen( $themes[0] ) ) % count( $openers ) ];
+
+		return self::final_humanize( $opener . $list . '.' );
 	}
 
 	/**
@@ -459,9 +518,16 @@ class ExternalProfileEvidence {
 		$cleaned = [];
 		foreach ( $items as $item ) {
 			$c = self::clean_list_item( trim( self::strip_source_labels( $item ) ) );
-			if ( $c !== '' ) {
-				$cleaned[] = $c;
+			if ( $c === '' ) {
+				continue;
 			}
+			// v5.8.6: drop explicit / low-SEO-value items per spec.
+			if ( self::is_explicit_chat_item( $c ) ) {
+				continue;
+			}
+			// Normalise common variants to canonical short forms.
+			$c = self::canonicalise_chat_item( $c );
+			$cleaned[] = $c;
 		}
 
 		$cleaned = array_values( array_unique( $cleaned ) );
@@ -474,11 +540,74 @@ class ExternalProfileEvidence {
 		$disclaimer = 'Availability can change by session, so check the official room before assuming a specific option is offered.';
 
 		if ( ! empty( $cleaned ) ) {
-			return 'Private-chat options listed on the reviewed profile include: '
-				. implode( ', ', $cleaned ) . '. ' . $disclaimer;
+			return self::final_humanize(
+				'Private chat options listed on the profile include ' . self::natural_list( $cleaned ) . '. ' . $disclaimer
+			);
 		}
 
 		return '';
+	}
+
+	/**
+	 * Denylist for explicit / low-SEO-value private-chat items.
+	 *
+	 * v5.8.6: dropped to keep the published list safe for an SEO directory
+	 * page while preserving JOI / POV / ASMR / C2C and other safer cues that
+	 * are useful for long-tail relevance.
+	 */
+	private static function is_explicit_chat_item( string $item ): bool {
+		$blocked = [
+			'anal', 'anal sex', 'deepthroat', 'double penetration', 'cum', 'live orgasm',
+			'cumshot', 'creampie', 'squirt', 'squirting', 'gangbang', 'fisting', 'rimming',
+			'cameltoe', 'pussy', 'tit fuck', 'titty fuck', 'blowjob', 'handjob', 'facial',
+			'piss', 'pee', 'scat', 'bbc', 'bukkake',
+		];
+		$lower = strtolower( $item );
+		foreach ( $blocked as $bad ) {
+			if ( $lower === $bad || strpos( $lower, $bad ) !== false ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Normalise common chat-item variants to a clean canonical short form.
+	 *
+	 * Keeps acronyms like JOI / POV / ASMR / C2C uppercase. Collapses
+	 * "love balls/beads" → "love beads", "strap on" → "strap-on", and similar.
+	 */
+	private static function canonicalise_chat_item( string $item ): string {
+		$map = [
+			'#^love\\s+balls?(?:\\s*/\\s*beads?)?$#i' => 'love beads',
+			'#^strap\\s*on$#i'                         => 'strap-on',
+			'#^foot\\s+fetish$#i'                      => 'foot fetish',
+			'#^long\\s+nails$#i'                       => 'long nails',
+			'#^high\\s+heels?$#i'                      => 'high heels',
+			'#^butt\\s+plug$#i'                        => 'butt plugs',
+		];
+		foreach ( $map as $pattern => $replacement ) {
+			$item = (string) preg_replace( $pattern, $replacement, $item );
+		}
+		return $item;
+	}
+
+	/**
+	 * Final humanizer pass — runs on every transformer output before storage.
+	 *
+	 * v5.8.6: ensures HTML entities are decoded BEFORE storage so that the
+	 * stored meta contains an ASCII apostrophe, not "&#039;". Without this
+	 * the apostrophe leaked into rendered output (see PDF: "Anisyia&#039;s …").
+	 */
+	private static function final_humanize( string $text ): string {
+		// Decode any HTML entities that may have crept in from prior storage.
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		// Normalise smart quotes to ASCII.
+		$text = self::normalize_apostrophes( $text );
+		// Collapse whitespace.
+		$text = (string) preg_replace( '#\\s{2,}#', ' ', $text );
+		$text = (string) preg_replace( '#\\s+([,.])#', '$1', $text );
+		return trim( $text );
 	}
 
 	// ── Output sanitizer ──────────────────────────────────────────────────────

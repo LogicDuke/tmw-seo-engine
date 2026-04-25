@@ -289,6 +289,10 @@ class ContentEngine {
                     (array)($keyword_pack['additional'] ?? [])
                 );
                 $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+                // External Profile Evidence canonical prepend (v5.8.6) — Claude sparse fallback path.
+                if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
+                    $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+                }
                 return [
                     'strategy'             => 'claude_sparse_fallback',
                     'template_type'        => $template_type,
@@ -307,6 +311,10 @@ class ContentEngine {
                 $support_payload  = TemplateContent::build_model_renderer_support_payload($post, $keyword_pack);
                 $renderer_payload = array_merge($support_payload, $claude_result['payload']);
                 $html = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
+                // External Profile Evidence canonical prepend (v5.8.6) — Claude main path.
+                if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
+                    $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+                }
                 $html = wp_kses_post(trim($html));
 
                 // Always use canonical builder for model pages — provider titles
@@ -369,6 +377,10 @@ class ContentEngine {
                 (array)($keyword_pack['additional'] ?? [])
             );
             $html = ModelPageRenderer::render((string)$post->post_title, array_merge($support_payload, $sparse_payload));
+            // External Profile Evidence canonical prepend (v5.8.6) — OpenAI sparse fallback path.
+            if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
+                $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+            }
             return [
                 'strategy' => 'openai_sparse_fallback',
                 'template_type' => $template_type,
@@ -576,6 +588,10 @@ class ContentEngine {
             $validated = self::enforce_model_content_constraints([$system, ['role' => 'user', 'content' => $user_content]], $model, 3200, $generated_focus_kw, $html, $j, (string)$post->post_title, $support_payload);
             $html = (string) ($validated['html'] ?? $html);
             $generated_focus_kw = trim((string) ($validated['focus_keyword'] ?? $generated_focus_kw));
+            // External Profile Evidence canonical prepend (v5.8.6) — OpenAI main path.
+            if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
+                $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+            }
         }
 
         $html = wp_kses_post($html);
@@ -1184,6 +1200,10 @@ class ContentEngine {
                 $support_payload  = TemplateContent::build_model_renderer_support_payload($post, array_merge($keyword_pack, ['model_data_gate' => $model_data_gate]));
                 $renderer_payload = array_merge($support_payload, $claude_result['payload']);
                 $generated_content = ModelPageRenderer::render((string)$post->post_title, $renderer_payload);
+                // External Profile Evidence canonical prepend (v5.8.6) — Claude assisted-draft path.
+                if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
+                    $generated_content = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $generated_content);
+                }
                 $generated_content = wp_kses_post($generated_content);
                 // Always use canonical builder for model pages — provider titles
                 // may miss a required number or sentiment word for Rank Math.
@@ -1470,6 +1490,10 @@ class ContentEngine {
             $validated = self::enforce_model_content_constraints([$system, $user], $model, $max_tokens, $focus_kw, $html, $j, (string)$post->post_title, $support_payload);
             $html = $validated['html'];
             $focus_kw = $validated['focus_keyword'];
+            // External Profile Evidence canonical prepend (v5.8.6) — OpenAI optimize_job path.
+            if (class_exists(\TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class)) {
+                $html = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content($post_id, $html);
+            }
         }
 
         $html      = wp_kses_post(trim($html));

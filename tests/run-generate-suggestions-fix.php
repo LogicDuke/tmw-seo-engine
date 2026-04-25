@@ -114,9 +114,9 @@ ok( $result !== '',                          'Non-empty output despite stripping
 
 $raw_turns = "roleplay\nC2C\ndirty talk";
 $result    = ExternalProfileEvidence::transform_turn_ons( $raw_turns );
-// v5.8.3: new editorial framing — "Her reviewed turn-ons focus on..."
-// No longer uses old "reviewed source" fragment framing.
-ok( stripos( $result, 'reviewed' ) !== false,           'Turn ons editorial attribution present' );
+// v5.8.6: new editorial framing — "Her turn-on notes lean toward...", "The profile points to...", etc.
+// No longer uses old "reviewed source" or "reviewed turn-ons" framing.
+ok( stripos( $result, 'turn-on' ) !== false,            'Turn ons editorial attribution present' );
 ok( strpos( $result, "I'm" ) === false,                 'No first-person in turn ons' );
 ok( strpos( $result, 'Turn-ons mentioned on the reviewed source include' ) === false,
     'Old fragment-list framing not present' );

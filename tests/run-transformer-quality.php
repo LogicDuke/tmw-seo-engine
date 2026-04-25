@@ -61,8 +61,8 @@ ok( no_first_person( $r ),                              'A2: no first-person in 
 // A3: no broken token "she'm"
 ok( strpos( $r, "she'm" ) === false,                    'A3: no she\'m broken token' );
 
-// A4: editorial attribution framing present (v5.8.3: "reviewed profile copy" or similar)
-ok( stripos( $r, 'reviewed' ) !== false,                'A4: "reviewed" editorial framing present' );
+// A4: editorial attribution framing present (v5.8.6: "profile evidence" / "profile description")
+ok( stripos( $r, 'profile' ) !== false,                  'A4: "profile" editorial framing present' );
 
 // A5: Unicode apostrophe ("smart quote" I'm) does not produce she'm
 $unicode_bio = "I\u{2019}m Anisyia. I\u{2019}m always playful and confident.";
@@ -124,8 +124,8 @@ $r    = ExternalProfileEvidence::transform_private_chat( $priv );
 ok( strpos( $r, "In Private Chat, I'm willing to perform" ) === false, 'C1: full header stripped' );
 ok( strpos( $r, "I'm willing" ) === false,              'C1: no "I\'m willing" remnant' );
 
-// C2: correct safe framing — "reviewed profile" (spec v5.8.3)
-ok( stripos( $r, 'Private-chat options listed on the reviewed profile include' ) !== false, 'C2: spec-compliant framing used' );
+// C2: correct safe framing — "Private chat options listed on the profile include" (spec v5.8.6)
+ok( stripos( $r, 'Private chat options listed on the profile include' ) !== false, 'C2: spec-compliant framing used' );
 
 // C3: session-change disclaimer present
 ok( stripos( $r, 'session' ) !== false,                 'C3: session disclaimer present' );
@@ -137,7 +137,7 @@ ok( stripos( $r, 'roleplay' ) !== false,                'C4: list items preserve
 $priv_comma = "In Private Chat, I'm willing to perform: anal sex, dildo, vibrator, roleplay, JOI, striptease, dancing";
 $r5 = ExternalProfileEvidence::transform_private_chat( $priv_comma );
 ok( strpos( $r5, "I'm willing" ) === false,             'C5: comma list: no "I\'m willing"' );
-ok( stripos( $r5, 'Private-chat options listed on the reviewed profile include' ) !== false, 'C5: comma list: spec-compliant framing' );
+ok( stripos( $r5, 'Private chat options listed on the profile include' ) !== false, 'C5: comma list: spec-compliant framing' );
 ok( stripos( $r5, 'roleplay' ) !== false,               'C5: comma list: items preserved' );
 
 // C6: standalone "I'm willing to perform:" variant

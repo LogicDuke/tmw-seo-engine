@@ -281,48 +281,17 @@ class TemplateContent {
         $content = self::ensure_minimum_useful_depth($content, $name, $active_platforms, $resolved_destinations, $primary_platform_label, $seed);
         $content = self::apply_lightweight_content_guardrails($content, $name);
 
-        // ── External evidence inclusion diagnostic (Part A / v5.8.3) ─────────
-        // If approved evidence exists but the renderer did not inject any of
-        // the 3 sections, recover by prepending them directly and logging.
-        if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidence::class ) ) {
-            $ev_check = \TMWSEO\Engine\Content\ExternalProfileEvidence::get_evidence_data( (int) $post->ID );
-            if ( $ev_check['is_renderable'] ) {
-                $has_about    = stripos( $content, '<h2>About ' ) !== false;
-                $has_turn_ons = stripos( $content, '>Turn Ons<' ) !== false;
-                $has_priv     = stripos( $content, '>In Private Chat<' ) !== false;
-
-                if ( ! $has_about && ! $has_turn_ons && ! $has_priv ) {
-                    // Log the miss so the operator sees it in debug output.
-                    error_log( '[TMW-EXT-EVIDENCE] Approved evidence missing from generated content — recovering. post_id=' . $post->ID );
-
-                    $ev_payload = self::build_external_evidence_payload( (int) $post->ID );
-                    $prepend    = '';
-
-                    if ( ! empty( $ev_payload['reviewed_bio_section_paragraphs'] ) ) {
-                        $prepend .= '<h2>' . esc_html( 'About ' . $name ) . "</h2>\n";
-                        foreach ( $ev_payload['reviewed_bio_section_paragraphs'] as $p ) {
-                            $prepend .= '<p>' . esc_html( (string) $p ) . "</p>\n";
-                        }
-                    }
-                    if ( ! empty( $ev_payload['turn_ons_section_paragraphs'] ) ) {
-                        $prepend .= "<h2>Turn Ons</h2>\n";
-                        foreach ( $ev_payload['turn_ons_section_paragraphs'] as $p ) {
-                            $prepend .= '<p>' . esc_html( (string) $p ) . "</p>\n";
-                        }
-                    }
-                    if ( ! empty( $ev_payload['private_chat_section_paragraphs'] ) ) {
-                        $prepend .= "<h2>In Private Chat</h2>\n";
-                        foreach ( $ev_payload['private_chat_section_paragraphs'] as $p ) {
-                            $prepend .= '<p>' . esc_html( (string) $p ) . "</p>\n";
-                        }
-                    }
-
-                    if ( $prepend !== '' ) {
-                        $content = $prepend . "\n\n" . $content;
-                    }
-                }
-            }
+        // ── External Profile Evidence (v5.8.6) — canonical prepend ───────────
+        // Single insertion point for the 3 reviewed-evidence sections (About /
+        // Turn Ons / Private Chat Options). The renderer:
+        //   - reads approved evidence via ExternalProfileEvidence::get_evidence_data()
+        //   - strips any prior wrapper-marker block (idempotent re-generation)
+        //   - prepends a fresh block above the existing generated body
+        // Existing body is NEVER modified — this is purely additive.
+        if ( class_exists( \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::class ) ) {
+            $content = \TMWSEO\Engine\Content\ExternalProfileEvidenceRenderer::prepend_to_content( (int) $post->ID, $content );
         }
+        // ── End external profile evidence prepend ───────────────────────────
 
         // ── Keyword heading enforcement (all modes share this post-render step) ─
         $enforcement = self::enforce_keyword_heading_placement($content, $rankmath_keywords, $name);
