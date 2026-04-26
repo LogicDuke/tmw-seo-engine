@@ -294,6 +294,16 @@ class TemplateContent {
         }
         // ── End Model Research Evidence prepend ─────────────────────────────
 
+        // ── Final-pass deterministic copy cleanup (v5.8.8) ──────────────────
+        // Runs immediately after evidence prepend so it sees the full
+        // generated body. The cleanup helper splits out the evidence block
+        // before processing and restores it verbatim, so nothing inside the
+        // <!-- tmwseo-seed-evidence:start --> markers is touched.
+        if ( class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class ) ) {
+            $content = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $content, (string) $post->post_title );
+        }
+        // ── End Final-pass deterministic copy cleanup ───────────────────────
+
         // ── Keyword heading enforcement (all modes share this post-render step) ─
         $enforcement = self::enforce_keyword_heading_placement($content, $rankmath_keywords, $name);
         $content = $enforcement['html'];

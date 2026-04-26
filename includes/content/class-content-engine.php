@@ -293,6 +293,10 @@ class ContentEngine {
                 if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
                     $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
                 }
+                // Final-pass deterministic copy cleanup (v5.8.8).
+                if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
+                    $html = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $html, (string) $post->post_title );
+                }
                 return [
                     'strategy'             => 'claude_sparse_fallback',
                     'template_type'        => $template_type,
@@ -314,6 +318,10 @@ class ContentEngine {
                 // External Profile Evidence canonical prepend (v5.8.6) — Claude main path.
                 if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
                     $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
+                }
+                // Final-pass deterministic copy cleanup (v5.8.8).
+                if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
+                    $html = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $html, (string) $post->post_title );
                 }
                 $html = wp_kses_post(trim($html));
 
@@ -380,6 +388,10 @@ class ContentEngine {
             // External Profile Evidence canonical prepend (v5.8.6) — OpenAI sparse fallback path.
             if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
                 $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
+            }
+            // Final-pass deterministic copy cleanup (v5.8.8).
+            if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
+                $html = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $html, (string) $post->post_title );
             }
             return [
                 'strategy' => 'openai_sparse_fallback',
@@ -598,6 +610,10 @@ class ContentEngine {
             // External Profile Evidence canonical prepend (v5.8.6) — OpenAI main path.
             if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
                 $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
+            }
+            // Final-pass deterministic copy cleanup (v5.8.8).
+            if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
+                $html = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $html, (string) $post->post_title );
             }
         }
 
@@ -1211,6 +1227,10 @@ class ContentEngine {
                 if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
                     $generated_content = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $generated_content, (string) $post->post_title );
                 }
+                // Final-pass deterministic copy cleanup (v5.8.8).
+                if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
+                    $generated_content = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $generated_content, (string) $post->post_title );
+                }
                 $generated_content = wp_kses_post($generated_content);
                 // Always use canonical builder for model pages — provider titles
                 // may miss a required number or sentiment word for Rank Math.
@@ -1500,6 +1520,10 @@ class ContentEngine {
             // External Profile Evidence canonical prepend (v5.8.6) — OpenAI optimize_job path.
             if (class_exists( \TMWSEO\Engine\Content\ModelResearchEvidence::class )) {
                 $html = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( $post_id, $html, (string) $post->post_title );
+            }
+            // Final-pass deterministic copy cleanup (v5.8.8).
+            if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
+                $html = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $html, (string) $post->post_title );
             }
         }
 

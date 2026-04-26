@@ -157,6 +157,9 @@ class Loader {
         // Model Research Evidence helper (v5.8.7) — simple 3-field evidence flow.
         // Replaces v5.8.0–v5.8.6 ExternalProfileEvidence + ExternalProfileEvidenceRenderer.
         tmwseo_safe_require( $p . 'class-model-research-evidence.php' );
+        // Model Copy Cleanup (v5.8.8) — deterministic final-pass text cleanup
+        // wired into all 7 model-content save sites immediately after evidence.
+        tmwseo_safe_require( $p . 'class-model-copy-cleanup.php' );
         tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
         tmwseo_safe_require( $p . 'class-model-destination-resolver.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );

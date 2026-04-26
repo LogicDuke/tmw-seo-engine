@@ -128,7 +128,7 @@ class ModelResearchEvidence {
 		if ( $f['bio'] !== '' ) {
 			$bio_text = self::humanize_bio( $f['bio'], $name );
 			if ( $bio_text !== '' ) {
-				$parts[] = '<h2>' . esc_html( 'About ' . $name ) . "</h2>\n" . '<p>' . esc_html( $bio_text ) . "</p>";
+				$parts[] = '<p>' . esc_html( $bio_text ) . '</p>';
 			}
 		}
 
@@ -186,12 +186,22 @@ class ModelResearchEvidence {
 		$html = (string) preg_replace( $legacy_pattern, '', $html );
 
 		// Stage 3: legacy heading-trio strip (best-effort).
-		// Only run when the document clearly leads with one of the recognised
-		// evidence headings — never strip body content.
-		if ( preg_match( '#^\s*<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#i', $html ) ) {
+		// Keep this conservative: only strip paragraph-first blocks when the
+		// opening paragraph clearly looks like evidence wording.
+		$legacy_heading_start = preg_match(
+			'#^\s*<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#i',
+			$html
+		) === 1;
+		$paragraph_first_evidence = preg_match(
+			'#^\s*<p[^>]*>.*?(?:profile evidence points to|Treat these notes as profile-based context|profile-based context|Private chat options listed in the evidence).*?</p>\s*<h2[^>]*>\s*(?:Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#is',
+			$html
+		) === 1;
+
+		if ( $legacy_heading_start || $paragraph_first_evidence ) {
 			$heading_pattern =
 				'#^\s*'
 				. '(?:<h2[^>]*>\s*About\s+[^<]+</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
+				. '(?:<p[^>]*>.*?</p>\s*)?'
 				. '(?:<h2[^>]*>\s*Turn\s+Ons\s*</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
 				. '(?:<h2[^>]*>\s*(?:Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>\s*(?:<p[^>]*>.*?</p>\s*)+)?'
 				. '#is';
@@ -241,10 +251,24 @@ class ModelResearchEvidence {
 		$style_phrases    = self::extract_style_phrases( $raw );
 		$activity_phrases = self::extract_activity_phrases( $raw );
 
+		// Defensive: if any style phrase still contains the word "style", swap
+		// it for a neutral noun phrase so we never produce
+		// "cam style is built around ... style".
+		$style_phrases = array_values( array_map(
+			static function ( string $phrase ): string {
+				if ( preg_match( '#\\bstyle\\b#i', $phrase ) ) {
+					return 'a polished on-camera presentation';
+				}
+				return $phrase;
+			},
+			$style_phrases
+		) );
+		$style_phrases = array_values( array_unique( $style_phrases ) );
+
 		$parts = [];
 		if ( ! empty( $style_phrases ) ) {
 			$phrases = self::natural_list( array_slice( $style_phrases, 0, 3 ) );
-			$parts[] = $name . "'s profile evidence points to a style built around " . $phrases . '.';
+			$parts[] = $name . "'s cam style is built around " . $phrases . '.';
 		}
 		if ( ! empty( $activity_phrases ) ) {
 			$acts    = self::natural_list( array_slice( $activity_phrases, 0, 3 ) );
@@ -258,7 +282,7 @@ class ModelResearchEvidence {
 			if ( $word_count < 3 ) {
 				return '';
 			}
-			$parts[] = $name . "'s profile evidence describes a personable cam style with on-camera presence and viewer interaction.";
+			$parts[] = $name . "'s profile presentation reads as a personable cam delivery with consistent on-camera presence and viewer interaction.";
 		}
 
 		$parts[] = 'Treat these notes as profile-based context rather than a guarantee of what every live session will include.';
@@ -307,19 +331,23 @@ class ModelResearchEvidence {
 
 		if ( empty( $themes ) ) {
 			return self::final_humanize(
-				'Profile evidence points to fantasy-driven interaction, close-camera attention, and shared private-session energy as core turn-on themes.'
+				'Highlighted turn-on themes include fantasy-driven interaction and close-camera attention.'
 			);
 		}
 
 		$themes  = array_values( array_slice( array_unique( $themes ), 0, 4 ) );
+
+		// Choose a self-sufficient opener that does NOT need a trailing
+		// "as core turn-on themes" tag (the old phrasing produced
+		// "Highlighted turn-on themes include ... as core turn-on themes.").
 		$openers = [
-			'Profile evidence points to ',
-			'The notes describe ',
 			'Highlighted turn-on themes include ',
+			'The notes describe ',
+			'Profile evidence highlights ',
 		];
 		$opener = $openers[ ( strlen( $themes[0] ) ) % count( $openers ) ];
 
-		return self::final_humanize( $opener . self::natural_list( $themes ) . ' as core turn-on themes.' );
+		return self::final_humanize( $opener . self::natural_list( $themes ) . '.' );
 	}
 
 	public static function humanize_private_chat( string $raw ): string {
@@ -412,8 +440,8 @@ class ModelResearchEvidence {
 		$map = [
 			'#\\blingerie\\b#i'                     => 'lingerie looks',
 			'#\\b(?:fashion|high\\s*fashion)\\b#i'  => 'fashion-inspired posing',
-			'#\\bglamou?r(?:ous)?\\b#i'             => 'a glamour-focused style',
-			'#\\belegan(?:t|ce)\\b#i'               => 'an elegant on-camera presence',
+			'#\\bglamou?r(?:ous)?\\b#i'             => 'polished glamour presentation',
+			'#\\belegan(?:t|ce)\\b#i'               => 'elegant on-camera presence',
 			'#\\b(?:stockings|fishnets)\\b#i'       => 'stockings and hosiery looks',
 			'#\\b(?:latex|leather|pvc)\\b#i'        => 'latex and leather wardrobes',
 			'#\\b(?:high[\\s-]?heels?|heels?)\\b#i' => 'high-heel styling',
@@ -426,8 +454,8 @@ class ModelResearchEvidence {
 			'#\\b(?:sensual|seductive)\\b#i'        => 'a sensual delivery',
 			'#\\b(?:fetish|kink)\\b#i'              => 'fetish-friendly content',
 			'#\\b(?:role[- ]?play)\\b#i'            => 'roleplay scenes',
-			'#\\bdomina(?:nt|tion)\\b#i'            => 'a dominant style',
-			'#\\bsubmissive\\b#i'                   => 'a submissive style',
+			'#\\bdomina(?:nt|tion)\\b#i'            => 'dominant stage presence',
+			'#\\bsubmissive\\b#i'                   => 'a submissive performance angle',
 			'#\\b(?:dance|dancing)\\b#i'            => 'dance-led shows',
 			'#\\bbrunette\\b#i'                     => 'a brunette look',
 			'#\\bblonde\\b#i'                       => 'a blonde look',
