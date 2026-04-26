@@ -208,8 +208,6 @@ class Loader {
         tmwseo_safe_require( $p . 'class-gsc-cluster-importer.php' );
         tmwseo_safe_require( $p . 'class-google-indexing-api.php' );
         tmwseo_safe_require( $p . 'class-google-ads-keyword-planner-api.php' );
-        // AWE / AWEmpire connector REMOVED in v5.8.7 — operator pastes evidence
-        // directly into the 3 Model Research textareas; no API fetch needed.
     }
 
     // ── SEO Engine (seo-engine/ subtree) ──────────────────────────────────────

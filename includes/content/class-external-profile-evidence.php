@@ -22,7 +22,6 @@
  *   - webcamexchange.com actor pages only
  *   - Pattern: https://www.webcamexchange.com/actor/{slug}/
  *
- * AWE API is NOT touched by this class and remains available for media/video metadata.
  *
  * @package TMWSEO\Engine\Content
  * @since   5.8.0

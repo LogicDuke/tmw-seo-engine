@@ -17,8 +17,7 @@
  * 11.  Template strategy supports the 3 sections.
  * 12.  OpenAI strategy payload shape supports the 3 sections.
  * 13.  Claude strategy payload shape supports the 3 sections.
- * 14.  AWE API support is not removed/regressed.
- * 15.  Verified-link routing payload keys remain intact.
+ * 14.  Verified-link routing payload keys remain intact.
  *
  * @package TMWSEO\Engine\Tests
  */
@@ -427,27 +426,7 @@ class ExternalProfileEvidenceTest extends TestCase {
         $this->assertEmpty( $ev['private_chat_paragraphs'] );
     }
 
-    // ── 14: AWE API not regressed ─────────────────────────────────────────────
-
-    public function test_awe_api_class_still_exists(): void {
-        $this->assertTrue(
-            class_exists( \TMWSEO\Engine\Integrations\AweApiClient::class ),
-            'AweApiClient must still exist — AWE API support must not be removed (criterion 14)'
-        );
-    }
-
-    public function test_awe_api_client_is_configured_check_works(): void {
-        update_option( 'tmwseo_engine_settings', [
-            'tmwseo_awe_psid'       => '',
-            'tmwseo_awe_access_key' => '',
-        ] );
-        $this->assertFalse(
-            \TMWSEO\Engine\Integrations\AweApiClient::is_configured(),
-            'AweApiClient::is_configured() must still function correctly (criterion 14)'
-        );
-    }
-
-    // ── 15: Verified-link routing payload keys remain intact ──────────────────
+    // ── 14: Verified-link routing payload keys remain intact ──────────────────
 
     public function test_evidence_data_does_not_contain_routing_keys(): void {
         // ExternalProfileEvidence must not overwrite or shadow routing payload keys.
@@ -465,7 +444,7 @@ class ExternalProfileEvidenceTest extends TestCase {
         ];
         foreach ( $routing_keys as $key ) {
             $this->assertArrayNotHasKey( $key, $ev,
-                "ExternalProfileEvidence must not shadow routing key '{$key}' (criterion 15)" );
+                "ExternalProfileEvidence must not shadow routing key '{$key}' (criterion 14)" );
         }
     }
 

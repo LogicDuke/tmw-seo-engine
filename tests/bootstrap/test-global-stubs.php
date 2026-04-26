@@ -1,9 +1,6 @@
 <?php
 /**
- * AWE test filter registry — global namespace only.
- *
- * Must be included BEFORE awe-namespace-stubs.php.
- * Contains no namespace declarations so it can freely declare global functions.
+ * Shared global test stubs for filter and post-meta registries.
  *
  * @package TMWSEO\Engine\Tests\Bootstrap
  */

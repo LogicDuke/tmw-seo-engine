@@ -157,7 +157,7 @@ Because `prepend_to_content()` is idempotent and gates on `is_renderable`, every
 
 ## 6. Admin UI changes
 
-**AWE Evidence panel — REMOVED.** The panel previously occupied lines 1520-1596 of `class-model-helper.php`. Replaced with a `if (false && …)` stub plus a documentation comment explaining that AWE does not provide useful model bio data and that wps-livejasmin already provides video metadata. The `AweApiClient` class itself remains loaded for any video-metadata callers that depend on it; only the model-editor UI is gone.
+**AWE dead code — REMOVED.** The old AWE integration was fully removed from tmw-seo-engine. WPS LiveJasmin owns video/platform data, and model evidence now uses manual Model Research fields.
 
 **External Profile Evidence panel — COMPACTED.** Wrapped the entire panel (Source URL + raw excerpts + Generate Suggestions + transformed fields + reviewer notes + Reviewed At) in a `<details>` element with a one-line `<summary>`. The readiness banner (red/yellow/green) was moved **above** the `<details>` so operators see status at a glance even when collapsed. The `<details>` auto-opens (`open` attribute) when status is yellow or red — i.e. when there is something to act on. When status is green (approved + ready), the panel collapses by default and the editor stays compact.
 
@@ -167,7 +167,7 @@ Because `prepend_to_content()` is idempotent and gates on `is_renderable`, every
 
 ## 7. AWE cleanup decision
 
-**Decision:** keep `AweApiClient` and `AweProfileEvidence` classes loaded; remove only the model-editor UI.
+**Decision (updated):** remove all AWE integration code from tmw-seo-engine.
 
 **Rationale:**
 - The audit PDF explicitly states AWE provides no usable bio details.
@@ -181,7 +181,7 @@ Because `prepend_to_content()` is idempotent and gates on `is_renderable`, every
 - `includes/integrations/class-awe-bio-review-gate.php`
 - AWE-related test files (`tests/AweApiClientTest.php`, `tests/AweBioReviewGateTest.php`, `tests/AweProfileEvidenceTest.php`).
 
-The AWE AJAX handler (`tmwseo_awe_fetch_evidence`) remains registered but is no longer reachable from the editor UI. If it is later determined that no caller invokes it, the handler can be safely removed in a follow-up.
+The AWE AJAX handler (`tmwseo_awe_fetch_evidence`) was removed with the AWE integration cleanup.
 
 ---
 
@@ -243,7 +243,7 @@ OUT: Private chat options listed on the profile include dildo, vibrator, rolepla
 
 ### 8.4 PHPUnit
 
-PHPUnit was not run in this validation pass. Direct harnesses above provide the relevant coverage for the new behaviour. PHPUnit suites covering AWE classes (`AweApiClientTest`, `AweBioReviewGateTest`, `AweProfileEvidenceTest`) and `ExternalProfileEvidenceTest` are unmodified and should pass on a host with PHPUnit installed — the renderer-payload contract those tests exercise is intentionally preserved for backward compatibility.
+PHPUnit was not run in this validation pass. Direct harnesses above provide the relevant coverage for the new behaviour.
 
 ---
 
@@ -293,7 +293,7 @@ Run on staging against the Anisyia model page (`/model/anisyia/`):
 `strip_existing_block()` includes a heading-based fallback for content saved before wrapper markers existed (v5.8.0–v5.8.5). The fallback is conservative — it only triggers when one of the recognised evidence headings is the **first** heading in the document. If a future generation pass somehow places non-evidence content before an evidence block (none of the current paths do this), the fallback will not fire and a duplicate could appear. Risk is theoretical given the current pipeline shape; flagged here for future maintainers.
 
 **Low risk — AWE handler reachability.**
-The `tmwseo_awe_fetch_evidence` AJAX handler is still registered but no longer reachable from the editor UI. A determined operator with the action name and a valid nonce could still invoke it via direct AJAX. Behaviour is identical to v5.8.5, just no longer surfaced. Recommend a follow-up pass to either remove the handler entirely (if no caller exists) or document its remaining use.
+The `tmwseo_awe_fetch_evidence` AJAX handler has been removed with the AWE integration cleanup.
 
 **Medium risk — `wp_kses_post()` HTML stripping.**
 The wrapper marker comments (`<!-- … -->`) are HTML comments and pass through `wp_kses_post()` cleanly under default WordPress configuration. If a site has aggressive `wp_kses_allowed_html` filters that strip HTML comments, the markers would be lost from saved content, defeating the idempotency mechanism on subsequent regenerations. The heading-fallback in `strip_existing_block()` mitigates this but is less reliable. Recommend documenting the marker dependency in `CHANGELOG.md` for any site running custom kses filters.

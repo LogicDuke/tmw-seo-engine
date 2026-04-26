@@ -2118,7 +2118,7 @@ class ModelHelper {
             if ( $post_key === 'tmwseo_bio_review_status' && ! in_array( $val, [ '', 'draft', 'reviewed' ], true ) ) {
                 $val = '';
             }
-            // Allowlist for source type. v5.8.7: 'awe_api' removed.
+            // Allowlist for source type.
             if ( $post_key === 'tmwseo_bio_source_type' && ! in_array( $val, [ '', 'editor', 'platform_page', 'press', 'wps_import', 'none' ], true ) ) {
                 $val = '';
             }
