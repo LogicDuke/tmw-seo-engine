@@ -1,3 +1,8 @@
+
+## 5.8.9-remove-awe-dead-code
+- Removed legacy AWE/AWEmpire integration dead code from tmw-seo-engine, including integration classes, AWE-only tests, and stale bootstrap wiring.
+- Rationale: WPS LiveJasmin owns video/platform data, and tmw-seo-engine now relies on manual Model Research evidence fields for bio evidence input.
+
 # TMW SEO Engine — Changelog
 
 ## 5.2.0 — Full-Audit Recall: Case-Sensitive Link Hubs + Outbound Harvester (2026-04-18)

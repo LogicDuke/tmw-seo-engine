@@ -19,7 +19,7 @@
 
 define( 'ABSPATH',                dirname( __DIR__ ) . '/' );
 define( 'TMWSEO_ENGINE_PATH',     dirname( __DIR__ ) . '/' );
-define( 'TMWSEO_ENGINE_VERSION',  '5.8.7-simple-model-research-evidence' );
+define( 'TMWSEO_ENGINE_VERSION',  '5.8.10-final-model-copy-polish' );
 define( 'TMWSEO_ENGINE_URL',      'http://example.com/' );
 define( 'TMWSEO_ENGINE_BOOTSTRAPPED', true );
 
@@ -102,6 +102,30 @@ ok( ! preg_match( '#,\s*and\s+friendly\.#i', $bio_out ), 'B9: no bare adjective 
 // HTML entity input — must decode
 $bio_entity = ModelResearchEvidence::humanize_bio( "Anisyia&#039;s lingerie show is warm and friendly.", 'Anisyia' );
 ok( strpos( $bio_entity, '&#039;' ) === false, 'B10: input HTML entities decoded' );
+
+// v5.8.10 — bio activity-phrase wording polish.
+// "private chat" / "private session" must surface as "private-chat
+// availability" (or "private-chat options") and NEVER as the previous
+// "private-chat interaction" wording.
+$bio_priv = ModelResearchEvidence::humanize_bio(
+	'Anisyia loves lingerie shows, private chat sessions, live cam sessions, and genuine connection with fans.',
+	'Anisyia'
+);
+ok(
+	stripos( $bio_priv, 'private-chat interaction' ) === false,
+	'B11 (v5.8.10): bio output does NOT contain "private-chat interaction"'
+);
+ok(
+	stripos( $bio_priv, 'private-chat availability' ) !== false
+		|| stripos( $bio_priv, 'private-chat options' ) !== false,
+	'B12 (v5.8.10): bio output contains "private-chat availability" or "private-chat options"'
+);
+ok(
+	stripos( $bio_priv, 'private-chat availability' ) !== false
+		&& stripos( $bio_priv, 'live cam sessions' ) !== false
+		&& stripos( $bio_priv, 'genuine viewer connection' ) !== false,
+	'B13 (v5.8.10): bio reads naturally — "private-chat availability, live cam sessions, and genuine viewer connection"'
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 echo "\n\033[1m=== C. Turn-ons humanizer ===\033[0m\n";

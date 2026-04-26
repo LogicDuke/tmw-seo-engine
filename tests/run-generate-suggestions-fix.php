@@ -15,7 +15,7 @@ $GLOBALS['_tmw_test_transients'] = [];
 $GLOBALS['_tmw_test_post_meta']  = [];
 $GLOBALS['_tmw_filter_registry'] = [];
 
-require_once __DIR__ . '/bootstrap/awe-global-stubs.php';
+require_once __DIR__ . '/bootstrap/test-global-stubs.php';
 require_once __DIR__ . '/bootstrap/content-namespace-stubs.php';
 require_once __DIR__ . '/../includes/content/class-external-profile-evidence.php';
 

@@ -274,12 +274,6 @@ require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links-families.
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links.php';
 
 
-// ── AWE connector test stubs (v5.7.0) ──────────────────────────────────────────
-// Split into two files: global functions first, then namespaced overrides.
-// Order matters: global stubs must be declared before the namespace file loads.
-require_once __DIR__ . '/awe-global-stubs.php';
-require_once __DIR__ . '/awe-namespace-stubs.php';
-
-// Load AWE connector classes after stubs so they pick up namespaced functions.
-
+// Shared test registries + Content namespace stubs.
+require_once __DIR__ . '/test-global-stubs.php';
 require_once __DIR__ . '/content-namespace-stubs.php';

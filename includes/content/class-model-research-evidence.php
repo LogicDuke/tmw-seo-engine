@@ -474,7 +474,10 @@ class ModelResearchEvidence {
 
 	private static function extract_activity_phrases( string $text ): array {
 		$map = [
-			'#\\bprivate\\s+(?:chat|session)s?\\b#i'           => 'private-chat interaction',
+			// v5.8.10 — was "private-chat interaction"; switched to
+			// "private-chat availability" so the bio reads as profile context
+			// rather than a robotic "interaction" claim.
+			'#\\bprivate\\s+(?:chat|session)s?\\b#i'           => 'private-chat availability',
 			'#\\b(?:live|cam)\\s+session#i'                     => 'live cam sessions',
 			'#\\bfan(?:s)?\\s+(?:connect|interact)#i'           => 'fan connection',
 			'#\\bgenuine\\s+connection#i'                       => 'genuine viewer connection',

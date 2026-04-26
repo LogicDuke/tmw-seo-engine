@@ -1,7 +1,7 @@
 <?php
 /**
  * Model Copy Cleanup — deterministic final-pass cleanup for generated model
- * page content (v5.8.8-model-copy-cleanup).
+ * page content (v5.8.10-final-model-copy-polish).
  *
  * Runs at every model-content save site IMMEDIATELY AFTER
  * ModelResearchEvidence::prepend_sections() so it sees the evidence block at
@@ -17,8 +17,23 @@
  *      4. Remove repeated checklist intro paragraphs.
  *      5. Strip a shared keyword-phrase prefix from adjacent same-level
  *         headings (e.g. two consecutive H2s starting with "Live Cam Show").
+ *      6. (v5.8.10) Drop the second of two adjacent headings (any H2/H3/H4
+ *         level) when their normalised inner text is identical — preserves
+ *         the body content beneath the dropped heading verbatim.
+ *      7. (v5.8.10) Remove keyword-stuffed cam-show sentence inside any
+ *         paragraph: "This is (especially) useful when (you are) researching
+ *         {model} cam show." — model-name-agnostic.
+ *      8. (v5.8.10) Drop redundant Official Links explanatory paragraphs:
+ *           - "Official platform profiles are listed here ..."
+ *           - "Verified destinations grouped by platform family ..."
+ *         Real anchors and grouped link blocks are never touched.
  *
- *   C. Specific heading rewrites (configured below in HEADING_REWRITES).
+ *   C. Specific heading rewrites (configured below in HEADING_REWRITES) plus
+ *      v5.8.10 model-keyword heading rewrites (configured in
+ *      MODEL_KEYWORD_HEADING_REWRITES) that turn standalone "{Model} LiveJasmin"
+ *      / "{Model} Webcam Chat" / "{Model} Live Cam" headings into neutral
+ *      human headings ("LiveJasmin Access Notes" / "Webcam Chat Notes" /
+ *      "Live Cam Access"). Works for any model name.
  *
  *   D. Review-pass language cleanup (worked into the cap in B1, plus targeted
  *      rewrites of two known robotic templates from the audit corpus).
@@ -40,6 +55,7 @@
  *
  * @package TMWSEO\Engine\Content
  * @since   5.8.8
+ * @updated 5.8.10-final-model-copy-polish
  */
 
 namespace TMWSEO\Engine\Content;
@@ -105,6 +121,72 @@ class ModelCopyCleanup {
 		],
 	];
 
+	/**
+	 * v5.8.10 — sentence-level patterns that get DELETED from the body wherever
+	 * they appear (inside any paragraph, with or without a leading space).
+	 *
+	 * These are keyword-stuffed connectors that add no value to the reader and
+	 * trip Rank Math keyword-stuffing checks. Removing the sentence leaves the
+	 * surrounding paragraph readable; if the paragraph becomes empty after
+	 * removal, the empty <p> is dropped in a follow-up step.
+	 *
+	 * Each pattern is model-name-agnostic — `{model}` is matched generically
+	 * as one or more non-period word-ish tokens before "cam show".
+	 */
+	const SENTENCE_DELETIONS = [
+		// "This is especially useful when you are researching {model} cam show."
+		// "This is especially useful when researching {model} cam show."
+		// "This is useful when you are researching {model} cam show."
+		// (any leading whitespace/single-space is also consumed so the host
+		//  paragraph doesn't end up with a doubled space.)
+		'#\s*This\s+is(?:\s+especially)?\s+useful\s+when(?:\s+you\s+are)?\s+researching\s+[^.<]*?cam\s+show\.\s*#iu',
+	];
+
+	/**
+	 * v5.8.10 — exact paragraph bodies that should be dropped from Official
+	 * Links sections. These are explanatory paragraphs that repeat the same
+	 * verified-destination idea already stated earlier in the page.
+	 *
+	 * Matched by NORMALISED text (lowercase, alphanumerics + spaces only) so
+	 * variations in punctuation/case never escape the rule. Real link anchors,
+	 * grouped link headings, and platform-family headings are NEVER touched —
+	 * the existing paragraph-dedup guard already skips paragraphs containing
+	 * <a>/<ul>/<ol>/<li>/<table>/<h*> tags.
+	 */
+	const OFFICIAL_LINKS_DROP_PARAGRAPHS = [
+		'official platform profiles are listed here if you want to compare the rooms directly before choosing a watch link',
+		'verified destinations grouped by platform family so each link reflects its real purpose',
+	];
+
+	/**
+	 * v5.8.10 — model-keyword heading rewrites.
+	 *
+	 * Replace standalone keyword-stuffed headings of the form
+	 * "<model name> Livejasmin", "<model name> LiveJasmin",
+	 * "<model name> Webcam Chat", "<model name> Live Cam" with neutral human
+	 * headings. Works for any model name — when a model name is supplied to
+	 * cleanup() it is matched explicitly, otherwise a generic "1–4 word name
+	 * token" pattern is used as a fallback.
+	 *
+	 *   "{Model} Livejasmin"   → "LiveJasmin Access Notes"
+	 *   "{Model} LiveJasmin"   → "LiveJasmin Access Notes"
+	 *   "{Model} Webcam Chat"  → "Webcam Chat Notes"
+	 *   "{Model} Live Cam"     → "Live Cam Access"
+	 *
+	 * Each rule is keyed by the trailing keyword phrase and the replacement
+	 * heading text. The cleanup() entry point assembles the full anchored
+	 * pattern at runtime depending on whether $model_name is provided.
+	 */
+	const MODEL_KEYWORD_HEADING_REWRITES = [
+		// Order matters: longer/more-specific suffixes first so "Live Cam"
+		// doesn't accidentally consume what should be a "Webcam Chat" or
+		// "LiveJasmin" match.
+		[ 'suffix' => 'Webcam Chat', 'replace' => 'Webcam Chat Notes'   ],
+		[ 'suffix' => 'LiveJasmin',  'replace' => 'LiveJasmin Access Notes' ],
+		[ 'suffix' => 'Livejasmin',  'replace' => 'LiveJasmin Access Notes' ],
+		[ 'suffix' => 'Live Cam',    'replace' => 'Live Cam Access'     ],
+	];
+
 	// ─── Public API ─────────────────────────────────────────────────────────
 
 	/**
@@ -118,12 +200,23 @@ class ModelCopyCleanup {
 
 		[ $evidence_block, $body ] = self::split_off_evidence_block( $html );
 
-		// Part D targeted rewrites (sentence-level) before the family cap so
-		// the rewritten sentences don't count.
+		// Part D targeted rewrites + v5.8.10 sentence deletions before the
+		// family cap so the rewritten/removed sentences don't count.
 		$body = self::apply_targeted_rewrites( $body );
+		$body = self::apply_sentence_deletions( $body );
 
-		// Part C heading rewrites.
-		$body = self::rewrite_headings( $body );
+		// v5.8.10 — drop redundant Official Links explanatory paragraphs
+		// before generic dedup so the dedup pass doesn't have to recognise
+		// them. Real anchors / groups are skipped by design.
+		$body = self::drop_official_links_explanatory_paragraphs( $body );
+
+		// Part C heading rewrites (model-aware in v5.8.10).
+		$body = self::rewrite_headings( $body, $model_name );
+
+		// v5.8.10 — drop the second of two adjacent identical headings AFTER
+		// rewrites so e.g. <h2>Before You Click</h2><h3>Before You Click</h3>
+		// (produced by the rewrite pass) collapses into one heading.
+		$body = self::remove_duplicate_adjacent_headings( $body );
 
 		// Part E + Part F + Part B2/B4: paragraph dedup across the body.
 		$body = self::remove_duplicate_paragraphs( $body );
@@ -133,6 +226,10 @@ class ModelCopyCleanup {
 
 		// Part B5: simplify adjacent same-level headings sharing a prefix.
 		$body = self::simplify_adjacent_repeated_headings( $body );
+
+		// v5.8.10 — drop any paragraphs that became empty as a side-effect of
+		// sentence deletions above. Runs last so we catch all empties.
+		$body = self::drop_empty_paragraphs( $body );
 
 		// Final whitespace tidy.
 		$body = (string) preg_replace( "/\n{3,}/", "\n\n", $body );
@@ -178,17 +275,17 @@ class ModelCopyCleanup {
 
 	// ─── Stage 2: heading rewrites (Part C + Part B3) ───────────────────────
 
-	private static function rewrite_headings( string $html ): string {
+	private static function rewrite_headings( string $html, string $model_name = '' ): string {
 		return (string) preg_replace_callback(
 			'#<(h[1-6])([^>]*)>(.*?)</\1>#is',
-			static function ( array $m ): string {
+			static function ( array $m ) use ( $model_name ): string {
 				$tag    = $m[1];
 				$attrs  = $m[2];
 				$inner  = trim( wp_strip_tags_safe( $m[3] ) );
 				if ( $inner === '' ) {
 					return $m[0];
 				}
-				$rewritten = self::rewrite_heading_text( $inner );
+				$rewritten = self::rewrite_heading_text( $inner, $model_name );
 				if ( $rewritten === $inner ) {
 					return $m[0];
 				}
@@ -198,20 +295,89 @@ class ModelCopyCleanup {
 		);
 	}
 
-	private static function rewrite_heading_text( string $text ): string {
+	private static function rewrite_heading_text( string $text, string $model_name = '' ): string {
 		$text = trim( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
-		foreach ( self::HEADING_REWRITES as $rule ) {
-			$out = preg_replace( $rule['pattern'], $rule['replace'], $text, 1 );
-			if ( is_string( $out ) && $out !== $text ) {
-				$text = trim( $out );
-				// One rewrite per heading is enough.
-				break;
+
+		// v5.8.10 — model-keyword heading rewrites run FIRST so that exact
+		// matches like "Anisyia Livejasmin" don't get partially eaten by a
+		// generic HEADING_REWRITES rule and end up as e.g. "Anisyia".
+		$model_rewrite = self::apply_model_keyword_heading_rewrite( $text, $model_name );
+		if ( $model_rewrite !== null ) {
+			$text = $model_rewrite;
+		} else {
+			foreach ( self::HEADING_REWRITES as $rule ) {
+				$out = preg_replace( $rule['pattern'], $rule['replace'], $text, 1 );
+				if ( is_string( $out ) && $out !== $text ) {
+					$text = trim( $out );
+					// One rewrite per heading is enough.
+					break;
+				}
 			}
 		}
+
 		// Tidy stray punctuation/whitespace artefacts.
 		$text = (string) preg_replace( '#\\s{2,}#u', ' ', $text );
 		$text = (string) preg_replace( '#[\s,;:]+$#u', '', $text );
 		return trim( $text );
+	}
+
+	/**
+	 * v5.8.10 — model-keyword heading rewrite.
+	 *
+	 * Matches a heading whose body is exactly "<model-name-token> <suffix>"
+	 * (case-insensitive, whitespace-tolerant). Returns the neutral
+	 * replacement heading if matched, or null if no rule applied.
+	 *
+	 * Two matching modes:
+	 *   1. If $model_name is supplied, the head segment must equal that exact
+	 *      model name (whitespace-flexible, case-insensitive). This is the
+	 *      precise path and is preferred whenever we have the post title.
+	 *   2. Fallback (no $model_name supplied): the head segment may be 1–4
+	 *      "name-shaped" word tokens (letters, digits, apostrophes, hyphens,
+	 *      diacritics). This covers regenerated content where the model name
+	 *      isn't threaded through.
+	 *
+	 * In both modes, the heading must START with the name, have the suffix
+	 * directly after it, and end immediately after the suffix — extra trailing
+	 * words ("LiveJasmin and Stripchat") are NOT consumed by this rule and
+	 * fall through to the generic HEADING_REWRITES rules instead.
+	 */
+	private static function apply_model_keyword_heading_rewrite( string $text, string $model_name ): ?string {
+		$head_pattern = self::build_model_name_pattern( $model_name );
+		if ( $head_pattern === '' ) {
+			return null;
+		}
+		foreach ( self::MODEL_KEYWORD_HEADING_REWRITES as $rule ) {
+			$suffix = preg_quote( (string) $rule['suffix'], '#' );
+			// Allow flexible internal whitespace inside the suffix (e.g.
+			// "Webcam  Chat").
+			$suffix_flex = (string) preg_replace( '#\\\\\s#', '\\s+', $suffix );
+			$pattern = '#^' . $head_pattern . '\s+' . $suffix_flex . '\s*$#iu';
+			if ( preg_match( $pattern, $text ) === 1 ) {
+				return (string) $rule['replace'];
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Build the head-segment regex for the model-keyword heading rewrites.
+	 *
+	 * If $model_name is non-empty, returns the literal model-name pattern
+	 * (whitespace-flexible). Otherwise returns a generic "1–4 name-shaped
+	 * tokens" pattern.
+	 */
+	private static function build_model_name_pattern( string $model_name ): string {
+		$name = trim( $model_name );
+		if ( $name !== '' ) {
+			$quoted = preg_quote( $name, '#' );
+			$flex   = (string) preg_replace( '#\\\\\s+#', '\\s+', $quoted );
+			return '(?:' . $flex . ')';
+		}
+		// Fallback: 1–4 name-shaped tokens. Each token is letters + optional
+		// apostrophe/hyphen suffixes; tokens are separated by single spaces.
+		$token = "[\\p{L}\\p{N}][\\p{L}\\p{N}'\\-]{0,30}";
+		return '(?:' . $token . '(?:\\s+' . $token . '){0,3})';
 	}
 
 	// ─── Stage 3: paragraph dedup (Part E / B2 / B4 / F) ────────────────────
@@ -333,6 +499,170 @@ class ModelCopyCleanup {
 			return ucfirst( $replacement );
 		}
 		return $replacement;
+	}
+
+	// ─── Stage 1b (v5.8.10): sentence-level deletions ───────────────────────
+
+	/**
+	 * Remove keyword-stuffed connector sentences from the body wherever they
+	 * appear. Patterns are anchored on sentence boundaries so we never eat
+	 * partial words. Surrounding paragraph text is preserved; if a paragraph
+	 * is left empty by deletion, drop_empty_paragraphs() removes the empty
+	 * <p> wrapper at the end of the cleanup pipeline.
+	 */
+	private static function apply_sentence_deletions( string $html ): string {
+		foreach ( self::SENTENCE_DELETIONS as $pattern ) {
+			$html = (string) preg_replace( $pattern, ' ', $html );
+		}
+		// Tidy any double-spaces introduced by the deletion (single-line only,
+		// don't touch newlines).
+		$html = (string) preg_replace( '#[ \t]{2,}#', ' ', $html );
+		// Tidy " ." or " ," artefacts left behind when a deletion sits between
+		// the host sentence and its closing punctuation.
+		$html = (string) preg_replace( '#\s+([.,])#', '$1', $html );
+		return $html;
+	}
+
+	// ─── Stage 1c (v5.8.10): Official Links explanatory paragraph drop ──────
+
+	/**
+	 * Drop standalone <p>...</p> blocks whose normalised text exactly matches
+	 * one of the OFFICIAL_LINKS_DROP_PARAGRAPHS entries.
+	 *
+	 * Skips any paragraph that:
+	 *   - contains a link anchor (<a>),
+	 *   - contains list/table/heading markup,
+	 * so the verified-link rendering, grouped link headings, and platform-
+	 * family blocks are never touched.
+	 */
+	private static function drop_official_links_explanatory_paragraphs( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+
+		$drop_set = [];
+		foreach ( self::OFFICIAL_LINKS_DROP_PARAGRAPHS as $needle ) {
+			$drop_set[ $needle ] = true;
+		}
+
+		return (string) preg_replace_callback(
+			'#<p\b[^>]*>(.*?)</p>#is',
+			static function ( array $m ) use ( $drop_set ): string {
+				$inner = $m[1];
+
+				// Never touch link rendering or structural markup.
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\\b#i', $inner ) ) {
+					return $m[0];
+				}
+
+				$norm = self::normalise_paragraph_text( $inner );
+				if ( $norm === '' ) {
+					return $m[0];
+				}
+
+				if ( isset( $drop_set[ $norm ] ) ) {
+					return ''; // drop the whole <p>
+				}
+
+				return $m[0];
+			},
+			$html
+		);
+	}
+
+	// ─── Stage 2b (v5.8.10): adjacent duplicate heading drop ────────────────
+
+	/**
+	 * Drop the SECOND of two adjacent headings (any H2..H4 levels, possibly
+	 * mixed) whose normalised inner text is identical.
+	 *
+	 * "Adjacent" here means: nothing but whitespace between the closing tag
+	 * of the first heading and the opening tag of the second. Paragraphs,
+	 * lists, or any other content between the two headings disqualifies the
+	 * pair from this rule. The body content beneath the dropped heading is
+	 * preserved verbatim — only the heading TAG is removed.
+	 *
+	 * Example:
+	 *   <h2>Before You Click</h2><h3>Before You Click</h3><p>...</p>
+	 * becomes:
+	 *   <h2>Before You Click</h2><p>...</p>
+	 *
+	 * Iterative: re-runs until no more pairs collapse, so a chain of three
+	 * identical adjacent headings collapses to one.
+	 */
+	private static function remove_duplicate_adjacent_headings( string $html ): string {
+		$pattern = '#(<(h[2-4])([^>]*)>(.*?)</\2>)(\s*)<(h[2-4])([^>]*)>(.*?)</\6>#is';
+
+		$guard = 0;
+		while ( $guard++ < 50 ) {
+			$replaced = preg_replace_callback(
+				$pattern,
+				static function ( array $m ): string {
+					$first_full   = $m[1];
+					$between_ws   = $m[5];
+					$first_text   = self::normalise_heading_text_for_compare( $m[4] );
+					$second_text  = self::normalise_heading_text_for_compare( $m[8] );
+
+					if ( $first_text === '' || $second_text === '' ) {
+						return $m[0];
+					}
+					if ( $first_text !== $second_text ) {
+						return $m[0];
+					}
+
+					// Drop the second heading; keep the first verbatim and the
+					// whitespace between, so any following content stays
+					// attached cleanly.
+					return $first_full . $between_ws;
+				},
+				$html
+			);
+
+			if ( ! is_string( $replaced ) || $replaced === $html ) {
+				break;
+			}
+			$html = $replaced;
+		}
+
+		return $html;
+	}
+
+	/**
+	 * Normalise a heading's inner text for adjacent-duplicate comparison.
+	 * Lowercases, decodes entities, strips tags, collapses whitespace, and
+	 * strips trailing punctuation so "Before You Click" and "Before you click:"
+	 * compare equal.
+	 */
+	private static function normalise_heading_text_for_compare( string $inner ): string {
+		$text = wp_strip_tags_safe( $inner );
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$text = strtolower( $text );
+		$text = (string) preg_replace( '#\\s+#u', ' ', $text );
+		$text = (string) preg_replace( '#[\s,;:.!?]+$#u', '', $text );
+		return trim( $text );
+	}
+
+	// ─── Stage 6 (v5.8.10): empty-paragraph cleanup ─────────────────────────
+
+	/**
+	 * Drop any <p>...</p> whose inner content is empty or whitespace-only
+	 * after the deletion stages have run. Idempotent — has no effect when
+	 * there are no empty paragraphs.
+	 */
+	private static function drop_empty_paragraphs( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		// Use ~ as the delimiter so the literal "&#160;" inside the pattern
+		// doesn't close it prematurely. Keeps the rule readable and the
+		// (string) cast safe — preg_replace returns null on malformed
+		// patterns, which would silently obliterate the document.
+		$out = preg_replace(
+			'~<p\b[^>]*>\s*(?:&nbsp;|&#160;)?\s*</p>\s*~i',
+			'',
+			$html
+		);
+		return is_string( $out ) ? $out : $html;
 	}
 
 	// ─── Stage 5: adjacent heading keyword dedup (Part B5) ──────────────────

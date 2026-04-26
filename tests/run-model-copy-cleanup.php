@@ -43,11 +43,32 @@
  *      - evidence block (markers + content) preserved verbatim
  *      - cleanup is idempotent (cleanup(cleanup(x)) === cleanup(x))
  *      - empty input → empty output (no errors)
+ *
+ *   H. v5.8.10 final-model-copy-polish acceptance
+ *      - duplicate adjacent headings (any H2/H3/H4 levels) collapse to one;
+ *        body content beneath the dropped heading is preserved
+ *      - non-adjacent identical headings (paragraph between) are NOT collapsed
+ *      - "This is (especially) useful when (you are) researching {model}
+ *        cam show." sentences are removed (model-name-agnostic, all variants)
+ *      - paragraph emptied by sentence deletion is dropped (no <p></p>)
+ *      - "{Model} Livejasmin" / "{Model} LiveJasmin" → "LiveJasmin Access Notes"
+ *      - "{Model} Webcam Chat" → "Webcam Chat Notes"
+ *      - "{Model} Live Cam"    → "Live Cam Access"
+ *      - rewrites work for multi-word model names and with model name unset
+ *      - bare "LiveJasmin" heading (no model prefix) is NOT rewritten
+ *      - manual TOC <a> anchor text containing the same keyword phrases is
+ *        NOT touched (only <h*> heading tags are)
+ *      - redundant Official Links explanatory paragraphs are dropped while
+ *        all real <a> anchors, <ul>/<li> link blocks, and platform-family
+ *        headings are preserved verbatim
+ *      - evidence bio uses "private-chat availability" (not "private-chat
+ *        interaction") in v5.8.10
+ *      - combined polish is idempotent
  */
 
 define( 'ABSPATH',                dirname( __DIR__ ) . '/' );
 define( 'TMWSEO_ENGINE_PATH',     dirname( __DIR__ ) . '/' );
-define( 'TMWSEO_ENGINE_VERSION',  '5.8.8-model-copy-cleanup' );
+define( 'TMWSEO_ENGINE_VERSION',  '5.8.10-final-model-copy-polish' );
 define( 'TMWSEO_ENGINE_URL',      'http://example.com/' );
 define( 'TMWSEO_ENGINE_BOOTSTRAPPED', true );
 
@@ -423,6 +444,259 @@ ok(
 ok(
 	strpos( $adj_cleaned, '<h2>Highlights</h2>' ) !== false,
 	'G13: shared "Live Cam Show" prefix stripped from second adjacent heading'
+);
+
+// ─── H. v5.8.10 final-model-copy-polish acceptance ──────────────────────────
+section( '=== H. v5.8.10 final-model-copy-polish acceptance ===' );
+
+// H1: duplicate adjacent headings — the second heading is dropped, content
+// beneath it is preserved verbatim.
+$h_dup_html =
+	"<h2>Before You Click</h2>"
+	. "<h3>Before You Click</h3>"
+	. "<p>Body content under the duplicated heading.</p>";
+$h_dup_cleaned = ModelCopyCleanup::cleanup( $h_dup_html, 'Anisyia' );
+ok(
+	preg_match( '#<h[2-4][^>]*>\\s*Before You Click\\s*</h[2-4]>#i', $h_dup_cleaned ) === 1,
+	'H1: exactly one "Before You Click" heading remains after adjacent-duplicate drop'
+);
+ok(
+	strpos( $h_dup_cleaned, '<p>Body content under the duplicated heading.</p>' ) !== false,
+	'H2: content beneath the dropped duplicate heading is preserved verbatim'
+);
+
+// H1b: H2/H2 (same level) duplicates also collapse.
+$h_dup_same_level = "<h2>Section</h2><h2>Section</h2><p>Body.</p>";
+$h_dup_same_level_clean = ModelCopyCleanup::cleanup( $h_dup_same_level, 'Anisyia' );
+ok(
+	substr_count( $h_dup_same_level_clean, '<h2>Section</h2>' ) === 1,
+	'H3: same-level adjacent duplicate headings also collapse to one'
+);
+
+// H1c: when the two headings are SEPARATED by a paragraph, both are kept
+// (existing v5.8.8 test C4 already covers this; reassert here against the
+// new code path).
+$h_dup_separated =
+	"<h2>Before You Click</h2><p>Intervening body.</p><h3>Before You Click</h3><p>Other body.</p>";
+$h_dup_separated_clean = ModelCopyCleanup::cleanup( $h_dup_separated, 'Anisyia' );
+ok(
+	strpos( $h_dup_separated_clean, '<h2>Before You Click</h2>' ) !== false
+		&& strpos( $h_dup_separated_clean, '<h3>Before You Click</h3>' ) !== false,
+	'H4: non-adjacent identical headings (paragraph between) are BOTH preserved'
+);
+
+// H2: keyword-stuffed cam-show sentence removed (mid-paragraph).
+$h_kw_sentence_html =
+	"<p>Use verified destinations in priority order. This is especially useful when you are researching Anisyia cam show. Status can change between visits.</p>";
+$h_kw_sentence_clean = ModelCopyCleanup::cleanup( $h_kw_sentence_html, 'Anisyia' );
+ok(
+	stripos( $h_kw_sentence_clean, 'This is especially useful when you are researching' ) === false,
+	'H5: keyword-stuffed "This is especially useful when you are researching {model} cam show." sentence removed'
+);
+ok(
+	stripos( $h_kw_sentence_clean, 'Use verified destinations in priority order' ) !== false
+		&& stripos( $h_kw_sentence_clean, 'Status can change between visits' ) !== false,
+	'H6: surrounding paragraph text preserved after sentence deletion'
+);
+
+// H2b: variant phrasings ("when researching" / "is useful when you are") also removed.
+$h_kw_variants_html =
+	"<p>Foo. This is especially useful when researching Manuela Mazzone cam show. Bar.</p>"
+	. "<p>Baz. This is useful when you are researching Gabriela cam show. Qux.</p>";
+$h_kw_variants_clean = ModelCopyCleanup::cleanup( $h_kw_variants_html, 'Anisyia' );
+ok(
+	stripos( $h_kw_variants_clean, 'is especially useful when researching' ) === false
+		&& stripos( $h_kw_variants_clean, 'is useful when you are researching' ) === false,
+	'H7: cam-show sentence variants ("when researching" / "is useful when you are") also removed'
+);
+ok(
+	stripos( $h_kw_variants_clean, 'Manuela Mazzone' ) === false
+		&& stripos( $h_kw_variants_clean, 'Gabriela' ) === false
+		&& stripos( $h_kw_variants_clean, 'cam show.' ) === false,
+	'H8: cam-show sentence removal is model-name-agnostic (multi-word + single-word)'
+);
+
+// H2c: standalone cam-show sentence — host paragraph empties out and is dropped.
+$h_kw_standalone_html =
+	"<p>Pre-context paragraph.</p>"
+	. "<p>This is especially useful when you are researching Anisyia cam show.</p>"
+	. "<p>Post-context paragraph.</p>";
+$h_kw_standalone_clean = ModelCopyCleanup::cleanup( $h_kw_standalone_html, 'Anisyia' );
+ok(
+	stripos( $h_kw_standalone_clean, 'This is especially useful when you are researching' ) === false,
+	'H9: standalone cam-show sentence is removed'
+);
+ok(
+	preg_match( '#<p>\\s*</p>#i', $h_kw_standalone_clean ) !== 1,
+	'H10: <p></p> emptied by sentence deletion is dropped (no naked empty paragraphs)'
+);
+ok(
+	strpos( $h_kw_standalone_clean, '<p>Pre-context paragraph.</p>' ) !== false
+		&& strpos( $h_kw_standalone_clean, '<p>Post-context paragraph.</p>' ) !== false,
+	'H11: surrounding paragraphs preserved when standalone cam-show sentence is removed'
+);
+
+// H3: model-keyword heading rewrites — works for any model name.
+$h_model_kw_html =
+	"<h3>Anisyia Livejasmin</h3><p>Anisyia LJ body.</p>"
+	. "<h3>Anisyia LiveJasmin</h3><p>Anisyia LJ body 2.</p>"
+	. "<h3>Anisyia Webcam Chat</h3><p>Anisyia chat body.</p>"
+	. "<h3>Anisyia Live Cam</h3><p>Anisyia cam body.</p>";
+$h_model_kw_clean = ModelCopyCleanup::cleanup( $h_model_kw_html, 'Anisyia' );
+ok(
+	substr_count( $h_model_kw_clean, '<h3>LiveJasmin Access Notes</h3>' ) >= 1,
+	'H12: "Anisyia Livejasmin" rewritten to "LiveJasmin Access Notes"'
+);
+ok(
+	substr_count( $h_model_kw_clean, '<h3>LiveJasmin Access Notes</h3>' ) === 2,
+	'H13: both "Anisyia Livejasmin" and "Anisyia LiveJasmin" rewrite to the same neutral heading'
+);
+ok(
+	strpos( $h_model_kw_clean, '<h3>Webcam Chat Notes</h3>' ) !== false,
+	'H14: "Anisyia Webcam Chat" rewritten to "Webcam Chat Notes"'
+);
+ok(
+	strpos( $h_model_kw_clean, '<h3>Live Cam Access</h3>' ) !== false,
+	'H15: "Anisyia Live Cam" rewritten to "Live Cam Access"'
+);
+ok(
+	strpos( $h_model_kw_clean, 'Anisyia LJ body.' ) !== false
+		&& strpos( $h_model_kw_clean, 'Anisyia chat body.' ) !== false
+		&& strpos( $h_model_kw_clean, 'Anisyia cam body.' ) !== false,
+	'H16: section content beneath the rewritten model-keyword headings is preserved'
+);
+
+// H3b: multi-word model name also rewrites correctly.
+$h_multiword_html =
+	"<h3>Manuela Mazzone Livejasmin</h3>"
+	. "<h3>Manuela Mazzone Webcam Chat</h3>"
+	. "<h3>Manuela Mazzone Live Cam</h3>";
+$h_multiword_clean = ModelCopyCleanup::cleanup( $h_multiword_html, 'Manuela Mazzone' );
+ok(
+	strpos( $h_multiword_clean, '<h3>LiveJasmin Access Notes</h3>' ) !== false
+		&& strpos( $h_multiword_clean, '<h3>Webcam Chat Notes</h3>' ) !== false
+		&& strpos( $h_multiword_clean, '<h3>Live Cam Access</h3>' ) !== false,
+	'H17: multi-word model names ("Manuela Mazzone") also trigger keyword heading rewrites'
+);
+
+// H3c: model-name-agnostic fallback — if cleanup is called WITHOUT a model
+// name, generic 1–4-token name pattern still rewrites these headings.
+$h_no_name_html =
+	"<h3>SomeModel Livejasmin</h3>"
+	. "<h3>SomeModel Webcam Chat</h3>";
+$h_no_name_clean = ModelCopyCleanup::cleanup( $h_no_name_html, '' );
+ok(
+	strpos( $h_no_name_clean, '<h3>LiveJasmin Access Notes</h3>' ) !== false
+		&& strpos( $h_no_name_clean, '<h3>Webcam Chat Notes</h3>' ) !== false,
+	'H18: model-name-agnostic fallback also rewrites "{anything} Livejasmin/Webcam Chat" headings'
+);
+
+// H3d: false-positive guard — heading "LiveJasmin" or "Live Cam" alone (no
+// preceding model token) must NOT match the rewrite, since the rule requires
+// a head segment before the suffix.
+$h_no_head_html = "<h3>LiveJasmin</h3>";
+$h_no_head_clean = ModelCopyCleanup::cleanup( $h_no_head_html, 'Anisyia' );
+ok(
+	strpos( $h_no_head_clean, '<h3>LiveJasmin</h3>' ) !== false
+		&& strpos( $h_no_head_clean, 'LiveJasmin Access Notes' ) === false,
+	'H19: bare "LiveJasmin" heading (no model-name prefix) is NOT rewritten'
+);
+
+// H4: Official Links explanatory text reduction — the two redundant
+// paragraphs are dropped, but real anchors / lists / family headings remain.
+$h_ol_html =
+	"<h2>Official Links and Profiles</h2>"
+	. "<p>Official platform profiles are listed here if you want to compare the rooms directly before choosing a watch link:</p>"
+	. "<ul>"
+	. "<li><a href=\"https://lj.example.com/anisyia\">LiveJasmin profile</a></li>"
+	. "<li><a href=\"https://stripchat.example.com/anisyia\">Stripchat profile</a></li>"
+	. "</ul>"
+	. "<h3>Find Anisyia elsewhere</h3>"
+	. "<p>Verified destinations grouped by platform family so each link reflects its real purpose.</p>"
+	. "<h3>Social Profiles</h3>"
+	. "<ul><li><a href=\"https://twitter.com/anisyia\">Twitter</a></li></ul>";
+$h_ol_clean = ModelCopyCleanup::cleanup( $h_ol_html, 'Anisyia' );
+ok(
+	stripos( $h_ol_clean, 'Official platform profiles are listed here' ) === false,
+	'H20: redundant "Official platform profiles are listed here..." paragraph dropped'
+);
+ok(
+	stripos( $h_ol_clean, 'Verified destinations grouped by platform family' ) === false,
+	'H21: redundant "Verified destinations grouped by platform family..." paragraph dropped'
+);
+ok(
+	strpos( $h_ol_clean, '<h2>Official Links and Profiles</h2>' ) !== false
+		&& strpos( $h_ol_clean, '<h3>Find Anisyia elsewhere</h3>' ) !== false
+		&& strpos( $h_ol_clean, '<h3>Social Profiles</h3>' ) !== false,
+	'H22: Official Links section + family headings preserved'
+);
+ok(
+	substr_count( $h_ol_clean, 'href="https://lj.example.com/anisyia"' ) === 1
+		&& substr_count( $h_ol_clean, 'href="https://stripchat.example.com/anisyia"' ) === 1
+		&& substr_count( $h_ol_clean, 'href="https://twitter.com/anisyia"' ) === 1,
+	'H23: all real <a> anchor links preserved verbatim through Official Links cleanup'
+);
+ok(
+	substr_count( $h_ol_clean, '<li>' ) === 3,
+	'H24: <ul>/<li> link blocks under Official Links are NOT touched'
+);
+
+// H5: idempotency on the v5.8.10 polish features.
+$h_combo_html =
+	"<h2>Before You Click</h2>"
+	. "<h3>Before You Click</h3>"
+	. "<p>Use these. This is especially useful when you are researching Anisyia cam show. Status can change.</p>"
+	. "<h3>Anisyia Livejasmin</h3>"
+	. "<p>Body.</p>"
+	. "<p>Official platform profiles are listed here if you want to compare the rooms directly before choosing a watch link:</p>"
+	. "<ul><li><a href=\"https://lj.example.com/anisyia\">LJ</a></li></ul>";
+$h_combo_once  = ModelCopyCleanup::cleanup( $h_combo_html,  'Anisyia' );
+$h_combo_twice = ModelCopyCleanup::cleanup( $h_combo_once,  'Anisyia' );
+ok(
+	$h_combo_twice === $h_combo_once,
+	'H25: combined v5.8.10 cleanup is idempotent (cleanup(cleanup(x)) === cleanup(x))'
+);
+
+// H6: manual TOC remains untouched — even when its anchor text contains the
+// model-keyword suffixes the heading rewrites target.
+$h_toc_html =
+	'<ul class="tmw-toc">'
+	. '<li><a href="#lj">Anisyia Livejasmin</a></li>'
+	. '<li><a href="#wc">Anisyia Webcam Chat</a></li>'
+	. '<li><a href="#lc">Anisyia Live Cam</a></li>'
+	. '</ul>'
+	. '<h2>Other Section</h2><p>Body.</p>';
+$h_toc_clean = ModelCopyCleanup::cleanup( $h_toc_html, 'Anisyia' );
+ok(
+	strpos( $h_toc_clean, '<a href="#lj">Anisyia Livejasmin</a>' ) !== false
+		&& strpos( $h_toc_clean, '<a href="#wc">Anisyia Webcam Chat</a>' ) !== false
+		&& strpos( $h_toc_clean, '<a href="#lc">Anisyia Live Cam</a>' ) !== false,
+	'H26: manual TOC anchor text is NOT rewritten by the model-keyword heading rules (only <h*> tags are)'
+);
+
+// H7: evidence block + cam-show sentence in body — evidence is preserved,
+// body sentence is removed.
+update_post_meta( 1, ModelResearchEvidence::META_BIO,          'Anisyia loves lingerie shows and private chat sessions.' );
+update_post_meta( 1, ModelResearchEvidence::META_TURN_ONS,     '' );
+update_post_meta( 1, ModelResearchEvidence::META_PRIVATE_CHAT, '' );
+$h_ev_body =
+	"<h2>Where to Watch Live</h2>"
+	. "<p>Use the verified room. This is especially useful when you are researching Anisyia cam show. Recheck status.</p>";
+$h_ev_with = ModelResearchEvidence::prepend_sections( 1, $h_ev_body, 'Anisyia' );
+$h_ev_clean = ModelCopyCleanup::cleanup( $h_ev_with, 'Anisyia' );
+ok(
+	strpos( $h_ev_clean, ModelResearchEvidence::MARKER_START ) !== false
+		&& strpos( $h_ev_clean, ModelResearchEvidence::MARKER_END ) !== false,
+	'H27: evidence block markers preserved while body cam-show sentence is removed'
+);
+ok(
+	stripos( $h_ev_clean, 'This is especially useful when you are researching' ) === false,
+	'H28: cam-show sentence removed from body without touching the evidence block'
+);
+ok(
+	stripos( $h_ev_clean, 'private-chat availability' ) !== false
+		&& stripos( $h_ev_clean, 'private-chat interaction' ) === false,
+	'H29: evidence bio uses "private-chat availability" (not "private-chat interaction") in v5.8.10'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
