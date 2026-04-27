@@ -56,6 +56,7 @@ class Admin {
         add_action('admin_post_tmwseo_rerun_model_preview_phrases', [__CLASS__, 'handle_rerun_model_preview_phrases']);
         add_action('admin_post_tmwseo_cr_save_and_sync', [CrakRevenueCamManager::class, 'handle_save_and_sync']);
         add_action('admin_post_tmwseo_cr_quick_action', [CrakRevenueCamManager::class, 'handle_quick_action']);
+        add_action('admin_post_tmwseo_cr_auto_map', [CrakRevenueCamManager::class, 'handle_quick_action']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 

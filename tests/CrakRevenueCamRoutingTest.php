@@ -669,6 +669,36 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertSame('Stripchat - Revshare', (string) ($map['stripchat']['selected_offer_name'] ?? ''));
     }
 
+    public function test_auto_map_quick_action_updates_platform_mappings_with_selected_fields(): void {
+        update_option(CrakRevenueCamManager::OFFERS_CACHE_OPTION, [
+            'offers' => [
+                [
+                    'offer_id' => 801,
+                    'platform_slug' => 'camsoda',
+                    'offer_name' => 'Camsoda - Revshare',
+                    'approval_status' => 'approved',
+                    'raw_status' => 'active',
+                    'status' => 'active',
+                    'preview_url' => 'https://preview.example.com/camsoda',
+                    'is_expired' => 0,
+                    'tracking_template' => 'https://tracking.example.com/?u={username}',
+                ],
+            ],
+        ]);
+
+        CrakRevenueCamManager::apply_quick_action('auto_map');
+
+        $map = (array) get_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, []);
+        $row = (array) ($map['camsoda'] ?? []);
+        $this->assertSame(801, (int) ($row['selected_offer_id'] ?? 0));
+        $this->assertSame('Camsoda - Revshare', (string) ($row['selected_offer_name'] ?? ''));
+        $this->assertSame('https://preview.example.com/camsoda', (string) ($row['selected_preview_url'] ?? ''));
+        $this->assertSame('approved', (string) ($row['approval_status'] ?? ''));
+        $this->assertSame('active', (string) ($row['raw_status'] ?? ''));
+        $this->assertSame(0, (int) ($row['selected_offer_is_expired'] ?? 1));
+        $this->assertSame('', (string) ($row['template_url'] ?? ''));
+    }
+
     public function test_supported_platforms_detected_counts_unique_platform_slug_values(): void {
         update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'abc123']);
         CrakRevenueCamManager::set_http_getter(static function (string $url): array {
