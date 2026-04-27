@@ -404,4 +404,109 @@ class CrakRevenueCamRoutingTest extends TestCase {
         ]);
         $this->assertFalse((bool)$eligible);
     }
+
+    public function test_json_response_preview_redacts_api_key_variants(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'live-secret']);
+        CrakRevenueCamManager::set_http_getter(static function (): array {
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => '{"response":{"data":[]},"api_key":"secret","apiKey":"secret"}',
+            ];
+        });
+        CrakRevenueCamManager::sync_offers();
+        $diag = (array) (get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, [])['last_sync_diagnostics'] ?? []);
+        $preview = (string) ($diag['response_preview'] ?? '');
+        $this->assertStringNotContainsString('secret', $preview);
+        $this->assertStringContainsString('[redacted]', $preview);
+    }
+
+    public function test_nested_request_api_key_is_redacted_in_preview_and_diagnostics(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'live-secret']);
+        CrakRevenueCamManager::set_http_getter(static function (): array {
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => '{"request":{"Target":"Affiliate_Offer","Method":"findAll","NetworkId":"crakrevenue","api_key":"secret"},"response":{"status":-1,"errors":["bad credentials"]}}',
+            ];
+        });
+        CrakRevenueCamManager::sync_offers();
+        $diag = (array) (get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, [])['last_sync_diagnostics'] ?? []);
+        $preview = (string) ($diag['response_preview'] ?? '');
+        $request = (array) ($diag['request_summary'] ?? []);
+        $this->assertStringNotContainsString('secret', $preview);
+        $this->assertSame('[redacted]', (string) ($request['api_key'] ?? ''));
+    }
+
+    public function test_response_status_error_sets_api_error_message(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'abc123']);
+        CrakRevenueCamManager::set_http_getter(static function (): array {
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => '{"response":{"status":-1,"errors":["invalid api key"]}}',
+            ];
+        });
+        $result = CrakRevenueCamManager::sync_offers();
+        $settings = get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, []);
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('API returned an error:', (string) ($settings['last_sync_message'] ?? ''));
+        $this->assertStringContainsString('invalid api key', (string) ($settings['last_sync_message'] ?? ''));
+    }
+
+    public function test_associative_map_shapes_parse_and_counts_are_correct(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'abc123']);
+        CrakRevenueCamManager::set_http_getter(static function (): array {
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => '{"response":{"data":{"5170":{"Offer":{"name":"Camsoda - Revshare Lifetime"}},"3688":{"Offer":{"id":3688,"name":"Chaturbate - Revshare Lifetime"}}}}}',
+            ];
+        });
+        $result = CrakRevenueCamManager::sync_offers();
+        $settings = get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, []);
+        $diag = (array) ($settings['last_sync_diagnostics'] ?? []);
+        $offers = CrakRevenueCamManager::get_cached_offers();
+        $platforms = array_values(array_column($offers, 'platform_slug'));
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(2, (int) ($diag['raw_offer_count'] ?? 0));
+        $this->assertSame(2, (int) ($diag['cam_offer_count'] ?? 0));
+        $this->assertSame('response.data.map', (string) ($diag['payload_shape'] ?? ''));
+        $this->assertContains('camsoda', $platforms);
+        $this->assertContains('chaturbate', $platforms);
+    }
+
+    public function test_response_data_data_associative_map_parses(): void {
+        $parsed = CrakRevenueCamManager::parse_offers_payload_with_diagnostics(
+            '{"response":{"data":{"data":{"5170":{"id":5170,"name":"Camsoda - Revshare Lifetime"}}}}}'
+        );
+        $this->assertCount(1, $parsed['offers']);
+        $this->assertSame('response.data.data.map', $parsed['payload_shape']);
+        $this->assertSame(5170, (int) ($parsed['offers'][0]['id'] ?? 0));
+    }
+
+    public function test_payload_shape_is_specific_for_supported_shapes(): void {
+        $parsed = CrakRevenueCamManager::parse_offers_payload_with_diagnostics(
+            '{"response":{"data":{"5170":{"id":5170,"name":"Camsoda - Revshare Lifetime"}}}}'
+        );
+        $this->assertNotSame('unknown', $parsed['payload_shape']);
+        $this->assertSame('response.data.map', $parsed['payload_shape']);
+    }
+
+    public function test_api_key_never_appears_in_last_sync_diagnostics(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'real-key-123']);
+        CrakRevenueCamManager::set_http_getter(static function (): array {
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => '{"request":{"api_key":"real-key-123","Method":"findAll","Target":"Affiliate_Offer","NetworkId":"crakrevenue"},"response":{"data":[]}}',
+            ];
+        });
+        CrakRevenueCamManager::sync_offers();
+        $diag = (array) (get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, [])['last_sync_diagnostics'] ?? []);
+        $encoded = wp_json_encode($diag);
+        $this->assertIsString($encoded);
+        $this->assertStringNotContainsString('real-key-123', (string) $encoded);
+    }
 }

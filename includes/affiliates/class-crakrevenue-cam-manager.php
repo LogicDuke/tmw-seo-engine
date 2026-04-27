@@ -131,7 +131,10 @@ class CrakRevenueCamManager {
      * @return string
      */
     public static function redact_api_key_from_text( string $text ): string {
-        return (string) preg_replace( '/api_key=[^&\s]*/i', 'api_key=[redacted]', $text );
+        $text = (string) preg_replace( '/api_key=[^&\s]*/i', 'api_key=[redacted]', $text );
+        $text = (string) preg_replace( '/apikey=[^&\s]*/i', 'apikey=[redacted]', $text );
+        $text = (string) preg_replace( '/key=[^&\s]*/i', 'key=[redacted]', $text );
+        return $text;
     }
 
     /**
@@ -195,6 +198,16 @@ class CrakRevenueCamManager {
             $parsed = self::parse_offers_payload_with_diagnostics( $body );
             $offers = $parsed['offers'];
             $payload_shape = $parsed['payload_shape'];
+            $parsed_diag = is_array( $parsed['diagnostics'] ?? null ) ? $parsed['diagnostics'] : [];
+            if ( ! empty( $parsed['error_message'] ) ) {
+                return self::mark_sync( false, (string) $parsed['error_message'], [], [
+                    'endpoint_used' => $endpoint,
+                    'http_status_code' => $status,
+                    'response_content_type' => $content_type,
+                    'payload_shape' => $payload_shape,
+                    'response_preview' => self::sanitize_response_preview( $body ),
+                ] + $parsed_diag );
+            }
             if ( empty( $offers ) ) {
                 return self::mark_sync( false, 'No offers found in response.', [], [
                     'endpoint_used' => $endpoint,
@@ -203,7 +216,7 @@ class CrakRevenueCamManager {
                     'payload_shape' => $payload_shape,
                     'malformed' => (bool) $parsed['malformed'],
                     'response_preview' => self::sanitize_response_preview( $body ),
-                ] );
+                ] + $parsed_diag );
             }
 
             $normalized = [];
@@ -245,13 +258,16 @@ class CrakRevenueCamManager {
      * Parse offers payload with diagnostics.
      *
      * @param string $body Response body.
-     * @return array{offers:array<int,array<string,mixed>>,payload_shape:string,malformed:bool}
+     * @return array{offers:array<int,array<string,mixed>>,payload_shape:string,malformed:bool,error_message:string,diagnostics:array<string,mixed>}
      */
     public static function parse_offers_payload_with_diagnostics( string $body ): array {
         $json = json_decode( $body, true );
         if ( is_array( $json ) ) {
             $json_shape = [
                 'response.data' => $json['response']['data'] ?? null,
+                'response.data.data' => $json['response']['data']['data'] ?? null,
+                'response.data.Offer' => $json['response']['data']['Offer'] ?? null,
+                'response.data.Affiliate_Offer' => $json['response']['data']['Affiliate_Offer'] ?? null,
                 'data' => $json['data'] ?? null,
                 'offers' => $json['offers'] ?? null,
                 'offer' => $json['offer'] ?? null,
@@ -263,13 +279,37 @@ class CrakRevenueCamManager {
             foreach ( $json_shape as $shape => $candidate ) {
                 $rows = self::coerce_offer_rows( $candidate );
                 if ( $rows !== [] ) {
-                    return [ 'offers' => $rows, 'payload_shape' => $shape, 'malformed' => false ];
+                    return [
+                        'offers' => $rows,
+                        'payload_shape' => self::detect_payload_shape_label( $shape, $candidate ),
+                        'malformed' => false,
+                        'error_message' => '',
+                        'diagnostics' => [],
+                    ];
                 }
             }
             if ( isset( $json[0] ) && is_array( $json[0] ) ) {
-                return [ 'offers' => array_values( $json ), 'payload_shape' => 'top_level_array', 'malformed' => false ];
+                return [ 'offers' => array_values( $json ), 'payload_shape' => 'top_level_array', 'malformed' => false, 'error_message' => '', 'diagnostics' => [] ];
             }
-            return [ 'offers' => [], 'payload_shape' => 'unknown', 'malformed' => false ];
+
+            $response_errors = self::collect_response_errors( $json );
+            if ( $response_errors !== [] || (int) ( $json['response']['status'] ?? 0 ) < 0 ) {
+                return [
+                    'offers' => [],
+                    'payload_shape' => 'response.error',
+                    'malformed' => false,
+                    'error_message' => 'API returned an error: ' . implode( '; ', $response_errors !== [] ? $response_errors : [ 'Unknown API error' ] ),
+                    'diagnostics' => self::build_payload_diagnostics( $json ),
+                ];
+            }
+
+            return [
+                'offers' => [],
+                'payload_shape' => self::detect_unknown_payload_shape( $json ),
+                'malformed' => false,
+                'error_message' => '',
+                'diagnostics' => self::build_payload_diagnostics( $json ),
+            ];
         }
 
         if ( str_starts_with( ltrim( $body ), '<' ) && function_exists( 'simplexml_load_string' ) ) {
@@ -287,13 +327,13 @@ class CrakRevenueCamManager {
                 foreach ( $xml_shape as $shape => $candidate ) {
                     $rows = self::coerce_offer_rows( $candidate );
                     if ( $rows !== [] ) {
-                        return [ 'offers' => $rows, 'payload_shape' => $shape, 'malformed' => false ];
+                        return [ 'offers' => $rows, 'payload_shape' => $shape, 'malformed' => false, 'error_message' => '', 'diagnostics' => [] ];
                     }
                 }
             }
         }
 
-        return [ 'offers' => [], 'payload_shape' => 'unknown', 'malformed' => true ];
+        return [ 'offers' => [], 'payload_shape' => 'unknown', 'malformed' => true, 'error_message' => '', 'diagnostics' => [] ];
     }
 
     /**
@@ -318,22 +358,44 @@ class CrakRevenueCamManager {
             return [];
         }
 
-        if ( isset( $candidate['Offer'] ) || isset( $candidate['AffiliateOffer'] ) || isset( $candidate['Affiliate_Offer'] ) ) {
-            $candidate = $candidate['Offer'] ?? $candidate['AffiliateOffer'] ?? $candidate['Affiliate_Offer'];
-            if ( ! is_array( $candidate ) ) {
-                return [];
-            }
-        }
-
-        if ( isset( $candidate[0] ) && is_array( $candidate[0] ) ) {
-            return array_values( array_filter( $candidate, 'is_array' ) );
-        }
-
         if ( isset( $candidate['id'] ) || isset( $candidate['name'] ) ) {
             return [ $candidate ];
         }
 
-        return [];
+        $rows = [];
+        foreach ( [ 'Offer', 'Affiliate_Offer', 'AffiliateOffer' ] as $wrapper ) {
+            if ( isset( $candidate[ $wrapper ] ) && is_array( $candidate[ $wrapper ] ) ) {
+                $rows = array_merge( $rows, self::coerce_offer_rows( $candidate[ $wrapper ] ) );
+            }
+        }
+        if ( $rows !== [] ) {
+            return $rows;
+        }
+
+        foreach ( $candidate as $key => $value ) {
+            if ( ! is_array( $value ) ) {
+                continue;
+            }
+            $nested = self::coerce_offer_rows( $value );
+            if ( $nested === [] ) {
+                continue;
+            }
+            if ( is_string( $key ) && ctype_digit( $key ) ) {
+                $offer_id = (int) $key;
+                $nested = array_map(
+                    static function ( array $row ) use ( $offer_id ): array {
+                        if ( ! isset( $row['id'] ) || (int) $row['id'] <= 0 ) {
+                            $row['id'] = $offer_id;
+                        }
+                        return $row;
+                    },
+                    $nested
+                );
+            }
+            $rows = array_merge( $rows, $nested );
+        }
+
+        return $rows;
     }
 
     /**
@@ -690,6 +752,30 @@ class CrakRevenueCamManager {
         if ( ! empty( $diag['first_offer_names'] ) && is_array( $diag['first_offer_names'] ) ) {
             echo '<li>First raw offer names (up to 10): ' . esc_html( implode( ', ', $diag['first_offer_names'] ) ) . '</li>';
         }
+        if ( ! empty( $diag['top_level_keys'] ) && is_array( $diag['top_level_keys'] ) ) {
+            echo '<li>Top-level JSON keys: ' . esc_html( implode( ', ', $diag['top_level_keys'] ) ) . '</li>';
+        }
+        if ( ! empty( $diag['response_keys'] ) && is_array( $diag['response_keys'] ) ) {
+            echo '<li>Response keys: ' . esc_html( implode( ', ', $diag['response_keys'] ) ) . '</li>';
+        }
+        if ( isset( $diag['response_status'] ) && $diag['response_status'] !== null && $diag['response_status'] !== '' ) {
+            echo '<li>Response status: ' . esc_html( (string) $diag['response_status'] ) . '</li>';
+        }
+        if ( isset( $diag['response_http_status'] ) && $diag['response_http_status'] !== null && $diag['response_http_status'] !== '' ) {
+            echo '<li>Response httpStatus: ' . esc_html( (string) $diag['response_http_status'] ) . '</li>';
+        }
+        if ( ! empty( $diag['response_errors'] ) && is_array( $diag['response_errors'] ) ) {
+            echo '<li>Response errors: ' . esc_html( implode( '; ', $diag['response_errors'] ) ) . '</li>';
+        }
+        if ( ! empty( $diag['request_summary'] ) && is_array( $diag['request_summary'] ) ) {
+            $req_parts = [];
+            foreach ( [ 'Method', 'Target', 'NetworkId', 'api_key' ] as $key ) {
+                if ( isset( $diag['request_summary'][ $key ] ) ) {
+                    $req_parts[] = $key . '=' . (string) $diag['request_summary'][ $key ];
+                }
+            }
+            echo '<li>Request summary: ' . esc_html( implode( ', ', $req_parts ) ) . '</li>';
+        }
         if ( current_user_can( 'manage_options' ) && ! empty( $diag['response_preview'] ) ) {
             echo '<li>Response preview: <code>' . esc_html( (string) $diag['response_preview'] ) . '</code></li>';
         }
@@ -789,7 +875,7 @@ class CrakRevenueCamManager {
         $settings['last_sync_at'] = gmdate( 'c' );
         $settings['last_sync_status'] = $ok ? 'success' : 'error';
         $settings['last_sync_message'] = $message;
-        $settings['last_sync_diagnostics'] = $diag;
+        $settings['last_sync_diagnostics'] = self::redact_sensitive_array( $diag );
         update_option( self::API_SETTINGS_OPTION, self::sanitize_api_settings( $settings ) );
         return [
             'ok' => $ok,
@@ -821,9 +907,130 @@ class CrakRevenueCamManager {
      * @return string
      */
     private static function sanitize_response_preview( string $body ): string {
+        $decoded = json_decode( $body, true );
+        if ( is_array( $decoded ) ) {
+            $redacted = self::redact_sensitive_array( $decoded );
+            $json = wp_json_encode( $redacted );
+            if ( is_string( $json ) ) {
+                return substr( $json, 0, 300 );
+            }
+        }
+
         $flat = preg_replace( '/\s+/', ' ', strip_tags( $body ) );
         $flat = is_string( $flat ) ? $flat : '';
         return substr( self::redact_api_key_from_text( $flat ), 0, 300 );
+    }
+
+
+    /**
+     * Redact sensitive values recursively from diagnostics/request structures.
+     *
+     * @param mixed $value Any scalar/array value.
+     * @return mixed
+     */
+    private static function redact_sensitive_array( $value ) {
+        if ( ! is_array( $value ) ) {
+            return is_string( $value ) ? self::redact_api_key_from_text( $value ) : $value;
+        }
+
+        $result = [];
+        foreach ( $value as $key => $item ) {
+            $key_lc = strtolower( (string) $key );
+            if ( in_array( $key_lc, [ 'api_key', 'apikey', 'key' ], true ) ) {
+                $result[ $key ] = '[redacted]';
+                continue;
+            }
+            $result[ $key ] = self::redact_sensitive_array( $item );
+        }
+        return $result;
+    }
+
+    /**
+     * Build payload diagnostics for unknown/error responses.
+     *
+     * @param array<string,mixed> $json Decoded JSON.
+     * @return array<string,mixed>
+     */
+    private static function build_payload_diagnostics( array $json ): array {
+        $diag = [
+            'top_level_keys' => array_keys( $json ),
+            'response_keys' => is_array( $json['response'] ?? null ) ? array_keys( $json['response'] ) : [],
+            'response_status' => $json['response']['status'] ?? null,
+            'response_http_status' => $json['response']['httpStatus'] ?? null,
+            'response_errors' => self::collect_response_errors( $json ),
+        ];
+        if ( is_array( $json['request'] ?? null ) ) {
+            $diag['request_summary'] = self::redact_sensitive_array( [
+                'Method' => $json['request']['Method'] ?? '',
+                'Target' => $json['request']['Target'] ?? '',
+                'NetworkId' => $json['request']['NetworkId'] ?? '',
+                'api_key' => $json['request']['api_key'] ?? '',
+            ] );
+        }
+        return self::redact_sensitive_array( $diag );
+    }
+
+    /**
+     * Collect response errors from JSON payload.
+     *
+     * @param array<string,mixed> $json Decoded JSON.
+     * @return array<int,string>
+     */
+    private static function collect_response_errors( array $json ): array {
+        $errors = $json['response']['errors'] ?? [];
+        $collected = [];
+        if ( is_array( $errors ) ) {
+            foreach ( $errors as $error ) {
+                if ( is_scalar( $error ) ) {
+                    $collected[] = sanitize_text_field( (string) $error );
+                } elseif ( is_array( $error ) ) {
+                    $flatten = implode( ' ', array_map( static fn( $v ): string => is_scalar( $v ) ? (string) $v : '', $error ) );
+                    if ( trim( $flatten ) !== '' ) {
+                        $collected[] = sanitize_text_field( $flatten );
+                    }
+                }
+            }
+        }
+        return array_values( array_filter( self::redact_sensitive_array( $collected ) ) );
+    }
+
+    /**
+     * Describe unknown JSON shape with useful specificity.
+     *
+     * @param array<string,mixed> $json Decoded JSON.
+     * @return string
+     */
+    private static function detect_unknown_payload_shape( array $json ): string {
+        if ( isset( $json['response']['data']['data'] ) && is_array( $json['response']['data']['data'] ) ) {
+            return isset( $json['response']['data']['data'][0] ) ? 'response.data.data.array' : 'response.data.data.map';
+        }
+        if ( isset( $json['response']['data'] ) && is_array( $json['response']['data'] ) ) {
+            return isset( $json['response']['data'][0] ) ? 'response.data.array' : 'response.data.map';
+        }
+        if ( isset( $json['response'] ) && is_array( $json['response'] ) ) {
+            return 'response.' . implode( '+', array_keys( $json['response'] ) );
+        }
+        return 'unknown';
+    }
+
+    /**
+     * Improve payload shape labels for response.data variants.
+     *
+     * @param string $shape Base shape key.
+     * @param mixed $candidate Candidate payload.
+     * @return string
+     */
+    private static function detect_payload_shape_label( string $shape, $candidate ): string {
+        if ( ! is_array( $candidate ) ) {
+            return $shape;
+        }
+        if ( $shape === 'response.data' ) {
+            return isset( $candidate[0] ) ? 'response.data.array' : 'response.data.map';
+        }
+        if ( $shape === 'response.data.data' ) {
+            return isset( $candidate[0] ) ? 'response.data.data.array' : 'response.data.data.map';
+        }
+        return $shape;
     }
 
     /**
