@@ -95,16 +95,28 @@ class CrakRevenueCamManager {
      * @return string
      */
     public static function build_offers_request_url( string $api_key ): string {
-        $fields = implode( ',', [
-            'id','name','status','preview_url','require_approval','require_terms_and_conditions','show_custom_variables','allow_website_links','allow_direct_links','payout_type','default_payout','percent_payout','currency','description','is_expired','expiration_date','terms_and_conditions','use_target_rules','featured','has_goals_enabled','conversion_cap','monthly_conversion_cap','payout_cap','monthly_payout_cap','epc',
-        ] );
+        $pairs = [
+            'Target=' . rawurlencode( 'Affiliate_Offer' ),
+            'Method=' . rawurlencode( 'findAll' ),
+            'api_key=' . rawurlencode( $api_key ),
+        ];
 
-        return add_query_arg( [
-            'Target' => 'Affiliate_Offer',
-            'Method' => 'findAll',
-            'api_key' => $api_key,
-            'fields' => $fields,
-        ], 'http://gateway.crakrevenue.com/affiliate' );
+        foreach ( self::offers_request_fields() as $field ) {
+            $pairs[] = 'fields[]=' . rawurlencode( $field );
+        }
+
+        return 'http://gateway.crakrevenue.com/affiliate?' . implode( '&', $pairs );
+    }
+
+    /**
+     * Return requested CrakRevenue fields.
+     *
+     * @return string[]
+     */
+    public static function offers_request_fields(): array {
+        return [
+            'id','name','status','preview_url','require_approval','require_terms_and_conditions','show_custom_variables','allow_website_links','allow_direct_links','payout_type','default_payout','percent_payout','currency','description','is_expired','expiration_date','terms_and_conditions','use_target_rules','featured','has_goals_enabled','conversion_cap','monthly_conversion_cap','payout_cap','monthly_payout_cap','epc',
+        ];
     }
 
     /**
@@ -223,6 +235,7 @@ class CrakRevenueCamManager {
             'currency' => sanitize_text_field( (string) ( $offer['currency'] ?? '' ) ),
             'description' => sanitize_text_field( (string) ( $offer['description'] ?? '' ) ),
             'epc' => isset( $offer['epc'] ) ? (float) $offer['epc'] : 0.0,
+            'tracking_template' => self::resolve_tracking_template( $offer ),
             'approval_status' => self::approval_status( $offer ),
             'imported_at' => gmdate( 'c' ),
             'raw' => $offer,
@@ -256,6 +269,22 @@ class CrakRevenueCamManager {
                 if ( str_contains( $needle, strtolower( $alias ) ) ) {
                     return $slug;
                 }
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Resolve best-guess tracking template from API payload.
+     *
+     * @param array<string,mixed> $offer Raw offer payload.
+     * @return string
+     */
+    public static function resolve_tracking_template( array $offer ): string {
+        foreach ( [ 'tracking_template', 'tracking_url', 'tracking_link', 'url_template', 'offer_url' ] as $key ) {
+            $value = esc_url_raw( (string) ( $offer[ $key ] ?? '' ) );
+            if ( $value !== '' ) {
+                return $value;
             }
         }
         return '';
@@ -302,7 +331,7 @@ class CrakRevenueCamManager {
                 'selected_preview_url' => (string) ( $pick['preview_url'] ?? '' ),
                 'approval_status' => (string) ( $pick['approval_status'] ?? 'unknown' ),
                 'enabled' => 0,
-                'template_url' => (string) ( $pick['preview_url'] ?? '' ),
+                'template_url' => (string) ( $pick['tracking_template'] ?? '' ),
                 'last_updated' => gmdate( 'c' ),
             ] );
         }
@@ -378,6 +407,12 @@ class CrakRevenueCamManager {
      * @return array{safe:bool,warnings:string[]}
      */
     public static function validate_template( string $template ): array {
+        if ( trim( $template ) === '' ) {
+            return [
+                'safe' => false,
+                'warnings' => [ 'Tracking template missing — click to add template.' ],
+            ];
+        }
         $warnings = [];
         parse_str( (string) wp_parse_url( $template, PHP_URL_QUERY ), $query );
         foreach ( [ 'performerName', 'model', 'username', 'name', 'user', 'screenName', 'profile' ] as $key ) {
@@ -414,9 +449,6 @@ class CrakRevenueCamManager {
             return $url;
         }
         $template = (string) ( $map['template_url'] ?? '' );
-        if ( $template === '' ) {
-            return $url;
-        }
         $validation = self::validate_template( $template );
         if ( ! $validation['safe'] ) {
             return $url;
@@ -518,7 +550,13 @@ class CrakRevenueCamManager {
             echo '<td>' . esc_html( (string) ( $best['default_payout'] ?? '' ) ) . ' ' . esc_html( (string) ( $best['currency'] ?? '' ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $best['epc'] ?? '' ) ) . '</td>';
             echo '<td>' . ( ! empty( $map['enabled'] ) ? 'Enabled' : 'Disabled' ) . '</td>';
-            echo '<td>' . ( $template_check['safe'] ? 'Safe to route' : 'Not safe to route' ) . '</td>';
+            if ( $template_check['safe'] ) {
+                echo '<td>Safe to route</td>';
+            } else {
+                $hint = $map['selected_preview_url'] !== '' ? 'Preview URL available. ' : '';
+                $hint .= 'Tracking template missing.';
+                echo '<td>Not safe to route. ' . esc_html( $hint ) . '</td>';
+            }
             echo '</tr>';
         }
         echo '</tbody></table>';
@@ -590,7 +628,7 @@ class CrakRevenueCamManager {
             self::auto_map_best_offers( false );
         } elseif ( $action === 'enable_defaults' ) {
             foreach ( $mappings as $slug => $map ) {
-                if ( (string) ( $map['approval_status'] ?? '' ) === 'approved' ) {
+                if ( self::mapping_is_eligible_for_frontend( is_array( $map ) ? $map : [] ) ) {
                     $mappings[ $slug ]['enabled'] = 1;
                 }
             }
@@ -626,5 +664,20 @@ class CrakRevenueCamManager {
             'offers' => count( $offers ),
             'cam_offers' => count( $offers ),
         ];
+    }
+
+    /**
+     * Check if one mapping is eligible for frontend enable action.
+     *
+     * @param array<string,mixed> $map Mapping row.
+     * @return bool
+     */
+    private static function mapping_is_eligible_for_frontend( array $map ): bool {
+        $approved = (string) ( $map['approval_status'] ?? '' ) === 'approved' || ! empty( $map['manually_approved'] );
+        if ( ! $approved ) {
+            return false;
+        }
+        $template_check = self::validate_template( (string) ( $map['template_url'] ?? '' ) );
+        return $template_check['safe'];
     }
 }

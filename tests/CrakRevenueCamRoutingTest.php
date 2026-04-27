@@ -41,6 +41,8 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertStringContainsString('Target=Affiliate_Offer', $url);
         $this->assertStringContainsString('Method=findAll', $url);
         $this->assertStringContainsString('api_key=abc123', $url);
+        $this->assertStringContainsString('fields[]=', $url);
+        $this->assertStringNotContainsString('fields=id%2Cname', $url);
     }
 
     /**
@@ -118,14 +120,17 @@ class CrakRevenueCamRoutingTest extends TestCase {
     public function test_auto_map_prefers_revshare_lifetime_before_pps(): void {
         update_option(CrakRevenueCamManager::OFFERS_CACHE_OPTION, [
             'offers' => [
-                ['offer_id' => 1, 'platform_slug' => 'camsoda', 'offer_name' => 'Camsoda - PPS', 'approval_status' => 'approved', 'default_payout' => 20, 'epc' => 1.0, 'is_expired' => 0],
-                ['offer_id' => 2, 'platform_slug' => 'camsoda', 'offer_name' => 'Camsoda - Revshare Lifetime', 'approval_status' => 'approved', 'default_payout' => 5, 'epc' => 0.2, 'is_expired' => 0],
+                ['offer_id' => 1, 'platform_slug' => 'camsoda', 'offer_name' => 'Camsoda - PPS', 'approval_status' => 'approved', 'default_payout' => 20, 'epc' => 1.0, 'is_expired' => 0, 'preview_url' => 'https://preview.example.com/a'],
+                ['offer_id' => 2, 'platform_slug' => 'camsoda', 'offer_name' => 'Camsoda - Revshare Lifetime', 'approval_status' => 'approved', 'default_payout' => 5, 'epc' => 0.2, 'is_expired' => 0, 'preview_url' => 'https://preview.example.com/b'],
             ],
         ]);
 
         CrakRevenueCamManager::auto_map_best_offers();
         $map = get_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, []);
         $this->assertSame(2, (int)($map['camsoda']['selected_offer_id'] ?? 0));
+        $this->assertSame('https://preview.example.com/b', (string)($map['camsoda']['selected_preview_url'] ?? ''));
+        $this->assertSame('', (string)($map['camsoda']['template_url'] ?? ''));
+        $this->assertSame(0, (int)($map['camsoda']['enabled'] ?? 1));
     }
 
     /**
@@ -268,5 +273,45 @@ class CrakRevenueCamRoutingTest extends TestCase {
 
         $schema = VerifiedLinks::get_schema_urls(123);
         $this->assertIsArray($schema);
+    }
+
+    /**
+     * Preview URL alone should not make platform frontend eligible.
+     *
+     * @return void
+     */
+    public function test_preview_url_only_is_not_frontend_eligible(): void {
+        $r = new \ReflectionClass(CrakRevenueCamManager::class);
+        $m = $r->getMethod('mapping_is_eligible_for_frontend');
+        $m->setAccessible(true);
+
+        $eligible = $m->invoke(null, [
+            'approval_status' => 'approved',
+            'selected_preview_url' => 'https://preview.example.com/offer',
+            'template_url' => '',
+        ]);
+        $this->assertFalse((bool)$eligible);
+    }
+
+    /**
+     * Enable-defaults eligibility requires safe templates.
+     *
+     * @return void
+     */
+    public function test_enable_defaults_requires_safe_template(): void {
+        $r = new \ReflectionClass(CrakRevenueCamManager::class);
+        $m = $r->getMethod('mapping_is_eligible_for_frontend');
+        $m->setAccessible(true);
+
+        $unsafe = $m->invoke(null, [
+            'approval_status' => 'approved',
+            'template_url' => 'https://go.example.com/?performerName=AishaDupont',
+        ]);
+        $safe = $m->invoke(null, [
+            'approval_status' => 'approved',
+            'template_url' => 'https://go.example.com/?performerName={username}',
+        ]);
+        $this->assertFalse((bool)$unsafe);
+        $this->assertTrue((bool)$safe);
     }
 }
