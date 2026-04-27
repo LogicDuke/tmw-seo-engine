@@ -102,6 +102,7 @@ class CrakRevenueCamManager {
             'api_key' => sanitize_text_field( (string) ( $input['api_key'] ?? '' ) ),
             'network_id' => $network_id,
             'affiliate_id' => sanitize_text_field( (string) ( $input['affiliate_id'] ?? '' ) ),
+            'auto_map_after_sync' => ! empty( $input['auto_map_after_sync'] ) ? 1 : 0,
             'last_sync_at' => sanitize_text_field( (string) ( $input['last_sync_at'] ?? '' ) ),
             'last_sync_status' => sanitize_text_field( (string) ( $input['last_sync_status'] ?? '' ) ),
             'last_sync_message' => sanitize_text_field( (string) ( $input['last_sync_message'] ?? '' ) ),
@@ -632,8 +633,9 @@ class CrakRevenueCamManager {
             usort( $rows, [ __CLASS__, 'compare_offer_rank' ] );
             $pick = $rows[0] ?? [];
             if ( empty( $pick ) ) { continue; }
-            $template = (string) ( $pick['tracking_template'] ?? '' );
-            if ( $template === '' ) {
+            $existing_template = esc_url_raw( (string) ( $current[ $slug ]['template_url'] ?? '' ) );
+            $template_is_safe = self::validate_template( $existing_template )['safe'];
+            if ( ! $template_is_safe ) {
                 $diagnostics['skip_reasons']['missing_tracking_template']++;
                 $diagnostics['skip_details'][ $slug ] = 'Auto-mapped offer selected, but manual tracking template is required.';
             }
@@ -645,7 +647,7 @@ class CrakRevenueCamManager {
                 'raw_status' => (string) ( $pick['raw_status'] ?? $pick['status'] ?? '' ),
                 'selected_offer_is_expired' => ! empty( $pick['is_expired'] ) ? 1 : 0,
                 'enabled' => 0,
-                'template_url' => $template,
+                'template_url' => $template_is_safe ? $existing_template : '',
                 'last_updated' => gmdate( 'c' ),
             ] );
             $diagnostics['auto_mapped_platforms']++;
@@ -864,6 +866,7 @@ class CrakRevenueCamManager {
         echo '<tr><th>API key</th><td><input type="password" name="api_key" class="regular-text" value="' . esc_attr( (string) ( $settings['api_key'] ?? '' ) ) . '" /></td></tr>';
         echo '<tr><th>Network ID</th><td><input type="text" name="network_id" class="regular-text" value="' . esc_attr( (string) ( $settings['network_id'] ?? 'crakrevenue' ) ) . '" /></td></tr>';
         echo '<tr><th>Affiliate ID</th><td><input type="text" name="affiliate_id" class="regular-text" value="' . esc_attr( (string) ( $settings['affiliate_id'] ?? '' ) ) . '" /></td></tr>';
+        echo '<tr><th>Auto-map after sync</th><td><label><input type="checkbox" name="auto_map_after_sync" value="1"' . checked( ! empty( $settings['auto_map_after_sync'] ), true, false ) . ' /> Auto-map immediately after successful sync</label></td></tr>';
         echo '<tr><th>Last sync time</th><td>' . esc_html( (string) ( $settings['last_sync_at'] ?? 'Never' ) ) . '</td></tr>';
         echo '<tr><th>Last sync status</th><td>' . esc_html( (string) ( $settings['last_sync_status'] ?? 'n/a' ) ) . '</td></tr>';
         echo '<tr><th>Last sync message</th><td>' . esc_html( (string) ( $settings['last_sync_message'] ?? 'n/a' ) ) . '</td></tr>';
@@ -1075,8 +1078,20 @@ class CrakRevenueCamManager {
         $settings['api_key'] = sanitize_text_field( (string) ( $_POST['api_key'] ?? '' ) );
         $settings['network_id'] = sanitize_key( strtolower( (string) ( $_POST['network_id'] ?? 'crakrevenue' ) ) );
         $settings['affiliate_id'] = sanitize_text_field( (string) ( $_POST['affiliate_id'] ?? '' ) );
+        $settings['auto_map_after_sync'] = ! empty( $_POST['auto_map_after_sync'] ) ? 1 : 0;
         update_option( self::API_SETTINGS_OPTION, self::sanitize_api_settings( $settings ) );
-        self::sync_offers();
+        $result = self::sync_offers();
+        if ( ! empty( $result['ok'] ) && ! empty( $settings['auto_map_after_sync'] ) ) {
+            $auto_diag = self::auto_map_best_offers( false );
+            $settings = get_option( self::API_SETTINGS_OPTION, [] );
+            $settings = is_array( $settings ) ? $settings : [];
+            $settings['last_sync_diagnostics'] = array_merge(
+                is_array( $settings['last_sync_diagnostics'] ?? null ) ? $settings['last_sync_diagnostics'] : [],
+                $auto_diag
+            );
+            update_option( self::API_SETTINGS_OPTION, self::sanitize_api_settings( $settings ) );
+            set_transient( 'tmwseo_cr_admin_notice', 'Auto-mapped ' . (int) ( $auto_diag['auto_mapped_platforms'] ?? 0 ) . ' platforms. Skipped ' . (int) ( $auto_diag['skipped_platforms'] ?? 0 ) . '.', 60 );
+        }
         wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-affiliates' ) );
         exit;
     }
@@ -1087,12 +1102,27 @@ class CrakRevenueCamManager {
      * @return void
      */
     public static function handle_quick_action(): void {
-        check_admin_referer( 'tmwseo_cr_quick_actions' );
+        self::validate_quick_action_nonce();
         $action = sanitize_key( (string) ( $_POST['quick_action'] ?? '' ) );
+        if ( $action === '' && sanitize_key( (string) ( $_POST['action'] ?? '' ) ) === 'tmwseo_cr_auto_map' ) {
+            $action = 'auto_map';
+        }
+        self::apply_quick_action( $action, is_array( $_POST['mappings'] ?? null ) ? $_POST['mappings'] : [] );
+        wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-affiliates' ) );
+        exit;
+    }
+
+    /**
+     * Apply one quick action (testable core).
+     *
+     * @param string $action Quick action.
+     * @param array<string,mixed> $incoming Incoming mappings payload.
+     * @return void
+     */
+    public static function apply_quick_action( string $action, array $incoming = [] ): void {
         $mappings = get_option( self::PLATFORM_MAPPINGS_OPTION, [] );
         $mappings = is_array( $mappings ) ? $mappings : [];
         if ( str_starts_with( $action, 'save_mapping_' ) ) {
-            $incoming = is_array( $_POST['mappings'] ?? null ) ? $_POST['mappings'] : [];
             $slug = sanitize_key( substr( $action, strlen( 'save_mapping_' ) ) );
             $mappings = self::save_mapping_templates( $mappings, $incoming, $slug );
             update_option( self::PLATFORM_MAPPINGS_OPTION, $mappings );
@@ -1107,7 +1137,6 @@ class CrakRevenueCamManager {
             update_option( self::API_SETTINGS_OPTION, self::sanitize_api_settings( $settings ) );
             set_transient( 'tmwseo_cr_admin_notice', 'Auto-mapped ' . (int) ( $auto_diag['auto_mapped_platforms'] ?? 0 ) . ' platforms. Skipped ' . (int) ( $auto_diag['skipped_platforms'] ?? 0 ) . '.', 60 );
         } elseif ( $action === 'save_mappings_all' ) {
-            $incoming = is_array( $_POST['mappings'] ?? null ) ? $_POST['mappings'] : [];
             $mappings = self::save_mapping_templates( $mappings, $incoming, '' );
             update_option( self::PLATFORM_MAPPINGS_OPTION, $mappings );
         } elseif ( $action === 'enable_defaults' ) {
@@ -1125,8 +1154,19 @@ class CrakRevenueCamManager {
             }
             update_option( self::PLATFORM_MAPPINGS_OPTION, $mappings );
         }
-        wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-affiliates' ) );
-        exit;
+    }
+
+    /**
+     * Validate quick-action nonce with a sync-form fallback for action mismatches.
+     *
+     * @return void
+     */
+    private static function validate_quick_action_nonce(): void {
+        $nonce = (string) ( $_POST['_wpnonce'] ?? '' );
+        $ok = wp_verify_nonce( $nonce, 'tmwseo_cr_quick_actions' ) || wp_verify_nonce( $nonce, 'tmwseo_cr_sync' );
+        if ( ! $ok ) {
+            wp_die( 'Invalid CrakRevenue quick action nonce.' );
+        }
     }
 
     /**
