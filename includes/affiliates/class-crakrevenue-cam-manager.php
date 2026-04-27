@@ -262,10 +262,16 @@ class CrakRevenueCamManager {
                 'payload_shape' => $payload_shape,
                 'raw_offer_count' => count( $offers ),
                 'cam_offer_count' => count( $normalized ),
+                'supported_platforms_detected' => count( array_unique( array_values( array_filter( array_map( static fn( $row ): string => sanitize_key( (string) ( $row['platform_slug'] ?? '' ) ), $normalized ) ) ) ) ),
                 'response_preview' => self::sanitize_response_preview( $body ),
                 'request_url' => self::redact_api_key_from_text( $url ),
                 'offer_url_sync_ran' => $sync_meta['ran'],
                 'offer_url_rows_matched' => $sync_meta['matched'],
+                'offer_url_sync_method' => $sync_meta['method'] ?? 'Affiliate_OfferUrl/findAll',
+                'offer_url_sync_http_status' => $sync_meta['http_status'] ?? 0,
+                'offer_url_sync_raw_rows' => $sync_meta['raw_rows'] ?? 0,
+                'offer_url_sync_matched' => $sync_meta['matched'] ?? 0,
+                'offer_url_sync_error' => $sync_meta['error'] ?? '',
             ];
             if ( count( $offers ) > 0 && count( $normalized ) === 0 ) {
                 $diag['first_offer_names'] = array_slice( array_values( array_filter( $raw_names ) ), 0, 10 );
@@ -448,21 +454,22 @@ class CrakRevenueCamManager {
             'status' => sanitize_text_field( (string) ( $offer['status'] ?? '' ) ),
             'raw_status' => sanitize_text_field( (string) self::first_alias_value( $offer, [ 'status', 'offer_status', 'approval_status', 'approvalStatus' ] ) ),
             'approval_status' => self::approval_status( $offer ),
-            'require_approval' => ! empty( $offer['require_approval'] ),
-            'is_expired' => ! empty( $offer['is_expired'] ),
+            'require_approval' => self::first_alias_value( $offer, [ 'require_approval', 'requires_approval' ] ),
+            'is_expired' => self::to_bool( $offer['is_expired'] ?? null ),
             'expiration_date' => sanitize_text_field( (string) ( $offer['expiration_date'] ?? '' ) ),
             'preview_url' => self::resolve_preview_url( $offer ),
-            'allow_website_links' => ! empty( $offer['allow_website_links'] ),
-            'allow_direct_links' => ! empty( $offer['allow_direct_links'] ),
+            'allow_website_links' => self::to_bool( self::first_alias_value( $offer, [ 'allow_website_links' ] ) ),
+            'allow_direct_links' => self::to_bool( self::first_alias_value( $offer, [ 'allow_direct_links' ] ) ),
             'offer_url_id' => (int) ( $offer['offer_url_id'] ?? 0 ),
             'landing_page_name' => sanitize_text_field( (string) ( $offer['landing_page_name'] ?? '' ) ),
             'show_custom_variables' => ! empty( $offer['show_custom_variables'] ),
             'payout_type' => sanitize_text_field( (string) ( $offer['payout_type'] ?? '' ) ),
-            'default_payout' => (float) self::first_alias_value( $offer, [ 'default_payout', 'payout', 'percent_payout', 'revenue', 'payout_amount' ] ),
+            'default_payout' => (float) self::first_alias_value( $offer, [ 'default_payout', 'payout', 'revenue', 'payout_amount' ] ),
             'percent_payout' => (float) ( $offer['percent_payout'] ?? 0 ),
             'currency' => sanitize_text_field( (string) ( $offer['currency'] ?? '' ) ),
             'description' => sanitize_text_field( (string) ( $offer['description'] ?? '' ) ),
             'epc' => isset( $offer['epc'] ) && $offer['epc'] !== '' ? (float) $offer['epc'] : null,
+            'epc_note' => isset( $offer['epc'] ) && $offer['epc'] !== '' ? '' : 'EPC from stats/manual only',
             'tracking_template' => self::resolve_tracking_template( $offer ),
             'imported_at' => gmdate( 'c' ),
             'raw' => $offer,
@@ -480,11 +487,21 @@ class CrakRevenueCamManager {
         $status = strtolower( trim( (string) self::first_alias_value( $offer, [ 'status', 'offer_status' ] ) ) );
         $approval = strtolower( trim( (string) self::first_alias_value( $offer, [ 'approval_status', 'approvalStatus' ] ) ) );
         $approved_flag = self::to_bool( self::first_alias_value( $offer, [ 'is_approved', 'isApproved', 'approved' ] ) );
-        $requires_approval = self::to_bool( self::first_alias_value( $offer, [ 'require_approval', 'requires_approval' ] ) );
-        if ( str_contains( $status, 'approv' ) || str_contains( $approval, 'approv' ) || $approved_flag ) {
+        $requires_approval_raw = self::first_alias_value( $offer, [ 'require_approval', 'requires_approval' ] );
+        $requires_approval = self::to_bool( $requires_approval_raw );
+        $has_require_approval = $requires_approval_raw !== '' && $requires_approval_raw !== null;
+        $status_is_active_or_empty = $status === '' || str_contains( $status, 'active' );
+
+        if ( $approved_flag ) {
             return 'approved';
         }
-        if ( $requires_approval ) {
+        if ( str_contains( $approval, 'approv' ) || str_contains( $status, 'approv' ) ) {
+            return 'approved';
+        }
+        if ( $has_require_approval && ! $requires_approval && $status_is_active_or_empty ) {
+            return 'approved';
+        }
+        if ( $has_require_approval && $requires_approval ) {
             return 'needs_approval';
         }
         if ( str_contains( $status, 'pending' ) || str_contains( $status, 'required' ) || str_contains( $status, 'request' ) ) {
@@ -780,9 +797,15 @@ class CrakRevenueCamManager {
         $mappings = is_array( $mappings ) ? $mappings : [];
         $approved = 0;
         $needs_approval = 0;
+        $unknown = 0;
         foreach ( $offers as $offer ) {
             if ( (string) ( $offer['approval_status'] ?? '' ) === 'approved' ) { $approved++; }
             if ( (string) ( $offer['approval_status'] ?? '' ) === 'needs_approval' ) { $needs_approval++; }
+            if ( (string) ( $offer['approval_status'] ?? '' ) === 'unknown' ) { $unknown++; }
+        }
+        $filter = sanitize_key( (string) ( $_GET['tmwseo_cr_filter'] ?? 'all' ) );
+        if ( ! in_array( $filter, [ 'all', 'approved', 'needs_approval', 'selected_defaults' ], true ) ) {
+            $filter = 'all';
         }
 
         echo '<h2>CrakRevenue Cam Offers</h2>';
@@ -798,7 +821,7 @@ class CrakRevenueCamManager {
         echo '<tr><th>Last sync time</th><td>' . esc_html( (string) ( $settings['last_sync_at'] ?? 'Never' ) ) . '</td></tr>';
         echo '<tr><th>Last sync status</th><td>' . esc_html( (string) ( $settings['last_sync_status'] ?? 'n/a' ) ) . '</td></tr>';
         echo '<tr><th>Last sync message</th><td>' . esc_html( (string) ( $settings['last_sync_message'] ?? 'n/a' ) ) . '</td></tr>';
-        echo '<tr><th>Stats</th><td>Imported: ' . (int) count( $offers ) . ' | Approved: ' . (int) $approved . ' | Needs approval: ' . (int) $needs_approval . '</td></tr>';
+        echo '<tr><th>Stats</th><td>Imported: ' . (int) count( $offers ) . ' | Approved: ' . (int) $approved . ' | Needs approval: ' . (int) $needs_approval . ' | Unknown: ' . (int) $unknown . '</td></tr>';
         echo '</table>';
         submit_button( 'Save + Sync Offers', 'primary', 'submit', false );
         echo ' ';
@@ -813,6 +836,7 @@ class CrakRevenueCamManager {
         echo '<li>Payload shape detected: ' . esc_html( (string) ( $diag['payload_shape'] ?? 'unknown' ) ) . '</li>';
         echo '<li>Raw offer count: ' . esc_html( (string) ( $diag['raw_offer_count'] ?? 0 ) ) . '</li>';
         echo '<li>Cam offer count: ' . esc_html( (string) ( $diag['cam_offer_count'] ?? 0 ) ) . '</li>';
+        echo '<li>Supported platforms detected: ' . esc_html( (string) ( $diag['supported_platforms_detected'] ?? 0 ) ) . '</li>';
         if ( ! empty( $diag['first_offer_names'] ) && is_array( $diag['first_offer_names'] ) ) {
             echo '<li>First raw offer names (up to 10): ' . esc_html( implode( ', ', $diag['first_offer_names'] ) ) . '</li>';
         }
@@ -841,10 +865,28 @@ class CrakRevenueCamManager {
             echo '<li>Request summary: ' . esc_html( implode( ', ', $req_parts ) ) . '</li>';
         }
         echo '<li>Offer URL sync ran: ' . ( ! empty( $diag['offer_url_sync_ran'] ) ? 'yes' : 'no' ) . '</li>';
+        echo '<li>Offer URL sync method: ' . esc_html( (string) ( $diag['offer_url_sync_method'] ?? 'n/a' ) ) . '</li>';
+        echo '<li>Offer URL sync HTTP status: ' . esc_html( (string) ( $diag['offer_url_sync_http_status'] ?? 'n/a' ) ) . '</li>';
+        echo '<li>Offer URL sync raw rows: ' . esc_html( (string) ( $diag['offer_url_sync_raw_rows'] ?? 0 ) ) . '</li>';
+        echo '<li>Offer URL sync matched rows: ' . esc_html( (string) ( $diag['offer_url_sync_matched'] ?? 0 ) ) . '</li>';
+        if ( ! empty( $diag['offer_url_sync_error'] ) ) {
+            echo '<li>Offer URL sync error: ' . esc_html( (string) $diag['offer_url_sync_error'] ) . '</li>';
+        }
         if ( current_user_can( 'manage_options' ) && ! empty( $diag['response_preview'] ) ) {
             echo '<li>Response preview: <code>' . esc_html( (string) $diag['response_preview'] ) . '</code></li>';
         }
         echo '</ul>';
+        echo '<p class="description">EPC is not returned by offer sync; use stats sync/manual value.</p>';
+        echo '<p class="description">Preview URL is preview-only and is never used as a tracking template.</p>';
+
+        echo '<p style="margin-top:8px;">';
+        echo '<strong>Offer filter:</strong> ';
+        foreach ( [ 'all' => 'Show all detected cam offers', 'approved' => 'Show only approved/runnable', 'needs_approval' => 'Show only needs approval', 'selected_defaults' => 'Show only selected platform defaults' ] as $value => $label ) {
+            $url = add_query_arg( [ 'page' => 'tmwseo-affiliates', 'tmwseo_cr_filter' => $value ], admin_url( 'admin.php' ) );
+            $active = $filter === $value ? ' style="font-weight:700;"' : '';
+            echo '<a href="' . esc_url( $url ) . '"' . $active . '>' . esc_html( $label ) . '</a> ';
+        }
+        echo '</p>';
 
         echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:8px;display:flex;gap:8px;">';
         wp_nonce_field( 'tmwseo_cr_quick_actions' );
@@ -855,27 +897,39 @@ class CrakRevenueCamManager {
         echo '</form>';
 
         echo '<h3 style="margin-top:16px;">Platform summary</h3>';
-        echo '<table class="widefat striped"><thead><tr><th>Platform</th><th>Best approved offer</th><th>Selected offer</th><th>Offer ID</th><th>Raw status</th><th>Normalized approval</th><th>Payout</th><th>EPC if available</th><th>Preview URL</th><th>Tracking template status</th><th>Offer URL sync</th><th>Routing status</th><th>Template safety</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr><th>Platform</th><th>Best approved offer</th><th>Selected offer</th><th>Offer ID</th><th>Raw status</th><th>Require approval (raw)</th><th>Normalized approval</th><th>Payout type</th><th>Payout</th><th>Currency</th><th>Preview URL</th><th>Allow website links</th><th>Allow direct links</th><th>EPC</th><th>Tracking template status</th><th>Offer URL sync</th><th>Routing status</th><th>Template safety</th></tr></thead><tbody>';
         foreach ( self::supported_platform_slugs() as $slug ) {
             $rows = array_values( array_filter( $offers, static fn( $row ) => (string) ( $row['platform_slug'] ?? '' ) === $slug ) );
             usort( $rows, [ __CLASS__, 'compare_offer_rank' ] );
             $best = $rows[0] ?? [];
             $map = is_array( $mappings[ $slug ] ?? null ) ? $mappings[ $slug ] : self::default_mapping_row( $slug );
+            if ( $filter === 'approved' && (string) ( $map['approval_status'] ?? '' ) !== 'approved' ) { continue; }
+            if ( $filter === 'needs_approval' && (string) ( $map['approval_status'] ?? '' ) !== 'needs_approval' ) { continue; }
+            if ( $filter === 'selected_defaults' && (int) ( $map['selected_offer_id'] ?? 0 ) <= 0 ) { continue; }
             $template_check = self::validate_template( (string) ( $map['template_url'] ?? '' ) );
-            $tracking_status = (string) ( $map['template_url'] ?? '' ) === '' ? 'Tracking template missing — click to add template' : 'Template set';
+            $tracking_status = (string) ( $map['template_url'] ?? '' ) === '' ? 'Tracking template missing — manual template required' : 'Template set';
             echo '<tr>';
             echo '<td><strong>' . esc_html( $slug ) . '</strong></td>';
             echo '<td>' . esc_html( (string) ( $best['offer_name'] ?? '—' ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $map['selected_offer_name'] ?? '—' ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $map['selected_offer_id'] ?? 0 ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $best['raw_status'] ?? $best['status'] ?? 'unknown' ) ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $best['require_approval'] ?? '' ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $map['approval_status'] ?? 'unknown' ) ) . '</td>';
-            echo '<td>' . esc_html( (string) ( $best['default_payout'] ?? '' ) ) . ' ' . esc_html( (string) ( $best['currency'] ?? '' ) ) . '</td>';
-            echo '<td>' . esc_html( isset( $best['epc'] ) && $best['epc'] !== null ? (string) $best['epc'] : '' ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $best['payout_type'] ?? '' ) ) . '</td>';
+            echo '<td>' . esc_html( self::format_payout_display( $best ) ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $best['currency'] ?? '' ) ) . '</td>';
             $preview = esc_url( (string) ( $map['selected_preview_url'] ?? '' ) );
             echo '<td>' . ( $preview !== '' ? '<a href="' . $preview . '" target="_blank" rel="noopener">Preview URL</a>' : 'N/A' ) . '</td>';
+            echo '<td>' . ( ! empty( $best['allow_website_links'] ) ? 'yes' : 'no' ) . '</td>';
+            echo '<td>' . ( ! empty( $best['allow_direct_links'] ) ? 'yes' : 'no' ) . '</td>';
+            $epc_display = isset( $best['epc'] ) && $best['epc'] !== null ? (string) $best['epc'] : '';
+            if ( $epc_display === '' ) {
+                $epc_display = (string) ( $best['epc_note'] ?? 'EPC from stats/manual only' );
+            }
+            echo '<td>' . esc_html( $epc_display ) . '</td>';
             echo '<td>' . esc_html( $tracking_status ) . '</td>';
-            echo '<td>' . ( ! empty( $diag['offer_url_sync_ran'] ) ? 'Ran' : 'Not run' ) . '</td>';
+            echo '<td>' . esc_html( (string) ( $diag['offer_url_sync_method'] ?? 'n/a' ) ) . ' / ' . esc_html( (string) ( $diag['offer_url_sync_http_status'] ?? 'n/a' ) ) . '</td>';
             echo '<td>' . ( ! empty( $map['enabled'] ) ? 'Enabled' : 'Disabled' ) . '</td>';
             echo '<td>' . ( $template_check['safe'] ? 'Safe to route' : 'Not safe to route' ) . '</td>';
             echo '</tr>';
@@ -1120,7 +1174,7 @@ class CrakRevenueCamManager {
      */
     private static function sync_offer_url_metadata( array $offers, string $endpoint, string $api_key, string $network_id, string $affiliate_id ): array {
         if ( $offers === [] ) {
-            return [ 'offers' => $offers, 'ran' => false, 'matched' => 0 ];
+            return [ 'offers' => $offers, 'ran' => false, 'matched' => 0, 'method' => 'Affiliate_OfferUrl/findAll', 'http_status' => 0, 'raw_rows' => 0, 'error' => '' ];
         }
         $pairs = [
             'Target=' . rawurlencode( 'Affiliate_OfferUrl' ),
@@ -1138,12 +1192,16 @@ class CrakRevenueCamManager {
             $pairs[] = 'fields[]=' . rawurlencode( $field );
         }
         $response = self::http_get( $endpoint . '?' . implode( '&', $pairs ), [ 'timeout' => 20 ] );
-        if ( is_wp_error( $response ) || (int) wp_remote_retrieve_response_code( $response ) !== 200 ) {
-            return [ 'offers' => $offers, 'ran' => true, 'matched' => 0 ];
+        if ( is_wp_error( $response ) ) {
+            return [ 'offers' => $offers, 'ran' => true, 'matched' => 0, 'method' => 'Affiliate_OfferUrl/findAll', 'http_status' => 0, 'raw_rows' => 0, 'error' => $response->get_error_message() ];
+        }
+        $http_status = (int) wp_remote_retrieve_response_code( $response );
+        if ( $http_status !== 200 ) {
+            return [ 'offers' => $offers, 'ran' => true, 'matched' => 0, 'method' => 'Affiliate_OfferUrl/findAll', 'http_status' => $http_status, 'raw_rows' => 0, 'error' => 'HTTP status ' . $http_status ];
         }
         $parsed = self::parse_offers_payload( (string) wp_remote_retrieve_body( $response ) );
         if ( $parsed === [] ) {
-            return [ 'offers' => $offers, 'ran' => true, 'matched' => 0 ];
+            return [ 'offers' => $offers, 'ran' => true, 'matched' => 0, 'method' => 'Affiliate_OfferUrl/findAll', 'http_status' => $http_status, 'raw_rows' => 0, 'error' => 'No parsable rows returned by offer URL endpoint.' ];
         }
         $by_offer_id = [];
         foreach ( $parsed as $raw ) {
@@ -1170,7 +1228,7 @@ class CrakRevenueCamManager {
             $offers[ $idx ]['approval_status'] = self::approval_status( array_merge( $offer, $meta ) );
             $offers[ $idx ]['status'] = sanitize_text_field( (string) self::first_alias_value( $meta, [ 'status', 'offer_status' ] ) ) ?: (string) ( $offer['status'] ?? '' );
         }
-        return [ 'offers' => $offers, 'ran' => true, 'matched' => $matched ];
+        return [ 'offers' => $offers, 'ran' => true, 'matched' => $matched, 'method' => 'Affiliate_OfferUrl/findAll', 'http_status' => $http_status, 'raw_rows' => count( $parsed ), 'error' => '' ];
     }
 
     /**
@@ -1215,10 +1273,40 @@ class CrakRevenueCamManager {
         if ( is_bool( $value ) ) {
             return $value;
         }
+        if ( $value === null ) {
+            return false;
+        }
         if ( is_numeric( $value ) ) {
             return (int) $value === 1;
         }
-        return in_array( strtolower( trim( (string) $value ) ), [ '1', 'true', 'yes', 'approved' ], true );
+        $normalized = strtolower( trim( (string) $value ) );
+        if ( in_array( $normalized, [ '1', 'true', 'enabled', 'yes', 'on', 'approved' ], true ) ) {
+            return true;
+        }
+        if ( in_array( $normalized, [ '0', 'false', 'disabled', 'no', 'off', '' ], true ) ) {
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * Render payout display prioritizing percent payout then default payout.
+     *
+     * @param array<string,mixed> $offer Offer row.
+     * @return string
+     */
+    private static function format_payout_display( array $offer ): string {
+        $percent = (float) ( $offer['percent_payout'] ?? 0 );
+        $default = (float) ( $offer['default_payout'] ?? 0 );
+        if ( $percent > 0 ) {
+            return rtrim( rtrim( (string) $percent, '0' ), '.' ) . '%';
+        }
+        if ( $default > 0 ) {
+            $currency = trim( (string) ( $offer['currency'] ?? '' ) );
+            $amount = rtrim( rtrim( (string) $default, '0' ), '.' );
+            return $currency !== '' ? $currency . ' ' . $amount : $amount;
+        }
+        return '';
     }
 
     /**

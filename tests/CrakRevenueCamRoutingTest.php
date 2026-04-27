@@ -588,4 +588,91 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertFalse((bool) $badMissingTemplate);
         $this->assertTrue((bool) $good);
     }
+
+    public function test_require_approval_zero_variants_normalize_to_approved(): void {
+        $rowStringZero = CrakRevenueCamManager::normalize_offer(['id' => 11, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => '0']);
+        $rowIntZero = CrakRevenueCamManager::normalize_offer(['id' => 12, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => 0]);
+        $rowDisabled = CrakRevenueCamManager::normalize_offer(['id' => 13, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => 'disabled']);
+
+        $this->assertSame('approved', (string) ($rowStringZero['approval_status'] ?? ''));
+        $this->assertSame('approved', (string) ($rowIntZero['approval_status'] ?? ''));
+        $this->assertSame('approved', (string) ($rowDisabled['approval_status'] ?? ''));
+    }
+
+    public function test_require_approval_one_variants_normalize_to_needs_approval(): void {
+        $rowStringOne = CrakRevenueCamManager::normalize_offer(['id' => 14, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => '1']);
+        $rowIntOne = CrakRevenueCamManager::normalize_offer(['id' => 15, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => 1]);
+        $rowEnabled = CrakRevenueCamManager::normalize_offer(['id' => 16, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => 'enabled']);
+
+        $this->assertSame('needs_approval', (string) ($rowStringOne['approval_status'] ?? ''));
+        $this->assertSame('needs_approval', (string) ($rowIntOne['approval_status'] ?? ''));
+        $this->assertSame('needs_approval', (string) ($rowEnabled['approval_status'] ?? ''));
+    }
+
+    public function test_status_active_with_missing_require_approval_is_unknown(): void {
+        $row = CrakRevenueCamManager::normalize_offer(['id' => 17, 'name' => 'Camsoda - PPS', 'status' => 'active']);
+        $this->assertSame('unknown', (string) ($row['approval_status'] ?? ''));
+        $this->assertSame('active', (string) ($row['raw_status'] ?? ''));
+    }
+
+    public function test_approval_counts_include_require_approval_based_statuses(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'abc123']);
+        CrakRevenueCamManager::set_http_getter(static function (string $url, array $args = []): array {
+            if (str_contains($url, 'Target=Affiliate_OfferUrl')) {
+                return ['response' => ['code' => 404], 'headers' => ['content-type' => 'application/json'], 'body' => '{}'];
+            }
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => wp_json_encode([
+                    'response' => [
+                        'data' => [
+                            ['id' => 101, 'name' => 'Camsoda - Revshare', 'status' => 'active', 'require_approval' => '0'],
+                            ['id' => 102, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => '1'],
+                            ['id' => 103, 'name' => 'LiveJasmin - PPS', 'status' => 'active'],
+                        ],
+                    ],
+                ]),
+            ];
+        });
+        CrakRevenueCamManager::sync_offers();
+        $offers = CrakRevenueCamManager::get_cached_offers();
+        $approved = count(array_filter($offers, static fn(array $row): bool => (string) ($row['approval_status'] ?? '') === 'approved'));
+        $needs = count(array_filter($offers, static fn(array $row): bool => (string) ($row['approval_status'] ?? '') === 'needs_approval'));
+        $unknown = count(array_filter($offers, static fn(array $row): bool => (string) ($row['approval_status'] ?? '') === 'unknown'));
+
+        $this->assertSame(1, $approved);
+        $this->assertSame(1, $needs);
+        $this->assertSame(1, $unknown);
+    }
+
+    public function test_epc_not_expected_from_affiliate_offer_and_preview_not_template(): void {
+        $row = CrakRevenueCamManager::normalize_offer([
+            'id' => 18,
+            'name' => 'Camsoda - Revshare',
+            'status' => 'active',
+            'require_approval' => 0,
+            'preview_url' => 'https://preview.test/offer',
+        ]);
+        $this->assertNull($row['epc']);
+        $this->assertSame('EPC from stats/manual only', (string) ($row['epc_note'] ?? ''));
+        $this->assertSame('https://preview.test/offer', (string) ($row['preview_url'] ?? ''));
+        $this->assertSame('', (string) ($row['tracking_template'] ?? ''));
+    }
+
+    public function test_payout_prefers_percent_then_default_and_boolean_link_flags_parse_zero_one(): void {
+        $r = new \ReflectionClass(CrakRevenueCamManager::class);
+        $m = $r->getMethod('format_payout_display');
+        $m->setAccessible(true);
+
+        $rowRevshare = CrakRevenueCamManager::normalize_offer(['id' => 19, 'name' => 'Camsoda - Revshare', 'percent_payout' => 30, 'currency' => 'USD', 'allow_website_links' => '1', 'allow_direct_links' => 0]);
+        $rowPps = CrakRevenueCamManager::normalize_offer(['id' => 20, 'name' => 'Camsoda - PPS', 'default_payout' => 45.5, 'currency' => 'USD', 'allow_website_links' => 0, 'allow_direct_links' => '1']);
+
+        $this->assertSame('30%', (string) $m->invoke(null, $rowRevshare));
+        $this->assertSame('USD 45.5', (string) $m->invoke(null, $rowPps));
+        $this->assertTrue((bool) ($rowRevshare['allow_website_links'] ?? false));
+        $this->assertFalse((bool) ($rowRevshare['allow_direct_links'] ?? true));
+        $this->assertFalse((bool) ($rowPps['allow_website_links'] ?? true));
+        $this->assertTrue((bool) ($rowPps['allow_direct_links'] ?? false));
+    }
 }
