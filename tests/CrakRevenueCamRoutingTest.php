@@ -733,4 +733,67 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertFalse((bool) ($rowPps['allow_website_links'] ?? true));
         $this->assertTrue((bool) ($rowPps['allow_direct_links'] ?? false));
     }
+
+    public function test_jerkmate_three_offers_are_retained_and_auto_map_selects_revshare(): void {
+        update_option(CrakRevenueCamManager::OFFERS_CACHE_OPTION, [
+            'offers' => [
+                ['offer_id' => 6224, 'platform_slug' => 'jerkmate', 'offer_name' => 'Jerkmate - Revshare Lifetime', 'approval_status' => 'approved', 'default_payout' => 5, 'is_expired' => 0, 'preview_url' => 'https://preview.example.com/r'],
+                ['offer_id' => 8780, 'platform_slug' => 'jerkmate', 'offer_name' => 'Jerkmate - PPS', 'approval_status' => 'approved', 'default_payout' => 50, 'is_expired' => 0, 'preview_url' => 'https://preview.example.com/p'],
+                ['offer_id' => 8865, 'platform_slug' => 'jerkmate', 'offer_name' => 'Jerkmate - DOI', 'approval_status' => 'needs_approval', 'default_payout' => 2, 'is_expired' => 0, 'preview_url' => 'https://preview.example.com/d'],
+            ],
+        ]);
+
+        $offers = CrakRevenueCamManager::get_cached_offers();
+        $jerkmate = array_values(array_filter($offers, static fn(array $row): bool => (string) ($row['platform_slug'] ?? '') === 'jerkmate'));
+        $this->assertCount(3, $jerkmate);
+
+        CrakRevenueCamManager::auto_map_best_offers();
+        $map = (array) get_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, []);
+        $this->assertSame(6224, (int) ($map['jerkmate']['selected_offer_id'] ?? 0));
+        $this->assertSame('Jerkmate - Revshare Lifetime', (string) ($map['jerkmate']['selected_offer_name'] ?? ''));
+    }
+
+    public function test_render_shows_best_vs_selected_approval_and_dropdown_rows(): void {
+        update_option(CrakRevenueCamManager::OFFERS_CACHE_OPTION, [
+            'offers' => [
+                ['offer_id' => 6224, 'platform_slug' => 'jerkmate', 'offer_name' => 'Jerkmate - Revshare Lifetime', 'approval_status' => 'approved', 'raw_status' => 'active', 'status' => 'active', 'require_approval' => 0, 'default_payout' => 5, 'payout_type' => 'Revshare Lifetime', 'currency' => 'USD'],
+                ['offer_id' => 8780, 'platform_slug' => 'jerkmate', 'offer_name' => 'Jerkmate - PPS', 'approval_status' => 'approved', 'raw_status' => 'active', 'status' => 'active', 'require_approval' => 0, 'default_payout' => 50, 'payout_type' => 'PPS', 'currency' => 'USD'],
+                ['offer_id' => 8865, 'platform_slug' => 'jerkmate', 'offer_name' => 'Jerkmate - DOI', 'approval_status' => 'needs_approval', 'raw_status' => 'active', 'status' => 'active', 'require_approval' => 1, 'default_payout' => 2, 'payout_type' => 'DOI', 'currency' => 'USD'],
+            ],
+        ]);
+        update_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, ['jerkmate' => CrakRevenueCamManager::default_mapping_row('jerkmate')]);
+
+        ob_start();
+        CrakRevenueCamManager::render_admin_section();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Best offer approval', $html);
+        $this->assertStringContainsString('Selected offer approval', $html);
+        $this->assertStringContainsString('Not selected', $html);
+        $this->assertStringContainsString('n/a', $html);
+        $this->assertStringContainsString('Show all offers (3)', $html);
+    }
+
+    public function test_offer_url_403_is_non_fatal_and_sets_clear_diagnostic(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'abc123']);
+        CrakRevenueCamManager::set_http_getter(static function (string $url): array {
+            if (str_contains($url, 'Target=Affiliate_OfferUrl')) {
+                return ['response' => ['code' => 403], 'headers' => ['content-type' => 'application/json'], 'body' => '{"response":{"status":-1}}'];
+            }
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => '[{"id":2001,"name":"Jerkmate - Revshare Lifetime","status":"active","require_approval":"0"}]',
+            ];
+        });
+
+        $result = CrakRevenueCamManager::sync_offers();
+        $diag = (array) (get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, [])['last_sync_diagnostics'] ?? []);
+        $offers = CrakRevenueCamManager::get_cached_offers();
+
+        $this->assertTrue($result['ok']);
+        $this->assertNotEmpty($offers);
+        $this->assertSame(403, (int) ($diag['offer_url_sync_http_status'] ?? 0));
+        $this->assertStringContainsString('CrakRevenue denied landing-page sync', (string) ($diag['offer_url_sync_error'] ?? ''));
+    }
 }
