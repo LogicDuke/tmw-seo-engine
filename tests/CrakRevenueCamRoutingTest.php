@@ -41,6 +41,10 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $url = CrakRevenueCamManager::build_offers_request_url('abc123');
         $this->assertStringContainsString('Target=Affiliate_Offer', $url);
         $this->assertStringContainsString('Method=findAll', $url);
+        $this->assertStringContainsString('NetworkId=crakrevenue', $url);
+        $this->assertStringContainsString('Format=json', $url);
+        $this->assertStringContainsString('Service=HasOffers', $url);
+        $this->assertStringContainsString('Version=2', $url);
         $this->assertStringContainsString('api_key=abc123', $url);
         $this->assertStringContainsString('fields%5B%5D=id', $url);
         $this->assertStringNotContainsString('fields=id%2Cname', $url);
@@ -52,8 +56,10 @@ class CrakRevenueCamRoutingTest extends TestCase {
      * @return void
      */
     public function test_api_key_sanitized(): void {
-        $san = CrakRevenueCamManager::sanitize_api_settings(['api_key' => " bad<script> "]);
+        $san = CrakRevenueCamManager::sanitize_api_settings(['api_key' => " bad<script> ", 'affiliate_id' => 'abc-123', 'network_id' => '']);
         $this->assertSame('bad', $san['api_key']);
+        $this->assertSame('crakrevenue', $san['network_id']);
+        $this->assertSame('abc-123', $san['affiliate_id']);
     }
 
     /**
@@ -436,6 +442,7 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $request = (array) ($diag['request_summary'] ?? []);
         $this->assertStringNotContainsString('secret', $preview);
         $this->assertSame('[redacted]', (string) ($request['api_key'] ?? ''));
+        $this->assertSame('[redacted]', (string) ($request['AffiliateId'] ?? '[redacted]'));
     }
 
     public function test_response_status_error_sets_api_error_message(): void {
@@ -508,5 +515,77 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $encoded = wp_json_encode($diag);
         $this->assertIsString($encoded);
         $this->assertStringNotContainsString('real-key-123', (string) $encoded);
+    }
+
+    public function test_affiliate_id_never_appears_in_last_sync_diagnostics_or_preview(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'abc123']);
+        CrakRevenueCamManager::set_http_getter(static function (): array {
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => '{"request":{"affiliate_id":"9988","AffiliateId":"9988","NetworkId":"crakrevenue"},"response":{"status":-1,"errors":["denied"]}}',
+            ];
+        });
+        CrakRevenueCamManager::sync_offers();
+        $diag = (array) (get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, [])['last_sync_diagnostics'] ?? []);
+        $encoded = (string) wp_json_encode($diag);
+        $this->assertStringNotContainsString('9988', $encoded);
+        $this->assertStringContainsString('[redacted]', $encoded);
+    }
+
+    public function test_nested_status_and_aliases_normalize_correctly(): void {
+        $rowA = CrakRevenueCamManager::normalize_offer([
+            'Offer' => ['id' => 5170, 'name' => 'Camsoda - Revshare Lifetime', 'status' => 'approved', 'previewUrl' => 'https://preview.test/a'],
+        ]);
+        $rowB = CrakRevenueCamManager::normalize_offer([
+            'Affiliate_Offer' => ['id' => 5170, 'approval_status' => 'Approved'],
+            'Offer' => ['name' => 'Camsoda - Revshare Lifetime', 'trackingLink' => 'https://go.test/?url={encoded_profile_url}'],
+        ]);
+        $rowC = CrakRevenueCamManager::normalize_offer([
+            'id' => 5170,
+            'name' => 'Camsoda - Revshare Lifetime',
+            'require_approval' => true,
+            'offerUrl' => 'https://go.test/?url={encoded_profile_url}',
+            'payout' => 12.5,
+        ]);
+
+        $this->assertSame('approved', (string) ($rowA['approval_status'] ?? ''));
+        $this->assertSame('https://preview.test/a', (string) ($rowA['preview_url'] ?? ''));
+        $this->assertSame('approved', (string) ($rowB['approval_status'] ?? ''));
+        $this->assertSame('https://go.test/?url={encoded_profile_url}', (string) ($rowB['tracking_template'] ?? ''));
+        $this->assertSame('needs_approval', (string) ($rowC['approval_status'] ?? ''));
+        $this->assertSame(12.5, (float) ($rowC['default_payout'] ?? 0.0));
+    }
+
+    public function test_preview_url_is_never_copied_into_tracking_template(): void {
+        $row = CrakRevenueCamManager::normalize_offer([
+            'id' => 5,
+            'name' => 'Camsoda - Revshare Lifetime',
+            'preview_url' => 'https://preview.test/only',
+        ]);
+        $this->assertSame('https://preview.test/only', (string) ($row['preview_url'] ?? ''));
+        $this->assertSame('', (string) ($row['tracking_template'] ?? ''));
+    }
+
+    public function test_enable_defaults_requires_selected_offer_safe_template_and_not_expired(): void {
+        $r = new \ReflectionClass(CrakRevenueCamManager::class);
+        $m = $r->getMethod('mapping_is_eligible_for_frontend');
+        $m->setAccessible(true);
+
+        $badMissingTemplate = $m->invoke(null, [
+            'approval_status' => 'approved',
+            'selected_offer_id' => 88,
+            'selected_offer_is_expired' => 0,
+            'template_url' => '',
+        ]);
+        $good = $m->invoke(null, [
+            'approval_status' => 'approved',
+            'selected_offer_id' => 89,
+            'selected_offer_is_expired' => 0,
+            'template_url' => 'https://go.example.com/?url={encoded_profile_url}',
+        ]);
+
+        $this->assertFalse((bool) $badMissingTemplate);
+        $this->assertTrue((bool) $good);
     }
 }
