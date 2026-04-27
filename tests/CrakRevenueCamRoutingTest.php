@@ -321,10 +321,14 @@ class CrakRevenueCamRoutingTest extends TestCase {
      */
     public function test_template_safety_validation(): void {
         $bad1 = CrakRevenueCamManager::validate_template('https://go.example.com/?performerName=AishaDupont');
+        $bad2 = CrakRevenueCamManager::validate_template('https://go.example.com/?model=JaneDoe');
         $ok1 = CrakRevenueCamManager::validate_template('https://go.example.com/?performerName={username}');
+        $ok2 = CrakRevenueCamManager::validate_template('https://go.example.com/?model={username}');
 
         $this->assertFalse($bad1['safe']);
+        $this->assertFalse($bad2['safe']);
         $this->assertTrue($ok1['safe']);
+        $this->assertTrue($ok2['safe']);
     }
 
     /**
@@ -609,10 +613,15 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertSame('needs_approval', (string) ($rowEnabled['approval_status'] ?? ''));
     }
 
-    public function test_status_active_with_missing_require_approval_is_unknown(): void {
+    public function test_status_active_with_missing_require_approval_is_approved(): void {
         $row = CrakRevenueCamManager::normalize_offer(['id' => 17, 'name' => 'Camsoda - PPS', 'status' => 'active']);
-        $this->assertSame('unknown', (string) ($row['approval_status'] ?? ''));
+        $this->assertSame('approved', (string) ($row['approval_status'] ?? ''));
         $this->assertSame('active', (string) ($row['raw_status'] ?? ''));
+    }
+
+    public function test_status_active_with_empty_require_approval_is_approved(): void {
+        $row = CrakRevenueCamManager::normalize_offer(['id' => 170, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => '']);
+        $this->assertSame('approved', (string) ($row['approval_status'] ?? ''));
     }
 
     public function test_approval_counts_include_require_approval_based_statuses(): void {
@@ -641,9 +650,58 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $needs = count(array_filter($offers, static fn(array $row): bool => (string) ($row['approval_status'] ?? '') === 'needs_approval'));
         $unknown = count(array_filter($offers, static fn(array $row): bool => (string) ($row['approval_status'] ?? '') === 'unknown'));
 
-        $this->assertSame(1, $approved);
+        $this->assertSame(2, $approved);
         $this->assertSame(1, $needs);
-        $this->assertSame(1, $unknown);
+        $this->assertSame(0, $unknown);
+    }
+
+    public function test_auto_map_populates_selected_offer_id_and_name_for_approved_offers(): void {
+        update_option(CrakRevenueCamManager::OFFERS_CACHE_OPTION, [
+            'offers' => [
+                ['offer_id' => 22, 'platform_slug' => 'stripchat', 'offer_name' => 'Stripchat - PPS', 'approval_status' => 'needs_approval', 'is_expired' => 0],
+                ['offer_id' => 23, 'platform_slug' => 'stripchat', 'offer_name' => 'Stripchat - Revshare', 'approval_status' => 'approved', 'is_expired' => 0],
+            ],
+        ]);
+
+        CrakRevenueCamManager::auto_map_best_offers();
+        $map = (array) get_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, []);
+        $this->assertSame(23, (int) ($map['stripchat']['selected_offer_id'] ?? 0));
+        $this->assertSame('Stripchat - Revshare', (string) ($map['stripchat']['selected_offer_name'] ?? ''));
+    }
+
+    public function test_supported_platforms_detected_counts_unique_platform_slug_values(): void {
+        update_option(CrakRevenueCamManager::API_SETTINGS_OPTION, ['api_key' => 'abc123']);
+        CrakRevenueCamManager::set_http_getter(static function (string $url): array {
+            if (str_contains($url, 'Target=Affiliate_OfferUrl')) {
+                return ['response' => ['code' => 404], 'headers' => ['content-type' => 'application/json'], 'body' => '{}'];
+            }
+            return [
+                'response' => ['code' => 200],
+                'headers' => ['content-type' => 'application/json'],
+                'body' => wp_json_encode([
+                    'response' => [
+                        'data' => [
+                            ['id' => 24, 'name' => 'Camsoda - PPS', 'status' => 'active'],
+                            ['id' => 25, 'name' => 'Camsoda - Revshare', 'status' => 'active'],
+                            ['id' => 26, 'name' => 'Stripchat - Revshare', 'status' => 'active'],
+                        ],
+                    ],
+                ]),
+            ];
+        });
+
+        CrakRevenueCamManager::sync_offers();
+        $diag = (array) (get_option(CrakRevenueCamManager::API_SETTINGS_OPTION, [])['last_sync_diagnostics'] ?? []);
+        $this->assertSame(2, (int) ($diag['supported_platforms_detected'] ?? 0));
+    }
+
+    public function test_manual_template_save_persists_template_url(): void {
+        $saved = CrakRevenueCamManager::save_mapping_templates(
+            ['camsoda' => ['platform_slug' => 'camsoda', 'template_url' => '']],
+            ['camsoda' => ['template_url' => 'https://go.example.com/?model={username}']],
+            'camsoda'
+        );
+        $this->assertSame('https://go.example.com/?model={username}', (string) ($saved['camsoda']['template_url'] ?? ''));
     }
 
     public function test_epc_not_expected_from_affiliate_offer_and_preview_not_template(): void {

@@ -262,7 +262,7 @@ class CrakRevenueCamManager {
                 'payload_shape' => $payload_shape,
                 'raw_offer_count' => count( $offers ),
                 'cam_offer_count' => count( $normalized ),
-                'supported_platforms_detected' => count( array_unique( array_values( array_filter( array_map( static fn( $row ): string => sanitize_key( (string) ( $row['platform_slug'] ?? '' ) ), $normalized ) ) ) ) ),
+                'supported_platforms_detected' => self::count_supported_platforms_detected( $normalized ),
                 'response_preview' => self::sanitize_response_preview( $body ),
                 'request_url' => self::redact_api_key_from_text( $url ),
                 'offer_url_sync_ran' => $sync_meta['ran'],
@@ -490,19 +490,25 @@ class CrakRevenueCamManager {
         $requires_approval_raw = self::first_alias_value( $offer, [ 'require_approval', 'requires_approval' ] );
         $requires_approval = self::to_bool( $requires_approval_raw );
         $has_require_approval = $requires_approval_raw !== '' && $requires_approval_raw !== null;
-        $status_is_active_or_empty = $status === '' || str_contains( $status, 'active' );
+        $status_is_active = $status === 'active';
 
         if ( $approved_flag ) {
             return 'approved';
         }
-        if ( str_contains( $approval, 'approv' ) || str_contains( $status, 'approv' ) ) {
+        if ( str_contains( $approval, 'approv' ) ) {
             return 'approved';
         }
-        if ( $has_require_approval && ! $requires_approval && $status_is_active_or_empty ) {
+        if ( str_contains( $status, 'approv' ) ) {
+            return 'approved';
+        }
+        if ( $status_is_active && ! $has_require_approval ) {
             return 'approved';
         }
         if ( $has_require_approval && $requires_approval ) {
             return 'needs_approval';
+        }
+        if ( $status_is_active && ! $requires_approval ) {
+            return 'approved';
         }
         if ( str_contains( $status, 'pending' ) || str_contains( $status, 'required' ) || str_contains( $status, 'request' ) ) {
             return 'needs_approval';
@@ -580,7 +586,7 @@ class CrakRevenueCamManager {
      * @param bool $reset_manual Reset manual selections.
      * @return void
      */
-    public static function auto_map_best_offers( bool $reset_manual = false ): void {
+    public static function auto_map_best_offers( bool $reset_manual = false ): array {
         $offers = self::get_cached_offers();
         $current = get_option( self::PLATFORM_MAPPINGS_OPTION, [] );
         $current = is_array( $current ) ? $current : [];
@@ -590,14 +596,42 @@ class CrakRevenueCamManager {
             if ( $slug === '' ) { continue; }
             $grouped[ $slug ][] = $offer;
         }
+        $diagnostics = [
+            'auto_mapped_platforms' => 0,
+            'skipped_platforms' => 0,
+            'skip_reasons' => [
+                'no_offers' => 0,
+                'no_approved_offer' => 0,
+                'already_manually_selected' => 0,
+                'missing_tracking_template' => 0,
+            ],
+        ];
 
-        foreach ( $grouped as $slug => $rows ) {
+        foreach ( self::supported_platform_slugs() as $slug ) {
+            $rows = is_array( $grouped[ $slug ] ?? null ) ? $grouped[ $slug ] : [];
+            if ( $rows === [] ) {
+                $diagnostics['skipped_platforms']++;
+                $diagnostics['skip_reasons']['no_offers']++;
+                continue;
+            }
             if ( ! $reset_manual && ! empty( $current[ $slug ]['selected_offer_id'] ) ) {
+                $diagnostics['skipped_platforms']++;
+                $diagnostics['skip_reasons']['already_manually_selected']++;
+                continue;
+            }
+            $rows = array_values( array_filter( $rows, static fn( array $row ): bool => (string) ( $row['approval_status'] ?? '' ) === 'approved' ) );
+            if ( $rows === [] ) {
+                $diagnostics['skipped_platforms']++;
+                $diagnostics['skip_reasons']['no_approved_offer']++;
                 continue;
             }
             usort( $rows, [ __CLASS__, 'compare_offer_rank' ] );
             $pick = $rows[0] ?? [];
             if ( empty( $pick ) ) { continue; }
+            $template = (string) ( $pick['tracking_template'] ?? '' );
+            if ( $template === '' ) {
+                $diagnostics['skip_reasons']['missing_tracking_template']++;
+            }
             $current[ $slug ] = array_merge( self::default_mapping_row( $slug ), [
                 'selected_offer_id' => (int) ( $pick['offer_id'] ?? 0 ),
                 'selected_offer_name' => (string) ( $pick['offer_name'] ?? '' ),
@@ -606,12 +640,14 @@ class CrakRevenueCamManager {
                 'raw_status' => (string) ( $pick['raw_status'] ?? $pick['status'] ?? '' ),
                 'selected_offer_is_expired' => ! empty( $pick['is_expired'] ) ? 1 : 0,
                 'enabled' => 0,
-                'template_url' => (string) ( $pick['tracking_template'] ?? '' ),
+                'template_url' => $template,
                 'last_updated' => gmdate( 'c' ),
             ] );
+            $diagnostics['auto_mapped_platforms']++;
         }
 
         update_option( self::PLATFORM_MAPPINGS_OPTION, $current );
+        return $diagnostics;
     }
 
     /**
@@ -837,6 +873,11 @@ class CrakRevenueCamManager {
         echo '<li>Raw offer count: ' . esc_html( (string) ( $diag['raw_offer_count'] ?? 0 ) ) . '</li>';
         echo '<li>Cam offer count: ' . esc_html( (string) ( $diag['cam_offer_count'] ?? 0 ) ) . '</li>';
         echo '<li>Supported platforms detected: ' . esc_html( (string) ( $diag['supported_platforms_detected'] ?? 0 ) ) . '</li>';
+        echo '<li>Auto-mapped platforms count: ' . esc_html( (string) ( $diag['auto_mapped_platforms'] ?? 0 ) ) . '</li>';
+        echo '<li>Skipped platforms count: ' . esc_html( (string) ( $diag['skipped_platforms'] ?? 0 ) ) . '</li>';
+        if ( ! empty( $diag['skip_reasons'] ) && is_array( $diag['skip_reasons'] ) ) {
+            echo '<li>Auto-map skip reasons: no offers=' . esc_html( (string) ( $diag['skip_reasons']['no_offers'] ?? 0 ) ) . ', no approved offer=' . esc_html( (string) ( $diag['skip_reasons']['no_approved_offer'] ?? 0 ) ) . ', already manually selected=' . esc_html( (string) ( $diag['skip_reasons']['already_manually_selected'] ?? 0 ) ) . ', missing tracking template=' . esc_html( (string) ( $diag['skip_reasons']['missing_tracking_template'] ?? 0 ) ) . '</li>';
+        }
         if ( ! empty( $diag['first_offer_names'] ) && is_array( $diag['first_offer_names'] ) ) {
             echo '<li>First raw offer names (up to 10): ' . esc_html( implode( ', ', $diag['first_offer_names'] ) ) . '</li>';
         }
@@ -895,9 +936,13 @@ class CrakRevenueCamManager {
         echo '<button class="button" name="quick_action" value="enable_defaults">Enable all approved cam platform defaults</button>';
         echo '<button class="button" name="quick_action" value="disable_all">Disable all CrakRevenue cam routing</button>';
         echo '</form>';
+        echo '<p class="description">Supported placeholders: {username}, {encoded_username}, {profile_url}, {encoded_profile_url}, {platform}, {offer_id}, {campaign}, {source}, {subaffid}.</p>';
 
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:8px;">';
+        wp_nonce_field( 'tmwseo_cr_quick_actions' );
+        echo '<input type="hidden" name="action" value="tmwseo_cr_quick_action" />';
         echo '<h3 style="margin-top:16px;">Platform summary</h3>';
-        echo '<table class="widefat striped"><thead><tr><th>Platform</th><th>Best approved offer</th><th>Selected offer</th><th>Offer ID</th><th>Raw status</th><th>Require approval (raw)</th><th>Normalized approval</th><th>Payout type</th><th>Payout</th><th>Currency</th><th>Preview URL</th><th>Allow website links</th><th>Allow direct links</th><th>EPC</th><th>Tracking template status</th><th>Offer URL sync</th><th>Routing status</th><th>Template safety</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr><th>Platform</th><th>Best approved offer</th><th>Selected offer</th><th>Offer ID</th><th>Raw status</th><th>Require approval (raw)</th><th>Normalized approval</th><th>Payout type</th><th>Payout</th><th>Currency</th><th>Preview URL</th><th>Allow website links</th><th>Allow direct links</th><th>EPC</th><th>Tracking template URL</th><th>Tracking template status</th><th>Offer URL sync</th><th>Routing status</th><th>Template safety</th><th>Save</th></tr></thead><tbody>';
         foreach ( self::supported_platform_slugs() as $slug ) {
             $rows = array_values( array_filter( $offers, static fn( $row ) => (string) ( $row['platform_slug'] ?? '' ) === $slug ) );
             usort( $rows, [ __CLASS__, 'compare_offer_rank' ] );
@@ -907,7 +952,7 @@ class CrakRevenueCamManager {
             if ( $filter === 'needs_approval' && (string) ( $map['approval_status'] ?? '' ) !== 'needs_approval' ) { continue; }
             if ( $filter === 'selected_defaults' && (int) ( $map['selected_offer_id'] ?? 0 ) <= 0 ) { continue; }
             $template_check = self::validate_template( (string) ( $map['template_url'] ?? '' ) );
-            $tracking_status = (string) ( $map['template_url'] ?? '' ) === '' ? 'Tracking template missing — manual template required' : 'Template set';
+            $tracking_status = (string) ( $map['template_url'] ?? '' ) === '' ? 'Tracking template missing — manual template required.' : 'Template set';
             echo '<tr>';
             echo '<td><strong>' . esc_html( $slug ) . '</strong></td>';
             echo '<td>' . esc_html( (string) ( $best['offer_name'] ?? '—' ) ) . '</td>';
@@ -928,13 +973,21 @@ class CrakRevenueCamManager {
                 $epc_display = (string) ( $best['epc_note'] ?? 'EPC from stats/manual only' );
             }
             echo '<td>' . esc_html( $epc_display ) . '</td>';
+            echo '<td><input type="url" class="regular-text" name="mappings[' . esc_attr( $slug ) . '][template_url]" value="' . esc_attr( (string) ( $map['template_url'] ?? '' ) ) . '" placeholder="https://...{username}" /></td>';
             echo '<td>' . esc_html( $tracking_status ) . '</td>';
             echo '<td>' . esc_html( (string) ( $diag['offer_url_sync_method'] ?? 'n/a' ) ) . ' / ' . esc_html( (string) ( $diag['offer_url_sync_http_status'] ?? 'n/a' ) ) . '</td>';
-            echo '<td>' . ( ! empty( $map['enabled'] ) ? 'Enabled' : 'Disabled' ) . '</td>';
-            echo '<td>' . ( $template_check['safe'] ? 'Safe to route' : 'Not safe to route' ) . '</td>';
+            $routing_status = ! empty( $map['enabled'] ) ? 'Enabled' : 'Disabled';
+            if ( (string) ( $map['approval_status'] ?? '' ) === 'approved' && (string) ( $map['template_url'] ?? '' ) === '' ) {
+                $routing_status = 'Approved offer selected, but manual tracking template required.';
+            }
+            echo '<td>' . esc_html( $routing_status ) . '</td>';
+            echo '<td>' . ( $template_check['safe'] ? 'Safe to route.' : 'Not safe to route' ) . '</td>';
+            echo '<td><button class="button button-small" name="quick_action" value="save_mapping_' . esc_attr( $slug ) . '">Save platform mapping</button></td>';
             echo '</tr>';
         }
         echo '</tbody></table>';
+        echo '<p style="margin-top:10px;"><button class="button button-primary" name="quick_action" value="save_mappings_all">Save all mappings</button></p>';
+        echo '</form>';
     }
 
     /**
@@ -965,12 +1018,30 @@ class CrakRevenueCamManager {
         $action = sanitize_key( (string) ( $_POST['quick_action'] ?? '' ) );
         $mappings = get_option( self::PLATFORM_MAPPINGS_OPTION, [] );
         $mappings = is_array( $mappings ) ? $mappings : [];
-        if ( $action === 'auto_map' ) {
-            self::auto_map_best_offers( false );
+        if ( str_starts_with( $action, 'save_mapping_' ) ) {
+            $incoming = is_array( $_POST['mappings'] ?? null ) ? $_POST['mappings'] : [];
+            $slug = sanitize_key( substr( $action, strlen( 'save_mapping_' ) ) );
+            $mappings = self::save_mapping_templates( $mappings, $incoming, $slug );
+            update_option( self::PLATFORM_MAPPINGS_OPTION, $mappings );
+        } elseif ( $action === 'auto_map' ) {
+            $auto_diag = self::auto_map_best_offers( false );
+            $settings = get_option( self::API_SETTINGS_OPTION, [] );
+            $settings = is_array( $settings ) ? $settings : [];
+            $settings['last_sync_diagnostics'] = array_merge(
+                is_array( $settings['last_sync_diagnostics'] ?? null ) ? $settings['last_sync_diagnostics'] : [],
+                $auto_diag
+            );
+            update_option( self::API_SETTINGS_OPTION, self::sanitize_api_settings( $settings ) );
+        } elseif ( $action === 'save_mappings_all' ) {
+            $incoming = is_array( $_POST['mappings'] ?? null ) ? $_POST['mappings'] : [];
+            $mappings = self::save_mapping_templates( $mappings, $incoming, '' );
+            update_option( self::PLATFORM_MAPPINGS_OPTION, $mappings );
         } elseif ( $action === 'enable_defaults' ) {
             foreach ( $mappings as $slug => $map ) {
                 if ( self::mapping_is_eligible_for_frontend( is_array( $map ) ? $map : [] ) ) {
                     $mappings[ $slug ]['enabled'] = 1;
+                } else {
+                    $mappings[ $slug ]['enabled'] = 0;
                 }
             }
             update_option( self::PLATFORM_MAPPINGS_OPTION, $mappings );
@@ -1025,6 +1096,46 @@ class CrakRevenueCamManager {
         }
         $template_check = self::validate_template( (string) ( $map['template_url'] ?? '' ) );
         return $template_check['safe'];
+    }
+
+    /**
+     * Count unique normalized platform slugs.
+     *
+     * @param array<int,array<string,mixed>> $offers Normalized offers.
+     * @return int
+     */
+    private static function count_supported_platforms_detected( array $offers ): int {
+        $slugs = [];
+        foreach ( $offers as $offer ) {
+            $slug = sanitize_key( (string) ( $offer['platform_slug'] ?? '' ) );
+            if ( $slug !== '' ) {
+                $slugs[ $slug ] = true;
+            }
+        }
+        return count( $slugs );
+    }
+
+    /**
+     * Save template URL values from admin form.
+     *
+     * @param array<string,mixed> $mappings Existing mappings.
+     * @param array<string,mixed> $incoming Incoming row values.
+     * @param string $only_slug Optional single slug to persist.
+     * @return array<string,mixed>
+     */
+    public static function save_mapping_templates( array $mappings, array $incoming, string $only_slug = '' ): array {
+        foreach ( $incoming as $slug => $row ) {
+            $slug = sanitize_key( (string) $slug );
+            if ( $slug === '' || ( $only_slug !== '' && $only_slug !== $slug ) ) {
+                continue;
+            }
+            $template = esc_url_raw( (string) ( is_array( $row ) ? ( $row['template_url'] ?? '' ) : '' ) );
+            $mapping = is_array( $mappings[ $slug ] ?? null ) ? $mappings[ $slug ] : self::default_mapping_row( $slug );
+            $mapping['template_url'] = $template;
+            $mapping['last_updated'] = gmdate( 'c' );
+            $mappings[ $slug ] = $mapping;
+        }
+        return $mappings;
     }
 
     /**
