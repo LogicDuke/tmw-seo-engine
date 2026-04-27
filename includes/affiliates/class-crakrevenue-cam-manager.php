@@ -13,6 +13,19 @@ class CrakRevenueCamManager {
     public const OFFERS_CACHE_OPTION = 'tmwseo_crakrevenue_offers_cache';
     public const PLATFORM_MAPPINGS_OPTION = 'tmwseo_crakrevenue_platform_mappings';
 
+    /** @var callable|null */
+    private static $http_getter = null;
+
+    /**
+     * Set test HTTP getter override.
+     *
+     * @param callable|null $getter Getter callback.
+     * @return void
+     */
+    public static function set_http_getter( $getter ): void {
+        self::$http_getter = is_callable( $getter ) ? $getter : null;
+    }
+
     /**
      * Return supported platform slugs.
      *
@@ -31,19 +44,19 @@ class CrakRevenueCamManager {
      */
     public static function platform_alias_map(): array {
         return [
-            'camsoda' => ['camsoda'],
-            'livejasmin' => ['live jasmin', 'livejasmin'],
-            'bongacams' => ['bongacams', 'bonga cams'],
-            'cam4' => ['cam4'],
-            'cams_com' => ['cams.com', 'cams com'],
             'royal_cams_gay' => ['royal cams gay'],
             'exposed_webcams_live_free_fun' => ['exposed webcams', 'live free fun'],
             'sexymeet_tv' => ['sexymeet.tv', 'sexymeet tv'],
+            'livejasmin' => ['live jasmin', 'livejasmin'],
+            'cams_com' => ['cams.com', 'cams com'],
+            'camsoda' => ['camsoda'],
             'visitx' => ['visit x', 'visitx'],
             'sinparty' => ['sinparty', 'sin party'],
             'myfreecams' => ['myfreecams', 'my free cams'],
             'stripchat' => ['stripchat'],
             'chaturbate' => ['chaturbate'],
+            'bongacams' => ['bongacams', 'bonga cams'],
+            'cam4' => ['cam4'],
             'jerkmate' => ['jerkmate'],
             'xtease' => ['xtease'],
             'olecams' => ['olecams'],
@@ -80,11 +93,13 @@ class CrakRevenueCamManager {
      */
     public static function sanitize_api_settings( $input ): array {
         $input = is_array( $input ) ? $input : [];
+        $diag = is_array( $input['last_sync_diagnostics'] ?? null ) ? $input['last_sync_diagnostics'] : [];
         return [
             'api_key' => sanitize_text_field( (string) ( $input['api_key'] ?? '' ) ),
             'last_sync_at' => sanitize_text_field( (string) ( $input['last_sync_at'] ?? '' ) ),
             'last_sync_status' => sanitize_text_field( (string) ( $input['last_sync_status'] ?? '' ) ),
             'last_sync_message' => sanitize_text_field( (string) ( $input['last_sync_message'] ?? '' ) ),
+            'last_sync_diagnostics' => $diag,
         ];
     }
 
@@ -92,9 +107,10 @@ class CrakRevenueCamManager {
      * Build CrakRevenue findAll URL.
      *
      * @param string $api_key API key.
+     * @param string $endpoint Base endpoint.
      * @return string
      */
-    public static function build_offers_request_url( string $api_key ): string {
+    public static function build_offers_request_url( string $api_key, string $endpoint = 'https://gateway.crakrevenue.com/affiliate' ): string {
         $pairs = [
             'Target=' . rawurlencode( 'Affiliate_Offer' ),
             'Method=' . rawurlencode( 'findAll' ),
@@ -105,7 +121,17 @@ class CrakRevenueCamManager {
             $pairs[] = 'fields[]=' . rawurlencode( $field );
         }
 
-        return 'http://gateway.crakrevenue.com/affiliate?' . implode( '&', $pairs );
+        return $endpoint . '?' . implode( '&', $pairs );
+    }
+
+    /**
+     * Redact API key from text.
+     *
+     * @param string $text Input text.
+     * @return string
+     */
+    public static function redact_api_key_from_text( string $text ): string {
+        return (string) preg_replace( '/api_key=[^&\s]*/i', 'api_key=[redacted]', $text );
     }
 
     /**
@@ -115,7 +141,7 @@ class CrakRevenueCamManager {
      */
     public static function offers_request_fields(): array {
         return [
-            'id','name','status','preview_url','require_approval','require_terms_and_conditions','show_custom_variables','allow_website_links','allow_direct_links','payout_type','default_payout','percent_payout','currency','description','is_expired','expiration_date','terms_and_conditions','use_target_rules','featured','has_goals_enabled','conversion_cap','monthly_conversion_cap','payout_cap','monthly_payout_cap','epc',
+            'id','name','status','preview_url','require_approval','require_terms_and_conditions','show_custom_variables','allow_website_links','allow_direct_links','payout_type','default_payout','percent_payout','currency','description','is_expired','expiration_date','terms_and_conditions','use_target_rules','featured','has_goals_enabled','conversion_cap','monthly_conversion_cap','payout_cap','monthly_payout_cap',
         ];
     }
 
@@ -129,38 +155,145 @@ class CrakRevenueCamManager {
         $settings = is_array( $settings ) ? $settings : [];
         $api_key = sanitize_text_field( (string) ( $settings['api_key'] ?? '' ) );
         if ( $api_key === '' ) {
-            return self::mark_sync( false, 'Missing API key.', [] );
+            return self::mark_sync( false, 'Missing API key.', [], [ 'endpoint_used' => '', 'malformed' => false ] );
         }
 
-        $response = wp_remote_get( self::build_offers_request_url( $api_key ), [ 'timeout' => 20 ] );
-        if ( is_wp_error( $response ) ) {
-            return self::mark_sync( false, 'HTTP failure: ' . $response->get_error_message(), [] );
+        $endpoints = [ 'https://gateway.crakrevenue.com/affiliate', 'http://gateway.crakrevenue.com/affiliate' ];
+        $last_error = 'Unknown API error.';
+
+        foreach ( $endpoints as $endpoint ) {
+            $url = self::build_offers_request_url( $api_key, $endpoint );
+            $response = self::http_get( $url, [ 'timeout' => 20 ] );
+            if ( is_wp_error( $response ) ) {
+                $last_error = 'HTTP failure: ' . $response->get_error_message();
+                continue;
+            }
+
+            $status = (int) wp_remote_retrieve_response_code( $response );
+            $body = (string) wp_remote_retrieve_body( $response );
+            $content_type = (string) wp_remote_retrieve_header( $response, 'content-type' );
+
+            if ( $status !== 200 ) {
+                $last_error = 'HTTP status ' . $status . ' from API.';
+                return self::mark_sync( false, $last_error, [], [
+                    'endpoint_used' => $endpoint,
+                    'http_status_code' => $status,
+                    'response_content_type' => $content_type,
+                    'response_preview' => self::sanitize_response_preview( $body ),
+                    'request_url' => self::redact_api_key_from_text( $url ),
+                ] );
+            }
+
+            if ( trim( $body ) === '' ) {
+                return self::mark_sync( false, 'Empty response from API.', [], [
+                    'endpoint_used' => $endpoint,
+                    'http_status_code' => $status,
+                    'response_content_type' => $content_type,
+                ] );
+            }
+
+            $parsed = self::parse_offers_payload_with_diagnostics( $body );
+            $offers = $parsed['offers'];
+            $payload_shape = $parsed['payload_shape'];
+            if ( empty( $offers ) ) {
+                return self::mark_sync( false, 'No offers found in response.', [], [
+                    'endpoint_used' => $endpoint,
+                    'http_status_code' => $status,
+                    'response_content_type' => $content_type,
+                    'payload_shape' => $payload_shape,
+                    'malformed' => (bool) $parsed['malformed'],
+                    'response_preview' => self::sanitize_response_preview( $body ),
+                ] );
+            }
+
+            $normalized = [];
+            $raw_names = [];
+            foreach ( $offers as $offer ) {
+                $raw_names[] = sanitize_text_field( (string) ( $offer['name'] ?? '' ) );
+                $row = self::normalize_offer( $offer );
+                if ( $row !== [] ) {
+                    $normalized[] = $row;
+                }
+            }
+
+            update_option( self::OFFERS_CACHE_OPTION, [
+                'imported_at' => gmdate( 'c' ),
+                'offers' => $normalized,
+            ] );
+
+            $diag = [
+                'endpoint_used' => $endpoint,
+                'http_status_code' => $status,
+                'response_content_type' => $content_type,
+                'payload_shape' => $payload_shape,
+                'raw_offer_count' => count( $offers ),
+                'cam_offer_count' => count( $normalized ),
+                'response_preview' => self::sanitize_response_preview( $body ),
+                'request_url' => self::redact_api_key_from_text( $url ),
+            ];
+            if ( count( $offers ) > 0 && count( $normalized ) === 0 ) {
+                $diag['first_offer_names'] = array_slice( array_values( array_filter( $raw_names ) ), 0, 10 );
+            }
+
+            return self::mark_sync( true, 'Offers synced.', $normalized, $diag );
         }
 
-        $body = (string) wp_remote_retrieve_body( $response );
-        if ( trim( $body ) === '' ) {
-            return self::mark_sync( false, 'Empty response from API.', [] );
+        return self::mark_sync( false, $last_error, [], [ 'endpoint_used' => '' ] );
+    }
+
+    /**
+     * Parse offers payload with diagnostics.
+     *
+     * @param string $body Response body.
+     * @return array{offers:array<int,array<string,mixed>>,payload_shape:string,malformed:bool}
+     */
+    public static function parse_offers_payload_with_diagnostics( string $body ): array {
+        $json = json_decode( $body, true );
+        if ( is_array( $json ) ) {
+            $json_shape = [
+                'response.data' => $json['response']['data'] ?? null,
+                'data' => $json['data'] ?? null,
+                'offers' => $json['offers'] ?? null,
+                'offer' => $json['offer'] ?? null,
+                'Affiliate_Offer' => $json['Affiliate_Offer'] ?? null,
+                'response.offers' => $json['response']['offers'] ?? null,
+                'response.offer' => $json['response']['offer'] ?? null,
+                'response.Affiliate_Offer' => $json['response']['Affiliate_Offer'] ?? null,
+            ];
+            foreach ( $json_shape as $shape => $candidate ) {
+                $rows = self::coerce_offer_rows( $candidate );
+                if ( $rows !== [] ) {
+                    return [ 'offers' => $rows, 'payload_shape' => $shape, 'malformed' => false ];
+                }
+            }
+            if ( isset( $json[0] ) && is_array( $json[0] ) ) {
+                return [ 'offers' => array_values( $json ), 'payload_shape' => 'top_level_array', 'malformed' => false ];
+            }
+            return [ 'offers' => [], 'payload_shape' => 'unknown', 'malformed' => false ];
         }
 
-        $offers = self::parse_offers_payload( $body );
-        if ( empty( $offers ) ) {
-            return self::mark_sync( false, 'No offers found in response.', [] );
-        }
-
-        $normalized = [];
-        foreach ( $offers as $offer ) {
-            $row = self::normalize_offer( $offer );
-            if ( $row !== [] ) {
-                $normalized[] = $row;
+        if ( str_starts_with( ltrim( $body ), '<' ) && function_exists( 'simplexml_load_string' ) ) {
+            $xml = simplexml_load_string( $body );
+            if ( $xml instanceof \SimpleXMLElement ) {
+                $encoded = json_encode( $xml );
+                $arr = is_string( $encoded ) ? json_decode( $encoded, true ) : [];
+                $xml_shape = [
+                    'response.data.offer' => $arr['response']['data']['offer'] ?? null,
+                    'data.offer' => $arr['data']['offer'] ?? null,
+                    'offers.offer' => $arr['offers']['offer'] ?? null,
+                    'offer' => $arr['offer'] ?? null,
+                    'Affiliate_Offer' => $arr['Affiliate_Offer'] ?? null,
+                ];
+                foreach ( $xml_shape as $shape => $candidate ) {
+                    $rows = self::coerce_offer_rows( $candidate );
+                    if ( $rows !== [] ) {
+                        return [ 'offers' => $rows, 'payload_shape' => $shape, 'malformed' => false ];
+                    }
+                }
             }
         }
 
-        update_option( self::OFFERS_CACHE_OPTION, [
-            'imported_at' => gmdate( 'c' ),
-            'offers' => $normalized,
-        ] );
-
-        return self::mark_sync( true, 'Offers synced.', $normalized );
+        return [ 'offers' => [], 'payload_shape' => 'unknown', 'malformed' => true ];
     }
 
     /**
@@ -170,29 +303,34 @@ class CrakRevenueCamManager {
      * @return array<int,array<string,mixed>>
      */
     public static function parse_offers_payload( string $body ): array {
-        $json = json_decode( $body, true );
-        if ( is_array( $json ) ) {
-            if ( isset( $json['response']['data'] ) && is_array( $json['response']['data'] ) ) {
-                return array_values( $json['response']['data'] );
-            }
-            if ( isset( $json['data'] ) && is_array( $json['data'] ) ) {
-                return array_values( $json['data'] );
-            }
-            if ( isset( $json[0] ) ) {
-                return $json;
+        $parsed = self::parse_offers_payload_with_diagnostics( $body );
+        return $parsed['offers'];
+    }
+
+    /**
+     * Normalize row array from known wrappers.
+     *
+     * @param mixed $candidate Potential offers payload.
+     * @return array<int,array<string,mixed>>
+     */
+    private static function coerce_offer_rows( $candidate ): array {
+        if ( ! is_array( $candidate ) ) {
+            return [];
+        }
+
+        if ( isset( $candidate['Offer'] ) || isset( $candidate['AffiliateOffer'] ) || isset( $candidate['Affiliate_Offer'] ) ) {
+            $candidate = $candidate['Offer'] ?? $candidate['AffiliateOffer'] ?? $candidate['Affiliate_Offer'];
+            if ( ! is_array( $candidate ) ) {
+                return [];
             }
         }
 
-        if ( str_contains( ltrim( $body ), '<' ) && function_exists( 'simplexml_load_string' ) ) {
-            $xml = simplexml_load_string( $body );
-            if ( $xml instanceof \SimpleXMLElement ) {
-                $encoded = json_encode( $xml );
-                $arr = is_string( $encoded ) ? json_decode( $encoded, true ) : [];
-                if ( is_array( $arr ) && isset( $arr['data']['offer'] ) ) {
-                    $offers = $arr['data']['offer'];
-                    return isset( $offers[0] ) ? $offers : [ $offers ];
-                }
-            }
+        if ( isset( $candidate[0] ) && is_array( $candidate[0] ) ) {
+            return array_values( array_filter( $candidate, 'is_array' ) );
+        }
+
+        if ( isset( $candidate['id'] ) || isset( $candidate['name'] ) ) {
+            return [ $candidate ];
         }
 
         return [];
@@ -222,6 +360,7 @@ class CrakRevenueCamManager {
             'platform_slug' => $platform_slug,
             'platform_label' => ucwords( str_replace( '_', ' ', $platform_slug ) ),
             'status' => sanitize_text_field( (string) ( $offer['status'] ?? '' ) ),
+            'approval_status' => self::approval_status( $offer ),
             'require_approval' => ! empty( $offer['require_approval'] ),
             'is_expired' => ! empty( $offer['is_expired'] ),
             'expiration_date' => sanitize_text_field( (string) ( $offer['expiration_date'] ?? '' ) ),
@@ -234,9 +373,8 @@ class CrakRevenueCamManager {
             'percent_payout' => (float) ( $offer['percent_payout'] ?? 0 ),
             'currency' => sanitize_text_field( (string) ( $offer['currency'] ?? '' ) ),
             'description' => sanitize_text_field( (string) ( $offer['description'] ?? '' ) ),
-            'epc' => isset( $offer['epc'] ) ? (float) $offer['epc'] : 0.0,
+            'epc' => isset( $offer['epc'] ) && $offer['epc'] !== '' ? (float) $offer['epc'] : null,
             'tracking_template' => self::resolve_tracking_template( $offer ),
-            'approval_status' => self::approval_status( $offer ),
             'imported_at' => gmdate( 'c' ),
             'raw' => $offer,
         ];
@@ -275,13 +413,13 @@ class CrakRevenueCamManager {
     }
 
     /**
-     * Resolve best-guess tracking template from API payload.
+     * Resolve tracking template from API payload.
      *
      * @param array<string,mixed> $offer Raw offer payload.
      * @return string
      */
     public static function resolve_tracking_template( array $offer ): string {
-        foreach ( [ 'tracking_template', 'tracking_url', 'tracking_link', 'url_template', 'offer_url' ] as $key ) {
+        foreach ( [ 'tracking_template', 'tracking_url', 'tracking_link', 'url_template', 'offer_url', 'trackingLink', 'trackingUrl' ] as $key ) {
             $value = esc_url_raw( (string) ( $offer[ $key ] ?? '' ) );
             if ( $value !== '' ) {
                 return $value;
@@ -372,7 +510,9 @@ class CrakRevenueCamManager {
         elseif ( str_contains( $name, 'multi-cpa' ) || str_contains( $name, 'multi cpa' ) ) { $score += 200; }
         elseif ( str_contains( $name, 'doi' ) || str_contains( $name, 'soi' ) ) { $score += 100; }
         if ( (string) ( $offer['platform_slug'] ?? '' ) === 'cam_smartlink' ) { $score -= 250; }
-        $score += (float) ( $offer['epc'] ?? 0 ) * 10;
+        if ( isset( $offer['epc'] ) && $offer['epc'] !== null && $offer['epc'] !== '' ) {
+            $score += (float) $offer['epc'] * 10;
+        }
         $score += (float) ( $offer['default_payout'] ?? 0 );
         return $score;
     }
@@ -435,6 +575,16 @@ class CrakRevenueCamManager {
         $url = esc_url_raw( (string) ( $link['url'] ?? '' ) );
         $type = sanitize_key( (string) ( $link['type'] ?? '' ) );
         if ( $url === '' || $type === '' ) {
+            return $url;
+        }
+        if ( isset( $link['is_active'] ) && empty( $link['is_active'] ) ) {
+            return $url;
+        }
+        $activity = sanitize_key( (string) ( $link['activity_level'] ?? '' ) );
+        if ( $activity !== '' && ! in_array( $activity, [ 'active', 'very_active' ], true ) ) {
+            return $url;
+        }
+        if ( ! in_array( $type, self::supported_platform_slugs(), true ) ) {
             return $url;
         }
 
@@ -502,6 +652,7 @@ class CrakRevenueCamManager {
     public static function render_admin_section(): void {
         $settings = get_option( self::API_SETTINGS_OPTION, [] );
         $settings = is_array( $settings ) ? $settings : [];
+        $diag = is_array( $settings['last_sync_diagnostics'] ?? null ) ? $settings['last_sync_diagnostics'] : [];
         $offers = self::get_cached_offers();
         $mappings = get_option( self::PLATFORM_MAPPINGS_OPTION, [] );
         $mappings = is_array( $mappings ) ? $mappings : [];
@@ -520,11 +671,29 @@ class CrakRevenueCamManager {
         echo '<input type="hidden" name="action" value="tmwseo_cr_save_and_sync" />';
         echo '<table class="form-table">';
         echo '<tr><th>API key</th><td><input type="password" name="api_key" class="regular-text" value="' . esc_attr( (string) ( $settings['api_key'] ?? '' ) ) . '" /></td></tr>';
-        echo '<tr><th>Last sync</th><td>' . esc_html( (string) ( $settings['last_sync_at'] ?? 'Never' ) ) . ' — ' . esc_html( (string) ( $settings['last_sync_status'] ?? 'n/a' ) ) . '</td></tr>';
+        echo '<tr><th>Last sync time</th><td>' . esc_html( (string) ( $settings['last_sync_at'] ?? 'Never' ) ) . '</td></tr>';
+        echo '<tr><th>Last sync status</th><td>' . esc_html( (string) ( $settings['last_sync_status'] ?? 'n/a' ) ) . '</td></tr>';
+        echo '<tr><th>Last sync message</th><td>' . esc_html( (string) ( $settings['last_sync_message'] ?? 'n/a' ) ) . '</td></tr>';
         echo '<tr><th>Stats</th><td>Imported: ' . (int) count( $offers ) . ' | Approved: ' . (int) $approved . ' | Needs approval: ' . (int) $needs_approval . '</td></tr>';
         echo '</table>';
         submit_button( 'Save API key + Sync CrakRevenue Offers', 'primary', 'submit', false );
         echo '</form>';
+
+        echo '<h3>Diagnostics</h3>';
+        echo '<ul>';
+        echo '<li>Endpoint used: ' . esc_html( (string) ( $diag['endpoint_used'] ?? 'n/a' ) ) . '</li>';
+        echo '<li>HTTP status code: ' . esc_html( (string) ( $diag['http_status_code'] ?? 'n/a' ) ) . '</li>';
+        echo '<li>Response content type: ' . esc_html( (string) ( $diag['response_content_type'] ?? 'n/a' ) ) . '</li>';
+        echo '<li>Payload shape detected: ' . esc_html( (string) ( $diag['payload_shape'] ?? 'unknown' ) ) . '</li>';
+        echo '<li>Raw offer count: ' . esc_html( (string) ( $diag['raw_offer_count'] ?? 0 ) ) . '</li>';
+        echo '<li>Cam offer count: ' . esc_html( (string) ( $diag['cam_offer_count'] ?? 0 ) ) . '</li>';
+        if ( ! empty( $diag['first_offer_names'] ) && is_array( $diag['first_offer_names'] ) ) {
+            echo '<li>First raw offer names (up to 10): ' . esc_html( implode( ', ', $diag['first_offer_names'] ) ) . '</li>';
+        }
+        if ( current_user_can( 'manage_options' ) && ! empty( $diag['response_preview'] ) ) {
+            echo '<li>Response preview: <code>' . esc_html( (string) $diag['response_preview'] ) . '</code></li>';
+        }
+        echo '</ul>';
 
         echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="margin-top:8px;display:flex;gap:8px;">';
         wp_nonce_field( 'tmwseo_cr_quick_actions' );
@@ -535,67 +704,29 @@ class CrakRevenueCamManager {
         echo '</form>';
 
         echo '<h3 style="margin-top:16px;">Platform summary</h3>';
-        echo '<table class="widefat striped"><thead><tr><th>Platform</th><th>Best approved offer</th><th>Selected offer</th><th>Approval</th><th>Payout</th><th>EPC</th><th>Routing</th><th>Template safety</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr><th>Platform</th><th>Best approved offer</th><th>Selected offer</th><th>Approval</th><th>Payout</th><th>EPC if available</th><th>Preview URL</th><th>Tracking template status</th><th>Routing status</th><th>Template safety</th></tr></thead><tbody>';
         foreach ( self::supported_platform_slugs() as $slug ) {
             $rows = array_values( array_filter( $offers, static fn( $row ) => (string) ( $row['platform_slug'] ?? '' ) === $slug ) );
             usort( $rows, [ __CLASS__, 'compare_offer_rank' ] );
             $best = $rows[0] ?? [];
             $map = is_array( $mappings[ $slug ] ?? null ) ? $mappings[ $slug ] : self::default_mapping_row( $slug );
             $template_check = self::validate_template( (string) ( $map['template_url'] ?? '' ) );
+            $tracking_status = (string) ( $map['template_url'] ?? '' ) === '' ? 'Tracking template missing — click to add template' : 'Template set';
             echo '<tr>';
             echo '<td><strong>' . esc_html( $slug ) . '</strong></td>';
             echo '<td>' . esc_html( (string) ( $best['offer_name'] ?? '—' ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $map['selected_offer_name'] ?? '—' ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $map['approval_status'] ?? 'unknown' ) ) . '</td>';
             echo '<td>' . esc_html( (string) ( $best['default_payout'] ?? '' ) ) . ' ' . esc_html( (string) ( $best['currency'] ?? '' ) ) . '</td>';
-            echo '<td>' . esc_html( (string) ( $best['epc'] ?? '' ) ) . '</td>';
+            echo '<td>' . esc_html( isset( $best['epc'] ) && $best['epc'] !== null ? (string) $best['epc'] : '' ) . '</td>';
+            $preview = esc_url( (string) ( $map['selected_preview_url'] ?? '' ) );
+            echo '<td>' . ( $preview !== '' ? '<a href="' . $preview . '" target="_blank" rel="noopener">Preview URL</a>' : 'N/A' ) . '</td>';
+            echo '<td>' . esc_html( $tracking_status ) . '</td>';
             echo '<td>' . ( ! empty( $map['enabled'] ) ? 'Enabled' : 'Disabled' ) . '</td>';
-            if ( $template_check['safe'] ) {
-                echo '<td>Safe to route</td>';
-            } else {
-                $hint = $map['selected_preview_url'] !== '' ? 'Preview URL available. ' : '';
-                $hint .= 'Tracking template missing.';
-                echo '<td>Not safe to route. ' . esc_html( $hint ) . '</td>';
-            }
+            echo '<td>' . ( $template_check['safe'] ? 'Safe to route' : 'Not safe to route' ) . '</td>';
             echo '</tr>';
         }
         echo '</tbody></table>';
-
-        echo '<h3 style="margin-top:16px;">Platform offer details</h3>';
-        foreach ( self::supported_platform_slugs() as $slug ) {
-            $rows = array_values( array_filter( $offers, static fn( $row ) => (string) ( $row['platform_slug'] ?? '' ) === $slug ) );
-            if ( empty( $rows ) ) {
-                continue;
-            }
-            usort( $rows, static function( array $a, array $b ): int {
-                $a_status = (string) ( $a['approval_status'] ?? '' );
-                $b_status = (string) ( $b['approval_status'] ?? '' );
-                if ( $a_status === $b_status ) {
-                    return 0;
-                }
-                return $a_status === 'approved' ? -1 : 1;
-            } );
-            echo '<details style="margin-bottom:8px;"><summary><strong>' . esc_html( $slug ) . '</strong> (' . count( $rows ) . ' offers)</summary>';
-            echo '<table class="widefat striped" style="margin-top:8px;"><thead><tr><th>Offer</th><th>Status</th><th>Payout</th><th>EPC</th><th>Preview</th><th>Direct Links</th><th>Website Links</th></tr></thead><tbody>';
-            foreach ( $rows as $row ) {
-                $status = (string) ( $row['approval_status'] ?? 'unknown' );
-                if ( ! empty( $row['is_expired'] ) ) {
-                    $status .= ' (expired)';
-                }
-                echo '<tr>';
-                echo '<td>' . esc_html( (string) ( $row['offer_name'] ?? '' ) ) . '</td>';
-                echo '<td>' . esc_html( $status ) . '</td>';
-                echo '<td>' . esc_html( (string) ( $row['default_payout'] ?? '' ) ) . ' ' . esc_html( (string) ( $row['currency'] ?? '' ) ) . '</td>';
-                echo '<td>' . esc_html( (string) ( $row['epc'] ?? '' ) ) . '</td>';
-                $preview_url = esc_url( (string) ( $row['preview_url'] ?? '' ) );
-                echo '<td>' . ( $preview_url !== '' ? '<a href="' . $preview_url . '" target="_blank" rel="noopener">Preview URL</a>' : 'N/A' ) . '</td>';
-                echo '<td>' . ( ! empty( $row['allow_direct_links'] ) ? 'Yes' : 'No' ) . '</td>';
-                echo '<td>' . ( ! empty( $row['allow_website_links'] ) ? 'Yes' : 'No' ) . '</td>';
-                echo '</tr>';
-            }
-            echo '</tbody></table>';
-            echo '</details>';
-        }
     }
 
     /**
@@ -649,14 +780,16 @@ class CrakRevenueCamManager {
      * @param bool $ok Success flag.
      * @param string $message Status message.
      * @param array<int,array<string,mixed>> $offers Offer rows.
+     * @param array<string,mixed> $diag Diagnostics.
      * @return array{ok:bool,message:string,offers:int,cam_offers:int}
      */
-    private static function mark_sync( bool $ok, string $message, array $offers ): array {
+    private static function mark_sync( bool $ok, string $message, array $offers, array $diag ): array {
         $settings = get_option( self::API_SETTINGS_OPTION, [] );
         $settings = is_array( $settings ) ? $settings : [];
         $settings['last_sync_at'] = gmdate( 'c' );
         $settings['last_sync_status'] = $ok ? 'success' : 'error';
         $settings['last_sync_message'] = $message;
+        $settings['last_sync_diagnostics'] = $diag;
         update_option( self::API_SETTINGS_OPTION, self::sanitize_api_settings( $settings ) );
         return [
             'ok' => $ok,
@@ -679,5 +812,31 @@ class CrakRevenueCamManager {
         }
         $template_check = self::validate_template( (string) ( $map['template_url'] ?? '' ) );
         return $template_check['safe'];
+    }
+
+    /**
+     * Sanitize body preview for diagnostics.
+     *
+     * @param string $body API body.
+     * @return string
+     */
+    private static function sanitize_response_preview( string $body ): string {
+        $flat = preg_replace( '/\s+/', ' ', strip_tags( $body ) );
+        $flat = is_string( $flat ) ? $flat : '';
+        return substr( self::redact_api_key_from_text( $flat ), 0, 300 );
+    }
+
+    /**
+     * Execute HTTP GET request.
+     *
+     * @param string $url Request URL.
+     * @param array<string,mixed> $args Request args.
+     * @return mixed
+     */
+    private static function http_get( string $url, array $args ) {
+        if ( self::$http_getter !== null ) {
+            return call_user_func( self::$http_getter, $url, $args );
+        }
+        return wp_remote_get( $url, $args );
     }
 }
