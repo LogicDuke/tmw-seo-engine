@@ -311,8 +311,10 @@ class AffiliateLinkBuilder {
 
         $replacements = [
             '{username}' => rawurlencode($username),
+            '{encoded_username}' => rawurlencode($username),
             '{profile_url}' => $profile_url,
             '{encoded_profile_url}' => rawurlencode($profile_url),
+            '{offer_id}' => rawurlencode((string) ($settings['offer_id'] ?? '')),
             '{campaign}' => rawurlencode($campaign),
             '{source}' => rawurlencode($source),
             '{subaffid}' => rawurlencode($subaffid),
@@ -333,5 +335,19 @@ class AffiliateLinkBuilder {
         $url = strtr($template, $replacements);
         $url = esc_url_raw($url);
         return wp_http_validate_url($url) ? $url : '';
+    }
+
+    /**
+     * Public wrapper for template substitution used by unit-tested routing services.
+     *
+     * @param string $template Template URL.
+     * @param string $platform Platform slug.
+     * @param string $username Extracted username.
+     * @param string $profile_url Real profile URL.
+     * @param array<string,mixed> $settings Placeholder settings.
+     * @return string
+     */
+    public static function build_from_template_for_tests(string $template, string $platform, string $username, string $profile_url, array $settings): string {
+        return self::build_from_template($template, $platform, $username, $profile_url, $settings);
     }
 }
