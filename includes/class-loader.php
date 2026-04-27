@@ -197,6 +197,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-platform-registry.php' );
         tmwseo_safe_require( $p . 'class-platform-profiles.php' );
         tmwseo_safe_require( $p . 'class-affiliate-link-builder.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/affiliates/class-crakrevenue-cam-manager.php' );
     }
 
     // ── Integrations ──────────────────────────────────────────────────────────

@@ -66,6 +66,7 @@
 namespace TMWSEO\Engine\Model;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Affiliates\CrakRevenueCamManager;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -871,6 +872,18 @@ class VerifiedLinks {
         echo '<span style="margin-left:8px;font-size:10px;color:#aaa;">'
             . esc_html__( '(schema sameAs always uses the outbound URL above)', 'tmwseo' )
             . '</span>';
+
+        if ( class_exists( CrakRevenueCamManager::class ) ) {
+            $type_slug = sanitize_key( (string) ( $entry['type'] ?? '' ) );
+            $mappings  = get_option( CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [] );
+            $mappings  = is_array( $mappings ) ? $mappings : [];
+            $platform_map = is_array( $mappings[ $type_slug ] ?? null ) ? $mappings[ $type_slug ] : [];
+            if ( ! empty( $platform_map['enabled'] ) ) {
+                echo '<span style="margin-left:8px;font-size:10px;color:#2271b1;font-weight:600;">'
+                    . esc_html__( 'CrakRevenue routing available', 'tmwseo' )
+                    . '</span>';
+            }
+        }
         echo '</td>';
         echo '</tr>';
     }
@@ -1384,6 +1397,19 @@ class VerifiedLinks {
         $url = trim( (string) ( $link['url'] ?? '' ) );
         if ( $url === '' ) {
             return '';
+        }
+
+        $is_active = ! array_key_exists( 'is_active', $link ) || ! empty( $link['is_active'] );
+        $activity_level = sanitize_key( (string) ( $link['activity_level'] ?? 'active' ) );
+        if ( ! $is_active || ! in_array( $activity_level, [ 'active', 'very_active' ], true ) ) {
+            return $url;
+        }
+
+        if ( class_exists( CrakRevenueCamManager::class ) ) {
+            $global_routed = CrakRevenueCamManager::maybe_route_verified_link( $link );
+            if ( $global_routed !== '' && $global_routed !== $url ) {
+                return $global_routed;
+            }
         }
 
         $use_affiliate     = ! empty( $link['use_affiliate'] );
