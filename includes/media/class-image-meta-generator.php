@@ -154,85 +154,153 @@ class Image_Meta_Generator {
      * @return array<int,string>  e.g. [ 42 => 'primary', 55 => 'front', 56 => 'back' ]
      */
     public static function get_attachments_with_roles( \WP_Post $post ): array {
-        return self::get_post_image_attachments_with_roles( $post );
+        $collected = self::collect_attachments_with_meta( $post );
+        $out = [];
+        foreach ( $collected as $id => $entry ) {
+            $out[ $id ] = $entry['role'];
+        }
+        return $out;
+    }
+
+    /**
+     * Returns a richer map for debug / CLI inspection.
+     *
+     * @param  \WP_Post $post
+     * @return array<int, array{role:string, source_key:string}>
+     */
+    public static function debug_attachments_for_post( \WP_Post $post ): array {
+        return self::collect_attachments_with_meta( $post );
     }
 
     // ── Internal ID + role collection ──────────────────────────────────────
 
     /**
-     * Collects all image attachment IDs for the post and assigns each one
-     * a role string.  First-encountered role wins when an ID appears in
-     * multiple meta keys (e.g. the same attachment used as thumbnail AND front).
+     * Core collector.  Returns every image attachment for the post with its
+     * assigned role AND the source meta key that provided the ID.
      *
-     * @return array<int,string>
+     * First-encountered role wins when the same attachment ID appears in
+     * multiple meta keys (e.g. same image used as thumbnail AND front).
+     *
+     * @return array<int, array{role:string, source_key:string}>
      */
-    private static function get_post_image_attachments_with_roles( \WP_Post $post ): array {
+    private static function collect_attachments_with_meta( \WP_Post $post ): array {
         $post_id = (int) $post->ID;
-        /** @var array<int,string> $result */
+        /** @var array<int, array{role:string, source_key:string}> $result */
         $result = [];
 
-        $add = static function ( int $id, string $role ) use ( &$result ): void {
+        $add = static function ( int $id, string $role, string $source_key ) use ( &$result ): void {
             if ( $id > 0 && ! isset( $result[ $id ] ) ) {
-                $result[ $id ] = $role;
+                $result[ $id ] = [ 'role' => $role, 'source_key' => $source_key ];
             }
         };
 
-        // Featured / thumbnail → primary.
+        // ── Featured / thumbnail → primary ─────────────────────────────────
         $thumbnail_id = (int) get_post_thumbnail_id( $post_id );
         if ( $thumbnail_id > 0 ) {
-            $add( $thumbnail_id, 'primary' );
+            $add( $thumbnail_id, 'primary', '_thumbnail_id' );
         }
 
         if ( $post->post_type === 'model' ) {
 
             // ── Banner ─────────────────────────────────────────────────────
+            // Keys listed without suffix (plain) AND with _id suffix so we
+            // cover both storage conventions.
             $banner_keys = [
                 'banner_image_id',
                 '_banner_image_id',
+                'banner_image',
+                '_banner_image',
                 'vertical_banner_image_id',
                 '_vertical_banner_image_id',
+                'vertical_banner_image',
+                '_vertical_banner_image',
                 'banner_focus_image_id',
                 '_banner_focus_image_id',
                 'model_banner_image_id',
                 '_model_banner_image_id',
+                'model_banner_image',
+                '_model_banner_image',
             ];
             foreach ( $banner_keys as $meta_key ) {
                 foreach ( self::extract_attachment_ids( get_post_meta( $post_id, $meta_key, true ) ) as $id ) {
-                    $add( $id, 'banner' );
+                    $add( $id, 'banner', $meta_key );
                 }
             }
 
             // ── Flipbox front ──────────────────────────────────────────────
+            // Covers:  *_front_image_id  *_front_image  flipbox_front*
+            //          tmw_front*  front_image  _front_image  etc.
             $front_keys = [
+                // _id suffix variants (original)
                 'front_image_id',
                 '_front_image_id',
                 'model_front_image_id',
                 '_model_front_image_id',
                 'model_flipbox_front_image_id',
                 '_model_flipbox_front_image_id',
+                // plain (no _id suffix) — real panel keys
+                'front_image',
+                '_front_image',
+                'flipbox_front_image',
+                '_flipbox_front_image',
+                'model_front_image',
+                '_model_front_image',
+                'tmw_front_image',
+                '_tmw_front_image',
+                'flipbox_front',
+                '_flipbox_front',
+                'front_img',
+                '_front_img',
             ];
             foreach ( $front_keys as $meta_key ) {
                 foreach ( self::extract_attachment_ids( get_post_meta( $post_id, $meta_key, true ) ) as $id ) {
-                    $add( $id, 'front' );
+                    $add( $id, 'front', $meta_key );
                 }
             }
 
             // ── Flipbox back ───────────────────────────────────────────────
             $back_keys = [
+                // _id suffix variants (original)
                 'back_image_id',
                 '_back_image_id',
                 'model_back_image_id',
                 '_model_back_image_id',
                 'model_flipbox_back_image_id',
                 '_model_flipbox_back_image_id',
+                // plain (no _id suffix) — real panel keys
+                'back_image',
+                '_back_image',
+                'flipbox_back_image',
+                '_flipbox_back_image',
+                'model_back_image',
+                '_model_back_image',
+                'tmw_back_image',
+                '_tmw_back_image',
+                'flipbox_back',
+                '_flipbox_back',
+                'back_img',
+                '_back_img',
             ];
             foreach ( $back_keys as $meta_key ) {
                 foreach ( self::extract_attachment_ids( get_post_meta( $post_id, $meta_key, true ) ) as $id ) {
-                    $add( $id, 'back' );
+                    $add( $id, 'back', $meta_key );
                 }
             }
 
             // ── Wildcard scan — any remaining image-related meta keys ──────
+            //
+            // BUG FIX (v2.1): previous code assigned 'secondary' to EVERY
+            // unknown image-related key, including keys that clearly name
+            // 'front' or 'back' in their segments.  We now split the key on
+            // common delimiters and derive the role from its word parts:
+            //
+            //   key contains segment 'front'  → role front
+            //   key contains segment 'back'   → role back
+            //   key contains segment 'banner' → role banner
+            //   otherwise                     → role secondary
+            //
+            // This guarantees that ANY key saved by the Flipbox panel
+            // (regardless of prefix/suffix naming) receives the correct role.
             $known_keys = array_merge( $banner_keys, $front_keys, $back_keys );
             $all_meta   = get_post_meta( $post_id );
             if ( is_array( $all_meta ) ) {
@@ -244,11 +312,16 @@ class Image_Meta_Generator {
                     if ( ! preg_match( '/(image|banner|front|back|photo)/', $key ) ) {
                         continue;
                     }
-                    if ( is_array( $values ) ) {
-                        foreach ( $values as $value ) {
-                            foreach ( self::extract_attachment_ids( $value ) as $id ) {
-                                $add( $id, 'secondary' );
-                            }
+                    if ( ! is_array( $values ) ) {
+                        continue;
+                    }
+
+                    // Derive role from key word-segments (split on _, -, space).
+                    $wildcard_role = self::role_from_key_segments( $key );
+
+                    foreach ( $values as $value ) {
+                        foreach ( self::extract_attachment_ids( $value ) as $id ) {
+                            $add( $id, $wildcard_role, $meta_key );
                         }
                     }
                 }
@@ -257,9 +330,9 @@ class Image_Meta_Generator {
 
         // Filter to verified image attachments only.
         $filtered = [];
-        foreach ( $result as $id => $role ) {
+        foreach ( $result as $id => $entry ) {
             if ( $id > 0 && wp_attachment_is_image( $id ) ) {
-                $filtered[ $id ] = $role;
+                $filtered[ $id ] = $entry;
             }
         }
 
@@ -272,8 +345,36 @@ class Image_Meta_Generator {
      *
      * @return int[]
      */
-    private static function get_post_image_attachment_ids( \WP_Post $post ): array {
-        return array_keys( self::get_post_image_attachments_with_roles( $post ) );
+    private static function get_post_image_attachments_with_roles( \WP_Post $post ): array {
+        return self::get_attachments_with_roles( $post );
+    }
+
+    /**
+     * Derives an image role from the word-segments of a meta key.
+     *
+     * The key is split on underscores, hyphens, and spaces; if any segment
+     * matches a role indicator word, that role is returned.  This ensures
+     * that any custom Flipbox panel key (e.g. "flipbox_front_image",
+     * "tmw_back_img", "model_banner_photo") gets the correct role even when
+     * the key name was not anticipated in the hardcoded lists.
+     *
+     * Priority: front > back > banner > secondary
+     *
+     * @param  string $lower_key  Meta key already lowercased by caller.
+     * @return string  primary|banner|front|back|secondary
+     */
+    private static function role_from_key_segments( string $lower_key ): string {
+        $segments = preg_split( '/[_\-\s]+/', $lower_key, -1, PREG_SPLIT_NO_EMPTY );
+        if ( in_array( 'front', $segments, true ) ) {
+            return 'front';
+        }
+        if ( in_array( 'back', $segments, true ) ) {
+            return 'back';
+        }
+        if ( in_array( 'banner', $segments, true ) ) {
+            return 'banner';
+        }
+        return 'secondary';
     }
 
     // ── Text generation ────────────────────────────────────────────────────
@@ -286,12 +387,9 @@ class Image_Meta_Generator {
      * ─────────────────────────────────────────────────────────────────────
      *   primary  →  "{Name} — verified live webcam model profile photo"
      *   banner   →  "{Name} — live webcam model banner image"
-     *   front    →  "{Name} {kw1} profile preview image"  (kw1 = platform or additional[0])
-     *   back     →  "{Name} {kw2} profile preview image"  (kw2 = additional[1] or rank_math or fallback)
+     *   front    →  "{Name} {kw1} profile preview image"
+     *   back     →  "{Name} {kw2} profile preview image"
      *   secondary→  "{Name} — live webcam model image"
-     *
-     * front and back intentionally use different keywords so Google sees
-     * distinct signals for each slot.
      *
      * @param  \WP_Post $attachment
      * @param  \WP_Post $parent_post
@@ -339,16 +437,14 @@ class Image_Meta_Generator {
 
                 // ── Flipbox back ───────────────────────────────────────────
                 case 'back':
-                    $kws     = self::resolve_secondary_keywords( (int) $parent_post->ID );
-                    // Use the second keyword so front and back carry different SEO signals.
+                    $kws          = self::resolve_secondary_keywords( (int) $parent_post->ID );
                     $kw_front_ref = $kws[0] ?? '';
                     $kw_back      = $kws[1] ?? $kws[0] ?? 'webcam chat';
-                    // Safety: if back keyword would duplicate front (e.g. list had only one entry),
-                    // fall back to a safe static phrase so both alts always differ.
+                    // Safety: if back keyword would duplicate front, use a static fallback.
                     if ( $kw_back === '' || strcasecmp( $kw_back, $kw_front_ref ) === 0 ) {
                         $kw_back = 'webcam chat';
                     }
-                    $alt = sprintf( '%s %s profile preview image', $base, $kw_back );
+                    $alt     = sprintf( '%s %s profile preview image', $base, $kw_back );
                     $title   = sprintf( '%s | Webcam Model Info | %s', $base, $site_name );
                     $caption = sprintf( 'Profile detail card for %s, live cam model on %s', $base, $site_name );
                     $description = sprintf(
@@ -387,7 +483,7 @@ class Image_Meta_Generator {
             $description = sprintf( 'Preview image for "%s", a live cam show on %s.', $base, $site_name );
 
         } else {
-            // Generic fallback (non-model, non-video).
+            // Generic fallback.
             $alt         = sprintf( '%s — %s', $base, $site_name );
             $title       = sprintf( '%s | %s', $base, $site_name );
             $caption     = $base;
@@ -409,23 +505,11 @@ class Image_Meta_Generator {
      * for use in Flipbox front / back alt text.
      *
      * Priority order:
-     *   1. Primary platform label from tmw_keyword_pack['platforms'][0]
-     *      (e.g. "LiveJasmin", "Chaturbate").
-     *   2. tmw_keyword_pack['additional'][0] and [1] (name-free on model pages).
-     *   3. rank_math_focus_keyword (evidence-backed per-post keyword).
+     *   1. Primary platform label from tmw_keyword_pack['platforms'][0].
+     *   2. tmw_keyword_pack['additional'][0] and [1].
+     *   3. rank_math_focus_keyword.
      *   4. First post tag name.
-     *   5. Static safe fallbacks: "live cam", "webcam chat", "profile preview",
-     *      "cam show".
-     *
-     * Rules enforced:
-     *   – All input sanitised via sanitize_text_field().
-     *   – Case-insensitive dedup; first-seen casing is preserved.
-     *   – No comma-separated strings are written.
-     *   – No invented performer claims.
-     *   – List always contains at least two entries (static fallbacks guarantee it).
-     *
-     * The caller is responsible for picking [0] → front keyword and
-     * [1] → back keyword so the two slots use different SEO signals.
+     *   5. Static fallbacks: 'live cam', 'webcam chat', 'profile preview', 'cam show'.
      *
      * @param  int      $post_id
      * @return string[]
@@ -435,7 +519,6 @@ class Image_Meta_Generator {
 
         $pack = get_post_meta( $post_id, 'tmw_keyword_pack', true );
         if ( is_array( $pack ) ) {
-            // 1. Primary platform label — highest priority.
             if ( ! empty( $pack['platforms'] ) && is_array( $pack['platforms'] ) ) {
                 $slug  = sanitize_key( (string) ( $pack['platforms'][0] ?? '' ) );
                 $label = self::platform_label( $slug );
@@ -443,7 +526,6 @@ class Image_Meta_Generator {
                     $candidates[] = $label;
                 }
             }
-            // 2. Additional keywords (model pages guarantee these are name-free).
             if ( ! empty( $pack['additional'] ) && is_array( $pack['additional'] ) ) {
                 foreach ( array_slice( $pack['additional'], 0, 2 ) as $kw ) {
                     $kw = sanitize_text_field( (string) $kw );
@@ -454,13 +536,11 @@ class Image_Meta_Generator {
             }
         }
 
-        // 3. Rank Math focus keyword — evidence-backed per-post signal.
         $focus_kw = sanitize_text_field( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
         if ( $focus_kw !== '' ) {
             $candidates[] = $focus_kw;
         }
 
-        // 4. First post tag.
         if ( function_exists( 'get_the_tags' ) ) {
             $tags = get_the_tags( $post_id );
             if ( is_array( $tags ) && ! empty( $tags ) ) {
@@ -471,13 +551,11 @@ class Image_Meta_Generator {
             }
         }
 
-        // 5. Static safe fallbacks — guarantees at least two distinct entries.
         $candidates[] = 'live cam';
         $candidates[] = 'webcam chat';
         $candidates[] = 'profile preview';
         $candidates[] = 'cam show';
 
-        // Dedupe case-insensitively, preserving original casing of first occurrence.
         $seen = [];
         $out  = [];
         foreach ( $candidates as $c ) {
@@ -493,8 +571,6 @@ class Image_Meta_Generator {
 
     /**
      * Maps a platform slug to a human-readable label for alt text.
-     * Intentionally kept in sync with Model_Keyword_Pack::platform_keyword_label()
-     * but independent to avoid cross-class coupling.
      */
     private static function platform_label( string $slug ): string {
         static $map = [
@@ -521,45 +597,29 @@ class Image_Meta_Generator {
 
     // ── v1 pattern detection ───────────────────────────────────────────────
 
-    /**
-     * Returns true if the stored alt or title looks like text that was
-     * auto-generated by v1 of this generator.
-     *
-     * In v1 every model image used the same primary-style template:
-     *   alt   → "{Name} — verified live webcam model profile photo"
-     *   title → "{Name} | Live Cam Model | {Site}"
-     *
-     * Matching either field is sufficient to allow an in-place v2 upgrade.
-     */
     private static function is_v1_generated_text( string $alt, string $title ): bool {
         return self::matches_v1_alt( $alt ) || self::matches_v1_model_title( $title );
     }
 
-    /** Detects the v1 model alt suffix. */
     private static function matches_v1_alt( string $alt ): bool {
         return str_ends_with( $alt, '— verified live webcam model profile photo' );
     }
 
-    /** Detects the v1 model title mid-segment. */
     private static function matches_v1_model_title( string $title ): bool {
         return str_contains( $title, '| Live Cam Model |' );
     }
 
-    /** Detects the v1 model caption pattern. */
     private static function matches_v1_caption( string $caption ): bool {
         return str_starts_with( $caption, 'Profile photo of ' )
             && str_contains( $caption, ', live webcam model on ' );
     }
 
     /**
-     * Detects the v1 model description pattern:
-     *   "Featured profile image for {Name}, a live cam model available on {Site}..."
-     *
-     * In v1 every model image role used the same primary-style description.
-     * Flipbox front and back images therefore carry a description that says
-     * "Featured profile image for …" even though they are not profile images.
-     * This matcher allows those stale descriptions to be upgraded to role-specific
-     * v2 text on the next post save.
+     * Detects the v1 model description pattern.
+     * In v1 every model image — regardless of role — received:
+     *   "Featured profile image for {Name}, a live cam model available on {Site}…"
+     * This allows Flipbox images that still carry the wrong description to be
+     * upgraded to role-specific v2 text on the next post save.
      */
     private static function matches_v1_description( string $desc ): bool {
         return str_starts_with( $desc, 'Featured profile image for ' )
@@ -573,30 +633,46 @@ class Image_Meta_Generator {
         return in_array( $post->post_type, $video_types, true );
     }
 
-    /** Normalises an arbitrary string to one of the five valid role values. */
     private static function sanitise_role( string $role ): string {
         static $valid = [ 'primary', 'banner', 'front', 'back', 'secondary' ];
         return in_array( $role, $valid, true ) ? $role : 'primary';
     }
 
     /**
-     * Recursively extracts integer attachment IDs from a meta value that may
-     * be a plain integer, a serialised array, a JSON array, or a numeric string.
+     * Recursively extracts integer attachment IDs from a meta value.
+     *
+     * Handles:
+     *   - plain integer or numeric string
+     *   - array keyed with 'ID' or 'id'  (ACF / custom metabox array format)
+     *   - generic array (recurses into values, skips URL/path strings)
+     *   - serialised PHP value
+     *   - JSON array / object string
      *
      * @param  mixed  $value
      * @return int[]
      */
     private static function extract_attachment_ids( $value ): array {
+        if ( is_numeric( $value ) ) {
+            return [ (int) $value ];
+        }
+
         if ( is_array( $value ) ) {
+            // Explicit 'ID' or 'id' key — ACF image field / array-format custom metabox.
+            foreach ( [ 'ID', 'id' ] as $id_key ) {
+                if ( isset( $value[ $id_key ] ) && is_numeric( $value[ $id_key ] ) ) {
+                    return [ (int) $value[ $id_key ] ];
+                }
+            }
+            // Generic array — recurse into values, skip URL/path strings to avoid
+            // false digit extraction from paths like /wp-content/uploads/2024/01/photo.jpg
             $out = [];
             foreach ( $value as $item ) {
+                if ( is_string( $item ) && ! is_numeric( $item ) && str_contains( $item, '/' ) ) {
+                    continue;
+                }
                 $out = array_merge( $out, self::extract_attachment_ids( $item ) );
             }
             return $out;
-        }
-
-        if ( is_numeric( $value ) ) {
-            return [ (int) $value ];
         }
 
         if ( ! is_string( $value ) ) {
@@ -622,11 +698,12 @@ class Image_Meta_Generator {
             }
         }
 
-        preg_match_all( '/\d+/', $raw, $matches );
-        if ( empty( $matches[0] ) ) {
-            return [];
+        // Only accept plain numeric strings — do NOT regex-extract digits from
+        // URLs or other structured strings to avoid false ID matches.
+        if ( ctype_digit( ltrim( $raw, ' ' ) ) ) {
+            return [ (int) $raw ];
         }
 
-        return array_map( 'intval', $matches[0] );
+        return [];
     }
 }
