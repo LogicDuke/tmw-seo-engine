@@ -245,8 +245,7 @@ class TemplateContent {
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate, $editor_seed),
             'features_section_paragraphs' => [
                 $features_intro
-                . ' Use this section for practical platform checks: room freshness, playback stability, chat readability, mobile usability, login friction, and payment/privacy controls.'
-                . ' These notes describe access behavior only, not unverified performer traits.'
+                . ' Focus on room freshness, handle consistency, playback quality, chat readability, and payment/privacy controls before joining.'
                 . (!empty($secondary_visible_phrases[1]) ? ' For ' . $secondary_visible_phrases[1] . ' comparisons, focus on chat usability and room quality on your device.' : ''),
             ],
             'features_section_html' => self::join_html_blocks([
@@ -618,18 +617,14 @@ class TemplateContent {
         //    for [2], via inject_sparse_secondary_keyword_into_faq() / the
         //    Official Links keyword paragraph in build_model_renderer_support_payload().
         $sparse_features_paragraphs = [
-            'Use this section for practical access checks, not unsupported performer claims.',
+            'Focus on room freshness, handle consistency, playback quality, chat readability, and payment/privacy controls before joining.',
         ];
         // Surface secondary keywords [0], [1], [3] in features prose with
-        // distinct sentence shapes. [2] is intentionally skipped because it
-        // is already body-placed twice — once by
-        // inject_sparse_secondary_keyword_into_faq() (FAQ tail) and once by
-        // the "When checking {[2]} links…" sentence assembled in
-        // build_model_renderer_support_payload(). Adding it here would
-        // triple-count and trip Rank Math keyword-density guards.
+        // distinct sentence shapes. [2] is intentionally skipped in Features
+        // because it already appears naturally in Official Links body text.
         $features_blueprints = [
             0 => ', compare room freshness, handle match, and chat usability before you join.',
-            1 => ' searches, check whether the room is online, readable on mobile, and clear about chat and payment controls before spending credits.',
+            1 => ' searches, check playback quality, mobile usability, and payment/privacy controls before spending credits.',
             3 => ' access, confirm handle consistency and recent room activity before joining.',
         ];
         foreach ($features_blueprints as $idx => $tail) {
@@ -650,7 +645,7 @@ class TemplateContent {
             'features_section_paragraphs' => $sparse_features_paragraphs,
             'comparison_section_paragraphs' => $comparison_lines,
             'questions_section_paragraphs' => [],
-            'faq_items' => self::inject_sparse_secondary_keyword_into_faq($faq_items, $secondary_visible_phrases[2] ?? ''),
+            'faq_items' => $faq_items,
             'model_data_notice' => $reason,
             'secondary_heading_slots' => $secondary_heading_slots,
         ];
@@ -3197,9 +3192,6 @@ class TemplateContent {
             '<h2>Verification and Review Method</h2>'
             . '<p>This page prioritizes confirmed profiles and manual checks. Confirmation helps with ownership and safer navigation, but it does not guarantee continuous uptime. Activity labels represent a snapshot and can change after platform updates or schedule shifts.</p>'
             . '<p>For that reason, recheck status each time you visit. Starting from a verified destination is still the safest path to avoid copied pages, stale mirrors, or impersonation profiles.</p>',
-            '<h2>Practical Use of Non-Live Destinations</h2>'
-            . '<p>Non-live destinations remain useful even when they are not room-entry links. Use them for follow actions, backup profile validation, archived media, and link-hub navigation when the live section is temporarily inactive.</p>'
-            . '<p>This separation keeps the page truthful: live access appears only in the live section, while other official destinations support planning and verification tasks.</p>',
             '<h2>How to Use Backup Destinations Safely</h2>'
             . '<p>When a preferred room is offline, move to a verified backup destination instead of random search results. Confirm handle spelling, brand cues, and profile history before clicking onward to any paid flow.</p>'
             . '<p>This approach reduces impersonation risk and keeps your routing consistent: trusted destination first, status check second, and spending decisions only after room quality is clear.</p>',
@@ -3211,6 +3203,9 @@ class TemplateContent {
             // needed, but it remains optional under the deterministic
             // stable_pick_index round-robin.
             array_unshift($extra_blocks, $compare_block);
+            $extra_blocks[] = '<h2>Practical Use of Non-Live Destinations</h2>'
+                . '<p>Non-live destinations remain useful even when they are not room-entry links. Use them for follow actions, backup profile validation, archived media, and link-hub navigation when the live section is temporarily inactive.</p>'
+                . '<p>This separation keeps the page truthful: live access appears only in the live section, while other official destinations support planning and verification tasks.</p>';
         }
 
         $need = min(count($extra_blocks), (int) ceil((640 - $word_count) / 110));

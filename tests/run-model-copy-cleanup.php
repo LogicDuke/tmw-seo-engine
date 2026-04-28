@@ -1468,8 +1468,8 @@ ok(
 	stripos( $p4_features, 'Anisyia LiveJasmin' ) !== false
 		&& stripos( $p4_features, 'Anisyia live cam' ) !== false
 		&& stripos( $p4_features, 'Anisyia webcam chat' ) !== false
-		&& stripos( $p4_faq_text, 'Anisyia cam show' ) !== false,
-	'P4b: every secondary keyword phrase is body-placed exactly once in features prose or FAQ (Rank Math coverage preserved)'
+		&& stripos( $p4_faq_text, 'Anisyia cam show' ) === false,
+	'P4b: sparse Features keeps natural keywords while FAQ stays concise (no cam-show tail)'
 );
 
 // ── P5: Before You Click — checklist UL is trimmed and there is no extra
@@ -1518,6 +1518,12 @@ $p6_non = TemplateContent::build_sparse_model_payload( 'Anisyia', [], $p_gate, [
 ok(
 	stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'Open the LiveJasmin room first; use the other profiles only for updates.' ) !== false,
 	'P6a: single LiveJasmin FAQ uses concise semicolon form'
+);
+ok(
+	stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'That includes quick checks' ) === false
+		&& stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'Anisyia live cam' ) === false
+		&& stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'using the listed profiles only' ) === false,
+	'P6a2: first FAQ answer has no secondary-keyword tail'
 );
 ok(
 	stripos( (string) ( $p6_cs['faq_items'][0]['a'] ?? '' ), 'Open the CamSoda room first; use the other profiles only for updates.' ) !== false
@@ -1579,7 +1585,10 @@ $p9_single     = (string) $p9_method->invoke( null, $p9_short_html, 'Anisyia', [
 ok(
 	stripos( $p9_single, 'How to Decide Where to Start' ) === false
 		&& stripos( $p9_single, 'Start with the platform you already trust' ) === false
-		&& stripos( $p9_single, 'brand bias' ) === false,
+		&& stripos( $p9_single, 'brand bias' ) === false
+		&& stripos( $p9_single, 'Practical Use of Non-Live Destinations' ) === false
+		&& stripos( $p9_single, 'This separation keeps the page truthful' ) === false
+		&& stripos( $p9_single, 'planning and verification tasks' ) === false,
 	'P9: depth guard suppresses How-to-Decide block for one active platform'
 );
 // And it still produces SOME content (the platform-count-agnostic blocks).
@@ -1617,6 +1626,8 @@ $p11_payload = array_merge(
 );
 $p11_html  = ModelPageRenderer::render( 'Anisyia', $p11_payload );
 $p11_clean = ModelCopyCleanup::cleanup( $p11_html, 'Anisyia' );
+$p11_href_count_before = preg_match_all( '/\shref="/i', $p11_html );
+$p11_href_count_after  = preg_match_all( '/\shref="/i', $p11_clean );
 ok(
 	strpos( $p11_clean, 'href="/go/livejasmin/anisyia"' ) !== false
 		&& strpos( $p11_clean, 'href="/go/camsoda/anisyia"' ) !== false
@@ -1635,6 +1646,10 @@ ok(
 	substr_count( $p11_clean, 'target="_blank"' ) >= 4,
 	'P11c: end-to-end pipeline preserves target="_blank" on every link'
 );
+ok(
+	$p11_href_count_before === $p11_href_count_after,
+	'P11d: end-to-end pipeline preserves link count'
+);
 
 // ── P12: Extra keyword preservation — the four canonical secondary keywords
 // still appear in body text (not necessarily as H3) after the full
@@ -1650,6 +1665,7 @@ $p12_payload = array_merge(
 	[
 		'official_links_section_paragraphs' => [
 			'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+			'For Anisyia cam show searches, compare room freshness, handle match, and chat usability before you join.',
 			'When checking Anisyia live cam links, use the grouped profiles below to separate live access from fan, social, and link-hub pages.',
 		],
 	]
@@ -1676,6 +1692,23 @@ ok(
 		&& stripos( $p12_final, '<h3>Anisyia Webcam Chat</h3>' ) === false
 		&& stripos( $p12_final, '<h3>Anisyia LiveJasmin</h3>' ) === false,
 	'P12b: no name-bearing keyword survived as an awkward <h3>'
+);
+ok(
+	stripos( $p12_final, 'Use this section' ) === false
+		&& stripos( $p12_final, 'not unsupported performer claims' ) === false
+		&& stripos( $p12_final, 'Platform notes below' ) === false
+		&& stripos( $p12_final, 'Platform notes here' ) === false
+		&& stripos( $p12_final, 'observed access behavior' ) === false,
+	'P12c: features copy no longer emits meta/template wording'
+);
+$p12_features_only = '';
+if ( preg_match( '/<h2>Features and Platform Experience<\/h2>(.*?)(?:<h2>|$)/is', $p12_final, $p12_m ) ) {
+	$p12_features_only = (string) ( $p12_m[1] ?? '' );
+}
+ok(
+	substr_count( strtolower( $p12_features_only ), 'recent room activity' ) <= 1
+		&& substr_count( strtolower( $p12_features_only ), 'payment/privacy controls' ) <= 2,
+	'P12d: sparse features guidance avoids heavy repeated recent-activity/payment-privacy lines'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
