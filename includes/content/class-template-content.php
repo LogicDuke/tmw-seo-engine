@@ -249,7 +249,7 @@ class TemplateContent {
                 . (!empty($secondary_visible_phrases[1]) ? ' For ' . $secondary_visible_phrases[1] . ' comparisons, focus on chat usability and room quality on your device.' : ''),
             ],
             'features_section_html' => self::join_html_blocks([
-                self::render_varied_features($name, $tags, $primary_platform_label, $seed),
+                self::render_varied_features($name, $tags, $primary_platform_label, $seed, count($active_platforms)),
                 $keyword_coverage_html,
             ]),
             'comparison_section_paragraphs' => $comparison_paragraphs,
@@ -616,23 +616,25 @@ class TemplateContent {
         //    Features prose paragraphs below (Rank Math coverage preserved) and,
         //    for [2], via inject_sparse_secondary_keyword_into_faq() / the
         //    Official Links keyword paragraph in build_model_renderer_support_payload().
-        $sparse_features_paragraphs = [
-            'Focus on room freshness, handle consistency, playback quality, chat readability, and payment/privacy controls before joining.',
-        ];
-        // Surface secondary keywords [0], [1], [3] in features prose with
-        // distinct sentence shapes. [2] is intentionally skipped in Features
-        // because it already appears naturally in Official Links body text.
-        $features_blueprints = [
-            0 => ', compare room freshness, handle match, and chat usability before you join.',
-            1 => ' searches, check playback quality, mobile usability, and payment/privacy controls before spending credits.',
-            3 => ' access, confirm handle consistency and recent room activity before joining.',
-        ];
-        foreach ($features_blueprints as $idx => $tail) {
-            $phrase = trim((string) ($secondary_visible_phrases[$idx] ?? ''));
-            if ($phrase === '') {
+        $sparse_features_paragraphs = [];
+        $seen_feature_sentences = [];
+        $max_feature_sentences = 3;
+        $primary_platform_label = $active_platform_count > 0 ? trim((string) ($active_platforms[0] ?? '')) : '';
+        $ordered_phrases = self::order_sparse_feature_phrases($secondary_visible_phrases, $primary_platform_label);
+        foreach ($ordered_phrases as $phrase) {
+            if (count($sparse_features_paragraphs) >= $max_feature_sentences) {
+                break;
+            }
+            $sentence = self::build_sparse_features_sentence((string) $phrase, $primary_platform_label);
+            if ($sentence === '') {
                 continue;
             }
-            $sparse_features_paragraphs[] = 'For ' . $phrase . $tail;
+            $key = function_exists('mb_strtolower') ? mb_strtolower($sentence, 'UTF-8') : strtolower($sentence);
+            if (isset($seen_feature_sentences[$key])) {
+                continue;
+            }
+            $seen_feature_sentences[$key] = true;
+            $sparse_features_paragraphs[] = $sentence;
         }
 
         return [
@@ -3036,35 +3038,82 @@ class TemplateContent {
      * "Platform notes here focus on observed access behavior" bullet has been
      * removed because it duplicated the features-section intro paragraph.
      */
-    private static function render_varied_features(string $name, array $tags, string $platform, string $seed): string {
-        $tag_phrases = array_map(fn($t) => str_replace('-', ' ', (string)$t), array_slice($tags, 0, 6));
-        $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
-
-        $pool = [
-            '<li>Test playback stability and chat readability on your device before joining.</li>',
-            '<li>Review payment, privacy, and account requirements before you start a chat session.</li>',
-            '<li>Check whether the room looks recently active before spending credits.</li>',
-            '<li>Compare login friction and mobile usability if more than one room is available.</li>',
+    private static function render_varied_features(string $name, array $tags, string $platform, string $seed, int $active_platform_count = 0): string {
+        $bullets = [
+            '<li>Test playback stability and chat readability on your device.</li>',
+            '<li>Review payment, privacy, and account requirements before starting chat.</li>',
         ];
 
-        foreach (array_slice($tag_phrases, 0, 2) as $tag) {
-            $pool[] = '<li>For ' . esc_html($tag) . ' searches, compare room freshness, chat quality, and profile consistency before joining.</li>';
+        if ($active_platform_count > 1) {
+            $bullets[1] = '<li>Compare login friction and mobile usability when more than one room is available.</li>';
         }
 
-        $hash = abs(crc32($seed));
-        $selected = [];
-        $count = min(4, count($pool));
-        $indices = [];
-        for ($i = 0; $i < $count; $i++) {
-            $idx = ($hash + $i * 3) % count($pool);
-            while (in_array($idx, $indices, true)) {
-                $idx = ($idx + 1) % count($pool);
+        return '<ul>' . implode("\n", $bullets) . '</ul>';
+    }
+
+    private static function build_sparse_features_sentence(string $phrase, string $primary_platform_label): string {
+        $phrase = trim((string) preg_replace('/\s+/u', ' ', $phrase));
+        if ($phrase === '') {
+            return '';
+        }
+
+        $phrase_lower = function_exists('mb_strtolower') ? mb_strtolower($phrase, 'UTF-8') : strtolower($phrase);
+        $platform_label = trim((string) $primary_platform_label);
+        $platform_lower = function_exists('mb_strtolower') ? mb_strtolower($platform_label, 'UTF-8') : strtolower($platform_label);
+        $fallback_lower = strtolower(self::NEUTRAL_PLATFORM_FALLBACK);
+
+        if ($platform_lower !== '' && $platform_lower !== $fallback_lower && strpos($phrase_lower, $platform_lower) !== false) {
+            return 'For ' . $phrase . ' access, confirm handle consistency and recent room activity before joining.';
+        }
+        if (strpos($phrase_lower, 'webcam chat') !== false) {
+            return 'For ' . $phrase . ' searches, check playback quality, mobile usability, and payment/privacy controls before spending credits.';
+        }
+        if (strpos($phrase_lower, 'cam show') !== false || strpos($phrase_lower, 'live cam') !== false) {
+            return 'For ' . $phrase . ' searches, compare room freshness, handle match, and chat usability before joining.';
+        }
+
+        return 'For ' . $phrase . ' searches, verify profile consistency and room usability before joining.';
+    }
+
+    /** @param string[] $phrases @return string[] */
+    private static function order_sparse_feature_phrases(array $phrases, string $primary_platform_label): array {
+        $platform_label = trim((string) $primary_platform_label);
+        $platform_lower = function_exists('mb_strtolower') ? mb_strtolower($platform_label, 'UTF-8') : strtolower($platform_label);
+
+        $buckets = [
+            'platform' => [],
+            'webcam' => [],
+            'cam_show' => [],
+            'live_cam' => [],
+            'other' => [],
+        ];
+
+        foreach ($phrases as $phrase) {
+            $phrase = trim((string) $phrase);
+            if ($phrase === '') {
+                continue;
             }
-            $indices[] = $idx;
-            $selected[] = $pool[$idx];
+            $lower = function_exists('mb_strtolower') ? mb_strtolower($phrase, 'UTF-8') : strtolower($phrase);
+            if ($platform_lower !== '' && strpos($lower, $platform_lower) !== false) {
+                $buckets['platform'][] = $phrase;
+            } elseif (strpos($lower, 'webcam chat') !== false) {
+                $buckets['webcam'][] = $phrase;
+            } elseif (strpos($lower, 'cam show') !== false) {
+                $buckets['cam_show'][] = $phrase;
+            } elseif (strpos($lower, 'live cam') !== false) {
+                $buckets['live_cam'][] = $phrase;
+            } else {
+                $buckets['other'][] = $phrase;
+            }
         }
 
-        return '<ul>' . implode("\n", $selected) . '</ul>';
+        return array_merge(
+            $buckets['platform'],
+            $buckets['webcam'],
+            $buckets['cam_show'],
+            $buckets['live_cam'],
+            $buckets['other']
+        );
     }
 
     private static function build_clean_platform_section_heading(string $name, string $platform_label): string {
@@ -3175,14 +3224,13 @@ class TemplateContent {
             return $content;
         }
 
+        $active_platform_count = count(array_values(array_filter(array_map('strval', $active_platforms), 'strlen')));
+        if ($active_platform_count <= 1) {
+            return $content;
+        }
+
         $platform_text = self::format_platform_list($active_platforms, $primary_platform_label !== '' ? $primary_platform_label : 'verified platforms');
 
-        // v5.8.11-final-copy: "How to Decide Where to Start" compares two
-        // rooms ("test one alternate room", "if both rooms perform similarly",
-        // "if neither room works well") and is misleading on a one-active-
-        // platform page. Gate it on count($active_platforms) >= 2 so single-
-        // platform pages never see the multi-room comparison block.
-        $active_platform_count = count(array_values(array_filter(array_map('strval', $active_platforms), 'strlen')));
         $compare_block = '<h2>How to Decide Where to Start</h2>'
             . '<p>Start with the platform you already trust, then test one alternate room with the same checklist: uptime signals, chat readability, playback stability, moderation flow, and login friction. A repeatable method prevents brand bias and makes it easier to pick the better room for your device and connection.</p>'
             . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. If neither room works well, use the other listed profiles on this page to confirm handles and return later when status changes.</p>';
@@ -3197,16 +3245,10 @@ class TemplateContent {
             . '<p>This approach reduces impersonation risk and keeps your routing consistent: trusted destination first, status check second, and spending decisions only after room quality is clear.</p>',
         ];
 
-        if ($active_platform_count >= 2) {
-            // Multi-platform pages may use the "How to Decide" block. Place it
-            // first in the pool so it is preferred when fewer extras are
-            // needed, but it remains optional under the deterministic
-            // stable_pick_index round-robin.
-            array_unshift($extra_blocks, $compare_block);
-            $extra_blocks[] = '<h2>Practical Use of Non-Live Destinations</h2>'
-                . '<p>Non-live destinations remain useful even when they are not room-entry links. Use them for follow actions, backup profile validation, archived media, and link-hub navigation when the live section is temporarily inactive.</p>'
-                . '<p>This separation keeps the page truthful: live access appears only in the live section, while other official destinations support planning and verification tasks.</p>';
-        }
+        array_unshift($extra_blocks, $compare_block);
+        $extra_blocks[] = '<h2>Practical Use of Non-Live Destinations</h2>'
+            . '<p>Non-live destinations remain useful even when they are not room-entry links. Use them for follow actions, backup profile validation, archived media, and link-hub navigation when the live section is temporarily inactive.</p>'
+            . '<p>This separation keeps the page truthful: live access appears only in the live section, while other official destinations support planning and verification tasks.</p>';
 
         $need = min(count($extra_blocks), (int) ceil((640 - $word_count) / 110));
         $selected = [];

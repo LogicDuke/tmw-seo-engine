@@ -1466,8 +1466,8 @@ foreach ( (array) ( $p4_payload['faq_items'] ?? [] ) as $faq ) {
 }
 ok(
 	stripos( $p4_features, 'Anisyia LiveJasmin' ) !== false
-		&& stripos( $p4_features, 'Anisyia live cam' ) !== false
 		&& stripos( $p4_features, 'Anisyia webcam chat' ) !== false
+		&& ( stripos( $p4_features, 'Anisyia cam show' ) !== false || stripos( $p4_features, 'Anisyia live cam' ) !== false )
 		&& stripos( $p4_faq_text, 'Anisyia cam show' ) === false,
 	'P4b: sparse Features keeps natural keywords while FAQ stays concise (no cam-show tail)'
 );
@@ -1588,13 +1588,17 @@ ok(
 		&& stripos( $p9_single, 'brand bias' ) === false
 		&& stripos( $p9_single, 'Practical Use of Non-Live Destinations' ) === false
 		&& stripos( $p9_single, 'This separation keeps the page truthful' ) === false
-		&& stripos( $p9_single, 'planning and verification tasks' ) === false,
-	'P9: depth guard suppresses How-to-Decide block for one active platform'
+		&& stripos( $p9_single, 'planning and verification tasks' ) === false
+		&& stripos( $p9_single, 'Verification and Review Method' ) === false
+		&& stripos( $p9_single, 'Activity labels represent a snapshot' ) === false
+		&& stripos( $p9_single, 'confirmed profiles and manual checks' ) === false
+		&& stripos( $p9_single, 'copied pages, stale mirrors, or impersonation profiles' ) === false
+		&& stripos( $p9_single, 'How to Use Backup Destinations Safely' ) === false,
+	'P9: depth guard suppresses all late generic filler blocks for one active platform'
 );
-// And it still produces SOME content (the platform-count-agnostic blocks).
 ok(
-	stripos( $p9_single, '<h2>' ) !== false,
-	'P9b: depth guard still appends platform-count-agnostic blocks for one active platform'
+	trim( $p9_single ) === trim( $p9_short_html ),
+	'P9b: one-active-platform depth guard leaves the existing content unchanged'
 );
 
 // ── P10: ensure_minimum_useful_depth allows "How to Decide Where to Start"
@@ -1604,7 +1608,7 @@ ok(
 	stripos( $p10_two, 'How to Decide Where to Start' ) !== false
 		|| stripos( $p10_two, 'Verification and Review Method' ) !== false
 		|| stripos( $p10_two, 'Practical Use of Non-Live Destinations' ) !== false,
-	'P10: depth guard for 2+ active platforms can include How-to-Decide (or another safe block)'
+	'P10: depth guard for 2+ active platforms can include comparison/depth content'
 );
 // Document the limitation: marker insertion is NOT implemented; block is
 // still appended to the end of $content. No assertion on absolute position.
@@ -1709,6 +1713,12 @@ ok(
 	substr_count( strtolower( $p12_features_only ), 'recent room activity' ) <= 1
 		&& substr_count( strtolower( $p12_features_only ), 'payment/privacy controls' ) <= 2,
 	'P12d: sparse features guidance avoids heavy repeated recent-activity/payment-privacy lines'
+);
+ok(
+	stripos( $p12_features_only, 'Focus on room freshness' ) === false
+		&& stripos( $p12_features_only, 'Compare login friction' ) === false
+		&& substr_count( $p12_features_only, '<li>' ) <= 2,
+	'P12e: one-active-platform Features removes generic intro, omits multi-room check, and caps bullets at 2'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
