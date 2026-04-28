@@ -1721,6 +1721,107 @@ ok(
 	'P12e: one-active-platform Features removes generic intro, omits multi-room check, and caps bullets at 2'
 );
 
+// ─── Q. sparse one-active Rank Math word-count support paragraph ───────────
+section( '=== Q. sparse one-active word-count support paragraph ===' );
+
+$q_support_line = 'Before spending credits, do a quick room check: confirm the profile handle, scan recent activity cues, test playback on your device, and review payment and privacy controls so your first click stays useful.';
+$q_sparse_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live-room option from this check. Start there for live access.',
+		'Use the other listed profiles only when you need updates or support.',
+	],
+	'watch_section_paragraphs' => [
+		'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.',
+	],
+	'comparison_section_paragraphs' => [
+		'Before joining, confirm the handle and check recent room activity.',
+	],
+	'faq_items' => [
+		[ 'q' => 'Which link should I open first?', 'a' => 'Open the LiveJasmin room first; use the other profiles only for updates.' ],
+		[ 'q' => 'What does non-active mean?', 'a' => 'It means the profile can be useful for checks, but not for entering a live room right now.' ],
+	],
+	'features_section_paragraphs' => [
+		'For Anisyia cam show checks, compare playback stability and chat readability before joining.',
+		'For Anisyia webcam chat comparisons, focus on mobile playback quality and clear chat controls.',
+	],
+	'official_links_section_paragraphs' => [
+	'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials, and link hubs.',
+	'Latest check: 7 profile links found, including 1 live profile.',
+	],
+];
+$q_sparse_payload['external_info_html'] =
+	'<h3>LiveJasmin</h3><ul><li><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">Watch Live on LiveJasmin</a></li></ul>'
+	. '<h3>OnlyFans</h3><ul><li><a href="https://onlyfans.com/anisyia" rel="nofollow sponsored" target="_blank">OnlyFans</a></li></ul>'
+	. '<h3>X</h3><ul><li><a href="https://x.com/anisyia" rel="noopener" target="_blank">X</a></li></ul>';
+
+$q_before = ModelPageRenderer::render( 'Anisyia', $q_sparse_payload );
+$q_before_words = str_word_count( wp_strip_all_tags( $q_before ) );
+for ( $q_pad_i = 1; $q_before_words < 570 && $q_pad_i <= 12; $q_pad_i++ ) {
+	$q_sparse_payload['features_section_paragraphs'][] = 'Compare room cues, playback quality, and chat readability before spending credits (' . $q_pad_i . ').';
+	$q_before = ModelPageRenderer::render( 'Anisyia', $q_sparse_payload );
+	$q_before_words = str_word_count( wp_strip_all_tags( $q_before ) );
+}
+$q_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_sparse_payload, 'Anisyia', [ 'LiveJasmin' ], true, 5000 );
+$q_after = ModelPageRenderer::render( 'Anisyia', $q_after_payload );
+$q_after_words = str_word_count( wp_strip_all_tags( $q_after ) );
+$q_added_in_payload = in_array( $q_support_line, (array) ( $q_after_payload['questions_section_paragraphs'] ?? [] ), true );
+
+ok(
+	$q_before_words < 600
+		&& $q_after_words > $q_before_words
+		&& $q_added_in_payload,
+	'Q1: sparse one-active page below 600 words receives the support paragraph and gains practical copy depth'
+);
+ok(
+	$q_added_in_payload,
+	'Q2: support paragraph is injected into sparse payload content'
+);
+ok(
+	stripos( $q_after, 'Verification and Review Method' ) === false
+		&& stripos( $q_after, 'Practical Use of Non-Live Destinations' ) === false
+		&& stripos( $q_after, 'How to Use Backup Destinations Safely' ) === false
+		&& stripos( $q_after, 'How to Decide Where to Start' ) === false
+		&& stripos( $q_after, 'This separation keeps the page truthful' ) === false
+		&& stripos( $q_after, 'brand bias' ) === false
+		&& stripos( $q_after, 'confirmed profiles and manual checks' ) === false,
+	'Q3: no generic depth blocks or banned filler phrases are reintroduced'
+);
+
+$q_dense_payload = $q_sparse_payload;
+$q_dense_payload['features_section_paragraphs'] = array_fill(
+	0, 10,
+	'Use the live profile for room access, then compare playback stability, chat readability, moderation tone, and payment/privacy controls on your device before spending credits.'
+);
+$q_dense_before = ModelPageRenderer::render( 'Anisyia', $q_dense_payload );
+$q_dense_before_words = str_word_count( wp_strip_all_tags( $q_dense_before ) );
+$q_dense_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_dense_payload, 'Anisyia', [ 'LiveJasmin' ], true, 1 );
+$q_dense_after = ModelPageRenderer::render( 'Anisyia', $q_dense_after_payload );
+ok(
+	! in_array( $q_support_line, (array) ( $q_dense_after_payload['questions_section_paragraphs'] ?? [] ), true )
+		&& strpos( $q_dense_after, esc_html( $q_support_line ) ) === false,
+	'Q4: support paragraph is not added when sparse one-active content is already 600+ words'
+);
+
+ok(
+	substr_count( $q_before, 'href="/go/livejasmin/anisyia"' ) === substr_count( $q_after, 'href="/go/livejasmin/anisyia"' )
+		&& substr_count( $q_before, 'href="https://onlyfans.com/anisyia"' ) === substr_count( $q_after, 'href="https://onlyfans.com/anisyia"' )
+		&& substr_count( $q_before, 'href="https://x.com/anisyia"' ) === substr_count( $q_after, 'href="https://x.com/anisyia"' )
+		&& substr_count( $q_before, 'rel="nofollow sponsored"' ) === substr_count( $q_after, 'rel="nofollow sponsored"' )
+		&& substr_count( $q_before, 'rel="noopener"' ) === substr_count( $q_after, 'rel="noopener"' )
+		&& substr_count( $q_before, 'target="_blank"' ) === substr_count( $q_after, 'target="_blank"' )
+		&& substr_count( $q_before, 'href=' ) === substr_count( $q_after, 'href=' ),
+	'Q5: support paragraph path keeps /go/, affiliate/social hrefs, rel/target attributes, and link counts unchanged'
+);
+ok(
+	stripos( $q_after, '<h3>Anisyia cam show</h3>' ) === false
+		&& stripos( $q_after, '<h3>Anisyia webcam chat</h3>' ) === false
+		&& substr_count( $q_after, 'Latest check: 7 profile links found, including 1 live profile.' ) === 1
+		&& stripos( $q_after, 'Anisyia cam show' ) !== false
+		&& stripos( $q_after, 'Anisyia webcam chat' ) !== false,
+	'Q6: existing wins hold (no keyword H3 in Official sections, no duplicate latest-check, keywords preserved naturally)'
+);
+
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
 section( '=== Wiring: save-site coverage ===' );
 

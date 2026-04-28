@@ -260,6 +260,7 @@ class TemplateContent {
         if (!$model_data_gate['is_sufficient']) {
             $renderer_payload = array_merge($renderer_payload, self::build_sparse_model_payload($name, $active_platforms, $model_data_gate, $rankmath_keywords, $extra));
         }
+        $renderer_payload = self::maybe_add_sparse_wordcount_support_paragraph($renderer_payload, $name, $active_platforms, !$model_data_gate['is_sufficient']);
 
         // ── Phrase deduplication (plain-string bags only, before render) ─────
         $dedup_bags = self::deduplicate_payload_phrases([
@@ -651,6 +652,95 @@ class TemplateContent {
             'model_data_notice' => $reason,
             'secondary_heading_slots' => $secondary_heading_slots,
         ];
+    }
+
+    /**
+     * Add one short practical paragraph for sparse one-active-platform pages
+     * when rendered content remains below Rank Math's 600-word threshold.
+     *
+     * @param array<string,mixed> $payload
+     * @param string[] $active_platforms
+     * @return array<string,mixed>
+     */
+    public static function maybe_add_sparse_wordcount_support_paragraph(array $payload, string $name, array $active_platforms, bool $is_sparse, int $minimum_words = 600): array {
+        if (!$is_sparse) {
+            return $payload;
+        }
+
+        $active_platform_count = count(array_values(array_filter(array_map('strval', $active_platforms), 'strlen')));
+        if ($active_platform_count !== 1) {
+            return $payload;
+        }
+
+        $word_count = self::estimate_sparse_payload_word_count($payload);
+        if ($word_count >= max(1, $minimum_words)) {
+            return $payload;
+        }
+
+        $support_line = 'Before spending credits, do a quick room check: confirm the profile handle, scan recent activity cues, test playback on your device, and review payment and privacy controls so your first click stays useful.';
+        $questions_paragraphs = is_array($payload['questions_section_paragraphs'] ?? null) ? $payload['questions_section_paragraphs'] : [];
+        foreach ($questions_paragraphs as $line) {
+            if (trim((string) $line) === $support_line) {
+                return $payload;
+            }
+        }
+
+        $questions_paragraphs[] = $support_line;
+        $payload['questions_section_paragraphs'] = $questions_paragraphs;
+        return $payload;
+    }
+
+    private static function estimate_rankmath_word_count(string $html): int {
+        $text = trim((string) wp_strip_all_tags($html));
+        if ($text === '') {
+            return 0;
+        }
+        $matches = [];
+        preg_match_all('/[\p{L}\p{N}]{2,}/u', $text, $matches);
+        return isset($matches[0]) && is_array($matches[0]) ? count($matches[0]) : 0;
+    }
+
+    /** @param array<string,mixed> $payload */
+    private static function estimate_sparse_payload_word_count(array $payload): int {
+        $parts = [];
+        foreach ([
+            'intro_paragraphs',
+            'watch_section_paragraphs',
+            'official_destinations_section_paragraphs',
+            'community_destinations_section_paragraphs',
+            'about_section_paragraphs',
+            'fans_like_section_paragraphs',
+            'features_section_paragraphs',
+            'comparison_section_paragraphs',
+            'questions_section_paragraphs',
+            'official_links_section_paragraphs',
+        ] as $key) {
+            $value = $payload[$key] ?? [];
+            if (is_string($value)) {
+                $parts[] = $value;
+                continue;
+            }
+            if (is_array($value)) {
+                foreach ($value as $line) {
+                    $parts[] = (string) $line;
+                }
+            }
+        }
+        foreach ((array) ($payload['faq_items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $parts[] = (string) ($item['q'] ?? '');
+            $parts[] = (string) ($item['a'] ?? '');
+        }
+        foreach (['watch_section_html', 'official_destinations_section_html', 'community_destinations_section_html', 'external_info_html', 'explore_more_html'] as $html_key) {
+            $html = trim((string) ($payload[$html_key] ?? ''));
+            if ($html !== '') {
+                $parts[] = $html;
+            }
+        }
+
+        return self::estimate_rankmath_word_count(implode("\n", $parts));
     }
 
     /**
