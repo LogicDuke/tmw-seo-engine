@@ -158,6 +158,22 @@ class ModelCopyCleanup {
 		'verified destinations grouped by platform family so each link reflects its real purpose',
 	];
 
+	/** Repetitive link-language phrases to soften after first strong usage. */
+	const REPETITIVE_LINK_PHRASES = [
+		'official profile links',
+		'verified links',
+		'verified destinations',
+		'official links',
+	];
+
+	/** Low-value filler fragments that can be removed when non-essential. */
+	const WEAK_FILLER_PATTERNS = [
+		'#This makes it easier to decide where to start\.?#iu',
+		'#That gives visitors a clearer path before clicking\.?#iu',
+		'#The practical value is[^.]*\.?#iu',
+		'#This keeps the experience focused[^.]*\.?#iu',
+	];
+
 	/**
 	 * v5.8.10 — model-keyword heading rewrites.
 	 *
@@ -204,6 +220,10 @@ class ModelCopyCleanup {
 		// family cap so the rewritten/removed sentences don't count.
 		$body = self::apply_targeted_rewrites( $body );
 		$body = self::apply_sentence_deletions( $body );
+		$body = self::soften_repetitive_link_language( $body );
+		$body = self::cleanup_repeated_openers( $body );
+		$body = self::compact_faq_answers( $body );
+		$body = self::remove_weak_evidence_padding( $body );
 
 		// v5.8.10 — drop redundant Official Links explanatory paragraphs
 		// before generic dedup so the dedup pass doesn't have to recognise
@@ -568,6 +588,162 @@ class ModelCopyCleanup {
 			},
 			$html
 		);
+	}
+
+	/**
+	 * Soften repetitive verified/offical link language after first use.
+	 */
+	private static function soften_repetitive_link_language( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		$seen = [];
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ) use ( &$seen ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = wp_strip_tags_safe( $inner );
+				foreach ( self::REPETITIVE_LINK_PHRASES as $phrase ) {
+					$key = strtolower( $phrase );
+					if ( stripos( $text, $phrase ) === false ) {
+						continue;
+					}
+					$seen[ $key ] = ( $seen[ $key ] ?? 0 ) + 1;
+					if ( $seen[ $key ] <= 1 ) {
+						continue;
+					}
+					$replacement = ( $phrase === 'official profile links' ) ? 'listed profiles' : 'the links below';
+					$text = (string) preg_replace( '#\b' . preg_quote( $phrase, '#' ) . '\b#iu', $replacement, $text, 1 );
+				}
+				return $open . trim( $text ) . $close;
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Rewrite repeated "page about page" openers into direct user-action wording.
+	 */
+	private static function cleanup_repeated_openers( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+
+				$had_page_opener = false;
+				if ( preg_match( '#^Use this page to\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^Use this page to\s+#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^Use this page(?: as [^:]+)?[:,-]?\s*#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^Use this page(?: as [^:]+)?[:,-]?\s*#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^This page includes\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^This page includes\s+#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^This page helps visitors\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^This page helps visitors\s+#iu', 'Visitors ', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^This guide helps(?: visitors| users)?\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^This guide helps(?: visitors| users)?\s+#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( stripos( $text, 'This section' ) === 0 ) {
+					$text = (string) preg_replace( '#^This section\s+#iu', '', $text, 1 );
+				}
+
+				if ( $had_page_opener && self::is_routing_or_watch_context( $text ) ) {
+					$text = 'Start with the live-room button, then ' . ltrim( $text );
+				}
+
+				$text = trim( $text );
+				if ( $text === '' ) {
+					return '';
+				}
+
+				return $open . ucfirst( $text ) . $close;
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Keep FAQ answers short by removing repeated verification explanation tails.
+	 */
+	private static function compact_faq_answers( string $html ): string {
+		return (string) preg_replace_callback(
+			'#(<h3[^>]*>.*?\?</h3>\s*<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				if ( preg_match( '#<(?:a|strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $m[2] ) ) {
+					return $m[0];
+				}
+				$answer = trim( wp_strip_tags_safe( $m[2] ) );
+				$answer = (string) preg_replace( '#\bThese (?:links|destinations|profiles) are (?:verified|official)[^.]*\.\s*#iu', '', $answer, 1 );
+				$sentences = preg_split( '#(?<=[.!?])\s+#', $answer ) ?: [];
+				$sentences = array_values( array_filter( array_map( 'trim', $sentences ), 'strlen' ) );
+				if ( count( $sentences ) > 2 ) {
+					$sentences = array_slice( $sentences, 0, 2 );
+				}
+				$compact = implode( ' ', $sentences );
+				return $m[1] . $compact . $m[3];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Remove weak filler when it does not add a concrete claim.
+	 */
+	private static function remove_weak_evidence_padding( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				foreach ( self::WEAK_FILLER_PATTERNS as $pattern ) {
+					$text = (string) preg_replace( $pattern, '', $text );
+				}
+				$text = trim( preg_replace( '#\s{2,}#', ' ', $text ) ?? $text );
+				return $text === '' ? '' : $open . $text . $close;
+			},
+			$html
+		);
+	}
+
+	private static function is_routing_or_watch_context( string $text ): bool {
+		return preg_match( '#\b(?:live-room|watch|join|route|routing|profile|destination|platform|button|room|links?)\b#iu', $text ) === 1;
 	}
 
 	// ─── Stage 2b (v5.8.10): adjacent duplicate heading drop ────────────────

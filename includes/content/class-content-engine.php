@@ -433,9 +433,9 @@ class ContentEngine {
                 "PROSE QUALITY RULES (non-negotiable):\n" .
                 "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
                 "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
-                "- Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when the referent is unclear.\n" .
+                "- Prefer explicit entities (model name, platform names, listed profiles) over vague pronouns when the referent is unclear.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
-                "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- faq_items answers should be concise: 1-2 complete sentences unless extra detail is truly required by supplied evidence.\n" .
                 "- faq_items questions must sound like natural spoken questions, not keyword-stuffed pseudo-questions.\n" .
                 "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
                 "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
@@ -447,7 +447,11 @@ class ContentEngine {
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n" .
+                "- Use these terms sparingly across the whole output: verified, official, links, profile links, destinations.\n" .
+                "- Do not explain verification/routing process in more than one place.\n" .
+                "- Do not restate link verification in intro, watch, official-links context, and FAQ all at once.\n" .
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
+                "- Avoid openers like 'This page helps', 'This guide helps', 'Use this page', 'This section', 'What helps most', or 'People land here because'.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
                 "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
                 "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .
@@ -455,7 +459,9 @@ class ContentEngine {
                 "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
                 "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
                 "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
-                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n"
+                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n" .
+                "- If evidence is weak, say less instead of adding generic filler.\n" .
+                "- Use secondary keywords naturally; do not force every secondary keyword into every section.\n"
         ];
 
         $resolved_destinations = ($is_model_page && class_exists(ModelDestinationResolver::class))
@@ -529,7 +535,7 @@ class ContentEngine {
                 "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
                 "- Open each section with the practical decision the visitor needs to make right now.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
-                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
+                "- faq_items: write natural questions real viewers would ask; keep answers concise unless extra detail is necessary.\n";
             $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
             $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";
@@ -1377,9 +1383,9 @@ class ContentEngine {
                 "PROSE QUALITY RULES (non-negotiable):\n" .
                 "- Never repeat the exact focus keyword more than twice in a single paragraph.\n" .
                 "- Keep the exact model name natural; do not force pronouns as a density fix, and never rewrite usernames or literal keyword phrases.\n" .
-                "- Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when the referent is unclear.\n" .
+                "- Prefer explicit entities (model name, platform names, listed profiles) over vague pronouns when the referent is unclear.\n" .
                 "- Do not begin more than one paragraph across ALL sections with 'Viewers who', 'People looking up', or 'Searches for/around'.\n" .
-                "- faq_items answers must be 2-3 complete sentences each and should read like straightforward replies, not mini essays.\n" .
+                "- faq_items answers should be concise: 1-2 complete sentences unless extra detail is truly required by supplied evidence.\n" .
                 "- faq_items questions must sound like natural spoken questions, not keyword-stuffed pseudo-questions.\n" .
                 "- Long-tail phrases are FAQ-anchor guidance only; do not use raw long-tail phrases as paragraph sentence openers.\n" .
                 "- Forbidden sentence starters include: 'Viewers looking for ...', 'A query like ...', 'How to join ... usually ...', or '<Platform> live show schedule ...'.\n" .
@@ -1391,7 +1397,11 @@ class ContentEngine {
                 "- Use contractions when they sound natural, and avoid repeating 'The room...' at the start of consecutive sentences.\n" .
                 "- Avoid the phrases 'official live profile' and 'trusted room links' entirely.\n" .
                 "- Use 'official profile links' at most once across the entire output.\n" .
+                "- Use these terms sparingly across the whole output: verified, official, links, profile links, destinations.\n" .
+                "- Do not explain verification/routing process in more than one place.\n" .
+                "- Do not restate link verification in intro, watch, official-links context, and FAQ all at once.\n" .
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
+                "- Avoid openers like 'This page helps', 'This guide helps', 'Use this page', 'This section', 'What helps most', or 'People land here because'.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
                 "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
                 "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .
@@ -1399,7 +1409,9 @@ class ContentEngine {
                 "- Editor seed facts (if provided) are authoritative and must be used as the primary source before generic fallback.\n" .
                 "- Claim safety: never present unsupported biography/personality/style claims as true.\n" .
                 "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
-                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n"
+                "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n" .
+                "- If evidence is weak, say less instead of adding generic filler.\n" .
+                "- Use secondary keywords naturally; do not force every secondary keyword into every section.\n"
         ];
 
         $user_content =
@@ -1455,7 +1467,7 @@ class ContentEngine {
                 "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
                 "- Open each section with the practical decision the visitor needs to make right now.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
-                "- faq_items: write natural questions real viewers would ask; answers must be 2-3 complete sentences.\n";
+                "- faq_items: write natural questions real viewers would ask; keep answers concise unless extra detail is necessary.\n";
             $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
             $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";

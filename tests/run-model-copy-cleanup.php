@@ -699,6 +699,120 @@ ok(
 	'H29: evidence bio uses "private-chat availability" (not "private-chat interaction") in v5.8.10'
 );
 
+// ─── I. v5.8.11 copy-quality + keyword-preservation regression ─────────────
+section( '=== I. v5.8.11 copy-quality + keyword-preservation regression ===' );
+
+$i_html =
+	'<h2>Official Profile Access</h2>'
+	. '<p>Use this page as a quick routing guide: open verified links first, then compare verified destinations and official profile links before clicking.</p>'
+	. '<p>This page helps visitors decide where to start by repeating verified links and verified destinations language.</p>'
+	. '<h2>Where to Watch Live</h2>'
+	. '<p>Use this page to start with official profile links and verified links.</p>'
+	. '<h2>Common Questions Before You Click</h2>'
+	. '<h3>Which platform should I start with?</h3>'
+	. '<p>Start with the active room first. These links are verified and official and these destinations are verified and official. Then check status before joining.</p>'
+	. '<h2>Features and Platform Experience</h2>'
+	. '<h3>Feature check for private live chat tips</h3>'
+	. '<p>Check playback and private live chat tips before joining. This makes it easier to decide where to start.</p>'
+	. '<p>Use HD live stream experience and live show schedule checks for mobile access.</p>'
+	. '<h2>Official Links and Profiles</h2>'
+	. '<p><a href="/go/chaturbate/anisyia">Watch now</a></p>'
+	. '<p><a href="https://affiliate.example.com/anisyia?ref=abc" rel="nofollow sponsored" target="_blank">Backup profile</a></p>';
+
+$i_clean = ModelCopyCleanup::cleanup( $i_html, 'Anisyia' );
+ok(
+	substr_count( strtolower( $i_clean ), 'official profile links' ) <= 1,
+	'I1: repeated "official profile links" phrasing reduced to at most one usage'
+);
+ok(
+	substr_count( strtolower( $i_clean ), 'verified links' ) <= 2,
+	'I2: repeated "verified links" phrasing is reduced across repeated paragraphs'
+);
+ok(
+	strpos( $i_clean, '/go/chaturbate/anisyia' ) !== false
+		&& strpos( $i_clean, 'https://affiliate.example.com/anisyia?ref=abc' ) !== false
+		&& strpos( $i_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $i_clean, 'target="_blank"' ) !== false,
+	'I3: /go/ URL and external affiliate URL + attributes are preserved exactly'
+);
+ok(
+	strpos( $i_clean, '<h3>Feature check for private live chat tips</h3>' ) !== false,
+	'I4: secondary keyword heading slot survives cleanup'
+);
+ok(
+	stripos( $i_clean, 'private live chat tips' ) !== false
+		&& stripos( $i_clean, 'HD live stream experience' ) !== false
+		&& stripos( $i_clean, 'live show schedule' ) !== false,
+	'I5: naturally placed extra/secondary keyword phrases remain after cleanup'
+);
+ok(
+	stripos( $i_clean, 'This makes it easier to decide where to start.' ) === false,
+	'I6: weak-evidence filler sentence is removed'
+);
+ok(
+	preg_match( '#<h3>Which platform should I start with\?</h3>\s*<p>[^<]*</p>#i', $i_clean ) === 1
+		&& substr_count( preg_replace( '#.*<h3>Which platform should I start with\?</h3>\s*<p>(.*?)</p>.*#is', '$1', $i_clean ), '.' ) <= 2,
+	'I7: FAQ answer remains present and compact (1-2 sentence target)'
+);
+
+// ─── J. hardening safety checks for HTML/inlines/evidence/FAQ links ───────
+section( '=== J. hardening safety checks ===' );
+
+$j_attr_html = '<p class="tmw-test" data-x="1">Use this page to <strong>check</strong> HD live stream experience before joining.</p>';
+$j_attr_clean = ModelCopyCleanup::cleanup( $j_attr_html, 'Anisyia' );
+ok(
+	strpos( $j_attr_clean, 'class="tmw-test"' ) !== false
+		&& strpos( $j_attr_clean, 'data-x="1"' ) !== false,
+	'J1: paragraph attributes are preserved (or paragraph is safely skipped)'
+);
+ok(
+	strpos( $j_attr_clean, '<strong>check</strong>' ) !== false,
+	'J2: inline <strong> formatting is preserved'
+);
+ok(
+	stripos( $j_attr_clean, 'HD live stream experience' ) !== false,
+	'J3: extra keyword phrase survives attr/inline preservation path'
+);
+
+$j_opener_html = '<p>This page includes HD live stream experience checks for mobile users.</p>';
+$j_opener_clean = ModelCopyCleanup::cleanup( $j_opener_html, 'Anisyia' );
+ok(
+	stripos( $j_opener_clean, 'Start with the live-room button') === false,
+	'J4: non-routing opener rewrite does not force live-room CTA phrasing'
+);
+ok(
+	stripos( $j_opener_clean, 'HD live stream experience' ) !== false,
+	'J5: context-safe opener cleanup keeps natural keyword sentence'
+);
+
+$j_evidence_inner =
+	"<!-- tmwseo-seed-evidence:start -->\n"
+	. '<p>This page helps but is editor evidence and must not change.</p>' . "\n"
+	. "<!-- tmwseo-seed-evidence:end -->";
+$j_evidence_doc = $j_evidence_inner . "\n" . '<p>Body paragraph.</p>';
+$j_evidence_clean = ModelCopyCleanup::cleanup( $j_evidence_doc, 'Anisyia' );
+preg_match( '#(<!-- tmwseo-seed-evidence:start -->.*?<!-- tmwseo-seed-evidence:end -->)#s', $j_evidence_clean, $j_ev_match );
+ok(
+	($j_ev_match[1] ?? '') === $j_evidence_inner,
+	'J6: evidence marker block preserved byte-for-byte'
+);
+
+$j_faq_link_html =
+	'<h2>Common Questions Before You Click</h2>'
+	. '<h3>Where should I start?</h3>'
+	. '<p>Start here: <a href="/go/chaturbate/example" rel="nofollow sponsored" target="_blank">open room</a>. These links are verified and official. Then compare options.</p>';
+$j_faq_link_clean = ModelCopyCleanup::cleanup( $j_faq_link_html, 'Anisyia' );
+ok(
+	strpos( $j_faq_link_clean, 'href="/go/chaturbate/example"' ) !== false
+		&& strpos( $j_faq_link_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $j_faq_link_clean, 'target="_blank"' ) !== false,
+	'J7: FAQ answer links keep href/rel/target unchanged'
+);
+ok(
+	substr_count( $j_faq_link_clean, '<a href="/go/chaturbate/example"' ) === 1,
+	'J8: FAQ link is never removed by compacting logic'
+);
+
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
 section( '=== Wiring: save-site coverage ===' );
 
