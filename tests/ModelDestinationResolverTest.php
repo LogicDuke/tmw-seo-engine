@@ -17,7 +17,48 @@ class ModelDestinationResolverTest extends TestCase {
 
     protected function tearDown(): void {
         delete_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION);
+        delete_option('tmwseo_platform_affiliate_settings');
         parent::tearDown();
+    }
+
+    public function test_livejasmin_affiliate_builder_returns_canonical_ctwmsg_url(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $url = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_affiliate_url('livejasmin', 'Anisyia');
+        $this->assertNotSame('', $url);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($url, PHP_URL_HOST));
+        parse_str((string) wp_parse_url($url, PHP_URL_QUERY), $query);
+        $this->assertSame('Anisyia', (string) ($query['performerName'] ?? ''));
+        $this->assertSame('jasmin', (string) ($query['siteId'] ?? ''));
+        $this->assertSame('girl', (string) ($query['categoryName'] ?? ''));
+        $this->assertSame('freechat', (string) ($query['pageName'] ?? ''));
+        $this->assertSame('Topmodels4u', (string) (($query['prm']['psid'] ?? '')));
+        $this->assertSame('205_1', (string) (($query['prm']['pstool'] ?? '')));
+        $this->assertSame('revs', (string) (($query['prm']['psprogram'] ?? '')));
+        $this->assertStringNotContainsString('www.livejasmin.com', $url);
+    }
+
+    public function test_livejasmin_aliases_normalize_to_same_go_and_affiliate_routes(): void {
+        $aliases = ['LiveJasmin', 'live_jasmin', 'jasmin', 'LJ'];
+        foreach ($aliases as $alias) {
+            $go = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::go_url($alias, 'Anisyia');
+            $affiliate = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_affiliate_url($alias, 'Anisyia');
+            $this->assertStringContainsString('/go/livejasmin/Anisyia/', $go);
+            $this->assertSame('ctwmsg.com', (string) wp_parse_url($affiliate, PHP_URL_HOST));
+        }
     }
 
     public function test_resolver_separates_watch_from_social_and_link_hubs(): void {
@@ -157,6 +198,34 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringContainsString('Follow on Instagram', (string) ($payload['community_destinations_section_html'] ?? ''));
         $this->assertStringContainsString('Open Link Hub on Linktree', (string) ($payload['community_destinations_section_html'] ?? ''));
         $this->assertStringContainsString('Visit Channel on YouTube', (string) ($payload['community_destinations_section_html'] ?? ''));
+    }
+
+    public function test_top_watch_cta_and_official_links_keep_livejasmin_routed_not_raw_profile(): void {
+        $post = new \WP_Post();
+        $post->ID = 777;
+
+        $resolved = ModelDestinationResolver::resolve(
+            777,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [
+                ['type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/Anisyia', 'is_active' => true, 'label' => 'LiveJasmin'],
+                ['type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/free/chat/Anisyia', 'is_active' => false, 'label' => 'LiveJasmin'],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $watch = (string) ($payload['watch_section_html'] ?? '');
+        $official = (string) ($payload['official_destinations_section_html'] ?? '');
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $watch);
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $official);
+        $this->assertStringNotContainsString('https://www.livejasmin.com/en/free/chat/Anisyia', $watch . $official);
     }
 
     public function test_verified_camsoda_link_routes_in_frontend_sections_when_mapping_enabled(): void {
