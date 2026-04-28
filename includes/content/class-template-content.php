@@ -427,7 +427,7 @@ class TemplateContent {
             ],
             'community_destinations_section_html' => '',
             'community_destinations_section_paragraphs' => [
-                'Video channels, social profiles, and link hubs are listed in the Official Links and Profiles section below for updates, archives, and handle checks.',
+                'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.',
             ],
             'related_models_html' => '',
             'explore_more_html' => '',
@@ -585,6 +585,10 @@ class TemplateContent {
                     'a' => $first_link_answer,
                 ],
                 [
+                    'q' => 'How do I avoid stale or copied profile links?',
+                    'a' => 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.',
+                ],
+                [
                     'q' => 'What does non-active mean on this page?',
                     'a' => 'It means the profile is useful for checks, but not for entering a live room right now.',
                 ],
@@ -654,13 +658,13 @@ class TemplateContent {
 
     /**
      * Add one short practical paragraph for sparse one-active-platform pages
-     * when rendered content remains below Rank Math's 620-word safety threshold.
+     * when rendered content remains below Rank Math's 680-word safety threshold.
      *
      * @param array<string,mixed> $payload
      * @param string[] $active_platforms
      * @return array<string,mixed>
      */
-    public static function maybe_add_sparse_wordcount_support_paragraph(array $payload, string $name, array $active_platforms, bool $is_sparse, int $minimum_words = 620): array {
+    public static function maybe_add_sparse_wordcount_support_paragraph(array $payload, string $name, array $active_platforms, bool $is_sparse, int $minimum_words = 680): array {
         if (!$is_sparse) {
             return $payload;
         }
@@ -675,7 +679,28 @@ class TemplateContent {
             return $payload;
         }
 
-        $support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. Taking one minute to verify these basics helps your first click stay useful and reduces avoidable surprises.';
+        $support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. A quick check also helps you spot stale mirrors, copied profile pages, or room listings that no longer match the active platform. Keep the first click focused on the confirmed live profile.';
+        $faq_items = is_array($payload['faq_items'] ?? null) ? $payload['faq_items'] : [];
+        $stale_profile_faq_question = 'How do I avoid stale or copied profile links?';
+        $stale_profile_faq_answer = 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.';
+        $has_stale_profile_faq = false;
+        foreach ($faq_items as $faq_item) {
+            if (!is_array($faq_item)) {
+                continue;
+            }
+            if (trim((string) ($faq_item['q'] ?? '')) === $stale_profile_faq_question) {
+                $has_stale_profile_faq = true;
+                break;
+            }
+        }
+        if (!$has_stale_profile_faq) {
+            array_splice($faq_items, 1, 0, [[
+                'q' => $stale_profile_faq_question,
+                'a' => $stale_profile_faq_answer,
+            ]]);
+            $payload['faq_items'] = $faq_items;
+        }
+
         $questions_paragraphs = is_array($payload['questions_section_paragraphs'] ?? null) ? $payload['questions_section_paragraphs'] : [];
         foreach ($questions_paragraphs as $line) {
             if (trim((string) $line) === $support_line) {
