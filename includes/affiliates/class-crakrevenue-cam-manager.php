@@ -735,7 +735,21 @@ class CrakRevenueCamManager {
                 'warnings' => [ 'Tracking template missing — click to add template.' ],
             ];
         }
+        $template = self::sanitize_tracking_template_url( $template );
+        if ( $template === '' ) {
+            return [
+                'safe' => false,
+                'warnings' => [ 'Tracking template contains unknown placeholders or an invalid URL.' ],
+            ];
+        }
         $warnings = [];
+        if ( preg_match_all( '/\{[A-Za-z0-9_]+\}/', $template, $matches ) ) {
+            foreach ( array_unique( $matches[0] ) as $placeholder ) {
+                if ( ! in_array( $placeholder, self::allowed_tracking_placeholders(), true ) ) {
+                    $warnings[] = 'Unknown placeholder detected: ' . $placeholder . '.';
+                }
+            }
+        }
         parse_str( (string) wp_parse_url( $template, PHP_URL_QUERY ), $query );
         foreach ( [ 'performerName', 'model', 'username', 'name', 'user', 'screenName', 'profile' ] as $key ) {
             if ( ! isset( $query[ $key ] ) ) { continue; }
@@ -745,6 +759,64 @@ class CrakRevenueCamManager {
             }
         }
         return [ 'safe' => empty( $warnings ), 'warnings' => $warnings ];
+    }
+
+    /**
+     * Sanitize tracking template URLs while preserving approved placeholders.
+     *
+     * @param string $template Tracking template URL.
+     * @return string
+     */
+    public static function sanitize_tracking_template_url( string $template ): string {
+        $template = trim( $template );
+        if ( $template === '' ) {
+            return '';
+        }
+        $allowed_placeholders = self::allowed_tracking_placeholders();
+        $placeholder_tokens = [];
+        foreach ( $allowed_placeholders as $placeholder ) {
+            $token = '__TMWSEO_PLACEHOLDER_' . strtoupper( trim( $placeholder, '{}' ) ) . '__';
+            $placeholder_tokens[ $placeholder ] = $token;
+        }
+        $tokenized = strtr( $template, $placeholder_tokens );
+        if ( preg_match( '/\{[A-Za-z0-9_]+\}/', $tokenized ) ) {
+            return '';
+        }
+        $sanitized = esc_url_raw( $tokenized );
+        if ( $sanitized === '' || ! wp_http_validate_url( $sanitized ) ) {
+            return '';
+        }
+        return strtr( $sanitized, array_flip( $placeholder_tokens ) );
+    }
+
+    /**
+     * Allowed tracking placeholders for CrakRevenue cam templates.
+     *
+     * @return array<int,string>
+     */
+    private static function allowed_tracking_placeholders(): array {
+        return [
+            '{username}',
+            '{encoded_username}',
+            '{profile_url}',
+            '{encoded_profile_url}',
+            '{platform}',
+            '{offer_id}',
+            '{campaign}',
+            '{source}',
+            '{subaffid}',
+            '{psid}',
+            '{pstool}',
+            '{psprogram}',
+            '{campaign_id}',
+            '{siteid}',
+            '{categoryname}',
+            '{pagename}',
+            '{siteId}',
+            '{categoryName}',
+            '{pageName}',
+            '{subAffId}',
+        ];
     }
 
     /**
@@ -1244,7 +1316,7 @@ class CrakRevenueCamManager {
             if ( $slug === '' || ( $only_slug !== '' && $only_slug !== $slug ) ) {
                 continue;
             }
-            $template = esc_url_raw( (string) ( is_array( $row ) ? ( $row['template_url'] ?? '' ) : '' ) );
+            $template = self::sanitize_tracking_template_url( (string) ( is_array( $row ) ? ( $row['template_url'] ?? '' ) : '' ) );
             $mapping = is_array( $mappings[ $slug ] ?? null ) ? $mappings[ $slug ] : self::default_mapping_row( $slug );
             $mapping['template_url'] = $template;
             $selected_offer_id = (int) ( is_array( $row ) ? ( $row['selected_offer_id'] ?? 0 ) : 0 );
