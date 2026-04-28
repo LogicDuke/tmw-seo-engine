@@ -88,6 +88,35 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat', $destination);
     }
 
+    public function test_go_livejasmin_alias_route_still_resolves_to_canonical_ctwmsg_destination(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 1,
+                'template' => 'https://www.livejasmin.com/en/free/chat/{username}?psid={psid}&pstool={pstool}&psprogram={psprogram}',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $destination = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::resolve_go_destination('live_jasmin', 'Anisyia');
+        $this->assertNotSame('', $destination);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($destination, PHP_URL_HOST));
+        parse_str((string) wp_parse_url($destination, PHP_URL_QUERY), $query);
+        $this->assertSame('Anisyia', (string) ($query['performerName'] ?? ''));
+        $this->assertSame('jasmin', (string) ($query['siteId'] ?? ''));
+        $this->assertSame('freechat', (string) ($query['pageName'] ?? ''));
+        $this->assertSame('Topmodels4u', (string) (($query['prm']['psid'] ?? '')));
+        $this->assertSame('205_1', (string) (($query['prm']['pstool'] ?? '')));
+        $this->assertSame('revs', (string) (($query['prm']['psprogram'] ?? '')));
+        $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat', $destination);
+    }
+
     public function test_resolver_separates_watch_from_social_and_link_hubs(): void {
         $platform_links = [
             ['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1],
