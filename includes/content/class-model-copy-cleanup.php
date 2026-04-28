@@ -164,6 +164,8 @@ class ModelCopyCleanup {
 	const OFFICIAL_LINKS_DROP_PARAGRAPHS = [
 		'official platform profiles are listed here if you want to compare the rooms directly before choosing a watch link',
 		'verified destinations grouped by platform family so each link reflects its real purpose',
+		'verified profiles grouped by platform family so each link reflects its real purpose',
+		'listed profiles grouped by platform family so each link reflects its real purpose',
 	];
 
 	/** Repetitive link-language phrases to soften after first strong usage. */
@@ -190,6 +192,11 @@ class ModelCopyCleanup {
 		'#\bIdentity\s+safety:\s*#iu'     => '',
 		'#\bBackup\s+strategy:\s*#iu'     => '',
 		'#\bVerification\s+notes:\s*#iu'  => '',
+		'#\bLive-room\s+priority:\s*#iu'  => '',
+		'#\bBackup\s+option:\s*#iu'       => '',
+		'#\bPractical\s+focus:\s*#iu'     => '',
+		'#\bPlatform\s+checks:\s*#iu'     => '',
+		'#\bAvoid\s+copycat\s+pages:\s*#iu' => '',
 	];
 
 	/** Page-level routing/status repetition budget and soft rewrites. */
@@ -251,17 +258,14 @@ class ModelCopyCleanup {
 		// family cap so the rewritten/removed sentences don't count.
 		$body = self::apply_targeted_rewrites( $body );
 		$body = self::apply_sentence_deletions( $body );
+		$body = self::drop_official_links_explanatory_paragraphs( $body );
 		$body = self::rewrite_internal_safety_labels( $body );
 		$body = self::soften_repetitive_link_language( $body );
 		$body = self::cleanup_repeated_openers( $body );
 		$body = self::apply_routing_repetition_budget( $body );
+		$body = self::repair_grammar_artifacts( $body );
 		$body = self::compact_faq_answers( $body );
 		$body = self::remove_weak_evidence_padding( $body );
-
-		// v5.8.10 — drop redundant Official Links explanatory paragraphs
-		// before generic dedup so the dedup pass doesn't have to recognise
-		// them. Real anchors / groups are skipped by design.
-		$body = self::drop_official_links_explanatory_paragraphs( $body );
 
 		// Part C heading rewrites (model-aware in v5.8.10).
 		$body = self::rewrite_headings( $body, $model_name );
@@ -718,6 +722,9 @@ class ModelCopyCleanup {
 				}
 
 				$text = trim( $text );
+				if ( preg_match( '#^This page routes you through (?:checked destination links|listed profile links).*(?:search friction)\.?$#iu', $text ) === 1 ) {
+					return '';
+				}
 				if ( $text === '' ) {
 					return '';
 				}
@@ -784,11 +791,19 @@ class ModelCopyCleanup {
 					if ( ! is_int( $occ ) || $occ <= 0 ) {
 						continue;
 					}
-					$counts[ $term ] = ( $counts[ $term ] ?? 0 ) + $occ;
-					if ( $counts[ $term ] <= $limit ) {
+					$current_count = (int) ( $counts[ $term ] ?? 0 );
+					$allowed = $limit - $current_count;
+					$counts[ $term ] = $current_count + $occ;
+					if ( $allowed >= $occ ) {
 						continue;
 					}
-					$text = (string) preg_replace( $pattern, '', $text );
+					if ( $allowed <= 0 ) {
+						$replacement = self::routing_budget_replacement( $term );
+						if ( $replacement !== '' ) {
+							$text = (string) preg_replace( $pattern, $replacement, $text );
+						}
+						continue;
+					}
 				}
 				$text = trim( (string) preg_replace( '#\s{2,}#u', ' ', $text ) );
 				$text = trim( (string) preg_replace( '#\s+([,.;:])#u', '$1', $text ) );
@@ -815,6 +830,39 @@ class ModelCopyCleanup {
 			$text = (string) preg_replace( $pattern, $replace, $text );
 		}
 		return $text;
+	}
+
+	private static function routing_budget_replacement( string $term ): string {
+		$map = [
+			'verified' => 'checked',
+			'destination' => 'profile',
+			'active live-room destination' => 'live profile',
+			'non-active' => 'currently non-live',
+			'status can change' => 'availability may shift',
+			'recheck' => 'double-check',
+			'backup checks' => 'fallback checks',
+			'live-room button' => 'live profile link',
+			'start with the confirmed live profile first' => 'start with the confirmed live profile',
+		];
+		return (string) ( $map[ $term ] ?? '' );
+	}
+
+	private static function repair_grammar_artifacts( string $html ): string {
+		$repairs = [
+			'#\bor,\s*but\b#iu' => 'or but',
+			'#\band,\s*but\b#iu' => 'and but',
+			'#\bor,\s*[.]\b#iu' => '.',
+			'#\band,\s*[.]\b#iu' => '.',
+			'#\bfor follow,\s*support,\s*or,\b#iu' => 'for following or support',
+			'#,\s*,+#u' => ', ',
+			'#,\s*\.#u' => '.',
+			'#\b(or|and)\s+but\b#iu' => 'but',
+		];
+		foreach ( $repairs as $pattern => $replace ) {
+			$html = (string) preg_replace( $pattern, $replace, $html );
+		}
+		$html = (string) preg_replace( '#\s{2,}#u', ' ', $html );
+		return $html;
 	}
 
 	/**

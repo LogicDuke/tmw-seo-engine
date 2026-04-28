@@ -423,9 +423,7 @@ class TemplateContent {
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy, $editor_seed),
             'official_destinations_section_html' => $official_destinations_html,
             'official_destinations_section_paragraphs' => [
-                'These profiles are useful for follow updates, support, or backup checks, but they are not live-room buttons.',
-                'Use the live section first for room entry, then use these links when you need follow-up or status checks.',
-                'Room availability can change, so recheck before spending credits.',
+                'These profiles are useful for following or support, but they are not live-room buttons.',
             ],
             'community_destinations_section_html' => $community_destinations_html,
             'community_destinations_section_paragraphs' => [
@@ -543,7 +541,7 @@ class TemplateContent {
         if ($active_platform_count === 1) {
             $intro_first = $platform_text . ' is the confirmed live-room option from this check. Start there for live access.';
             $comparison_lines = [
-                'Use this checklist before you join: verify handle match, confirm recent room activity, check chat readability, and confirm mobile playback stability.',
+                'Before joining, confirm the handle, check recent room activity, chat readability, and mobile playback stability.',
             ];
         } elseif ($active_platform_count >= 2) {
             $intro_first = 'Live profiles are currently available on ' . $platform_text . '. Open one live room first, then compare the rest if needed.';
@@ -599,7 +597,7 @@ class TemplateContent {
             'intro_paragraphs' => [
                 $intro_first,
                 'Use other listed profiles for follow-up or backup checks.'
-                    . (!empty($secondary_visible_phrases[0]) ? ' This is especially useful when you are researching ' . $secondary_visible_phrases[0] . '.' : ''),
+                    . (!empty($secondary_visible_phrases[0]) ? ' This also helps with ' . $secondary_visible_phrases[0] . ' checks.' : ''),
                 
             ],
             'about_section_paragraphs' => [],
@@ -1121,7 +1119,7 @@ class TemplateContent {
 
             // 3. Not in body or heading → append a minimal H3 + one-sentence paragraph
             // to the Features section (or end of content if Features not found).
-            $kw_sentence = 'For ' . $kw . ', start with the confirmed live profile first and use other listed profiles for updates or backup checks.';
+            $kw_sentence = 'For ' . $kw . ', compare room freshness, handle match, and chat usability before you join.';
             $inject_block = "\n<h3>" . esc_html($heading_phrase) . "</h3>\n<p>" . esc_html($kw_sentence) . "</p>";
 
             // Try to inject after Features H2 section.
@@ -1369,7 +1367,6 @@ class TemplateContent {
         }
 
         return '<h3>' . esc_html('Find ' . $name . ' elsewhere') . '</h3>'
-            . '<p>' . esc_html('Verified destinations grouped by platform family so each link reflects its real purpose.') . '</p>'
             . implode('', $chunks);
     }
 
@@ -1451,23 +1448,15 @@ class TemplateContent {
      */
     private static function build_official_links_summary(string $name, array $cta_links, int $post_id, array $resolved_destinations = []): string {
         $types = [];
-        if (!empty($cta_links)) {
-            $types[] = 'active live cam platforms';
-        }
+        $live_count = !empty($cta_links) ? count($cta_links) : 0;
         $resolved = !empty($resolved_destinations) ? $resolved_destinations : ModelDestinationResolver::resolve($post_id);
-        if (!empty($resolved['personal_site_destinations'])) { $types[] = 'official and personal sites'; }
-        if (!empty($resolved['fan_platform_destinations'])) { $types[] = 'fan pages'; }
-        if (!empty($resolved['tube_destinations'])) { $types[] = 'video channels'; }
-        if (!empty($resolved['social_destinations'])) { $types[] = 'social profiles'; }
-        if (!empty($resolved['link_hub_destinations'])) { $types[] = 'link hubs'; }
-        if (!empty($resolved['source_of_truth_summary']['seed_platform_notes'])) {
-            $types[] = 'editor platform notes';
+        $summary = is_array($resolved['source_of_truth_summary'] ?? null) ? $resolved['source_of_truth_summary'] : [];
+        $total_count = (int) ($summary['verified_count'] ?? 0);
+        if ($total_count <= 0) {
+            $total_count = count((array) ($resolved['all_verified_destinations'] ?? []));
         }
-        $types = array_values(array_unique($types));
-        if (empty($types)) {
-            return 'Use the grouped links below to open the live profile first, then check official sites, fan pages, channels, social profiles, and link hubs.';
-        }
-        return 'Use the grouped links below to open the live profile first, then check ' . self::format_platform_list($types, 'other official profiles') . '.';
+        $types = ['cam platforms', 'official sites', 'fan pages', 'video channels', 'socials', 'link hubs'];
+        return 'Below are the grouped profiles found for ' . $name . ': ' . self::format_platform_list($types, 'profile groups') . '. Latest check: ' . $total_count . ' profile links found, including ' . $live_count . ' live profile' . ($live_count === 1 ? '' : 's') . '.';
     }
 
     /**
@@ -1884,12 +1873,7 @@ class TemplateContent {
             return '';
         }
 
-        $note = '';
-        if ($include_non_active_note) {
-            $note = '<p>' . esc_html('These profiles are useful for follow, support, or backup checks, but they are not live-room buttons.') . '</p>';
-        }
-
-        return $note . '<ul>' . $items . '</ul>';
+        return '<ul>' . $items . '</ul>';
     }
 
     /**
@@ -2920,17 +2904,17 @@ class TemplateContent {
         $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
 
         $pool = [
-            '<li><strong>Live-room priority:</strong> Start with the confirmed live profile, then use other links for follow-up only.</li>',
-            '<li><strong>Pre-click verification:</strong> Compare handle spelling, profile branding, and room freshness before spending credits or tips.</li>',
-            '<li><strong>Platform checks:</strong> Run a one-minute check for playback stability, chat readability, moderation tone, and login friction.</li>',
-            '<li><strong>Backup option:</strong> Keep one alternate listed profile ready in case your primary room is offline or geo-limited.</li>',
-            '<li><strong>Status check:</strong> Room availability can change, so do one quick recheck before joining.</li>',
-            '<li><strong>Avoid copycat pages:</strong> Start from the listed profiles on this page so you can avoid mirror listings and copied pages.</li>',
-            '<li><strong>Practical focus:</strong> Platform notes describe utility tradeoffs, not unsupported performer-specific claims.</li>',
+            '<li>Start with the confirmed live profile when you want room entry, then use other profiles for updates or support.</li>',
+            '<li>Before spending credits, confirm handle spelling, profile branding, and recent room activity.</li>',
+            '<li>Compare playback stability, chat readability, moderation tone, and login friction across platforms.</li>',
+            '<li>Keep one alternate listed profile ready in case the main room is offline or geo-limited.</li>',
+            '<li>Recheck status before joining, because room availability can change quickly.</li>',
+            '<li>Use listed profiles to avoid copycat pages and handle mismatches.</li>',
+            '<li>Platform notes here focus on observed access behavior, not unverified performer claims.</li>',
         ];
 
         foreach (array_slice($tag_phrases, 0, 2) as $tag) {
-            $pool[] = '<li><strong>' . esc_html(ucfirst($tag)) . ' content:</strong> Fans of ' . esc_html($tag) . ' will find sessions here match that style.</li>';
+            $pool[] = '<li>For ' . esc_html($tag) . ' searches, compare room freshness, chat quality, and profile consistency before joining.</li>';
         }
 
         $hash = abs(crc32($seed));
