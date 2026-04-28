@@ -98,33 +98,39 @@ class Image_Meta_Generator {
         $has_content = $current_alt !== '' || $current_title !== '' || $current_caption !== '' || $current_content !== '';
 
         if ( $already_generated && $has_content ) {
-            if ( self::is_v1_generated_text( $current_alt, $current_title ) ) {
-                // v1 auto-text detected — fall through to upgrade to v2 role-aware text.
-            } else {
-                // User-customised text detected — preserve it.
-                // Stamp version/role so we stop inspecting it on every save.
+            // Fall through when ANY field contains auto-generated text (v1 or secondary-role).
+            // Return early only when EVERY non-empty field is genuinely user-customised.
+            $any_overwritable = self::is_overwritable_alt( $current_alt )
+                || self::is_overwritable_title( $current_title )
+                || self::is_overwritable_caption( $current_caption )
+                || self::is_overwritable_description( $current_content );
+
+            if ( ! $any_overwritable ) {
+                // All fields are user-customised — preserve them.
+                // Stamp flags so this path is skipped on subsequent saves.
                 if ( $meta_version < self::IMAGE_META_VERSION ) {
                     update_post_meta( $attachment_id, '_tmwseo_image_meta_version', self::IMAGE_META_VERSION );
                     update_post_meta( $attachment_id, '_tmwseo_image_role', $role );
                 }
                 return;
             }
+            // At least one field is auto-generated — fall through to per-field write.
         }
 
         // ── Generate role-aware text ───────────────────────────────────────
         $meta   = self::build_meta_text( $attachment, $parent_post, $role );
         $update = [ 'ID' => $attachment_id ];
 
-        // Title: write when empty or matches v1 pattern.
-        if ( ( $current_title === '' || self::matches_v1_model_title( $current_title ) ) && ! empty( $meta['title'] ) ) {
+        // Title: write when safe (empty or any known generated pattern).
+        if ( self::is_overwritable_title( $current_title ) && ! empty( $meta['title'] ) ) {
             $update['post_title'] = $meta['title'];
         }
-        // Caption: write when empty or matches v1 pattern.
-        if ( ( $current_caption === '' || self::matches_v1_caption( $current_caption ) ) && ! empty( $meta['caption'] ) ) {
+        // Caption: write when safe.
+        if ( self::is_overwritable_caption( $current_caption ) && ! empty( $meta['caption'] ) ) {
             $update['post_excerpt'] = $meta['caption'];
         }
-        // Description: write when empty or matches v1 pattern.
-        if ( ( $current_content === '' || self::matches_v1_description( $current_content ) ) && ! empty( $meta['description'] ) ) {
+        // Description: write when safe.
+        if ( self::is_overwritable_description( $current_content ) && ! empty( $meta['description'] ) ) {
             $update['post_content'] = $meta['description'];
         }
 
@@ -135,8 +141,8 @@ class Image_Meta_Generator {
             add_action( 'save_post', [ ImageMetaHooks::class, 'on_save_post_with_thumbnail' ], 20, 3 );
         }
 
-        // Alt: write when empty or matches v1 pattern.
-        if ( ( $current_alt === '' || self::matches_v1_alt( $current_alt ) ) && ! empty( $meta['alt'] ) ) {
+        // Alt: write when safe.
+        if ( self::is_overwritable_alt( $current_alt ) && ! empty( $meta['alt'] ) ) {
             update_post_meta( $attachment_id, '_wp_attachment_image_alt', $meta['alt'] );
         }
 
@@ -624,6 +630,88 @@ class Image_Meta_Generator {
     private static function matches_v1_description( string $desc ): bool {
         return str_starts_with( $desc, 'Featured profile image for ' )
             && str_contains( $desc, 'a live cam model available on ' );
+    }
+
+    // ── Secondary / any-role generated pattern detection ──────────────────
+    //
+    // These patterns match text that was written by our own generator when
+    // an image was (incorrectly) classified as 'secondary'.  They must be
+    // recognised as auto-generated so that --force can upgrade them to the
+    // correct role-specific text without being blocked by the per-field guards.
+    //
+    // Pattern sources (from build_meta_text / secondary case):
+    //   alt:         "{Name} — live webcam model image"
+    //   caption:     "Image from {Name}'s profile on {Site}"
+    //   description: "Profile image for {Name}, a live cam model on {Site}."
+    //   title:       "{Name} | {Site}"          (secondary v2 title)
+    //              + "{Name} front" / "{Name} Back"   (WP auto-title from filename)
+    //              + all v2 role titles with pipe-segments
+
+    /** Detects the v2 secondary-role alt pattern. */
+    private static function matches_secondary_alt( string $alt ): bool {
+        return str_ends_with( $alt, '— live webcam model image' );
+    }
+
+    /** Detects the v2 secondary-role caption pattern. */
+    private static function matches_secondary_caption( string $caption ): bool {
+        return str_starts_with( $caption, 'Image from ' )
+            && str_contains( $caption, "'s profile on " );
+    }
+
+    /** Detects the v2 secondary-role description pattern. */
+    private static function matches_secondary_description( string $desc ): bool {
+        return str_starts_with( $desc, 'Profile image for ' )
+            && str_contains( $desc, ', a live cam model on ' );
+    }
+
+    /**
+     * Detects any TMW auto-generated attachment title so it can be safely replaced.
+     *
+     * Covers:
+     *   v1/v2 primary & banner  → contains "| Live Cam Model |"
+     *   v2 front                → contains "| Profile Preview |"
+     *   v2 back                 → contains "| Webcam Model Info |"
+     *   WP auto-title from file → ends with " front", " back", " front image",
+     *                             " back image" (case-insensitive)
+     */
+    private static function matches_generated_title( string $title ): bool {
+        if ( self::matches_v1_model_title( $title ) )          { return true; }
+        if ( str_contains( $title, '| Profile Preview |' ) )   { return true; }
+        if ( str_contains( $title, '| Webcam Model Info |' ) ) { return true; }
+        $lower = strtolower( $title );
+        foreach ( [ ' front', ' back', '-front', '-back', '_front', '_back',
+                    ' front image', ' back image' ] as $suffix ) {
+            if ( str_ends_with( $lower, $suffix ) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ── Per-field overwrite guards ─────────────────────────────────────────
+    //
+    // Each helper returns true when the current field value is empty OR matches
+    // any TMW auto-generated pattern — meaning it is safe to replace.
+    // Returns false when the value is genuinely user-customised.
+
+    private static function is_overwritable_alt( string $alt ): bool {
+        return $alt === '' || self::matches_v1_alt( $alt ) || self::matches_secondary_alt( $alt );
+    }
+
+    private static function is_overwritable_title( string $title ): bool {
+        return $title === '' || self::matches_generated_title( $title );
+    }
+
+    private static function is_overwritable_caption( string $caption ): bool {
+        return $caption === ''
+            || self::matches_v1_caption( $caption )
+            || self::matches_secondary_caption( $caption );
+    }
+
+    private static function is_overwritable_description( string $desc ): bool {
+        return $desc === ''
+            || self::matches_v1_description( $desc )
+            || self::matches_secondary_description( $desc );
     }
 
     // ── Misc helpers ───────────────────────────────────────────────────────

@@ -434,5 +434,134 @@ namespace TMWSEO\Engine\Tests {
             // The URL should not contribute any extra IDs.
             $this->assertCount( 1, $result, 'URL in array must not produce extra IDs' );
         }
+        // ── T48–T55  Secondary pattern detection ──────────────────────────────
+
+        public function test_secondary_alt_is_detected(): void {
+            $v2_secondary = 'Anisyia — live webcam model image';
+            $this->assertTrue(
+                (bool) call_private( 'matches_secondary_alt', [ $v2_secondary ] ),
+                'Old secondary alt must be detected so --force can upgrade it'
+            );
+        }
+
+        public function test_secondary_caption_is_detected(): void {
+            $v2_caption = "Image from Anisyia's profile on Top Models Webcam";
+            $this->assertTrue(
+                (bool) call_private( 'matches_secondary_caption', [ $v2_caption ] )
+            );
+        }
+
+        public function test_secondary_description_is_detected(): void {
+            $v2_desc = 'Profile image for Anisyia, a live cam model on Top Models Webcam.';
+            $this->assertTrue(
+                (bool) call_private( 'matches_secondary_description', [ $v2_desc ] )
+            );
+        }
+
+        public function test_wp_auto_title_front_is_detected(): void {
+            // "Anisyia front" — WordPress title derived from filename
+            $this->assertTrue( (bool) call_private( 'matches_generated_title', [ 'Anisyia front' ] ) );
+        }
+
+        public function test_wp_auto_title_back_is_detected(): void {
+            $this->assertTrue( (bool) call_private( 'matches_generated_title', [ 'Anisyia Back' ] ) );
+        }
+
+        public function test_v2_front_title_is_detected(): void {
+            $this->assertTrue( (bool) call_private( 'matches_generated_title',
+                [ 'Anisyia | Profile Preview | Top Models Webcam' ] ) );
+        }
+
+        public function test_v2_back_title_is_detected(): void {
+            $this->assertTrue( (bool) call_private( 'matches_generated_title',
+                [ 'Anisyia | Webcam Model Info | Top Models Webcam' ] ) );
+        }
+
+        public function test_custom_title_not_detected_as_generated(): void {
+            $this->assertFalse( (bool) call_private( 'matches_generated_title',
+                [ 'My custom portrait title 2024' ] ),
+                'Fully custom title must NOT be flagged as auto-generated'
+            );
+        }
+
+        // ── T56–T62  Per-field overwrite guards ───────────────────────────────
+
+        public function test_is_overwritable_alt_true_for_empty(): void {
+            $this->assertTrue( (bool) call_private( 'is_overwritable_alt', [ '' ] ) );
+        }
+
+        public function test_is_overwritable_alt_true_for_v1_pattern(): void {
+            $this->assertTrue( (bool) call_private( 'is_overwritable_alt',
+                [ 'Anisyia — verified live webcam model profile photo' ] ) );
+        }
+
+        public function test_is_overwritable_alt_true_for_secondary_pattern(): void {
+            $this->assertTrue( (bool) call_private( 'is_overwritable_alt',
+                [ 'Anisyia — live webcam model image' ] ),
+                'Old secondary alt must be overwritable by --force'
+            );
+        }
+
+        public function test_is_overwritable_alt_false_for_custom(): void {
+            $this->assertFalse( (bool) call_private( 'is_overwritable_alt',
+                [ 'Anisyia in a red dress — custom portrait' ] ),
+                'Custom alt must NOT be overwritable'
+            );
+        }
+
+        public function test_is_overwritable_caption_true_for_secondary_pattern(): void {
+            $this->assertTrue( (bool) call_private( 'is_overwritable_caption',
+                [ "Image from Anisyia's profile on Top Models Webcam" ] ),
+                'Old secondary caption must be overwritable'
+            );
+        }
+
+        public function test_is_overwritable_description_true_for_secondary_pattern(): void {
+            $this->assertTrue( (bool) call_private( 'is_overwritable_description',
+                [ 'Profile image for Anisyia, a live cam model on Top Models Webcam.' ] ),
+                'Old secondary description must be overwritable'
+            );
+        }
+
+        public function test_is_overwritable_title_true_for_wp_auto_front(): void {
+            $this->assertTrue( (bool) call_private( 'is_overwritable_title', [ 'Anisyia front' ] ),
+                'WP auto-title "Anisyia front" must be overwritable'
+            );
+        }
+
+        // ── Combined: secondary-pattern fields produce correct new front/back text ──
+
+        public function test_v2_front_alt_differs_from_secondary_alt(): void {
+            // After upgrade, the front alt must not be the old secondary alt.
+            $att    = $this->fake_attachment();
+            $parent = $this->model_post();
+            $front_alt = $this->build( $att, $parent, 'front' )['alt'];
+            $this->assertNotSame( 'Anisyia — live webcam model image', $front_alt,
+                'Upgraded front alt must not be the old secondary alt'
+            );
+        }
+
+        public function test_v2_back_alt_differs_from_secondary_alt(): void {
+            $att    = $this->fake_attachment();
+            $parent = $this->model_post();
+            $back_alt = $this->build( $att, $parent, 'back' )['alt'];
+            $this->assertNotSame( 'Anisyia — live webcam model image', $back_alt,
+                'Upgraded back alt must not be the old secondary alt'
+            );
+        }
+
+        public function test_custom_caption_not_overwritable(): void {
+            $this->assertFalse( (bool) call_private( 'is_overwritable_caption',
+                [ 'My hand-written caption about Anisyia' ] ),
+                'Custom caption must NOT be overwritable'
+            );
+        }
+
+        public function test_custom_description_not_overwritable(): void {
+            $this->assertFalse( (bool) call_private( 'is_overwritable_description',
+                [ 'Fully custom description written by the editor.' ] ),
+                'Custom description must NOT be overwritable'
+            );
+        }
     }
 }
