@@ -699,6 +699,62 @@ ok(
 	'H29: evidence bio uses "private-chat availability" (not "private-chat interaction") in v5.8.10'
 );
 
+// ─── I. v5.8.11 copy-quality + keyword-preservation regression ─────────────
+section( '=== I. v5.8.11 copy-quality + keyword-preservation regression ===' );
+
+$i_html =
+	'<h2>Official Profile Access</h2>'
+	. '<p>Use this page as a quick routing guide: open verified links first, then compare verified destinations and official profile links before clicking.</p>'
+	. '<p>This page helps visitors decide where to start by repeating verified links and verified destinations language.</p>'
+	. '<h2>Where to Watch Live</h2>'
+	. '<p>Use this page to start with official profile links and verified links.</p>'
+	. '<h2>Common Questions Before You Click</h2>'
+	. '<h3>Which platform should I start with?</h3>'
+	. '<p>Start with the active room first. These links are verified and official and these destinations are verified and official. Then check status before joining.</p>'
+	. '<h2>Features and Platform Experience</h2>'
+	. '<h3>Feature check for private live chat tips</h3>'
+	. '<p>Check playback and private live chat tips before joining. This makes it easier to decide where to start.</p>'
+	. '<p>Use HD live stream experience and live show schedule checks for mobile access.</p>'
+	. '<h2>Official Links and Profiles</h2>'
+	. '<p><a href="/go/chaturbate/anisyia">Watch now</a></p>'
+	. '<p><a href="https://affiliate.example.com/anisyia?ref=abc" rel="nofollow sponsored" target="_blank">Backup profile</a></p>';
+
+$i_clean = ModelCopyCleanup::cleanup( $i_html, 'Anisyia' );
+ok(
+	substr_count( strtolower( $i_clean ), 'official profile links' ) <= 1,
+	'I1: repeated "official profile links" phrasing reduced to at most one usage'
+);
+ok(
+	substr_count( strtolower( $i_clean ), 'verified links' ) <= 2,
+	'I2: repeated "verified links" phrasing is reduced across repeated paragraphs'
+);
+ok(
+	strpos( $i_clean, '/go/chaturbate/anisyia' ) !== false
+		&& strpos( $i_clean, 'https://affiliate.example.com/anisyia?ref=abc' ) !== false
+		&& strpos( $i_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $i_clean, 'target="_blank"' ) !== false,
+	'I3: /go/ URL and external affiliate URL + attributes are preserved exactly'
+);
+ok(
+	strpos( $i_clean, '<h3>Feature check for private live chat tips</h3>' ) !== false,
+	'I4: secondary keyword heading slot survives cleanup'
+);
+ok(
+	stripos( $i_clean, 'private live chat tips' ) !== false
+		&& stripos( $i_clean, 'HD live stream experience' ) !== false
+		&& stripos( $i_clean, 'live show schedule' ) !== false,
+	'I5: naturally placed extra/secondary keyword phrases remain after cleanup'
+);
+ok(
+	stripos( $i_clean, 'This makes it easier to decide where to start.' ) === false,
+	'I6: weak-evidence filler sentence is removed'
+);
+ok(
+	preg_match( '#<h3>Which platform should I start with\?</h3>\s*<p>[^<]*</p>#i', $i_clean ) === 1
+		&& substr_count( preg_replace( '#.*<h3>Which platform should I start with\?</h3>\s*<p>(.*?)</p>.*#is', '$1', $i_clean ), '.' ) <= 2,
+	'I7: FAQ answer remains present and compact (1-2 sentence target)'
+);
+
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
 section( '=== Wiring: save-site coverage ===' );
 

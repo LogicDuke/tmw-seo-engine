@@ -146,18 +146,18 @@ class TemplateContent {
         $active_platform_count = count($active_platforms);
         $second_intro_pool = $active_platform_count === 1
             ? [
-                'Start with the active live-room destination first, then use other verified destinations for follow, backup, and profile checks.',
-                'Use this page as a quick routing guide: live-room entry first, then verified non-live destinations for status checks and backup paths.',
-                'Open the active room first, and keep verified backup destinations nearby in case status changes before you join.',
-                'Everything here is practical: one active room, verified backup destinations, and a quick checklist before you commit.',
-                'Use the live-room link for entry, then cross-check the handle on verified non-live destinations if anything looks off.',
+                'Start with the live-room button, then use the other listed profiles for updates or backup access.',
+                'Open the active room first, then use the non-live profiles for status checks and follow-up.',
+                'Use the direct room link first, and keep backup profiles nearby in case room status changes.',
+                'Start with one live-room option, then check other profiles before you commit.',
+                'Use the live-room link for entry, then cross-check the handle on listed non-live profiles if anything looks off.',
             ]
             : [
-                'Start with the official watch links first, then use the comparison section to choose between active platforms.',
-                'Use this page as a quick decision hub: official links first, platform choice notes second.',
+                'Start with the live-room button first, then use the comparison section to choose between active platforms.',
+                'Use the room buttons first, then compare platforms to decide where to stay.',
                 'Use the direct room buttons first; then compare active platforms to decide where to stay.',
-                'Everything here is problem-first: real room access, trusted links, and practical platform choices.',
-                'If you are deciding where to watch, open your familiar platform first and then check the second active room.',
+                'Everything here is practical: real room access first, then platform choice notes.',
+                'If you are deciding where to watch, open your familiar platform first, then check the second active room.',
             ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
         if (!empty($secondary_visible_phrases[0])) {
@@ -165,9 +165,9 @@ class TemplateContent {
         }
 
         $watch_para_pool = [
-            'Use the links below to open live-room destinations found active in the latest review pass. This section intentionally excludes fan pages, social channels, and link hubs.',
-            'Choose a live platform below to reach a verified destination first, then confirm room status before joining. Listings outside this section are for follow/support access.',
-            'Open a verified live profile first, then treat aggregators and copied listings as secondary references only.',
+            'Use the room buttons below to open currently active live destinations first. Social profiles and link hubs are listed separately for follow-up.',
+            'Choose a live platform below first, then confirm room status before joining. Listings outside this section are for updates and support access.',
+            'Open a live profile first, then treat aggregators and copied listings as backup references only.',
         ];
         if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
@@ -207,7 +207,7 @@ class TemplateContent {
         $seed_about = self::build_seed_about_paragraphs($editor_seed, $name);
         $has_specific_about = !empty($seed_about) || self::has_specific_supporting_data($name, $bio, $active_platforms, $tags, $cta_links);
         $features_intro = $model_data_gate['is_sufficient']
-            ? 'Use this section to answer one question fast: which platform matches your speed, trust, and mobile needs.'
+            ? 'Check this section to see which platform matches your speed, trust, and mobile needs.'
             : 'Features listed here cover platform access checks only, not unverified performer-specific traits.';
         $intro_paragraphs = self::build_seed_intro_paragraphs($name, $editor_seed, $active_platforms, $intro, $second_intro);
 
