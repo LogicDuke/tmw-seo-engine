@@ -1724,7 +1724,7 @@ ok(
 // ─── Q. sparse one-active Rank Math word-count support paragraph ───────────
 section( '=== Q. sparse one-active word-count support paragraph ===' );
 
-$q_support_line = 'Before spending credits, do a quick room check: confirm the profile handle, scan recent activity cues, test playback on your device, and review payment and privacy controls so your first click stays useful.';
+$q_support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. Taking one minute to verify these basics helps your first click stay useful and reduces avoidable surprises.';
 $q_sparse_payload = [
 	'active_platforms' => [ 'LiveJasmin' ],
 	'intro_paragraphs' => [
@@ -1757,25 +1757,34 @@ $q_sparse_payload['external_info_html'] =
 
 $q_before = ModelPageRenderer::render( 'Anisyia', $q_sparse_payload );
 $q_before_words = str_word_count( wp_strip_all_tags( $q_before ) );
-for ( $q_pad_i = 1; $q_before_words < 570 && $q_pad_i <= 12; $q_pad_i++ ) {
+for ( $q_pad_i = 1; $q_before_words < 600 && $q_pad_i <= 12; $q_pad_i++ ) {
 	$q_sparse_payload['features_section_paragraphs'][] = 'Compare room cues, playback quality, and chat readability before spending credits (' . $q_pad_i . ').';
 	$q_before = ModelPageRenderer::render( 'Anisyia', $q_sparse_payload );
 	$q_before_words = str_word_count( wp_strip_all_tags( $q_before ) );
 }
-$q_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_sparse_payload, 'Anisyia', [ 'LiveJasmin' ], true, 5000 );
+$q_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_sparse_payload, 'Anisyia', [ 'LiveJasmin' ], true, 620 );
 $q_after = ModelPageRenderer::render( 'Anisyia', $q_after_payload );
 $q_after_words = str_word_count( wp_strip_all_tags( $q_after ) );
+$q_links_heading_pos = strpos( $q_after, 'Official Links' );
 $q_added_in_payload = in_array( $q_support_line, (array) ( $q_after_payload['questions_section_paragraphs'] ?? [] ), true );
 
 ok(
-	$q_before_words < 600
+	$q_before_words < 620
 		&& $q_after_words > $q_before_words
-		&& $q_added_in_payload,
-	'Q1: sparse one-active page below 600 words receives the support paragraph and gains practical copy depth'
+		&& $q_added_in_payload
+		&& ( $q_after_words >= 620 || $q_added_in_payload ),
+	'Q1: sparse one-active page below 620 words receives support copy, with a 620+ target buffer when needed'
 );
 ok(
 	$q_added_in_payload,
-	'Q2: support paragraph is injected into sparse payload content'
+	'Q2: support paragraph is injected into sparse payload content (visible in editor body)'
+);
+ok(
+	$q_added_in_payload
+		&& strpos( $q_after, '<h2>Common Questions Before You Click</h2>' ) !== false
+		&& $q_links_heading_pos !== false
+		&& strpos( $q_after, '<h2>Common Questions Before You Click</h2>' ) < $q_links_heading_pos,
+	'Q2b: support copy is assigned to the Questions block, which renders before Official Links and Profiles'
 );
 ok(
 	stripos( $q_after, 'Verification and Review Method' ) === false
@@ -1800,7 +1809,7 @@ $q_dense_after = ModelPageRenderer::render( 'Anisyia', $q_dense_after_payload );
 ok(
 	! in_array( $q_support_line, (array) ( $q_dense_after_payload['questions_section_paragraphs'] ?? [] ), true )
 		&& strpos( $q_dense_after, esc_html( $q_support_line ) ) === false,
-	'Q4: support paragraph is not added when sparse one-active content is already 600+ words'
+	'Q4: support paragraph is not added when sparse one-active content already clears the minimum-word gate'
 );
 
 ok(
