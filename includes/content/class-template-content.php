@@ -245,8 +245,9 @@ class TemplateContent {
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate, $editor_seed),
             'features_section_paragraphs' => [
                 $features_intro
-                . ' Check playback, chat clarity, and account controls before joining on ' . $platform_ref . '.'
-                . (!empty($secondary_visible_phrases[1]) ? ' If you are comparing ' . $secondary_visible_phrases[1] . ', use verified platform labels before opening a room.' : ''),
+                . ' Use this section for practical platform checks: room freshness, playback stability, chat readability, mobile usability, login friction, and payment/privacy controls.'
+                . ' These notes describe access behavior only, not unverified performer traits.'
+                . (!empty($secondary_visible_phrases[1]) ? ' For ' . $secondary_visible_phrases[1] . ' comparisons, focus on chat usability and room quality on your device.' : ''),
             ],
             'features_section_html' => self::join_html_blocks([
                 self::render_varied_features($name, $tags, $primary_platform_label, $seed),
@@ -438,7 +439,7 @@ class TemplateContent {
             'official_links_section_paragraphs' => [
                 self::build_official_links_summary($name, $cta_links, (int) $post->ID, $resolved_destinations),
                 self::build_verification_process_paragraph($resolved_destinations)
-                    . (!empty($secondary_visible_phrases[2]) ? ' This also helps when checking ' . $secondary_visible_phrases[2] . ' across listed profiles.' : ''),
+                    . (!empty($secondary_visible_phrases[2]) ? ' When checking ' . $secondary_visible_phrases[2] . ', use the grouped profiles to separate live access from fan, social, and link-hub pages.' : ''),
             ],
             'secondary_heading_slots' => $secondary_heading_slots,
             'questions_section_paragraphs' => [],
@@ -597,7 +598,7 @@ class TemplateContent {
             'intro_paragraphs' => [
                 $intro_first,
                 'Use other listed profiles for follow-up or backup checks.'
-                    . (!empty($secondary_visible_phrases[0]) ? ' This also helps with ' . $secondary_visible_phrases[0] . ' checks.' : ''),
+                    . (!empty($secondary_visible_phrases[0]) ? ' For ' . $secondary_visible_phrases[0] . ' searches, use the grouped profiles to separate live-room access from fan and social pages.' : ''),
                 
             ],
             'about_section_paragraphs' => [],
@@ -2904,12 +2905,11 @@ class TemplateContent {
         $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
 
         $pool = [
-            '<li>Start with the confirmed live profile when you want room entry, then use other profiles for updates or support.</li>',
-            '<li>Before spending credits, confirm handle spelling, profile branding, and recent room activity.</li>',
+            '<li>Check whether the room looks recently active before spending credits.</li>',
             '<li>Compare playback stability, chat readability, moderation tone, and login friction across platforms.</li>',
-            '<li>Keep one alternate listed profile ready in case the main room is offline or geo-limited.</li>',
-            '<li>Recheck status before joining, because room availability can change quickly.</li>',
-            '<li>Use listed profiles to avoid copycat pages and handle mismatches.</li>',
+            '<li>Test mobile playback, chat visibility, and control clarity on your device before joining.</li>',
+            '<li>Review payment, privacy, and account requirements before you start a chat session.</li>',
+            '<li>If more than one room is available, compare moderation tone and account friction before you choose.</li>',
             '<li>Platform notes here focus on observed access behavior, not unverified performer claims.</li>',
         ];
 
@@ -3079,11 +3079,7 @@ class TemplateContent {
     }
 
     private static function build_verification_process_paragraph(array $resolved_destinations): string {
-        $summary = (array) ($resolved_destinations['source_of_truth_summary'] ?? []);
-        $verified_total = (int) ($summary['verified_count'] ?? 0);
-        $active_live = (int) ($summary['watch_cta_count'] ?? 0);
-        $active_label = $active_live === 1 ? 'live-room destination' : 'live-room destinations';
-        return 'Latest check: ' . $verified_total . ' profile links found, with ' . $active_live . ' ' . $active_label . ' confirmed for live access.';
+        return 'Verification is based on the latest grouped link check for this page, and live-room status can change after platform updates.';
     }
 
     private static function stable_fallback_variant(string $seed): string {

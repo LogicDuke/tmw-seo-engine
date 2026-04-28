@@ -1195,6 +1195,112 @@ ok(
 	'N12: mutated official-links cleanup preserves grouped anchors and attributes'
 );
 
+// ─── O. PR468 final polish regressions ─────────────────────────────────────
+section( '=== O. PR468 final polish regressions ===' );
+
+$o_keyword_filler_html =
+	'<h3>Anisyia Cam Show</h3>'
+	. '<p>Use other listed profiles for follow-up or backup checks. This also helps with Anisyia cam show checks.</p>';
+$o_keyword_filler_clean = ModelCopyCleanup::cleanup( $o_keyword_filler_html, 'Anisyia' );
+ok(
+	stripos( $o_keyword_filler_clean, 'This also helps with' ) === false
+		&& stripos( $o_keyword_filler_clean, 'cam show checks' ) === false,
+	'O1: extra keyword filler sentence is removed/reworded'
+);
+ok(
+	stripos( $o_keyword_filler_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $o_keyword_filler_clean, 'unverified performer' ) === false,
+	'O2: extra keyword phrase survives naturally without fake performer claims'
+);
+
+$o_latest_dedupe_html =
+	'<h2>Official Links and Profiles</h2>'
+	. '<p>Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.</p>'
+	. '<h3>Anisyia Live Cam</h3>'
+	. '<p>Latest check: 13 profile links found, with 1 live profile confirmed for live access. When checking Anisyia live cam links, use grouped profiles to separate live access from fan and social pages.</p>'
+	. '<p><a href="/go/livejasmin/anisyia" target="_blank" rel="nofollow sponsored">Watch Live</a></p>';
+$o_latest_dedupe_clean = ModelCopyCleanup::cleanup( $o_latest_dedupe_html, 'Anisyia' );
+ok(
+	substr_count( $o_latest_dedupe_clean, 'Latest check:' ) === 1
+		&& substr_count( $o_latest_dedupe_clean, 'profile links found' ) === 1
+		&& substr_count( strtolower( $o_latest_dedupe_clean ), 'live profile confirmed' ) === 0,
+	'O3: latest-check/profile-count sentence appears only once after cleanup'
+);
+ok(
+	stripos( $o_latest_dedupe_clean, 'Anisyia live cam' ) !== false
+		&& strpos( $o_latest_dedupe_clean, 'href="/go/livejasmin/anisyia"' ) !== false,
+	'O4: latest-check dedupe keeps keyword and links intact'
+);
+
+$o_features_repeat_html =
+	'<h2>Features and Platform Experience</h2>'
+	. '<p>Start with the confirmed live profile when you want room entry, then use other profiles for updates or support.</p>'
+	. '<p>Keep one alternate listed profile ready in case the main room is offline or geo-limited.</p>'
+	. '<p>Compare playback stability, chat readability, moderation tone, and login friction across platforms.</p>';
+$o_features_repeat_clean = ModelCopyCleanup::cleanup( $o_features_repeat_html, 'Anisyia' );
+ok(
+	stripos( $o_features_repeat_clean, 'Start with the confirmed live profile when you want room entry' ) === false
+		&& stripos( $o_features_repeat_clean, 'Keep one alternate listed profile ready' ) === false
+		&& stripos( $o_features_repeat_clean, 'Compare playback stability, chat readability, moderation tone, and login friction across platforms.' ) !== false,
+	'O5: features cleanup removes routing repeats while preserving platform-experience guidance'
+);
+ok(
+	stripos( $o_features_repeat_clean, 'Live-room priority:' ) === false
+		&& stripos( $o_features_repeat_clean, 'Backup option:' ) === false
+		&& stripos( $o_features_repeat_clean, 'Practical focus:' ) === false
+		&& stripos( $o_features_repeat_clean, 'Platform checks:' ) === false,
+	'O6: features cleanup output avoids robotic labels'
+);
+
+$o_end_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live-room option from this check. Start there for live access.',
+		'Use other listed profiles for follow-up or backup checks. This also helps with Anisyia cam show checks.',
+	],
+	'watch_section_paragraphs' => [ 'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.' ],
+	'official_destinations_section_paragraphs' => [ 'These profiles are useful for following or support, but they are not live-room buttons.' ],
+	'official_destinations_section_html' => '<ul><li><a href="/go/livejasmin/anisyia" target="_blank" rel="nofollow sponsored">Watch Live on LiveJasmin</a></li></ul>',
+	'community_destinations_section_html' => '<ul>'
+		. '<li><a href="https://x.com/anisyia" target="_blank" rel="noopener">X</a></li>'
+		. '<li><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener">Beacons</a></li>'
+		. '</ul>',
+	'features_section_paragraphs' => [
+		'Start with the confirmed live profile when you want room entry, then use other profiles for updates or support.',
+		'Keep one alternate listed profile ready in case the main room is offline or geo-limited.',
+		'Compare playback stability, chat readability, moderation tone, and login friction across platforms.',
+		'For Anisyia webcam chat comparisons, focus on playback stability, login friction, mobile usability, and chat visibility.',
+	],
+	'official_links_section_paragraphs' => [
+		'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+		'Latest check: 13 profile links found, with 1 live profile confirmed for live access. This also helps when checking Anisyia live cam across listed profiles.',
+	],
+	'secondary_heading_slots' => [
+		'features' => [ 'Anisyia LiveJasmin', 'Anisyia cam show', 'Anisyia webcam chat' ],
+		'official_links' => [ 'Anisyia live cam' ],
+	],
+];
+$o_end_render = ModelPageRenderer::render( 'Anisyia', $o_end_payload );
+$o_end_clean = ModelCopyCleanup::cleanup( $o_end_render, 'Anisyia' );
+ok(
+	stripos( $o_end_clean, 'This also helps with' ) === false
+		&& substr_count( $o_end_clean, 'Latest check:' ) === 1
+		&& stripos( $o_end_clean, 'Start with the confirmed live profile when you want room entry' ) === false
+		&& stripos( $o_end_clean, 'Keep one alternate listed profile ready' ) === false,
+	'O7: end-to-end polish removes filler, duplicate latest-check copy, and routing repeats'
+);
+ok(
+	stripos( $o_end_clean, 'LiveJasmin' ) !== false
+		&& stripos( $o_end_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $o_end_clean, 'Anisyia webcam chat' ) !== false
+		&& stripos( $o_end_clean, 'Anisyia live cam' ) !== false
+		&& strpos( $o_end_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $o_end_clean, 'href="https://x.com/anisyia"' ) !== false
+		&& strpos( $o_end_clean, 'target="_blank"' ) !== false
+		&& strpos( $o_end_clean, 'rel="nofollow sponsored"' ) !== false,
+	'O8: end-to-end polish keeps secondary keywords and link attributes intact'
+);
+
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
 section( '=== Wiring: save-site coverage ===' );
 

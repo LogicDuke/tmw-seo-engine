@@ -148,6 +148,14 @@ class ModelCopyCleanup {
 		// (any leading whitespace/single-space is also consumed so the host
 		//  paragraph doesn't end up with a doubled space.)
 		'#\s*This\s+is(?:\s+especially)?\s+useful\s+when(?:\s+you\s+are)?\s+researching\s+[^.<]*?cam\s+show\.\s*#iu',
+		// "This also helps with {keyword} checks." / "This also helps when checking {keyword} ..."
+		'#\s*This\s+also\s+helps\s+with\s+[^.<]*?\bchecks?\.\s*#iu',
+		'#\s*This\s+also\s+helps\s+when\s+checking\s+[^.<]*?(?:\.\s*|$)#iu',
+		// Repeated routing checklist lines that should not recur outside the
+		// first routing section.
+		'#\s*Start\s+with\s+the\s+confirmed\s+live\s+profile\s+when\s+you\s+want\s+room\s+entry[^.]*\.\s*#iu',
+		'#\s*Keep\s+one\s+alternate\s+listed\s+profile\s+ready[^.]*\.\s*#iu',
+		'#\s*Use\s+listed\s+profiles\s+to\s+avoid\s+copycat\s+pages[^.]*\.\s*#iu',
 	];
 
 	/**
@@ -257,7 +265,9 @@ class ModelCopyCleanup {
 		// Part D targeted rewrites + v5.8.10 sentence deletions before the
 		// family cap so the rewritten/removed sentences don't count.
 		$body = self::apply_targeted_rewrites( $body );
+		$body = self::rewrite_keyword_check_fillers( $body );
 		$body = self::apply_sentence_deletions( $body );
+		$body = self::dedupe_latest_check_sentences( $body );
 		$body = self::drop_official_links_explanatory_paragraphs( $body );
 		$body = self::rewrite_internal_safety_labels( $body );
 		$body = self::soften_repetitive_link_language( $body );
@@ -585,6 +595,92 @@ class ModelCopyCleanup {
 		// the host sentence and its closing punctuation.
 		$html = (string) preg_replace( '#\s+([.,])#', '$1', $html );
 		return $html;
+	}
+
+	/**
+	 * Rewrite mechanical secondary-keyword filler into practical guidance.
+	 * Keeps the keyword phrase and removes "checks" slot-filler wording.
+	 */
+	private static function rewrite_keyword_check_fillers( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				$inner = $m[2];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+
+				$text = preg_replace(
+					'#This\s+also\s+helps\s+with\s+([^.<]+?)\s+checks?\.?#iu',
+					'For $1 searches, focus on room freshness, chat readability, and mobile usability before joining.',
+					$text
+				) ?? $text;
+				$text = preg_replace(
+					'#This\s+also\s+helps\s+when\s+checking\s+([^.<]+?)\s+across\s+listed\s+profiles\.?#iu',
+					'When checking $1 links, use the grouped profiles to separate live access from fan, social, and link-hub pages.',
+					$text
+				) ?? $text;
+				$text = preg_replace(
+					'#This\s+also\s+helps\s+when\s+checking\s+([^.<]+?)\.?#iu',
+					'For $1 searches, focus on room freshness, chat readability, and mobile usability before joining.',
+					$text
+				) ?? $text;
+
+				$text = trim( preg_replace( '#\s{2,}#u', ' ', $text ) ?? $text );
+				return $text === '' ? '' : $m[1] . $text . $m[3];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Keep the first "Latest check" style profile-count sentence only.
+	 */
+	private static function dedupe_latest_check_sentences( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		$seen_latest = false;
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ) use ( &$seen_latest ): string {
+				$inner = $m[2];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+				$is_latest = preg_match( '#\bLatest\s+check:\s*\d+\s+profile\s+links?\s+found\b#iu', $text ) === 1
+					|| preg_match( '#\bprofile\s+links?\s+found\b#iu', $text ) === 1
+					|| preg_match( '#\blive\s+profile\s+confirmed\b#iu', $text ) === 1;
+				if ( ! $is_latest ) {
+					return $m[0];
+				}
+				if ( ! $seen_latest ) {
+					$seen_latest = true;
+					return $m[0];
+				}
+				$text = preg_replace( '#\bLatest\s+check:\s*[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#\b\d+\s+profile\s+links?\s+found[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#\bwith\s+\d+\s+live\s+profile[s]?\s+confirmed[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = trim( preg_replace( '#\s{2,}#u', ' ', $text ) ?? $text );
+				return $text === '' ? '' : $m[1] . $text . $m[3];
+			},
+			$html
+		);
 	}
 
 	// ─── Stage 1c (v5.8.10): Official Links explanatory paragraph drop ──────
