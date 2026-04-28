@@ -10,8 +10,15 @@ require_once TMWSEO_ENGINE_PATH . 'includes/content/class-model-destination-reso
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-model-page-renderer.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/affiliates/class-crakrevenue-cam-manager.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links.php';
 
 class ModelDestinationResolverTest extends TestCase {
+
+    protected function tearDown(): void {
+        delete_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION);
+        parent::tearDown();
+    }
 
     public function test_resolver_separates_watch_from_social_and_link_hubs(): void {
         $platform_links = [
@@ -150,6 +157,112 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringContainsString('Follow on Instagram', (string) ($payload['community_destinations_section_html'] ?? ''));
         $this->assertStringContainsString('Open Link Hub on Linktree', (string) ($payload['community_destinations_section_html'] ?? ''));
         $this->assertStringContainsString('Visit Channel on YouTube', (string) ($payload['community_destinations_section_html'] ?? ''));
+    }
+
+    public function test_verified_camsoda_link_routes_in_frontend_sections_when_mapping_enabled(): void {
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+            ],
+        ]);
+
+        $post = new \WP_Post();
+        $post->ID = 504;
+        $resolved = ModelDestinationResolver::resolve(504, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $official = (string) ($payload['official_destinations_section_html'] ?? '');
+        $this->assertStringContainsString('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&amp;model=anisyia', $official);
+    }
+
+    public function test_schema_sameas_stays_clean_even_when_frontend_verified_link_is_routed(): void {
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+            ],
+        ]);
+        update_post_meta(505, \TMWSEO\Engine\Model\VerifiedLinks::META_KEY, [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => 1],
+        ]);
+
+        $same_as = \TMWSEO\Engine\Model\VerifiedLinks::get_schema_urls(505);
+        $this->assertContains('https://www.camsoda.com/anisyia', $same_as);
+        $this->assertNotContains('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=anisyia', $same_as);
+    }
+
+    public function test_frontend_verified_link_falls_back_to_clean_url_when_mapping_disabled_or_template_unsafe(): void {
+        $post = new \WP_Post();
+        $post->ID = 506;
+
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 0,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+            ],
+        ]);
+        $resolved_disabled = ModelDestinationResolver::resolve(506, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+        $payload_disabled = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved_disabled,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+        $this->assertStringContainsString('https://www.camsoda.com/anisyia', (string) ($payload_disabled['official_destinations_section_html'] ?? ''));
+
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=Anisyia',
+            ],
+        ]);
+        $resolved_unsafe = ModelDestinationResolver::resolve(506, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+        $payload_unsafe = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved_unsafe,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+        $this->assertStringContainsString('https://www.camsoda.com/anisyia', (string) ($payload_unsafe['official_destinations_section_html'] ?? ''));
+    }
+
+    public function test_manual_html_links_are_not_rewritten_globally(): void {
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+            ],
+        ]);
+
+        $html = ModelPageRenderer::render('Anisyia', [
+            'external_info_html' => '<p><a href="https://www.camsoda.com/anisyia" rel="noopener external">Manual editor link</a></p>',
+        ]);
+
+        $this->assertStringContainsString('href="https://www.camsoda.com/anisyia"', $html);
+        $this->assertStringNotContainsString('t.acrsmartcam.com', $html);
     }
 
     public function test_comparison_html_uses_only_live_cam_destinations(): void {
@@ -314,15 +427,27 @@ class ModelDestinationResolverTest extends TestCase {
         $method = new \ReflectionMethod(TemplateContent::class, 'build_verification_process_paragraph');
         $method->setAccessible(true);
 
-        $line = $method->invoke(null, [
+        // v5.8.11-final-copy contract:
+        //   - When verified_count > 0, build_official_links_summary() already
+        //     emits the "Latest check: N profile links found" sentence, so
+        //     build_verification_process_paragraph() returns '' to avoid two
+        //     near-identical paragraphs and to keep "latest grouped link
+        //     check" wording out of the page.
+        //   - When verified_count is zero, it returns a short status note
+        //     that does NOT contain "latest grouped link check" or any
+        //     phrasing that competes with the summary.
+        $populated = (string) $method->invoke(null, [
             'source_of_truth_summary' => [
                 'verified_count' => 4,
                 'watch_cta_count' => 1,
             ],
         ]);
+        $this->assertSame('', trim($populated), 'Verification paragraph is suppressed when a non-zero verified_count is present.');
 
-        $this->assertStringContainsString('1 live-room destination confirmed active in the latest review pass', (string) $line);
-        $this->assertStringNotContainsString('currently confirmed active for live-room routing in this review', (string) $line);
+        $empty = (string) $method->invoke(null, []);
+        $this->assertNotSame('', trim($empty), 'Verification paragraph still surfaces when there are no verified destinations.');
+        $this->assertStringNotContainsString('latest grouped link check', $empty, 'Verification paragraph must not reintroduce the deduped "latest grouped link check" wording.');
+        $this->assertStringContainsString('most recent automated review', $empty);
     }
 
     public function test_single_platform_checklist_intro_uses_review_pass_wording(): void {

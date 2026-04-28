@@ -119,6 +119,14 @@ class ModelCopyCleanup {
 			'pattern' => '#Where\s+shown\s+as\s+non-active,\s*the\s+latest\s+operator\s+review\s+marked\s+that\s+destination[^.<]*\.#iu',
 			'replace' => 'Where shown as non-active, that destination is not currently treated as a live-room entry.',
 		],
+		[
+			'pattern' => '#This\s+section\s+covers\s+([^.<]+?)\s+as\s+part\s+of\s+the\s+verified\s+platform\s+and\s+access\s+information\s+on\s+this\s+page\.#iu',
+			'replace' => 'For $1, start with the confirmed live profile first, then use the other listed profiles for updates or backup checks.',
+		],
+		[
+			'pattern' => '#This\s+section\s+covers\s+([^.<]+?)\.#iu',
+			'replace' => 'For $1, use the confirmed live profile first and keep the other listed profiles as backup.',
+		],
 	];
 
 	/**
@@ -140,6 +148,14 @@ class ModelCopyCleanup {
 		// (any leading whitespace/single-space is also consumed so the host
 		//  paragraph doesn't end up with a doubled space.)
 		'#\s*This\s+is(?:\s+especially)?\s+useful\s+when(?:\s+you\s+are)?\s+researching\s+[^.<]*?cam\s+show\.\s*#iu',
+		// "This also helps with {keyword} checks." / "This also helps when checking {keyword} ..."
+		'#\s*This\s+also\s+helps\s+with\s+[^.<]*?\bchecks?\.\s*#iu',
+		'#\s*This\s+also\s+helps\s+when\s+checking\s+[^.<]*?(?:\.\s*|$)#iu',
+		// Repeated routing checklist lines that should not recur outside the
+		// first routing section.
+		'#\s*Start\s+with\s+the\s+confirmed\s+live\s+profile\s+when\s+you\s+want\s+room\s+entry[^.]*\.\s*#iu',
+		'#\s*Keep\s+one\s+alternate\s+listed\s+profile\s+ready[^.]*\.\s*#iu',
+		'#\s*Use\s+listed\s+profiles\s+to\s+avoid\s+copycat\s+pages[^.]*\.\s*#iu',
 	];
 
 	/**
@@ -156,6 +172,52 @@ class ModelCopyCleanup {
 	const OFFICIAL_LINKS_DROP_PARAGRAPHS = [
 		'official platform profiles are listed here if you want to compare the rooms directly before choosing a watch link',
 		'verified destinations grouped by platform family so each link reflects its real purpose',
+		'verified profiles grouped by platform family so each link reflects its real purpose',
+		'listed profiles grouped by platform family so each link reflects its real purpose',
+	];
+
+	/** Repetitive link-language phrases to soften after first strong usage. */
+	const REPETITIVE_LINK_PHRASES = [
+		'official profile links',
+		'verified links',
+		'verified destinations',
+		'official links',
+	];
+
+	/** Low-value filler fragments that can be removed when non-essential. */
+	const WEAK_FILLER_PATTERNS = [
+		'#This makes it easier to decide where to start\.?#iu',
+		'#That gives visitors a clearer path before clicking\.?#iu',
+		'#The practical value is[^.]*\.?#iu',
+		'#This keeps the experience focused[^.]*\.?#iu',
+	];
+
+	/** Remove internal operational labels from visitor-facing copy. */
+	const INTERNAL_LABEL_REWRITES = [
+		'#\bTruth-first\s+routing:\s*#iu' => '',
+		'#\bDecision\s+clarity:\s*#iu'    => '',
+		'#\bFair\s+platform\s+testing:\s*#iu' => '',
+		'#\bIdentity\s+safety:\s*#iu'     => '',
+		'#\bBackup\s+strategy:\s*#iu'     => '',
+		'#\bVerification\s+notes:\s*#iu'  => '',
+		'#\bLive-room\s+priority:\s*#iu'  => '',
+		'#\bBackup\s+option:\s*#iu'       => '',
+		'#\bPractical\s+focus:\s*#iu'     => '',
+		'#\bPlatform\s+checks:\s*#iu'     => '',
+		'#\bAvoid\s+copycat\s+pages:\s*#iu' => '',
+	];
+
+	/** Page-level routing/status repetition budget and soft rewrites. */
+	const ROUTING_REPETITION_BUDGETS = [
+		'verified'                  => 3,
+		'destination'               => 2,
+		'active live-room destination' => 1,
+		'non-active'                => 1,
+		'status can change'         => 2,
+		'recheck'                   => 2,
+		'backup checks'             => 2,
+		'live-room button'          => 3,
+		'start with the confirmed live profile first' => 1,
 	];
 
 	/**
@@ -203,12 +265,17 @@ class ModelCopyCleanup {
 		// Part D targeted rewrites + v5.8.10 sentence deletions before the
 		// family cap so the rewritten/removed sentences don't count.
 		$body = self::apply_targeted_rewrites( $body );
+		$body = self::rewrite_keyword_check_fillers( $body );
 		$body = self::apply_sentence_deletions( $body );
-
-		// v5.8.10 — drop redundant Official Links explanatory paragraphs
-		// before generic dedup so the dedup pass doesn't have to recognise
-		// them. Real anchors / groups are skipped by design.
+		$body = self::dedupe_latest_check_sentences( $body );
 		$body = self::drop_official_links_explanatory_paragraphs( $body );
+		$body = self::rewrite_internal_safety_labels( $body );
+		$body = self::soften_repetitive_link_language( $body );
+		$body = self::cleanup_repeated_openers( $body );
+		$body = self::apply_routing_repetition_budget( $body );
+		$body = self::repair_grammar_artifacts( $body );
+		$body = self::compact_faq_answers( $body );
+		$body = self::remove_weak_evidence_padding( $body );
 
 		// Part C heading rewrites (model-aware in v5.8.10).
 		$body = self::rewrite_headings( $body, $model_name );
@@ -269,6 +336,13 @@ class ModelCopyCleanup {
 	private static function apply_targeted_rewrites( string $html ): string {
 		foreach ( self::TARGETED_REWRITES as $rule ) {
 			$html = (string) preg_replace( $rule['pattern'], $rule['replace'], $html );
+		}
+		return $html;
+	}
+
+	private static function rewrite_internal_safety_labels( string $html ): string {
+		foreach ( self::INTERNAL_LABEL_REWRITES as $pattern => $replace ) {
+			$html = (string) preg_replace( $pattern, $replace, $html );
 		}
 		return $html;
 	}
@@ -523,6 +597,110 @@ class ModelCopyCleanup {
 		return $html;
 	}
 
+	/**
+	 * Rewrite mechanical secondary-keyword filler into practical guidance.
+	 * Keeps the keyword phrase and removes "checks" slot-filler wording.
+	 */
+	private static function rewrite_keyword_check_fillers( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				$inner = $m[2];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+
+				$text = preg_replace(
+					'#This\s+also\s+helps\s+with\s+([^.<]+?)\s+checks?\.?#iu',
+					'For $1 searches, focus on room freshness, chat readability, and mobile usability before joining.',
+					$text
+				) ?? $text;
+				$text = preg_replace(
+					'#This\s+also\s+helps\s+when\s+checking\s+([^.<]+?)\s+across\s+listed\s+profiles\.?#iu',
+					'When checking $1 links, use the grouped profiles to separate live access from fan, social, and link-hub pages.',
+					$text
+				) ?? $text;
+				$text = preg_replace(
+					'#This\s+also\s+helps\s+when\s+checking\s+([^.<]+?)\.?#iu',
+					'For $1 searches, focus on room freshness, chat readability, and mobile usability before joining.',
+					$text
+				) ?? $text;
+
+				$text = trim( preg_replace( '#\s{2,}#u', ' ', $text ) ?? $text );
+				return $text === '' ? '' : $m[1] . $text . $m[3];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Keep the first "Latest check" style profile-count sentence only.
+	 *
+	 * v5.8.11-final-copy: extended detection so phrases that bypass the old
+	 * "Latest check:" / "profile links found" / "live profile confirmed"
+	 * triggers no longer slip through unchecked. Newly recognised phrasings:
+	 *   - "latest grouped link check"
+	 *   - "latest automated review"
+	 *   - "latest review"
+	 *   - "grouped link check"
+	 * The primary fix lives in TemplateContent (so the duplicates aren't
+	 * generated in the first place); this widens the safety net.
+	 */
+	private static function dedupe_latest_check_sentences( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		$seen_latest = false;
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ) use ( &$seen_latest ): string {
+				$inner = $m[2];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+				$is_latest = preg_match( '#\bLatest\s+check:\s*\d+\s+profile\s+links?\s+found\b#iu', $text ) === 1
+					|| preg_match( '#\bprofile\s+links?\s+found\b#iu', $text ) === 1
+					|| preg_match( '#\blive\s+profile\s+confirmed\b#iu', $text ) === 1
+					|| preg_match( '#\blatest\s+grouped\s+link\s+check\b#iu', $text ) === 1
+					|| preg_match( '#\blatest\s+automated\s+review\b#iu', $text ) === 1
+					|| preg_match( '#\bgrouped\s+link\s+check\b#iu', $text ) === 1
+					|| preg_match( '#\blatest\s+review\b#iu', $text ) === 1;
+				if ( ! $is_latest ) {
+					return $m[0];
+				}
+				if ( ! $seen_latest ) {
+					$seen_latest = true;
+					return $m[0];
+				}
+				$text = preg_replace( '#\bLatest\s+check:\s*[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#\b\d+\s+profile\s+links?\s+found[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#\bwith\s+\d+\s+live\s+profile[s]?\s+confirmed[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#[^.]*\blatest\s+grouped\s+link\s+check\b[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#[^.]*\blatest\s+automated\s+review\b[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#[^.]*\bgrouped\s+link\s+check\b[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = preg_replace( '#[^.]*\blatest\s+review\b[^.]*\.\s*#iu', '', $text ) ?? $text;
+				$text = trim( preg_replace( '#\s{2,}#u', ' ', $text ) ?? $text );
+				return $text === '' ? '' : $m[1] . $text . $m[3];
+			},
+			$html
+		);
+	}
+
 	// ─── Stage 1c (v5.8.10): Official Links explanatory paragraph drop ──────
 
 	/**
@@ -568,6 +746,271 @@ class ModelCopyCleanup {
 			},
 			$html
 		);
+	}
+
+	/**
+	 * Soften repetitive verified/offical link language after first use.
+	 */
+	private static function soften_repetitive_link_language( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		$seen = [];
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ) use ( &$seen ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = wp_strip_tags_safe( $inner );
+				foreach ( self::REPETITIVE_LINK_PHRASES as $phrase ) {
+					$key = strtolower( $phrase );
+					if ( stripos( $text, $phrase ) === false ) {
+						continue;
+					}
+					$seen[ $key ] = ( $seen[ $key ] ?? 0 ) + 1;
+					if ( $seen[ $key ] <= 1 ) {
+						continue;
+					}
+					$replacement = ( $phrase === 'official profile links' ) ? 'listed profiles' : 'the links below';
+					$text = (string) preg_replace( '#\b' . preg_quote( $phrase, '#' ) . '\b#iu', $replacement, $text, 1 );
+				}
+				return $open . trim( $text ) . $close;
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Rewrite repeated "page about page" openers into direct user-action wording.
+	 */
+	private static function cleanup_repeated_openers( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+
+				$had_page_opener = false;
+				if ( preg_match( '#^Use this page to\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^Use this page to\s+#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^Use this page(?: as [^:]+)?[:,-]?\s*#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^Use this page(?: as [^:]+)?[:,-]?\s*#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^This page includes\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^This page includes\s+#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^This page helps visitors\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^This page helps visitors\s+#iu', 'Visitors ', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( preg_match( '#^This guide helps(?: visitors| users)?\s+#iu', $text ) === 1 ) {
+					$text = (string) preg_replace( '#^This guide helps(?: visitors| users)?\s+#iu', '', $text, 1 );
+					$had_page_opener = true;
+				} elseif ( stripos( $text, 'This section' ) === 0 ) {
+					$text = (string) preg_replace( '#^This section\s+#iu', '', $text, 1 );
+				}
+
+				if ( $had_page_opener && self::is_routing_or_watch_context( $text ) ) {
+					$text = 'Start with the live-room button, then ' . ltrim( $text );
+				}
+
+				$text = trim( $text );
+				if ( preg_match( '#^This page routes you through (?:checked destination links|listed profile links).*(?:search friction)\.?$#iu', $text ) === 1 ) {
+					return '';
+				}
+				if ( $text === '' ) {
+					return '';
+				}
+
+				return $open . ucfirst( $text ) . $close;
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Keep FAQ answers short by removing repeated verification explanation tails.
+	 */
+	private static function compact_faq_answers( string $html ): string {
+		return (string) preg_replace_callback(
+			'#(<h3[^>]*>.*?\?</h3>\s*<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				if ( preg_match( '#<(?:a|strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $m[2] ) ) {
+					return $m[0];
+				}
+				$answer = trim( wp_strip_tags_safe( $m[2] ) );
+				$answer = (string) preg_replace( '#\bThese (?:links|destinations|profiles) are (?:verified|official)[^.]*\.\s*#iu', '', $answer, 1 );
+				$sentences = preg_split( '#(?<=[.!?])\s+#', $answer ) ?: [];
+				$sentences = array_values( array_filter( array_map( 'trim', $sentences ), 'strlen' ) );
+				if ( count( $sentences ) > 2 ) {
+					$sentences = array_slice( $sentences, 0, 2 );
+				}
+				$compact = implode( ' ', $sentences );
+				return $m[1] . $compact . $m[3];
+			},
+			$html
+		);
+	}
+
+	/**
+	 * Apply a page-level repetition budget to common routing/status language.
+	 */
+	private static function apply_routing_repetition_budget( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		$counts = [];
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ) use ( &$counts ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+
+				$text = self::soften_routing_terms( $text );
+				foreach ( self::ROUTING_REPETITION_BUDGETS as $term => $limit ) {
+					$pattern = '#\b' . preg_quote( $term, '#' ) . '\b#iu';
+					$occ = preg_match_all( $pattern, $text );
+					if ( ! is_int( $occ ) || $occ <= 0 ) {
+						continue;
+					}
+					$current_count = (int) ( $counts[ $term ] ?? 0 );
+					$allowed = $limit - $current_count;
+					$counts[ $term ] = $current_count + $occ;
+					if ( $allowed >= $occ ) {
+						continue;
+					}
+					if ( $allowed <= 0 ) {
+						$replacement = self::routing_budget_replacement( $term );
+						if ( $replacement !== '' ) {
+							$text = (string) preg_replace( $pattern, $replacement, $text );
+						}
+						continue;
+					}
+				}
+				$text = trim( (string) preg_replace( '#\s{2,}#u', ' ', $text ) );
+				$text = trim( (string) preg_replace( '#\s+([,.;:])#u', '$1', $text ) );
+				if ( $text === '' ) {
+					return '';
+				}
+				return $open . $text . $close;
+			},
+			$html
+		);
+	}
+
+	private static function soften_routing_terms( string $text ): string {
+		$replacements = [
+			'#\bchecked destination links\b#iu'             => 'listed profile links',
+			'#\bchecked destinations\b#iu'                  => 'listed profiles',
+			'#\bverified non-live destinations\b#iu'        => 'other profiles',
+			'#\bactive live-room destination\b#iu'          => 'live profile',
+			'#\blive-room destination\b#iu'                 => 'live profile',
+			'#\bdestinations\b#iu'                          => 'profiles',
+			'#\bdestination\b#iu'                           => 'profile',
+		];
+		foreach ( $replacements as $pattern => $replace ) {
+			$text = (string) preg_replace( $pattern, $replace, $text );
+		}
+		return $text;
+	}
+
+	private static function routing_budget_replacement( string $term ): string {
+		$map = [
+			'verified' => 'checked',
+			'destination' => 'profile',
+			'active live-room destination' => 'live profile',
+			'non-active' => 'currently non-live',
+			'status can change' => 'availability may shift',
+			'recheck' => 'double-check',
+			'backup checks' => 'fallback checks',
+			'live-room button' => 'live profile link',
+			'start with the confirmed live profile first' => 'start with the confirmed live profile',
+		];
+		return (string) ( $map[ $term ] ?? '' );
+	}
+
+	private static function repair_grammar_artifacts( string $html ): string {
+		$repairs = [
+			'#\bor,\s*but\b#iu' => 'or but',
+			'#\band,\s*but\b#iu' => 'and but',
+			'#\bor,\s*[.]\b#iu' => '.',
+			'#\band,\s*[.]\b#iu' => '.',
+			'#\bfor follow,\s*support,\s*or,\b#iu' => 'for following or support',
+			'#,\s*,+#u' => ', ',
+			'#,\s*\.#u' => '.',
+			'#\b(or|and)\s+but\b#iu' => 'but',
+		];
+		foreach ( $repairs as $pattern => $replace ) {
+			$html = (string) preg_replace( $pattern, $replace, $html );
+		}
+		$html = (string) preg_replace( '#\s{2,}#u', ' ', $html );
+		return $html;
+	}
+
+	/**
+	 * Remove weak filler when it does not add a concrete claim.
+	 */
+	private static function remove_weak_evidence_padding( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				foreach ( self::WEAK_FILLER_PATTERNS as $pattern ) {
+					$text = (string) preg_replace( $pattern, '', $text );
+				}
+				$text = trim( preg_replace( '#\s{2,}#', ' ', $text ) ?? $text );
+				return $text === '' ? '' : $open . $text . $close;
+			},
+			$html
+		);
+	}
+
+	private static function is_routing_or_watch_context( string $text ): bool {
+		return preg_match( '#\b(?:live-room|watch|join|route|routing|profile|destination|platform|button|room|links?)\b#iu', $text ) === 1;
 	}
 
 	// ─── Stage 2b (v5.8.10): adjacent duplicate heading drop ────────────────

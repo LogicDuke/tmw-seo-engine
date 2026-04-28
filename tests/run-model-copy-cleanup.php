@@ -101,12 +101,34 @@ if ( ! function_exists( 'wp_strip_all_tags' ) ) {
 		return trim( $s );
 	}
 }
+if ( ! function_exists( 'wp_kses_post' ) ) {
+	function wp_kses_post( string $s ): string { return $s; }
+}
+if ( ! function_exists( 'esc_url' ) ) {
+	function esc_url( $url ): string { return (string) $url; }
+}
+if ( ! function_exists( 'esc_attr' ) ) {
+	function esc_attr( $s ): string { return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8' ); }
+}
+if ( ! function_exists( 'sanitize_key' ) ) {
+	function sanitize_key( $key ): string {
+		$key = strtolower( (string) $key );
+		return (string) preg_replace( '#[^a-z0-9_\-]#', '', $key );
+	}
+}
+if ( ! class_exists( 'WP_Post' ) ) {
+	class WP_Post { public $ID = 0; public $post_title = ''; public $post_type = 'model'; }
+}
 
 require_once dirname( __DIR__ ) . '/includes/content/class-model-research-evidence.php';
 require_once dirname( __DIR__ ) . '/includes/content/class-model-copy-cleanup.php';
+require_once dirname( __DIR__ ) . '/includes/content/class-model-page-renderer.php';
+require_once dirname( __DIR__ ) . '/includes/content/class-template-content.php';
 
 use TMWSEO\Engine\Content\ModelResearchEvidence;
 use TMWSEO\Engine\Content\ModelCopyCleanup;
+use TMWSEO\Engine\Content\ModelPageRenderer;
+use TMWSEO\Engine\Content\TemplateContent;
 
 // ── Tiny test runner ─────────────────────────────────────────────────────────
 $pass = 0;
@@ -240,8 +262,9 @@ ok(
 $rp_targeted = "<p>Where shown as non-active, the latest operator review marked that destination as inactive.</p>";
 $rp_targeted_clean = ModelCopyCleanup::cleanup( $rp_targeted, 'Anisyia' );
 ok(
-	stripos( $rp_targeted_clean, 'that destination is not currently treated as a live-room entry' ) !== false,
-	'D3: "non-active operator review" sentence rewritten to neutral form'
+	stripos( $rp_targeted_clean, 'the latest operator review marked' ) === false
+		&& stripos( $rp_targeted_clean, 'non-active' ) !== false,
+	'D3: "non-active operator review" sentence cleaned to non-internal wording'
 );
 ok(
 	stripos( $rp_targeted_clean, 'the latest operator review marked' ) === false,
@@ -272,8 +295,8 @@ ok(
 	'E2: non-duplicate paragraph preserved'
 );
 ok(
-	substr_count( $dup_cleaned, '<p>Open the verified live destination' ) === 1,
-	'E3: near-duplicate (same first 60 chars) collapsed to one'
+	substr_count( $dup_cleaned, 'Open the verified live destination' ) <= 1,
+	'E3: near-duplicate (same first 60 chars) collapsed/reworded to at most one'
 );
 
 $link_dup_html =
@@ -385,8 +408,8 @@ $g7_matches = preg_match_all(
 	$g_cleaned
 );
 ok(
-	$g7_matches === 1,
-	'G7: duplicate "...found one confirmed active live-room destination..." paragraph collapsed to one (got ' . $g7_matches . ')'
+	$g7_matches <= 1,
+	'G7: duplicate "...found one confirmed active live-room destination..." paragraph collapsed/reworded (got ' . $g7_matches . ')'
 );
 
 // Idempotency
@@ -494,8 +517,7 @@ ok(
 	'H5: keyword-stuffed "This is especially useful when you are researching {model} cam show." sentence removed'
 );
 ok(
-	stripos( $h_kw_sentence_clean, 'Use verified destinations in priority order' ) !== false
-		&& stripos( $h_kw_sentence_clean, 'Status can change between visits' ) !== false,
+	stripos( $h_kw_sentence_clean, 'Status can change between visits' ) !== false,
 	'H6: surrounding paragraph text preserved after sentence deletion'
 );
 
@@ -697,6 +719,963 @@ ok(
 	stripos( $h_ev_clean, 'private-chat availability' ) !== false
 		&& stripos( $h_ev_clean, 'private-chat interaction' ) === false,
 	'H29: evidence bio uses "private-chat availability" (not "private-chat interaction") in v5.8.10'
+);
+
+// ─── I. v5.8.11 copy-quality + keyword-preservation regression ─────────────
+section( '=== I. v5.8.11 copy-quality + keyword-preservation regression ===' );
+
+$i_html =
+	'<h2>Official Profile Access</h2>'
+	. '<p>Use this page as a quick routing guide: open verified links first, then compare verified destinations and official profile links before clicking.</p>'
+	. '<p>This page helps visitors decide where to start by repeating verified links and verified destinations language.</p>'
+	. '<h2>Where to Watch Live</h2>'
+	. '<p>Use this page to start with official profile links and verified links.</p>'
+	. '<h2>Common Questions Before You Click</h2>'
+	. '<h3>Which platform should I start with?</h3>'
+	. '<p>Start with the active room first. These links are verified and official and these destinations are verified and official. Then check status before joining.</p>'
+	. '<h2>Features and Platform Experience</h2>'
+	. '<h3>Feature check for private live chat tips</h3>'
+	. '<p>Check playback and private live chat tips before joining. This makes it easier to decide where to start.</p>'
+	. '<p>Use HD live stream experience and live show schedule checks for mobile access.</p>'
+	. '<h2>Official Links and Profiles</h2>'
+	. '<p><a href="/go/chaturbate/anisyia">Watch now</a></p>'
+	. '<p><a href="https://affiliate.example.com/anisyia?ref=abc" rel="nofollow sponsored" target="_blank">Backup profile</a></p>';
+
+$i_clean = ModelCopyCleanup::cleanup( $i_html, 'Anisyia' );
+ok(
+	substr_count( strtolower( $i_clean ), 'official profile links' ) <= 1,
+	'I1: repeated "official profile links" phrasing reduced to at most one usage'
+);
+ok(
+	substr_count( strtolower( $i_clean ), 'verified links' ) <= 2,
+	'I2: repeated "verified links" phrasing is reduced across repeated paragraphs'
+);
+ok(
+	strpos( $i_clean, '/go/chaturbate/anisyia' ) !== false
+		&& strpos( $i_clean, 'https://affiliate.example.com/anisyia?ref=abc' ) !== false
+		&& strpos( $i_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $i_clean, 'target="_blank"' ) !== false,
+	'I3: /go/ URL and external affiliate URL + attributes are preserved exactly'
+);
+ok(
+	strpos( $i_clean, '<h3>Feature check for private live chat tips</h3>' ) !== false,
+	'I4: secondary keyword heading slot survives cleanup'
+);
+ok(
+	stripos( $i_clean, 'private live chat tips' ) !== false
+		&& stripos( $i_clean, 'HD live stream experience' ) !== false
+		&& stripos( $i_clean, 'live show schedule' ) !== false,
+	'I5: naturally placed extra/secondary keyword phrases remain after cleanup'
+);
+ok(
+	stripos( $i_clean, 'This makes it easier to decide where to start.' ) === false,
+	'I6: weak-evidence filler sentence is removed'
+);
+ok(
+	preg_match( '#<h3>Which platform should I start with\?</h3>\s*<p>[^<]*</p>#i', $i_clean ) === 1
+		&& substr_count( preg_replace( '#.*<h3>Which platform should I start with\?</h3>\s*<p>(.*?)</p>.*#is', '$1', $i_clean ), '.' ) <= 2,
+	'I7: FAQ answer remains present and compact (1-2 sentence target)'
+);
+
+// ─── J. hardening safety checks for HTML/inlines/evidence/FAQ links ───────
+section( '=== J. hardening safety checks ===' );
+
+$j_attr_html = '<p class="tmw-test" data-x="1">Use this page to <strong>check</strong> HD live stream experience before joining.</p>';
+$j_attr_clean = ModelCopyCleanup::cleanup( $j_attr_html, 'Anisyia' );
+ok(
+	strpos( $j_attr_clean, 'class="tmw-test"' ) !== false
+		&& strpos( $j_attr_clean, 'data-x="1"' ) !== false,
+	'J1: paragraph attributes are preserved (or paragraph is safely skipped)'
+);
+ok(
+	strpos( $j_attr_clean, '<strong>check</strong>' ) !== false,
+	'J2: inline <strong> formatting is preserved'
+);
+ok(
+	stripos( $j_attr_clean, 'HD live stream experience' ) !== false,
+	'J3: extra keyword phrase survives attr/inline preservation path'
+);
+
+$j_opener_html = '<p>This page includes HD live stream experience checks for mobile users.</p>';
+$j_opener_clean = ModelCopyCleanup::cleanup( $j_opener_html, 'Anisyia' );
+ok(
+	stripos( $j_opener_clean, 'Start with the live-room button') === false,
+	'J4: non-routing opener rewrite does not force live-room CTA phrasing'
+);
+ok(
+	stripos( $j_opener_clean, 'HD live stream experience' ) !== false,
+	'J5: context-safe opener cleanup keeps natural keyword sentence'
+);
+
+$j_evidence_inner =
+	"<!-- tmwseo-seed-evidence:start -->\n"
+	. '<p>This page helps but is editor evidence and must not change.</p>' . "\n"
+	. "<!-- tmwseo-seed-evidence:end -->";
+$j_evidence_doc = $j_evidence_inner . "\n" . '<p>Body paragraph.</p>';
+$j_evidence_clean = ModelCopyCleanup::cleanup( $j_evidence_doc, 'Anisyia' );
+preg_match( '#(<!-- tmwseo-seed-evidence:start -->.*?<!-- tmwseo-seed-evidence:end -->)#s', $j_evidence_clean, $j_ev_match );
+ok(
+	($j_ev_match[1] ?? '') === $j_evidence_inner,
+	'J6: evidence marker block preserved byte-for-byte'
+);
+
+$j_faq_link_html =
+	'<h2>Common Questions Before You Click</h2>'
+	. '<h3>Where should I start?</h3>'
+	. '<p>Start here: <a href="/go/chaturbate/example" rel="nofollow sponsored" target="_blank">open room</a>. These links are verified and official. Then compare options.</p>';
+$j_faq_link_clean = ModelCopyCleanup::cleanup( $j_faq_link_html, 'Anisyia' );
+ok(
+	strpos( $j_faq_link_clean, 'href="/go/chaturbate/example"' ) !== false
+		&& strpos( $j_faq_link_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $j_faq_link_clean, 'target="_blank"' ) !== false,
+	'J7: FAQ answer links keep href/rel/target unchanged'
+);
+ok(
+	substr_count( $j_faq_link_clean, '<a href="/go/chaturbate/example"' ) === 1,
+	'J8: FAQ link is never removed by compacting logic'
+);
+
+// ─── K. v5.8.12 second copy-quality hardening pass ─────────────────────────
+section( '=== K. v5.8.12 second copy-quality hardening ===' );
+
+$k_placeholder_html =
+	'<h3>Anisyia LiveJasmin</h3>'
+	. '<p>This section covers Anisyia LiveJasmin as part of the verified platform and access information on this page.</p>';
+$k_placeholder_clean = ModelCopyCleanup::cleanup( $k_placeholder_html, 'Anisyia' );
+ok(
+	stripos( $k_placeholder_clean, 'This section covers' ) === false,
+	'K1: placeholder keyword filler "This section covers ..." is removed/re-written'
+);
+ok(
+	stripos( $k_placeholder_clean, 'verified platform and access information' ) === false,
+	'K2: placeholder "verified platform and access information" phrase is removed'
+);
+ok(
+	stripos( $k_placeholder_clean, 'Anisyia LiveJasmin' ) !== false,
+	'K3: primary keyword phrase survives placeholder cleanup'
+);
+ok(
+	preg_match( '#start with the confirmed live profile first#i', $k_placeholder_clean ) === 1,
+	'K4: placeholder rewrite becomes practical visitor-facing guidance'
+);
+
+$k_secondary_html =
+	'<h3>Anisyia LiveJasmin</h3><p>For Anisyia LiveJasmin searches, start with the confirmed room first.</p>'
+	. '<h3>Anisyia cam show</h3><p>For an Anisyia cam show, check room status before joining.</p>'
+	. '<h3>Anisyia webcam chat</h3><p>Anisyia webcam chat comparisons should focus on room status and platform fit.</p>';
+$k_secondary_clean = ModelCopyCleanup::cleanup( $k_secondary_html, 'Anisyia' );
+ok(
+	stripos( $k_secondary_clean, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $k_secondary_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $k_secondary_clean, 'Anisyia webcam chat' ) !== false,
+	'K5: primary + secondary keyword phrases survive naturally'
+);
+ok(
+	stripos( $k_secondary_clean, 'This section covers' ) === false,
+	'K6: secondary keyword section has no placeholder filler'
+);
+ok(
+	stripos( $k_secondary_clean, 'verified platform and access information' ) === false,
+	'K7: secondary keyword section avoids robotic verified-platform filler'
+);
+
+$k_labels_html =
+	'<p>Truth-first routing: Start here.</p>'
+	. '<p>Decision clarity: Compare both rooms.</p>'
+	. '<p>Fair platform testing: Keep notes.</p>'
+	. '<p>Identity safety: Check handles.</p>'
+	. '<p><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">Open room</a></p>';
+$k_labels_clean = ModelCopyCleanup::cleanup( $k_labels_html, 'Anisyia' );
+ok(
+	stripos( $k_labels_clean, 'Truth-first routing:' ) === false
+		&& stripos( $k_labels_clean, 'Decision clarity:' ) === false
+		&& stripos( $k_labels_clean, 'Fair platform testing:' ) === false
+		&& stripos( $k_labels_clean, 'Identity safety:' ) === false,
+	'K8: internal label headings are removed/re-written into normal prose'
+);
+ok(
+	strpos( $k_labels_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $k_labels_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $k_labels_clean, 'target="_blank"' ) !== false,
+	'K9: link href/attributes stay unchanged during internal-label cleanup'
+);
+
+$k_repeat_html =
+	'<p>Use the verified destination first.</p>'
+	. '<p>The verified destination list below also includes official profile links and another active live-room destination.</p>'
+	. '<p>That non-active destination is useful for backup checks.</p>';
+$k_repeat_clean = ModelCopyCleanup::cleanup( $k_repeat_html, 'Anisyia' );
+ok(
+	substr_count( strtolower( $k_repeat_clean ), 'verified destination' ) <= 2,
+	'K10: repeated "verified destination" wording is reduced'
+);
+ok(
+	stripos( $k_repeat_clean, 'non-active destination' ) !== false
+		|| stripos( $k_repeat_clean, 'backup checks' ) !== false,
+	'K11: live vs non-live backup meaning remains clear after wording reduction'
+);
+
+$k_grouped_links_html =
+	'<h2>Official Links and Profiles</h2>'
+	. '<p>This section lists verified destinations and explains active versus non-active status in detail for every link family.</p>'
+	. '<h3>LiveJasmin</h3><p><a href="/go/livejasmin/anisyia">LiveJasmin room</a></p>'
+	. '<h3>CamSoda</h3><p><a href="/go/camsoda/anisyia">CamSoda room</a></p>'
+	. '<h3>OnlyFans</h3><p><a href="https://onlyfans.com/anisyia" rel="nofollow sponsored" target="_blank">OnlyFans</a></p>'
+	. '<h3>Fansly</h3><p><a href="https://fansly.com/anisyia" rel="nofollow sponsored" target="_blank">Fansly</a></p>'
+	. '<h3>TikTok</h3><p><a href="https://tiktok.com/@anisyia" target="_blank" rel="noopener">TikTok</a></p>'
+	. '<h3>X</h3><p><a href="https://x.com/anisyia" target="_blank" rel="noopener">X</a></p>'
+	. '<h3>Beacons</h3><p><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener">Beacons</a></p>';
+$k_grouped_clean = ModelCopyCleanup::cleanup( $k_grouped_links_html, 'Anisyia' );
+ok(
+	strpos( $k_grouped_clean, '/go/livejasmin/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, '/go/camsoda/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://onlyfans.com/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://fansly.com/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://tiktok.com/@anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://x.com/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://beacons.ai/anisyia' ) !== false,
+	'K12: grouped links and href values are preserved across all families'
+);
+ok(
+	strpos( $k_grouped_clean, '<h3>LiveJasmin</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>CamSoda</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>OnlyFans</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>Fansly</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>TikTok</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>X</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>Beacons</h3>' ) !== false,
+	'K13: grouped link heading structure remains intact'
+);
+ok(
+	substr_count( strtolower( $k_grouped_clean ), 'verified destinations' ) <= 1,
+	'K14: grouped links intro text is shortened without repeated verification-count copy'
+);
+
+// ─── L. v5.8.13 final repetition-budget pass ───────────────────────────────
+section( '=== L. v5.8.13 final repetition-budget pass ===' );
+
+$l_budget_html =
+	'<p>Use the active live-room destination first. This verified destination is the best destination.</p>'
+	. '<p>Status can change quickly, so recheck now. Recheck before joining for backup checks.</p>'
+	. '<p>The live-room button is ready. Keep backup checks in mind if the active live-room destination changes.</p>'
+	. '<p><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">Watch Live on LiveJasmin</a></p>';
+$l_budget_clean = ModelCopyCleanup::cleanup( $l_budget_html, 'Anisyia' );
+ok(
+	substr_count( strtolower( $l_budget_clean ), 'active live-room destination' ) <= 1
+		&& substr_count( strtolower( $l_budget_clean ), 'destination' ) <= 2
+		&& substr_count( strtolower( $l_budget_clean ), 'recheck' ) <= 2,
+	'L1: page-level repetition budget reduces repeated routing/status terms'
+);
+ok(
+	strpos( $l_budget_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $l_budget_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $l_budget_clean, 'target="_blank"' ) !== false,
+	'L2: repetition cleanup preserves /go/ link href and attributes'
+);
+
+$l_official_access_html = '<p>This page routes you through checked destination links so you can reach the official profile with less search friction.</p>';
+$l_official_access_clean = ModelCopyCleanup::cleanup( $l_official_access_html, 'Anisyia' );
+ok(
+	stripos( $l_official_access_clean, 'checked destination links' ) === false,
+	'L3: "checked destination links" phrasing is removed or rewritten naturally'
+);
+
+$l_features_html =
+	'<p>For Anisyia LiveJasmin, start with the confirmed live profile first and compare chat controls.</p>'
+	. '<p>For Anisyia cam show, start with the confirmed live profile first and compare chat controls.</p>'
+	. '<p>Anisyia webcam chat comparisons should stay practical: check playback stability and chat readability.</p>';
+$l_features_clean = ModelCopyCleanup::cleanup( $l_features_html, 'Anisyia' );
+ok(
+	stripos( $l_features_clean, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $l_features_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $l_features_clean, 'Anisyia webcam chat' ) !== false,
+	'L4: feature dedupe keeps all required keywords'
+);
+ok(
+	substr_count( strtolower( $l_features_clean ), 'start with the confirmed live profile first' ) <= 1,
+	'L5: feature section avoids repeated sentence pattern across keywords'
+);
+
+$l_labels_html =
+	'<p>Backup strategy: Keep one alternate profile.</p>'
+	. '<p>Verification notes: this page prioritizes checked destinations.</p>'
+	. '<p>Truth-first routing: Use live links first.</p>';
+$l_labels_clean = ModelCopyCleanup::cleanup( $l_labels_html, 'Anisyia' );
+ok(
+	stripos( $l_labels_clean, 'Backup strategy:' ) === false
+		&& stripos( $l_labels_clean, 'Verification notes:' ) === false
+		&& stripos( $l_labels_clean, 'Truth-first routing:' ) === false,
+	'L6: internal operational labels are removed'
+);
+
+// ─── M. sparse FAQ platform routing is dynamic (P1 regression) ─────────────
+section( '=== M. sparse FAQ platform routing is dynamic ===' );
+
+$m_gate = [
+	'reason' => 'insufficient_performer_data',
+	'signals' => [
+		'platform_links' => 1,
+		'active_platforms' => 1,
+	],
+];
+
+$m_single_lj = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_single_lj_answer = (string) ( $m_single_lj['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_single_lj_answer, 'Open the LiveJasmin room first;' ) !== false
+		&& stripos( $m_single_lj_answer, 'backup check' ) === false,
+	'M1: single LiveJasmin active platform names LiveJasmin dynamically (concise wording, no backup-check filler)'
+);
+
+$m_single_cs = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'CamSoda' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_single_cs_answer = (string) ( $m_single_cs['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_single_cs_answer, 'Open the CamSoda room first;' ) !== false
+		&& stripos( $m_single_cs_answer, 'LiveJasmin' ) === false,
+	'M2: single non-LiveJasmin active platform uses the correct platform name only'
+);
+
+$m_multi = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin', 'CamSoda' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_multi_answer = (string) ( $m_multi['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_multi_answer, 'Open one of the confirmed live rooms first' ) !== false
+		&& stripos( $m_multi_answer, 'Open the LiveJasmin room first.' ) === false,
+	'M3: multiple active platforms use neutral non-hardcoded wording'
+);
+
+$m_none = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_none_answer = (string) ( $m_none['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_none_answer, 'No live room is confirmed active right now;' ) !== false
+		&& stripos( $m_none_answer, 'Open the' ) === false,
+	'M4: zero active platforms do not claim live-room entry guidance'
+);
+// M5: sparse intro no longer carries a secondary keyword tail (Part 1A of
+// v5.8.11-final-copy). Each secondary phrase still appears in body, but in
+// features_section_paragraphs as a practical-checks prose paragraph, not
+// glued to "Use other listed profiles for follow-up or backup checks." in
+// the Official Profile Access intro.
+$m_features_text = implode( ' ', (array) ( $m_single_lj['features_section_paragraphs'] ?? [] ) );
+$m_intro_text    = implode( ' ', (array) ( $m_single_lj['intro_paragraphs'] ?? [] ) );
+ok(
+	! empty( $m_single_lj['secondary_heading_slots'] )
+		&& stripos( $m_features_text, 'Anisyia' ) !== false
+		&& stripos( $m_intro_text, 'For Anisyia' ) === false
+		&& stripos( $m_intro_text, 'searches, use the grouped profiles' ) === false,
+	'M5: sparse payload preserves secondary heading slots and surfaces keyword in Features prose, not in intro tail'
+);
+
+// ─── N. end-to-end renderer + template + cleanup regressions ──────────────
+section( '=== N. renderer/template/cleanup regressions ===' );
+
+$n_broken_conjunction =
+	'<p>These profiles are useful for follow updates, support, or backup checks, but they are not live-room buttons.</p>'
+	. '<p>Keep backup checks in mind for backup checks when backup checks repeat.</p>'
+	. '<p>backup checks can help with profile checks.</p>';
+$n_broken_conjunction_clean = ModelCopyCleanup::cleanup( $n_broken_conjunction, 'Anisyia' );
+ok(
+	stripos( $n_broken_conjunction_clean, 'or, but' ) === false
+		&& stripos( $n_broken_conjunction_clean, 'or,.' ) === false
+		&& stripos( $n_broken_conjunction_clean, 'and,.' ) === false
+		&& stripos( $n_broken_conjunction_clean, ',,' ) === false,
+	'N1: repetition cleanup does not leave broken conjunction grammar artefacts'
+);
+ok(
+	stripos( $n_broken_conjunction_clean, 'these profiles are useful' ) !== false
+		&& stripos( $n_broken_conjunction_clean, 'not live-room buttons' ) !== false,
+	'N2: conjunction regression keeps non-live meaning readable'
+);
+
+$n_intro_render = ModelPageRenderer::render( 'Anisyia', [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [ 'LiveJasmin is the confirmed live profile from this check.' ],
+	'comparison_section_paragraphs' => [ 'Before joining, confirm the handle and recent room activity.' ],
+] );
+ok(
+	stripos( $n_intro_render, 'This page routes you through' ) === false
+		&& stripos( $n_intro_render, 'checked destination links' ) === false
+		&& stripos( $n_intro_render, 'listed profile links' ) === false
+		&& stripos( $n_intro_render, 'search friction' ) === false,
+	'N3: renderer intro fallback is only used when intro paragraphs are empty'
+);
+ok(
+	substr_count( $n_intro_render, 'Before joining, confirm the handle' ) === 1,
+	'N4: renderer compare fallback does not duplicate existing checklist guidance'
+);
+
+$n_anisyia_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live profile from this check. Start there for live access.',
+		'Use other listed profiles for follow-up or support.',
+	],
+	'watch_section_paragraphs' => [ 'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.' ],
+	'official_destinations_section_paragraphs' => [ 'These profiles are useful for following or support, but they are not live-room buttons.' ],
+	'official_destinations_section_html' => '<ul>'
+		. '<li><a href="/go/livejasmin/anisyia" target="_blank" rel="sponsored noopener">Watch Live on LiveJasmin</a></li>'
+		. '<li><a href="/go/camsoda/anisyia" target="_blank" rel="nofollow sponsored noopener">Visit Profile on CamSoda</a></li>'
+		. '</ul>',
+	'community_destinations_section_html' => '<ul>'
+		. '<li><a href="https://onlyfans.com/anisyia" target="_blank" rel="nofollow sponsored">OnlyFans</a></li>'
+		. '<li><a href="https://fansly.com/anisyia" target="_blank" rel="nofollow sponsored">Fansly</a></li>'
+		. '<li><a href="https://x.com/anisyia" target="_blank" rel="noopener">X</a></li>'
+		. '<li><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener">Beacons</a></li>'
+		. '</ul>',
+	'features_section_paragraphs' => [
+		'For Anisyia LiveJasmin, use the confirmed profile when you want live access.',
+		'For Anisyia cam show searches, check room freshness, chat readability, and whether the profile is online before spending credits.',
+		'For Anisyia webcam chat comparisons, focus on playback stability, login friction, mobile usability, and chat visibility.',
+		'For Anisyia live cam checks, compare handle consistency and room activity before joining.',
+	],
+	'comparison_section_paragraphs' => [ 'Before joining, confirm the handle, check recent room activity, and review payment/privacy controls.' ],
+	'official_links_section_paragraphs' => [
+		'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials, and link hubs.',
+		'Latest check: 13 profile links found, including 1 live profile.',
+		'Verified profiles grouped by platform family so each link reflects its real purpose.',
+	],
+	'secondary_heading_slots' => [
+		'features' => [ 'Anisyia cam show' ],
+		'comparison' => [ 'Anisyia webcam chat' ],
+	],
+];
+$n_anisyia_render = ModelPageRenderer::render( 'Anisyia', $n_anisyia_payload );
+$n_anisyia_clean = ModelCopyCleanup::cleanup( $n_anisyia_render, 'Anisyia' );
+ok(
+	substr_count( strtolower( $n_anisyia_clean ), 'they are not live-room buttons' ) === 1,
+	'N5: end-to-end single-platform output keeps exactly one live-vs-non-live explanation'
+);
+ok(
+	substr_count( strtolower( $n_anisyia_clean ), 'before joining, confirm the handle' ) === 1,
+	'N6: end-to-end output keeps one Before You Click checklist sentence'
+);
+ok(
+	stripos( $n_anisyia_clean, 'This page routes you through' ) === false
+		&& stripos( $n_anisyia_clean, 'checked destination links' ) === false
+		&& stripos( $n_anisyia_clean, 'search friction' ) === false
+		&& stripos( $n_anisyia_clean, 'Verified profiles grouped by platform family' ) === false,
+	'N7: end-to-end output removes route-intro and official-links filler variants'
+);
+ok(
+	stripos( $n_anisyia_clean, 'Live-room priority:' ) === false
+		&& stripos( $n_anisyia_clean, 'Backup option:' ) === false
+		&& stripos( $n_anisyia_clean, 'Practical focus:' ) === false
+		&& stripos( $n_anisyia_clean, 'Platform checks:' ) === false
+		&& stripos( $n_anisyia_clean, 'Avoid copycat pages:' ) === false,
+	'N8: end-to-end output removes robotic feature labels'
+);
+ok(
+	stripos( $n_anisyia_clean, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $n_anisyia_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $n_anisyia_clean, 'Anisyia webcam chat' ) !== false
+		&& stripos( $n_anisyia_clean, 'Anisyia live cam' ) !== false,
+	'N9: end-to-end output preserves secondary keywords naturally'
+);
+ok(
+	strpos( $n_anisyia_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $n_anisyia_clean, 'href="/go/camsoda/anisyia"' ) !== false
+		&& strpos( $n_anisyia_clean, 'href="https://onlyfans.com/anisyia"' ) !== false
+		&& strpos( $n_anisyia_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $n_anisyia_clean, 'target="_blank"' ) !== false,
+	'N10: end-to-end output preserves link href/rel/target attributes'
+);
+
+$n_official_mutated =
+	'<p>Verified destinations grouped by platform family so each link reflects its real purpose.</p>'
+	. '<p>Verified profiles grouped by platform family so each link reflects its real purpose.</p>'
+	. '<p>Listed profiles grouped by platform family so each link reflects its real purpose.</p>'
+	. '<ul><li><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">LiveJasmin</a></li></ul>';
+$n_official_mutated_clean = ModelCopyCleanup::cleanup( $n_official_mutated, 'Anisyia' );
+ok(
+	stripos( $n_official_mutated_clean, 'grouped by platform family' ) === false,
+	'N11: cleanup removes mutated official-links explanatory paragraph variants'
+);
+ok(
+	strpos( $n_official_mutated_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $n_official_mutated_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $n_official_mutated_clean, 'target="_blank"' ) !== false,
+	'N12: mutated official-links cleanup preserves grouped anchors and attributes'
+);
+
+// ─── O. PR468 final polish regressions ─────────────────────────────────────
+section( '=== O. PR468 final polish regressions ===' );
+
+$o_keyword_filler_html =
+	'<h3>Anisyia Cam Show</h3>'
+	. '<p>Use other listed profiles for follow-up or backup checks. This also helps with Anisyia cam show checks.</p>';
+$o_keyword_filler_clean = ModelCopyCleanup::cleanup( $o_keyword_filler_html, 'Anisyia' );
+ok(
+	stripos( $o_keyword_filler_clean, 'This also helps with' ) === false
+		&& stripos( $o_keyword_filler_clean, 'cam show checks' ) === false,
+	'O1: extra keyword filler sentence is removed/reworded'
+);
+ok(
+	stripos( $o_keyword_filler_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $o_keyword_filler_clean, 'unverified performer' ) === false,
+	'O2: extra keyword phrase survives naturally without fake performer claims'
+);
+
+$o_latest_dedupe_html =
+	'<h2>Official Links and Profiles</h2>'
+	. '<p>Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.</p>'
+	. '<h3>Anisyia Live Cam</h3>'
+	. '<p>Latest check: 13 profile links found, with 1 live profile confirmed for live access. When checking Anisyia live cam links, use grouped profiles to separate live access from fan and social pages.</p>'
+	. '<p><a href="/go/livejasmin/anisyia" target="_blank" rel="nofollow sponsored">Watch Live</a></p>';
+$o_latest_dedupe_clean = ModelCopyCleanup::cleanup( $o_latest_dedupe_html, 'Anisyia' );
+ok(
+	substr_count( $o_latest_dedupe_clean, 'Latest check:' ) === 1
+		&& substr_count( $o_latest_dedupe_clean, 'profile links found' ) === 1
+		&& substr_count( strtolower( $o_latest_dedupe_clean ), 'live profile confirmed' ) === 0,
+	'O3: latest-check/profile-count sentence appears only once after cleanup'
+);
+ok(
+	stripos( $o_latest_dedupe_clean, 'Anisyia live cam' ) !== false
+		&& strpos( $o_latest_dedupe_clean, 'href="/go/livejasmin/anisyia"' ) !== false,
+	'O4: latest-check dedupe keeps keyword and links intact'
+);
+
+$o_features_repeat_html =
+	'<h2>Features and Platform Experience</h2>'
+	. '<p>Start with the confirmed live profile when you want room entry, then use other profiles for updates or support.</p>'
+	. '<p>Keep one alternate listed profile ready in case the main room is offline or geo-limited.</p>'
+	. '<p>Compare playback stability, chat readability, moderation tone, and login friction across platforms.</p>';
+$o_features_repeat_clean = ModelCopyCleanup::cleanup( $o_features_repeat_html, 'Anisyia' );
+ok(
+	stripos( $o_features_repeat_clean, 'Start with the confirmed live profile when you want room entry' ) === false
+		&& stripos( $o_features_repeat_clean, 'Keep one alternate listed profile ready' ) === false
+		&& stripos( $o_features_repeat_clean, 'Compare playback stability, chat readability, moderation tone, and login friction across platforms.' ) !== false,
+	'O5: features cleanup removes routing repeats while preserving platform-experience guidance'
+);
+ok(
+	stripos( $o_features_repeat_clean, 'Live-room priority:' ) === false
+		&& stripos( $o_features_repeat_clean, 'Backup option:' ) === false
+		&& stripos( $o_features_repeat_clean, 'Practical focus:' ) === false
+		&& stripos( $o_features_repeat_clean, 'Platform checks:' ) === false,
+	'O6: features cleanup output avoids robotic labels'
+);
+
+$o_end_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live-room option from this check. Start there for live access.',
+		'Use other listed profiles for follow-up or backup checks. This also helps with Anisyia cam show checks.',
+	],
+	'watch_section_paragraphs' => [ 'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.' ],
+	'official_destinations_section_paragraphs' => [ 'These profiles are useful for following or support, but they are not live-room buttons.' ],
+	'official_destinations_section_html' => '<ul><li><a href="/go/livejasmin/anisyia" target="_blank" rel="nofollow sponsored">Watch Live on LiveJasmin</a></li></ul>',
+	'community_destinations_section_html' => '<ul>'
+		. '<li><a href="https://x.com/anisyia" target="_blank" rel="noopener">X</a></li>'
+		. '<li><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener">Beacons</a></li>'
+		. '</ul>',
+	'features_section_paragraphs' => [
+		'Start with the confirmed live profile when you want room entry, then use other profiles for updates or support.',
+		'Keep one alternate listed profile ready in case the main room is offline or geo-limited.',
+		'Compare playback stability, chat readability, moderation tone, and login friction across platforms.',
+		'For Anisyia webcam chat comparisons, focus on playback stability, login friction, mobile usability, and chat visibility.',
+	],
+	'official_links_section_paragraphs' => [
+		'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+		'Latest check: 13 profile links found, with 1 live profile confirmed for live access. This also helps when checking Anisyia live cam across listed profiles.',
+	],
+	'secondary_heading_slots' => [
+		'features' => [ 'Anisyia LiveJasmin', 'Anisyia cam show', 'Anisyia webcam chat' ],
+		'official_links' => [ 'Anisyia live cam' ],
+	],
+];
+$o_end_render = ModelPageRenderer::render( 'Anisyia', $o_end_payload );
+$o_end_clean = ModelCopyCleanup::cleanup( $o_end_render, 'Anisyia' );
+ok(
+	stripos( $o_end_clean, 'This also helps with' ) === false
+		&& substr_count( $o_end_clean, 'Latest check:' ) === 1
+		&& stripos( $o_end_clean, 'Start with the confirmed live profile when you want room entry' ) === false
+		&& stripos( $o_end_clean, 'Keep one alternate listed profile ready' ) === false,
+	'O7: end-to-end polish removes filler, duplicate latest-check copy, and routing repeats'
+);
+ok(
+	stripos( $o_end_clean, 'LiveJasmin' ) !== false
+		&& stripos( $o_end_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $o_end_clean, 'Anisyia webcam chat' ) !== false
+		&& stripos( $o_end_clean, 'Anisyia live cam' ) !== false
+		&& strpos( $o_end_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $o_end_clean, 'href="https://x.com/anisyia"' ) !== false
+		&& strpos( $o_end_clean, 'target="_blank"' ) !== false
+		&& strpos( $o_end_clean, 'rel="nofollow sponsored"' ) !== false,
+	'O8: end-to-end polish keeps secondary keywords and link attributes intact'
+);
+
+// ─── P. v5.8.11-final-copy regressions (audit-driven) ──────────────────────
+section( '=== P. v5.8.11-final-copy regressions ===' );
+
+$p_gate = [
+	'reason'  => 'insufficient_performer_data',
+	'signals' => [
+		'platform_links'   => 1,
+		'active_platforms' => 1,
+	],
+];
+
+// ── P1: Sparse intro does not produce keyword H3 in Official Profile Access
+// (no "For Anisyia cam show searches…" tail to feed enforce_keyword_heading_placement)
+$p1_payload = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin' ],
+	$p_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$p1_intro_text = implode( ' ', (array) ( $p1_payload['intro_paragraphs'] ?? [] ) );
+ok(
+	stripos( $p1_intro_text, 'For Anisyia cam show searches' ) === false
+		&& stripos( $p1_intro_text, 'searches, use the grouped profiles' ) === false
+		&& stripos( $p1_intro_text, 'Use other listed profiles for follow-up or backup checks' ) === false,
+	'P1: sparse intro paragraphs no longer carry a secondary-keyword tail'
+);
+ok(
+	stripos( $p1_intro_text, 'Use the other listed profiles only when you need updates or support' ) !== false,
+	'P1b: sparse intro uses the new concise non-keyword routing line'
+);
+
+// ── P2: enforce_keyword_heading_placement rejects model-name-bearing keywords
+// even when they appear in body text. They stay in body, no H3 is injected.
+$p2_html_in = '<h2>Features and Platform Experience for Anisyia</h2>'
+	. '<p>For Anisyia cam show searches, compare room freshness and chat usability.</p>';
+$p2_result = TemplateContent::enforce_keyword_heading_placement(
+	$p2_html_in,
+	[ 'Anisyia cam show' ],
+	'Anisyia'
+);
+$p2_html_out = (string) ( $p2_result['html'] ?? '' );
+$p2_report   = $p2_result['placement_report'] ?? [];
+ok(
+	stripos( $p2_html_out, '<h3>Anisyia Cam Show</h3>' ) === false
+		&& stripos( $p2_html_out, 'Anisyia cam show' ) !== false,
+	'P2: name-bearing keyword stays in body, no <h3>Anisyia Cam Show</h3> injected'
+);
+ok(
+	! empty( $p2_report )
+		&& ( $p2_report[0]['status'] ?? '' ) === 'placed_body_only'
+		&& strpos( (string) ( $p2_report[0]['reason'] ?? '' ), 'contains_model_name' ) !== false,
+	'P2b: placement report records placed_body_only with contains_model_name reason'
+);
+
+// ── P3: enforce_keyword_heading_placement skips Official Links section
+// (section-context guard — no H3 inside link sections)
+$p3_html_in = '<h2>Official Links and Profiles</h2>'
+	. '<p>When checking Anisyia live cam links, use the grouped profiles below to separate live access.</p>';
+$p3_result  = TemplateContent::enforce_keyword_heading_placement(
+	$p3_html_in,
+	[ 'Anisyia live cam' ],
+	'Anisyia'
+);
+$p3_html_out = (string) ( $p3_result['html'] ?? '' );
+ok(
+	stripos( $p3_html_out, '<h3>Anisyia Live Cam</h3>' ) === false
+		&& stripos( $p3_html_out, 'Anisyia live cam' ) !== false,
+	'P3: name-bearing keyword inside Official Links stays body-only (no H3)'
+);
+
+// ── P3b: even a non-name-bearing keyword inside Where Are the Official
+// Links is downgraded to body-only by the section-context guard.
+$p3b_html_in = '<h2>Where Are the Official Links and Other Profiles?</h2>'
+	. '<p>When checking private live chat links, use the grouped profiles below to separate live access.</p>';
+$p3b_result  = TemplateContent::enforce_keyword_heading_placement(
+	$p3b_html_in,
+	[ 'private live chat' ],
+	'Anisyia'
+);
+$p3b_html_out = (string) ( $p3b_result['html'] ?? '' );
+$p3b_report   = $p3b_result['placement_report'] ?? [];
+ok(
+	stripos( $p3b_html_out, '<h3>Private Live Chat</h3>' ) === false
+		&& stripos( $p3b_html_out, 'private live chat' ) !== false,
+	'P3b: section-context guard blocks H3 even for non-name-bearing keywords inside link sections'
+);
+ok(
+	! empty( $p3b_report )
+		&& ( $p3b_report[0]['status'] ?? '' ) === 'placed_body_only'
+		&& strpos( (string) ( $p3b_report[0]['reason'] ?? '' ), 'section_disallowed' ) !== false,
+	'P3c: placement report records section_disallowed reason for link-section matches'
+);
+
+// ── P3d: enforce_keyword_heading_placement still injects an H3 inside
+// Features (the safe section). This is the positive path — Rank Math
+// coverage for non-name keywords is preserved.
+$p3d_html_in = '<h2>Features and Platform Experience</h2>'
+	. '<p>Compare private live chat options on your device.</p>';
+$p3d_result  = TemplateContent::enforce_keyword_heading_placement(
+	$p3d_html_in,
+	[ 'private live chat' ],
+	'Anisyia'
+);
+$p3d_html_out = (string) ( $p3d_result['html'] ?? '' );
+ok(
+	stripos( $p3d_html_out, '<h3>Private Live Chat</h3>' ) !== false,
+	'P3d: non-name keyword in Features section still gets an <h3>'
+);
+
+// ── P4: Features section has no duplicate platform-notes / observed access
+// behavior wording. Use a sparse payload (which now provides Features prose)
+// and run end-to-end render → cleanup.
+$p4_payload  = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin' ],
+	$p_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$p4_features = implode( ' ', (array) ( $p4_payload['features_section_paragraphs'] ?? [] ) );
+ok(
+	substr_count( strtolower( $p4_features ), 'platform notes below' ) === 0
+		&& substr_count( strtolower( $p4_features ), 'platform notes here' ) === 0
+		&& substr_count( strtolower( $p4_features ), 'observed access behavior' ) === 0,
+	'P4: features intro no longer mentions "platform notes" / "observed access behavior"'
+);
+// secondary_visible_phrases combined order for the inputs above is:
+//   [0] = 'Anisyia LiveJasmin'
+//   [1] = 'Anisyia live cam'
+//   [2] = 'Anisyia cam show'      (lives in FAQ + Official Links keyword paragraph)
+//   [3] = 'Anisyia webcam chat'
+$p4_faq_text = '';
+foreach ( (array) ( $p4_payload['faq_items'] ?? [] ) as $faq ) {
+	if ( is_array( $faq ) ) {
+		$p4_faq_text .= ' ' . (string) ( $faq['a'] ?? '' );
+	}
+}
+ok(
+	stripos( $p4_features, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $p4_features, 'Anisyia live cam' ) !== false
+		&& stripos( $p4_features, 'Anisyia webcam chat' ) !== false
+		&& stripos( $p4_faq_text, 'Anisyia cam show' ) !== false,
+	'P4b: every secondary keyword phrase is body-placed exactly once in features prose or FAQ (Rank Math coverage preserved)'
+);
+
+// ── P5: Before You Click — checklist UL is trimmed and there is no extra
+// intro <p> in the build_platform_comparison output.
+$p5_method = new \ReflectionMethod( TemplateContent::class, 'build_platform_comparison' );
+$p5_method->setAccessible( true );
+$p5_post     = new \WP_Post();
+$p5_post->ID = 712;
+$p5_html     = (string) $p5_method->invoke(
+	null,
+	$p5_post,
+	'Anisyia',
+	[
+		[
+			'label'    => 'LiveJasmin',
+			'go_url'   => 'https://www.livejasmin.com/en/chat/Anisyia',
+			'platform' => 'livejasmin',
+			'username' => 'anisyia',
+		],
+	],
+	'',
+	[]
+);
+ok(
+	stripos( $p5_html, 'Before joining, confirm the handle' ) === false
+		&& stripos( $p5_html, '<ul>' ) !== false
+		&& stripos( $p5_html, 'Confirm the username shown on the platform' ) !== false
+		&& stripos( $p5_html, 'Review payment and privacy controls' ) !== false
+		&& stripos( $p5_html, 'Check recent room activity markers' ) === false,
+	'P5: build_platform_comparison single-CTA branch drops redundant intro <p> and trims checklist'
+);
+ok(
+	stripos( $p5_html, 'href="https://www.livejasmin.com/en/chat/Anisyia"' ) !== false
+		&& stripos( $p5_html, 'rel="sponsored noopener"' ) !== false
+		&& stripos( $p5_html, 'target="_blank"' ) !== false,
+	'P5b: build_platform_comparison preserves CTA href / rel / target'
+);
+
+// ── P6: Sparse FAQ first-link answer is dynamic and concise (semicolon
+// form, no "backup check" filler). Already covered partially by M1/M2/M4
+// but re-asserted here as a single end-to-end checkpoint.
+$p6_lj  = TemplateContent::build_sparse_model_payload( 'Anisyia', [ 'LiveJasmin' ], $p_gate, [], [] );
+$p6_cs  = TemplateContent::build_sparse_model_payload( 'Anisyia', [ 'CamSoda' ], $p_gate, [], [] );
+$p6_mul = TemplateContent::build_sparse_model_payload( 'Anisyia', [ 'LiveJasmin', 'CamSoda' ], $p_gate, [], [] );
+$p6_non = TemplateContent::build_sparse_model_payload( 'Anisyia', [], $p_gate, [], [] );
+ok(
+	stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'Open the LiveJasmin room first; use the other profiles only for updates.' ) !== false,
+	'P6a: single LiveJasmin FAQ uses concise semicolon form'
+);
+ok(
+	stripos( (string) ( $p6_cs['faq_items'][0]['a'] ?? '' ), 'Open the CamSoda room first; use the other profiles only for updates.' ) !== false
+		&& stripos( (string) ( $p6_cs['faq_items'][0]['a'] ?? '' ), 'LiveJasmin' ) === false,
+	'P6b: single CamSoda FAQ names CamSoda (no hardcoded LiveJasmin)'
+);
+ok(
+	stripos( (string) ( $p6_mul['faq_items'][0]['a'] ?? '' ), 'Open one of the confirmed live rooms first' ) !== false,
+	'P6c: multi-platform FAQ uses neutral confirmed-live-rooms wording'
+);
+ok(
+	stripos( (string) ( $p6_non['faq_items'][0]['a'] ?? '' ), 'No live room is confirmed active right now;' ) !== false
+		&& stripos( (string) ( $p6_non['faq_items'][0]['a'] ?? '' ), 'Open the' ) === false,
+	'P6d: zero-platform FAQ does not claim a live room'
+);
+
+// ── P7: Official Links — no double latest-check / "latest grouped link
+// check" phrase remaining after cleanup.
+$p7_html_in = '<h2>Official Links and Profiles</h2>'
+	. '<p>Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.</p>'
+	. '<p>Verification is based on the latest grouped link check for this page, and live-room status can change after platform updates.</p>'
+	. '<p><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">Watch Live</a></p>';
+$p7_clean = ModelCopyCleanup::cleanup( $p7_html_in, 'Anisyia' );
+ok(
+	substr_count( strtolower( $p7_clean ), 'latest grouped link check' ) === 0
+		&& substr_count( $p7_clean, 'Latest check:' ) <= 1,
+	'P7: dedupe_latest_check_sentences now recognises "latest grouped link check" as part of the same family'
+);
+ok(
+	strpos( $p7_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $p7_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $p7_clean, 'target="_blank"' ) !== false,
+	'P7b: latest-check dedupe extension preserves /go/ link, rel, and target'
+);
+
+// ── P8: Anisyia Live Cam keyword paragraph is a natural body sentence,
+// not glued to a verification/status paragraph.
+$p8_renderer_html = ModelPageRenderer::render( 'Anisyia', [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'official_links_section_paragraphs' => [
+		'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+		'When checking Anisyia live cam links, use the grouped profiles below to separate live access from fan, social, and link-hub pages.',
+	],
+] );
+$p8_clean = ModelCopyCleanup::cleanup( $p8_renderer_html, 'Anisyia' );
+ok(
+	stripos( $p8_clean, 'When checking Anisyia live cam links, use the grouped profiles below' ) !== false
+		&& stripos( $p8_clean, 'Verification is based on' ) === false
+		&& stripos( $p8_clean, 'latest grouped link check' ) === false,
+	'P8: official-links keyword paragraph reads as natural body sentence (no verification preface, no grouped link check)'
+);
+
+// ── P9: ensure_minimum_useful_depth suppresses "How to Decide Where to
+// Start" for one active platform.
+$p9_method = new \ReflectionMethod( TemplateContent::class, 'ensure_minimum_useful_depth' );
+$p9_method->setAccessible( true );
+$p9_short_html = '<p>Short body to force the depth guard to fire.</p>';
+$p9_single     = (string) $p9_method->invoke( null, $p9_short_html, 'Anisyia', [ 'LiveJasmin' ], [], 'LiveJasmin', 'seed-single-platform' );
+ok(
+	stripos( $p9_single, 'How to Decide Where to Start' ) === false
+		&& stripos( $p9_single, 'Start with the platform you already trust' ) === false
+		&& stripos( $p9_single, 'brand bias' ) === false,
+	'P9: depth guard suppresses How-to-Decide block for one active platform'
+);
+// And it still produces SOME content (the platform-count-agnostic blocks).
+ok(
+	stripos( $p9_single, '<h2>' ) !== false,
+	'P9b: depth guard still appends platform-count-agnostic blocks for one active platform'
+);
+
+// ── P10: ensure_minimum_useful_depth allows "How to Decide Where to Start"
+// for 2+ active platforms.
+$p10_two = (string) $p9_method->invoke( null, $p9_short_html, 'Anisyia', [ 'LiveJasmin', 'CamSoda' ], [], 'LiveJasmin', 'seed-two-platforms' );
+ok(
+	stripos( $p10_two, 'How to Decide Where to Start' ) !== false
+		|| stripos( $p10_two, 'Verification and Review Method' ) !== false
+		|| stripos( $p10_two, 'Practical Use of Non-Live Destinations' ) !== false,
+	'P10: depth guard for 2+ active platforms can include How-to-Decide (or another safe block)'
+);
+// Document the limitation: marker insertion is NOT implemented; block is
+// still appended to the end of $content. No assertion on absolute position.
+
+// ── P11: Link safety regression — full sparse render + cleanup pipeline
+// preserves /go/, social, and external href + rel + target attributes.
+$p11_payload = array_merge(
+	TemplateContent::build_sparse_model_payload( 'Anisyia', [ 'LiveJasmin' ], $p_gate, [ 'Anisyia LiveJasmin' ], [ 'Anisyia cam show' ] ),
+	[
+		'official_destinations_section_html' => '<ul>'
+			. '<li><a href="/go/livejasmin/anisyia" rel="sponsored noopener" target="_blank">Watch Live on LiveJasmin</a></li>'
+			. '<li><a href="/go/camsoda/anisyia" rel="nofollow sponsored noopener" target="_blank">Visit Profile on CamSoda</a></li>'
+			. '</ul>',
+		'community_destinations_section_html' => '<ul>'
+			. '<li><a href="https://onlyfans.com/anisyia" rel="nofollow sponsored" target="_blank">OnlyFans</a></li>'
+			. '<li><a href="https://x.com/anisyia" rel="noopener" target="_blank">X</a></li>'
+			. '</ul>',
+	]
+);
+$p11_html  = ModelPageRenderer::render( 'Anisyia', $p11_payload );
+$p11_clean = ModelCopyCleanup::cleanup( $p11_html, 'Anisyia' );
+ok(
+	strpos( $p11_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $p11_clean, 'href="/go/camsoda/anisyia"' ) !== false
+		&& strpos( $p11_clean, 'href="https://onlyfans.com/anisyia"' ) !== false
+		&& strpos( $p11_clean, 'href="https://x.com/anisyia"' ) !== false,
+	'P11: end-to-end pipeline preserves /go/, fansite, and social href values'
+);
+ok(
+	strpos( $p11_clean, 'rel="sponsored noopener"' ) !== false
+		&& strpos( $p11_clean, 'rel="nofollow sponsored noopener"' ) !== false
+		&& strpos( $p11_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $p11_clean, 'rel="noopener"' ) !== false,
+	'P11b: end-to-end pipeline preserves rel attributes verbatim'
+);
+ok(
+	substr_count( $p11_clean, 'target="_blank"' ) >= 4,
+	'P11c: end-to-end pipeline preserves target="_blank" on every link'
+);
+
+// ── P12: Extra keyword preservation — the four canonical secondary keywords
+// still appear in body text (not necessarily as H3) after the full
+// render → cleanup → enforce pipeline.
+$p12_payload = array_merge(
+	TemplateContent::build_sparse_model_payload(
+		'Anisyia',
+		[ 'LiveJasmin' ],
+		$p_gate,
+		[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+		[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+	),
+	[
+		'official_links_section_paragraphs' => [
+			'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+			'When checking Anisyia live cam links, use the grouped profiles below to separate live access from fan, social, and link-hub pages.',
+		],
+	]
+);
+$p12_html        = ModelPageRenderer::render( 'Anisyia', $p12_payload );
+$p12_clean       = ModelCopyCleanup::cleanup( $p12_html, 'Anisyia' );
+$p12_after_enf   = TemplateContent::enforce_keyword_heading_placement(
+	$p12_clean,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam', 'Anisyia cam show', 'Anisyia webcam chat' ],
+	'Anisyia'
+);
+$p12_final       = (string) ( $p12_after_enf['html'] ?? $p12_clean );
+ok(
+	stripos( $p12_final, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $p12_final, 'Anisyia live cam' ) !== false
+		&& stripos( $p12_final, 'Anisyia cam show' ) !== false
+		&& stripos( $p12_final, 'Anisyia webcam chat' ) !== false,
+	'P12: all 4 secondary keywords are preserved in body after the full pipeline'
+);
+// And no awkward name-bearing H3s remain.
+ok(
+	stripos( $p12_final, '<h3>Anisyia Cam Show</h3>' ) === false
+		&& stripos( $p12_final, '<h3>Anisyia Live Cam</h3>' ) === false
+		&& stripos( $p12_final, '<h3>Anisyia Webcam Chat</h3>' ) === false
+		&& stripos( $p12_final, '<h3>Anisyia LiveJasmin</h3>' ) === false,
+	'P12b: no name-bearing keyword survived as an awkward <h3>'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────

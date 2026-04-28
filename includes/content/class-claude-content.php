@@ -289,7 +289,7 @@ KEYWORD DENSITY RULES
 • Use the exact model name between {min_density}% and {max_density}% of the total word count.
 • Do NOT repeat the exact model name more than twice in any single paragraph.
 • Keep the exact model name natural; do not force pronouns as a density fix.
-• Prefer explicit entities (model name, platform names, official profile links) over vague pronouns when meaning could be unclear.
+• Prefer explicit entities (model name, platform names, listed profiles) over vague pronouns when meaning could be unclear.
 • Avoid signposting such as "This guide covers", "Here's what to know", or "Let's dive in".
 • Avoid brochure phrasing, vague importance claims, and formulaic contrasts like "it's not just X, it's Y".
 • Avoid generic thesis openers like "The useful part of…", "The main advantage here is…",
@@ -301,6 +301,42 @@ KEYWORD DENSITY RULES
 • Use contractions where natural and vary sentence openers (do not repeatedly start with "The room…").
 • Do NOT use these fallback phrases more than once each across the entire output:
   "official profile links", "trusted room links", "official live profile".
+• Use these terms sparingly across the whole JSON: "verified", "official", "links", "profile links", "destinations".
+• Do not repeat the same routing/status explanation across sections. Explain live-room vs non-live links once near the top, then keep later sections short.
+• Use a page-level repetition budget for terms like verified, destination, active live-room, non-active, backup, status, and recheck.
+• Do not explain verification/routing process in more than one place across all sections.
+• Do not restate verification in intro + watch + official-links context + FAQ all at once.
+• Do not expose internal safety/routing logic as prose. Convert it into short visitor-facing guidance.
+• Keyword sections must read naturally. Never output placeholder text like "This section covers [keyword]...".
+  If a keyword has weak evidence, use one short practical sentence instead of filler.
+• Features and Platform Experience must discuss practical platform checks and keyword coverage, not repeat the link-routing explanation.
+• Keyword sections must not reuse the same sentence pattern for multiple keywords.
+• FAQ answers must be concise: 1–2 sentences unless extra detail is truly required by supplied evidence.
+• If evidence is weak, say less instead of padding with generic reassurance.
+• Do not repeat platform names unnaturally for density and do not repeat the model name in every paragraph.
+• Use secondary/extra keywords naturally; do not force every keyword into every section.
+• Keep section jobs distinct:
+  - intro = direct identity/routing summary
+  - watch = where to start now
+  - about = evidence-backed performer details only
+  - fans-like = tags or confirmed seed facts only
+  - features = platform-level access checks
+  - comparison = practical platform choice
+  - FAQ = short direct answers
+• BAD PATTERNS TO AVOID (style-level, model-agnostic):
+  - repeated openers like "This page helps…", "This guide helps…", "Use this page…", "This section…", "What helps most…", "People land here because…"
+  - repeated claims such as "verified links", "official links", "active platform" in multiple adjacent sections
+  - long policy-like FAQ answers that repeat routing/verification explanations already stated earlier
+  - page-about-page narration instead of direct user actions
+  - mechanical filler phrases such as "This section covers…", "as part of the verified platform and access information",
+    "routing truthful", "truth-first routing", "decision clarity", "fair platform testing", "identity safety",
+    "checked destination links", "backup navigation", "not currently treated as active live-room links",
+    "verified destination can be real without being active", "backup strategy", or "verification notes"
+  - repeated "verified destinations" or repeated "official profile links" across multiple sections
+• Prefer direct utility wording:
+  - "Start with the live-room button."
+  - "Check the active platform before joining."
+  - "Use social links for updates, not room entry."
 • Section jobs are strict: intro = model + official/live link context + why useful; watch = direct room access;
   about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing;
   comparison = balanced across every active platform; FAQ = natural user questions.

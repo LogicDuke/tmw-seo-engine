@@ -17,6 +17,7 @@ use TMWSEO\Engine\Admin\Tables\ClustersTable;
 use TMWSEO\Engine\Admin\Tables\KeywordClustersTable;
 use TMWSEO\Engine\Admin\AdminFormHandlers;
 use TMWSEO\Engine\Admin\AdminAjaxHandlers;
+use TMWSEO\Engine\Affiliates\CrakRevenueCamManager;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -53,6 +54,9 @@ class Admin {
         add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
         add_action('admin_post_tmwseo_generate_model_seeds', [__CLASS__, 'handle_generate_model_seeds']);
         add_action('admin_post_tmwseo_rerun_model_preview_phrases', [__CLASS__, 'handle_rerun_model_preview_phrases']);
+        add_action('admin_post_tmwseo_cr_save_and_sync', [CrakRevenueCamManager::class, 'handle_save_and_sync']);
+        add_action('admin_post_tmwseo_cr_quick_action', [CrakRevenueCamManager::class, 'handle_quick_action']);
+        add_action('admin_post_tmwseo_cr_auto_map', [CrakRevenueCamManager::class, 'handle_quick_action']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -740,6 +744,16 @@ class Admin {
             [
                 'type'              => 'array',
                 'sanitize_callback' => [__CLASS__, 'sanitize_affiliate_networks'],
+                'default'           => [],
+            ]
+        );
+
+        register_setting(
+            'tmwseo_settings_group',
+            CrakRevenueCamManager::API_SETTINGS_OPTION,
+            [
+                'type'              => 'array',
+                'sanitize_callback' => [CrakRevenueCamManager::class, 'sanitize_api_settings'],
                 'default'           => [],
             ]
         );
@@ -3944,6 +3958,8 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
 
         submit_button(__('Save affiliate templates', 'tmwseo'));
         echo '</form>';
+
+        CrakRevenueCamManager::render_admin_section();
 
         self::footer();
     }

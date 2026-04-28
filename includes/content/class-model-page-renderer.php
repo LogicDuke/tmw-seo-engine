@@ -321,47 +321,37 @@ class ModelPageRenderer {
     /** @param mixed $paragraphs @return string[] */
     private static function with_direct_intro_answer($paragraphs, string $name, array $payload): array {
         $lines  = self::normalize_lines($paragraphs, $name);
+        if (!empty($lines)) {
+            return $lines;
+        }
         $active = is_array($payload['active_platforms'] ?? null) ? $payload['active_platforms'] : [];
         $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
 
-        // Route-intro variants — never attribute links to a third-party platform.
-        // Links are on THIS page, not "on LiveJasmin" or any other destination.
         if (!empty($active)) {
-            $variants = [
-                'The quickest trusted route to ' . $name . ' starts with the verified watch link on this page.',
-                'This page routes you through checked destination links so you can reach the official profile with less search friction.',
-            ];
-            $idx    = (int) (sprintf('%u', crc32($name . '|route')) % 2);
-            $answer = $variants[$idx];
+            $answer = $active[0] . ' is the confirmed live-room profile in this check. Start there for live access, then use other listed profiles only if needed.';
         } else {
-            $answer = 'Verified destination links on this page are the starting point for reaching ' . $name . '.';
+            $answer = 'No live-room profile is confirmed active right now. Use listed profiles for handle checks and updates.';
         }
 
-        if (empty($lines)) {
-            return [$answer];
-        }
-        // Avoid duplication when intro_paragraphs already starts with the same sentence.
-        if (isset($lines[0]) && $lines[0] === $answer) {
-            return $lines;
-        }
-        array_unshift($lines, $answer);
-        return array_values(array_unique($lines));
+        return [$answer];
     }
 
     /** @param mixed $paragraphs @return string[] */
     private static function with_direct_compare_answer($paragraphs, array $payload, string $name): array {
         $lines = self::normalize_lines($paragraphs, $name);
+        if (!empty($lines)) {
+            return $lines;
+        }
         $active = is_array($payload['active_platforms'] ?? null) ? $payload['active_platforms'] : [];
         $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
         if (count($active) >= 2) {
             $answer = 'Start with ' . $active[0] . ' if it is your usual platform, then compare ' . $active[1] . ' for chat controls, mobile playback, and moderation flow.';
         } elseif (count($active) === 1) {
-            $answer = 'This review pass found one confirmed active live-room destination (' . $active[0] . '), so focus on pre-click checks like username match, room freshness, and privacy controls.';
+            $answer = 'Before joining, confirm the handle, check recent room activity, and review payment/privacy controls.';
         } else {
             $answer = 'Compare confirmed platforms by room stability, chat readability, trust signals, and mobile usability before choosing a default room.';
         }
-        array_unshift($lines, $answer);
-        return array_values(array_unique($lines));
+        return [$answer];
     }
 
     /** @param array<int,string> $items */
