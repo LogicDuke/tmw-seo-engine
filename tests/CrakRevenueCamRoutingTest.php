@@ -734,6 +734,52 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertSame('https://go.example.com/?model={username}', (string) ($saved['camsoda']['template_url'] ?? ''));
     }
 
+    public function test_manual_template_save_preserves_encoded_profile_url_placeholder(): void {
+        $saved = CrakRevenueCamManager::save_mapping_templates(
+            ['camsoda' => ['platform_slug' => 'camsoda', 'template_url' => '']],
+            ['camsoda' => ['template_url' => 'https://go.example.com/?url={encoded_profile_url}']],
+            'camsoda'
+        );
+        $this->assertSame('https://go.example.com/?url={encoded_profile_url}', (string) ($saved['camsoda']['template_url'] ?? ''));
+    }
+
+    public function test_manual_template_save_preserves_camsoda_model_username_placeholder(): void {
+        $saved = CrakRevenueCamManager::save_mapping_templates(
+            ['camsoda' => ['platform_slug' => 'camsoda', 'template_url' => '']],
+            ['camsoda' => ['template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}']],
+            'camsoda'
+        );
+        $this->assertSame('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}', (string) ($saved['camsoda']['template_url'] ?? ''));
+    }
+
+    public function test_template_validation_accepts_model_username_placeholder(): void {
+        $ok = CrakRevenueCamManager::validate_template('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}');
+        $this->assertTrue($ok['safe']);
+    }
+
+    public function test_template_validation_rejects_hardcoded_model_value(): void {
+        $bad = CrakRevenueCamManager::validate_template('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=Anisyia');
+        $this->assertFalse($bad['safe']);
+    }
+
+    public function test_generated_affiliate_url_replaces_username_placeholder(): void {
+        update_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 77,
+                'approval_status' => 'approved',
+                'template_url' => 'https://go.example.com/?model={username}',
+            ],
+        ]);
+
+        $routed = CrakRevenueCamManager::maybe_route_verified_link([
+            'url' => 'https://www.camsoda.com/anisyia',
+            'type' => 'camsoda',
+        ]);
+        $this->assertStringContainsString('model=anisyia', $routed);
+        $this->assertStringNotContainsString('{username}', $routed);
+    }
+
     public function test_epc_not_expected_from_affiliate_offer_and_preview_not_template(): void {
         $row = CrakRevenueCamManager::normalize_offer([
             'id' => 18,
