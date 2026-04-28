@@ -1466,10 +1466,10 @@ foreach ( (array) ( $p4_payload['faq_items'] ?? [] ) as $faq ) {
 }
 ok(
 	stripos( $p4_features, 'Anisyia LiveJasmin' ) !== false
-		&& stripos( $p4_features, 'Anisyia live cam' ) !== false
 		&& stripos( $p4_features, 'Anisyia webcam chat' ) !== false
-		&& stripos( $p4_faq_text, 'Anisyia cam show' ) !== false,
-	'P4b: every secondary keyword phrase is body-placed exactly once in features prose or FAQ (Rank Math coverage preserved)'
+		&& ( stripos( $p4_features, 'Anisyia cam show' ) !== false || stripos( $p4_features, 'Anisyia live cam' ) !== false )
+		&& stripos( $p4_faq_text, 'Anisyia cam show' ) === false,
+	'P4b: sparse Features keeps natural keywords while FAQ stays concise (no cam-show tail)'
 );
 
 // ── P5: Before You Click — checklist UL is trimmed and there is no extra
@@ -1518,6 +1518,12 @@ $p6_non = TemplateContent::build_sparse_model_payload( 'Anisyia', [], $p_gate, [
 ok(
 	stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'Open the LiveJasmin room first; use the other profiles only for updates.' ) !== false,
 	'P6a: single LiveJasmin FAQ uses concise semicolon form'
+);
+ok(
+	stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'That includes quick checks' ) === false
+		&& stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'Anisyia live cam' ) === false
+		&& stripos( (string) ( $p6_lj['faq_items'][0]['a'] ?? '' ), 'using the listed profiles only' ) === false,
+	'P6a2: first FAQ answer has no secondary-keyword tail'
 );
 ok(
 	stripos( (string) ( $p6_cs['faq_items'][0]['a'] ?? '' ), 'Open the CamSoda room first; use the other profiles only for updates.' ) !== false
@@ -1579,13 +1585,20 @@ $p9_single     = (string) $p9_method->invoke( null, $p9_short_html, 'Anisyia', [
 ok(
 	stripos( $p9_single, 'How to Decide Where to Start' ) === false
 		&& stripos( $p9_single, 'Start with the platform you already trust' ) === false
-		&& stripos( $p9_single, 'brand bias' ) === false,
-	'P9: depth guard suppresses How-to-Decide block for one active platform'
+		&& stripos( $p9_single, 'brand bias' ) === false
+		&& stripos( $p9_single, 'Practical Use of Non-Live Destinations' ) === false
+		&& stripos( $p9_single, 'This separation keeps the page truthful' ) === false
+		&& stripos( $p9_single, 'planning and verification tasks' ) === false
+		&& stripos( $p9_single, 'Verification and Review Method' ) === false
+		&& stripos( $p9_single, 'Activity labels represent a snapshot' ) === false
+		&& stripos( $p9_single, 'confirmed profiles and manual checks' ) === false
+		&& stripos( $p9_single, 'copied pages, stale mirrors, or impersonation profiles' ) === false
+		&& stripos( $p9_single, 'How to Use Backup Destinations Safely' ) === false,
+	'P9: depth guard suppresses all late generic filler blocks for one active platform'
 );
-// And it still produces SOME content (the platform-count-agnostic blocks).
 ok(
-	stripos( $p9_single, '<h2>' ) !== false,
-	'P9b: depth guard still appends platform-count-agnostic blocks for one active platform'
+	trim( $p9_single ) === trim( $p9_short_html ),
+	'P9b: one-active-platform depth guard leaves the existing content unchanged'
 );
 
 // ── P10: ensure_minimum_useful_depth allows "How to Decide Where to Start"
@@ -1595,7 +1608,7 @@ ok(
 	stripos( $p10_two, 'How to Decide Where to Start' ) !== false
 		|| stripos( $p10_two, 'Verification and Review Method' ) !== false
 		|| stripos( $p10_two, 'Practical Use of Non-Live Destinations' ) !== false,
-	'P10: depth guard for 2+ active platforms can include How-to-Decide (or another safe block)'
+	'P10: depth guard for 2+ active platforms can include comparison/depth content'
 );
 // Document the limitation: marker insertion is NOT implemented; block is
 // still appended to the end of $content. No assertion on absolute position.
@@ -1617,6 +1630,8 @@ $p11_payload = array_merge(
 );
 $p11_html  = ModelPageRenderer::render( 'Anisyia', $p11_payload );
 $p11_clean = ModelCopyCleanup::cleanup( $p11_html, 'Anisyia' );
+$p11_href_count_before = preg_match_all( '/\shref="/i', $p11_html );
+$p11_href_count_after  = preg_match_all( '/\shref="/i', $p11_clean );
 ok(
 	strpos( $p11_clean, 'href="/go/livejasmin/anisyia"' ) !== false
 		&& strpos( $p11_clean, 'href="/go/camsoda/anisyia"' ) !== false
@@ -1635,6 +1650,10 @@ ok(
 	substr_count( $p11_clean, 'target="_blank"' ) >= 4,
 	'P11c: end-to-end pipeline preserves target="_blank" on every link'
 );
+ok(
+	$p11_href_count_before === $p11_href_count_after,
+	'P11d: end-to-end pipeline preserves link count'
+);
 
 // ── P12: Extra keyword preservation — the four canonical secondary keywords
 // still appear in body text (not necessarily as H3) after the full
@@ -1650,6 +1669,7 @@ $p12_payload = array_merge(
 	[
 		'official_links_section_paragraphs' => [
 			'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+			'For Anisyia cam show searches, compare room freshness, handle match, and chat usability before you join.',
 			'When checking Anisyia live cam links, use the grouped profiles below to separate live access from fan, social, and link-hub pages.',
 		],
 	]
@@ -1676,6 +1696,311 @@ ok(
 		&& stripos( $p12_final, '<h3>Anisyia Webcam Chat</h3>' ) === false
 		&& stripos( $p12_final, '<h3>Anisyia LiveJasmin</h3>' ) === false,
 	'P12b: no name-bearing keyword survived as an awkward <h3>'
+);
+ok(
+	stripos( $p12_final, 'Use this section' ) === false
+		&& stripos( $p12_final, 'not unsupported performer claims' ) === false
+		&& stripos( $p12_final, 'Platform notes below' ) === false
+		&& stripos( $p12_final, 'Platform notes here' ) === false
+		&& stripos( $p12_final, 'observed access behavior' ) === false,
+	'P12c: features copy no longer emits meta/template wording'
+);
+$p12_features_only = '';
+if ( preg_match( '/<h2>Features and Platform Experience<\/h2>(.*?)(?:<h2>|$)/is', $p12_final, $p12_m ) ) {
+	$p12_features_only = (string) ( $p12_m[1] ?? '' );
+}
+ok(
+	substr_count( strtolower( $p12_features_only ), 'recent room activity' ) <= 1
+		&& substr_count( strtolower( $p12_features_only ), 'payment/privacy controls' ) <= 2,
+	'P12d: sparse features guidance avoids heavy repeated recent-activity/payment-privacy lines'
+);
+ok(
+	stripos( $p12_features_only, 'Focus on room freshness' ) === false
+		&& stripos( $p12_features_only, 'Compare login friction' ) === false
+		&& substr_count( $p12_features_only, '<li>' ) <= 2,
+	'P12e: one-active-platform Features removes generic intro, omits multi-room check, and caps bullets at 2'
+);
+
+// ─── Q. sparse one-active Rank Math word-count support paragraph ───────────
+section( '=== Q. sparse one-active word-count support paragraph ===' );
+
+$q_support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. A quick check also helps you spot stale mirrors, copied profile pages, or room listings that no longer match the active platform. Keep the first click focused on the confirmed live profile.';
+$q_sparse_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live-room option from this check. Start there for live access.',
+		'Use the other listed profiles only when you need updates or support.',
+	],
+	'watch_section_paragraphs' => [
+		'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.',
+	],
+	'comparison_section_paragraphs' => [
+		'Before joining, confirm the handle and check recent room activity.',
+	],
+	'faq_items' => [
+		[ 'q' => 'Which link should I open first?', 'a' => 'Open the LiveJasmin room first; use the other profiles only for updates.' ],
+		[ 'q' => 'How do I avoid stale or copied profile links?', 'a' => 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.' ],
+		[ 'q' => 'What does non-active mean?', 'a' => 'It means the profile can be useful for checks, but not for entering a live room right now.' ],
+	],
+	'features_section_paragraphs' => [
+		'For Anisyia cam show checks, compare playback stability and chat readability before joining.',
+		'For Anisyia webcam chat comparisons, focus on mobile playback quality and clear chat controls.',
+	],
+	'official_links_section_paragraphs' => [
+	'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials, and link hubs.',
+	'Latest check: 7 profile links found, including 1 live profile.',
+	],
+];
+$q_sparse_payload['external_info_html'] =
+	'<h3>LiveJasmin</h3><ul><li><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">Watch Live on LiveJasmin</a></li></ul>'
+	. '<h3>OnlyFans</h3><ul><li><a href="https://onlyfans.com/anisyia" rel="nofollow sponsored" target="_blank">OnlyFans</a></li></ul>'
+	. '<h3>X</h3><ul><li><a href="https://x.com/anisyia" rel="noopener" target="_blank">X</a></li></ul>';
+
+$q_before = ModelPageRenderer::render( 'Anisyia', $q_sparse_payload );
+$q_before_words = str_word_count( wp_strip_all_tags( $q_before ) );
+for ( $q_pad_i = 1; $q_before_words < 600 && $q_pad_i <= 12; $q_pad_i++ ) {
+	$q_sparse_payload['features_section_paragraphs'][] = 'Compare room cues, playback quality, and chat readability before spending credits (' . $q_pad_i . ').';
+	$q_before = ModelPageRenderer::render( 'Anisyia', $q_sparse_payload );
+	$q_before_words = str_word_count( wp_strip_all_tags( $q_before ) );
+}
+$q_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_sparse_payload, 'Anisyia', [ 'LiveJasmin' ], true, 680 );
+$q_after = ModelPageRenderer::render( 'Anisyia', $q_after_payload );
+$q_after_words = str_word_count( wp_strip_all_tags( $q_after ) );
+$q_links_heading_pos = strpos( $q_after, 'Official Links' );
+$q_added_in_payload = in_array( $q_support_line, (array) ( $q_after_payload['questions_section_paragraphs'] ?? [] ), true );
+
+ok(
+	$q_before_words < 680
+		&& $q_after_words > $q_before_words
+		&& $q_added_in_payload
+		&& strpos( $q_after, 'How do I avoid stale or copied profile links?' ) !== false
+		&& strpos( $q_after, 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks.' ) !== false
+		&& ( $q_after_words >= 600 || ( $q_added_in_payload && strpos( $q_after, 'How do I avoid stale or copied profile links?' ) !== false ) ),
+	'Q1: sparse one-active page below the 680 target receives support copy + stale-profile FAQ, keeping visible content safely above 600 words'
+);
+ok(
+	$q_added_in_payload,
+	'Q2: support paragraph is injected into sparse payload content (visible in editor body)'
+);
+ok(
+	$q_added_in_payload
+		&& strpos( $q_after, '<h2>Common Questions Before You Click</h2>' ) !== false
+		&& $q_links_heading_pos !== false
+		&& strpos( $q_after, '<h2>Common Questions Before You Click</h2>' ) < $q_links_heading_pos,
+	'Q2b: support copy is assigned to the Questions block, which renders before Official Links and Profiles'
+);
+ok(
+	strpos( $q_after, 'How do I avoid stale or copied profile links?' ) !== false
+		&& strpos( $q_after, 'How do I avoid stale or copied profile links?' ) < $q_links_heading_pos
+		&& strpos( $q_after, 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks.' ) < $q_links_heading_pos
+		&& strpos( $q_after, 'How do I avoid stale or copied profile links?<a ' ) === false,
+	'Q2c: stale-profile FAQ question + answer render before Official Links and add no new links'
+);
+ok(
+	strpos( $q_after, 'Before spending credits' ) !== false
+		&& strpos( $q_after, 'Before spending credits' ) < $q_links_heading_pos
+		&& (
+			( strpos( $q_after, 'stale mirrors' ) !== false && strpos( $q_after, 'stale mirrors' ) < $q_links_heading_pos )
+			|| ( strpos( $q_after, 'copied profile pages' ) !== false && strpos( $q_after, 'copied profile pages' ) < $q_links_heading_pos )
+		),
+	'Q2d: expanded support paragraph is visible before Official Links with stale-mirror/copy checks'
+);
+ok(
+	stripos( $q_after, 'Verification and Review Method' ) === false
+		&& stripos( $q_after, 'Practical Use of Non-Live Destinations' ) === false
+		&& stripos( $q_after, 'How to Use Backup Destinations Safely' ) === false
+		&& stripos( $q_after, 'How to Decide Where to Start' ) === false
+		&& stripos( $q_after, 'This separation keeps the page truthful' ) === false
+		&& stripos( $q_after, 'brand bias' ) === false
+		&& stripos( $q_after, 'confirmed profiles and manual checks' ) === false,
+	'Q3: no generic depth blocks or banned filler phrases are reintroduced'
+);
+
+$q_dense_payload = $q_sparse_payload;
+$q_dense_payload['features_section_paragraphs'] = array_fill(
+	0, 10,
+	'Use the live profile for room access, then compare playback stability, chat readability, moderation tone, and payment/privacy controls on your device before spending credits.'
+);
+$q_dense_before = ModelPageRenderer::render( 'Anisyia', $q_dense_payload );
+$q_dense_before_words = str_word_count( wp_strip_all_tags( $q_dense_before ) );
+$q_dense_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_dense_payload, 'Anisyia', [ 'LiveJasmin' ], true, 1 );
+$q_dense_after = ModelPageRenderer::render( 'Anisyia', $q_dense_after_payload );
+ok(
+	! in_array( $q_support_line, (array) ( $q_dense_after_payload['questions_section_paragraphs'] ?? [] ), true )
+		&& strpos( $q_dense_after, esc_html( $q_support_line ) ) === false,
+	'Q4: support paragraph is not added when sparse one-active content already clears the minimum-word gate'
+);
+
+ok(
+	substr_count( $q_before, 'href="/go/livejasmin/anisyia"' ) === substr_count( $q_after, 'href="/go/livejasmin/anisyia"' )
+		&& substr_count( $q_before, 'href="https://onlyfans.com/anisyia"' ) === substr_count( $q_after, 'href="https://onlyfans.com/anisyia"' )
+		&& substr_count( $q_before, 'href="https://x.com/anisyia"' ) === substr_count( $q_after, 'href="https://x.com/anisyia"' )
+		&& substr_count( $q_before, 'rel="nofollow sponsored"' ) === substr_count( $q_after, 'rel="nofollow sponsored"' )
+		&& substr_count( $q_before, 'rel="noopener"' ) === substr_count( $q_after, 'rel="noopener"' )
+		&& substr_count( $q_before, 'target="_blank"' ) === substr_count( $q_after, 'target="_blank"' )
+		&& substr_count( $q_before, 'href=' ) === substr_count( $q_after, 'href=' ),
+	'Q5: support paragraph path keeps /go/, affiliate/social hrefs, rel/target attributes, and link counts unchanged'
+);
+ok(
+	stripos( $q_after, '<h3>Anisyia cam show</h3>' ) === false
+		&& stripos( $q_after, '<h3>Anisyia webcam chat</h3>' ) === false
+		&& substr_count( $q_after, 'Latest check: 7 profile links found, including 1 live profile.' ) === 1
+		&& stripos( $q_after, 'Anisyia cam show' ) !== false
+		&& stripos( $q_after, 'Anisyia webcam chat' ) !== false,
+	'Q6: existing wins hold (no keyword H3 in Official sections, no duplicate latest-check, keywords preserved naturally)'
+);
+
+// ─── S. social summary sentence grammar fix ─────────────────────────────────
+section( '=== S. social summary sentence grammar fix ===' );
+
+$s_payload = [
+	'community_destinations_section_paragraphs' => [ 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ],
+	'official_destinations_section_paragraphs' => [ 'CamSoda, personal sites, and fan/support pages are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.' ],
+	'external_info_html' => '<h3>Find Anisyia elsewhere</h3>',
+];
+$s_render = ModelPageRenderer::render( 'Anisyia', $s_payload );
+ok(
+	strpos( $s_render, 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ) !== false
+		&& stripos( $s_render, 'in the the' ) === false
+		&& stripos( $s_render, 'links below and Profiles' ) === false
+		&& stripos( $s_render, 'section below section' ) === false,
+	'S1: social summary sentence is clean and no longer contains duplicated/awkward below phrasing'
+);
+
+// ─── R. non-live outbound links render only in final official-links section ─
+section( '=== R. non-live outbound links only in final section ===' );
+
+$r_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live-room option from this check. Start there for live access.',
+		'Use the other listed profiles only when you need updates or support.',
+	],
+	'watch_section_paragraphs' => [ 'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.' ],
+	'watch_section_html' => '<p><a href="/go/livejasmin/anisyia" target="_blank" rel="sponsored noopener">Watch Live on LiveJasmin</a></p>',
+	'official_destinations_section_html' => '',
+	'official_destinations_section_paragraphs' => [ 'CamSoda, personal sites, and fan/support pages are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.' ],
+	'community_destinations_section_html' => '',
+	'community_destinations_section_paragraphs' => [ 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ],
+	'features_section_paragraphs' => [ 'Check playback stability, chat readability, and room status before spending credits.' ],
+	'comparison_section_paragraphs' => [ 'Before joining, confirm the profile handle and review payment/privacy controls.' ],
+	'official_links_section_paragraphs' => [
+		'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+		'When checking Anisyia live cam links, use the grouped profiles below to separate live access from fan, social, and link-hub pages.',
+	],
+	'external_info_html' => '<h3>Find Anisyia elsewhere</h3>'
+		. '<h3>Cam platform profiles</h3><ul>'
+		. '<li><a href="/go/livejasmin/anisyia" target="_blank" rel="nofollow sponsored noopener">Watch Live on LiveJasmin</a></li>'
+		. '<li><a href="https://www.camsoda.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Profile on CamSoda</a></li>'
+		. '</ul>'
+		. '<h3>Official and personal sites</h3><ul>'
+		. '<li><a href="https://anisyia.xxx" target="_blank" rel="noopener external nofollow">Visit Official Site on Personal Site (anisyia.xxx)</a></li>'
+		. '<li><a href="https://anisyia.com" target="_blank" rel="noopener external nofollow">Visit Official Site on Personal Site (anisyia.com)</a></li>'
+		. '</ul>'
+		. '<h3>Fan pages</h3><ul>'
+		. '<li><a href="https://fancentro.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Fan Page on FanCentro</a></li>'
+		. '<li><a href="https://onlyfans.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Fan Page on OnlyFans</a></li>'
+		. '<li><a href="https://fansly.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Fan Page on Fansly</a></li>'
+		. '</ul>'
+		. '<h3>Video channels</h3><ul>'
+		. '<li><a href="https://www.pornhub.com/model/anisyia" target="_blank" rel="noopener external nofollow">Visit Channel on Pornhub</a></li>'
+		. '</ul>'
+		. '<h3>Social profiles</h3><ul>'
+		. '<li><a href="https://www.tiktok.com/@anisyia" target="_blank" rel="noopener external nofollow">Follow on TikTok</a></li>'
+		. '<li><a href="https://x.com/anisyia" target="_blank" rel="noopener external nofollow">Follow on X (Twitter)</a></li>'
+		. '<li><a href="https://www.facebook.com/anisyia" target="_blank" rel="noopener external nofollow">Follow on Facebook</a></li>'
+		. '</ul>'
+		. '<h3>More Links</h3><ul>'
+		. '<li><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener external nofollow">Open Link Hub on Beacons</a></li>'
+		. '<li><a href="https://link.me/anisyia" target="_blank" rel="noopener external nofollow">Open Link Hub on Link.me</a></li>'
+		. '</ul>',
+];
+
+$r_render = ModelPageRenderer::render( 'Anisyia', $r_payload );
+$r_middle_other = '';
+if ( preg_match( '#<h2>Other Official Destinations</h2>(.*?)(?:<h2>|$)#is', $r_render, $r_m ) ) {
+	$r_middle_other = (string) ( $r_m[1] ?? '' );
+}
+$r_middle_social = '';
+if ( preg_match( '#<h2>Social Profiles, Link Hubs, and Channels</h2>(.*?)(?:<h2>|$)#is', $r_render, $r_m2 ) ) {
+	$r_middle_social = (string) ( $r_m2[1] ?? '' );
+}
+
+ok(
+	trim( (string) ( $r_payload['official_destinations_section_html'] ?? '' ) ) === ''
+		&& trim( (string) ( $r_payload['community_destinations_section_html'] ?? '' ) ) === ''
+		&& stripos( implode( ' ', (array) ( $r_payload['official_destinations_section_paragraphs'] ?? [] ) ), 'listed in the Official Links and Profiles section below' ) !== false
+		&& stripos( implode( ' ', (array) ( $r_payload['community_destinations_section_paragraphs'] ?? [] ) ), 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ) !== false,
+	'R1: middle Other Official Destinations + Social/Channels sections are text-only summaries pointing to links below'
+);
+ok(
+	strpos( $r_render, '<h2>Other Official Destinations</h2>' ) !== false
+		&& strpos( $r_render, '<h2>Social Profiles, Link Hubs, and Channels</h2>' ) !== false
+		&& strpos( $r_middle_other, 'Visit Profile on CamSoda' ) === false
+		&& strpos( $r_middle_other, 'Visit Official Site on Personal Site' ) === false
+		&& strpos( $r_middle_other, 'Visit Fan Page on FanCentro' ) === false
+		&& strpos( $r_middle_other, 'Visit Fan Page on OnlyFans' ) === false
+		&& strpos( $r_middle_other, 'Visit Fan Page on Fansly' ) === false
+		&& strpos( $r_middle_social, 'Visit Channel on Pornhub' ) === false
+		&& strpos( $r_middle_social, 'Follow on TikTok' ) === false
+		&& strpos( $r_middle_social, 'Follow on X (Twitter)' ) === false
+		&& strpos( $r_middle_social, 'Follow on Facebook' ) === false
+		&& strpos( $r_middle_social, 'Open Link Hub on Beacons' ) === false
+		&& strpos( $r_middle_social, 'Open Link Hub on Link.me' ) === false,
+	'R2: middle sections do not render clickable non-live outbound destination CTAs'
+);
+ok(
+	strpos( $r_render, 'Watch Live on LiveJasmin' ) !== false
+		&& strpos( $r_render, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $r_render, 'target="_blank"' ) !== false,
+	'R3: main LiveJasmin live CTA remains in Where to Watch Live with unchanged /go/ href'
+);
+ok(
+	( strpos( $r_render, '<h2>Official Links and Profiles</h2>' ) !== false
+		|| strpos( $r_render, '<h2>Where Are the Official Links and Other Profiles?</h2>' ) !== false )
+		&& strpos( $r_render, 'Visit Profile on CamSoda' ) !== false
+		&& strpos( $r_render, 'Visit Official Site on Personal Site (anisyia.xxx)' ) !== false
+		&& strpos( $r_render, 'Visit Official Site on Personal Site (anisyia.com)' ) !== false
+		&& strpos( $r_render, 'Visit Fan Page on FanCentro' ) !== false
+		&& strpos( $r_render, 'Visit Fan Page on OnlyFans' ) !== false
+		&& strpos( $r_render, 'Visit Fan Page on Fansly' ) !== false
+		&& strpos( $r_render, 'Visit Channel on Pornhub' ) !== false
+		&& strpos( $r_render, 'Follow on TikTok' ) !== false
+		&& strpos( $r_render, 'Follow on X (Twitter)' ) !== false
+		&& strpos( $r_render, 'Follow on Facebook' ) !== false
+		&& strpos( $r_render, 'Open Link Hub on Beacons' ) !== false
+		&& strpos( $r_render, 'Open Link Hub on Link.me' ) !== false
+		&& strpos( $r_render, 'href="https://www.camsoda.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://anisyia.xxx"' ) !== false
+		&& strpos( $r_render, 'href="https://anisyia.com"' ) !== false
+		&& strpos( $r_render, 'href="https://fancentro.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://onlyfans.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://fansly.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://www.pornhub.com/model/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://www.tiktok.com/@anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://x.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://www.facebook.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://beacons.ai/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://link.me/anisyia"' ) !== false
+		&& strpos( $r_render, 'rel="noopener external nofollow"' ) !== false
+		&& strpos( $r_render, 'target="_blank"' ) !== false,
+	'R4: final Official Links section stays complete with grouped non-live links and preserved href/rel/target attributes'
+);
+ok(
+	substr_count( $r_render, 'href="https://www.camsoda.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://anisyia.xxx"' ) === 1
+		&& substr_count( $r_render, 'href="https://anisyia.com"' ) === 1
+		&& substr_count( $r_render, 'href="https://fancentro.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://onlyfans.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://fansly.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://www.pornhub.com/model/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://www.tiktok.com/@anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://x.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://www.facebook.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://beacons.ai/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://link.me/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="/go/livejasmin/anisyia"' ) >= 1,
+	'R5: each non-live outbound href appears once only (final section), with LiveJasmin primary CTA allowed to repeat'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────

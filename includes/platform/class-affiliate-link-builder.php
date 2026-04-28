@@ -6,6 +6,22 @@ use TMWSEO\Engine\Logs;
 if (!defined('ABSPATH')) { exit; }
 
 class AffiliateLinkBuilder {
+    /**
+     * Canonical LiveJasmin affiliate endpoint.
+     */
+    private const LIVEJASMIN_AFFILIATE_BASE = 'https://ctwmsg.com/';
+
+    /**
+     * Slug aliases that should resolve to the canonical LiveJasmin platform key.
+     *
+     * @var array<string,string>
+     */
+    private const PLATFORM_ALIASES = [
+        'livejasmin'  => 'livejasmin',
+        'live_jasmin' => 'livejasmin',
+        'jasmin'      => 'livejasmin',
+        'lj'          => 'livejasmin',
+    ];
 
     public static function init(): void {
         add_action('init', [__CLASS__, 'register_rewrite_rule']);
@@ -25,7 +41,8 @@ class AffiliateLinkBuilder {
     }
 
     public static function build_profile_url($platform, $username): string {
-        $platform_data = PlatformRegistry::get((string) $platform);
+        $platform_slug = self::canonical_platform_slug((string) $platform);
+        $platform_data = PlatformRegistry::get($platform_slug);
         if (!$platform_data) {
             return '';
         }
@@ -44,7 +61,7 @@ class AffiliateLinkBuilder {
     }
 
     public static function build_affiliate_url($platform, $username): string {
-        $platform_slug = sanitize_key((string) $platform);
+        $platform_slug = self::canonical_platform_slug((string) $platform);
         if (!PlatformRegistry::get($platform_slug)) {
             return '';
         }
@@ -60,6 +77,13 @@ class AffiliateLinkBuilder {
         }
 
         $settings = self::get_platform_affiliate_settings($platform_slug);
+        if ($platform_slug === 'livejasmin') {
+            $livejasmin = self::build_livejasmin_affiliate_url($clean_username, $settings);
+            if ($livejasmin !== '') {
+                return $livejasmin;
+            }
+        }
+
         if (!empty($settings['enabled']) && !empty($settings['template'])) {
             $built = self::build_from_template((string) $settings['template'], $platform_slug, $clean_username, $profile_url, $settings);
             if ($built !== '') {
@@ -80,7 +104,7 @@ class AffiliateLinkBuilder {
     }
 
     public static function go_url($platform, $username): string {
-        $platform_slug = sanitize_key((string) $platform);
+        $platform_slug = self::canonical_platform_slug((string) $platform);
         $clean_username = self::sanitize_username((string) $username);
 
         return home_url('/go/' . rawurlencode($platform_slug) . '/' . rawurlencode($clean_username) . '/');
@@ -203,28 +227,16 @@ class AffiliateLinkBuilder {
     }
 
     public static function maybe_handle_redirect(): void {
-        $platform = (string) get_query_var('tmw_go_platform', '');
-        $username = (string) get_query_var('tmw_go_username', '');
-
-        if ($platform === '' || $username === '') {
-            return;
-        }
-
-        $platform_slug = sanitize_key($platform);
-        if (!PlatformRegistry::get($platform_slug)) {
-            return;
-        }
-
-        $clean_username = self::sanitize_username($username);
-        if ($clean_username === '') {
-            return;
-        }
-
-        $url = self::build_affiliate_url($platform_slug, $clean_username);
+        $url = self::resolve_go_destination(
+            (string) get_query_var('tmw_go_platform', ''),
+            (string) get_query_var('tmw_go_username', '')
+        );
         if ($url === '') {
             return;
         }
 
+        $platform_slug = self::canonical_platform_slug((string) get_query_var('tmw_go_platform', ''));
+        $clean_username = self::sanitize_username((string) get_query_var('tmw_go_username', ''));
         self::log_click($platform_slug, $clean_username, $url);
 
         Logs::info('platform', '[TMW-AFF] Redirecting affiliate click', [
@@ -244,6 +256,30 @@ class AffiliateLinkBuilder {
 
         wp_redirect($url, 302);
         exit;
+    }
+
+    /**
+     * Resolve the canonical outbound destination used by /go/{platform}/{username}/.
+     *
+     * @param string $platform Raw platform slug (or alias) from route/query var.
+     * @param string $username Raw username from route/query var.
+     */
+    public static function resolve_go_destination(string $platform, string $username): string {
+        if ($platform === '' || $username === '') {
+            return '';
+        }
+
+        $platform_slug = self::canonical_platform_slug($platform);
+        if (!PlatformRegistry::get($platform_slug)) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username($username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        return self::build_affiliate_url($platform_slug, $clean_username);
     }
 
     private static function sanitize_username(string $username): string {
@@ -288,8 +324,49 @@ class AffiliateLinkBuilder {
             return [];
         }
 
+        $platform = self::canonical_platform_slug($platform);
         $settings = $all[$platform] ?? [];
         return is_array($settings) ? $settings : [];
+    }
+
+    /**
+     * Normalize incoming platform slugs (including known aliases).
+     */
+    public static function canonical_platform_slug(string $platform): string {
+        $slug = sanitize_key($platform);
+        return self::PLATFORM_ALIASES[$slug] ?? $slug;
+    }
+
+    /**
+     * Build canonical LiveJasmin affiliate URL.
+     *
+     * Uses settings-derived values whenever available and falls back only to
+     * default LiveJasmin routing fields that are platform constants.
+     *
+     * @param string $username
+     * @param array<string,mixed> $settings
+     */
+    private static function build_livejasmin_affiliate_url(string $username, array $settings): string {
+        $clean_username = self::sanitize_username($username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        $params = [
+            'performerName' => $clean_username,
+            'siteId' => (string) ($settings['siteid'] ?? 'jasmin'),
+            'categoryName' => (string) ($settings['categoryname'] ?? 'girl'),
+            'pageName' => (string) ($settings['pagename'] ?? 'freechat'),
+            'prm[psid]' => (string) ($settings['psid'] ?? ''),
+            'prm[pstool]' => (string) ($settings['pstool'] ?? ''),
+            'prm[psprogram]' => (string) ($settings['psprogram'] ?? ''),
+            'prm[campaign_id]' => (string) ($settings['campaign_id'] ?? ''),
+            'subAffId' => (string) ($settings['subaffid'] ?? ''),
+        ];
+
+        $url = add_query_arg($params, self::LIVEJASMIN_AFFILIATE_BASE);
+        $url = esc_url_raw($url);
+        return wp_http_validate_url($url) ? $url : '';
     }
 
     private static function build_from_template(string $template, string $platform, string $username, string $profile_url, array $settings): string {

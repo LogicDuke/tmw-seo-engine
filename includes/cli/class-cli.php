@@ -8,6 +8,8 @@
  *   wp tmwseo keyword-library discover
  *   wp tmwseo keyword-library refresh-metrics
  *   wp tmwseo image-meta --post_type=model --limit=50
+ *   wp tmwseo image-meta --force --roles=front,back --limit=200
+ *   wp tmwseo image-meta --force --roles=front,back --dry-run
  *
  * @package TMWSEO\Engine\CLI
  */
@@ -128,7 +130,10 @@ class TMWSEOCommand extends \WP_CLI_Command {
     // ── Image meta ─────────────────────────────────────────────────────────
 
     /**
-     * Backfill image ALT / title / caption for existing posts.
+     * Backfill or upgrade image ALT / title / caption for existing posts.
+     *
+     * Processes ALL image roles attached to each post (primary, banner, front,
+     * back, secondary), not only the featured image.
      *
      * ## OPTIONS
      *
@@ -136,22 +141,57 @@ class TMWSEOCommand extends \WP_CLI_Command {
      * : Post type to target. Default: model
      *
      * [--limit=<n>]
-     * : Max posts to process. Default: 100
+     * : Max posts to process per run. Default: 100
      *
      * [--dry-run]
-     * : Show what would happen without making changes.
+     * : Print what would happen without writing any data.
+     *
+     * [--force]
+     * : Clear the _tmwseo_image_meta_generated, _tmwseo_image_meta_version,
+     *   and _tmwseo_image_role flags for targeted roles before regenerating.
+     *   Required to upgrade v1-generated metadata on existing front/back images.
+     *   Primary images are excluded from force-clear unless --roles=primary is
+     *   explicitly specified (safety guard to avoid touching profile photos).
+     *
+     * [--roles=<roles>]
+     * : Comma-separated list of roles to target.
+     *   Valid values: primary, banner, front, back, secondary
+     *   Default: all roles.
+     *   Example: --roles=front,back
      *
      * ## EXAMPLES
      *
-     *     wp tmwseo image-meta --post_type=model --limit=50
-     *     wp tmwseo image-meta --dry-run
+     *     # Backfill any images that have never been processed.
+     *     wp tmwseo image-meta --post_type=model --limit=100
+     *
+     *     # Dry-run a force-upgrade of all front and back images.
+     *     wp tmwseo image-meta --force --roles=front,back --dry-run
+     *
+     *     # Run the force-upgrade for real, 200 posts at a time.
+     *     wp tmwseo image-meta --force --roles=front,back --limit=200
+     *
+     *     # Force-upgrade everything including primary (use with caution).
+     *     wp tmwseo image-meta --force --roles=primary,banner,front,back --limit=50
      *
      * @subcommand image-meta
      */
     public function image_meta( $args, $assoc ) {
-        $post_type = sanitize_key( $assoc['post_type'] ?? 'model' );
-        $limit     = max( 1, (int) ( $assoc['limit'] ?? 100 ) );
-        $dry_run   = ! empty( $assoc['dry-run'] );
+        $post_type   = sanitize_key( $assoc['post_type'] ?? 'model' );
+        $limit       = max( 1, (int) ( $assoc['limit'] ?? 100 ) );
+        $dry_run     = ! empty( $assoc['dry-run'] );
+        $force       = ! empty( $assoc['force'] );
+
+        // Parse optional roles filter.
+        $valid_roles = [ 'primary', 'banner', 'front', 'back', 'secondary' ];
+        $role_filter = [];
+        if ( isset( $assoc['roles'] ) && $assoc['roles'] !== '' ) {
+            foreach ( explode( ',', $assoc['roles'] ) as $r ) {
+                $r = trim( $r );
+                if ( in_array( $r, $valid_roles, true ) ) {
+                    $role_filter[] = $r;
+                }
+            }
+        }
 
         $posts = get_posts( [
             'post_type'      => $post_type,
@@ -166,37 +206,82 @@ class TMWSEOCommand extends \WP_CLI_Command {
         }
 
         $processed = 0;
+        $skipped   = 0;
+        $force_cleared = 0;
+
         foreach ( $posts as $post_id ) {
-            $thumb_id = (int) get_post_thumbnail_id( $post_id );
-            if ( $thumb_id <= 0 ) {
-                continue;
-            }
-
-            // Skip if already generated (unless dry-run just reports)
-            $already = get_post_meta( $thumb_id, '_tmwseo_image_meta_generated', true );
-            if ( $already && ! $dry_run ) {
-                continue;
-            }
-
             $post = get_post( $post_id );
             if ( ! $post instanceof \WP_Post ) {
                 continue;
             }
 
-            if ( $dry_run ) {
-                \WP_CLI::log( "Would generate image meta for post #{$post_id} ({$post->post_title}), attachment #{$thumb_id}" );
-            } else {
-                // Force regenerate by clearing flag
-                delete_post_meta( $thumb_id, '_tmwseo_image_meta_generated' );
-                \TMWSEO\Engine\Media\Image_Meta_Generator::generate_for_featured_image( $thumb_id, $post );
+            // Get all attachment IDs with roles for this post.
+            $attachments = \TMWSEO\Engine\Media\Image_Meta_Generator::get_attachments_with_roles( $post );
+            if ( empty( $attachments ) ) {
+                continue;
+            }
+
+            foreach ( $attachments as $attachment_id => $role ) {
+
+                // Skip if role filter is set and this role is not in it.
+                if ( ! empty( $role_filter ) && ! in_array( $role, $role_filter, true ) ) {
+                    continue;
+                }
+
+                $already  = (bool) get_post_meta( $attachment_id, '_tmwseo_image_meta_generated', true );
+                $version  = (int)  get_post_meta( $attachment_id, '_tmwseo_image_meta_version',   true );
+                $s_role   = (string) get_post_meta( $attachment_id, '_tmwseo_image_role',         true );
+
+                // Already at current version with correct role — skip unless forcing.
+                $is_current = $already
+                    && $version >= \TMWSEO\Engine\Media\Image_Meta_Generator::IMAGE_META_VERSION
+                    && $s_role === $role;
+
+                if ( $is_current && ! $force ) {
+                    $skipped++;
+                    continue;
+                }
+
+                // Safety: primary is excluded from force-clear unless explicitly listed.
+                $primary_is_targeted = empty( $role_filter ) || in_array( 'primary', $role_filter, true );
+                $should_force_clear  = $force && ( $role !== 'primary' || $primary_is_targeted );
+
+                if ( $dry_run ) {
+                    $action = $should_force_clear ? 'FORCE-CLEAR + regenerate' : 'generate';
+                    \WP_CLI::log( sprintf(
+                        '[DRY-RUN] %s  post #%d (%s)  attachment #%d  role: %-10s  current_version: %s',
+                        $action,
+                        $post_id,
+                        $post->post_title,
+                        $attachment_id,
+                        $role,
+                        $version > 0 ? "v{$version}" : 'unset'
+                    ) );
+                    $processed++;
+                    continue;
+                }
+
+                // Clear flags for force-upgrade path.
+                if ( $should_force_clear ) {
+                    delete_post_meta( $attachment_id, '_tmwseo_image_meta_generated' );
+                    delete_post_meta( $attachment_id, '_tmwseo_image_meta_version' );
+                    delete_post_meta( $attachment_id, '_tmwseo_image_role' );
+                    $force_cleared++;
+                }
+
+                \TMWSEO\Engine\Media\Image_Meta_Generator::generate_for_attachment( $attachment_id, $post, $role );
                 $processed++;
             }
         }
 
         if ( $dry_run ) {
-            \WP_CLI::success( 'Dry run complete.' );
+            \WP_CLI::success( "Dry run complete. Would process: {$processed} attachments." );
         } else {
-            \WP_CLI::success( "Image meta generated for {$processed} posts." );
+            $msg = "Image meta complete. Processed: {$processed}. Skipped (already v2): {$skipped}.";
+            if ( $force_cleared > 0 ) {
+                $msg .= " Force-cleared flags: {$force_cleared}.";
+            }
+            \WP_CLI::success( $msg );
         }
     }
 }
