@@ -61,6 +61,33 @@ class ModelDestinationResolverTest extends TestCase {
         }
     }
 
+    public function test_go_livejasmin_route_resolves_to_canonical_ctwmsg_destination(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 1,
+                'template' => 'https://www.livejasmin.com/en/free/chat/{username}?psid={psid}&pstool={pstool}&psprogram={psprogram}',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $destination = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::resolve_go_destination('livejasmin', 'Anisyia');
+        $this->assertNotSame('', $destination);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($destination, PHP_URL_HOST));
+        parse_str((string) wp_parse_url($destination, PHP_URL_QUERY), $query);
+        $this->assertSame('Anisyia', (string) ($query['performerName'] ?? ''));
+        $this->assertSame('Topmodels4u', (string) (($query['prm']['psid'] ?? '')));
+        $this->assertSame('205_1', (string) (($query['prm']['pstool'] ?? '')));
+        $this->assertSame('revs', (string) (($query['prm']['psprogram'] ?? '')));
+        $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat', $destination);
+    }
+
     public function test_resolver_separates_watch_from_social_and_link_hubs(): void {
         $platform_links = [
             ['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1],
@@ -226,6 +253,73 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringContainsString('/go/livejasmin/Anisyia/', $watch);
         $this->assertStringContainsString('/go/livejasmin/Anisyia/', $official);
         $this->assertStringNotContainsString('https://www.livejasmin.com/en/free/chat/Anisyia', $watch . $official);
+    }
+
+    public function test_mixed_livejasmin_inputs_normalize_to_single_canonical_flow(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => '',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $post = new \WP_Post();
+        $post->ID = 778;
+
+        $resolved = ModelDestinationResolver::resolve(
+            778,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '/go/livejasmin/Anisyia/', 'is_primary' => 1]],
+            [
+                ['type' => 'livejasmin', 'url' => 'https://ctwmsg.com/?performerName=Anisyia&siteId=jasmin&categoryName=girl&pageName=freechat&prm%5Bpsid%5D=Topmodels4u&prm%5Bpstool%5D=205_1&prm%5Bpsprogram%5D=revs', 'is_active' => true, 'label' => 'LiveJasmin'],
+                ['type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/free/chat/Anisyia?psid=Topmodels4u&pstool=205_1&psprogram=revs', 'is_active' => false, 'label' => 'LiveJasmin'],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => [],
+            'comparison_copy' => '',
+        ]);
+
+        $watch = (string) ($payload['watch_section_html'] ?? '');
+        $official = (string) ($payload['official_destinations_section_html'] ?? '');
+        $final = $watch . $official;
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $final);
+        $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat/Anisyia', $final);
+
+        $destination = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::resolve_go_destination('livejasmin', 'Anisyia');
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($destination, PHP_URL_HOST));
+    }
+
+    public function test_non_livejasmin_links_remain_unchanged_when_livejasmin_is_normalized(): void {
+        $resolved = ModelDestinationResolver::resolve(
+            779,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [
+                ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => false, 'label' => 'CamSoda'],
+                ['type' => 'fansly', 'url' => 'https://fansly.com/anisyia/posts', 'is_active' => true, 'label' => 'Fansly'],
+                ['type' => 'instagram', 'url' => 'https://instagram.com/anisyia', 'is_active' => true, 'label' => 'Instagram'],
+                ['type' => 'linktree', 'url' => 'https://linktr.ee/anisyia', 'is_active' => true, 'label' => 'Linktree'],
+            ],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $this->assertNotEmpty($resolved['fan_platform_destinations']);
+        $this->assertSame('https://fansly.com/anisyia/posts', (string) ($resolved['fan_platform_destinations'][0]['url'] ?? ''));
+        $this->assertNotEmpty($resolved['social_destinations']);
+        $this->assertSame('https://instagram.com/anisyia', (string) ($resolved['social_destinations'][0]['url'] ?? ''));
+        $this->assertNotEmpty($resolved['link_hub_destinations']);
+        $this->assertSame('https://linktr.ee/anisyia', (string) ($resolved['link_hub_destinations'][0]['url'] ?? ''));
     }
 
     public function test_verified_camsoda_link_routes_in_frontend_sections_when_mapping_enabled(): void {
