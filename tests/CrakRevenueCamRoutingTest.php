@@ -593,6 +593,23 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertTrue((bool) $good);
     }
 
+    public function test_enable_defaults_quick_action_enables_camsoda_when_selected_offer_is_approved_and_template_safe(): void {
+        update_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 0,
+                'selected_offer_id' => 5170,
+                'selected_offer_name' => 'Camsoda Revshare',
+                'approval_status' => 'approved',
+                'selected_offer_is_expired' => 0,
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+            ],
+        ]);
+
+        CrakRevenueCamManager::apply_quick_action('enable_defaults');
+        $saved = (array) get_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, []);
+        $this->assertSame(1, (int) ($saved['camsoda']['enabled'] ?? 0));
+    }
+
     public function test_require_approval_zero_variants_normalize_to_approved(): void {
         $rowStringZero = CrakRevenueCamManager::normalize_offer(['id' => 11, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => '0']);
         $rowIntZero = CrakRevenueCamManager::normalize_offer(['id' => 12, 'name' => 'Camsoda - PPS', 'status' => 'active', 'require_approval' => 0]);

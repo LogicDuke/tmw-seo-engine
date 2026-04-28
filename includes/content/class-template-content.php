@@ -1305,9 +1305,9 @@ class TemplateContent {
         $seen = [];
         foreach ((array) ($resolved_destinations['all_verified_destinations'] ?? []) as $entry) {
             if (!is_array($entry)) { continue; }
-            $url = trim((string)($entry['routed_url'] ?? $entry['url'] ?? ''));
-            if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) { continue; }
-            $url_key = strtolower(rtrim($url, '/'));
+            $clean_url = trim((string)($entry['url'] ?? ''));
+            if ($clean_url === '' || !filter_var($clean_url, FILTER_VALIDATE_URL)) { continue; }
+            $url_key = strtolower(rtrim($clean_url, '/'));
             if (isset($seen[$url_key])) { continue; }
             $seen[$url_key] = true;
             $type = sanitize_key((string)($entry['type'] ?? 'other'));
@@ -1321,7 +1321,7 @@ class TemplateContent {
             }
             $grouped[$family][] = [
                 'label' => $label,
-                'url' => $url,
+                'url' => self::get_frontend_verified_link_href($entry),
                 'family' => $family,
                 'activity_level' => sanitize_key((string) ($entry['activity_level'] ?? 'unknown')),
             ];
@@ -1808,7 +1808,7 @@ class TemplateContent {
             if ($family === VerifiedLinksFamilies::FAMILY_CAM && !empty($entry['is_cta_eligible'])) {
                 continue;
             }
-            $url = trim((string) ($entry['routed_url'] ?? $entry['url'] ?? ''));
+            $url = self::get_frontend_verified_link_href($entry);
             if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
                 continue;
             }
@@ -1836,7 +1836,7 @@ class TemplateContent {
             if (!in_array($family, [VerifiedLinksFamilies::FAMILY_SOCIAL, VerifiedLinksFamilies::FAMILY_LINK_HUB, VerifiedLinksFamilies::FAMILY_TUBE], true)) {
                 continue;
             }
-            $url = trim((string) ($entry['routed_url'] ?? $entry['url'] ?? ''));
+            $url = self::get_frontend_verified_link_href($entry);
             if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
                 continue;
             }
@@ -1882,6 +1882,35 @@ class TemplateContent {
         }
 
         return $note . '<ul>' . $items . '</ul>';
+    }
+
+    /**
+     * Build frontend href for a verified destination row.
+     *
+     * Uses the clean verified URL as source-of-truth, then applies
+     * CrakRevenue routing only for eligible verified platform rows.
+     *
+     * @param array<string,mixed> $link
+     */
+    private static function get_frontend_verified_link_href(array $link): string {
+        $url = trim((string) ($link['url'] ?? ''));
+        if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+            return '';
+        }
+
+        $type = sanitize_key((string) ($link['type'] ?? $link['platform_key'] ?? ''));
+        if ($type === '') {
+            return $url;
+        }
+
+        if (!class_exists(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::class)) {
+            return $url;
+        }
+
+        return \TMWSEO\Engine\Affiliates\CrakRevenueCamManager::maybe_route_verified_link([
+            'type' => $type,
+            'url' => $url,
+        ]);
     }
 
     private static function render_related_models(\WP_Post $post, string $name, array $tags, array $active_platforms): string {
