@@ -101,13 +101,18 @@ if ( ! function_exists( 'wp_strip_all_tags' ) ) {
 		return trim( $s );
 	}
 }
+if ( ! function_exists( 'wp_kses_post' ) ) {
+	function wp_kses_post( string $s ): string { return $s; }
+}
 
 require_once dirname( __DIR__ ) . '/includes/content/class-model-research-evidence.php';
 require_once dirname( __DIR__ ) . '/includes/content/class-model-copy-cleanup.php';
+require_once dirname( __DIR__ ) . '/includes/content/class-model-page-renderer.php';
 require_once dirname( __DIR__ ) . '/includes/content/class-template-content.php';
 
 use TMWSEO\Engine\Content\ModelResearchEvidence;
 use TMWSEO\Engine\Content\ModelCopyCleanup;
+use TMWSEO\Engine\Content\ModelPageRenderer;
 use TMWSEO\Engine\Content\TemplateContent;
 
 // ── Tiny test runner ─────────────────────────────────────────────────────────
@@ -1057,6 +1062,137 @@ ok(
 	! empty( $m_single_lj['secondary_heading_slots'] )
 		&& stripos( (string) ( $m_single_lj['intro_paragraphs'][1] ?? '' ), 'Anisyia' ) !== false,
 	'M5: sparse payload still preserves secondary heading slots and keyword-bearing intro copy'
+);
+
+// ─── N. end-to-end renderer + template + cleanup regressions ──────────────
+section( '=== N. renderer/template/cleanup regressions ===' );
+
+$n_broken_conjunction =
+	'<p>These profiles are useful for follow updates, support, or backup checks, but they are not live-room buttons.</p>'
+	. '<p>Keep backup checks in mind for backup checks when backup checks repeat.</p>'
+	. '<p>backup checks can help with profile checks.</p>';
+$n_broken_conjunction_clean = ModelCopyCleanup::cleanup( $n_broken_conjunction, 'Anisyia' );
+ok(
+	stripos( $n_broken_conjunction_clean, 'or, but' ) === false
+		&& stripos( $n_broken_conjunction_clean, 'or,.' ) === false
+		&& stripos( $n_broken_conjunction_clean, 'and,.' ) === false
+		&& stripos( $n_broken_conjunction_clean, ',,' ) === false,
+	'N1: repetition cleanup does not leave broken conjunction grammar artefacts'
+);
+ok(
+	stripos( $n_broken_conjunction_clean, 'these profiles are useful' ) !== false
+		&& stripos( $n_broken_conjunction_clean, 'not live-room buttons' ) !== false,
+	'N2: conjunction regression keeps non-live meaning readable'
+);
+
+$n_intro_render = ModelPageRenderer::render( 'Anisyia', [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [ 'LiveJasmin is the confirmed live profile from this check.' ],
+	'comparison_section_paragraphs' => [ 'Before joining, confirm the handle and recent room activity.' ],
+] );
+ok(
+	stripos( $n_intro_render, 'This page routes you through' ) === false
+		&& stripos( $n_intro_render, 'checked destination links' ) === false
+		&& stripos( $n_intro_render, 'listed profile links' ) === false
+		&& stripos( $n_intro_render, 'search friction' ) === false,
+	'N3: renderer intro fallback is only used when intro paragraphs are empty'
+);
+ok(
+	substr_count( $n_intro_render, 'Before joining, confirm the handle' ) === 1,
+	'N4: renderer compare fallback does not duplicate existing checklist guidance'
+);
+
+$n_anisyia_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live profile from this check. Start there for live access.',
+		'Use other listed profiles for follow-up or support.',
+	],
+	'watch_section_paragraphs' => [ 'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.' ],
+	'official_destinations_section_paragraphs' => [ 'These profiles are useful for following or support, but they are not live-room buttons.' ],
+	'official_destinations_section_html' => '<ul>'
+		. '<li><a href="/go/livejasmin/anisyia" target="_blank" rel="sponsored noopener">Watch Live on LiveJasmin</a></li>'
+		. '<li><a href="/go/camsoda/anisyia" target="_blank" rel="nofollow sponsored noopener">Visit Profile on CamSoda</a></li>'
+		. '</ul>',
+	'community_destinations_section_html' => '<ul>'
+		. '<li><a href="https://onlyfans.com/anisyia" target="_blank" rel="nofollow sponsored">OnlyFans</a></li>'
+		. '<li><a href="https://fansly.com/anisyia" target="_blank" rel="nofollow sponsored">Fansly</a></li>'
+		. '<li><a href="https://x.com/anisyia" target="_blank" rel="noopener">X</a></li>'
+		. '<li><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener">Beacons</a></li>'
+		. '</ul>',
+	'features_section_paragraphs' => [
+		'For Anisyia LiveJasmin, use the confirmed profile when you want live access.',
+		'For Anisyia cam show searches, check room freshness, chat readability, and whether the profile is online before spending credits.',
+		'For Anisyia webcam chat comparisons, focus on playback stability, login friction, mobile usability, and chat visibility.',
+		'For Anisyia live cam checks, compare handle consistency and room activity before joining.',
+	],
+	'comparison_section_paragraphs' => [ 'Before joining, confirm the handle, check recent room activity, and review payment/privacy controls.' ],
+	'official_links_section_paragraphs' => [
+		'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials, and link hubs.',
+		'Latest check: 13 profile links found, including 1 live profile.',
+		'Verified profiles grouped by platform family so each link reflects its real purpose.',
+	],
+	'secondary_heading_slots' => [
+		'features' => [ 'Anisyia cam show' ],
+		'comparison' => [ 'Anisyia webcam chat' ],
+	],
+];
+$n_anisyia_render = ModelPageRenderer::render( 'Anisyia', $n_anisyia_payload );
+$n_anisyia_clean = ModelCopyCleanup::cleanup( $n_anisyia_render, 'Anisyia' );
+ok(
+	substr_count( strtolower( $n_anisyia_clean ), 'they are not live-room buttons' ) === 1,
+	'N5: end-to-end single-platform output keeps exactly one live-vs-non-live explanation'
+);
+ok(
+	substr_count( strtolower( $n_anisyia_clean ), 'before joining, confirm the handle' ) === 1,
+	'N6: end-to-end output keeps one Before You Click checklist sentence'
+);
+ok(
+	stripos( $n_anisyia_clean, 'This page routes you through' ) === false
+		&& stripos( $n_anisyia_clean, 'checked destination links' ) === false
+		&& stripos( $n_anisyia_clean, 'search friction' ) === false
+		&& stripos( $n_anisyia_clean, 'Verified profiles grouped by platform family' ) === false,
+	'N7: end-to-end output removes route-intro and official-links filler variants'
+);
+ok(
+	stripos( $n_anisyia_clean, 'Live-room priority:' ) === false
+		&& stripos( $n_anisyia_clean, 'Backup option:' ) === false
+		&& stripos( $n_anisyia_clean, 'Practical focus:' ) === false
+		&& stripos( $n_anisyia_clean, 'Platform checks:' ) === false
+		&& stripos( $n_anisyia_clean, 'Avoid copycat pages:' ) === false,
+	'N8: end-to-end output removes robotic feature labels'
+);
+ok(
+	stripos( $n_anisyia_clean, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $n_anisyia_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $n_anisyia_clean, 'Anisyia webcam chat' ) !== false
+		&& stripos( $n_anisyia_clean, 'Anisyia live cam' ) !== false,
+	'N9: end-to-end output preserves secondary keywords naturally'
+);
+ok(
+	strpos( $n_anisyia_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $n_anisyia_clean, 'href="/go/camsoda/anisyia"' ) !== false
+		&& strpos( $n_anisyia_clean, 'href="https://onlyfans.com/anisyia"' ) !== false
+		&& strpos( $n_anisyia_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $n_anisyia_clean, 'target="_blank"' ) !== false,
+	'N10: end-to-end output preserves link href/rel/target attributes'
+);
+
+$n_official_mutated =
+	'<p>Verified destinations grouped by platform family so each link reflects its real purpose.</p>'
+	. '<p>Verified profiles grouped by platform family so each link reflects its real purpose.</p>'
+	. '<p>Listed profiles grouped by platform family so each link reflects its real purpose.</p>'
+	. '<ul><li><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">LiveJasmin</a></li></ul>';
+$n_official_mutated_clean = ModelCopyCleanup::cleanup( $n_official_mutated, 'Anisyia' );
+ok(
+	stripos( $n_official_mutated_clean, 'grouped by platform family' ) === false,
+	'N11: cleanup removes mutated official-links explanatory paragraph variants'
+);
+ok(
+	strpos( $n_official_mutated_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $n_official_mutated_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $n_official_mutated_clean, 'target="_blank"' ) !== false,
+	'N12: mutated official-links cleanup preserves grouped anchors and attributes'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
