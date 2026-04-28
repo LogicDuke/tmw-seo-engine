@@ -450,8 +450,12 @@ class ContentEngine {
                 "- Use these terms sparingly across the whole output: verified, official, links, profile links, destinations.\n" .
                 "- Do not explain verification/routing process in more than one place.\n" .
                 "- Do not restate link verification in intro, watch, official-links context, and FAQ all at once.\n" .
+                "- Do not expose internal safety/routing logic as prose. Convert it into short visitor-facing guidance.\n" .
+                "- Keyword sections must read naturally. Never output placeholder text like 'This section covers [keyword]...'. If a keyword has weak evidence, use one short practical sentence instead of filler.\n" .
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
                 "- Avoid openers like 'This page helps', 'This guide helps', 'Use this page', 'This section', 'What helps most', or 'People land here because'.\n" .
+                "- Never use mechanical filler labels or phrases such as: 'This section covers', 'as part of the verified platform and access information', 'routing truthful', 'truth-first routing', 'decision clarity', 'fair platform testing', 'identity safety', 'checked destination links', 'backup navigation', 'not currently treated as active live-room links', or 'verified destination can be real without being active'.\n" .
+                "- Avoid repeated wording such as 'verified destinations' or 'official profile links' across multiple sections.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
                 "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
                 "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .
@@ -1400,8 +1404,12 @@ class ContentEngine {
                 "- Use these terms sparingly across the whole output: verified, official, links, profile links, destinations.\n" .
                 "- Do not explain verification/routing process in more than one place.\n" .
                 "- Do not restate link verification in intro, watch, official-links context, and FAQ all at once.\n" .
+                "- Do not expose internal safety/routing logic as prose. Convert it into short visitor-facing guidance.\n" .
+                "- Keyword sections must read naturally. Never output placeholder text like 'This section covers [keyword]...'. If a keyword has weak evidence, use one short practical sentence instead of filler.\n" .
                 "- Do not output keyword-dump blocks, 'related searches' lists, or page-about-the-page commentary.\n" .
                 "- Avoid openers like 'This page helps', 'This guide helps', 'Use this page', 'This section', 'What helps most', or 'People land here because'.\n" .
+                "- Never use mechanical filler labels or phrases such as: 'This section covers', 'as part of the verified platform and access information', 'routing truthful', 'truth-first routing', 'decision clarity', 'fair platform testing', 'identity safety', 'checked destination links', 'backup navigation', 'not currently treated as active live-room links', or 'verified destination can be real without being active'.\n" .
+                "- Avoid repeated wording such as 'verified destinations' or 'official profile links' across multiple sections.\n" .
                 "- Section jobs are strict: intro = identity + official/live links + why useful; watch = direct access steps; about = confirmed facts only; fans-like = evidence-backed only; features = platform/access framing; comparison = balanced across every active platform; FAQ = natural user questions.\n" .
                 "- Answer-first rule: the first sentence in each section must directly answer that section's implied user question.\n" .
                 "- Keep key passages extractable: short, factual, self-contained, clear entity references, and low pronoun ambiguity.\n" .

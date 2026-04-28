@@ -161,7 +161,7 @@ class TemplateContent {
             ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
         if (!empty($secondary_visible_phrases[0])) {
-            $second_intro .= ' Visitors looking for ' . $secondary_visible_phrases[0] . ' can use this guide to stay on verified destinations.';
+            $second_intro .= ' Visitors looking for ' . $secondary_visible_phrases[0] . ' can use this guide to start with the confirmed room and compare listed profiles quickly.';
         }
 
         $watch_para_pool = [
@@ -423,14 +423,14 @@ class TemplateContent {
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy, $editor_seed),
             'official_destinations_section_html' => $official_destinations_html,
             'official_destinations_section_paragraphs' => [
-                'These destinations are official and verified, but they are not currently treated as active live-room links.',
-                'Use this section for profile verification, follow paths, support pages, and backup navigation when live-room status is inactive or unclear.',
-                'Separating these links from the live section keeps routing truthful: a verified destination can be real without being active for room entry right now.',
+                'These profiles are useful for follow updates, support, or backup checks, but they are not live-room buttons.',
+                'Use the live section first for room entry, then use these links when you need follow-up or status checks.',
+                'Room availability can change, so recheck before spending credits.',
             ],
             'community_destinations_section_html' => $community_destinations_html,
             'community_destinations_section_paragraphs' => [
-                'Use verified social profiles, link hubs, and channels for updates, archives, and cross-checking handles.',
-                'These links are useful for identity verification and schedule tracking, but they are not presented as direct live-room shortcuts.',
+                'Use these social profiles, link hubs, and channels for updates, archives, and handle checks.',
+                'They are not direct live-room links.',
             ],
             'related_models_html' => '',
             'explore_more_html' => '',
@@ -440,7 +440,7 @@ class TemplateContent {
             'official_links_section_paragraphs' => [
                 self::build_official_links_summary($name, $cta_links, (int) $post->ID, $resolved_destinations),
                 self::build_verification_process_paragraph($resolved_destinations)
-                    . (!empty($secondary_visible_phrases[2]) ? ' This also helps when checking ' . $secondary_visible_phrases[2] . ' across verified destinations.' : ''),
+                    . (!empty($secondary_visible_phrases[2]) ? ' This also helps when checking ' . $secondary_visible_phrases[2] . ' across listed profiles.' : ''),
             ],
             'secondary_heading_slots' => $secondary_heading_slots,
             'questions_section_paragraphs' => [],
@@ -565,11 +565,11 @@ class TemplateContent {
                 ],
                 [
                     'q' => 'What does non-active mean on this page?',
-                    'a' => 'It means the destination is verified but not currently treated as an active room entry. It can still be useful for profile checks, support, or backup navigation.',
+                    'a' => 'It means the profile is listed for checks or backup, but it is not the live-room button right now.',
                 ],
                 [
                     'q' => 'Why are fan pages not in the live section?',
-                    'a' => 'Fan pages and support platforms are kept separate so live-room routing stays truthful. They are verified destinations, but not direct room-entry links.',
+                    'a' => 'Fan pages are useful for following or support, but they are not direct live-room links.',
                 ],
                 [
                     'q' => 'Why should I recheck status before joining?',
@@ -590,15 +590,15 @@ class TemplateContent {
         return [
             'intro_paragraphs' => [
                 $intro_first,
-                'Use verified destinations in priority order: live-room entry first, then official non-live links for backup and profile checks.'
+                'Open the live-room profile first, then use non-live profiles for backup checks and updates.'
                     . (!empty($secondary_visible_phrases[0]) ? ' This is especially useful when you are researching ' . $secondary_visible_phrases[0] . '.' : ''),
                 'Status can change between visits, so recheck activity right before joining.',
             ],
             'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
             'features_section_paragraphs' => [
-                'Platform notes below describe platform-level features only, not confirmed performer-specific traits.'
-                    . (!empty($secondary_visible_phrases[1]) ? ' Keep ' . $secondary_visible_phrases[1] . ' comparisons anchored to verified platform behavior.' : ''),
+                'Platform notes below cover access behavior and tools, not unsupported performer-specific claims.'
+                    . (!empty($secondary_visible_phrases[1]) ? ' Keep ' . $secondary_visible_phrases[1] . ' comparisons tied to observed platform behavior.' : ''),
             ],
             'comparison_section_paragraphs' => $comparison_lines,
             'questions_section_paragraphs' => [],
@@ -856,7 +856,7 @@ class TemplateContent {
             if ($answer === '') {
                 continue;
             }
-            $faq_items[$index]['a'] = $answer . ' That includes quick checks for ' . $keyword_phrase . ' using verified destinations only.';
+            $faq_items[$index]['a'] = $answer . ' That includes quick checks for ' . $keyword_phrase . ' using the listed profiles only.';
             break;
         }
 
@@ -1113,7 +1113,7 @@ class TemplateContent {
 
             // 3. Not in body or heading → append a minimal H3 + one-sentence paragraph
             // to the Features section (or end of content if Features not found).
-            $kw_sentence = 'This section covers ' . $kw . ' as part of the verified platform and access information on this page.';
+            $kw_sentence = 'For ' . $kw . ', start with the confirmed live profile first and use other listed profiles for updates or backup checks.';
             $inject_block = "\n<h3>" . esc_html($heading_phrase) . "</h3>\n<p>" . esc_html($kw_sentence) . "</p>";
 
             // Try to inject after Features H2 section.
@@ -1457,9 +1457,9 @@ class TemplateContent {
         }
         $types = array_values(array_unique($types));
         if (empty($types)) {
-            return 'This section lists verified destinations for ' . $name . ' so visitors can open accurate profile links quickly.';
+            return 'Use the grouped links below to open the live profile first, then check official sites, fan pages, channels, social profiles, and link hubs.';
         }
-        return 'This section lists verified destinations for ' . $name . ', including ' . self::format_platform_list($types, 'verified sources') . '.';
+        return 'Use the grouped links below to open the live profile first, then check ' . self::format_platform_list($types, 'other official profiles') . '.';
     }
 
     /**
@@ -1519,13 +1519,13 @@ class TemplateContent {
                 $fallback_intro,
                 $fallback_second,
                 'Before you commit to one room, run a quick check: username match, recent room activity, chat readability, and mobile playback stability.',
-                'Use the live section for room entry, then use non-live verified destinations for schedule checks, backup access, and handle verification.',
+                'Use the live section for room entry, then use non-live profiles for schedule checks, backup access, and handle verification.',
             ];
         }
         return [
             $answer_line,
             $summary,
-            'Use this page as a routing layer: live destinations for room entry first, then official non-live destinations for follow, support, or verification tasks.',
+            'Open the live profile first for room entry, then use non-live profiles for follow, support, or verification tasks.',
             'When activity changes, keep the same workflow: verify handle match, compare room quality, and use backup destinations instead of copied mirrors.',
         ];
     }
@@ -2917,7 +2917,7 @@ class TemplateContent {
             '<li><strong>Fair platform testing:</strong> Run a one-minute check for playback stability, chat readability, moderation tone, and login friction.</li>',
             '<li><strong>Backup strategy:</strong> Keep one alternate verified destination ready in case your primary room is offline or geo-limited.</li>',
             '<li><strong>Status can change:</strong> Activity labels reflect a review snapshot, so rechecking before each session prevents stale clicks.</li>',
-            '<li><strong>Identity safety:</strong> Avoid mirror listings and copied pages by starting from verified destinations on this page.</li>',
+            '<li><strong>Avoid copycat pages:</strong> Start from the listed profiles on this page so you can avoid mirror listings and copied pages.</li>',
             '<li><strong>Decision clarity:</strong> Platform notes describe utility tradeoffs rather than performer-specific claims that are not verified.</li>',
         ];
 
@@ -3032,7 +3032,7 @@ class TemplateContent {
         $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+is currently active on\b/iu', 'Current review status shows active access on', $content) ?: $content;
         $content = preg_replace('/\bthe profile\b/iu', 'this profile', $content) ?: $content;
         $content = str_replace('This guide covers the practical side:', 'This page focuses on the practical side:', $content);
-        $content = str_replace('This guide covers exactly that need:', 'This section covers those basics directly:', $content);
+        $content = str_replace('This guide covers exactly that need:', 'Here are the basics you need:', $content);
         $content = str_replace('The appeal extends beyond any single session.', 'There is more here than one good session.', $content);
         $content = preg_replace('/\bVisitors searching for\b/iu', 'People coming for', $content) ?: $content;
 
@@ -3053,9 +3053,9 @@ class TemplateContent {
         $extra_blocks = [
             '<h2>How to Decide Where to Start</h2>'
             . '<p>Start with the platform you already trust, then test one alternate room with the same checklist: uptime signals, chat readability, playback stability, moderation flow, and login friction. A repeatable method prevents brand bias and makes it easier to pick the better room for your device and connection.</p>'
-            . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. If neither room works well, use the other verified destinations on this page to confirm handles and return later when status changes.</p>',
+            . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. If neither room works well, use the other listed profiles on this page to confirm handles and return later when status changes.</p>',
             '<h2>Verification and Review Method</h2>'
-            . '<p>This page prioritizes verified destinations and manual review notes. Verification confirms ownership and routing quality; it does not guarantee continuous uptime. Activity labels represent a snapshot and can change after platform updates or schedule shifts.</p>'
+            . '<p>This page prioritizes confirmed profiles and manual checks. Confirmation helps with ownership and safer navigation, but it does not guarantee continuous uptime. Activity labels represent a snapshot and can change after platform updates or schedule shifts.</p>'
             . '<p>For that reason, recheck status each time you visit. Starting from a verified destination is still the safest path to avoid copied pages, stale mirrors, or impersonation profiles.</p>',
             '<h2>Practical Use of Non-Live Destinations</h2>'
             . '<p>Non-live destinations remain useful even when they are not room-entry links. Use them for follow actions, backup profile validation, archived media, and link-hub navigation when the live section is temporarily inactive.</p>'
