@@ -119,6 +119,14 @@ class ModelCopyCleanup {
 			'pattern' => '#Where\s+shown\s+as\s+non-active,\s*the\s+latest\s+operator\s+review\s+marked\s+that\s+destination[^.<]*\.#iu',
 			'replace' => 'Where shown as non-active, that destination is not currently treated as a live-room entry.',
 		],
+		[
+			'pattern' => '#This\s+section\s+covers\s+([^.<]+?)\s+as\s+part\s+of\s+the\s+verified\s+platform\s+and\s+access\s+information\s+on\s+this\s+page\.#iu',
+			'replace' => 'For $1, start with the confirmed live profile first, then use the other listed profiles for updates or backup checks.',
+		],
+		[
+			'pattern' => '#This\s+section\s+covers\s+([^.<]+?)\.#iu',
+			'replace' => 'For $1, use the confirmed live profile first and keep the other listed profiles as backup.',
+		],
 	];
 
 	/**
@@ -174,6 +182,14 @@ class ModelCopyCleanup {
 		'#This keeps the experience focused[^.]*\.?#iu',
 	];
 
+	/** Rewrite internal safety labels into visitor-facing guidance. */
+	const INTERNAL_LABEL_REWRITES = [
+		'#\bTruth-first\s+routing:\s*#iu' => 'Start with the live-room button first, then use non-live profiles for follow-up checks. ',
+		'#\bDecision\s+clarity:\s*#iu' => 'To keep it simple, open the confirmed room first and compare other profiles only if needed. ',
+		'#\bFair\s+platform\s+testing:\s*#iu' => 'If more than one room is active, compare load speed and chat quality before you decide. ',
+		'#\bIdentity\s+safety:\s*#iu' => 'Use listed profiles to avoid copycat pages and mismatched handles. ',
+	];
+
 	/**
 	 * v5.8.10 — model-keyword heading rewrites.
 	 *
@@ -220,6 +236,7 @@ class ModelCopyCleanup {
 		// family cap so the rewritten/removed sentences don't count.
 		$body = self::apply_targeted_rewrites( $body );
 		$body = self::apply_sentence_deletions( $body );
+		$body = self::rewrite_internal_safety_labels( $body );
 		$body = self::soften_repetitive_link_language( $body );
 		$body = self::cleanup_repeated_openers( $body );
 		$body = self::compact_faq_answers( $body );
@@ -289,6 +306,13 @@ class ModelCopyCleanup {
 	private static function apply_targeted_rewrites( string $html ): string {
 		foreach ( self::TARGETED_REWRITES as $rule ) {
 			$html = (string) preg_replace( $rule['pattern'], $rule['replace'], $html );
+		}
+		return $html;
+	}
+
+	private static function rewrite_internal_safety_labels( string $html ): string {
+		foreach ( self::INTERNAL_LABEL_REWRITES as $pattern => $replace ) {
+			$html = (string) preg_replace( $pattern, $replace, $html );
 		}
 		return $html;
 	}

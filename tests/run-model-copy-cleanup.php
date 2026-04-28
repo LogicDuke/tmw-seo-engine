@@ -813,6 +813,122 @@ ok(
 	'J8: FAQ link is never removed by compacting logic'
 );
 
+// ─── K. v5.8.12 second copy-quality hardening pass ─────────────────────────
+section( '=== K. v5.8.12 second copy-quality hardening ===' );
+
+$k_placeholder_html =
+	'<h3>Anisyia LiveJasmin</h3>'
+	. '<p>This section covers Anisyia LiveJasmin as part of the verified platform and access information on this page.</p>';
+$k_placeholder_clean = ModelCopyCleanup::cleanup( $k_placeholder_html, 'Anisyia' );
+ok(
+	stripos( $k_placeholder_clean, 'This section covers' ) === false,
+	'K1: placeholder keyword filler "This section covers ..." is removed/re-written'
+);
+ok(
+	stripos( $k_placeholder_clean, 'verified platform and access information' ) === false,
+	'K2: placeholder "verified platform and access information" phrase is removed'
+);
+ok(
+	stripos( $k_placeholder_clean, 'Anisyia LiveJasmin' ) !== false,
+	'K3: primary keyword phrase survives placeholder cleanup'
+);
+ok(
+	preg_match( '#start with the confirmed live profile first#i', $k_placeholder_clean ) === 1,
+	'K4: placeholder rewrite becomes practical visitor-facing guidance'
+);
+
+$k_secondary_html =
+	'<h3>Anisyia LiveJasmin</h3><p>For Anisyia LiveJasmin searches, start with the confirmed room first.</p>'
+	. '<h3>Anisyia cam show</h3><p>For an Anisyia cam show, check room status before joining.</p>'
+	. '<h3>Anisyia webcam chat</h3><p>Anisyia webcam chat comparisons should focus on room status and platform fit.</p>';
+$k_secondary_clean = ModelCopyCleanup::cleanup( $k_secondary_html, 'Anisyia' );
+ok(
+	stripos( $k_secondary_clean, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $k_secondary_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $k_secondary_clean, 'Anisyia webcam chat' ) !== false,
+	'K5: primary + secondary keyword phrases survive naturally'
+);
+ok(
+	stripos( $k_secondary_clean, 'This section covers' ) === false,
+	'K6: secondary keyword section has no placeholder filler'
+);
+ok(
+	stripos( $k_secondary_clean, 'verified platform and access information' ) === false,
+	'K7: secondary keyword section avoids robotic verified-platform filler'
+);
+
+$k_labels_html =
+	'<p>Truth-first routing: Start here.</p>'
+	. '<p>Decision clarity: Compare both rooms.</p>'
+	. '<p>Fair platform testing: Keep notes.</p>'
+	. '<p>Identity safety: Check handles.</p>'
+	. '<p><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">Open room</a></p>';
+$k_labels_clean = ModelCopyCleanup::cleanup( $k_labels_html, 'Anisyia' );
+ok(
+	stripos( $k_labels_clean, 'Truth-first routing:' ) === false
+		&& stripos( $k_labels_clean, 'Decision clarity:' ) === false
+		&& stripos( $k_labels_clean, 'Fair platform testing:' ) === false
+		&& stripos( $k_labels_clean, 'Identity safety:' ) === false,
+	'K8: internal label headings are removed/re-written into normal prose'
+);
+ok(
+	strpos( $k_labels_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $k_labels_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $k_labels_clean, 'target="_blank"' ) !== false,
+	'K9: link href/attributes stay unchanged during internal-label cleanup'
+);
+
+$k_repeat_html =
+	'<p>Use the verified destination first.</p>'
+	. '<p>The verified destination list below also includes official profile links and another active live-room destination.</p>'
+	. '<p>That non-active destination is useful for backup checks.</p>';
+$k_repeat_clean = ModelCopyCleanup::cleanup( $k_repeat_html, 'Anisyia' );
+ok(
+	substr_count( strtolower( $k_repeat_clean ), 'verified destination' ) <= 2,
+	'K10: repeated "verified destination" wording is reduced'
+);
+ok(
+	stripos( $k_repeat_clean, 'non-active destination' ) !== false
+		|| stripos( $k_repeat_clean, 'backup checks' ) !== false,
+	'K11: live vs non-live backup meaning remains clear after wording reduction'
+);
+
+$k_grouped_links_html =
+	'<h2>Official Links and Profiles</h2>'
+	. '<p>This section lists verified destinations and explains active versus non-active status in detail for every link family.</p>'
+	. '<h3>LiveJasmin</h3><p><a href="/go/livejasmin/anisyia">LiveJasmin room</a></p>'
+	. '<h3>CamSoda</h3><p><a href="/go/camsoda/anisyia">CamSoda room</a></p>'
+	. '<h3>OnlyFans</h3><p><a href="https://onlyfans.com/anisyia" rel="nofollow sponsored" target="_blank">OnlyFans</a></p>'
+	. '<h3>Fansly</h3><p><a href="https://fansly.com/anisyia" rel="nofollow sponsored" target="_blank">Fansly</a></p>'
+	. '<h3>TikTok</h3><p><a href="https://tiktok.com/@anisyia" target="_blank" rel="noopener">TikTok</a></p>'
+	. '<h3>X</h3><p><a href="https://x.com/anisyia" target="_blank" rel="noopener">X</a></p>'
+	. '<h3>Beacons</h3><p><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener">Beacons</a></p>';
+$k_grouped_clean = ModelCopyCleanup::cleanup( $k_grouped_links_html, 'Anisyia' );
+ok(
+	strpos( $k_grouped_clean, '/go/livejasmin/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, '/go/camsoda/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://onlyfans.com/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://fansly.com/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://tiktok.com/@anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://x.com/anisyia' ) !== false
+		&& strpos( $k_grouped_clean, 'https://beacons.ai/anisyia' ) !== false,
+	'K12: grouped links and href values are preserved across all families'
+);
+ok(
+	strpos( $k_grouped_clean, '<h3>LiveJasmin</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>CamSoda</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>OnlyFans</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>Fansly</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>TikTok</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>X</h3>' ) !== false
+		&& strpos( $k_grouped_clean, '<h3>Beacons</h3>' ) !== false,
+	'K13: grouped link heading structure remains intact'
+);
+ok(
+	substr_count( strtolower( $k_grouped_clean ), 'verified destinations' ) <= 1,
+	'K14: grouped links intro text is shortened without repeated verification-count copy'
+);
+
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
 section( '=== Wiring: save-site coverage ===' );
 
