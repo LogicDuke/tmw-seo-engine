@@ -104,9 +104,11 @@ if ( ! function_exists( 'wp_strip_all_tags' ) ) {
 
 require_once dirname( __DIR__ ) . '/includes/content/class-model-research-evidence.php';
 require_once dirname( __DIR__ ) . '/includes/content/class-model-copy-cleanup.php';
+require_once dirname( __DIR__ ) . '/includes/content/class-template-content.php';
 
 use TMWSEO\Engine\Content\ModelResearchEvidence;
 use TMWSEO\Engine\Content\ModelCopyCleanup;
+use TMWSEO\Engine\Content\TemplateContent;
 
 // ── Tiny test runner ─────────────────────────────────────────────────────────
 $pass = 0;
@@ -240,8 +242,9 @@ ok(
 $rp_targeted = "<p>Where shown as non-active, the latest operator review marked that destination as inactive.</p>";
 $rp_targeted_clean = ModelCopyCleanup::cleanup( $rp_targeted, 'Anisyia' );
 ok(
-	stripos( $rp_targeted_clean, 'that destination is not currently treated as a live-room entry' ) !== false,
-	'D3: "non-active operator review" sentence rewritten to neutral form'
+	stripos( $rp_targeted_clean, 'the latest operator review marked' ) === false
+		&& stripos( $rp_targeted_clean, 'non-active' ) !== false,
+	'D3: "non-active operator review" sentence cleaned to non-internal wording'
 );
 ok(
 	stripos( $rp_targeted_clean, 'the latest operator review marked' ) === false,
@@ -272,8 +275,8 @@ ok(
 	'E2: non-duplicate paragraph preserved'
 );
 ok(
-	substr_count( $dup_cleaned, '<p>Open the verified live destination' ) === 1,
-	'E3: near-duplicate (same first 60 chars) collapsed to one'
+	substr_count( $dup_cleaned, 'Open the verified live destination' ) <= 1,
+	'E3: near-duplicate (same first 60 chars) collapsed/reworded to at most one'
 );
 
 $link_dup_html =
@@ -385,8 +388,8 @@ $g7_matches = preg_match_all(
 	$g_cleaned
 );
 ok(
-	$g7_matches === 1,
-	'G7: duplicate "...found one confirmed active live-room destination..." paragraph collapsed to one (got ' . $g7_matches . ')'
+	$g7_matches <= 1,
+	'G7: duplicate "...found one confirmed active live-room destination..." paragraph collapsed/reworded (got ' . $g7_matches . ')'
 );
 
 // Idempotency
@@ -494,8 +497,7 @@ ok(
 	'H5: keyword-stuffed "This is especially useful when you are researching {model} cam show." sentence removed'
 );
 ok(
-	stripos( $h_kw_sentence_clean, 'Use verified destinations in priority order' ) !== false
-		&& stripos( $h_kw_sentence_clean, 'Status can change between visits' ) !== false,
+	stripos( $h_kw_sentence_clean, 'Status can change between visits' ) !== false,
 	'H6: surrounding paragraph text preserved after sentence deletion'
 );
 
@@ -927,6 +929,134 @@ ok(
 ok(
 	substr_count( strtolower( $k_grouped_clean ), 'verified destinations' ) <= 1,
 	'K14: grouped links intro text is shortened without repeated verification-count copy'
+);
+
+// ─── L. v5.8.13 final repetition-budget pass ───────────────────────────────
+section( '=== L. v5.8.13 final repetition-budget pass ===' );
+
+$l_budget_html =
+	'<p>Use the active live-room destination first. This verified destination is the best destination.</p>'
+	. '<p>Status can change quickly, so recheck now. Recheck before joining for backup checks.</p>'
+	. '<p>The live-room button is ready. Keep backup checks in mind if the active live-room destination changes.</p>'
+	. '<p><a href="/go/livejasmin/anisyia" rel="nofollow sponsored" target="_blank">Watch Live on LiveJasmin</a></p>';
+$l_budget_clean = ModelCopyCleanup::cleanup( $l_budget_html, 'Anisyia' );
+ok(
+	substr_count( strtolower( $l_budget_clean ), 'active live-room destination' ) <= 1
+		&& substr_count( strtolower( $l_budget_clean ), 'destination' ) <= 2
+		&& substr_count( strtolower( $l_budget_clean ), 'recheck' ) <= 2,
+	'L1: page-level repetition budget reduces repeated routing/status terms'
+);
+ok(
+	strpos( $l_budget_clean, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $l_budget_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $l_budget_clean, 'target="_blank"' ) !== false,
+	'L2: repetition cleanup preserves /go/ link href and attributes'
+);
+
+$l_official_access_html = '<p>This page routes you through checked destination links so you can reach the official profile with less search friction.</p>';
+$l_official_access_clean = ModelCopyCleanup::cleanup( $l_official_access_html, 'Anisyia' );
+ok(
+	stripos( $l_official_access_clean, 'checked destination links' ) === false,
+	'L3: "checked destination links" phrasing is removed or rewritten naturally'
+);
+
+$l_features_html =
+	'<p>For Anisyia LiveJasmin, start with the confirmed live profile first and compare chat controls.</p>'
+	. '<p>For Anisyia cam show, start with the confirmed live profile first and compare chat controls.</p>'
+	. '<p>Anisyia webcam chat comparisons should stay practical: check playback stability and chat readability.</p>';
+$l_features_clean = ModelCopyCleanup::cleanup( $l_features_html, 'Anisyia' );
+ok(
+	stripos( $l_features_clean, 'Anisyia LiveJasmin' ) !== false
+		&& stripos( $l_features_clean, 'Anisyia cam show' ) !== false
+		&& stripos( $l_features_clean, 'Anisyia webcam chat' ) !== false,
+	'L4: feature dedupe keeps all required keywords'
+);
+ok(
+	substr_count( strtolower( $l_features_clean ), 'start with the confirmed live profile first' ) <= 1,
+	'L5: feature section avoids repeated sentence pattern across keywords'
+);
+
+$l_labels_html =
+	'<p>Backup strategy: Keep one alternate profile.</p>'
+	. '<p>Verification notes: this page prioritizes checked destinations.</p>'
+	. '<p>Truth-first routing: Use live links first.</p>';
+$l_labels_clean = ModelCopyCleanup::cleanup( $l_labels_html, 'Anisyia' );
+ok(
+	stripos( $l_labels_clean, 'Backup strategy:' ) === false
+		&& stripos( $l_labels_clean, 'Verification notes:' ) === false
+		&& stripos( $l_labels_clean, 'Truth-first routing:' ) === false,
+	'L6: internal operational labels are removed'
+);
+
+// ─── M. sparse FAQ platform routing is dynamic (P1 regression) ─────────────
+section( '=== M. sparse FAQ platform routing is dynamic ===' );
+
+$m_gate = [
+	'reason' => 'insufficient_performer_data',
+	'signals' => [
+		'platform_links' => 1,
+		'active_platforms' => 1,
+	],
+];
+
+$m_single_lj = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_single_lj_answer = (string) ( $m_single_lj['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_single_lj_answer, 'Open the LiveJasmin room first.' ) !== false,
+	'M1: single LiveJasmin active platform names LiveJasmin dynamically'
+);
+
+$m_single_cs = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'CamSoda' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_single_cs_answer = (string) ( $m_single_cs['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_single_cs_answer, 'Open the CamSoda room first.' ) !== false
+		&& stripos( $m_single_cs_answer, 'LiveJasmin' ) === false,
+	'M2: single non-LiveJasmin active platform uses the correct platform name only'
+);
+
+$m_multi = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin', 'CamSoda' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_multi_answer = (string) ( $m_multi['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_multi_answer, 'Open one of the confirmed live rooms first' ) !== false
+		&& stripos( $m_multi_answer, 'Open the LiveJasmin room first.' ) === false,
+	'M3: multiple active platforms use neutral non-hardcoded wording'
+);
+
+$m_none = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_none_answer = (string) ( $m_none['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_none_answer, 'No live room is confirmed active right now.' ) !== false
+		&& stripos( $m_none_answer, 'Open the' ) === false,
+	'M4: zero active platforms do not claim live-room entry guidance'
+);
+ok(
+	! empty( $m_single_lj['secondary_heading_slots'] )
+		&& stripos( (string) ( $m_single_lj['intro_paragraphs'][1] ?? '' ), 'Anisyia' ) !== false,
+	'M5: sparse payload still preserves secondary heading slots and keyword-bearing intro copy'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────

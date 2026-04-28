@@ -302,11 +302,15 @@ KEYWORD DENSITY RULES
 • Do NOT use these fallback phrases more than once each across the entire output:
   "official profile links", "trusted room links", "official live profile".
 • Use these terms sparingly across the whole JSON: "verified", "official", "links", "profile links", "destinations".
+• Do not repeat the same routing/status explanation across sections. Explain live-room vs non-live links once near the top, then keep later sections short.
+• Use a page-level repetition budget for terms like verified, destination, active live-room, non-active, backup, status, and recheck.
 • Do not explain verification/routing process in more than one place across all sections.
 • Do not restate verification in intro + watch + official-links context + FAQ all at once.
 • Do not expose internal safety/routing logic as prose. Convert it into short visitor-facing guidance.
 • Keyword sections must read naturally. Never output placeholder text like "This section covers [keyword]...".
   If a keyword has weak evidence, use one short practical sentence instead of filler.
+• Features and Platform Experience must discuss practical platform checks and keyword coverage, not repeat the link-routing explanation.
+• Keyword sections must not reuse the same sentence pattern for multiple keywords.
 • FAQ answers must be concise: 1–2 sentences unless extra detail is truly required by supplied evidence.
 • If evidence is weak, say less instead of padding with generic reassurance.
 • Do not repeat platform names unnaturally for density and do not repeat the model name in every paragraph.
@@ -327,7 +331,7 @@ KEYWORD DENSITY RULES
   - mechanical filler phrases such as "This section covers…", "as part of the verified platform and access information",
     "routing truthful", "truth-first routing", "decision clarity", "fair platform testing", "identity safety",
     "checked destination links", "backup navigation", "not currently treated as active live-room links",
-    or "verified destination can be real without being active"
+    "verified destination can be real without being active", "backup strategy", or "verification notes"
   - repeated "verified destinations" or repeated "official profile links" across multiple sections
 • Prefer direct utility wording:
   - "Start with the live-room button."
