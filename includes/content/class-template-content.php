@@ -654,13 +654,13 @@ class TemplateContent {
 
     /**
      * Add one short practical paragraph for sparse one-active-platform pages
-     * when rendered content remains below Rank Math's 600-word threshold.
+     * when rendered content remains below Rank Math's 620-word safety threshold.
      *
      * @param array<string,mixed> $payload
      * @param string[] $active_platforms
      * @return array<string,mixed>
      */
-    public static function maybe_add_sparse_wordcount_support_paragraph(array $payload, string $name, array $active_platforms, bool $is_sparse, int $minimum_words = 600): array {
+    public static function maybe_add_sparse_wordcount_support_paragraph(array $payload, string $name, array $active_platforms, bool $is_sparse, int $minimum_words = 620): array {
         if (!$is_sparse) {
             return $payload;
         }
@@ -675,7 +675,7 @@ class TemplateContent {
             return $payload;
         }
 
-        $support_line = 'Before spending credits, do a quick room check: confirm the profile handle, scan recent activity cues, test playback on your device, and review payment and privacy controls so your first click stays useful.';
+        $support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. Taking one minute to verify these basics helps your first click stay useful and reduces avoidable surprises.';
         $questions_paragraphs = is_array($payload['questions_section_paragraphs'] ?? null) ? $payload['questions_section_paragraphs'] : [];
         foreach ($questions_paragraphs as $line) {
             if (trim((string) $line) === $support_line) {
