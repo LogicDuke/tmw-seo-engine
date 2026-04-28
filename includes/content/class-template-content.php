@@ -416,20 +416,18 @@ class TemplateContent {
             $curated_external,
         ]);
 
-        $official_destinations_html = self::render_other_official_destinations_section($resolved_destinations);
-        $community_destinations_html = self::render_social_channel_destinations_section($resolved_destinations);
-
         return [
             'watch_section_html' => $watch_html,
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy, $editor_seed),
-            'official_destinations_section_html' => $official_destinations_html,
+            // Middle destination sections stay text-only so non-live outbound
+            // links appear only once in the final Official Links section.
+            'official_destinations_section_html' => '',
             'official_destinations_section_paragraphs' => [
-                'These profiles are useful for following or support, but they are not live-room buttons.',
+                'CamSoda, personal sites, and fan/support pages are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.',
             ],
-            'community_destinations_section_html' => $community_destinations_html,
+            'community_destinations_section_html' => '',
             'community_destinations_section_paragraphs' => [
-                'Use these social profiles, link hubs, and channels for updates, archives, and handle checks.',
-                'They are not direct live-room links.',
+                'Video channels, social profiles, and link hubs are listed in the Official Links and Profiles section below for updates, archives, and handle checks.',
             ],
             'related_models_html' => '',
             'explore_more_html' => '',
