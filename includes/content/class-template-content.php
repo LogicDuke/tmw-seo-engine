@@ -2138,9 +2138,29 @@ class TemplateContent {
             return '';
         }
 
-        $type = sanitize_key((string) ($link['type'] ?? $link['platform_key'] ?? ''));
+        $type = AffiliateLinkBuilder::canonical_platform_slug((string) ($link['type'] ?? $link['platform_key'] ?? ''));
         if ($type === '') {
             return $url;
+        }
+
+        if ($type === 'livejasmin') {
+            $username = PlatformProfiles::extract_username_from_profile_url('livejasmin', $url);
+            if ($username === '') {
+                $parts = wp_parse_url($url);
+                $host = strtolower((string) ($parts['host'] ?? ''));
+                if ($host !== '' && (str_contains($host, '.livejasmin.com') || $host === 'livejasmin.com')) {
+                    $path = trim((string) ($parts['path'] ?? ''), '/');
+                    $segments = $path !== '' ? explode('/', $path) : [];
+                    $username = trim((string) end($segments));
+                }
+            }
+
+            if ($username !== '') {
+                $go = AffiliateLinkBuilder::go_url('livejasmin', $username);
+                if ($go !== '') {
+                    return $go;
+                }
+            }
         }
 
         if (!class_exists(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::class)) {
