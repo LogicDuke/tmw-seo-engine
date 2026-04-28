@@ -165,9 +165,9 @@ class TemplateContent {
         }
 
         $watch_para_pool = [
-            'Use the room buttons below to open currently active live destinations first. Social profiles and link hubs are listed separately for follow-up.',
-            'Choose a live platform below first, then confirm room status before joining. Listings outside this section are for updates and support access.',
-            'Open a live profile first, then treat aggregators and copied listings as backup references only.',
+            'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.',
+            'Choose a live platform below first. Use the other profile groups for follow-up and support.',
+            'Open a live profile first, then use other listed profiles if you need backups or updates.',
         ];
         if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
@@ -541,19 +541,19 @@ class TemplateContent {
             );
 
         if ($active_platform_count === 1) {
-            $intro_first = 'In this review pass, ' . $platform_text . ' was the only live-room destination confirmed active. Start there first for room entry.';
+            $intro_first = $platform_text . ' is the confirmed live-room option from this check. Start there for live access.';
             $comparison_lines = [
                 'Use this checklist before you join: verify handle match, confirm recent room activity, check chat readability, and confirm mobile playback stability.',
             ];
         } elseif ($active_platform_count >= 2) {
-            $intro_first = $name . ' currently has verified active live-room destinations on ' . $platform_text . '.';
+            $intro_first = 'Live profiles are currently available on ' . $platform_text . '. Open one live room first, then compare the rest if needed.';
             $comparison_lines = [
                 'If multiple platforms are active, start with your familiar platform and compare load speed, chat controls, and privacy settings before choosing where to watch.',
             ];
         } else {
-            $intro_first = 'Verified destinations exist, but no live-room destination is currently confirmed active in this review snapshot.';
+            $intro_first = 'No live-room profile is confirmed active in this check.';
             $comparison_lines = [
-                'When live-room status is unclear, verify the handle first and use official destinations for follow and backup access until activity updates.',
+                'When live status is unclear, verify the handle and use other listed profiles for updates.',
             ];
         }
 
@@ -561,11 +561,11 @@ class TemplateContent {
             ? [
                 [
                     'q' => 'Which link should I open first?',
-                    'a' => 'Open an active live-room destination first. If room status changes, use verified non-live destinations for follow, backup, and handle verification.',
+                    'a' => 'Open the LiveJasmin room first. Use the other profiles only if you need updates or a backup check.',
                 ],
                 [
                     'q' => 'What does non-active mean on this page?',
-                    'a' => 'It means the profile is listed for checks or backup, but it is not the live-room button right now.',
+                    'a' => 'It means the profile is useful for checks, but not for entering a live room right now.',
                 ],
                 [
                     'q' => 'Why are fan pages not in the live section?',
@@ -573,7 +573,7 @@ class TemplateContent {
                 ],
                 [
                     'q' => 'Why should I recheck status before joining?',
-                    'a' => 'Room availability can change quickly. A fast recheck helps you avoid stale links and land on the right destination.',
+                    'a' => 'Room availability can change quickly. A quick recheck helps you avoid stale links.',
                 ],
             ]
             : [
@@ -590,14 +590,14 @@ class TemplateContent {
         return [
             'intro_paragraphs' => [
                 $intro_first,
-                'Open the live-room profile first, then use non-live profiles for backup checks and updates.'
+                'Use other listed profiles for follow-up or backup checks.'
                     . (!empty($secondary_visible_phrases[0]) ? ' This is especially useful when you are researching ' . $secondary_visible_phrases[0] . '.' : ''),
-                'Status can change between visits, so recheck activity right before joining.',
+                
             ],
             'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
             'features_section_paragraphs' => [
-                'Platform notes below cover access behavior and tools, not unsupported performer-specific claims.'
+                'Platform notes below focus on access behavior and practical tools.'
                     . (!empty($secondary_visible_phrases[1]) ? ' Keep ' . $secondary_visible_phrases[1] . ' comparisons tied to observed platform behavior.' : ''),
             ],
             'comparison_section_paragraphs' => $comparison_lines,
@@ -1506,12 +1506,12 @@ class TemplateContent {
         $active_platform_count = count($active_platforms);
         if ($active_platform_count === 1) {
             $platform_text = self::format_platform_list($active_platforms, 'the active platform');
-            $answer_line = 'In this review pass, ' . $platform_text . ' was the only live-room destination confirmed active. Start there first, then use verified non-live destinations for backup and profile checks.';
+            $answer_line = $platform_text . ' is the confirmed live-room option from this check. Start there for live access, then use other listed profiles for follow-up or backup checks.';
         } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
-            $answer_line = 'This review currently confirms active live-room destinations on ' . $platform_text . '. Open those links first, then use other sections for follow and backup access.';
+            $answer_line = 'Live profiles are available on ' . $platform_text . '. Open a live room first, then use the other sections for updates.';
         } else {
-            $answer_line = 'Verified destinations exist, but no live-room entry is currently confirmed active in this review snapshot.';
+            $answer_line = 'No live-room profile is confirmed active in this check.';
         }
         if ($summary === '') {
             return [
@@ -1525,8 +1525,8 @@ class TemplateContent {
         return [
             $answer_line,
             $summary,
-            'Open the live profile first for room entry, then use non-live profiles for follow, support, or verification tasks.',
-            'When activity changes, keep the same workflow: verify handle match, compare room quality, and use backup destinations instead of copied mirrors.',
+            'Use the other listed profiles for follow-up, support, or backup checks.',
+            'If activity changes, verify handle match and room quality before spending.',
         ];
     }
 
@@ -1559,7 +1559,7 @@ class TemplateContent {
         return [
             $fallback_copy,
             'Run the same one-minute test on each active room so platform choice is based on practical use rather than brand familiarity.',
-            'If one room is inactive later, use verified backup destinations and recheck status instead of relying on scraped mirror pages.',
+            'If one room goes offline later, use another listed profile instead of scraped mirror pages.',
             'Fair comparison starts with equal conditions: same device, similar time window, and the same trust checks before spending.',
         ];
     }
@@ -1764,7 +1764,7 @@ class TemplateContent {
                 $cta = '<p><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">Open ' . esc_html($platform) . ' profile</a></p>';
             }
             return $alt_username_note
-                . '<p>' . esc_html('This review pass found one confirmed active live-room destination (' . $platform . '), so use this quick pre-click checklist before joining.') . '</p>'
+                . '<p>' . esc_html('Before joining, confirm the handle, check recent room activity, and review payment/privacy controls.') . '</p>'
                 . $checklist
                 . $cta;
         }
@@ -1878,7 +1878,7 @@ class TemplateContent {
 
         $note = '';
         if ($include_non_active_note) {
-            $note = '<p>' . esc_html('Where shown as non-active, the latest operator review marked that destination as not currently active.') . '</p>';
+            $note = '<p>' . esc_html('These profiles are useful for follow, support, or backup checks, but they are not live-room buttons.') . '</p>';
         }
 
         return $note . '<ul>' . $items . '</ul>';
@@ -2912,13 +2912,13 @@ class TemplateContent {
         $tag_phrases = array_filter($tag_phrases, fn($t) => $t !== '' && strlen($t) >= 3);
 
         $pool = [
-            '<li><strong>Truth-first routing:</strong> Live-room links are limited to destinations currently confirmed active in this review; follow/support pages stay in separate sections.</li>',
+            '<li><strong>Live-room priority:</strong> Start with the confirmed live profile, then use other links for follow-up only.</li>',
             '<li><strong>Pre-click verification:</strong> Compare handle spelling, profile branding, and room freshness before spending credits or tips.</li>',
-            '<li><strong>Fair platform testing:</strong> Run a one-minute check for playback stability, chat readability, moderation tone, and login friction.</li>',
-            '<li><strong>Backup strategy:</strong> Keep one alternate verified destination ready in case your primary room is offline or geo-limited.</li>',
-            '<li><strong>Status can change:</strong> Activity labels reflect a review snapshot, so rechecking before each session prevents stale clicks.</li>',
+            '<li><strong>Platform checks:</strong> Run a one-minute check for playback stability, chat readability, moderation tone, and login friction.</li>',
+            '<li><strong>Backup option:</strong> Keep one alternate listed profile ready in case your primary room is offline or geo-limited.</li>',
+            '<li><strong>Status check:</strong> Room availability can change, so do one quick recheck before joining.</li>',
             '<li><strong>Avoid copycat pages:</strong> Start from the listed profiles on this page so you can avoid mirror listings and copied pages.</li>',
-            '<li><strong>Decision clarity:</strong> Platform notes describe utility tradeoffs rather than performer-specific claims that are not verified.</li>',
+            '<li><strong>Practical focus:</strong> Platform notes describe utility tradeoffs, not unsupported performer-specific claims.</li>',
         ];
 
         foreach (array_slice($tag_phrases, 0, 2) as $tag) {
@@ -3091,7 +3091,7 @@ class TemplateContent {
         $verified_total = (int) ($summary['verified_count'] ?? 0);
         $active_live = (int) ($summary['watch_cta_count'] ?? 0);
         $active_label = $active_live === 1 ? 'live-room destination' : 'live-room destinations';
-        return 'Verification notes: this page prioritizes checked destinations (' . $verified_total . ' verified links total, ' . $active_live . ' ' . $active_label . ' confirmed active in the latest review pass). Status can change, so recheck before each session.';
+        return 'Latest check: ' . $verified_total . ' profile links found, with ' . $active_live . ' ' . $active_label . ' confirmed for live access.';
     }
 
     private static function stable_fallback_variant(string $seed): string {

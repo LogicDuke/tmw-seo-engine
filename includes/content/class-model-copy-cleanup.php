@@ -182,12 +182,27 @@ class ModelCopyCleanup {
 		'#This keeps the experience focused[^.]*\.?#iu',
 	];
 
-	/** Rewrite internal safety labels into visitor-facing guidance. */
+	/** Remove internal operational labels from visitor-facing copy. */
 	const INTERNAL_LABEL_REWRITES = [
-		'#\bTruth-first\s+routing:\s*#iu' => 'Start with the live-room button first, then use non-live profiles for follow-up checks. ',
-		'#\bDecision\s+clarity:\s*#iu' => 'To keep it simple, open the confirmed room first and compare other profiles only if needed. ',
-		'#\bFair\s+platform\s+testing:\s*#iu' => 'If more than one room is active, compare load speed and chat quality before you decide. ',
-		'#\bIdentity\s+safety:\s*#iu' => 'Use listed profiles to avoid copycat pages and mismatched handles. ',
+		'#\bTruth-first\s+routing:\s*#iu' => '',
+		'#\bDecision\s+clarity:\s*#iu'    => '',
+		'#\bFair\s+platform\s+testing:\s*#iu' => '',
+		'#\bIdentity\s+safety:\s*#iu'     => '',
+		'#\bBackup\s+strategy:\s*#iu'     => '',
+		'#\bVerification\s+notes:\s*#iu'  => '',
+	];
+
+	/** Page-level routing/status repetition budget and soft rewrites. */
+	const ROUTING_REPETITION_BUDGETS = [
+		'verified'                  => 3,
+		'destination'               => 2,
+		'active live-room destination' => 1,
+		'non-active'                => 1,
+		'status can change'         => 2,
+		'recheck'                   => 2,
+		'backup checks'             => 2,
+		'live-room button'          => 3,
+		'start with the confirmed live profile first' => 1,
 	];
 
 	/**
@@ -239,6 +254,7 @@ class ModelCopyCleanup {
 		$body = self::rewrite_internal_safety_labels( $body );
 		$body = self::soften_repetitive_link_language( $body );
 		$body = self::cleanup_repeated_openers( $body );
+		$body = self::apply_routing_repetition_budget( $body );
 		$body = self::compact_faq_answers( $body );
 		$body = self::remove_weak_evidence_padding( $body );
 
@@ -734,6 +750,71 @@ class ModelCopyCleanup {
 			},
 			$html
 		);
+	}
+
+	/**
+	 * Apply a page-level repetition budget to common routing/status language.
+	 */
+	private static function apply_routing_repetition_budget( string $html ): string {
+		if ( strpos( $html, '<p' ) === false ) {
+			return $html;
+		}
+		$counts = [];
+		return (string) preg_replace_callback(
+			'#(<p\b[^>]*>)(.*?)(</p>)#is',
+			static function ( array $m ) use ( &$counts ): string {
+				$open  = $m[1];
+				$inner = $m[2];
+				$close = $m[3];
+				if ( preg_match( '#<(?:a|ul|ol|li|table|tr|td|th|h[1-6])\b#i', $inner ) ) {
+					return $m[0];
+				}
+				if ( preg_match( '#</?(?:strong|em|span|br|code|mark|small|sup|sub|b|i)\b#i', $inner ) ) {
+					return $m[0];
+				}
+				$text = trim( wp_strip_tags_safe( $inner ) );
+				if ( $text === '' ) {
+					return $m[0];
+				}
+
+				$text = self::soften_routing_terms( $text );
+				foreach ( self::ROUTING_REPETITION_BUDGETS as $term => $limit ) {
+					$pattern = '#\b' . preg_quote( $term, '#' ) . '\b#iu';
+					$occ = preg_match_all( $pattern, $text );
+					if ( ! is_int( $occ ) || $occ <= 0 ) {
+						continue;
+					}
+					$counts[ $term ] = ( $counts[ $term ] ?? 0 ) + $occ;
+					if ( $counts[ $term ] <= $limit ) {
+						continue;
+					}
+					$text = (string) preg_replace( $pattern, '', $text );
+				}
+				$text = trim( (string) preg_replace( '#\s{2,}#u', ' ', $text ) );
+				$text = trim( (string) preg_replace( '#\s+([,.;:])#u', '$1', $text ) );
+				if ( $text === '' ) {
+					return '';
+				}
+				return $open . $text . $close;
+			},
+			$html
+		);
+	}
+
+	private static function soften_routing_terms( string $text ): string {
+		$replacements = [
+			'#\bchecked destination links\b#iu'             => 'listed profile links',
+			'#\bchecked destinations\b#iu'                  => 'listed profiles',
+			'#\bverified non-live destinations\b#iu'        => 'other profiles',
+			'#\bactive live-room destination\b#iu'          => 'live profile',
+			'#\blive-room destination\b#iu'                 => 'live profile',
+			'#\bdestinations\b#iu'                          => 'profiles',
+			'#\bdestination\b#iu'                           => 'profile',
+		];
+		foreach ( $replacements as $pattern => $replace ) {
+			$text = (string) preg_replace( $pattern, $replace, $text );
+		}
+		return $text;
 	}
 
 	/**
