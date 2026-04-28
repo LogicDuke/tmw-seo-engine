@@ -227,28 +227,16 @@ class AffiliateLinkBuilder {
     }
 
     public static function maybe_handle_redirect(): void {
-        $platform = (string) get_query_var('tmw_go_platform', '');
-        $username = (string) get_query_var('tmw_go_username', '');
-
-        if ($platform === '' || $username === '') {
-            return;
-        }
-
-        $platform_slug = self::canonical_platform_slug($platform);
-        if (!PlatformRegistry::get($platform_slug)) {
-            return;
-        }
-
-        $clean_username = self::sanitize_username($username);
-        if ($clean_username === '') {
-            return;
-        }
-
-        $url = self::build_affiliate_url($platform_slug, $clean_username);
+        $url = self::resolve_go_destination(
+            (string) get_query_var('tmw_go_platform', ''),
+            (string) get_query_var('tmw_go_username', '')
+        );
         if ($url === '') {
             return;
         }
 
+        $platform_slug = self::canonical_platform_slug((string) get_query_var('tmw_go_platform', ''));
+        $clean_username = self::sanitize_username((string) get_query_var('tmw_go_username', ''));
         self::log_click($platform_slug, $clean_username, $url);
 
         Logs::info('platform', '[TMW-AFF] Redirecting affiliate click', [
@@ -268,6 +256,30 @@ class AffiliateLinkBuilder {
 
         wp_redirect($url, 302);
         exit;
+    }
+
+    /**
+     * Resolve the canonical outbound destination used by /go/{platform}/{username}/.
+     *
+     * @param string $platform Raw platform slug (or alias) from route/query var.
+     * @param string $username Raw username from route/query var.
+     */
+    public static function resolve_go_destination(string $platform, string $username): string {
+        if ($platform === '' || $username === '') {
+            return '';
+        }
+
+        $platform_slug = self::canonical_platform_slug($platform);
+        if (!PlatformRegistry::get($platform_slug)) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username($username);
+        if ($clean_username === '') {
+            return '';
+        }
+
+        return self::build_affiliate_url($platform_slug, $clean_username);
     }
 
     private static function sanitize_username(string $username): string {
