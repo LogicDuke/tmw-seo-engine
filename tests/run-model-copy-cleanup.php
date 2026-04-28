@@ -104,9 +104,11 @@ if ( ! function_exists( 'wp_strip_all_tags' ) ) {
 
 require_once dirname( __DIR__ ) . '/includes/content/class-model-research-evidence.php';
 require_once dirname( __DIR__ ) . '/includes/content/class-model-copy-cleanup.php';
+require_once dirname( __DIR__ ) . '/includes/content/class-template-content.php';
 
 use TMWSEO\Engine\Content\ModelResearchEvidence;
 use TMWSEO\Engine\Content\ModelCopyCleanup;
+use TMWSEO\Engine\Content\TemplateContent;
 
 // ── Tiny test runner ─────────────────────────────────────────────────────────
 $pass = 0;
@@ -984,6 +986,77 @@ ok(
 		&& stripos( $l_labels_clean, 'Verification notes:' ) === false
 		&& stripos( $l_labels_clean, 'Truth-first routing:' ) === false,
 	'L6: internal operational labels are removed'
+);
+
+// ─── M. sparse FAQ platform routing is dynamic (P1 regression) ─────────────
+section( '=== M. sparse FAQ platform routing is dynamic ===' );
+
+$m_gate = [
+	'reason' => 'insufficient_performer_data',
+	'signals' => [
+		'platform_links' => 1,
+		'active_platforms' => 1,
+	],
+];
+
+$m_single_lj = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_single_lj_answer = (string) ( $m_single_lj['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_single_lj_answer, 'Open the LiveJasmin room first.' ) !== false,
+	'M1: single LiveJasmin active platform names LiveJasmin dynamically'
+);
+
+$m_single_cs = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'CamSoda' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_single_cs_answer = (string) ( $m_single_cs['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_single_cs_answer, 'Open the CamSoda room first.' ) !== false
+		&& stripos( $m_single_cs_answer, 'LiveJasmin' ) === false,
+	'M2: single non-LiveJasmin active platform uses the correct platform name only'
+);
+
+$m_multi = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[ 'LiveJasmin', 'CamSoda' ],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_multi_answer = (string) ( $m_multi['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_multi_answer, 'Open one of the confirmed live rooms first' ) !== false
+		&& stripos( $m_multi_answer, 'Open the LiveJasmin room first.' ) === false,
+	'M3: multiple active platforms use neutral non-hardcoded wording'
+);
+
+$m_none = TemplateContent::build_sparse_model_payload(
+	'Anisyia',
+	[],
+	$m_gate,
+	[ 'Anisyia LiveJasmin', 'Anisyia live cam' ],
+	[ 'Anisyia cam show', 'Anisyia webcam chat' ]
+);
+$m_none_answer = (string) ( $m_none['faq_items'][0]['a'] ?? '' );
+ok(
+	stripos( $m_none_answer, 'No live room is confirmed active right now.' ) !== false
+		&& stripos( $m_none_answer, 'Open the' ) === false,
+	'M4: zero active platforms do not claim live-room entry guidance'
+);
+ok(
+	! empty( $m_single_lj['secondary_heading_slots'] )
+		&& stripos( (string) ( $m_single_lj['intro_paragraphs'][1] ?? '' ), 'Anisyia' ) !== false,
+	'M5: sparse payload still preserves secondary heading slots and keyword-bearing intro copy'
 );
 
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────

@@ -557,11 +557,19 @@ class TemplateContent {
             ];
         }
 
+        if ($active_platform_count === 1) {
+            $first_link_answer = 'Open the ' . $platform_text . ' room first. Use the other profiles only if you need updates or a backup check.';
+        } elseif ($active_platform_count >= 2) {
+            $first_link_answer = 'Open one of the confirmed live rooms first, then compare the others if needed.';
+        } else {
+            $first_link_answer = 'No live room is confirmed active right now. Use the listed profiles for handle checks and updates.';
+        }
+
         $faq_items = $has_meaningful_structure
             ? [
                 [
                     'q' => 'Which link should I open first?',
-                    'a' => 'Open the LiveJasmin room first. Use the other profiles only if you need updates or a backup check.',
+                    'a' => $first_link_answer,
                 ],
                 [
                     'q' => 'What does non-active mean on this page?',
