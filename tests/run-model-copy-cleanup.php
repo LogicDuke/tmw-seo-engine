@@ -1822,6 +1822,142 @@ ok(
 	'Q6: existing wins hold (no keyword H3 in Official sections, no duplicate latest-check, keywords preserved naturally)'
 );
 
+// ─── R. non-live outbound links render only in final official-links section ─
+section( '=== R. non-live outbound links only in final section ===' );
+
+$r_payload = [
+	'active_platforms' => [ 'LiveJasmin' ],
+	'intro_paragraphs' => [
+		'LiveJasmin is the confirmed live-room option from this check. Start there for live access.',
+		'Use the other listed profiles only when you need updates or support.',
+	],
+	'watch_section_paragraphs' => [ 'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.' ],
+	'watch_section_html' => '<p><a href="/go/livejasmin/anisyia" target="_blank" rel="sponsored noopener">Watch Live on LiveJasmin</a></p>',
+	'official_destinations_section_html' => '',
+	'official_destinations_section_paragraphs' => [ 'CamSoda, personal sites, and fan/support pages are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.' ],
+	'community_destinations_section_html' => '',
+	'community_destinations_section_paragraphs' => [ 'Video channels, social profiles, and link hubs are listed in the Official Links and Profiles section below for updates, archives, and handle checks.' ],
+	'features_section_paragraphs' => [ 'Check playback stability, chat readability, and room status before spending credits.' ],
+	'comparison_section_paragraphs' => [ 'Before joining, confirm the profile handle and review payment/privacy controls.' ],
+	'official_links_section_paragraphs' => [
+		'Below are the grouped profiles found for Anisyia: cam platforms, official sites, fan pages, video channels, socials and link hubs. Latest check: 13 profile links found, including 1 live profile.',
+		'When checking Anisyia live cam links, use the grouped profiles below to separate live access from fan, social, and link-hub pages.',
+	],
+	'external_info_html' => '<h3>Find Anisyia elsewhere</h3>'
+		. '<h3>Cam platform profiles</h3><ul>'
+		. '<li><a href="/go/livejasmin/anisyia" target="_blank" rel="nofollow sponsored noopener">Watch Live on LiveJasmin</a></li>'
+		. '<li><a href="https://www.camsoda.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Profile on CamSoda</a></li>'
+		. '</ul>'
+		. '<h3>Official and personal sites</h3><ul>'
+		. '<li><a href="https://anisyia.xxx" target="_blank" rel="noopener external nofollow">Visit Official Site on Personal Site (anisyia.xxx)</a></li>'
+		. '<li><a href="https://anisyia.com" target="_blank" rel="noopener external nofollow">Visit Official Site on Personal Site (anisyia.com)</a></li>'
+		. '</ul>'
+		. '<h3>Fan pages</h3><ul>'
+		. '<li><a href="https://fancentro.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Fan Page on FanCentro</a></li>'
+		. '<li><a href="https://onlyfans.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Fan Page on OnlyFans</a></li>'
+		. '<li><a href="https://fansly.com/anisyia" target="_blank" rel="noopener external nofollow">Visit Fan Page on Fansly</a></li>'
+		. '</ul>'
+		. '<h3>Video channels</h3><ul>'
+		. '<li><a href="https://www.pornhub.com/model/anisyia" target="_blank" rel="noopener external nofollow">Visit Channel on Pornhub</a></li>'
+		. '</ul>'
+		. '<h3>Social profiles</h3><ul>'
+		. '<li><a href="https://www.tiktok.com/@anisyia" target="_blank" rel="noopener external nofollow">Follow on TikTok</a></li>'
+		. '<li><a href="https://x.com/anisyia" target="_blank" rel="noopener external nofollow">Follow on X (Twitter)</a></li>'
+		. '<li><a href="https://www.facebook.com/anisyia" target="_blank" rel="noopener external nofollow">Follow on Facebook</a></li>'
+		. '</ul>'
+		. '<h3>More Links</h3><ul>'
+		. '<li><a href="https://beacons.ai/anisyia" target="_blank" rel="noopener external nofollow">Open Link Hub on Beacons</a></li>'
+		. '<li><a href="https://link.me/anisyia" target="_blank" rel="noopener external nofollow">Open Link Hub on Link.me</a></li>'
+		. '</ul>',
+];
+
+$r_render = ModelPageRenderer::render( 'Anisyia', $r_payload );
+$r_middle_other = '';
+if ( preg_match( '#<h2>Other Official Destinations</h2>(.*?)(?:<h2>|$)#is', $r_render, $r_m ) ) {
+	$r_middle_other = (string) ( $r_m[1] ?? '' );
+}
+$r_middle_social = '';
+if ( preg_match( '#<h2>Social Profiles, Link Hubs, and Channels</h2>(.*?)(?:<h2>|$)#is', $r_render, $r_m2 ) ) {
+	$r_middle_social = (string) ( $r_m2[1] ?? '' );
+}
+
+ok(
+	trim( (string) ( $r_payload['official_destinations_section_html'] ?? '' ) ) === ''
+		&& trim( (string) ( $r_payload['community_destinations_section_html'] ?? '' ) ) === ''
+		&& stripos( implode( ' ', (array) ( $r_payload['official_destinations_section_paragraphs'] ?? [] ) ), 'listed in the Official Links and Profiles section below' ) !== false
+		&& stripos( implode( ' ', (array) ( $r_payload['community_destinations_section_paragraphs'] ?? [] ) ), 'listed in the Official Links and Profiles section below' ) !== false,
+	'R1: middle Other Official Destinations + Social/Channels sections are text-only summaries pointing to links below'
+);
+ok(
+	strpos( $r_render, '<h2>Other Official Destinations</h2>' ) !== false
+		&& strpos( $r_render, '<h2>Social Profiles, Link Hubs, and Channels</h2>' ) !== false
+		&& strpos( $r_middle_other, 'Visit Profile on CamSoda' ) === false
+		&& strpos( $r_middle_other, 'Visit Official Site on Personal Site' ) === false
+		&& strpos( $r_middle_other, 'Visit Fan Page on FanCentro' ) === false
+		&& strpos( $r_middle_other, 'Visit Fan Page on OnlyFans' ) === false
+		&& strpos( $r_middle_other, 'Visit Fan Page on Fansly' ) === false
+		&& strpos( $r_middle_social, 'Visit Channel on Pornhub' ) === false
+		&& strpos( $r_middle_social, 'Follow on TikTok' ) === false
+		&& strpos( $r_middle_social, 'Follow on X (Twitter)' ) === false
+		&& strpos( $r_middle_social, 'Follow on Facebook' ) === false
+		&& strpos( $r_middle_social, 'Open Link Hub on Beacons' ) === false
+		&& strpos( $r_middle_social, 'Open Link Hub on Link.me' ) === false,
+	'R2: middle sections do not render clickable non-live outbound destination CTAs'
+);
+ok(
+	strpos( $r_render, 'Watch Live on LiveJasmin' ) !== false
+		&& strpos( $r_render, 'href="/go/livejasmin/anisyia"' ) !== false
+		&& strpos( $r_render, 'target="_blank"' ) !== false,
+	'R3: main LiveJasmin live CTA remains in Where to Watch Live with unchanged /go/ href'
+);
+ok(
+	( strpos( $r_render, '<h2>Official Links and Profiles</h2>' ) !== false
+		|| strpos( $r_render, '<h2>Where Are the Official Links and Other Profiles?</h2>' ) !== false )
+		&& strpos( $r_render, 'Visit Profile on CamSoda' ) !== false
+		&& strpos( $r_render, 'Visit Official Site on Personal Site (anisyia.xxx)' ) !== false
+		&& strpos( $r_render, 'Visit Official Site on Personal Site (anisyia.com)' ) !== false
+		&& strpos( $r_render, 'Visit Fan Page on FanCentro' ) !== false
+		&& strpos( $r_render, 'Visit Fan Page on OnlyFans' ) !== false
+		&& strpos( $r_render, 'Visit Fan Page on Fansly' ) !== false
+		&& strpos( $r_render, 'Visit Channel on Pornhub' ) !== false
+		&& strpos( $r_render, 'Follow on TikTok' ) !== false
+		&& strpos( $r_render, 'Follow on X (Twitter)' ) !== false
+		&& strpos( $r_render, 'Follow on Facebook' ) !== false
+		&& strpos( $r_render, 'Open Link Hub on Beacons' ) !== false
+		&& strpos( $r_render, 'Open Link Hub on Link.me' ) !== false
+		&& strpos( $r_render, 'href="https://www.camsoda.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://anisyia.xxx"' ) !== false
+		&& strpos( $r_render, 'href="https://anisyia.com"' ) !== false
+		&& strpos( $r_render, 'href="https://fancentro.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://onlyfans.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://fansly.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://www.pornhub.com/model/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://www.tiktok.com/@anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://x.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://www.facebook.com/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://beacons.ai/anisyia"' ) !== false
+		&& strpos( $r_render, 'href="https://link.me/anisyia"' ) !== false
+		&& strpos( $r_render, 'rel="noopener external nofollow"' ) !== false
+		&& strpos( $r_render, 'target="_blank"' ) !== false,
+	'R4: final Official Links section stays complete with grouped non-live links and preserved href/rel/target attributes'
+);
+ok(
+	substr_count( $r_render, 'href="https://www.camsoda.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://anisyia.xxx"' ) === 1
+		&& substr_count( $r_render, 'href="https://anisyia.com"' ) === 1
+		&& substr_count( $r_render, 'href="https://fancentro.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://onlyfans.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://fansly.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://www.pornhub.com/model/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://www.tiktok.com/@anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://x.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://www.facebook.com/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://beacons.ai/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="https://link.me/anisyia"' ) === 1
+		&& substr_count( $r_render, 'href="/go/livejasmin/anisyia"' ) >= 1,
+	'R5: each non-live outbound href appears once only (final section), with LiveJasmin primary CTA allowed to repeat'
+);
+
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
 section( '=== Wiring: save-site coverage ===' );
 
