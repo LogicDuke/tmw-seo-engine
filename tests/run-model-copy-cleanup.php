@@ -1724,7 +1724,7 @@ ok(
 // ─── Q. sparse one-active Rank Math word-count support paragraph ───────────
 section( '=== Q. sparse one-active word-count support paragraph ===' );
 
-$q_support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. Taking one minute to verify these basics helps your first click stay useful and reduces avoidable surprises.';
+$q_support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. A quick check also helps you spot stale mirrors, copied profile pages, or room listings that no longer match the active platform. Keep the first click focused on the confirmed live profile.';
 $q_sparse_payload = [
 	'active_platforms' => [ 'LiveJasmin' ],
 	'intro_paragraphs' => [
@@ -1739,6 +1739,7 @@ $q_sparse_payload = [
 	],
 	'faq_items' => [
 		[ 'q' => 'Which link should I open first?', 'a' => 'Open the LiveJasmin room first; use the other profiles only for updates.' ],
+		[ 'q' => 'How do I avoid stale or copied profile links?', 'a' => 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.' ],
 		[ 'q' => 'What does non-active mean?', 'a' => 'It means the profile can be useful for checks, but not for entering a live room right now.' ],
 	],
 	'features_section_paragraphs' => [
@@ -1762,18 +1763,20 @@ for ( $q_pad_i = 1; $q_before_words < 600 && $q_pad_i <= 12; $q_pad_i++ ) {
 	$q_before = ModelPageRenderer::render( 'Anisyia', $q_sparse_payload );
 	$q_before_words = str_word_count( wp_strip_all_tags( $q_before ) );
 }
-$q_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_sparse_payload, 'Anisyia', [ 'LiveJasmin' ], true, 620 );
+$q_after_payload = TemplateContent::maybe_add_sparse_wordcount_support_paragraph( $q_sparse_payload, 'Anisyia', [ 'LiveJasmin' ], true, 680 );
 $q_after = ModelPageRenderer::render( 'Anisyia', $q_after_payload );
 $q_after_words = str_word_count( wp_strip_all_tags( $q_after ) );
 $q_links_heading_pos = strpos( $q_after, 'Official Links' );
 $q_added_in_payload = in_array( $q_support_line, (array) ( $q_after_payload['questions_section_paragraphs'] ?? [] ), true );
 
 ok(
-	$q_before_words < 620
+	$q_before_words < 680
 		&& $q_after_words > $q_before_words
 		&& $q_added_in_payload
-		&& ( $q_after_words >= 620 || $q_added_in_payload ),
-	'Q1: sparse one-active page below 620 words receives support copy, with a 620+ target buffer when needed'
+		&& strpos( $q_after, 'How do I avoid stale or copied profile links?' ) !== false
+		&& strpos( $q_after, 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks.' ) !== false
+		&& ( $q_after_words >= 600 || ( $q_added_in_payload && strpos( $q_after, 'How do I avoid stale or copied profile links?' ) !== false ) ),
+	'Q1: sparse one-active page below the 680 target receives support copy + stale-profile FAQ, keeping visible content safely above 600 words'
 );
 ok(
 	$q_added_in_payload,
@@ -1785,6 +1788,22 @@ ok(
 		&& $q_links_heading_pos !== false
 		&& strpos( $q_after, '<h2>Common Questions Before You Click</h2>' ) < $q_links_heading_pos,
 	'Q2b: support copy is assigned to the Questions block, which renders before Official Links and Profiles'
+);
+ok(
+	strpos( $q_after, 'How do I avoid stale or copied profile links?' ) !== false
+		&& strpos( $q_after, 'How do I avoid stale or copied profile links?' ) < $q_links_heading_pos
+		&& strpos( $q_after, 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks.' ) < $q_links_heading_pos
+		&& strpos( $q_after, 'How do I avoid stale or copied profile links?<a ' ) === false,
+	'Q2c: stale-profile FAQ question + answer render before Official Links and add no new links'
+);
+ok(
+	strpos( $q_after, 'Before spending credits' ) !== false
+		&& strpos( $q_after, 'Before spending credits' ) < $q_links_heading_pos
+		&& (
+			( strpos( $q_after, 'stale mirrors' ) !== false && strpos( $q_after, 'stale mirrors' ) < $q_links_heading_pos )
+			|| ( strpos( $q_after, 'copied profile pages' ) !== false && strpos( $q_after, 'copied profile pages' ) < $q_links_heading_pos )
+		),
+	'Q2d: expanded support paragraph is visible before Official Links with stale-mirror/copy checks'
 );
 ok(
 	stripos( $q_after, 'Verification and Review Method' ) === false
@@ -1831,6 +1850,23 @@ ok(
 	'Q6: existing wins hold (no keyword H3 in Official sections, no duplicate latest-check, keywords preserved naturally)'
 );
 
+// ─── S. social summary sentence grammar fix ─────────────────────────────────
+section( '=== S. social summary sentence grammar fix ===' );
+
+$s_payload = [
+	'community_destinations_section_paragraphs' => [ 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ],
+	'official_destinations_section_paragraphs' => [ 'CamSoda, personal sites, and fan/support pages are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.' ],
+	'external_info_html' => '<h3>Find Anisyia elsewhere</h3>',
+];
+$s_render = ModelPageRenderer::render( 'Anisyia', $s_payload );
+ok(
+	strpos( $s_render, 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ) !== false
+		&& stripos( $s_render, 'in the the' ) === false
+		&& stripos( $s_render, 'links below and Profiles' ) === false
+		&& stripos( $s_render, 'section below section' ) === false,
+	'S1: social summary sentence is clean and no longer contains duplicated/awkward below phrasing'
+);
+
 // ─── R. non-live outbound links render only in final official-links section ─
 section( '=== R. non-live outbound links only in final section ===' );
 
@@ -1845,7 +1881,7 @@ $r_payload = [
 	'official_destinations_section_html' => '',
 	'official_destinations_section_paragraphs' => [ 'CamSoda, personal sites, and fan/support pages are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.' ],
 	'community_destinations_section_html' => '',
-	'community_destinations_section_paragraphs' => [ 'Video channels, social profiles, and link hubs are listed in the Official Links and Profiles section below for updates, archives, and handle checks.' ],
+	'community_destinations_section_paragraphs' => [ 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ],
 	'features_section_paragraphs' => [ 'Check playback stability, chat readability, and room status before spending credits.' ],
 	'comparison_section_paragraphs' => [ 'Before joining, confirm the profile handle and review payment/privacy controls.' ],
 	'official_links_section_paragraphs' => [
@@ -1894,7 +1930,7 @@ ok(
 	trim( (string) ( $r_payload['official_destinations_section_html'] ?? '' ) ) === ''
 		&& trim( (string) ( $r_payload['community_destinations_section_html'] ?? '' ) ) === ''
 		&& stripos( implode( ' ', (array) ( $r_payload['official_destinations_section_paragraphs'] ?? [] ) ), 'listed in the Official Links and Profiles section below' ) !== false
-		&& stripos( implode( ' ', (array) ( $r_payload['community_destinations_section_paragraphs'] ?? [] ) ), 'listed in the Official Links and Profiles section below' ) !== false,
+		&& stripos( implode( ' ', (array) ( $r_payload['community_destinations_section_paragraphs'] ?? [] ) ), 'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.' ) !== false,
 	'R1: middle Other Official Destinations + Social/Channels sections are text-only summaries pointing to links below'
 );
 ok(
