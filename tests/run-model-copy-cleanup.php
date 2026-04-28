@@ -755,6 +755,64 @@ ok(
 	'I7: FAQ answer remains present and compact (1-2 sentence target)'
 );
 
+// ─── J. hardening safety checks for HTML/inlines/evidence/FAQ links ───────
+section( '=== J. hardening safety checks ===' );
+
+$j_attr_html = '<p class="tmw-test" data-x="1">Use this page to <strong>check</strong> HD live stream experience before joining.</p>';
+$j_attr_clean = ModelCopyCleanup::cleanup( $j_attr_html, 'Anisyia' );
+ok(
+	strpos( $j_attr_clean, 'class="tmw-test"' ) !== false
+		&& strpos( $j_attr_clean, 'data-x="1"' ) !== false,
+	'J1: paragraph attributes are preserved (or paragraph is safely skipped)'
+);
+ok(
+	strpos( $j_attr_clean, '<strong>check</strong>' ) !== false,
+	'J2: inline <strong> formatting is preserved'
+);
+ok(
+	stripos( $j_attr_clean, 'HD live stream experience' ) !== false,
+	'J3: extra keyword phrase survives attr/inline preservation path'
+);
+
+$j_opener_html = '<p>This page includes HD live stream experience checks for mobile users.</p>';
+$j_opener_clean = ModelCopyCleanup::cleanup( $j_opener_html, 'Anisyia' );
+ok(
+	stripos( $j_opener_clean, 'Start with the live-room button') === false,
+	'J4: non-routing opener rewrite does not force live-room CTA phrasing'
+);
+ok(
+	stripos( $j_opener_clean, 'HD live stream experience' ) !== false,
+	'J5: context-safe opener cleanup keeps natural keyword sentence'
+);
+
+$j_evidence_inner =
+	"<!-- tmwseo-seed-evidence:start -->\n"
+	. '<p>This page helps but is editor evidence and must not change.</p>' . "\n"
+	. "<!-- tmwseo-seed-evidence:end -->";
+$j_evidence_doc = $j_evidence_inner . "\n" . '<p>Body paragraph.</p>';
+$j_evidence_clean = ModelCopyCleanup::cleanup( $j_evidence_doc, 'Anisyia' );
+preg_match( '#(<!-- tmwseo-seed-evidence:start -->.*?<!-- tmwseo-seed-evidence:end -->)#s', $j_evidence_clean, $j_ev_match );
+ok(
+	($j_ev_match[1] ?? '') === $j_evidence_inner,
+	'J6: evidence marker block preserved byte-for-byte'
+);
+
+$j_faq_link_html =
+	'<h2>Common Questions Before You Click</h2>'
+	. '<h3>Where should I start?</h3>'
+	. '<p>Start here: <a href="/go/chaturbate/example" rel="nofollow sponsored" target="_blank">open room</a>. These links are verified and official. Then compare options.</p>';
+$j_faq_link_clean = ModelCopyCleanup::cleanup( $j_faq_link_html, 'Anisyia' );
+ok(
+	strpos( $j_faq_link_clean, 'href="/go/chaturbate/example"' ) !== false
+		&& strpos( $j_faq_link_clean, 'rel="nofollow sponsored"' ) !== false
+		&& strpos( $j_faq_link_clean, 'target="_blank"' ) !== false,
+	'J7: FAQ answer links keep href/rel/target unchanged'
+);
+ok(
+	substr_count( $j_faq_link_clean, '<a href="/go/chaturbate/example"' ) === 1,
+	'J8: FAQ link is never removed by compacting logic'
+);
+
 // ─── Wiring: confirm cleanup is referenced at every save site ───────────────
 section( '=== Wiring: save-site coverage ===' );
 
