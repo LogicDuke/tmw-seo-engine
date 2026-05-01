@@ -27,7 +27,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 class Image_Meta_Generator {
 
     /** Schema version for generated metadata. Bump when templates change. */
-    const IMAGE_META_VERSION = 2;
+    const IMAGE_META_VERSION = 3;
 
     // ── Public entry points ────────────────────────────────────────────────
 
@@ -429,13 +429,13 @@ class Image_Meta_Generator {
 
                 // ── Flipbox front ──────────────────────────────────────────
                 case 'front':
-                    $kws      = self::resolve_secondary_keywords( (int) $parent_post->ID );
-                    $kw_front = $kws[0] ?? 'live cam';
-                    $alt      = sprintf( '%s %s profile preview image', $base, $kw_front );
+                    $kws      = self::resolve_secondary_keywords( (int) $parent_post->ID, $base );
+                    $kw_front = $kws[0] ?? sprintf( '%s live cam', $base );
+                    $alt      = sprintf( '%s profile preview image', $kw_front );
                     $title    = sprintf( '%s | Profile Preview | %s', $base, $site_name );
-                    $caption  = sprintf( 'Profile preview card for %s, live webcam model on %s', $base, $site_name );
+                    $caption  = sprintf( 'Profile preview image for %s on %s', $base, $site_name );
                     $description = sprintf(
-                        'Preview card for %s\'s profile on %s. Shows live cam availability and model details.',
+                        'Profile preview image highlighting %s on %s.',
                         $base,
                         $site_name
                     );
@@ -443,18 +443,18 @@ class Image_Meta_Generator {
 
                 // ── Flipbox back ───────────────────────────────────────────
                 case 'back':
-                    $kws          = self::resolve_secondary_keywords( (int) $parent_post->ID );
+                    $kws          = self::resolve_secondary_keywords( (int) $parent_post->ID, $base );
                     $kw_front_ref = $kws[0] ?? '';
-                    $kw_back      = $kws[1] ?? $kws[0] ?? 'webcam chat';
+                    $kw_back      = $kws[1] ?? $kws[0] ?? sprintf( '%s webcam chat', $base );
                     // Safety: if back keyword would duplicate front, use a static fallback.
                     if ( $kw_back === '' || strcasecmp( $kw_back, $kw_front_ref ) === 0 ) {
-                        $kw_back = 'webcam chat';
+                        $kw_back = sprintf( '%s webcam chat', $base );
                     }
-                    $alt     = sprintf( '%s %s profile preview image', $base, $kw_back );
+                    $alt     = sprintf( '%s profile preview image', $kw_back );
                     $title   = sprintf( '%s | Webcam Model Info | %s', $base, $site_name );
-                    $caption = sprintf( 'Profile detail card for %s, live cam model on %s', $base, $site_name );
+                    $caption = sprintf( 'Additional live cam profile image for %s on %s', $base, $site_name );
                     $description = sprintf(
-                        'Info card for %s\'s profile on %s. Includes platform links and streaming schedule.',
+                        'Additional profile preview image for %s on %s.',
                         $base,
                         $site_name
                     );
@@ -520,8 +520,9 @@ class Image_Meta_Generator {
      * @param  int      $post_id
      * @return string[]
      */
-    private static function resolve_secondary_keywords( int $post_id ): array {
+    private static function resolve_secondary_keywords( int $post_id, string $model_name ): array {
         $candidates = [];
+        $fallbacks  = [];
 
         $pack = get_post_meta( $post_id, 'tmw_keyword_pack', true );
         if ( is_array( $pack ) ) {
@@ -529,22 +530,24 @@ class Image_Meta_Generator {
                 $slug  = sanitize_key( (string) ( $pack['platforms'][0] ?? '' ) );
                 $label = self::platform_label( $slug );
                 if ( $label !== '' ) {
-                    $candidates[] = $label;
+                    $candidates[] = sprintf( '%s %s', $model_name, $label );
+                    $fallbacks[]  = sprintf( '%s %s', $model_name, $label );
                 }
             }
             if ( ! empty( $pack['additional'] ) && is_array( $pack['additional'] ) ) {
-                foreach ( array_slice( $pack['additional'], 0, 2 ) as $kw ) {
-                    $kw = sanitize_text_field( (string) $kw );
-                    if ( $kw !== '' ) {
-                        $candidates[] = $kw;
-                    }
+                foreach ( $pack['additional'] as $kw ) {
+                    $candidates[] = (string) $kw;
                 }
             }
         }
 
         $focus_kw = sanitize_text_field( (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true ) );
         if ( $focus_kw !== '' ) {
-            $candidates[] = $focus_kw;
+            foreach ( preg_split( '/\s*,\s*/', $focus_kw ) as $kw ) {
+                if ( $kw !== '' ) {
+                    $candidates[] = $kw;
+                }
+            }
         }
 
         if ( function_exists( 'get_the_tags' ) ) {
@@ -557,22 +560,78 @@ class Image_Meta_Generator {
             }
         }
 
-        $candidates[] = 'live cam';
-        $candidates[] = 'webcam chat';
-        $candidates[] = 'profile preview';
-        $candidates[] = 'cam show';
+        $fallbacks[] = sprintf( '%s live cam', $model_name );
+        $fallbacks[] = sprintf( '%s webcam chat', $model_name );
+        $fallbacks[] = sprintf( '%s cam girl', $model_name );
+        $fallbacks[] = sprintf( '%s profile preview', $model_name );
+        $candidates  = array_merge( $candidates, $fallbacks );
 
         $seen = [];
         $out  = [];
+        $normalized_model = strtolower( trim( $model_name ) );
         foreach ( $candidates as $c ) {
-            $key = strtolower( $c );
+            $normalized = self::normalize_image_keyword( (string) $c, $model_name );
+            if ( $normalized === '' ) {
+                continue;
+            }
+            if ( self::is_rejected_image_keyword( $normalized, $normalized_model ) ) {
+                continue;
+            }
+            $key = strtolower( $normalized );
             if ( ! isset( $seen[ $key ] ) ) {
                 $seen[ $key ] = true;
-                $out[]        = $c;
+                $out[]        = $normalized;
             }
         }
 
-        return $out;
+        if ( count( $out ) < 2 ) {
+            $out = array_values( array_unique( array_merge( $out, $fallbacks ) ) );
+        }
+
+        return array_slice( $out, 0, 6 );
+    }
+
+    private static function normalize_image_keyword( string $keyword, string $model_name ): string {
+        $keyword = sanitize_text_field( $keyword );
+        $keyword = preg_replace( '/\s+/', ' ', trim( $keyword ) );
+        if ( ! is_string( $keyword ) || $keyword === '' ) {
+            return '';
+        }
+
+        $model_quoted = preg_quote( $model_name, '/' );
+        $keyword = preg_replace( '/(?:' . $model_quoted . '\s+){2,}/i', $model_name . ' ', $keyword );
+        $keyword = trim( (string) $keyword );
+
+        if ( stripos( $keyword, $model_name ) === false ) {
+            $keyword = trim( $model_name . ' ' . $keyword );
+        }
+
+        return $keyword;
+    }
+
+    private static function is_rejected_image_keyword( string $keyword, string $normalized_model ): bool {
+        $kw = strtolower( trim( $keyword ) );
+        if ( $kw === '' || str_contains( $kw, ',' ) || strlen( $kw ) > 70 ) {
+            return true;
+        }
+
+        foreach ( [ 'how to', 'where to', 'what is', 'guide to', 'best way to' ] as $prefix ) {
+            if ( str_starts_with( $kw, $prefix ) ) {
+                return true;
+            }
+        }
+        foreach ( [ 'join a live session', 'live show schedule', ' schedule', ' earnings', 'private show', 'nude', 'explicit' ] as $bad ) {
+            if ( str_contains( $kw, $bad ) ) {
+                return true;
+            }
+        }
+        if ( str_contains( $kw, 'webcam earnings' ) ) {
+            return true;
+        }
+        if ( $normalized_model !== '' && ! str_contains( $kw, $normalized_model ) ) {
+            return true;
+        }
+        return false;
     }
 
     /**
