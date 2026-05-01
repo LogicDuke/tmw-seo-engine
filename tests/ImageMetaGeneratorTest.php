@@ -213,7 +213,7 @@ namespace TMWSEO\Engine\Tests {
         // ── T8  VERSION ───────────────────────────────────────────────────────
 
         public function test_image_meta_version_is_2(): void {
-            $this->assertSame( 2, Image_Meta_Generator::IMAGE_META_VERSION );
+            $this->assertSame( 3, Image_Meta_Generator::IMAGE_META_VERSION );
         }
 
         // ── T9–T14  v1 pattern detection ──────────────────────────────────────
@@ -293,12 +293,37 @@ namespace TMWSEO\Engine\Tests {
         // ── T20–T21  resolve_secondary_keywords ───────────────────────────────
 
         public function test_resolve_secondary_keywords_returns_at_least_two(): void {
-            $kws = call_private( 'resolve_secondary_keywords', [ 999 ] );
+            $kws = call_private( 'resolve_secondary_keywords', [ 999, 'Anisyia' ] );
             $this->assertGreaterThanOrEqual( 2, count( $kws ) );
         }
         public function test_resolve_secondary_keywords_fallback_first_two_differ(): void {
-            $kws = call_private( 'resolve_secondary_keywords', [ 888 ] );
+            $kws = call_private( 'resolve_secondary_keywords', [ 888, 'Anisyia' ] );
             $this->assertNotSame( $kws[0] ?? '', $kws[1] ?? '' );
+        }
+
+        public function test_rank_math_comma_separated_keyword_list_is_parsed(): void {
+            $parts = preg_split( '/\s*,\s*/', 'Aisha Dupont,Aisha Dupont live cam,Aisha Dupont cam girl' );
+            $this->assertCount( 3, $parts );
+            $this->assertSame( 'Aisha Dupont live cam', $parts[1] );
+        }
+
+        public function test_instructional_phrase_is_rejected(): void {
+            $this->assertTrue( (bool) call_private( 'is_rejected_image_keyword', [ 'Aisha Dupont how to join a live session', 'aisha dupont' ] ) );
+        }
+
+        public function test_live_show_schedule_phrase_is_rejected(): void {
+            $this->assertTrue( (bool) call_private( 'is_rejected_image_keyword', [ 'Aisha Dupont LiveJasmin live show schedule', 'aisha dupont' ] ) );
+        }
+
+        public function test_webcam_earnings_is_rejected(): void {
+            $this->assertTrue( (bool) call_private( 'is_rejected_image_keyword', [ 'Aisha Dupont webcam earnings', 'aisha dupont' ] ) );
+        }
+
+        public function test_normalize_keyword_adds_model_name_when_missing(): void {
+            $this->assertSame(
+                'Aisha Dupont LiveJasmin',
+                call_private( 'normalize_image_keyword', [ 'LiveJasmin', 'Aisha Dupont' ] )
+            );
         }
 
         // ── T22–T23  No keyword stuffing ──────────────────────────────────────
