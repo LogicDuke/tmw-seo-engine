@@ -1,6 +1,6 @@
 # TMW SEO Engine
 
-**Version:** 5.0.1 · **Author:** The Milisofia Ltd · **Requires PHP:** 8.0+ · **Requires WordPress:** 6.0+
+**Version:** 5.8.11-final-copy · **Author:** The Milisofia Ltd · **Requires PHP:** 8.0+ · **Requires WordPress:** 6.0+
 
 ---
 
@@ -47,6 +47,13 @@ TMW SEO Engine is a private WordPress plugin that provides a self-hosted SEO int
 - Model page optimizer with platform data integration, readiness scoring, and focus-keyword enforcement
 - AI content brief generator (OpenAI / Anthropic Claude with rule-based fallback)
 - Video SEO metabox and category-formula admin page
+
+### Model Research & Evidence
+- Multi-provider model research pipeline is present in `includes/model/` (SERP research, direct probe, and full-audit provider paths) with platform parsing and candidate normalization.
+- Full-audit mode includes diagnostics and evidence trace fields; recent changelog entries also document outbound-link harvesting and audit recall hardening.
+- Verified external links are operator-managed via grouped families (manual-first posture), with strict type controls and dedup/primary enforcement.
+- Content-side evidence helpers in `includes/content/` support manual evidence capture/rendering and deterministic copy cleanup steps used by model-content saves.
+- Safe/trust constraints remain in place: Safe Mode and trust-policy controls are preserved, and high-risk outbound discovery remains staging-gated/operator-controlled.
 
 ### Integrations
 - **Google Search Console** — OAuth2, encrypted token storage (`sodium_crypto_secretbox`), click/impression/position data
@@ -114,81 +121,67 @@ find . -name "*.php" \
 
 ## Testing
 
-Tests live in `tests/` and run against a lightweight WordPress stub environment (`tests/bootstrap/wordpress-stubs.php`) — no full WordPress or database installation required.
+Tests live in `tests/` and run against a lightweight WordPress stub environment (`tests/bootstrap/wordpress-stubs.php`) — no full WordPress or database installation required for the automated suite.
 
 ```bash
 composer test
 ```
 
-**Current test files:**
+**Coverage snapshot (representative, non-exhaustive):**
 
-| File | What it covers |
-|---|---|
-| `ActivationTest.php` | Plugin constants, header version, critical file presence |
-| `BudgetTrackingTest.php` | Atomic DataForSEO and AI Router spend tracking |
-| `CSVManagerInventoryTest.php` | Import pack inventory logic (status classification) |
-| `CategoryFormulaTest.php` | Category formula evaluation |
-| `DiscoveryGovernorTest.php` | Governor atomic increment and limit enforcement |
-| `GSCTokenEncryptionTest.php` | GSC OAuth token encrypt/decrypt round-trip |
-| `KeywordEngineStopReasonTest.php` | Lock key stability, stop-reason recording, sources-field cap |
-| `SettingsValidationTest.php` | Settings field sanitisation and clamping |
+- Activation/version guardrails and settings validation
+- Keyword/discovery controls (governor, stop-reason handling, CSV inventory)
+- Model research and evidence flows (SERP provider, full audit, outbound harvest, verified links grouping, probe/link recall, operator persistence)
+- Content/model rendering and routing checks (model page renderer, destination resolver, affiliate routing)
+- Integration safety checks (GSC token encryption, budget tracking)
 
-Tests that require a live WordPress database or filesystem (e.g., full admin page rendering) are not included in the automated suite and must be validated manually on a staging environment.
+The `tests/` directory includes many additional targeted regressions and utility runners; treat the automated suite as broad protection, not an exhaustive substitute for staging validation.
+
+Tests that require a live WordPress database, real admin UI rendering, or third-party API calls must still be validated manually in staging before production rollout.
 
 ---
+
 
 ## Architecture Overview
 
+The loader (`includes/class-loader.php`) currently boots domain-grouped subsystems rather than a single flat include list. At a high level:
+
+- **Core runtime:** bootstrap, DB schema/log/jobs, cron/worker queue, migrations, autopilot orchestration
+- **Keyword stack:** seed registry, discovery orchestration, idea providers, clustering prep, governance/quality filters
+- **Model + research stack:** model discovery/intelligence, SERP/direct/full-audit providers, platform probe/parser, verified links workflows
+- **Content/video stack:** model page rendering, destination resolver, research evidence helpers, copy cleanup, rank-math mapping, video architecture
+- **SEO engine stack:** opportunities, internal linking, search intent, topic authority, content-gap and competitor intelligence
+- **Admin/operator surfaces:** command centre, dashboard v2, CSV/seed/link/reports/admin tables, diagnostics pages
+- **Integrations/services:** DataForSEO, GSC, Google Ads keyword planner, Google Indexing API, AI providers, trust-policy/settings
+
+This keeps operational features modular while allowing staged enablement/disablement through plugin settings and staging ops controls.
+
+### Repository Layout (abridged)
+
 ```
 tmw-seo-engine/
-├── tmw-seo-engine.php        # Plugin entry point — header, constants, bootstrap guard
-├── includes/
-│   ├── class-plugin.php      # Main plugin boot: hooks, init sequence
-│   ├── class-loader.php      # Domain-grouped file loader (11 domains)
-│   ├── admin/                # All admin pages, dashboards, AJAX/form handlers
-│   │   ├── class-admin.php                   # Central admin (menus, settings)
-│   │   ├── class-admin-dashboard-v2.php      # Dashboard KPI pages
-│   │   ├── class-command-center.php          # Operational command centre
-│   │   ├── class-seed-registry-admin-page.php
-│   │   ├── class-csv-manager-admin-page.php
-│   │   ├── class-link-graph-admin-page.php
-│   │   ├── class-autopilot-admin-page.php
-│   │   ├── class-tmwseo-routes.php           # Centralised admin URL helper
-│   │   └── tables/                           # WP_List_Table subclasses
-│   ├── keywords/             # Seed registry, keyword engine, scheduler, clustering
-│   ├── seo-engine/           # Opportunities, internal links, topic authority,
-│   │                         #   competitor monitor, content gap, SERP gaps,
-│   │                         #   search intent, category formulas, traffic pages
-│   ├── ai/                   # AI router (OpenAI + Anthropic), token budget tracking
-│   ├── integrations/         # GSC, Google Indexing API, Rank Math helpers
-│   ├── services/             # DataForSEO, Settings, OpenAI, RankTracker
-│   ├── intelligence/         # IntelligenceRunner (Bing, Reddit, Google suggest)
-│   ├── model/                # Model discovery worker, model intelligence
-│   ├── content/              # Content brief generation, video SEO
-│   ├── cluster/              # Cluster DB and summary computation
-│   ├── worker/               # Background job worker
-│   ├── cron/                 # Cron schedule registration
-│   ├── db/                   # Logs, Jobs queue
-│   ├── schema/               # Database schema definitions
-│   ├── migration/            # Legacy migration system (activation-time)
-│   └── migrations/           # Schema migration system (version-gated)
-├── data/                     # Static seed packs, keyword anchors, power words
-├── templates/                # PHP content templates (model bios, FAQs, comparisons)
-└── tests/                    # PHPUnit test suite + WP stub bootstrap
+├── tmw-seo-engine.php        # Plugin entry point and version constants
+├── includes/                 # Domain-grouped runtime subsystems (see loader)
+│   ├── admin/                # Admin pages, dashboards, routes, tables
+│   ├── keywords/             # Seed registry, discovery, scoring, orchestration
+│   ├── model/                # Research providers, probes, verified links, optimizer
+│   ├── content/              # Rendering, evidence helpers, copy cleanup, video SEO
+│   ├── seo-engine/           # Opportunities, links, intent, topic authority, gaps
+│   ├── integrations/         # GSC, indexing API, keyword planner integrations
+│   ├── services/             # Settings, trust policy, provider/API adapters
+│   ├── cluster/              # Cluster repository/services/linking/scoring
+│   └── ...                   # Additional domains (db, worker, cron, migrations, etc.)
+├── data/                     # Static seed packs and lexical support data
+├── templates/                # Content templates used by generation/rendering
+└── tests/                    # PHPUnit suite + WordPress stub bootstrap
 ```
-
-**Key architectural decisions:**
-- No WP-CLI dependency; optional CLI support is in `includes/cli/`
-- All destructive admin actions are POST-only with WordPress nonces
-- The Discovery Governor uses a DB-level Compare-And-Swap to prevent concurrent over-spend
-- GSC tokens are encrypted with `sodium_crypto_secretbox` before storage
-- Model Discovery Scraper is **OFF by default** and flagged `risky` in Staging Ops
 
 ---
 
+
 ## Screenshots
 
-*(Screenshots to be added — placeholder list)*
+*Screenshots are pending and the list below is a placeholder, not a completed gallery.*
 
 - Command Centre — queue state, opportunity cards, integration health
 - Seed Registry — Trusted Seeds Explorer with filtering and bulk actions
@@ -214,14 +207,15 @@ tmw-seo-engine/
 
 ## Versioning
 
-This plugin uses a `MAJOR.MINOR.PATCH` version string. The current version is defined in:
-- The plugin header (`Version:` field in `tmw-seo-engine.php`)
-- The `TMWSEO_ENGINE_VERSION` PHP constant
-- `CHANGELOG.md`
+Version references are controlled by repo truth, not README-only policy text.
 
-These three must agree on every release. See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+- **Runtime authority:** plugin header `Version:` and `TMWSEO_ENGINE_VERSION` in `tmw-seo-engine.php` must match exactly for the running build.
+- **Release-history intent:** `CHANGELOG.md` should track releases, but may temporarily lag or be reorganized during internal release work.
+
+Current code uses a suffixed release string (`5.8.11-final-copy`), so versioning is **not currently strict numeric-only `MAJOR.MINOR.PATCH`** in practice. When there is a mismatch, treat `tmw-seo-engine.php` as the live runtime source and reconcile changelog entries before formal release sign-off.
 
 ---
+
 
 ## Contributing
 
