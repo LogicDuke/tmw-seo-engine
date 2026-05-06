@@ -207,12 +207,12 @@ tmw-seo-engine/
 
 ## Versioning
 
-Version references are controlled by repo truth, not README-only policy text. The authoritative values are:
-- Plugin header `Version:` in `tmw-seo-engine.php`
-- `TMWSEO_ENGINE_VERSION` constant in `tmw-seo-engine.php`
-- Release notes in `CHANGELOG.md`
+Version references are controlled by repo truth, not README-only policy text.
 
-Current code uses a suffixed release string (`5.8.11-final-copy`), so versioning is **not currently strict numeric-only `MAJOR.MINOR.PATCH`** in practice. Keep all three sources synchronized on each release/update.
+- **Runtime authority:** plugin header `Version:` and `TMWSEO_ENGINE_VERSION` in `tmw-seo-engine.php` must match exactly for the running build.
+- **Release-history intent:** `CHANGELOG.md` should track releases, but may temporarily lag or be reorganized during internal release work.
+
+Current code uses a suffixed release string (`5.8.11-final-copy`), so versioning is **not currently strict numeric-only `MAJOR.MINOR.PATCH`** in practice. When there is a mismatch, treat `tmw-seo-engine.php` as the live runtime source and reconcile changelog entries before formal release sign-off.
 
 ---
 
