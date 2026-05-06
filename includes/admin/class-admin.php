@@ -1329,17 +1329,17 @@ class Admin {
 
         // ── Action row ───────────────────────────────────────────────────────
         echo '<div class="tmwui-cta-row">';
-        echo '<form method="post" style="display:inline;">';
+        echo '<form method="post">';
         wp_nonce_field('tmwseo_run_ranking_probability');
         echo '<input type="hidden" name="tmwseo_run_ranking_probability" value="1">';
         echo '<button class="button button-primary">&#9654; ' . esc_html__('Run Ranking Probability Scan', 'tmwseo') . '</button>';
         echo '</form>';
         if ($last_run) {
-            echo '<span style="color:#6b7280;font-size:13px;">' . esc_html__('Last computed:', 'tmwseo') . ' ' . esc_html(substr($last_run, 0, 16)) . '</span>';
+            echo '<span class="tmwui-table-meta">' . esc_html__('Last computed:', 'tmwseo') . ' ' . esc_html(substr($last_run, 0, 16)) . '</span>';
         } else {
-            echo '<span style="color:#9ca3af;font-size:13px;">' . esc_html__('No data yet — click Run to generate scores.', 'tmwseo') . '</span>';
+            echo '<span class="tmwui-data-label">' . esc_html__('No data yet — click Run to generate scores.', 'tmwseo') . '</span>';
         }
-        echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-tools')) . '" class="button" style="margin-left:auto;">' . esc_html__('← Back to Tools', 'tmwseo') . '</a>';
+        echo '<a href="' . esc_url(admin_url('admin.php?page=tmwseo-tools')) . '" class="button">' . esc_html__('← Back to Tools', 'tmwseo') . '</a>';
         echo '</div>';
 
         // ── Success / error notices ───────────────────────────────────────────
@@ -1357,7 +1357,7 @@ class Admin {
                 __('No ranking probability scores yet. Click "Run Ranking Probability Scan" above to generate them.', 'tmwseo')
             );
         } else {
-            echo '<p style="color:#6b7280;font-size:13px;margin-top:0;">' . esc_html(count($rows)) . ' ' . esc_html__('pages scored. Showing top 50 by probability.', 'tmwseo') . '</p>';
+            echo '<p class="tmwui-table-meta">' . esc_html(count($rows)) . ' ' . esc_html__('pages scored. Showing top 50 by probability.', 'tmwseo') . '</p>';
             echo '<div class="tmwui-table-wrap">';
             echo '<table class="widefat striped">';
             echo '<thead><tr>';
@@ -1375,7 +1375,7 @@ class Admin {
                 $date  = substr((string) $row['computed_at'], 0, 10);
                 $title = get_the_title($pid) ?: "Post #{$pid}";
                 $edit  = get_edit_post_link($pid);
-                $color = $prob >= 70 ? '#16a34a' : ($prob >= 40 ? '#ca8a04' : '#dc2626');
+                $color_class = $prob >= 70 ? 'tmwui-prob-ok' : ($prob >= 40 ? 'tmwui-prob-warn' : 'tmwui-prob-danger');
                 $signals_json = (string) get_post_meta($pid, '_tmwseo_ranking_probability_signals_json', true);
                 $signals = json_decode($signals_json, true);
                 $page_type_fit = is_array($signals) ? (float) ($signals['page_type_fit']['fit'] ?? 0) : 0.0;
@@ -1385,10 +1385,14 @@ class Admin {
 
                 echo '<tr>';
                 echo '<td><a href="' . esc_url($edit ?: '#') . '">' . esc_html($title) . '</a></td>';
-                echo '<td><strong style="color:' . esc_attr($color) . ';font-size:16px;">' . esc_html($prob) . '%</strong></td>';
-                echo '<td><div style="background:#e5e7eb;border-radius:4px;height:8px;width:120px;overflow:hidden;"><div style="background:' . esc_attr($color) . ';height:100%;width:' . esc_attr($prob) . '%;"></div></div></td>';
-                echo '<td><strong>' . esc_html((string) (int) round($page_type_fit * 100)) . '%</strong><br><span style="color:#9ca3af;font-size:11px;">' . esc_html(str_replace('_', ' ', $page_type_fit_label)) . '</span></td>';
-                echo '<td style="color:#9ca3af;font-size:12px;">' . esc_html($date) . '</td>';
+                echo '<td><strong class="tmwui-prob-score ' . esc_attr($color_class) . '">' . esc_html($prob) . '%</strong></td>';
+
+                echo '<td><div class="tmwui-bar-track">
+                        <div class="tmwui-bar-fill ' . esc_attr($color_class) . '" style="width:' . esc_attr($prob) . '%;"></div>
+                      </div></td>';
+
+                echo '<td><strong>' . esc_html((string) (int) round($page_type_fit * 100)) . '%</strong><br><span class="tmwui-meta-label">' . esc_html(str_replace('_', ' ', $page_type_fit_label)) . '</span></td>';
+                echo '<td class="tmwui-date-cell">' . esc_html($date) . '</td>';
                 echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">' . esc_html__('Edit', 'tmwseo') . '</a></td>';
                 echo '</tr>';
             }
@@ -2702,9 +2706,10 @@ class Admin {
         foreach ( $tabs as $slug => [ $label, $count ] ) {
             $is_active = ( $slug === $active_tab );
             $link_url  = $view_url( $slug );
-            $badge     = $count !== null
-                ? ' <span class="tmwui-tab-badge" style="display:inline-block;background:' . ( $is_active ? '#2271b1' : '#e5e7eb' ) . ';color:' . ( $is_active ? '#fff' : '#374151' ) . ';font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;vertical-align:middle;margin-left:4px;">' . esc_html( (string) $count ) . '</span>'
-                : '';
+            $badge = $count !== null
+                    ? ' <span class="tmwui-tab-badge' . ( $is_active ? ' tmwui-tab-badge-active' : '' ) . '">'
+                    . esc_html( (string) $count ) . '</span>'
+                    : '';
             $class = 'nav-tab' . ( $is_active ? ' nav-tab-active' : '' );
             echo '<a href="' . esc_url( $link_url ) . '" class="' . esc_attr( $class ) . '">' . esc_html( $label ) . $badge . '</a>';
         }
@@ -2758,7 +2763,7 @@ class Admin {
             } else {
                 $total_pages = (int) ceil( $total_raw / $per_page );
 
-                echo '<p style="font-size:12px;color:#646970;margin-bottom:8px;">' . sprintf(
+                echo '<p class="tmwui-table-meta">' . sprintf(
                     esc_html__( 'Showing %1$d–%2$d of %3$d raw keywords.', 'tmwseo' ),
                     $offset + 1,
                     min( $offset + $per_page, $total_raw ),
@@ -2778,28 +2783,28 @@ class Admin {
                 foreach ( $raw_rows as $r ) {
                     echo '<tr>';
                     echo '<td><strong>' . esc_html( (string) $r['keyword'] ) . '</strong></td>';
-                    echo '<td><span style="display:inline-block;padding:1px 6px;background:#f3f4f6;border-radius:3px;font-size:11px;">' . esc_html( (string) $r['source'] ) . '</span></td>';
+                    echo '<td><span class="tmwui-source-badge">' . esc_html( (string) $r['source'] ) . '</span></td>';
                     echo '<td>' . ( $r['volume'] !== null ? esc_html( number_format_i18n( (int) $r['volume'] ) ) : '—' ) . '</td>';
                     echo '<td>' . ( $r['cpc'] !== null ? '$' . esc_html( number_format( (float) $r['cpc'], 2 ) ) : '—' ) . '</td>';
                     echo '<td>' . ( $r['competition'] !== null ? esc_html( number_format( (float) $r['competition'], 3 ) ) : '—' ) . '</td>';
-                    echo '<td style="white-space:nowrap;font-size:12px;color:#646970;">' . esc_html( substr( (string) $r['discovered_at'], 0, 16 ) ) . '</td>';
+                    echo '<td class="tmwui-date-cell">' . esc_html( substr( (string) $r['discovered_at'], 0, 16 ) ) . '</td>';
                     echo '</tr>';
                 }
                 echo '</tbody></table></div>';
 
                 // Simple pagination
                 if ( $total_pages > 1 ) {
-                    echo '<div style="margin-top:10px;display:flex;gap:6px;align-items:center;">';
+                    echo '<div class="tmwui-pagination">';
                     for ( $p = 1; $p <= min( $total_pages, 20 ); $p++ ) {
                         $purl = $view_url( 'raw' ) . '&paged=' . $p . ( $search !== '' ? '&s=' . urlencode( $search ) : '' );
                         if ( $p === $current_page ) {
-                            echo '<strong style="padding:4px 8px;background:#2271b1;color:#fff;border-radius:3px;">' . $p . '</strong>';
+                            echo '<strong class="tmwui-page-current">' . $p . '</strong>';
                         } else {
-                            echo '<a href="' . esc_url( $purl ) . '" style="padding:4px 8px;border:1px solid #c3c4c7;border-radius:3px;text-decoration:none;color:#2271b1;">' . $p . '</a>';
+                            echo '<a href="' . esc_url( $purl ) . '" class="tmwui-page-link">' . $p . '</a>';
                         }
                     }
                     if ( $total_pages > 20 ) {
-                        echo '<span style="color:#646970;">…' . esc_html( (string) $total_pages ) . ' pages</span>';
+                        echo '<span class="tmwui-page-overflow"">…' . esc_html( (string) $total_pages ) . ' pages</span>';
                     }
                     echo '</div>';
                 }
@@ -2863,14 +2868,15 @@ class Admin {
                     $g_error     = (string) ( $g['error'] ?? '' );
 
                     $badge = static function ( string $st, int $pid = 0 ): string {
-                        $map = [
-                            'built'     => 'background:#dcfce7;color:#166534;',
-                            'new'       => 'background:#dbeafe;color:#1e40af;',
-                            'candidate' => 'background:#f3f4f6;color:#374151;',
-                            'archived'  => 'background:#f3f4f6;color:#6b7280;',
+                        $class_map = [
+                            'built'     => 'tmwui-status-built',
+                            'new'       => 'tmwui-status-new',
+                            'candidate' => 'tmwui-status-candidate',
+                            'archived'  => 'tmwui-status-archived',
                         ];
-                        $c   = $map[ $st ] ?? 'background:#f3f4f6;color:#374151;';
-                        $out = '<span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;' . esc_attr( $c ) . '">' . esc_html( $st ) . '</span>';
+                        $cls = $class_map[$st] ?? 'tmwui-status-candidate';
+                        $c   = $map[ $st ] ?? '...';
+                        $out = '<span class="tmwui-status-badge' . esc_attr( $cls ) . '">' . esc_html( $st ) . '</span>';
                         if ( $pid > 0 ) {
                             $out .= '&nbsp;<span style="font-size:11px;color:#15803d;font-weight:600;">page_id=' . (int) $pid . '</span>';
                         }
@@ -2878,10 +2884,10 @@ class Admin {
                     };
 
                     $hdr_bg = $g_error !== '' ? '#fef2f2' : ( $is_dry ? '#fefce8' : '#f0fdf4' );
-                    echo '<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">';
+                    echo '<div class="tmwui-group-block">';
 
                     // Group header
-                    echo '<div style="padding:8px 12px;background:' . esc_attr( $hdr_bg ) . ';border-bottom:1px solid #e5e7eb;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">';
+                    echo '<div class="tmwui-group-header" style="background:' . esc_attr( $hdr_bg ) . ';">';
                     echo '<span style="font-weight:700;font-size:13px;">Group ' . $g_num . '</span>';
                     echo '<span style="font-size:12px;color:#374151;">Canonical identity: <code style="background:#f3f4f6;padding:1px 5px;border-radius:3px;">' . esc_html( $canonical ) . '</code></span>';
                     echo '<span style="font-size:12px;color:#6b7280;">' . (int) $g['row_count'] . ' rows will become 1</span>';
@@ -2891,11 +2897,11 @@ class Admin {
                     echo '</div>';
 
                     // Rows table
-                    echo '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-                    echo '<thead><tr style="background:#f9fafb;">';
+                    echo '<table class="tmwui-group-table">';
+                    echo '<thead><tr>';
                     foreach ( [ 'Role', 'ID', 'cluster_key', 'Representative', 'Current Status', 'Volume' ] as $th ) {
                         $align = $th === 'Volume' ? 'right' : 'left';
-                        echo '<th style="padding:6px 10px;text-align:' . $align . ';font-weight:600;color:#374151;border-bottom:1px solid #e5e7eb;">' . esc_html( $th ) . '</th>';
+                        echo '<th class="tmwui-th-' . esc_attr($align) . '">';
                     }
                     echo '</tr></thead><tbody>';
 

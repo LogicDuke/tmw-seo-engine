@@ -1136,6 +1136,69 @@ a.tmwui-kpi:hover {
     margin-bottom: 20px;
     overflow: hidden;
 }
+
+/* Probability score colours */
+.tmwui-prob-ok     { color: #16a34a; }
+.tmwui-prob-warn   { color: #ca8a04; }
+.tmwui-prob-danger { color: #dc2626; }
+.tmwui-prob-score  { font-size: 16px; font-weight: 700; }
+
+/* Progress bar */
+.tmwui-bar-track   { background:#e5e7eb; border-radius:4px; height:8px; width:120px; overflow:hidden; }
+.tmwui-bar-fill    { height:100%; }
+.tmwui-bar-fill.tmwui-prob-ok     { background:#16a34a; }
+.tmwui-bar-fill.tmwui-prob-warn   { background:#ca8a04; }
+.tmwui-bar-fill.tmwui-prob-danger { background:#dc2626; }
+
+/* Table utility */
+.tmwui-table-meta  { color:#6b7280; font-size:13px; margin-top:0; }
+.tmwui-meta-label  { color:#9ca3af; font-size:11px; }
+.tmwui-data-label  { color:#9ca3af; font-size:13px; }
+.tmwui-date-cell   { color:#9ca3af; font-size:12px; }
+.tmwui-cta-row a.button { margin-left: auto; }
+
+.tmwui-tab-badge {
+    display: inline-block;
+    background: #e5e7eb;
+    color: #374151;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+.tmwui-tab-badge-active {
+    background: #2271b1;
+    color: #fff;
+}
+.tmwui-source-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    background: #f3f4f6;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.tmwui-pagination        { margin-top:10px; display:flex; gap:6px; align-items:center; }
+.tmwui-page-current      { padding:4px 8px; background:#2271b1; color:#fff; border-radius:3px; }
+.tmwui-page-link         { padding:4px 8px; border:1px solid #c3c4c7; border-radius:3px; text-decoration:none; color:#2271b1; }
+.tmwui-page-overflow     { color:#646970; }
+
+/** Status badge lambda **/
+.tmwui-group-header       { padding:8px 12px; border-bottom:1px solid #e5e7eb; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+.tmwui-status-badge       { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; font-weight:700; }
+.tmwui-status-built       { background:#dcfce7; color:#166534; }
+.tmwui-status-new         { background:#dbeafe; color:#1e40af; }
+.tmwui-status-candidate   { background:#f3f4f6; color:#374151; }
+.tmwui-status-archived    { background:#f3f4f6; color:#6b7280; }
+
+/** cluster view **/
+.tmwui-group-block        { margin-bottom:14px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; }
+.tmwui-group-table        { width:100%; border-collapse:collapse; font-size:12px; }
+.tmwui-group-table thead tr { background:#f9fafb; }
+.tmwui-th-left            { padding:6px 10px; text-align:left; font-weight:600; color:#374151; border-bottom:1px solid #e5e7eb; }
+.tmwui-th-right           { padding:6px 10px; text-align:right; font-weight:600; color:#374151; border-bottom:1px solid #e5e7eb; }
 CSS;
 	}
 }
