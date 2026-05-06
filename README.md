@@ -156,6 +156,26 @@ The loader (`includes/class-loader.php`) currently boots domain-grouped subsyste
 
 This keeps operational features modular while allowing staged enablement/disablement through plugin settings and staging ops controls.
 
+### Repository Layout (abridged)
+
+```
+tmw-seo-engine/
+├── tmw-seo-engine.php        # Plugin entry point and version constants
+├── includes/                 # Domain-grouped runtime subsystems (see loader)
+│   ├── admin/                # Admin pages, dashboards, routes, tables
+│   ├── keywords/             # Seed registry, discovery, scoring, orchestration
+│   ├── model/                # Research providers, probes, verified links, optimizer
+│   ├── content/              # Rendering, evidence helpers, copy cleanup, video SEO
+│   ├── seo-engine/           # Opportunities, links, intent, topic authority, gaps
+│   ├── integrations/         # GSC, indexing API, keyword planner integrations
+│   ├── services/             # Settings, trust policy, provider/API adapters
+│   ├── cluster/              # Cluster repository/services/linking/scoring
+│   └── ...                   # Additional domains (db, worker, cron, migrations, etc.)
+├── data/                     # Static seed packs and lexical support data
+├── templates/                # Content templates used by generation/rendering
+└── tests/                    # PHPUnit suite + WordPress stub bootstrap
+```
+
 ---
 
 
