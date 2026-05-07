@@ -123,6 +123,9 @@ class DataForSEOPageTypeKeywordStrategy {
 
         $tags       = self::collect_taxonomy_terms( $post, 'tag' );
         $categories = self::collect_taxonomy_terms( $post, 'category' );
+        $related_terms = self::PAGE_TYPE_MODEL === $page_type
+            ? self::collect_related_model_content_terms( $post )
+            : [ 'tags' => [], 'categories' => [], 'modifiers' => [] ];
 
         $platforms = self::collect_verified_platforms( $post_id );
         $handles   = self::collect_verified_handles( $post_id, $platforms );
@@ -140,6 +143,9 @@ class DataForSEOPageTypeKeywordStrategy {
             'url_pattern_group'   => $url_pattern_group,
             'taxonomy_tags'       => $tags,
             'taxonomy_categories' => $categories,
+            'related_content_tags' => (array) ( $related_terms['tags'] ?? [] ),
+            'related_content_categories' => (array) ( $related_terms['categories'] ?? [] ),
+            'modifier_terms'      => (array) ( $related_terms['modifiers'] ?? [] ),
             'verified_platforms'  => $platforms,
             'verified_handles'    => $handles,
             'source_platform'     => $source_platform,
@@ -336,6 +342,9 @@ class DataForSEOPageTypeKeywordStrategy {
             'url_pattern_group'   => '/',
             'taxonomy_tags'       => [],
             'taxonomy_categories' => [],
+            'related_content_tags' => [],
+            'related_content_categories' => [],
+            'modifier_terms'      => [],
             'verified_platforms'  => [],
             'verified_handles'    => [],
             'source_platform'     => '',
@@ -356,8 +365,22 @@ class DataForSEOPageTypeKeywordStrategy {
         $platforms  = (array) ( $context['verified_platforms'] ?? [] );
         $handles    = (array) ( $context['verified_handles'] ?? [] );
         $tags       = self::tidy_terms( (array) ( $context['taxonomy_tags'] ?? [] ) );
+        $categories = self::tidy_terms( (array) ( $context['taxonomy_categories'] ?? [] ) );
+        $related_tags = self::tidy_terms( (array) ( $context['related_content_tags'] ?? [] ) );
+        $related_categories = self::tidy_terms( (array) ( $context['related_content_categories'] ?? [] ) );
+        $modifier_terms = self::tidy_terms( (array) ( $context['modifier_terms'] ?? [] ) );
 
         if ( $name === '' ) { return []; }
+
+        $entity_norm = self::normalize_term_for_compare( $name );
+        $collected_modifiers = self::merge_modifier_terms(
+            $entity_norm,
+            $modifier_terms,
+            $related_tags,
+            $related_categories,
+            $tags,
+            $categories
+        );
 
         $seeds = [];
         $seeds[] = [ 'group' => 'name_only', 'seed' => $name, 'intent' => 'navigational' ];
@@ -367,8 +390,17 @@ class DataForSEOPageTypeKeywordStrategy {
             if ( $platform_label === '' ) { continue; }
             $seeds[] = [ 'group' => 'name_platform', 'seed' => "{$name} {$platform_label}", 'intent' => 'navigational' ];
         }
-        foreach ( array_slice( $tags, 0, 3 ) as $tag ) {
-            $seeds[] = [ 'group' => 'name_tag', 'seed' => "{$name} {$tag}", 'intent' => 'commercial' ];
+        foreach ( array_slice( $collected_modifiers, 0, 6 ) as $modifier ) {
+            $seeds[] = [ 'group' => 'name_modifier', 'seed' => "{$name} {$modifier}", 'intent' => 'commercial' ];
+        }
+
+        foreach ( $platforms as $platform ) {
+            $platform_label = self::tidy_phrase( str_replace( '_', ' ', (string) $platform ) );
+            if ( $platform_label === '' ) { continue; }
+            $combo = self::best_platform_modifier_combo( $platform_label, $collected_modifiers );
+            if ( $combo !== '' ) {
+                $seeds[] = [ 'group' => 'name_platform_modifier', 'seed' => "{$name} {$platform_label} {$combo}", 'intent' => 'transactional' ];
+            }
         }
 
         $seeds[] = [ 'group' => 'live_cam', 'seed' => "{$name} live cam", 'intent' => 'transactional' ];
@@ -391,6 +423,73 @@ class DataForSEOPageTypeKeywordStrategy {
         }
 
         return self::dedupe_seeds( $seeds );
+    }
+
+    /**
+     * @return array{tags:string[],categories:string[],modifiers:string[]}
+     */
+    private static function collect_related_model_content_terms( \WP_Post $model_post ): array {
+        $related_posts = self::find_related_posts_for_model( $model_post );
+        if ( empty( $related_posts ) ) {
+            return [ 'tags' => [], 'categories' => [], 'modifiers' => [] ];
+        }
+
+        $tag_terms = [];
+        $category_terms = [];
+        foreach ( $related_posts as $related_post ) {
+            $tag_terms = array_merge( $tag_terms, self::collect_taxonomy_terms( $related_post, 'tag' ) );
+            $category_terms = array_merge( $category_terms, self::collect_taxonomy_terms( $related_post, 'category' ) );
+        }
+
+        $tag_terms = self::tidy_terms( $tag_terms );
+        $category_terms = self::tidy_terms( $category_terms );
+        $modifiers = self::merge_modifier_terms(
+            self::normalize_term_for_compare( (string) $model_post->post_title ),
+            $tag_terms,
+            $category_terms
+        );
+
+        return [
+            'tags' => $tag_terms,
+            'categories' => $category_terms,
+            'modifiers' => $modifiers,
+        ];
+    }
+
+    /**
+     * @return \WP_Post[]
+     */
+    private static function find_related_posts_for_model( \WP_Post $model_post ): array {
+        $slug = sanitize_title( (string) $model_post->post_name );
+        if ( $slug !== '' && function_exists( 'tmw_get_videos_for_model' ) ) {
+            $items = tmw_get_videos_for_model( $slug, 40 );
+            if ( is_array( $items ) ) {
+                $posts = array_filter( $items, static function( $item ): bool {
+                    return $item instanceof \WP_Post && $item->post_status === 'publish';
+                } );
+                if ( ! empty( $posts ) ) {
+                    return array_values( $posts );
+                }
+            }
+        }
+
+        $search_phrase = trim( (string) $model_post->post_title );
+        if ( $search_phrase === '' ) {
+            return [];
+        }
+
+        $query = new \WP_Query( [
+            'post_type'      => [ 'post' ],
+            'post_status'    => 'publish',
+            'posts_per_page' => 40,
+            's'              => $search_phrase,
+            'fields'         => 'all',
+            'no_found_rows'  => true,
+        ] );
+
+        return array_filter( (array) $query->posts, static function( $post ) {
+            return $post instanceof \WP_Post;
+        } );
     }
 
     /**
@@ -865,6 +964,9 @@ class DataForSEOPageTypeKeywordStrategy {
             'verified_handles'    => (array) ( $context['verified_handles'] ?? [] ),
             'taxonomy_tags'       => (array) ( $context['taxonomy_tags'] ?? [] ),
             'taxonomy_categories' => (array) ( $context['taxonomy_categories'] ?? [] ),
+            'related_content_tags' => (array) ( $context['related_content_tags'] ?? [] ),
+            'related_content_categories' => (array) ( $context['related_content_categories'] ?? [] ),
+            'modifier_terms'      => (array) ( $context['modifier_terms'] ?? [] ),
             'has_strong_entity'   => (bool) ( $context['has_strong_entity'] ?? false ),
             'warnings'            => array_values( array_unique( array_merge(
                 (array) ( $context['warnings'] ?? [] ),
@@ -985,6 +1087,43 @@ class DataForSEOPageTypeKeywordStrategy {
             }
         }
         return array_values( array_unique( $out ) );
+    }
+
+    private static function normalize_term_for_compare( string $value ): string {
+        return preg_replace( '/[^a-z0-9]+/u', '', self::tidy_phrase( $value ) ) ?: '';
+    }
+
+    /**
+     * @param string   $entity_norm
+     * @param string[] ...$groups
+     * @return string[]
+     */
+    private static function merge_modifier_terms( string $entity_norm, array ...$groups ): array {
+        $out = [];
+        $seen = [];
+        foreach ( $groups as $group ) {
+            foreach ( self::tidy_terms( $group ) as $term ) {
+                $norm = self::normalize_term_for_compare( $term );
+                if ( $norm === '' || $norm === $entity_norm || $term === 'uncategorized' ) { continue; }
+                if ( isset( $seen[ $norm ] ) ) { continue; }
+                $seen[ $norm ] = true;
+                $out[] = $term;
+            }
+        }
+        return array_slice( $out, 0, 30 );
+    }
+
+    /**
+     * Prefer phrase modifiers for platform combos ("live cam", "cam girl", etc).
+     */
+    private static function best_platform_modifier_combo( string $platform_label, array $modifiers ): string {
+        $priority_phrases = [ 'live cam', 'cam girl', 'live sex', 'big tits cam girls', 'big tits cam girl' ];
+        foreach ( $priority_phrases as $phrase ) {
+            if ( in_array( $phrase, $modifiers, true ) ) {
+                return $phrase;
+            }
+        }
+        return $modifiers[0] ?? 'live cam';
     }
 
     /**
