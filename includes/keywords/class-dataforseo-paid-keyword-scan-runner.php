@@ -364,21 +364,12 @@ class DataForSEOPaidKeywordScanRunner {
     }
 
     private static function normalize_items_from_response(array $res): array {
-        $items = $res['items'] ?? null;
-        if (is_array($items) && !empty($items)) {
-            return $items;
-        }
-
+        $items = [];
+        $seen_keywords = [];
+        $top_level_items = $res['items'] ?? null;
         $raw = is_array($res['raw'] ?? null) ? $res['raw'] : [];
-        $seed_keyword_data = $raw['tasks'][0]['result'][0]['seed_keyword_data'] ?? null;
-        if (is_array($seed_keyword_data)) {
-            $seed_row = self::normalize_seed_keyword_data_row($seed_keyword_data);
-            if (!empty($seed_row)) {
-                return [$seed_row];
-            }
-        }
         $candidates = [
-            $items,
+            $top_level_items,
             $raw['tasks'][0]['result'][0]['items'] ?? null,
             $raw['tasks'][0]['result'][0]['keywords'] ?? null,
             $raw['tasks'][0]['result'] ?? null,
@@ -387,14 +378,32 @@ class DataForSEOPaidKeywordScanRunner {
         ];
 
         foreach ($candidates as $candidate) {
-            if (is_array($candidate)) {
-                return array_values(array_filter($candidate, static function ($row) {
-                    return is_array($row);
-                }));
+            if (!is_array($candidate)) {
+                continue;
+            }
+            foreach ($candidate as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $keyword = mb_strtolower(trim((string)($row['keyword'] ?? $row['keyword_data']['keyword'] ?? '')));
+                if ($keyword === '' || isset($seen_keywords[$keyword])) {
+                    continue;
+                }
+                $seen_keywords[$keyword] = true;
+                $items[] = $row;
             }
         }
 
-        return [];
+        $seed_keyword_data = $raw['tasks'][0]['result'][0]['seed_keyword_data'] ?? null;
+        if (is_array($seed_keyword_data)) {
+            $seed_row = self::normalize_seed_keyword_data_row($seed_keyword_data);
+            $seed_keyword = mb_strtolower(trim((string)($seed_row['keyword'] ?? '')));
+            if (!empty($seed_row) && $seed_keyword !== '' && !isset($seen_keywords[$seed_keyword])) {
+                $items[] = $seed_row;
+            }
+        }
+
+        return $items;
     }
 
     private static function normalize_seed_keyword_data_row(array $seed_keyword_data): array {
