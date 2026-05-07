@@ -116,6 +116,10 @@ class Loader {
         tmwseo_safe_require( $p . 'class-discovery-orchestrator.php' );
         tmwseo_safe_require( $p . 'class-keyword-idea-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-dataforseo-keyword-idea-provider.php' );
+        // DataForSEO v3 page-type strategy planner (preview / dry-run only).
+        // Provides controlled seed groups + endpoint plans per page type. Does not
+        // call the API and does not write to the DB. See class header for scope.
+        tmwseo_safe_require( $p . 'class-dataforseo-page-type-keyword-strategy.php' );
         tmwseo_safe_require( $p . 'class-google-trends-idea-provider.php' );
         tmwseo_safe_require( $p . 'class-google-keyword-planner-idea-provider.php' );
         tmwseo_safe_require( $p . 'class-google-autosuggest-idea-provider.php' );

@@ -826,4 +826,458 @@ class DataForSEO {
     public static function historical_search_volume(array $keywords): array {
         return self::search_volume($keywords);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DataForSEO v3 strategy foundation — Phase A wrappers (added 2026-05).
+    // Pure additive layer. Reuses self::post() (auth + budget + logging + cost
+    // tracking) and the existing transient cache pattern. No live calls are
+    // triggered automatically — these wrappers are invoked only by future
+    // strategy / scan code that explicitly opts in.
+    //
+    // Response shape is consistent with existing wrappers:
+    //   ok:false → ['ok'=>false, 'error'=>string]
+    //   ok:true  → ['ok'=>true, 'items'=>array, 'raw'=>array]
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * dataforseo_labs/google/keyword_ideas/live
+     *
+     * Semantic, category-driven expansion from a small seed bundle.
+     *
+     * @param string[]            $keywords      Seed keywords (1..200 recommended).
+     * @param int                 $location_code Default: 2840 (United States).
+     * @param string              $language_code Default: 'en'.
+     * @param int                 $limit         Max items per request (1..1000).
+     * @param array<int,mixed>    $filters       Optional DataForSEO filter array.
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function keyword_ideas_live(
+        array $keywords,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        int $limit = 100,
+        array $filters = []
+    ): array {
+        $keywords = array_values(array_unique(array_filter(
+            array_map(static function ($k) { return mb_strtolower(trim((string) $k), 'UTF-8'); }, $keywords)
+        )));
+        $keywords = array_slice($keywords, 0, 200);
+        if (empty($keywords)) {
+            return ['ok' => false, 'error' => 'empty_keywords'];
+        }
+
+        $cache_key = 'tmwseo_kw_ideas_' . md5(
+            implode(',', $keywords) . '|' . $location_code . '|' . $language_code . '|' . $limit . '|' . md5(serialize($filters))
+        );
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload_item = [
+            'keywords'      => $keywords,
+            'location_code' => $location_code,
+            'language_code' => $language_code,
+            'limit'         => min(1000, max(1, $limit)),
+            'closely_variants' => true,
+        ];
+        if (!empty($filters)) {
+            $payload_item['filters'] = $filters;
+        }
+
+        $res = self::post('/v3/dataforseo_labs/google/keyword_ideas/live', [$payload_item]);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, WEEK_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * dataforseo_labs/google/keyword_overview/live
+     *
+     * Compact metrics + (optional) SERP snapshot for a batch of keywords.
+     *
+     * @param string[] $keywords
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function keyword_overview_live(
+        array $keywords,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        bool $include_serp_info = true
+    ): array {
+        $keywords = array_values(array_unique(array_filter(
+            array_map(static function ($k) { return mb_strtolower(trim((string) $k), 'UTF-8'); }, $keywords)
+        )));
+        $keywords = array_slice($keywords, 0, 700);
+        if (empty($keywords)) {
+            return ['ok' => false, 'error' => 'empty_keywords'];
+        }
+
+        $cache_key = 'tmwseo_kw_overview_' . md5(
+            implode(',', $keywords) . '|' . $location_code . '|' . $language_code . '|' . ($include_serp_info ? '1' : '0')
+        );
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keywords'                 => $keywords,
+            'location_code'            => $location_code,
+            'language_code'            => $language_code,
+            'include_serp_info'        => $include_serp_info,
+            'include_clickstream_data' => false,
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/keyword_overview/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, WEEK_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * dataforseo_labs/google/search_intent/live
+     *
+     * Returns dominant intent (informational / navigational / commercial /
+     * transactional) per keyword with probability vector.
+     *
+     * @param string[] $keywords
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function search_intent_live(
+        array $keywords,
+        string $language_name = 'English'
+    ): array {
+        $keywords = array_values(array_unique(array_filter(
+            array_map(static function ($k) { return mb_strtolower(trim((string) $k), 'UTF-8'); }, $keywords)
+        )));
+        $keywords = array_slice($keywords, 0, 1000);
+        if (empty($keywords)) {
+            return ['ok' => false, 'error' => 'empty_keywords'];
+        }
+
+        $cache_key = 'tmwseo_kw_intent_' . md5(implode(',', $keywords) . '|' . $language_name);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keywords'      => $keywords,
+            'language_name' => $language_name,
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/search_intent/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, WEEK_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * dataforseo_labs/google/relevant_pages/live
+     *
+     * Pages on a target domain that rank for the most keywords.
+     *
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function relevant_pages_live(
+        string $target,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        int $limit = 100
+    ): array {
+        $target = preg_replace('#^https?://#i', '', trim($target));
+        $target = preg_replace('#^www\.#i', '', $target);
+        $target = preg_replace('#/.*$#', '', $target);
+        if ($target === '') {
+            return ['ok' => false, 'error' => 'empty_target'];
+        }
+
+        $cache_key = 'tmwseo_relevant_pages_' . md5($target . '|' . $location_code . '|' . $language_code . '|' . $limit);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'target'        => $target,
+            'location_code' => $location_code,
+            'language_code' => $language_code,
+            'limit'         => min(1000, max(1, $limit)),
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/relevant_pages/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * dataforseo_labs/google/competitors_domain/live
+     *
+     * Domains with the strongest organic-keyword overlap to $target.
+     *
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function competitors_domain_live(
+        string $target,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        int $limit = 50
+    ): array {
+        $target = preg_replace('#^https?://#i', '', trim($target));
+        $target = preg_replace('#^www\.#i', '', $target);
+        $target = preg_replace('#/.*$#', '', $target);
+        if ($target === '') {
+            return ['ok' => false, 'error' => 'empty_target'];
+        }
+
+        $cache_key = 'tmwseo_competitors_domain_' . md5(
+            $target . '|' . $location_code . '|' . $language_code . '|' . $limit
+        );
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'target'        => $target,
+            'location_code' => $location_code,
+            'language_code' => $language_code,
+            'limit'         => min(1000, max(1, $limit)),
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/competitors_domain/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * dataforseo_labs/google/page_intersection/live
+     *
+     * Keywords for which all (or any) of the supplied URLs rank in the top 100.
+     *
+     * @param array<int|string,string> $pages Map of slot-id => url.
+     *                                        Numeric keys are coerced to "1","2",...
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function page_intersection_live(
+        array $pages,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        int $limit = 100
+    ): array {
+        $clean_pages = [];
+        $auto_index  = 1;
+        foreach ($pages as $key => $url) {
+            $url = trim((string) $url);
+            if ($url === '') {
+                continue;
+            }
+            $slot_id = is_int($key) ? (string) $auto_index : (string) $key;
+            $clean_pages[$slot_id] = $url;
+            $auto_index++;
+            if (count($clean_pages) >= 20) {
+                break; // DataForSEO accepts up to 20 page slots.
+            }
+        }
+        if (count($clean_pages) < 1) {
+            return ['ok' => false, 'error' => 'empty_pages'];
+        }
+
+        $cache_key = 'tmwseo_page_intersection_' . md5(
+            wp_json_encode($clean_pages) . '|' . $location_code . '|' . $language_code . '|' . $limit
+        );
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'pages'         => $clean_pages,
+            'location_code' => $location_code,
+            'language_code' => $language_code,
+            'limit'         => min(1000, max(1, $limit)),
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/page_intersection/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * dataforseo_labs/google/serp_competitors/live
+     *
+     * Domains that co-rank across the supplied keyword set with median position
+     * and visibility metrics.
+     *
+     * @param string[] $keywords
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function serp_competitors_live(
+        array $keywords,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        int $limit = 50
+    ): array {
+        $keywords = array_values(array_unique(array_filter(
+            array_map(static function ($k) { return mb_strtolower(trim((string) $k), 'UTF-8'); }, $keywords)
+        )));
+        $keywords = array_slice($keywords, 0, 200);
+        if (empty($keywords)) {
+            return ['ok' => false, 'error' => 'empty_keywords'];
+        }
+
+        $cache_key = 'tmwseo_serp_competitors_' . md5(
+            implode(',', $keywords) . '|' . $location_code . '|' . $language_code . '|' . $limit
+        );
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keywords'      => $keywords,
+            'location_code' => $location_code,
+            'language_code' => $language_code,
+            'limit'         => min(1000, max(1, $limit)),
+        ]];
+
+        $res = self::post('/v3/dataforseo_labs/google/serp_competitors/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, DAY_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * keywords_data/google_ads/keywords_for_keywords/live
+     *
+     * Google-Ads-flavoured semantic expansion. Subject to a 12-rpm limit on
+     * the DataForSEO side; callers must throttle in higher layers.
+     *
+     * Result shape: this Google Ads endpoint returns a flat array under
+     * tasks[0].result (no "items" sub-key), unlike Labs endpoints. We accept
+     * either shape defensively.
+     *
+     * @param string[] $keywords
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function keywords_for_keywords_live(
+        array $keywords,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        int $limit = 100,
+        bool $include_adult_keywords = true
+    ): array {
+        $keywords = array_values(array_unique(array_filter(
+            array_map(static function ($k) { return mb_strtolower(trim((string) $k), 'UTF-8'); }, $keywords)
+        )));
+        $keywords = array_slice($keywords, 0, 200);
+        if (empty($keywords)) {
+            return ['ok' => false, 'error' => 'empty_keywords'];
+        }
+
+        $cache_key = 'tmwseo_kfk_' . md5(
+            implode(',', $keywords) . '|' . $location_code . '|' . $language_code . '|' . $limit . '|' . ($include_adult_keywords ? '1' : '0')
+        );
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keywords'              => $keywords,
+            'location_code'         => $location_code,
+            'language_code'         => $language_code,
+            'limit'                 => min(1000, max(1, $limit)),
+            'include_adult_keywords'=> $include_adult_keywords,
+        ]];
+
+        $res = self::post('/v3/keywords_data/google_ads/keywords_for_keywords/live', $payload);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $result_raw = $res['data']['tasks'][0]['result'] ?? [];
+        $items = [];
+        if (is_array($result_raw)) {
+            // Defensive: handle either "flat array of keywords" (documented Google Ads
+            // shape) or "result[0].items" (Labs-style wrapping) so this wrapper does
+            // not silently return empty if DataForSEO changes the envelope shape.
+            if (isset($result_raw[0]) && is_array($result_raw[0]) && isset($result_raw[0]['items']) && is_array($result_raw[0]['items'])) {
+                $items = $result_raw[0]['items'];
+            } else {
+                $items = $result_raw;
+            }
+        }
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+
+        set_transient($cache_key, $result, 7 * DAY_IN_SECONDS);
+        return $result;
+    }
 }
