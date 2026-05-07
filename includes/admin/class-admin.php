@@ -1295,28 +1295,35 @@ class Admin {
                     exit;
                 }
             }
+            else {
+                // Orchestrator class not found — redirect with error instead of falling through silently
+                wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-ranking-probability&tmw_error=1' ) );
+                exit;
+            }
         }
 
         global $wpdb;
+
+
         $intel_table = $wpdb->prefix . 'tmw_seo_ranking_probability';
 
         $rows     = [];
         $last_run = '';
 
         if ($wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $intel_table ) ) === $intel_table) {
-            
+            $table = \TMWSEO\Engine\Intelligence\IntelligenceStorage::table_ranking_probability();
+
             $rows = $wpdb->get_results($wpdb->prepare(
                 "SELECT id,keyword, ranking_probability, ranking_tier, inputs_json, created_at
-                 FROM {$intel_table}
-                 -- WHERE signal_type = %s
-                 -- ORDER BY CAST(signal_value AS DECIMAL(5,2)) DESC
+                 FROM {$table}
+                 ORDER BY ranking_probability DESC, created_at DESC
                  LIMIT 50",
                 'ranking_probability'
             ), ARRAY_A) ?: [];
 
             // Most recent computation timestamp — use prepare for consistency
             $last_run = (string) $wpdb->get_var($wpdb->prepare(
-                "SELECT MAX(computed_at) FROM {$intel_table} WHERE signal_type = %s",
+                "SELECT MAX(created_at) FROM {$intel_table}",
                 'ranking_probability'
             ));
         }
@@ -1377,30 +1384,62 @@ class Admin {
             echo '</tr></thead><tbody>';
 
             foreach ($rows as $row) {
+                global $wpdb;
+                $post_id = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT post_id FROM {$wpdb->postmeta}
+                     WHERE meta_key = 'rank_math_focus_keyword'
+                     AND meta_value = %s
+                     LIMIT 1",
+                    $row['keyword']
+                ) );
+
                 $pid   = (int) $row['id'];
                 $prob  = ((float) $row['ranking_probability']);
                 $ranking_tier  = $row['ranking_tier'];
                 $date  = substr((string) $row['created_at'], 0, 10);
-                $title = get_the_title($pid) ?: "Post #{$pid}";
-                $edit  = get_edit_post_link($pid);
+                $title     = $post_id > 0 ? get_the_title( $post_id ) : esc_html( $row['keyword'] );
+                $edit_link = $post_id > 0 ? get_edit_post_link( $post_id ) : '';
                 $color_class = $prob >= 70 ? 'tmwui-prob-ok' : ($prob >= 40 ? 'tmwui-prob-warn' : 'tmwui-prob-danger');
-                $signals_json = $row['inputs_json'];
+               // $signals_json = $row['inputs_json'];
 
-                $signals = json_decode($signals_json, true);
-                $page_type_fit = is_array($signals) ? (float) ($signals['page_type_fit']['fit'] ?? 0) : 0.0;
-                $page_type_fit_label = is_array($signals)
-                    ? (string) ($signals['page_type_fit']['status'] ?? 'unknown')
-                    : 'not_available';
+               //  $signals = json_decode($signals_json, true);
+               //  $page_type_fit = is_array($signals) ? (float) ($signals['page_type_fit']['fit'] ?? 0) : 0.0;
+               //  $page_type_fit_label = is_array($signals)
+               //      ? (string) ($signals['page_type_fit']['status'] ?? 'unknown')
+               //      : 'not_available';
+
+
+                $inputs = [];
+                if ( ! empty( $row['inputs_json'] ) ) {
+                    $decoded = json_decode( $row['inputs_json'], true );
+                    if ( is_array( $decoded ) ) {
+                        $inputs = $decoded;
+                    }
+                }
+
+                // Show top 3 signal scores as a short readable summary
+                $summary_keys = [ 'intent_match', 'content_depth', 'internal_linking' ];
+                $summary_parts = [];
+                foreach ( $summary_keys as $key ) {
+                    if ( isset( $inputs[ $key ] ) ) {
+                        $summary_parts[] = ucwords( str_replace( '_', ' ', $key ) ) . ': ' . round( (float) $inputs[ $key ], 1 );
+                    }
+                }
+                $inputs_summary = ! empty( $summary_parts )
+                    ? implode( ' · ', $summary_parts )
+                    : '—';
 
                 echo '<tr>';
-                echo '<td><a href="' . esc_url($edit ?: '#') . '">' . esc_html($title) . '</a></td>';
+                echo '<td><a href="' . esc_url($edit_link ?: '#') . '">' . esc_html($title) . '</a></td>';
                 echo '<td><strong class="tmwui-prob-score ' . esc_attr($color_class) . '">' . esc_html($prob) . '%</strong></td>';
 
                 echo '<td><strong class="tmwui-prob-score ' . esc_attr($color_class) . '">' . esc_html($ranking_tier) . '</strong></td>';
 
-                echo '<td><strong>' . esc_html($signals_json) . '</strong></td>';
+                echo '<td class="tmwui-meta-label" title="' . esc_attr( wp_json_encode( $inputs ) ) . '">'
+                    . esc_html( $inputs_summary )
+                    . '</td>';
                 echo '<td class="tmwui-date-cell">' . esc_html($date) . '</td>';
-                echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">' . esc_html__('Edit', 'tmwseo') . '</a></td>';
+                echo '<td><a href="' . esc_url($edit_link ?: '#') . '" class="button button-small">' . esc_html__('Edit', 'tmwseo') . '</a></td>';
                 echo '</tr>';
             }
 
