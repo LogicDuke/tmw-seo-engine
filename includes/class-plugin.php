@@ -244,6 +244,7 @@ class Plugin {
 
         Migration::maybe_migrate_legacy();
         Schema::ensure_intelligence_schema();
+        Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
 
         // Phase 1 / Phase A: analysis-only, so we do NOT auto-hook ContentEngine.
@@ -377,6 +378,7 @@ class Plugin {
 
         Schema::create_or_update_tables();
         Schema::ensure_intelligence_schema();
+        Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
         \TMWSEO\Engine\KeywordIntelligence\KeywordDatabase::create_table();
 

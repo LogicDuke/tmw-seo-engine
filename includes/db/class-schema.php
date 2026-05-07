@@ -17,6 +17,8 @@ class Schema {
         $serp_analysis = $wpdb->prefix . 'tmw_seo_serp_analysis';
         $seo_competitors = $wpdb->prefix . 'tmw_seo_competitors';
         $ranking_probability = $wpdb->prefix . 'tmw_seo_ranking_probability';
+        $dfseo_scan_runs = $wpdb->prefix . 'tmwseo_dfseo_scan_runs';
+        $dfseo_scan_items = $wpdb->prefix . 'tmwseo_dfseo_scan_items';
 
         return [
             $content_briefs => "CREATE TABLE $content_briefs (
@@ -70,6 +72,59 @@ class Schema {
                 UNIQUE KEY unique_keyword (keyword),
                 KEY score_tier (ranking_probability, ranking_tier)
             ) $charset_collate;",
+
+
+            $dfseo_scan_runs => "CREATE TABLE $dfseo_scan_runs (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                post_id BIGINT(20) UNSIGNED NOT NULL,
+                page_type VARCHAR(32) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'running',
+                location_code INT(11) NOT NULL,
+                language_code VARCHAR(10) NOT NULL,
+                seed_count INT(11) NOT NULL DEFAULT 0,
+                endpoint_count INT(11) NOT NULL DEFAULT 0,
+                estimated_task_count INT(11) NOT NULL DEFAULT 0,
+                fetched_count INT(11) NOT NULL DEFAULT 0,
+                filtered_count INT(11) NOT NULL DEFAULT 0,
+                stored_count INT(11) NOT NULL DEFAULT 0,
+                reused_fresh_count INT(11) NOT NULL DEFAULT 0,
+                reused_stale_count INT(11) NOT NULL DEFAULT 0,
+                skipped_count INT(11) NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL,
+                completed_at DATETIME NULL,
+                PRIMARY KEY (id),
+                KEY post_created (post_id, created_at),
+                KEY status_created (status, created_at)
+            ) $charset_collate;",
+
+            $dfseo_scan_items => "CREATE TABLE $dfseo_scan_items (
+                id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                run_id BIGINT(20) UNSIGNED NOT NULL,
+                post_id BIGINT(20) UNSIGNED NOT NULL,
+                page_type VARCHAR(32) NOT NULL,
+                endpoint VARCHAR(120) NOT NULL,
+                seed VARCHAR(191) NOT NULL,
+                keyword VARCHAR(255) NOT NULL,
+                source VARCHAR(32) NOT NULL DEFAULT 'dataforseo',
+                status VARCHAR(32) NOT NULL,
+                filter_reason VARCHAR(64) NULL,
+                freshness VARCHAR(16) NOT NULL DEFAULT 'unknown',
+                fetched_at DATETIME NOT NULL,
+                source_updated_at DATETIME NULL,
+                volume INT(11) NULL,
+                cpc DECIMAL(10,4) NULL,
+                competition DECIMAL(8,4) NULL,
+                intent VARCHAR(32) NULL,
+                raw_hash CHAR(64) NULL,
+                raw_json LONGTEXT NULL,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY run_status (run_id, status),
+                KEY post_seed (post_id, seed),
+                KEY keyword (keyword),
+                KEY endpoint_seed (endpoint, seed),
+                KEY fetched_at (fetched_at)
+            ) $charset_collate;",
         ];
     }
 
@@ -111,6 +166,24 @@ class Schema {
 
         foreach ($missing_tables as $table_name) {
             if (isset($required_sql[$table_name])) {
+                dbDelta($required_sql[$table_name]);
+            }
+        }
+    }
+
+
+    public static function reconcile_dfseo_scan_ledger_tables(): void {
+        global $wpdb;
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $required_sql = self::required_intelligence_table_sql($charset_collate);
+        $runs_table = $wpdb->prefix . 'tmwseo_dfseo_scan_runs';
+        $items_table = $wpdb->prefix . 'tmwseo_dfseo_scan_items';
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        foreach ([$runs_table, $items_table] as $table_name) {
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) !== $table_name && isset($required_sql[$table_name])) {
                 dbDelta($required_sql[$table_name]);
             }
         }
