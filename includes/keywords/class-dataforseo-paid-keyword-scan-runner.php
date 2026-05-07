@@ -9,7 +9,7 @@ class DataForSEOPaidKeywordScanRunner {
     private const MANUAL_TASK_CAP = 25;
     private const MAX_RUN_SECONDS = 20;
     private const SMALL_TEST_MAX_SEEDS = 2;
-    private const SMALL_TEST_ENDPOINT = 'dataforseo_labs/google/keyword_overview/live';
+    private const SMALL_TEST_ENDPOINT = 'dataforseo_labs/google/keyword_ideas/live';
 
     public static function run_for_post(int $post_id, bool $force_refresh = false, bool $small_test_only = false): array {
         global $wpdb;
@@ -113,7 +113,18 @@ class DataForSEOPaidKeywordScanRunner {
                     ]);
                     continue;
                 }
-                $items = (array)($res['items'] ?? []);
+                $items = self::normalize_items_from_response($res);
+                if (empty($items)) {
+                    $counts['skipped']++;
+                    self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, $seed, 'skipped', 'no_items_returned', 'unknown', [
+                        'endpoint' => $endpoint,
+                        'seed' => $seed,
+                        'item_count' => 0,
+                        'response_keys' => array_keys(is_array($res) ? $res : []),
+                        'raw_keys' => array_keys(is_array($res['raw'] ?? null) ? $res['raw'] : []),
+                    ]);
+                    continue;
+                }
                 foreach ($items as $row) {
                     $keyword = trim((string)($row['keyword'] ?? $row['keyword_data']['keyword'] ?? ''));
                     $counts['fetched']++;
@@ -189,6 +200,53 @@ class DataForSEOPaidKeywordScanRunner {
             default: return ['ok'=>true,'items'=>[]];
         }
     }
+
+    private static function normalize_items_from_response(array $res): array {
+        $items = $res['items'] ?? null;
+        if (is_array($items)) {
+            return $items;
+        }
+
+        $raw = is_array($res['raw'] ?? null) ? $res['raw'] : [];
+        $candidates = [
+            $raw['tasks'][0]['result'][0]['items'] ?? null,
+            $raw['tasks'][0]['result'][0]['keywords'] ?? null,
+            $raw['tasks'][0]['result'] ?? null,
+            $raw['result'][0]['items'] ?? null,
+            $raw['result']['items'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_array($candidate)) {
+                return array_values(array_filter($candidate, static function ($row) {
+                    return is_array($row);
+                }));
+            }
+        }
+
+        return [];
+    }
+
+    private static function extract_volume(array $norm): ?int {
+        $v = $norm['keyword_info']['search_volume'] ?? $norm['search_volume'] ?? $norm['volume'] ?? null;
+        return is_numeric($v) ? (int) $v : null;
+    }
+
+    private static function extract_cpc(array $norm): ?float {
+        $v = $norm['keyword_info']['cpc'] ?? $norm['cpc'] ?? null;
+        return is_numeric($v) ? (float) $v : null;
+    }
+
+    private static function extract_competition(array $norm): ?float {
+        $v = $norm['keyword_info']['competition'] ?? $norm['competition'] ?? null;
+        return is_numeric($v) ? (float) $v : null;
+    }
+
+    private static function extract_intent(array $norm): ?string {
+        $v = $norm['keyword_intent']['main_intent'] ?? $norm['main_intent'] ?? $norm['intent'] ?? null;
+        return is_string($v) && $v != '' ? $v : null;
+    }
+
     private static function insert_item(int $run_id,int $post_id,string $page_type,string $endpoint,string $seed,string $keyword,string $status,?string $reason,string $freshness,$row=null,array $cached=[]): void {
         global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $norm=is_array($row)?$row:[]; $json = !empty($norm) ? wp_json_encode($norm) : null;
         $fetched_at = current_time('mysql');
@@ -200,10 +258,10 @@ class DataForSEOPaidKeywordScanRunner {
         $wpdb->insert($t,[
             'run_id'=>$run_id,'post_id'=>$post_id,'page_type'=>$page_type,'endpoint'=>$endpoint,'seed'=>$seed,'keyword'=>substr($keyword,0,255),'source'=>'dataforseo','status'=>$status,
             'filter_reason'=>$reason,'freshness'=>$freshness,'fetched_at'=>$fetched_at,'source_updated_at'=>$source_updated_at,
-            'volume'=>isset($norm['keyword_info']['search_volume'])?(int)$norm['keyword_info']['search_volume']:null,
-            'cpc'=>isset($norm['keyword_info']['cpc'])?(float)$norm['keyword_info']['cpc']:null,
-            'competition'=>isset($norm['keyword_info']['competition'])?(float)$norm['keyword_info']['competition']:null,
-            'intent'=>isset($norm['keyword_intent']['main_intent'])?(string)$norm['keyword_intent']['main_intent']:null,
+            'volume'=>self::extract_volume($norm),
+            'cpc'=>self::extract_cpc($norm),
+            'competition'=>self::extract_competition($norm),
+            'intent'=>self::extract_intent($norm),
             'raw_hash'=>$json?hash('sha256',$json):null,'raw_json'=>$json,'created_at'=>current_time('mysql')
         ]);
     }

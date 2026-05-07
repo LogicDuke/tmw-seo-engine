@@ -1382,8 +1382,8 @@ class Admin {
             $estimated_task_count = $seed_count * count($endpoint_plan);
             $small_test_default = true;
             $small_test_seed_count = min(2, $seed_count);
-            $small_test_endpoint = in_array('dataforseo_labs/google/keyword_overview/live', $endpoint_plan, true)
-                ? 'dataforseo_labs/google/keyword_overview/live'
+            $small_test_endpoint = in_array('dataforseo_labs/google/keyword_ideas/live', $endpoint_plan, true)
+                ? 'dataforseo_labs/google/keyword_ideas/live'
                 : (!empty($endpoint_plan) ? (string) $endpoint_plan[0] : '');
             $small_test_endpoint_count = $small_test_endpoint !== '' ? 1 : 0;
             $small_test_task_count = $small_test_seed_count * $small_test_endpoint_count;
