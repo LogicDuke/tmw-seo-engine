@@ -6,7 +6,12 @@ use TMWSEO\Engine\Services\DataForSEO;
 if (!defined('ABSPATH')) { exit; }
 
 class DataForSEOPaidKeywordScanRunner {
-    public static function run_for_post(int $post_id, bool $force_refresh = false): array {
+    private const MANUAL_TASK_CAP = 25;
+    private const MAX_RUN_SECONDS = 20;
+    private const SMALL_TEST_MAX_SEEDS = 2;
+    private const SMALL_TEST_ENDPOINT = 'dataforseo_labs/google/keyword_overview/live';
+
+    public static function run_for_post(int $post_id, bool $force_refresh = false, bool $small_test_only = false): array {
         global $wpdb;
         if ($post_id <= 0) { return ['ok' => false, 'error' => 'invalid_post_id']; }
         if (!DataForSEO::is_configured()) { return ['ok' => false, 'error' => 'dataforseo_credentials_missing']; }
@@ -19,9 +24,17 @@ class DataForSEOPaidKeywordScanRunner {
         $page_type = (string)($plan['page_type'] ?? 'unknown');
         $seeds = self::extract_seeds((array)($plan['seed_groups'] ?? []));
         $endpoints = array_values(array_unique(array_filter(array_map('strval', (array)($plan['recommended_endpoints'] ?? [])))));
+        $full_seed_count = count($seeds);
+        $full_endpoint_count = count($endpoints);
+
+        if ($small_test_only) {
+            $seeds = array_slice($seeds, 0, self::SMALL_TEST_MAX_SEEDS);
+            $endpoints = self::small_test_endpoints($endpoints);
+        }
+
+        $planned_tasks = count($seeds) * count($endpoints);
 
         $runs = $wpdb->prefix . 'tmwseo_dfseo_scan_runs';
-        $items_t = $wpdb->prefix . 'tmwseo_dfseo_scan_items';
         $now = current_time('mysql');
         $location_code = (string) DataForSEO::default_location_code();
         $language_code = (string) DataForSEO::default_language_code();
@@ -30,13 +43,44 @@ class DataForSEOPaidKeywordScanRunner {
             'post_id' => $post_id, 'page_type' => $page_type, 'status' => 'running',
             'location_code' => $location_code, 'language_code' => $language_code,
             'seed_count' => count($seeds), 'endpoint_count' => count($endpoints),
-            'estimated_task_count' => count($seeds) * max(1, count($endpoints)), 'created_at' => $now,
+            'estimated_task_count' => $planned_tasks, 'created_at' => $now,
         ]);
         $run_id = (int) $wpdb->insert_id;
 
+        if (!$small_test_only && $planned_tasks > self::MANUAL_TASK_CAP) {
+            $wpdb->update($runs, [
+                'status' => 'blocked_task_cap',
+                'skipped_count' => $planned_tasks,
+                'completed_at' => current_time('mysql'),
+            ], ['id' => $run_id]);
+
+            return [
+                'ok' => false,
+                'error' => 'task_cap_exceeded',
+                'run_id' => $run_id,
+                'seed_count' => count($seeds),
+                'endpoint_count' => count($endpoints),
+                'planned_tasks' => $planned_tasks,
+                'max_tasks' => self::MANUAL_TASK_CAP,
+                'full_seed_count' => $full_seed_count,
+                'full_endpoint_count' => $full_endpoint_count,
+            ];
+        }
+
         $counts = ['fetched'=>0,'filtered'=>0,'stored'=>0,'reused_fresh'=>0,'reused_stale'=>0,'skipped'=>0];
+        $status = 'completed';
+        $started = time();
         foreach ($seeds as $seed) {
             foreach ($endpoints as $endpoint) {
+                if ((time() - $started) > self::MAX_RUN_SECONDS) {
+                    $status = 'partial_timeout';
+                    $counts['skipped']++;
+                    self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, '', 'skipped', 'time_budget_exceeded', 'unknown', [
+                        'error' => 'time_budget_exceeded',
+                    ]);
+                    break 2;
+                }
+
                 $cached = self::latest_item_for($post_id, $page_type, $endpoint, $seed);
                 if (!$force_refresh && !empty($cached) && ($cached['freshness'] ?? '') === 'fresh') {
                     $counts['reused_fresh']++;
@@ -73,16 +117,45 @@ class DataForSEOPaidKeywordScanRunner {
             }
         }
 
-        $status = 'completed';
+        if ($status === 'completed' && ($counts['skipped'] > 0 || $counts['filtered'] > 0)) {
+            $status = 'completed_with_errors';
+        }
+
         $wpdb->update($runs, [
             'status'=>$status,'fetched_count'=>$counts['fetched'],'filtered_count'=>$counts['filtered'],'stored_count'=>$counts['stored'],
             'reused_fresh_count'=>$counts['reused_fresh'],'reused_stale_count'=>$counts['reused_stale'],'skipped_count'=>$counts['skipped'],'completed_at'=>current_time('mysql')
         ], ['id'=>$run_id]);
 
-        return ['ok'=>true,'run_id'=>$run_id];
+        return ['ok'=>true,'run_id'=>$run_id,'status'=>$status];
     }
 
-    private static function extract_seeds(array $seed_groups): array { $out=[]; foreach ($seed_groups as $g) { foreach ((array)$g as $v) { if (is_string($v) && trim($v)!=='') $out[] = mb_strtolower(trim($v)); } } return array_values(array_unique($out)); }
+    private static function extract_seeds(array $seed_groups): array {
+        $out = [];
+
+        foreach ($seed_groups as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $seed = sanitize_text_field((string)($row['seed'] ?? ''));
+            if ($seed === '') {
+                continue;
+            }
+
+            $out[] = mb_strtolower(trim($seed));
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    private static function small_test_endpoints(array $endpoints): array {
+        if (in_array(self::SMALL_TEST_ENDPOINT, $endpoints, true)) {
+            return [self::SMALL_TEST_ENDPOINT];
+        }
+
+        return !empty($endpoints) ? [reset($endpoints)] : [];
+    }
+
     private static function latest_item_for(int $post_id,string $page_type,string $endpoint,string $seed): array { global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE post_id=%d AND page_type=%s AND endpoint=%s AND seed=%s AND status IN ('stored') ORDER BY id DESC LIMIT 1",$post_id,$page_type,$endpoint,$seed),ARRAY_A); if(!$r)return[]; $r['freshness']=self::freshness((string)($r['fetched_at']?:$r['created_at'])); return $r; }
     private static function freshness(string $dt): string { $ts=strtotime($dt); if(!$ts)return 'unknown'; $days=(time()-$ts)/DAY_IN_SECONDS; if($days<=30)return 'fresh'; if($days<=90)return 'stale'; return 'old'; }
     private static function filter_reason(string $keyword): string { if($keyword==='') return 'empty_keyword'; if(preg_match('/\bpost format video\b/i',$keyword)) return 'technical_modifier'; if(preg_match('/\bfuck\b/i',$keyword)) return 'risky_term'; if(preg_match('/\b(\w+)\s+\1\b/i',$keyword)) return 'duplicate_self_repeat'; return ''; }
