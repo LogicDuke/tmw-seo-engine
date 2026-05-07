@@ -1437,6 +1437,16 @@ class Admin {
             ['value'=>(int)$run['skipped_count'],'label'=>'Skipped/Failed','color'=>'danger'],
         ]);
         echo '<p><strong>Run #'.esc_html((string)$run_id).'</strong> | Status: '.esc_html((string)$run['status']).' | Location/Language: '.esc_html((string)$run['location_code']).'/'.esc_html((string)$run['language_code']).'</p>';
+        AdminUI::section_start(__('Credit Safety', 'tmwseo'));
+        echo '<ul style="list-style:disc;padding-left:20px;">';
+        echo '<li>' . esc_html__('Paid calls were attempted only for seed/endpoint pairs without fresh cached results.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('Fresh cached pairs were reused by default unless force refresh was selected.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('No pages were created.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('No drafts were created.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('No posts were published.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('This is manual review data only.', 'tmwseo') . '</li>';
+        echo '</ul>';
+        AdminUI::section_end();
         AdminUI::trust_reminder(__('No pages were created. No posts were published. No automatic publishing is enabled in this pass.', 'tmwseo'));
         $rows = $wpdb->get_results($wpdb->prepare("SELECT status,keyword,seed,endpoint,filter_reason,freshness,fetched_at,volume,cpc,competition,intent FROM {$items} WHERE run_id=%d ORDER BY id DESC LIMIT 250", $run_id), ARRAY_A) ?: [];
         echo '<table class="widefat striped"><thead><tr><th>Status</th><th>Keyword</th><th>Seed</th><th>Endpoint</th><th>Freshness</th><th>Reason</th></tr></thead><tbody>';

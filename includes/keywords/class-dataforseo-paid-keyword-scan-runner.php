@@ -49,7 +49,13 @@ class DataForSEOPaidKeywordScanRunner {
                 }
 
                 $res = self::call_endpoint($endpoint, $seed, $location_code, $language_code, $context);
-                if (!($res['ok'] ?? false)) { $counts['skipped']++; continue; }
+                if (!($res['ok'] ?? false)) {
+                    $counts['skipped']++;
+                    self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, '', 'skipped', 'dataforseo_call_failed', 'unknown', [
+                        'error' => (string)($res['error'] ?? 'unknown_error'),
+                    ]);
+                    continue;
+                }
                 $items = (array)($res['items'] ?? []);
                 foreach ($items as $row) {
                     $keyword = trim((string)($row['keyword'] ?? $row['keyword_data']['keyword'] ?? ''));
@@ -77,7 +83,7 @@ class DataForSEOPaidKeywordScanRunner {
     }
 
     private static function extract_seeds(array $seed_groups): array { $out=[]; foreach ($seed_groups as $g) { foreach ((array)$g as $v) { if (is_string($v) && trim($v)!=='') $out[] = mb_strtolower(trim($v)); } } return array_values(array_unique($out)); }
-    private static function latest_item_for(int $post_id,string $page_type,string $endpoint,string $seed): array { global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE post_id=%d AND page_type=%s AND endpoint=%s AND seed=%s ORDER BY id DESC LIMIT 1",$post_id,$page_type,$endpoint,$seed),ARRAY_A); if(!$r)return[]; $r['freshness']=self::freshness((string)($r['fetched_at']?:$r['created_at'])); return $r; }
+    private static function latest_item_for(int $post_id,string $page_type,string $endpoint,string $seed): array { global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE post_id=%d AND page_type=%s AND endpoint=%s AND seed=%s AND status IN ('stored') ORDER BY id DESC LIMIT 1",$post_id,$page_type,$endpoint,$seed),ARRAY_A); if(!$r)return[]; $r['freshness']=self::freshness((string)($r['fetched_at']?:$r['created_at'])); return $r; }
     private static function freshness(string $dt): string { $ts=strtotime($dt); if(!$ts)return 'unknown'; $days=(time()-$ts)/DAY_IN_SECONDS; if($days<=30)return 'fresh'; if($days<=90)return 'stale'; return 'old'; }
     private static function filter_reason(string $keyword): string { if($keyword==='') return 'empty_keyword'; if(preg_match('/\bpost format video\b/i',$keyword)) return 'technical_modifier'; if(preg_match('/\bfuck\b/i',$keyword)) return 'risky_term'; if(preg_match('/\b(\w+)\s+\1\b/i',$keyword)) return 'duplicate_self_repeat'; return ''; }
     private static function call_endpoint(string $endpoint,string $seed,string $location_code,string $language_code,array $context): array {
@@ -89,9 +95,16 @@ class DataForSEOPaidKeywordScanRunner {
         }
     }
     private static function insert_item(int $run_id,int $post_id,string $page_type,string $endpoint,string $seed,string $keyword,string $status,?string $reason,string $freshness,$row=null,array $cached=[]): void {
-        global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $norm=is_array($row)?$row:[]; $json = !empty($norm) ? wp_json_encode($norm) : null; $wpdb->insert($t,[
+        global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $norm=is_array($row)?$row:[]; $json = !empty($norm) ? wp_json_encode($norm) : null;
+        $fetched_at = current_time('mysql');
+        $source_updated_at = null;
+        if (in_array($status, ['reused_fresh', 'reused_stale'], true) && !empty($cached)) {
+            $fetched_at = (string)($cached['fetched_at'] ?? $cached['created_at'] ?? $fetched_at);
+            $source_updated_at = !empty($cached['source_updated_at']) ? (string)$cached['source_updated_at'] : null;
+        }
+        $wpdb->insert($t,[
             'run_id'=>$run_id,'post_id'=>$post_id,'page_type'=>$page_type,'endpoint'=>$endpoint,'seed'=>$seed,'keyword'=>substr($keyword,0,255),'source'=>'dataforseo','status'=>$status,
-            'filter_reason'=>$reason,'freshness'=>$freshness,'fetched_at'=>current_time('mysql'),'source_updated_at'=>null,
+            'filter_reason'=>$reason,'freshness'=>$freshness,'fetched_at'=>$fetched_at,'source_updated_at'=>$source_updated_at,
             'volume'=>isset($norm['keyword_info']['search_volume'])?(int)$norm['keyword_info']['search_volume']:null,
             'cpc'=>isset($norm['keyword_info']['cpc'])?(float)$norm['keyword_info']['cpc']:null,
             'competition'=>isset($norm['keyword_info']['competition'])?(float)$norm['keyword_info']['competition']:null,
