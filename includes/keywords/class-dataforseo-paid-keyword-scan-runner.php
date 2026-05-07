@@ -271,9 +271,9 @@ class DataForSEOPaidKeywordScanRunner {
             return 'page_type_mismatch';
         }
 
-        $has_entity_match = (mb_stripos($keyword, $entity_name) !== false);
+        $has_entity_match = self::contains_phrase_tokenized($keyword, $entity_name);
         $seed_prefix = trim((string)preg_replace('/\s+(live cam|cam girls?|cam girl|models?)\b.*/i', '', $seed));
-        $has_seed_phrase = ($seed_prefix !== '' && mb_stripos($keyword, $seed_prefix) !== false);
+        $has_seed_phrase = ($seed_prefix !== '' && self::contains_phrase_tokenized($keyword, $seed_prefix));
 
         if ($has_entity_match || $has_seed_phrase) {
             return '';
@@ -293,6 +293,18 @@ class DataForSEOPaidKeywordScanRunner {
         }
 
         return 'missing_entity_match';
+    }
+
+    private static function contains_phrase_tokenized(string $haystack, string $phrase): bool {
+        $haystack = mb_strtolower(trim($haystack));
+        $phrase = mb_strtolower(trim($phrase));
+
+        if ($haystack === '' || $phrase === '') {
+            return false;
+        }
+
+        $quoted = preg_quote($phrase, '/');
+        return (bool) preg_match('/(?<![\p{L}\p{N}])' . $quoted . '(?![\p{L}\p{N}])/iu', $haystack);
     }
     private static function call_endpoint(string $endpoint,string $seed,string $location_code,string $language_code,array $context): array {
         switch ($endpoint) {
