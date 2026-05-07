@@ -35,17 +35,30 @@ class DataForSEOPaidKeywordScanRunner {
         $planned_tasks = count($seeds) * count($endpoints);
 
         $runs = $wpdb->prefix . 'tmwseo_dfseo_scan_runs';
+        $items = $wpdb->prefix . 'tmwseo_dfseo_scan_items';
+        if (!self::scan_ledger_tables_exist($runs, $items)) {
+            return ['ok' => false, 'error' => 'scan_ledger_tables_missing'];
+        }
         $now = current_time('mysql');
         $location_code = (string) DataForSEO::default_location_code();
         $language_code = (string) DataForSEO::default_language_code();
 
-        $wpdb->insert($runs, [
+        $inserted = $wpdb->insert($runs, [
             'post_id' => $post_id, 'page_type' => $page_type, 'status' => 'running',
             'location_code' => $location_code, 'language_code' => $language_code,
             'seed_count' => count($seeds), 'endpoint_count' => count($endpoints),
             'estimated_task_count' => $planned_tasks, 'created_at' => $now,
         ]);
         $run_id = (int) $wpdb->insert_id;
+
+        if ($inserted === false || $run_id <= 0) {
+            $error = ['ok' => false, 'error' => 'scan_run_create_failed'];
+            if (!empty($wpdb->last_error)) {
+                $error['db_error'] = sanitize_text_field((string) $wpdb->last_error);
+            }
+
+            return $error;
+        }
 
         if (!$small_test_only && $planned_tasks > self::MANUAL_TASK_CAP) {
             $wpdb->update($runs, [
@@ -154,6 +167,15 @@ class DataForSEOPaidKeywordScanRunner {
         }
 
         return !empty($endpoints) ? [reset($endpoints)] : [];
+    }
+
+    private static function scan_ledger_tables_exist(string $runs_table, string $items_table): bool {
+        global $wpdb;
+
+        $has_runs = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $runs_table)) === $runs_table);
+        $has_items = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $items_table)) === $items_table);
+
+        return $has_runs && $has_items;
     }
 
     private static function latest_item_for(int $post_id,string $page_type,string $endpoint,string $seed): array { global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE post_id=%d AND page_type=%s AND endpoint=%s AND seed=%s AND status IN ('stored') ORDER BY id DESC LIMIT 1",$post_id,$page_type,$endpoint,$seed),ARRAY_A); if(!$r)return[]; $r['freshness']=self::freshness((string)($r['fetched_at']?:$r['created_at'])); return $r; }

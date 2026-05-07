@@ -1279,6 +1279,7 @@ class Admin {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Unauthorized', 'tmwseo' ) );
         }
+        global $wpdb;
 
         $submitted = isset( $_REQUEST['tmwseo_dfseo_preview_submit'] );
         $post_id = isset( $_REQUEST['post_id'] ) ? absint( wp_unslash( $_REQUEST['post_id'] ) ) : 0;
@@ -1316,8 +1317,19 @@ class Admin {
 
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__( 'DataForSEO Keyword Strategy Preview', 'tmwseo' ) . '</h1>';
+        $dfseo_runs_table = $wpdb->prefix . 'tmwseo_dfseo_scan_runs';
+        $dfseo_items_table = $wpdb->prefix . 'tmwseo_dfseo_scan_items';
+        $ledger_tables_ok = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $dfseo_runs_table)) === $dfseo_runs_table)
+            && ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $dfseo_items_table)) === $dfseo_items_table);
+
         echo '<p><strong>' . esc_html__( 'Preview only. This does not call DataForSEO and does not spend API credits.', 'tmwseo' ) . '</strong></p>';
         echo '<p class="description">' . esc_html__( 'Dry-run planning tool for page-type keyword strategy. No API requests, no paid scans, and no database writes are performed.', 'tmwseo' ) . '</p>';
+        echo '<p><strong>' . esc_html__('Ledger tables:', 'tmwseo') . '</strong> ' . esc_html($ledger_tables_ok ? __('OK', 'tmwseo') : __('Missing', 'tmwseo')) . '</p>';
+        if (!$ledger_tables_ok) {
+            echo '<div class="notice notice-warning"><p>'
+                . esc_html__('DataForSEO scan ledger tables are missing. No paid scan was run. Re-run plugin schema migration.', 'tmwseo')
+                . '</p></div>';
+        }
 
         if ( $error !== '' ) {
             echo '<div class="notice notice-error"><p>' . esc_html( $error ) . '</p></div>';
@@ -1398,13 +1410,24 @@ class Admin {
             echo '<p><label><input type="checkbox" name="tmwseo_paid_ack" value="1" required> ' . esc_html__('I understand this may spend DataForSEO credits and will only fetch/store review data.', 'tmwseo') . '</label></p>';
             echo '<p><label><input type="checkbox" name="force_refresh" value="1"> ' . esc_html__('Force refresh (ignore fresh cached results for this manual run).', 'tmwseo') . '</label></p>';
             echo '<p><label><input type="checkbox" name="small_test_scan" value="1" ' . checked($small_test_default, true, false) . '> ' . esc_html__('Run small test scan only (default): first 2 seeds and 1 endpoint.', 'tmwseo') . '</label></p>';
-            submit_button(__('Run Confirmed Paid Scan', 'tmwseo'), 'primary');
+            submit_button(__('Run Confirmed Paid Scan', 'tmwseo'), 'primary', 'submit', false, $ledger_tables_ok ? [] : ['disabled' => 'disabled']);
             echo '</form>';
             AdminUI::section_end();
         }
 
         $scan_run_id = isset($_GET['scan_run_id']) ? absint(wp_unslash($_GET['scan_run_id'])) : 0;
-        if ($scan_run_id > 0) { self::render_dfseo_scan_summary($scan_run_id); }
+        $notice = isset($_GET['tmwseo_notice']) ? sanitize_key((string) wp_unslash($_GET['tmwseo_notice'])) : '';
+        if ($notice === 'scan_complete' && $scan_run_id <= 0) {
+            echo '<div class="notice notice-warning"><p>'
+                . esc_html__('Scan completed notice was returned without a valid run ID. Check tmwseo_dfseo_scan_runs and tmwseo_dfseo_scan_items.', 'tmwseo')
+                . '</p></div>';
+        }
+        if ($scan_run_id > 0) {
+            self::render_dfseo_scan_summary($scan_run_id);
+        }
+        if ($post_id > 0) {
+            self::render_dfseo_latest_runs_for_post($post_id);
+        }
 
         echo '</div>';
     }
@@ -1443,13 +1466,65 @@ class Admin {
         $args = ['page' => 'tmwseo-dfseo-keyword-strategy-preview', 'post_id' => $post_id];
         if (!($res['ok'] ?? false)) {
             $args['tmwseo_notice'] = (string)($res['error'] ?? 'scan_failed');
-            if (!empty($res['run_id'])) {
+            if (!empty($res['run_id']) && (int) $res['run_id'] > 0) {
                 $args['scan_run_id'] = (int) $res['run_id'];
             }
+        } else {
+            $run_id = (int) ($res['run_id'] ?? 0);
+            if ($run_id > 0) {
+                $args['scan_run_id'] = $run_id;
+                $args['tmwseo_notice'] = 'scan_complete';
+            } else {
+                $args['tmwseo_notice'] = 'scan_run_create_failed';
+            }
         }
-        else { $args['scan_run_id'] = (int)$res['run_id']; $args['tmwseo_notice'] = 'scan_complete'; }
         wp_safe_redirect(add_query_arg($args, admin_url('admin.php')));
         exit;
+    }
+
+
+    private static function render_dfseo_latest_runs_for_post(int $post_id): void {
+        global $wpdb;
+
+        $runs = $wpdb->prefix . 'tmwseo_dfseo_scan_runs';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id,status,seed_count,endpoint_count,estimated_task_count,fetched_count,stored_count,filtered_count,reused_fresh_count,reused_stale_count,skipped_count,created_at,completed_at FROM {$runs} WHERE post_id=%d ORDER BY id DESC LIMIT 5",
+            $post_id
+        ), ARRAY_A) ?: [];
+
+        AdminUI::section_start(__('Latest DataForSEO Scan Runs for this Post', 'tmwseo'));
+        if (empty($rows)) {
+            echo '<p>' . esc_html__('No scan runs found for this post yet.', 'tmwseo') . '</p>';
+            AdminUI::section_end();
+            return;
+        }
+
+        echo '<table class="widefat striped"><thead><tr><th>ID</th><th>Status</th><th>Seed Count</th><th>Endpoint Count</th><th>Estimated Tasks</th><th>Fetched</th><th>Stored</th><th>Filtered</th><th>Reused Fresh</th><th>Reused Stale</th><th>Skipped</th><th>Created At</th><th>Completed At</th><th>Summary</th></tr></thead><tbody>';
+        foreach ($rows as $row) {
+            $summary_url = add_query_arg([
+                'page' => 'tmwseo-dfseo-keyword-strategy-preview',
+                'post_id' => $post_id,
+                'scan_run_id' => (int) $row['id'],
+            ], admin_url('admin.php'));
+            echo '<tr>';
+            echo '<td>' . esc_html((string) $row['id']) . '</td>';
+            echo '<td>' . esc_html((string) $row['status']) . '</td>';
+            echo '<td>' . esc_html((string) $row['seed_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['endpoint_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['estimated_task_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['fetched_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['stored_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['filtered_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['reused_fresh_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['reused_stale_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['skipped_count']) . '</td>';
+            echo '<td>' . esc_html((string) $row['created_at']) . '</td>';
+            echo '<td>' . esc_html((string) $row['completed_at']) . '</td>';
+            echo '<td><a class="button button-small" href="' . esc_url($summary_url) . '">' . esc_html__('Open Summary', 'tmwseo') . '</a></td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+        AdminUI::section_end();
     }
 
     private static function render_dfseo_scan_summary(int $run_id): void {
@@ -1988,6 +2063,12 @@ class Admin {
         } elseif ($notice === 'scan_failed') {
             $message = __('Paid scan failed before completion. Review logs and scan summary for details.', 'tmwseo');
             $is_error_notice_override = true;
+        } elseif ($notice === 'scan_run_create_failed') {
+            $message = __('Paid scan could not start because the scan run record could not be created. Check tmwseo_dfseo_scan_runs and database error logs.', 'tmwseo');
+            $is_error_notice_override = true;
+        } elseif ($notice === 'scan_ledger_tables_missing') {
+            $message = __('DataForSEO scan ledger tables are missing. No paid scan was run. Re-run plugin schema migration.', 'tmwseo');
+            $is_error_notice_override = true;
         }
 
         if ($message === '') {
@@ -2003,6 +2084,8 @@ class Admin {
             'scan_rejected',
             'task_cap_exceeded',
             'scan_failed',
+            'scan_run_create_failed',
+            'scan_ledger_tables_missing',
         ], true);
 
         echo '<div class="notice ' . esc_attr($is_error_notice ? 'notice-error' : 'notice-success') . ' is-dismissible"><p>';
