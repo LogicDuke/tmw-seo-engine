@@ -127,18 +127,7 @@ class DataForSEOPaidKeywordScanRunner {
                 $items = self::normalize_items_from_response($res);
                 if (empty($items)) {
                     $counts['skipped']++;
-                    self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, $seed, 'skipped', 'no_items_returned', 'unknown', [
-                        'endpoint' => $endpoint,
-                        'seed' => $seed,
-                        'exact_match' => ($endpoint === self::SMALL_TEST_ENDPOINT),
-                        'include_seed_keyword' => ($endpoint === self::SMALL_TEST_ENDPOINT),
-                        'ignore_synonyms' => ($endpoint === self::SMALL_TEST_ENDPOINT),
-                        'limit' => ($endpoint === self::SMALL_TEST_ENDPOINT) ? 25 : null,
-                        'item_count' => 0,
-                        'response_keys' => array_keys(is_array($res) ? $res : []),
-                        'raw_keys' => array_keys(is_array($res['raw'] ?? null) ? $res['raw'] : []),
-                        'task_keys' => self::extract_raw_task_result_keys($res),
-                    ]);
+                    self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, $seed, 'skipped', 'no_items_returned', 'unknown', self::build_no_items_diagnostics($res, $endpoint, $seed));
                     continue;
                 }
                 foreach ($items as $row) {
@@ -363,7 +352,7 @@ class DataForSEOPaidKeywordScanRunner {
                     $language_code,
                     25,
                     [
-                        'exact_match' => true,
+                        'exact_match' => false,
                         'include_seed_keyword' => true,
                         'ignore_synonyms' => true,
                     ]
@@ -375,13 +364,12 @@ class DataForSEOPaidKeywordScanRunner {
     }
 
     private static function normalize_items_from_response(array $res): array {
-        $items = $res['items'] ?? null;
-        if (is_array($items)) {
-            return $items;
-        }
-
+        $items = [];
+        $seen_keywords = [];
+        $top_level_items = $res['items'] ?? null;
         $raw = is_array($res['raw'] ?? null) ? $res['raw'] : [];
         $candidates = [
+            $top_level_items,
             $raw['tasks'][0]['result'][0]['items'] ?? null,
             $raw['tasks'][0]['result'][0]['keywords'] ?? null,
             $raw['tasks'][0]['result'] ?? null,
@@ -390,14 +378,79 @@ class DataForSEOPaidKeywordScanRunner {
         ];
 
         foreach ($candidates as $candidate) {
-            if (is_array($candidate)) {
-                return array_values(array_filter($candidate, static function ($row) {
-                    return is_array($row);
-                }));
+            if (!is_array($candidate)) {
+                continue;
+            }
+            foreach ($candidate as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $keyword = mb_strtolower(trim((string)($row['keyword'] ?? $row['keyword_data']['keyword'] ?? '')));
+                if ($keyword === '' || isset($seen_keywords[$keyword])) {
+                    continue;
+                }
+                $seen_keywords[$keyword] = true;
+                $items[] = $row;
             }
         }
 
-        return [];
+        $seed_keyword_data = $raw['tasks'][0]['result'][0]['seed_keyword_data'] ?? null;
+        if (is_array($seed_keyword_data)) {
+            $seed_row = self::normalize_seed_keyword_data_row($seed_keyword_data);
+            $seed_keyword = mb_strtolower(trim((string)($seed_row['keyword'] ?? '')));
+            if (!empty($seed_row) && $seed_keyword !== '' && !isset($seen_keywords[$seed_keyword])) {
+                $items[] = $seed_row;
+            }
+        }
+
+        return $items;
+    }
+
+    private static function normalize_seed_keyword_data_row(array $seed_keyword_data): array {
+        $keyword = trim((string)($seed_keyword_data['keyword'] ?? $seed_keyword_data['keyword_data']['keyword'] ?? ''));
+        if ($keyword === '') {
+            return [];
+        }
+
+        $row = [
+            'keyword' => $keyword,
+            '_source' => 'seed_keyword_data',
+        ];
+
+        if (isset($seed_keyword_data['keyword_info']) && is_array($seed_keyword_data['keyword_info'])) {
+            $row['keyword_info'] = $seed_keyword_data['keyword_info'];
+        }
+        foreach (['search_volume', 'cpc', 'competition', 'search_intent_info'] as $key) {
+            if (array_key_exists($key, $seed_keyword_data)) {
+                $row[$key] = $seed_keyword_data[$key];
+            }
+        }
+
+        return $row;
+    }
+
+    private static function build_no_items_diagnostics(array $res, string $endpoint, string $seed): array {
+        $raw = is_array($res['raw'] ?? null) ? $res['raw'] : [];
+        $task = $raw['tasks'][0] ?? null;
+        $task_result = $task['result'][0] ?? null;
+        $items = $task_result['items'] ?? null;
+        $seed_keyword_data = $task_result['seed_keyword_data'] ?? null;
+        $seed_keyword_data_present = is_array($seed_keyword_data) && !empty($seed_keyword_data);
+
+        return [
+            'endpoint' => $endpoint,
+            'seed' => $seed,
+            'exact_match' => ($endpoint === self::SMALL_TEST_ENDPOINT) ? false : null,
+            'include_seed_keyword' => ($endpoint === self::SMALL_TEST_ENDPOINT) ? true : null,
+            'ignore_synonyms' => ($endpoint === self::SMALL_TEST_ENDPOINT) ? true : null,
+            'limit' => ($endpoint === self::SMALL_TEST_ENDPOINT) ? 25 : null,
+            'response_keys' => array_keys($raw),
+            'task_status_code' => is_array($task) && isset($task['status_code']) ? (int) $task['status_code'] : null,
+            'items_count' => is_array($items) ? count($items) : 0,
+            'seed_keyword_data_present' => $seed_keyword_data_present,
+            'seed_keyword_data_keys' => $seed_keyword_data_present ? array_keys($seed_keyword_data) : [],
+            'task_keys' => self::extract_raw_task_result_keys($res),
+        ];
     }
 
 
@@ -423,7 +476,12 @@ class DataForSEOPaidKeywordScanRunner {
     }
 
     private static function extract_intent(array $norm): ?string {
-        $v = $norm['keyword_intent']['main_intent'] ?? $norm['main_intent'] ?? $norm['intent'] ?? null;
+        $v = $norm['search_intent_info']['main_intent']
+            ?? $norm['keyword_intent']['label']
+            ?? $norm['keyword_intent']['main_intent']
+            ?? $norm['main_intent']
+            ?? $norm['intent']
+            ?? null;
         return is_string($v) && $v != '' ? $v : null;
     }
 
