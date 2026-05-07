@@ -1384,8 +1384,8 @@ class Admin {
             $small_test_default = true;
             $small_test_seeds = self::dfseo_preview_small_test_seeds($seed_groups, 2);
             $small_test_seed_count = count($small_test_seeds);
-            $small_test_endpoint = in_array('dataforseo_labs/google/keyword_ideas/live', $endpoint_plan, true)
-                ? 'dataforseo_labs/google/keyword_ideas/live'
+            $small_test_endpoint = in_array('dataforseo_labs/google/keyword_suggestions/live', $endpoint_plan, true)
+                ? 'dataforseo_labs/google/keyword_suggestions/live'
                 : (!empty($endpoint_plan) ? (string) $endpoint_plan[0] : '');
             $small_test_endpoint_count = $small_test_endpoint !== '' ? 1 : 0;
             $small_test_task_count = $small_test_seed_count * $small_test_endpoint_count;
@@ -1562,7 +1562,7 @@ class Admin {
         $filtered_ratio = $fetched_count > 0 ? ($filtered_count / $fetched_count) : 0.0;
         if ($filtered_ratio >= 0.70 || ($fetched_count > 0 && $stored_count === 0)) {
             echo '<div class="notice notice-warning inline"><p>'
-                . esc_html__('Most fetched keywords were filtered because they did not match the model entity. This is expected for broad DataForSEO keyword ideas and prevents irrelevant storage.', 'tmwseo')
+                . esc_html__('Most fetched keywords were filtered because they did not match the model entity. This is expected for strict relevance filtering and prevents irrelevant storage.', 'tmwseo')
                 . '</p></div>';
         }
         AdminUI::section_start(__('Credit Safety', 'tmwseo'));
@@ -1577,6 +1577,12 @@ class Admin {
         AdminUI::section_end();
         AdminUI::trust_reminder(__('No pages were created. No posts were published. No automatic publishing is enabled in this pass.', 'tmwseo'));
         $reason_rows = $wpdb->get_results($wpdb->prepare("SELECT filter_reason, COUNT(*) AS c FROM {$items} WHERE run_id=%d AND status='filtered' GROUP BY filter_reason ORDER BY c DESC", $run_id), ARRAY_A) ?: [];
+        $cached_rejected_count = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$items} WHERE run_id=%d AND status='filtered' AND filter_reason='cached_result_failed_current_filter'", $run_id));
+        if ($cached_rejected_count > 0) {
+            echo '<div class="notice notice-warning inline"><p>'
+                . esc_html__('Some fresh cached rows were rejected because they no longer pass the current relevance filter. They were not reused.', 'tmwseo')
+                . '</p></div>';
+        }
         if (!empty($reason_rows)) {
             echo '<p><strong>' . esc_html__('Filtered by reason:', 'tmwseo') . '</strong> ';
             $chips = [];

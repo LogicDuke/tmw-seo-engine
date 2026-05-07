@@ -9,7 +9,8 @@ class DataForSEOPaidKeywordScanRunner {
     private const MANUAL_TASK_CAP = 25;
     private const MAX_RUN_SECONDS = 20;
     private const SMALL_TEST_MAX_SEEDS = 2;
-    private const SMALL_TEST_ENDPOINT = 'dataforseo_labs/google/keyword_ideas/live';
+    private const SMALL_TEST_ENDPOINT = 'dataforseo_labs/google/keyword_suggestions/live';
+    private const MODEL_RELEVANCE_FILTER_VERSION = 'model_entity_v2';
 
     public static function run_for_post(int $post_id, bool $force_refresh = false, bool $small_test_only = false): array {
         global $wpdb;
@@ -97,8 +98,17 @@ class DataForSEOPaidKeywordScanRunner {
 
                 $cached = self::latest_item_for($post_id, $page_type, $endpoint, $seed);
                 if (!$force_refresh && !empty($cached) && ($cached['freshness'] ?? '') === 'fresh') {
+                    $cached_keyword = (string)($cached['keyword'] ?? $seed);
+                    $cached_reason = self::filter_reason($cached_keyword, $seed, $page_type, $context);
+                    if ($cached_reason !== '') {
+                        $counts['filtered']++;
+                        self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, $cached_keyword, 'filtered', 'cached_result_failed_current_filter', (string)($cached['freshness'] ?? 'fresh'), null, $cached, [
+                            'cached_filter_reason' => $cached_reason,
+                        ]);
+                        continue;
+                    }
                     $counts['reused_fresh']++;
-                    self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, (string)($cached['keyword'] ?? $seed), 'reused_fresh', 'fresh_result_reused', 'fresh', null, $cached);
+                    self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, $cached_keyword, 'reused_fresh', 'fresh_result_reused', 'fresh', null, $cached);
                     continue;
                 }
                 if (!empty($cached) && in_array(($cached['freshness'] ?? ''), ['stale','old'], true)) {
@@ -308,7 +318,18 @@ class DataForSEOPaidKeywordScanRunner {
     }
     private static function call_endpoint(string $endpoint,string $seed,string $location_code,string $language_code,array $context): array {
         switch ($endpoint) {
-            case 'dataforseo_labs/google/keyword_ideas/live': return DataForSEO::keyword_ideas_live([$seed], (int)$location_code, $language_code, 50);
+            case 'dataforseo_labs/google/keyword_suggestions/live':
+                return DataForSEO::keyword_suggestions_live(
+                    [$seed],
+                    (int) $location_code,
+                    $language_code,
+                    25,
+                    [
+                        'exact_match' => true,
+                        'include_seed_keyword' => true,
+                        'ignore_synonyms' => true,
+                    ]
+                );
             case 'dataforseo_labs/google/keyword_overview/live': return DataForSEO::keyword_overview_live([$seed], (int)$location_code, $language_code, true);
             case 'dataforseo_labs/google/search_intent/live': return DataForSEO::search_intent_live([$seed], 'English');
             default: return ['ok'=>true,'items'=>[]];
@@ -368,8 +389,17 @@ class DataForSEOPaidKeywordScanRunner {
         return is_string($v) && $v != '' ? $v : null;
     }
 
-    private static function insert_item(int $run_id,int $post_id,string $page_type,string $endpoint,string $seed,string $keyword,string $status,?string $reason,string $freshness,$row=null,array $cached=[]): void {
-        global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $norm=is_array($row)?$row:[]; $json = !empty($norm) ? wp_json_encode($norm) : null;
+    private static function insert_item(int $run_id,int $post_id,string $page_type,string $endpoint,string $seed,string $keyword,string $status,?string $reason,string $freshness,$row=null,array $cached=[],array $diagnostic=[]): void {
+        global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $norm=is_array($row)?$row:[];
+        $norm['tmwseo_scan_meta'] = [
+            'filter_version' => self::MODEL_RELEVANCE_FILTER_VERSION,
+            'filter_reason' => $reason,
+            'relevance_filter_version' => self::MODEL_RELEVANCE_FILTER_VERSION,
+        ];
+        if (!empty($diagnostic)) {
+            $norm['tmwseo_scan_meta']['diagnostic'] = $diagnostic;
+        }
+        $json = !empty($norm) ? wp_json_encode($norm) : null;
         $fetched_at = current_time('mysql');
         $source_updated_at = null;
         if (in_array($status, ['reused_fresh', 'reused_stale'], true) && !empty($cached)) {

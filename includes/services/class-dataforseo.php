@@ -908,6 +908,74 @@ class DataForSEO {
         return $result;
     }
 
+
+
+    /**
+     * dataforseo_labs/google/keyword_suggestions/live
+     *
+     * Phrase-preserving expansion around the provided seed keyword.
+     *
+     * @param string[] $keywords
+     * @param array<string,mixed> $options
+     * @return array{ok:bool,items?:array,raw?:array,error?:string}
+     */
+    public static function keyword_suggestions_live(
+        array $keywords,
+        int $location_code = 2840,
+        string $language_code = 'en',
+        int $limit = 50,
+        array $options = []
+    ): array {
+        $keywords = array_values(array_unique(array_filter(
+            array_map(static function ($k) { return mb_strtolower(trim((string) $k), 'UTF-8'); }, $keywords)
+        )));
+        $keywords = array_slice($keywords, 0, 1);
+        if (empty($keywords)) {
+            return ['ok' => false, 'error' => 'empty_keywords'];
+        }
+
+        $opts = array_merge([
+            'exact_match' => false,
+            'include_seed_keyword' => true,
+            'ignore_synonyms' => false,
+        ], $options);
+
+        $cache_key = 'tmwseo_kw_suggestions_' . md5(
+            implode(',', $keywords) . '|' . $location_code . '|' . $language_code . '|' . $limit . '|' . md5(serialize($opts))
+        );
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $payload_item = [
+            'keyword' => $keywords[0],
+            'location_code' => $location_code,
+            'language_code' => $language_code,
+            'limit' => min(1000, max(1, $limit)),
+            'exact_match' => (bool) $opts['exact_match'],
+            'include_seed_keyword' => (bool) $opts['include_seed_keyword'],
+            'ignore_synonyms' => (bool) $opts['ignore_synonyms'],
+            'include_clickstream_data' => false,
+            'include_serp_info' => false,
+        ];
+
+        $res = self::post('/v3/dataforseo_labs/google/keyword_suggestions/live', [$payload_item]);
+        if (!$res['ok']) {
+            return $res;
+        }
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        if (!is_array($items)) {
+            $items = [];
+        }
+
+        $result = ['ok' => true, 'items' => $items, 'raw' => $res['data']];
+        set_transient($cache_key, $result, WEEK_IN_SECONDS);
+
+        return $result;
+    }
+
     /**
      * dataforseo_labs/google/keyword_overview/live
      *
