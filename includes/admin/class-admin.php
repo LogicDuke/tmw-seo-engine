@@ -1298,7 +1298,7 @@ class Admin {
         }
 
         global $wpdb;
-        $intel_table = $wpdb->prefix . 'tmw_seo_intelligence';
+        $intel_table = $wpdb->prefix . 'tmw_seo_ranking_probability';
 
         $rows     = [];
         $last_run = '';
@@ -1306,10 +1306,10 @@ class Admin {
         if ($wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $intel_table ) ) === $intel_table) {
             
             $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT post_id, signal_type, signal_value, computed_at
+                "SELECT id,keyword, ranking_probability, ranking_tier, inputs_json, created_at
                  FROM {$intel_table}
-                 WHERE signal_type = %s
-                 ORDER BY CAST(signal_value AS DECIMAL(5,2)) DESC
+                 -- WHERE signal_type = %s
+                 -- ORDER BY CAST(signal_value AS DECIMAL(5,2)) DESC
                  LIMIT 50",
                 'ranking_probability'
             ), ARRAY_A) ?: [];
@@ -1368,22 +1368,24 @@ class Admin {
             echo '<div class="tmwui-table-wrap">';
             echo '<table class="widefat striped">';
             echo '<thead><tr>';
-            echo '<th>' . esc_html__('Page', 'tmwseo') . '</th>';
-            echo '<th>' . esc_html__('Probability Score', 'tmwseo') . '</th>';
-            echo '<th>' . esc_html__('Signal Bar', 'tmwseo') . '</th>';
-            echo '<th>' . esc_html__('Page Type Fit', 'tmwseo') . '</th>';
-            echo '<th>' . esc_html__('Computed', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Keyword', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Probability Ranking', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Ranking Tier', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Input Json', 'tmwseo') . '</th>';
+            echo '<th>' . esc_html__('Created at', 'tmwseo') . '</th>';
             echo '<th>' . esc_html__('Actions', 'tmwseo') . '</th>';
             echo '</tr></thead><tbody>';
 
             foreach ($rows as $row) {
-                $pid   = (int) $row['post_id'];
-                $prob  = min(100, max(0, round((float) $row['signal_value'] * 100)));
-                $date  = substr((string) $row['computed_at'], 0, 10);
+                $pid   = (int) $row['id'];
+                $prob  = ((float) $row['ranking_probability']);
+                $ranking_tier  = $row['ranking_tier'];
+                $date  = substr((string) $row['created_at'], 0, 10);
                 $title = get_the_title($pid) ?: "Post #{$pid}";
                 $edit  = get_edit_post_link($pid);
                 $color_class = $prob >= 70 ? 'tmwui-prob-ok' : ($prob >= 40 ? 'tmwui-prob-warn' : 'tmwui-prob-danger');
-                $signals_json = (string) get_post_meta($pid, '_tmwseo_ranking_probability_signals_json', true);
+                $signals_json = $row['inputs_json'];
+
                 $signals = json_decode($signals_json, true);
                 $page_type_fit = is_array($signals) ? (float) ($signals['page_type_fit']['fit'] ?? 0) : 0.0;
                 $page_type_fit_label = is_array($signals)
@@ -1394,11 +1396,9 @@ class Admin {
                 echo '<td><a href="' . esc_url($edit ?: '#') . '">' . esc_html($title) . '</a></td>';
                 echo '<td><strong class="tmwui-prob-score ' . esc_attr($color_class) . '">' . esc_html($prob) . '%</strong></td>';
 
-                echo '<td><div class="tmwui-bar-track">
-                        <div class="tmwui-bar-fill ' . esc_attr($color_class) . '" style="width:' . esc_attr($prob) . '%;"></div>
-                      </div></td>';
+                echo '<td><strong class="tmwui-prob-score ' . esc_attr($color_class) . '">' . esc_html($ranking_tier) . '</strong></td>';
 
-                echo '<td><strong>' . esc_html((string) (int) round($page_type_fit * 100)) . '%</strong><br><span class="tmwui-meta-label">' . esc_html(str_replace('_', ' ', $page_type_fit_label)) . '</span></td>';
+                echo '<td><strong>' . esc_html($signals_json) . '</strong></td>';
                 echo '<td class="tmwui-date-cell">' . esc_html($date) . '</td>';
                 echo '<td><a href="' . esc_url($edit ?: '#') . '" class="button button-small">' . esc_html__('Edit', 'tmwseo') . '</a></td>';
                 echo '</tr>';
