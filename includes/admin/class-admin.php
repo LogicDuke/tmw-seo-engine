@@ -1281,6 +1281,10 @@ class Admin {
         // echoed HTML, causing headers-already-sent failures and silent no-ops.
         if (isset($_POST['tmwseo_run_ranking_probability']) && check_admin_referer('tmwseo_run_ranking_probability')) {
             if (class_exists('\\TMWSEO\\Engine\\Intelligence\\RankingProbabilityOrchestrator')) {
+                // Prevent PHP timeout killing the request mid-run before redirect fires.
+                // run_all() loops up to 200 posts with external API calls per post.
+                @set_time_limit(300); // 5 minutes — safe ceiling for bulk run
+                ignore_user_abort(true); // keep running even if browser disconnects
                 try {
                     \TMWSEO\Engine\Intelligence\RankingProbabilityOrchestrator::run_all();
                     wp_safe_redirect(admin_url('admin.php?page=tmwseo-ranking-probability&tmw_ran=1'));
@@ -1294,12 +1298,13 @@ class Admin {
         }
 
         global $wpdb;
-        $intel_table = $wpdb->prefix . 'tmwseo_intelligence';
+        $intel_table = $wpdb->prefix . 'tmw_seo_intelligence';
 
         $rows     = [];
         $last_run = '';
 
         if ($wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $intel_table ) ) === $intel_table) {
+            
             $rows = $wpdb->get_results($wpdb->prepare(
                 "SELECT post_id, signal_type, signal_value, computed_at
                  FROM {$intel_table}
@@ -1347,7 +1352,9 @@ class Admin {
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Ranking probability scan completed. Scores updated below.', 'tmwseo') . '</p></div>';
         }
         if (isset($_GET['tmw_error'])) {
-            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('Ranking probability scan encountered an error. Check the debug log for details.', 'tmwseo') . '</p></div>';
+            echo '<div class="notice notice-error is-dismissible"><p>'
+                . esc_html__('Ranking probability scan encountered an error. If the page went blank, the scan may have exceeded the server time limit — try again or contact your host to increase max_execution_time.', 'tmwseo')
+                . '</p></div>';
         }
 
         // ── Results ──────────────────────────────────────────────────────────
