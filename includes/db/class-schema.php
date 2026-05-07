@@ -217,6 +217,8 @@ class Schema {
         $entity_keywords = $wpdb->prefix . 'tmw_entity_keywords';
         $models = $wpdb->prefix . 'tmw_models';
         $discovery_governor = $wpdb->prefix . 'tmw_discovery_governor';
+        $dfseo_scan_runs = $wpdb->prefix . 'tmwseo_dfseo_scan_runs';
+        $dfseo_scan_items = $wpdb->prefix . 'tmwseo_dfseo_scan_items';
 
         // Legacy table kept for compatibility with alpha.4
         $legacy_rank = $wpdb->prefix . 'tmwseo_engine_rank_history';
@@ -926,6 +928,54 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             PRIMARY KEY (id),
             UNIQUE KEY metric (metric)
         ) $charset_collate;";
+        $sql_dfseo_scan_runs = "CREATE TABLE $dfseo_scan_runs (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            post_id BIGINT(20) UNSIGNED NOT NULL,
+            page_type VARCHAR(32) NOT NULL,
+            status VARCHAR(32) NOT NULL,
+            location_code VARCHAR(32) NOT NULL,
+            language_code VARCHAR(16) NOT NULL,
+            seed_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            endpoint_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            estimated_task_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            fetched_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            filtered_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            stored_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            reused_fresh_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            reused_stale_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            skipped_count INT(10) UNSIGNED NOT NULL DEFAULT 0,
+            error_message TEXT NULL,
+            created_at DATETIME NOT NULL,
+            completed_at DATETIME NULL,
+            PRIMARY KEY (id),
+            KEY post_created (post_id, created_at)
+        ) $charset_collate;";
+        $sql_dfseo_scan_items = "CREATE TABLE $dfseo_scan_items (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            run_id BIGINT(20) UNSIGNED NOT NULL,
+            post_id BIGINT(20) UNSIGNED NOT NULL,
+            page_type VARCHAR(32) NOT NULL,
+            endpoint VARCHAR(191) NOT NULL,
+            seed VARCHAR(191) NOT NULL,
+            keyword VARCHAR(255) NOT NULL,
+            source VARCHAR(64) NOT NULL DEFAULT 'dataforseo',
+            status VARCHAR(32) NOT NULL,
+            filter_reason VARCHAR(191) NULL,
+            freshness VARCHAR(32) NOT NULL,
+            fetched_at DATETIME NULL,
+            source_updated_at DATETIME NULL,
+            volume INT NULL,
+            cpc DECIMAL(10,4) NULL,
+            competition DECIMAL(10,4) NULL,
+            intent VARCHAR(64) NULL,
+            raw_hash CHAR(64) NULL,
+            raw_json LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY run_status (run_id, status),
+            KEY post_lookup (post_id, page_type),
+            KEY endpoint_seed (endpoint, seed)
+        ) $charset_collate;";
 
         dbDelta($sql_jobs);
         dbDelta($sql_tmwseo_jobs);
@@ -975,6 +1025,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_models);
         dbDelta($sql_legacy_rank);
         dbDelta($sql_discovery_governor);
+        dbDelta($sql_dfseo_scan_runs);
+        dbDelta($sql_dfseo_scan_items);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
         $kw_usage     = $wpdb->prefix . 'tmwseo_keyword_usage';
