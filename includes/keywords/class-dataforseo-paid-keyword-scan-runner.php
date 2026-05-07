@@ -30,7 +30,7 @@ class DataForSEOPaidKeywordScanRunner {
         $full_endpoint_count = count($endpoints);
 
         if ($small_test_only) {
-            $seeds = self::select_small_test_seeds($seed_groups, self::SMALL_TEST_MAX_SEEDS);
+            $seeds = self::select_small_test_seeds($seed_groups, self::SMALL_TEST_MAX_SEEDS, $endpoints, $page_type);
             $endpoints = self::small_test_endpoints($endpoints);
         }
 
@@ -130,6 +130,10 @@ class DataForSEOPaidKeywordScanRunner {
                     self::insert_item($run_id, $post_id, $page_type, $endpoint, $seed, $seed, 'skipped', 'no_items_returned', 'unknown', [
                         'endpoint' => $endpoint,
                         'seed' => $seed,
+                        'exact_match' => ($endpoint === self::SMALL_TEST_ENDPOINT),
+                        'include_seed_keyword' => ($endpoint === self::SMALL_TEST_ENDPOINT),
+                        'ignore_synonyms' => ($endpoint === self::SMALL_TEST_ENDPOINT),
+                        'limit' => ($endpoint === self::SMALL_TEST_ENDPOINT) ? 25 : null,
                         'item_count' => 0,
                         'response_keys' => array_keys(is_array($res) ? $res : []),
                         'raw_keys' => array_keys(is_array($res['raw'] ?? null) ? $res['raw'] : []),
@@ -186,10 +190,10 @@ class DataForSEOPaidKeywordScanRunner {
 
 
     public static function preview_small_test_seeds(array $seed_groups, int $max = self::SMALL_TEST_MAX_SEEDS): array {
-        return self::select_small_test_seeds($seed_groups, $max);
+        return self::select_small_test_seeds($seed_groups, $max, [self::SMALL_TEST_ENDPOINT], 'model');
     }
 
-    private static function select_small_test_seeds(array $seed_groups, int $max): array {
+    private static function select_small_test_seeds(array $seed_groups, int $max, array $endpoints = [], string $page_type = ''): array {
         if ($max <= 0) {
             return [];
         }
@@ -204,7 +208,13 @@ class DataForSEOPaidKeywordScanRunner {
             'name_platform' => 70,
             'handle_platform' => 80,
             'name_only' => 90,
+            'short_entity' => 5,
+            'entity_platform' => 6,
+            'entity_short_modifier' => 7,
         ];
+
+
+        $use_keyword_suggestions_profile = ($page_type === 'model' && in_array(self::SMALL_TEST_ENDPOINT, $endpoints, true));
 
         $ranked = [];
         foreach ($seed_groups as $idx => $row) {
@@ -216,9 +226,15 @@ class DataForSEOPaidKeywordScanRunner {
                 continue;
             }
             $group = sanitize_key((string)($row['group'] ?? $row['type'] ?? ''));
+            $entity_priority = self::keyword_suggestion_seed_priority($seed, $group);
+            $seed_priority = $priority[$group] ?? 100;
+            if ($use_keyword_suggestions_profile && $entity_priority > 0) {
+                $seed_priority = $entity_priority;
+            }
+
             $ranked[] = [
                 'seed' => $seed,
-                'priority' => $priority[$group] ?? 100,
+                'priority' => $seed_priority,
                 'group' => $group,
                 'idx' => (int) $idx,
             ];
@@ -243,6 +259,28 @@ class DataForSEOPaidKeywordScanRunner {
         }
 
         return array_keys($selected);
+    }
+
+
+    private static function keyword_suggestion_seed_priority(string $seed, string $group): int {
+        if ($seed === '') {
+            return 0;
+        }
+
+        $token_count = count(preg_split('/\s+/u', trim($seed)) ?: []);
+        if ($token_count === 1) {
+            return 5;
+        }
+
+        if (preg_match('/^\S+\s+livejasmin$/u', $seed)) {
+            return 6;
+        }
+
+        if (preg_match('/^\S+\s+(cam|live|cam\s+girl)$/u', $seed)) {
+            return 7;
+        }
+
+        return 0;
     }
 
     private static function small_test_endpoints(array $endpoints): array {
