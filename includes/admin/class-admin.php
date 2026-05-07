@@ -1368,6 +1368,13 @@ class Admin {
             $seed_preview = array_slice($seed_strings, 0, 8);
             $endpoint_plan = array_values(array_filter(array_map('strval', (array) ($plan['recommended_endpoints'] ?? []))));
             $estimated_task_count = $seed_count * count($endpoint_plan);
+            $small_test_default = true;
+            $small_test_seed_count = min(2, $seed_count);
+            $small_test_endpoint = in_array('dataforseo_labs/google/keyword_overview/live', $endpoint_plan, true)
+                ? 'dataforseo_labs/google/keyword_overview/live'
+                : (!empty($endpoint_plan) ? (string) $endpoint_plan[0] : '');
+            $small_test_endpoint_count = $small_test_endpoint !== '' ? 1 : 0;
+            $small_test_task_count = $small_test_seed_count * $small_test_endpoint_count;
             AdminUI::section_start(__('Paid Scan Preflight (Manual)', 'tmwseo'));
             AdminUI::alert(__('This action may spend DataForSEO credits. Paid DataForSEO calls only happen after explicit confirmation.', 'tmwseo'), 'warn');
             AdminUI::trust_reminder(__('Manual-only: this scan fetches keyword intelligence for review. It does not create pages, create drafts, publish content, or change frontend templates.', 'tmwseo'));
@@ -1380,6 +1387,8 @@ class Admin {
             echo '<li><strong>Seed preview:</strong> <code>' . esc_html(implode(', ', $seed_preview)) . '</code></li>';
             echo '<li><strong>Endpoint plan:</strong> <code>' . esc_html(implode(', ', $endpoint_plan)) . '</code></li>';
             echo '<li><strong>Estimated task count:</strong> ' . esc_html((string) $estimated_task_count) . '</li>';
+            echo '<li><strong>Full plan:</strong> ' . esc_html((string) $seed_count) . ' seeds × ' . esc_html((string) count($endpoint_plan)) . ' endpoints = ' . esc_html((string) $estimated_task_count) . ' possible tasks</li>';
+            echo '<li><strong>This run (small test):</strong> ' . esc_html((string) $small_test_seed_count) . ' seeds × ' . esc_html((string) $small_test_endpoint_count) . ' endpoint = ' . esc_html((string) $small_test_task_count) . ' paid tasks</li>';
             echo '<li><strong>Location / language:</strong> ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_location_code()) . ' / ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_language_code()) . '</li>';
             echo '</ul>';
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
@@ -1388,6 +1397,7 @@ class Admin {
             echo '<input type="hidden" name="post_id" value="' . esc_attr((string)$post_id) . '" />';
             echo '<p><label><input type="checkbox" name="tmwseo_paid_ack" value="1" required> ' . esc_html__('I understand this may spend DataForSEO credits and will only fetch/store review data.', 'tmwseo') . '</label></p>';
             echo '<p><label><input type="checkbox" name="force_refresh" value="1"> ' . esc_html__('Force refresh (ignore fresh cached results for this manual run).', 'tmwseo') . '</label></p>';
+            echo '<p><label><input type="checkbox" name="small_test_scan" value="1" ' . checked($small_test_default, true, false) . '> ' . esc_html__('Run small test scan only (default): first 2 seeds and 1 endpoint.', 'tmwseo') . '</label></p>';
             submit_button(__('Run Confirmed Paid Scan', 'tmwseo'), 'primary');
             echo '</form>';
             AdminUI::section_end();
@@ -1424,13 +1434,19 @@ class Admin {
         $post_id = isset($_POST['post_id']) ? absint(wp_unslash($_POST['post_id'])) : 0;
         $ack = !empty($_POST['tmwseo_paid_ack']);
         $force = !empty($_POST['force_refresh']);
+        $small_test = !empty($_POST['small_test_scan']);
         if ($post_id <= 0 || !$ack) {
             wp_safe_redirect(admin_url('admin.php?page=tmwseo-dfseo-keyword-strategy-preview&post_id=' . $post_id . '&tmwseo_notice=scan_rejected'));
             exit;
         }
-        $res = \TMWSEO\Engine\Keywords\DataForSEOPaidKeywordScanRunner::run_for_post($post_id, $force);
+        $res = \TMWSEO\Engine\Keywords\DataForSEOPaidKeywordScanRunner::run_for_post($post_id, $force, $small_test);
         $args = ['page' => 'tmwseo-dfseo-keyword-strategy-preview', 'post_id' => $post_id];
-        if (!($res['ok'] ?? false)) { $args['tmwseo_notice'] = (string)($res['error'] ?? 'scan_failed'); }
+        if (!($res['ok'] ?? false)) {
+            $args['tmwseo_notice'] = (string)($res['error'] ?? 'scan_failed');
+            if (!empty($res['run_id'])) {
+                $args['scan_run_id'] = (int) $res['run_id'];
+            }
+        }
         else { $args['scan_run_id'] = (int)$res['run_id']; $args['tmwseo_notice'] = 'scan_complete'; }
         wp_safe_redirect(add_query_arg($args, admin_url('admin.php')));
         exit;
@@ -1961,6 +1977,17 @@ class Admin {
             ];
             $message = $reason_labels[$reason] ?? __('Preview phrase re-run failed.', 'tmwseo');
             $is_error_notice_override = true;
+        } elseif ($notice === 'scan_complete') {
+            $message = __('Paid scan completed. Review the post-scan summary below.', 'tmwseo');
+        } elseif ($notice === 'scan_rejected') {
+            $message = __('Paid scan was not started. Confirm acknowledgement and valid post ID.', 'tmwseo');
+            $is_error_notice_override = true;
+        } elseif ($notice === 'task_cap_exceeded') {
+            $message = __('Paid scan was blocked because the planned task count exceeds the manual safety cap. Reduce endpoints/seeds or use a smaller test scan.', 'tmwseo');
+            $is_error_notice_override = true;
+        } elseif ($notice === 'scan_failed') {
+            $message = __('Paid scan failed before completion. Review logs and scan summary for details.', 'tmwseo');
+            $is_error_notice_override = true;
         }
 
         if ($message === '') {
@@ -1973,6 +2000,9 @@ class Admin {
             'candidate_action_unauthorized',
             'candidate_update_failed',
             'candidate_action_not_available',
+            'scan_rejected',
+            'task_cap_exceeded',
+            'scan_failed',
         ], true);
 
         echo '<div class="notice ' . esc_attr($is_error_notice ? 'notice-error' : 'notice-success') . ' is-dismissible"><p>';
