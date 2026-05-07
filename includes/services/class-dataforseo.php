@@ -243,6 +243,14 @@ class DataForSEO {
         return (string) Settings::get('dataforseo_language_code', 'en');
     }
 
+    public static function default_location_code(): int {
+        return self::loc_code();
+    }
+
+    public static function default_language_code(): string {
+        return self::lang_code();
+    }
+
     private static function extract_keywords_count(array $json): int {
         $items = $json['tasks'][0]['result'][0]['items'] ?? [];
         if (!is_array($items)) {
