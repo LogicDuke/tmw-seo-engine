@@ -22,13 +22,14 @@ class DataForSEOPaidKeywordScanRunner {
         if (!is_array($plan)) { return ['ok' => false, 'error' => 'plan_build_failed']; }
 
         $page_type = (string)($plan['page_type'] ?? 'unknown');
-        $seeds = self::extract_seeds((array)($plan['seed_groups'] ?? []));
+        $seed_groups = (array)($plan['seed_groups'] ?? []);
+        $seeds = self::extract_seeds($seed_groups);
         $endpoints = array_values(array_unique(array_filter(array_map('strval', (array)($plan['recommended_endpoints'] ?? [])))));
         $full_seed_count = count($seeds);
         $full_endpoint_count = count($endpoints);
 
         if ($small_test_only) {
-            $seeds = array_slice($seeds, 0, self::SMALL_TEST_MAX_SEEDS);
+            $seeds = self::select_small_test_seeds($seed_groups, self::SMALL_TEST_MAX_SEEDS);
             $endpoints = self::small_test_endpoints($endpoints);
         }
 
@@ -122,6 +123,7 @@ class DataForSEOPaidKeywordScanRunner {
                         'item_count' => 0,
                         'response_keys' => array_keys(is_array($res) ? $res : []),
                         'raw_keys' => array_keys(is_array($res['raw'] ?? null) ? $res['raw'] : []),
+                        'task_keys' => self::extract_raw_task_result_keys($res),
                     ]);
                     continue;
                 }
@@ -170,6 +172,67 @@ class DataForSEOPaidKeywordScanRunner {
         }
 
         return array_values(array_unique($out));
+    }
+
+
+    public static function preview_small_test_seeds(array $seed_groups, int $max = self::SMALL_TEST_MAX_SEEDS): array {
+        return self::select_small_test_seeds($seed_groups, $max);
+    }
+
+    private static function select_small_test_seeds(array $seed_groups, int $max): array {
+        if ($max <= 0) {
+            return [];
+        }
+
+        $priority = [
+            'name_modifier' => 10,
+            'name_platform_modifier' => 20,
+            'live_cam' => 30,
+            'watch_live' => 40,
+            'live_cam_schedule' => 50,
+            'official_links' => 60,
+            'name_platform' => 70,
+            'handle_platform' => 80,
+            'name_only' => 90,
+        ];
+
+        $ranked = [];
+        foreach ($seed_groups as $idx => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $seed = mb_strtolower(trim(sanitize_text_field((string)($row['seed'] ?? ''))));
+            if ($seed === '') {
+                continue;
+            }
+            $group = sanitize_key((string)($row['group'] ?? $row['type'] ?? ''));
+            $ranked[] = [
+                'seed' => $seed,
+                'priority' => $priority[$group] ?? 100,
+                'group' => $group,
+                'idx' => (int) $idx,
+            ];
+        }
+
+        usort($ranked, static function (array $a, array $b): int {
+            if ($a['priority'] === $b['priority']) {
+                return $a['idx'] <=> $b['idx'];
+            }
+            return $a['priority'] <=> $b['priority'];
+        });
+
+        $selected = [];
+        foreach ($ranked as $row) {
+            if (isset($selected[$row['seed']])) {
+                continue;
+            }
+            $selected[$row['seed']] = true;
+            if (count($selected) >= $max) {
+                break;
+            }
+        }
+
+        return array_keys($selected);
     }
 
     private static function small_test_endpoints(array $endpoints): array {
@@ -225,6 +288,13 @@ class DataForSEOPaidKeywordScanRunner {
         }
 
         return [];
+    }
+
+
+    private static function extract_raw_task_result_keys(array $res): array {
+        $raw = is_array($res['raw'] ?? null) ? $res['raw'] : [];
+        $result = $raw['tasks'][0]['result'][0] ?? $raw['tasks'][0]['result'] ?? $raw['result'][0] ?? $raw['result'] ?? null;
+        return is_array($result) ? array_keys($result) : [];
     }
 
     private static function extract_volume(array $norm): ?int {
