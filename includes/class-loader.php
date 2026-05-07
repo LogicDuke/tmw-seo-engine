@@ -120,6 +120,7 @@ class Loader {
         // Provides controlled seed groups + endpoint plans per page type. Does not
         // call the API and does not write to the DB. See class header for scope.
         tmwseo_safe_require( $p . 'class-dataforseo-page-type-keyword-strategy.php' );
+        tmwseo_safe_require( $p . 'class-dataforseo-paid-keyword-scan-runner.php' );
         tmwseo_safe_require( $p . 'class-google-trends-idea-provider.php' );
         tmwseo_safe_require( $p . 'class-google-keyword-planner-idea-provider.php' );
         tmwseo_safe_require( $p . 'class-google-autosuggest-idea-provider.php' );

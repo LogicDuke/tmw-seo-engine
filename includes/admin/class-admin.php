@@ -57,6 +57,7 @@ class Admin {
         add_action('admin_post_tmwseo_cr_save_and_sync', [CrakRevenueCamManager::class, 'handle_save_and_sync']);
         add_action('admin_post_tmwseo_cr_quick_action', [CrakRevenueCamManager::class, 'handle_quick_action']);
         add_action('admin_post_tmwseo_cr_auto_map', [CrakRevenueCamManager::class, 'handle_quick_action']);
+        add_action('admin_post_tmwseo_run_dfseo_paid_keyword_scan', [__CLASS__, 'handle_dfseo_paid_keyword_scan']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -1361,9 +1362,97 @@ class Admin {
             echo '<div style="background:#fff;border:1px solid #dcdcde;padding:12px;"><h3 style="margin-top:0;">endpoint_plan</h3><pre style="overflow:auto;">' . esc_html( $render_json( (array) ( $plan['recommended_endpoints'] ?? [] ) ) ) . '</pre></div>';
             echo '<div style="background:#fff;border:1px solid #dcdcde;padding:12px;"><h3 style="margin-top:0;">notes</h3><pre style="overflow:auto;">' . esc_html( $render_json( (array) ( $plan['notes'] ?? [] ) ) ) . '</pre></div>';
             echo '</div>';
+
+            $seed_groups = (array) ($plan['seed_groups'] ?? []);
+            $seed_count = 0;
+            $seed_preview = [];
+            foreach ($seed_groups as $group) {
+                foreach ((array) $group as $seed) {
+                    if (is_string($seed) && trim($seed) !== '') {
+                        $seed_count++;
+                        if (count($seed_preview) < 8) { $seed_preview[] = trim($seed); }
+                    }
+                }
+            }
+            $endpoint_plan = array_values(array_filter(array_map('strval', (array) ($plan['recommended_endpoints'] ?? []))));
+            AdminUI::section_start(__('Paid Scan Preflight (Manual)', 'tmwseo'));
+            AdminUI::alert(__('This action may spend DataForSEO credits. Paid DataForSEO calls only happen after explicit confirmation.', 'tmwseo'), 'warn');
+            AdminUI::trust_reminder(__('Manual-only: this scan fetches keyword intelligence for review. It does not create pages, create drafts, publish content, or change frontend templates.', 'tmwseo'));
+            echo '<p><strong>' . esc_html__('Freshness policy:', 'tmwseo') . '</strong> ' . esc_html__('Fresh ≤30 days, Stale 31–90 days, Old >90 days. Fresh results are reused by default unless force refresh is checked.', 'tmwseo') . '</p>';
+            echo '<ul style="list-style:disc;padding-left:20px;">';
+            echo '<li><strong>Post ID:</strong> ' . esc_html((string) $post_id) . '</li>';
+            echo '<li><strong>Post title:</strong> ' . esc_html(get_the_title($post_id)) . '</li>';
+            echo '<li><strong>Detected page type:</strong> ' . esc_html((string) ($plan['page_type'] ?? 'unknown')) . '</li>';
+            echo '<li><strong>Seed count:</strong> ' . esc_html((string) $seed_count) . '</li>';
+            echo '<li><strong>Seed preview:</strong> <code>' . esc_html(implode(', ', $seed_preview)) . '</code></li>';
+            echo '<li><strong>Endpoint plan:</strong> <code>' . esc_html(implode(', ', $endpoint_plan)) . '</code></li>';
+            echo '<li><strong>Estimated task count:</strong> ' . esc_html((string) (count($endpoint_plan) * max(1, $seed_count))) . '</li>';
+            echo '<li><strong>Location / language:</strong> ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_location_code()) . ' / ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_language_code()) . '</li>';
+            echo '</ul>';
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            wp_nonce_field('tmwseo_dfseo_paid_scan_confirm');
+            echo '<input type="hidden" name="action" value="tmwseo_run_dfseo_paid_keyword_scan" />';
+            echo '<input type="hidden" name="post_id" value="' . esc_attr((string)$post_id) . '" />';
+            echo '<p><label><input type="checkbox" name="tmwseo_paid_ack" value="1" required> ' . esc_html__('I understand this may spend DataForSEO credits and will only fetch/store review data.', 'tmwseo') . '</label></p>';
+            echo '<p><label><input type="checkbox" name="force_refresh" value="1"> ' . esc_html__('Force refresh (ignore fresh cached results for this manual run).', 'tmwseo') . '</label></p>';
+            submit_button(__('Run Confirmed Paid Scan', 'tmwseo'), 'primary');
+            echo '</form>';
+            AdminUI::section_end();
         }
 
+        $scan_run_id = isset($_GET['scan_run_id']) ? absint(wp_unslash($_GET['scan_run_id'])) : 0;
+        if ($scan_run_id > 0) { self::render_dfseo_scan_summary($scan_run_id); }
+
         echo '</div>';
+    }
+
+    public static function handle_dfseo_paid_keyword_scan(): void {
+        if (!current_user_can('manage_options')) { wp_die(esc_html__('Unauthorized', 'tmwseo')); }
+        check_admin_referer('tmwseo_dfseo_paid_scan_confirm');
+        $post_id = isset($_POST['post_id']) ? absint(wp_unslash($_POST['post_id'])) : 0;
+        $ack = !empty($_POST['tmwseo_paid_ack']);
+        $force = !empty($_POST['force_refresh']);
+        if ($post_id <= 0 || !$ack) {
+            wp_safe_redirect(admin_url('admin.php?page=tmwseo-dfseo-keyword-strategy-preview&post_id=' . $post_id . '&tmwseo_notice=scan_rejected'));
+            exit;
+        }
+        $res = \TMWSEO\Engine\Keywords\DataForSEOPaidKeywordScanRunner::run_for_post($post_id, $force);
+        $args = ['page' => 'tmwseo-dfseo-keyword-strategy-preview', 'post_id' => $post_id];
+        if (!($res['ok'] ?? false)) { $args['tmwseo_notice'] = (string)($res['error'] ?? 'scan_failed'); }
+        else { $args['scan_run_id'] = (int)$res['run_id']; $args['tmwseo_notice'] = 'scan_complete'; }
+        wp_safe_redirect(add_query_arg($args, admin_url('admin.php')));
+        exit;
+    }
+
+    private static function render_dfseo_scan_summary(int $run_id): void {
+        global $wpdb; $runs = $wpdb->prefix . 'tmwseo_dfseo_scan_runs'; $items = $wpdb->prefix . 'tmwseo_dfseo_scan_items';
+        $run = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$runs} WHERE id=%d", $run_id), ARRAY_A); if (!$run) { return; }
+        AdminUI::section_start(__('Post-Scan Summary', 'tmwseo'));
+        AdminUI::kpi_row([
+            ['value'=>(int)$run['fetched_count'],'label'=>'Fetched','color'=>'neutral'],
+            ['value'=>(int)$run['stored_count'],'label'=>'Stored','color'=>'ok'],
+            ['value'=>(int)$run['filtered_count'],'label'=>'Filtered','color'=>'warn'],
+            ['value'=>(int)$run['reused_fresh_count'],'label'=>'Reused Fresh','color'=>'ok'],
+            ['value'=>(int)$run['reused_stale_count'],'label'=>'Reused Stale/Old','color'=>'warn'],
+            ['value'=>(int)$run['skipped_count'],'label'=>'Skipped/Failed','color'=>'danger'],
+        ]);
+        echo '<p><strong>Run #'.esc_html((string)$run_id).'</strong> | Status: '.esc_html((string)$run['status']).' | Location/Language: '.esc_html((string)$run['location_code']).'/'.esc_html((string)$run['language_code']).'</p>';
+        AdminUI::section_start(__('Credit Safety', 'tmwseo'));
+        echo '<ul style="list-style:disc;padding-left:20px;">';
+        echo '<li>' . esc_html__('Paid calls were attempted only for seed/endpoint pairs without fresh cached results.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('Fresh cached pairs were reused by default unless force refresh was selected.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('No pages were created.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('No drafts were created.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('No posts were published.', 'tmwseo') . '</li>';
+        echo '<li>' . esc_html__('This is manual review data only.', 'tmwseo') . '</li>';
+        echo '</ul>';
+        AdminUI::section_end();
+        AdminUI::trust_reminder(__('No pages were created. No posts were published. No automatic publishing is enabled in this pass.', 'tmwseo'));
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT status,keyword,seed,endpoint,filter_reason,freshness,fetched_at,volume,cpc,competition,intent FROM {$items} WHERE run_id=%d ORDER BY id DESC LIMIT 250", $run_id), ARRAY_A) ?: [];
+        echo '<table class="widefat striped"><thead><tr><th>Status</th><th>Keyword</th><th>Seed</th><th>Endpoint</th><th>Freshness</th><th>Reason</th></tr></thead><tbody>';
+        foreach ($rows as $r) { echo '<tr><td>'.esc_html((string)$r['status']).'</td><td>'.esc_html((string)$r['keyword']).'</td><td>'.esc_html((string)$r['seed']).'</td><td><code>'.esc_html((string)$r['endpoint']).'</code></td><td>'.esc_html((string)$r['freshness']).'</td><td>'.esc_html((string)($r['filter_reason']??'')).'</td></tr>'; }
+        echo '</tbody></table>';
+        AdminUI::section_end();
     }
 
     public static function render_ranking_probability(): void {
