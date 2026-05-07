@@ -1363,18 +1363,11 @@ class Admin {
             echo '<div style="background:#fff;border:1px solid #dcdcde;padding:12px;"><h3 style="margin-top:0;">notes</h3><pre style="overflow:auto;">' . esc_html( $render_json( (array) ( $plan['notes'] ?? [] ) ) ) . '</pre></div>';
             echo '</div>';
 
-            $seed_groups = (array) ($plan['seed_groups'] ?? []);
-            $seed_count = 0;
-            $seed_preview = [];
-            foreach ($seed_groups as $group) {
-                foreach ((array) $group as $seed) {
-                    if (is_string($seed) && trim($seed) !== '') {
-                        $seed_count++;
-                        if (count($seed_preview) < 8) { $seed_preview[] = trim($seed); }
-                    }
-                }
-            }
+            $seed_strings = self::dfseo_preview_seed_strings((array) ($plan['seed_groups'] ?? []));
+            $seed_count = count($seed_strings);
+            $seed_preview = array_slice($seed_strings, 0, 8);
             $endpoint_plan = array_values(array_filter(array_map('strval', (array) ($plan['recommended_endpoints'] ?? []))));
+            $estimated_task_count = $seed_count * count($endpoint_plan);
             AdminUI::section_start(__('Paid Scan Preflight (Manual)', 'tmwseo'));
             AdminUI::alert(__('This action may spend DataForSEO credits. Paid DataForSEO calls only happen after explicit confirmation.', 'tmwseo'), 'warn');
             AdminUI::trust_reminder(__('Manual-only: this scan fetches keyword intelligence for review. It does not create pages, create drafts, publish content, or change frontend templates.', 'tmwseo'));
@@ -1386,7 +1379,7 @@ class Admin {
             echo '<li><strong>Seed count:</strong> ' . esc_html((string) $seed_count) . '</li>';
             echo '<li><strong>Seed preview:</strong> <code>' . esc_html(implode(', ', $seed_preview)) . '</code></li>';
             echo '<li><strong>Endpoint plan:</strong> <code>' . esc_html(implode(', ', $endpoint_plan)) . '</code></li>';
-            echo '<li><strong>Estimated task count:</strong> ' . esc_html((string) (count($endpoint_plan) * max(1, $seed_count))) . '</li>';
+            echo '<li><strong>Estimated task count:</strong> ' . esc_html((string) $estimated_task_count) . '</li>';
             echo '<li><strong>Location / language:</strong> ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_location_code()) . ' / ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_language_code()) . '</li>';
             echo '</ul>';
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
@@ -1404,6 +1397,25 @@ class Admin {
         if ($scan_run_id > 0) { self::render_dfseo_scan_summary($scan_run_id); }
 
         echo '</div>';
+    }
+
+    private static function dfseo_preview_seed_strings(array $seed_groups): array {
+        $seeds = [];
+
+        foreach ($seed_groups as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $seed = sanitize_text_field((string) ($row['seed'] ?? ''));
+            if ($seed === '') {
+                continue;
+            }
+
+            $seeds[] = $seed;
+        }
+
+        return array_values(array_unique($seeds));
     }
 
     public static function handle_dfseo_paid_keyword_scan(): void {
