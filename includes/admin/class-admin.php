@@ -1375,13 +1375,15 @@ class Admin {
             echo '<div style="background:#fff;border:1px solid #dcdcde;padding:12px;"><h3 style="margin-top:0;">notes</h3><pre style="overflow:auto;">' . esc_html( $render_json( (array) ( $plan['notes'] ?? [] ) ) ) . '</pre></div>';
             echo '</div>';
 
-            $seed_strings = self::dfseo_preview_seed_strings((array) ($plan['seed_groups'] ?? []));
+            $seed_groups = (array) ($plan['seed_groups'] ?? []);
+            $seed_strings = self::dfseo_preview_seed_strings($seed_groups);
             $seed_count = count($seed_strings);
             $seed_preview = array_slice($seed_strings, 0, 8);
             $endpoint_plan = array_values(array_filter(array_map('strval', (array) ($plan['recommended_endpoints'] ?? []))));
             $estimated_task_count = $seed_count * count($endpoint_plan);
             $small_test_default = true;
-            $small_test_seed_count = min(2, $seed_count);
+            $small_test_seeds = self::dfseo_preview_small_test_seeds($seed_groups, 2);
+            $small_test_seed_count = count($small_test_seeds);
             $small_test_endpoint = in_array('dataforseo_labs/google/keyword_ideas/live', $endpoint_plan, true)
                 ? 'dataforseo_labs/google/keyword_ideas/live'
                 : (!empty($endpoint_plan) ? (string) $endpoint_plan[0] : '');
@@ -1401,6 +1403,9 @@ class Admin {
             echo '<li><strong>Estimated task count:</strong> ' . esc_html((string) $estimated_task_count) . '</li>';
             echo '<li><strong>Full plan:</strong> ' . esc_html((string) $seed_count) . ' seeds × ' . esc_html((string) count($endpoint_plan)) . ' endpoints = ' . esc_html((string) $estimated_task_count) . ' possible tasks</li>';
             echo '<li><strong>This run (small test):</strong> ' . esc_html((string) $small_test_seed_count) . ' seeds × ' . esc_html((string) $small_test_endpoint_count) . ' endpoint = ' . esc_html((string) $small_test_task_count) . ' paid tasks</li>';
+            if (!empty($small_test_seeds)) {
+                echo '<li><strong>Small test seeds:</strong> <code>' . esc_html(implode(', ', $small_test_seeds)) . '</code></li>';
+            }
             echo '<li><strong>Location / language:</strong> ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_location_code()) . ' / ' . esc_html((string)\TMWSEO\Engine\Services\DataForSEO::default_language_code()) . '</li>';
             echo '</ul>';
             echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
@@ -1409,7 +1414,7 @@ class Admin {
             echo '<input type="hidden" name="post_id" value="' . esc_attr((string)$post_id) . '" />';
             echo '<p><label><input type="checkbox" name="tmwseo_paid_ack" value="1" required> ' . esc_html__('I understand this may spend DataForSEO credits and will only fetch/store review data.', 'tmwseo') . '</label></p>';
             echo '<p><label><input type="checkbox" name="force_refresh" value="1"> ' . esc_html__('Force refresh (ignore fresh cached results for this manual run).', 'tmwseo') . '</label></p>';
-            echo '<p><label><input type="checkbox" name="small_test_scan" value="1" ' . checked($small_test_default, true, false) . '> ' . esc_html__('Run small test scan only (default): first 2 seeds and 1 endpoint.', 'tmwseo') . '</label></p>';
+            echo '<p><label><input type="checkbox" name="small_test_scan" value="1" ' . checked($small_test_default, true, false) . '> ' . esc_html__('Run small test scan only (default): top-ranked 2 seeds and 1 endpoint.', 'tmwseo') . '</label></p>';
             submit_button(__('Run Confirmed Paid Scan', 'tmwseo'), 'primary', 'submit', false, $ledger_tables_ok ? [] : ['disabled' => 'disabled']);
             echo '</form>';
             AdminUI::section_end();
@@ -1430,6 +1435,17 @@ class Admin {
         }
 
         echo '</div>';
+    }
+
+
+    private static function dfseo_preview_small_test_seeds(array $seed_groups, int $max = 2): array {
+        $runner = '\TMWSEO\Engine\Keywords\DataForSEOPaidKeywordScanRunner';
+        if (!method_exists($runner, 'preview_small_test_seeds')) {
+            $all = self::dfseo_preview_seed_strings($seed_groups);
+            return array_slice($all, 0, max(0, $max));
+        }
+
+        return $runner::preview_small_test_seeds($seed_groups, $max);
     }
 
     private static function dfseo_preview_seed_strings(array $seed_groups): array {
