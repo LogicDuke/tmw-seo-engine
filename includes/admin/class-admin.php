@@ -1350,6 +1350,9 @@ class Admin {
             echo '<tr><th>taxonomy_tags</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['taxonomy_tags'] ?? [] ) ) ) . '</code></td></tr>';
             echo '<tr><th>taxonomy_categories</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['taxonomy_categories'] ?? [] ) ) ) . '</code></td></tr>';
             echo '<tr><th>verified_platforms</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['verified_platforms'] ?? [] ) ) ) . '</code></td></tr>';
+            echo '<tr><th>related_content_tags</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['related_content_tags'] ?? [] ) ) ) . '</code></td></tr>';
+            echo '<tr><th>related_content_categories</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['related_content_categories'] ?? [] ) ) ) . '</code></td></tr>';
+            echo '<tr><th>modifier_terms</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['modifier_terms'] ?? [] ) ) ) . '</code></td></tr>';
             echo '<tr><th>warnings</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['warnings'] ?? [] ) ) ) . '</code></td></tr>';
             echo '</tbody></table>';
 

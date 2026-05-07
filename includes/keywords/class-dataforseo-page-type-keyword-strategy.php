@@ -1099,7 +1099,7 @@ class DataForSEOPageTypeKeywordStrategy {
      * @return string[]
      */
     private static function merge_modifier_terms( string $entity_norm, array ...$groups ): array {
-        $out = [];
+        $scored = [];
         $seen = [];
         foreach ( $groups as $group ) {
             foreach ( self::tidy_terms( $group ) as $term ) {
@@ -1107,10 +1107,67 @@ class DataForSEOPageTypeKeywordStrategy {
                 if ( $norm === '' || $norm === $entity_norm || $term === 'uncategorized' ) { continue; }
                 if ( isset( $seen[ $norm ] ) ) { continue; }
                 $seen[ $norm ] = true;
-                $out[] = $term;
+                $scored[] = [
+                    'term'  => $term,
+                    'score' => self::modifier_priority_score( $term ),
+                ];
             }
         }
+        usort(
+            $scored,
+            static function ( array $a, array $b ): int {
+                if ( (int) $a['score'] === (int) $b['score'] ) {
+                    return strcmp( (string) $a['term'], (string) $b['term'] );
+                }
+                return ( (int) $b['score'] <=> (int) $a['score'] );
+            }
+        );
+        $out = array_map(
+            static function ( array $item ): string {
+                return (string) $item['term'];
+            },
+            $scored
+        );
         return array_slice( $out, 0, 30 );
+    }
+
+    private static function modifier_priority_score( string $term ): int {
+        $score = 0;
+        $words = preg_split( '/\s+/u', trim( $term ) ) ?: [];
+        $word_count = count( array_filter( $words ) );
+
+        if ( $word_count >= 4 ) {
+            $score += 80;
+        } elseif ( $word_count === 3 ) {
+            $score += 60;
+        } elseif ( $word_count === 2 ) {
+            $score += 35;
+        } elseif ( $word_count === 1 ) {
+            $score += 5;
+        }
+
+        $priority_patterns = [
+            'live cam'      => 70,
+            'cam girl'      => 65,
+            'live sex'      => 65,
+            'livejasmin'    => 55,
+            'stripchat'     => 55,
+            'chaturbate'    => 55,
+            'onlyfans'      => 45,
+            'big tits'      => 45,
+            'black hair'    => 40,
+            'blonde'        => 35,
+            'brunette'      => 35,
+            'tattoo'        => 30,
+        ];
+
+        foreach ( $priority_patterns as $needle => $weight ) {
+            if ( strpos( $term, $needle ) !== false ) {
+                $score += $weight;
+            }
+        }
+
+        return $score;
     }
 
     /**
