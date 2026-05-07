@@ -1105,6 +1105,7 @@ class DataForSEOPageTypeKeywordStrategy {
             foreach ( self::tidy_terms( $group ) as $term ) {
                 $norm = self::normalize_term_for_compare( $term );
                 if ( $norm === '' || $norm === $entity_norm || $term === 'uncategorized' ) { continue; }
+                if ( self::is_excluded_modifier_term( $term ) ) { continue; }
                 if ( isset( $seen[ $norm ] ) ) { continue; }
                 $seen[ $norm ] = true;
                 $scored[] = [
@@ -1129,6 +1130,33 @@ class DataForSEOPageTypeKeywordStrategy {
             $scored
         );
         return array_slice( $out, 0, 30 );
+    }
+
+    private static function is_excluded_modifier_term( string $term ): bool {
+        $term = self::tidy_phrase( $term );
+        if ( $term === '' ) {
+            return true;
+        }
+
+        $exact_blocklist = [
+            'post format video',
+            'post format audio',
+            'post format gallery',
+            'post format image',
+            'post format aside',
+            'post format quote',
+            'post format link',
+            'post format status',
+            'post format chat',
+            'post format standard',
+            'fuck',
+        ];
+
+        if ( in_array( $term, $exact_blocklist, true ) ) {
+            return true;
+        }
+
+        return str_starts_with( $term, 'post format ' );
     }
 
     private static function modifier_priority_score( string $term ): int {
