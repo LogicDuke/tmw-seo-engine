@@ -115,6 +115,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-serp-gaps',
             self::MENU_SLUG . '_page_tmwseo-search-intelligence',
             self::MENU_SLUG . '_page_tmwseo-category-formulas',
+            self::MENU_SLUG . '_page_tmwseo-dfseo-keyword-strategy-preview',
             self::MENU_SLUG . '_page_tmw-seo-debug',
             // Hidden pages (null parent) use admin_page_{slug} hook format
             'admin_page_tmwseo-generated',
@@ -1062,6 +1063,7 @@ class Admin {
         add_submenu_page(self::MENU_SLUG, __('Affiliates', 'tmwseo'),  __('Affiliates', 'tmwseo'),  'manage_options', 'tmwseo-affiliates', [__CLASS__, 'render_affiliates']);
         add_submenu_page(self::MENU_SLUG, __('Settings', 'tmwseo'),    __('Settings', 'tmwseo'),    'manage_options', 'tmwseo-settings',    [__CLASS__, 'render_settings']);
         add_submenu_page(self::MENU_SLUG, __('Tools', 'tmwseo'),       __('Tools', 'tmwseo'),       'manage_options', 'tmwseo-tools',       [__CLASS__, 'render_tools']);
+        add_submenu_page(self::MENU_SLUG, __('DataForSEO Keyword Strategy Preview', 'tmwseo'), __('DataForSEO Strategy Preview', 'tmwseo'), 'manage_options', 'tmwseo-dfseo-keyword-strategy-preview', [__CLASS__, 'render_dataforseo_keyword_strategy_preview']);
         add_submenu_page(self::MENU_SLUG, __('CSV Manager', 'tmwseo'), __('CSV Manager', 'tmwseo'), 'manage_options', 'tmwseo-csv-manager', ['\TMWSEO\Engine\Admin\CSVManagerAdminPage', 'render_page']);
         add_submenu_page(self::MENU_SLUG, __('Keyword Planner API Test', 'tmwseo'), __('Keyword Planner Test', 'tmwseo'), 'manage_options', 'tmwseo-gkp-test', [__CLASS__, 'render_keyword_planner_test']);
         add_submenu_page(self::MENU_SLUG, __('Debug Dashboard', 'tmwseo'), __('Debug Dashboard', 'tmwseo'), 'manage_options', 'tmwseo-debug-dashboard', ['\\TMWSEO\\Engine\\Debug\\DebugDashboard', 'render_page']);
@@ -1143,6 +1145,7 @@ class Admin {
             'tmwseo-affiliates',
             'tmwseo-settings',
             'tmwseo-tools',
+            'tmwseo-dfseo-keyword-strategy-preview',
             'tmwseo-csv-manager',
             'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
@@ -1269,6 +1272,95 @@ class Admin {
         }
 
         \TMWSEO\Engine\Admin\TopicAuthorityPage::render_page();
+    }
+
+    public static function render_dataforseo_keyword_strategy_preview(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'tmwseo' ) );
+        }
+
+        $submitted = isset( $_REQUEST['tmwseo_dfseo_preview_submit'] );
+        $post_id = isset( $_REQUEST['post_id'] ) ? absint( wp_unslash( $_REQUEST['post_id'] ) ) : 0;
+        $override = isset( $_REQUEST['page_type_override'] ) ? sanitize_key( wp_unslash( $_REQUEST['page_type_override'] ) ) : 'auto';
+        $allowed_overrides = [ 'auto', 'model', 'video', 'category', 'tag', 'opportunity' ];
+        if ( ! in_array( $override, $allowed_overrides, true ) ) {
+            $override = 'auto';
+        }
+
+        $plan = null;
+        $error = '';
+
+        if ( $submitted ) {
+            check_admin_referer( 'tmwseo_dfseo_keyword_strategy_preview' );
+            if ( $post_id <= 0 ) {
+                $error = __( 'Please enter a valid post ID.', 'tmwseo' );
+            } else {
+                $strategy = '\TMWSEO\Engine\Keywords\DataForSEOPageTypeKeywordStrategy';
+                $base_context = $strategy::build_context_from_post( $post_id );
+                if ( $override === 'auto' ) {
+                    $plan = $strategy::build_preview_plan_for_post( $post_id );
+                } else {
+                    $plan = $strategy::build_preview_plan_for_page_type( $override, $base_context );
+                }
+            }
+        }
+
+        $render_json = static function ( $value ): string {
+            if ( ! is_array( $value ) ) {
+                return '';
+            }
+            $encoded = wp_json_encode( $value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+            return is_string( $encoded ) ? $encoded : '';
+        };
+
+        echo '<div class="wrap">';
+        echo '<h1>' . esc_html__( 'DataForSEO Keyword Strategy Preview', 'tmwseo' ) . '</h1>';
+        echo '<p><strong>' . esc_html__( 'Preview only. This does not call DataForSEO and does not spend API credits.', 'tmwseo' ) . '</strong></p>';
+        echo '<p class="description">' . esc_html__( 'Dry-run planning tool for page-type keyword strategy. No API requests, no paid scans, and no database writes are performed.', 'tmwseo' ) . '</p>';
+
+        if ( $error !== '' ) {
+            echo '<div class="notice notice-error"><p>' . esc_html( $error ) . '</p></div>';
+        }
+
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin.php?page=tmwseo-dfseo-keyword-strategy-preview' ) ) . '" style="background:#fff;border:1px solid #dcdcde;padding:16px;max-width:820px;">';
+        wp_nonce_field( 'tmwseo_dfseo_keyword_strategy_preview' );
+        echo '<input type="hidden" name="tmwseo_dfseo_preview_submit" value="1" />';
+        echo '<table class="form-table" role="presentation"><tbody>';
+        echo '<tr><th scope="row"><label for="tmwseo_dfseo_preview_post_id">' . esc_html__( 'Post ID', 'tmwseo' ) . '</label></th>';
+        echo '<td><input id="tmwseo_dfseo_preview_post_id" name="post_id" type="number" min="1" step="1" class="regular-text" value="' . esc_attr( (string) $post_id ) . '" required /></td></tr>';
+        echo '<tr><th scope="row"><label for="tmwseo_dfseo_preview_override">' . esc_html__( 'Page type override', 'tmwseo' ) . '</label></th><td>';
+        echo '<select id="tmwseo_dfseo_preview_override" name="page_type_override">';
+        foreach ( $allowed_overrides as $value ) {
+            $label = $value === 'auto' ? 'auto' : $value;
+            echo '<option value="' . esc_attr( $value ) . '"' . selected( $override, $value, false ) . '>' . esc_html( ucfirst( $label ) ) . '</option>';
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__( 'Auto uses detected page type from the post context.', 'tmwseo' ) . '</p>';
+        echo '</td></tr></tbody></table>';
+        submit_button( __( 'Preview Strategy', 'tmwseo' ) );
+        echo '</form>';
+
+        if ( is_array( $plan ) ) {
+            echo '<h2 style="margin-top:24px;">' . esc_html__( 'Preview Plan Result', 'tmwseo' ) . '</h2>';
+            echo '<table class="widefat striped" style="max-width:1100px;"><tbody>';
+            echo '<tr><th style="width:260px;">page_type</th><td>' . esc_html( (string) ( $plan['page_type'] ?? '' ) ) . '</td></tr>';
+            echo '<tr><th>entity_name</th><td>' . esc_html( (string) ( $plan['entity_name'] ?? '' ) ) . '</td></tr>';
+            echo '<tr><th>post_id</th><td>' . esc_html( (string) ( $plan['post_id'] ?? 0 ) ) . '</td></tr>';
+            echo '<tr><th>post_type</th><td>' . esc_html( (string) ( $base_context['post_type'] ?? '' ) ) . '</td></tr>';
+            echo '<tr><th>taxonomy_tags</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['taxonomy_tags'] ?? [] ) ) ) . '</code></td></tr>';
+            echo '<tr><th>taxonomy_categories</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['taxonomy_categories'] ?? [] ) ) ) . '</code></td></tr>';
+            echo '<tr><th>verified_platforms</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['verified_platforms'] ?? [] ) ) ) . '</code></td></tr>';
+            echo '<tr><th>warnings</th><td><code>' . esc_html( implode( ', ', (array) ( $plan['warnings'] ?? [] ) ) ) . '</code></td></tr>';
+            echo '</tbody></table>';
+
+            echo '<div style="display:grid;grid-template-columns:1fr;gap:16px;max-width:1100px;margin-top:16px;">';
+            echo '<div style="background:#fff;border:1px solid #dcdcde;padding:12px;"><h3 style="margin-top:0;">seed_groups</h3><pre style="overflow:auto;">' . esc_html( $render_json( (array) ( $plan['seed_groups'] ?? [] ) ) ) . '</pre></div>';
+            echo '<div style="background:#fff;border:1px solid #dcdcde;padding:12px;"><h3 style="margin-top:0;">endpoint_plan</h3><pre style="overflow:auto;">' . esc_html( $render_json( (array) ( $plan['recommended_endpoints'] ?? [] ) ) ) . '</pre></div>';
+            echo '<div style="background:#fff;border:1px solid #dcdcde;padding:12px;"><h3 style="margin-top:0;">notes</h3><pre style="overflow:auto;">' . esc_html( $render_json( (array) ( $plan['notes'] ?? [] ) ) ) . '</pre></div>';
+            echo '</div>';
+        }
+
+        echo '</div>';
     }
 
     public static function render_ranking_probability(): void {
