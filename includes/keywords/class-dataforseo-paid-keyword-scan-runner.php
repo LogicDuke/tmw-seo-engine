@@ -39,13 +39,22 @@ class DataForSEOPaidKeywordScanRunner {
         $location_code = (string) DataForSEO::default_location_code();
         $language_code = (string) DataForSEO::default_language_code();
 
-        $wpdb->insert($runs, [
+        $inserted = $wpdb->insert($runs, [
             'post_id' => $post_id, 'page_type' => $page_type, 'status' => 'running',
             'location_code' => $location_code, 'language_code' => $language_code,
             'seed_count' => count($seeds), 'endpoint_count' => count($endpoints),
             'estimated_task_count' => $planned_tasks, 'created_at' => $now,
         ]);
         $run_id = (int) $wpdb->insert_id;
+
+        if ($inserted === false || $run_id <= 0) {
+            $error = ['ok' => false, 'error' => 'scan_run_create_failed'];
+            if (!empty($wpdb->last_error)) {
+                $error['db_error'] = sanitize_text_field((string) $wpdb->last_error);
+            }
+
+            return $error;
+        }
 
         if (!$small_test_only && $planned_tasks > self::MANUAL_TASK_CAP) {
             $wpdb->update($runs, [
