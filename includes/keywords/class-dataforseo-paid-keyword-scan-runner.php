@@ -130,7 +130,7 @@ class DataForSEOPaidKeywordScanRunner {
                 foreach ($items as $row) {
                     $keyword = trim((string)($row['keyword'] ?? $row['keyword_data']['keyword'] ?? ''));
                     $counts['fetched']++;
-                    $reason = self::filter_reason($keyword);
+                    $reason = self::filter_reason($keyword, $seed, $page_type, $context);
                     $freshness = 'fresh';
                     if ($reason !== '') {
                         $counts['filtered']++;
@@ -254,7 +254,46 @@ class DataForSEOPaidKeywordScanRunner {
 
     private static function latest_item_for(int $post_id,string $page_type,string $endpoint,string $seed): array { global $wpdb; $t=$wpdb->prefix.'tmwseo_dfseo_scan_items'; $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE post_id=%d AND page_type=%s AND endpoint=%s AND seed=%s AND status IN ('stored') ORDER BY id DESC LIMIT 1",$post_id,$page_type,$endpoint,$seed),ARRAY_A); if(!$r)return[]; $r['freshness']=self::freshness((string)($r['fetched_at']?:$r['created_at'])); return $r; }
     private static function freshness(string $dt): string { $ts=strtotime($dt); if(!$ts)return 'unknown'; $days=(time()-$ts)/DAY_IN_SECONDS; if($days<=30)return 'fresh'; if($days<=90)return 'stale'; return 'old'; }
-    private static function filter_reason(string $keyword): string { if($keyword==='') return 'empty_keyword'; if(preg_match('/\bpost format video\b/i',$keyword)) return 'technical_modifier'; if(preg_match('/\bfuck\b/i',$keyword)) return 'risky_term'; if(preg_match('/\b(\w+)\s+\1\b/i',$keyword)) return 'duplicate_self_repeat'; return ''; }
+    private static function filter_reason(string $keyword, string $seed, string $page_type, array $context): string {
+        $keyword = mb_strtolower(trim($keyword));
+        $seed = mb_strtolower(trim($seed));
+        if ($keyword === '') { return 'empty_keyword'; }
+        if (preg_match('/\bpost format video\b/i', $keyword)) { return 'technical_modifier'; }
+        if (preg_match('/\bfuck\b/i', $keyword)) { return 'risky_term'; }
+        if (preg_match('/\b(\w+)\s+\1\b/i', $keyword)) { return 'duplicate_self_repeat'; }
+
+        if ($page_type !== 'model') {
+            return '';
+        }
+
+        $entity_name = mb_strtolower(trim((string)($context['entity_name'] ?? '')));
+        if ($entity_name === '') {
+            return 'page_type_mismatch';
+        }
+
+        $has_entity_match = (mb_stripos($keyword, $entity_name) !== false);
+        $seed_prefix = trim((string)preg_replace('/\s+(live cam|cam girls?|cam girl|models?)\b.*/i', '', $seed));
+        $has_seed_phrase = ($seed_prefix !== '' && mb_stripos($keyword, $seed_prefix) !== false);
+
+        if ($has_entity_match || $has_seed_phrase) {
+            return '';
+        }
+
+        if (preg_match('/\b(live cam|webcam)\b/i', $keyword) && preg_match('/\b(padua|galveston|kenai|miami|vegas|tokyo|london)\b/i', $keyword)) {
+            return 'generic_live_cam_location';
+        }
+        if (preg_match('/\b(leotards?|vanity|set|dress|fashion|ribbon|rainbow high)\b/i', $keyword)) {
+            return 'product_or_fashion_mismatch';
+        }
+        if (preg_match('/\bgirls?\b/i', $keyword)) {
+            return 'generic_girls_term';
+        }
+        if (preg_match('/\b(live cam|cam girls?|cam girl|models?|sexy|hot)\b/i', $keyword)) {
+            return 'weak_seed_match';
+        }
+
+        return 'missing_entity_match';
+    }
     private static function call_endpoint(string $endpoint,string $seed,string $location_code,string $language_code,array $context): array {
         switch ($endpoint) {
             case 'dataforseo_labs/google/keyword_ideas/live': return DataForSEO::keyword_ideas_live([$seed], (int)$location_code, $language_code, 50);

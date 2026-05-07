@@ -1556,6 +1556,15 @@ class Admin {
             ['value'=>(int)$run['skipped_count'],'label'=>'Skipped/Failed','color'=>'danger'],
         ]);
         echo '<p><strong>Run #'.esc_html((string)$run_id).'</strong> | Status: '.esc_html((string)$run['status']).' | Location/Language: '.esc_html((string)$run['location_code']).'/'.esc_html((string)$run['language_code']).'</p>';
+        $fetched_count = (int) ($run['fetched_count'] ?? 0);
+        $stored_count = (int) ($run['stored_count'] ?? 0);
+        $filtered_count = (int) ($run['filtered_count'] ?? 0);
+        $filtered_ratio = $fetched_count > 0 ? ($filtered_count / $fetched_count) : 0.0;
+        if ($filtered_ratio >= 0.70 || ($fetched_count > 0 && $stored_count === 0)) {
+            echo '<div class="notice notice-warning inline"><p>'
+                . esc_html__('Most fetched keywords were filtered because they did not match the model entity. This is expected for broad DataForSEO keyword ideas and prevents irrelevant storage.', 'tmwseo')
+                . '</p></div>';
+        }
         AdminUI::section_start(__('Credit Safety', 'tmwseo'));
         echo '<ul style="list-style:disc;padding-left:20px;">';
         echo '<li>' . esc_html__('Paid calls were attempted only for seed/endpoint pairs without fresh cached results.', 'tmwseo') . '</li>';
@@ -1567,6 +1576,16 @@ class Admin {
         echo '</ul>';
         AdminUI::section_end();
         AdminUI::trust_reminder(__('No pages were created. No posts were published. No automatic publishing is enabled in this pass.', 'tmwseo'));
+        $reason_rows = $wpdb->get_results($wpdb->prepare("SELECT filter_reason, COUNT(*) AS c FROM {$items} WHERE run_id=%d AND status='filtered' GROUP BY filter_reason ORDER BY c DESC", $run_id), ARRAY_A) ?: [];
+        if (!empty($reason_rows)) {
+            echo '<p><strong>' . esc_html__('Filtered by reason:', 'tmwseo') . '</strong> ';
+            $chips = [];
+            foreach ($reason_rows as $reason_row) {
+                $chips[] = esc_html((string)($reason_row['filter_reason'] ?: 'unknown')) . ': ' . esc_html((string)$reason_row['c']);
+            }
+            echo implode(' | ', $chips);
+            echo '</p>';
+        }
         $rows = $wpdb->get_results($wpdb->prepare("SELECT status,keyword,seed,endpoint,filter_reason,freshness,fetched_at,volume,cpc,competition,intent FROM {$items} WHERE run_id=%d ORDER BY id DESC LIMIT 250", $run_id), ARRAY_A) ?: [];
         echo '<table class="widefat striped"><thead><tr><th>Status</th><th>Keyword</th><th>Seed</th><th>Endpoint</th><th>Freshness</th><th>Reason</th></tr></thead><tbody>';
         foreach ($rows as $r) { echo '<tr><td>'.esc_html((string)$r['status']).'</td><td>'.esc_html((string)$r['keyword']).'</td><td>'.esc_html((string)$r['seed']).'</td><td><code>'.esc_html((string)$r['endpoint']).'</code></td><td>'.esc_html((string)$r['freshness']).'</td><td>'.esc_html((string)($r['filter_reason']??'')).'</td></tr>'; }
