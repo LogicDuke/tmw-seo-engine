@@ -1939,6 +1939,12 @@ class SuggestionsAdminPage {
 
         // ── Primary filter bar ───────────────────────────────────────────────
         echo '<div class="tmwui-filter-bar">';
+            echo '<div class="tmwui-filter-bar-inner-wapper">';
+
+            echo '<div class="tmwui-card-header">';
+            echo '<h2 class="quick-filters-title">Quick Filters</h2>';
+            echo '<p class="short-dec">Quickly filter suggestions by workflow status.</p>';
+            echo '</div>';
 
         // Status tabs
         $tabs = [
@@ -1968,7 +1974,7 @@ class SuggestionsAdminPage {
             'content_brief'          => 'Content Briefs',
             'archived'               => 'Archived (Legacy)',
         ];
-        echo '<ul class="subsubsub">';
+        echo '<ul class="subsubsub quick-filters-btns">';
         $first = true;
         foreach ($tabs as $key => $label) {
             $url = add_query_arg([
@@ -1999,42 +2005,23 @@ class SuggestionsAdminPage {
         echo '<strong>' . esc_html__('Active sort:', 'tmwseo') . '</strong> ' . esc_html($active_sort_label);
         echo '</p>';
 
+        echo '</div>';
+
         echo '</div>'; // .tmwui-filter-bar
-
-        // ── Scan / generation action row ─────────────────────────────────────
-        // Kept visually separate from review filters so it is clear these are
-        // generator triggers, not filter choices. Order: filter bar → scan row
-        // → advanced filters (collapsed) → table. Logic / actions unchanged.
-        AdminUI::section_start(
-            __('Scan & Generate', 'tmwseo'),
-            __('Trigger a new scan or content-generation pass. Results appear in the suggestion queue below after completion. Nothing is published automatically.', 'tmwseo')
-        );
-        echo '<div class="tmwui-cta-row">';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
-        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
-        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_scan_content_improvements');
-        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
-        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
-        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
-        submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary', 'submit', false);
-        echo '</form>';
-
-        echo '</div>'; // .tmwui-cta-row
-        AdminUI::section_end();
 
         // ── Advanced review filters (collapsed) ──────────────────────────────
         echo '<details class="tmwui-advanced">';
-        echo '<summary>' . esc_html__('Advanced Review Filters', 'tmwseo') . '</summary>';
+        echo '<summary>
+
+                    <div class="tmwui-card-header">
+                        <h2 class="quick-filters-title">' . esc_html__('Advanced Review Filters', 'tmwseo') . '</h2>
+
+                        <p class="short-dec">
+                            ' . esc_html__('Additional queue filters, sorting options, destination filters, and review views.', 'tmwseo') . '
+                        </p>
+                    </div>
+
+                </summary>';
         echo '<div class="tmwui-advanced-body">';
 
         echo '<h3 style="margin:0 0 4px;">' . esc_html__('Additional Status Filters', 'tmwseo') . '</h3>';
@@ -2215,6 +2202,40 @@ class SuggestionsAdminPage {
         echo '</div>'; // .tmwui-advanced-body
         echo '</details>'; // .tmwui-advanced
 
+        // ── Scan / generation action row ─────────────────────────────────────
+        // Kept visually separate from review filters so it is clear these are
+        // generator triggers, not filter choices. Order: filter bar → scan row
+        // → advanced filters (collapsed) → table. Logic / actions unchanged.
+        AdminUI::section_start(
+            __('Scan & Generate', 'tmwseo'),
+            __('Trigger a new scan or content-generation pass. Results appear in the suggestion queue below after completion. Nothing is published automatically.', 'tmwseo')
+        );
+        echo '<div class="tmwui-cta-row tmwui-cta-grid">';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_internal_link_opportunities');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_internal_link_opportunities">';
+        submit_button(__('Scan Internal Link Opportunities', 'tmwseo'), 'secondary 
+            tmwui-btn tmwui-btn-secondary', 'submit', false);
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_scan_content_improvements');
+        echo '<input type="hidden" name="action" value="tmwseo_scan_content_improvements">';
+        submit_button(__('Scan Content Improvements', 'tmwseo'), 'secondary tmwui-btn tmwui-btn-secondary', 'submit', false);
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('tmwseo_run_phase_c_discovery_snapshot');
+        echo '<input type="hidden" name="action" value="tmwseo_run_phase_c_discovery_snapshot">';
+        submit_button(__('Run Phase C Discovery Snapshot', 'tmwseo'), 'secondary tmwui-btn tmwui-btn-secondary', 'submit', false);
+        echo '</form>';
+
+        echo '</div>'; // .tmwui-cta-row
+        AdminUI::section_end();
+
+        
+
 
 
         // ── Queue table CSS (scoped to .tmwseo-suggestions-page) ────────────
@@ -2246,6 +2267,7 @@ class SuggestionsAdminPage {
 .tmwseo-suggestions-page .tmwui-table-wrap {
     overflow: visible !important;
     margin-bottom: 0;
+    padding: 20px 25px;
 }
 
 /* 2. The single queue scroll viewport.
@@ -2258,7 +2280,6 @@ class SuggestionsAdminPage {
     overflow: auto;
     max-height: calc(100vh - 260px);
     min-height: 220px;
-    border: 1px solid #c3c4c7;
     border-radius: 4px;
     margin-bottom: 24px;
 }
@@ -2609,8 +2630,14 @@ class SuggestionsAdminPage {
         AdminUI::section_end();
 
         // ── Workflow Guide (collapsed, below table) ──────────────────────────
-        echo '<details class="tmwui-advanced" style="margin-top:16px;">';
-        echo '<summary>' . esc_html__('Workflow Guide', 'tmwseo') . '</summary>';
+        echo '<details class="tmwui-advanced">';
+        echo '<summary>
+
+                    <div class="tmwui-card-header">
+                        <h2 class="quick-filters-title">' . esc_html__('Workflow Guide', 'tmwseo') . '</h2>
+                    </div>
+
+                </summary>';
         echo '<div class="tmwui-advanced-body">';
         echo '<p><strong>' . esc_html__('Operator quick guide:', 'tmwseo') . '</strong> ';
         echo esc_html__('Statuses track workflow only (New → Draft Created or Linked to Existing Post → Implemented, or Ignored). Action Target shows the destination: an existing post for Category/Model/Video destinations, or a new noindex draft for Generic fallback. Primary Action shows exactly what happens on click, and all outcomes stay manual-only until an operator publishes.', 'tmwseo');

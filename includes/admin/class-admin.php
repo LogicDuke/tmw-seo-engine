@@ -3644,9 +3644,37 @@ class Admin {
     }
 
 
-
+    
     public static function render_import(): void {
         self::header(__('TMW SEO Engine — Import Keywords', 'tmwseo'));
+        $rejections = get_transient('tmwseo_import_rejections');
+        
+
+        if ( isset($_GET['raw']) ) {
+            echo '<div class="notice notice-success"><p>';
+            echo 'Rows read: ' . intval($_GET['raw']);
+            echo ' | Candidates: ' . intval($_GET['cand']);
+            echo ' | Rejected: ' . intval($_GET['rej']);
+            echo '</p></div>';
+        }
+        if ( ! empty($rejections) && is_array($rejections) ) {
+            echo '<div class="notice notice-warning"><p><strong>Rejected Keywords Details:</strong></p>';
+
+            echo '<ul style="margin-left:20px;">';
+
+          foreach ( $rejections as $r ) {
+                $keyword = $r['keyword'] ?? '';
+                $reason  = $r['reason'] ?? 'unknown reason (validator did not return explanation)';
+
+                echo '<li>';
+                echo esc_html($keyword) . ' → ';
+                echo '<em>' . esc_html($reason) . '</em>';
+                echo '</li>';
+            }
+
+            echo '</ul></div>';
+            delete_transient('tmwseo_import_rejections');
+        }
 
         echo '<p>Import keywords from <strong>Google Keyword Planner</strong> or <strong>SEMrush</strong> (CSV). Imported keywords go through the adult relevancy filter and then can be KD-scored via DataForSEO.</p>';
         echo '<p><em>Seed CSV format supports <code>keyword,type,priority</code>. Missing columns default to <code>general</code> and <code>1</code>.</em></p>';
@@ -3666,7 +3694,7 @@ class Admin {
         echo '<p class="description">This is just for logging and tracking.</p>';
         echo '</td></tr></table>';
 
-        echo '<p><label><input type="checkbox" name="run_kd" value="1" checked> After import: run KD + clustering + auto page creation</label></p>';
+        echo '<p><label><input type="checkbox" name="run_kd" value="1"> run keyword scoring cycle (KD + clustering). Does NOT create or publish pages.</label></p>';
 
         submit_button('Import Keywords', 'primary');
 

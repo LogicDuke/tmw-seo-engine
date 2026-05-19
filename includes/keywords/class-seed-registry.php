@@ -841,4 +841,28 @@ class SeedRegistry {
         $report[ $key ] = (int) ( $report[ $key ] ?? 0 ) + $by;
         update_option( self::REPORT_OPTION, $report, false );
     }
+    /**
+     * Flush import counters in ONE get_option + update_option instead of per-row.
+     * Call once after bulk import loop finishes.
+     */
+    public static function flush_import_counters( string $source, int $new_count, int $dup_count ): void {
+        if ( $new_count === 0 && $dup_count === 0 ) {
+            return;
+        }
+        $report = get_option( self::REPORT_OPTION, [] );
+        if ( ! is_array( $report ) ) {
+            $report = [];
+        }
+        // source counts
+        if ( ! isset( $report['source_counts'] ) || ! is_array( $report['source_counts'] ) ) {
+            $report['source_counts'] = [];
+        }
+        $report['source_counts'][ $source ] = (int) ( $report['source_counts'][ $source ] ?? 0 ) + $new_count;
+
+        // registered_total and duplicates_prevented
+        $report['registered_total']      = (int) ( $report['registered_total']      ?? 0 ) + $new_count;
+        $report['duplicates_prevented']  = (int) ( $report['duplicates_prevented']  ?? 0 ) + $dup_count;
+
+        update_option( self::REPORT_OPTION, $report, false );
+    }
 }

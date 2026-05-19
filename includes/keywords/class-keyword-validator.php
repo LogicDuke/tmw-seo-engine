@@ -280,6 +280,57 @@ class KeywordValidator {
         update_option(self::STATS_OPTION, $stats, false);
     }
 
+
+    /**
+     * Validate without hitting DB for stats — used during bulk import.
+     * Stats are flushed once at end via flush_stats().
+     */
+    public static function is_relevant_no_track( string $keyword, ?string &$reason = null ): bool {
+        $k = self::normalize( $keyword );
+        if ( $k === '' ) {
+            $reason = 'empty';
+            return false;
+        }
+
+        $minors = [ 'underage', 'child', 'minor', 'teenager', 'kids' ];
+        foreach ( $minors as $m ) {
+            if ( strpos( $k, $m ) !== false ) {
+                $reason = 'minors_block';
+                return false;
+            }
+        }
+
+        foreach ( self::$blacklist_fragments as $frag ) {
+            if ( $frag === '' ) continue;
+            if ( strpos( $k, $frag ) !== false ) {
+                $reason = 'blacklist:' . $frag;
+                return false;
+            }
+        }
+
+        if ( ! self::passes_niche_context_check( $k ) ) {
+            $reason = 'missing niche entity';
+            return false;
+        }
+
+        $reason = null;
+        return true;
+    }
+
+    /**
+     * Flush accumulated validation stats in one DB write.
+     * Call once after bulk import loop finishes.
+     */
+    public static function flush_stats( int $rejected_count, int $accepted_count ): void {
+        if ( $rejected_count === 0 && $accepted_count === 0 ) {
+            return;
+        }
+        $stats = self::get_stats();
+        $stats['keywords_accepted'] += $accepted_count;
+        $stats['keywords_rejected'] += $rejected_count;
+        update_option( self::STATS_OPTION, $stats, false );
+    }
+
     /** @return array<string,int> */
     public static function get_stats(): array {
         $stats = get_option(self::STATS_OPTION, []);

@@ -862,7 +862,7 @@ class ModelHelper {
         echo '  if(sTxt)sTxt.textContent="Full audit — enqueuing background job…";';
         echo '  startBarAnimation();';
         // STEP 1: enqueue the job (returns ~50ms with status:"queued").
-        echo '  var ax=new XMLHttpRequest();ax.timeout=20000;';
+        echo '  var ax=new XMLHttpRequest();ax.timeout=120000;';
         echo '  ax.open("POST",AJAX,true);';
         echo '  ax.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
         echo '  ax.onload=function(){';

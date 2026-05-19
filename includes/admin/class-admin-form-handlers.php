@@ -611,13 +611,21 @@ class AdminFormHandlers {
 
         $result = self::import_keywords_from_csv_path( $target, $source, $run_kd );
 
+        set_transient(
+            'tmwseo_import_rejections',
+            $result['rejections'],
+            60
+        );
+
         wp_safe_redirect( admin_url(
-            'admin.php?page=tmwseo-keywords&tmwseo_notice=imported'
+            'admin.php?page=tmwseo-import'
             . '&raw=' . (int) $result['raw']
             . '&cand=' . (int) $result['cand']
             . '&rej=' . (int) $result['rej']
         ) );
         exit;
+
+
     }
 
     /**
@@ -628,143 +636,263 @@ class AdminFormHandlers {
      * @return array{raw:int,cand:int,rej:int}
      */
     public static function import_keywords_from_csv_path( string $file_path, string $source = 'manual', bool $run_kd = true ): array {
-        $fh = fopen( $file_path, 'r' );
-        if ( ! $fh ) {
-            wp_die( __( 'Could not read CSV', 'tmwseo' ) );
+    $fh = fopen( $file_path, 'r' );
+    if ( ! $fh ) {
+        wp_die( __( 'Could not read CSV', 'tmwseo' ) );
+    }
+
+    $header = fgetcsv( $fh );
+    if ( ! is_array( $header ) ) {
+        $header = [];
+    }
+
+    $kw_col       = null;
+    $vol_col      = null;
+    $type_col     = null;
+    $priority_col = null;
+
+    foreach ( $header as $i => $col ) {
+        $c = strtolower( trim( (string) $col ) );
+        if ( $c === 'seed_keyword' ) {
+            $kw_col = (int) $i;
+        } elseif ( $c === 'keyword' && $kw_col === null ) {
+            $kw_col = (int) $i;
+        }
+        if ( strpos( $c, 'volume' ) !== false || $c === 'avg. monthly searches' || $c === 'search volume' ) {
+            $vol_col = (int) $i;
+        }
+        if ( $c === 'type' ) {
+            $type_col = (int) $i;
+        }
+        if ( $c === 'priority' ) {
+            $priority_col = (int) $i;
+        }
+    }
+
+    if ( $kw_col === null ) {
+        $kw_col = 0;
+        Logs::warn( 'import', '[TMW-CSV] No seed_keyword/keyword column found in header, falling back to column 0', [
+            'header' => $header,
+        ] );
+    }
+
+    $batch_id   = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id( 'csv_import' );
+    $now        = current_time( 'mysql' );
+
+    global $wpdb;
+    $raw_table    = $wpdb->prefix . 'tmw_keyword_raw';
+    $cand_table   = $wpdb->prefix . 'tmw_keyword_candidates';
+    $seeds_table  = $wpdb->prefix . 'tmwseo_seeds';
+
+    // ── STEP 1: Read all valid keywords from CSV into memory first ──────────
+    // No DB calls here — just read and validate in PHP.
+    $valid_rows     = [];
+    $rejected       = 0;
+    $rejected_items = [];
+
+    while ( ( $row = fgetcsv( $fh ) ) !== false ) {
+        if ( ! is_array( $row ) ) {
+            continue;
         }
 
-        $header = fgetcsv( $fh );
-        if ( ! is_array( $header ) ) {
-            $header = [];
+        $kw = isset( $row[ $kw_col ] ) ? trim( (string) $row[ $kw_col ] ) : '';
+        if ( $kw === '' ) {
+            continue;
         }
 
-        $kw_col       = 0;
-        $vol_col      = null;
-        $type_col     = null;
-        $priority_col = null;
+        $reason = null;
+        if ( ! \TMWSEO\Engine\Keywords\KeywordValidator::is_relevant_no_track( $kw, $reason ) ) {
+            error_log( sprintf( '[TMWSEO Import] Rejected: "%s" | Reason: %s', $kw, $reason ?? 'unknown' ) );
+            $rejected_items[] = [ 'keyword' => $kw, 'reason' => $reason ?? 'unknown' ];
+            $rejected++;
+            continue;
+        }
 
-        foreach ( $header as $i => $col ) {
-            $c = strtolower( trim( (string) $col ) );
-            if ( $c === '' ) {
-                continue;
-            }
-            if ( strpos( $c, 'keyword' ) !== false ) {
-                $kw_col = (int) $i;
-            }
-            if ( strpos( $c, 'volume' ) !== false || $c === 'avg. monthly searches' || $c === 'search volume' ) {
-                $vol_col = (int) $i;
-            }
-            if ( $c === 'type' ) {
-                $type_col = (int) $i;
-            }
-            if ( $c === 'priority' ) {
-                $priority_col = (int) $i;
+        $seed_type = 'general';
+        if ( $type_col !== null && isset( $row[ $type_col ] ) ) {
+            $st = sanitize_key( (string) $row[ $type_col ] );
+            if ( $st !== '' ) {
+                $seed_type = $st;
             }
         }
 
-        $batch_id = \TMWSEO\Engine\Keywords\ExpansionCandidateRepository::make_batch_id( 'csv_import' );
-
-        global $wpdb;
-        $raw_table  = $wpdb->prefix . 'tmw_keyword_raw';
-        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
-
-        $raw_ins  = 0;
-        $cand_ins = 0;
-        $rejected = 0;
-
-        while ( ( $row = fgetcsv( $fh ) ) !== false ) {
-            if ( ! is_array( $row ) ) {
-                continue;
+        $priority = 1;
+        if ( $priority_col !== null && isset( $row[ $priority_col ] ) ) {
+            $p = absint( (string) $row[ $priority_col ] );
+            if ( $p > 0 ) {
+                $priority = $p;
             }
-
-            $kw = isset( $row[ $kw_col ] ) ? trim( (string) $row[ $kw_col ] ) : '';
-            if ( $kw === '' ) {
-                continue;
-            }
-
-            $reason = null;
-            if ( ! \TMWSEO\Engine\Keywords\KeywordValidator::is_relevant( $kw, $reason ) ) {
-                $rejected++;
-                continue;
-            }
-
-            $seed_type = 'general';
-            if ( $type_col !== null && isset( $row[ $type_col ] ) ) {
-                $st = sanitize_key( (string) $row[ $type_col ] );
-                if ( $st !== '' ) {
-                    $seed_type = $st;
-                }
-            }
-
-            $priority = 1;
-            if ( $priority_col !== null && isset( $row[ $priority_col ] ) ) {
-                $p = absint( (string) $row[ $priority_col ] );
-                if ( $p > 0 ) {
-                    $priority = $p;
-                }
-            }
-
-            SeedRegistry::register_trusted_seed( $kw, 'approved_import', 'import', 0, $seed_type, $priority, $batch_id ?? '', $source );
-
-            $vol = null;
-            if ( $vol_col !== null && isset( $row[ $vol_col ] ) ) {
-                $v = preg_replace( '/[^0-9]/', '', (string) $row[ $vol_col ] );
-                if ( $v !== '' ) {
-                    $vol = (int) $v;
-                }
-            }
-
-            $wpdb->query( $wpdb->prepare(
-                "INSERT IGNORE INTO {$raw_table} (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
-                 VALUES (%s, %s, %s, %d, %f, %f, %s, %s)",
-                $kw, 'import', $source, (int) ( $vol ?? 0 ), 0.0, 0.0, null, current_time( 'mysql' )
-            ) );
-            $raw_ins++;
-
-            $exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$cand_table} WHERE keyword=%s LIMIT 1", $kw ) );
-            if ( $exists ) {
-                continue;
-            }
-
-            $canonical = \TMWSEO\Engine\Keywords\KeywordValidator::normalize( $kw );
-            $intent    = \TMWSEO\Engine\Keywords\KeywordValidator::infer_intent( $kw );
-
-            $wpdb->insert( $cand_table, [
-                'keyword'    => $kw,
-                'canonical'  => $canonical,
-                'status'     => 'new',
-                'intent'     => $intent,
-                'volume'     => $vol,
-                'cpc'        => null,
-                'difficulty' => null,
-                'opportunity'=> null,
-                'sources'    => 'import:' . $source,
-                'notes'      => null,
-                'updated_at' => current_time( 'mysql' ),
-            ], [ '%s', '%s', '%s', '%s', '%d', '%f', '%f', '%f', '%s', '%s', '%s' ] );
-            $cand_ins++;
         }
 
-        fclose( $fh );
+        $vol = null;
+        if ( $vol_col !== null && isset( $row[ $vol_col ] ) ) {
+            $v = preg_replace( '/[^0-9]/', '', (string) $row[ $vol_col ] );
+            if ( $v !== '' ) {
+                $vol = (int) $v;
+            }
+        }
 
-        Logs::info( 'import', 'Imported keywords', [
-            'raw'      => $raw_ins,
-            'candidates'=> $cand_ins,
+        $normalised = \TMWSEO\Engine\Keywords\SeedRegistry::normalize_seed( $kw );
+        if ( $normalised === '' ) {
+            continue;
+        }
+
+        // Deduplicate within the CSV itself before any DB call
+        $valid_rows[ $normalised ] = [
+            'kw'        => $kw,
+            'normalised'=> $normalised,
+            'hash'      => md5( $normalised ),
+            'seed_type' => $seed_type,
+            'priority'  => $priority,
+            'vol'       => $vol,
+        ];
+    }
+
+    fclose( $fh );
+
+    if ( empty( $valid_rows ) ) {
+        Logs::info( 'import', '[TMW-CSV] No valid rows after validation', [
             'rejected' => $rejected,
             'source'   => $source,
-            'file'     => $file_path,
         ] );
+        // Flush validator stats once
+        \TMWSEO\Engine\Keywords\KeywordValidator::flush_stats( $rejected, 0 );
+        return [ 'raw' => 0, 'cand' => 0, 'rej' => $rejected, 'rejections' => $rejected_items ];
+    }
 
-        if ( $run_kd ) {
-            Jobs::enqueue( 'keyword_cycle', 'system', 0, [
-                'trigger' => 'import',
-                'mode'    => 'import_only',
-            ] );
-            Worker::run();
+    // ── STEP 2: Bulk check existing seeds in ONE query ──────────────────────
+    $all_hashes    = array_column( $valid_rows, 'hash' );
+    $placeholders  = implode( ',', array_fill( 0, count( $all_hashes ), '%s' ) );
+    $existing_hashes = $wpdb->get_col(
+        $wpdb->prepare( "SELECT hash FROM {$seeds_table} WHERE hash IN ({$placeholders})", ...$all_hashes )
+    );
+    $existing_hash_map = array_flip( $existing_hashes );
+
+    // ── STEP 3: Bulk check existing candidates in ONE query ─────────────────
+    $all_kws         = array_column( $valid_rows, 'kw' );
+    $kw_placeholders = implode( ',', array_fill( 0, count( $all_kws ), '%s' ) );
+    $existing_cands  = $wpdb->get_col(
+        $wpdb->prepare( "SELECT keyword FROM {$cand_table} WHERE keyword IN ({$kw_placeholders})", ...$all_kws )
+    );
+    $existing_cand_map = array_flip( $existing_cands );
+
+    // ── STEP 4: Insert in bulk ──────────────────────────────────────────────
+    $raw_ins          = 0;
+    $cand_ins         = 0;
+    $seeds_new        = 0;
+    $seeds_duplicated = 0;
+
+    $raw_rows   = [];
+    $cand_rows  = [];
+    $seed_rows  = [];
+
+    foreach ( $valid_rows as $normalised => $r ) {
+        $kw   = $r['kw'];
+        $hash = $r['hash'];
+        $vol  = $r['vol'];
+
+        // Seeds table — only new hashes
+        if ( ! isset( $existing_hash_map[ $hash ] ) ) {
+            $seed_rows[] = $wpdb->prepare(
+                '(%s, %s, %s, %d, %s, %d, %s, %s, %s, %s)',
+                $normalised,
+                'approved_import',
+                $r['seed_type'],
+                $r['priority'],
+                'import',
+                0,
+                $now,
+                $hash,
+                $batch_id,
+                sanitize_text_field( $source )
+            );
+            $seeds_new++;
+        } else {
+            $seeds_duplicated++;
         }
 
-        return [ 'raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected ];
+        // Raw table — always attempt (INSERT IGNORE handles duplicates)
+        $raw_rows[] = $wpdb->prepare(
+            '(%s, %s, %s, %d, %f, %f, %s, %s)',
+            $kw, 'import', $source, (int) ( $vol ?? 0 ), 0.0, 0.0, null, $now
+        );
+        $raw_ins++;
+
+        // Candidates table — only if not already existing
+        if ( ! isset( $existing_cand_map[ $kw ] ) ) {
+            $canonical  = \TMWSEO\Engine\Keywords\KeywordValidator::normalize( $kw );
+            $intent     = \TMWSEO\Engine\Keywords\KeywordValidator::infer_intent( $kw );
+            $cand_rows[] = $wpdb->prepare(
+                '(%s, %s, %s, %s, %d, %s, %s)',
+                $kw,
+                $canonical,
+                'new',
+                $intent,
+                (int) ( $vol ?? 0 ),
+                'import:' . $source,
+                $now
+            );
+            $cand_ins++;
+        }
     }
+
+    // Bulk insert seeds (100 rows per query to avoid max_allowed_packet issues)
+    if ( ! empty( $seed_rows ) ) {
+        foreach ( array_chunk( $seed_rows, 100 ) as $chunk ) {
+            $wpdb->query(
+                "INSERT IGNORE INTO {$seeds_table}
+                 (seed, source, seed_type, priority, entity_type, entity_id, created_at, hash, import_batch_id, import_source_label)
+                 VALUES " . implode( ',', $chunk ) // phpcs:ignore
+            );
+        }
+    }
+
+    // Bulk insert raw keywords
+    if ( ! empty( $raw_rows ) ) {
+        foreach ( array_chunk( $raw_rows, 100 ) as $chunk ) {
+            $wpdb->query(
+                "INSERT IGNORE INTO {$raw_table}
+                 (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
+                 VALUES " . implode( ',', $chunk ) // phpcs:ignore
+            );
+        }
+    }
+
+    // Bulk insert candidates
+    if ( ! empty( $cand_rows ) ) {
+        foreach ( array_chunk( $cand_rows, 100 ) as $chunk ) {
+            $wpdb->query(
+            "INSERT IGNORE INTO {$cand_table}
+                 (keyword, canonical, status, intent, volume, sources, updated_at)
+                 VALUES " . implode( ',', $chunk ) // phpcs:ignore
+            );
+        }
+    }
+
+    // ── STEP 5: Flush stats ONCE at end (not per-row) ───────────────────────
+    \TMWSEO\Engine\Keywords\KeywordValidator::flush_stats( $rejected, $raw_ins );
+    \TMWSEO\Engine\Keywords\SeedRegistry::flush_import_counters( $source, $seeds_new, $seeds_duplicated );
+
+    Logs::info( 'import', '[TMW-CSV] Bulk import complete', [
+        'raw'              => $raw_ins,
+        'candidates_new'   => $cand_ins,
+        'seeds_new'        => $seeds_new,
+        'seeds_duplicated' => $seeds_duplicated,
+        'rejected'         => $rejected,
+        'source'           => $source,
+        'file'             => basename( $file_path ),
+    ] );
+
+    if ( $run_kd ) {
+        Jobs::enqueue( 'keyword_cycle', 'system', 0, [
+            'trigger' => 'import',
+            'mode'    => 'import_only',
+        ] );
+        Worker::run();
+    }
+
+    return [ 'raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected, 'rejections' => $rejected_items ];
+}
 
     // ─── Niche SERP Mining ────────────────────────────────────────────────────
 
