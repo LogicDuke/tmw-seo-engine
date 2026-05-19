@@ -30,6 +30,8 @@ use TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Intelligence\ContentBriefGenerator;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
+use TMWSEO\Engine\Plugin;
+use TMWSEO\Engine\AutopilotMigrationRegistry;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 

@@ -823,11 +823,12 @@ class AdminFormHandlers {
             $canonical  = \TMWSEO\Engine\Keywords\KeywordValidator::normalize( $kw );
             $intent     = \TMWSEO\Engine\Keywords\KeywordValidator::infer_intent( $kw );
             $cand_rows[] = $wpdb->prepare(
-                '(%s, %s, %s, %s, %s, %s)',
+                '(%s, %s, %s, %s, %d, %s, %s)',
                 $kw,
                 $canonical,
                 'new',
                 $intent,
+                (int) ( $vol ?? 0 ),
                 'import:' . $source,
                 $now
             );
@@ -861,8 +862,8 @@ class AdminFormHandlers {
     if ( ! empty( $cand_rows ) ) {
         foreach ( array_chunk( $cand_rows, 100 ) as $chunk ) {
             $wpdb->query(
-                "INSERT IGNORE INTO {$cand_table}
-                 (keyword, canonical, status, intent, sources, updated_at)
+            "INSERT IGNORE INTO {$cand_table}
+                 (keyword, canonical, status, intent, volume, sources, updated_at)
                  VALUES " . implode( ',', $chunk ) // phpcs:ignore
             );
         }
