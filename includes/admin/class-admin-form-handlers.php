@@ -41,7 +41,21 @@ class AdminFormHandlers {
         JobWorker::process_next_job();
         // Keep legacy queue processing for backward compatibility.
         Worker::run();
-        wp_safe_redirect( admin_url( 'admin.php?page=' . \TMWSEO\Engine\Admin::MENU_SLUG . '&tmwseo_notice=worker_ran' ) );
+
+        $redirect_page = isset( $_POST['redirect_page'] )
+            ? sanitize_key( wp_unslash( (string) $_POST['redirect_page'] ) )
+            : \TMWSEO\Engine\Admin::MENU_SLUG;
+
+        $allowed_pages = [
+            'tmwseo-discovery-control',
+            'tmwseo-engine',
+        ];
+
+        if ( ! in_array( $redirect_page, $allowed_pages, true ) ) {
+            $redirect_page = \TMWSEO\Engine\Admin::MENU_SLUG;
+        }
+
+        wp_safe_redirect( admin_url( 'admin.php?page=' . rawurlencode( $redirect_page ) . '&tmwseo_notice=worker_ran' ) );
         exit;
     }
 
