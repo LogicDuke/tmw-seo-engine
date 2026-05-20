@@ -637,8 +637,14 @@ class AdminFormHandlers {
      * @return array{raw:int,cand:int,rej:int}
      */
     public static function import_keywords_from_csv_path( string $file_path, string $source = 'manual', bool $run_kd = true ): array {
+    Logs::info( 'import', '[TMW-CSV-IMPORT] import_start', [
+        'file'   => basename( $file_path ),
+        'source' => $source,
+        'run_kd' => $run_kd,
+    ] );
     $fh = fopen( $file_path, 'r' );
     if ( ! $fh ) {
+        Logs::error( 'import', '[TMW-CSV-IMPORT] import_failed', [ 'file' => basename( $file_path ), 'reason' => 'file_open_failed' ] );
         wp_die( __( 'Could not read CSV', 'tmwseo' ) );
     }
 
@@ -752,6 +758,7 @@ class AdminFormHandlers {
     fclose( $fh );
 
     if ( empty( $valid_rows ) ) {
+        Logs::warning( 'import', '[TMW-CSV-IMPORT] import_failed', [ 'file' => basename( $file_path ), 'reason' => 'no_valid_rows', 'rejected' => $rejected ] );
         Logs::info( 'import', '[TMW-CSV] No valid rows after validation', [
             'rejected' => $rejected,
             'source'   => $source,
@@ -808,8 +815,10 @@ class AdminFormHandlers {
                 sanitize_text_field( $source )
             );
             $seeds_new++;
+            Logs::info( 'import', '[TMW-CSV-IMPORT] row_inserted', [ 'keyword' => $kw, 'hash' => $hash, 'source' => $source ] );
         } else {
             $seeds_duplicated++;
+            Logs::info( 'import', '[TMW-CSV-IMPORT] duplicate_skipped', [ 'keyword' => $kw, 'hash' => $hash, 'source' => $source ] );
         }
 
         // Raw table — always attempt (INSERT IGNORE handles duplicates)
@@ -885,6 +894,7 @@ class AdminFormHandlers {
     ] );
 
     if ( $run_kd ) {
+        Logs::warning( 'import', '[TMW-CSV-IMPORT] timeout_risk', [ 'reason' => 'synchronous_worker_run', 'source' => $source ] );
         Jobs::enqueue( 'keyword_cycle', 'system', 0, [
             'trigger' => 'import',
             'mode'    => 'import_only',
@@ -892,7 +902,15 @@ class AdminFormHandlers {
         Worker::run();
     }
 
-    return [ 'raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected, 'rejections' => $rejected_items ];
+    Logs::info( 'import', '[TMW-CSV-IMPORT] import_completed', [
+        'raw'        => $raw_ins,
+        'cand'       => $cand_ins,
+        'duplicates' => $seeds_duplicated,
+        'rejected'   => $rejected,
+        'source'     => $source,
+    ] );
+
+    return [ 'raw' => $raw_ins, 'cand' => $cand_ins, 'rej' => $rejected, 'duplicates' => $seeds_duplicated, 'rejections' => $rejected_items ];
 }
 
     // ─── Niche SERP Mining ────────────────────────────────────────────────────

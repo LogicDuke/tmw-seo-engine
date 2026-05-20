@@ -351,8 +351,18 @@ class CSVManagerAdminPage {
         $notice = sanitize_key((string)wp_unslash($_GET['tmw_csv_notice']));
         if ($notice === 'deleted') {
             echo '<div class="notice notice-success is-dismissible"><p>CSV file deleted successfully.</p></div>';
+        } elseif ($notice === 'reimport_started') {
+            echo '<div class="notice notice-info is-dismissible"><p>CSV re-import started.</p></div>';
         } elseif ($notice === 'reimported') {
-            echo '<div class="notice notice-success is-dismissible"><p>CSV file re-import started successfully.</p></div>';
+            $imported = (int)($_GET['imported'] ?? 0);
+            $dupes = (int)($_GET['duplicates'] ?? 0);
+            echo '<div class="notice notice-success is-dismissible"><p>CSV re-import completed. Imported: ' . $imported . ', duplicates skipped: ' . $dupes . '.</p></div>';
+        } elseif ($notice === 'reimport_partial') {
+            $imported = (int)($_GET['imported'] ?? 0);
+            $invalid = (int)($_GET['invalid'] ?? 0);
+            echo '<div class="notice notice-warning is-dismissible"><p>CSV re-import partially completed. Imported: ' . $imported . ', invalid skipped: ' . $invalid . '.</p></div>';
+        } elseif ($notice === 'reimport_failed') {
+            echo '<div class="notice notice-error is-dismissible"><p>CSV re-import failed. Check logs for details.</p></div>';
         } elseif ($notice === 'seeds_deleted') {
             $c = (int)($_GET['seed_count'] ?? 0);
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf('%d imported seed rows deleted.', $c)) . '</p></div>';
@@ -633,8 +643,12 @@ class CSVManagerAdminPage {
         check_admin_referer('tmw_reimport_csv');
         $target = self::get_validated_file_path();
         if (!$target || !is_file($target)) { wp_die('CSV file not found.'); }
-        Admin::import_keywords_from_csv_path($target, 'manual_reimport', true);
-        wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmw_csv_notice=reimported'));
+        $source_label = pathinfo(basename($target), PATHINFO_FILENAME);
+        \TMWSEO\Engine\Logs::info('import', '[TMW-CSV-IMPORT] reimport_start', ['file' => basename($target), 'source_label' => $source_label]);
+        \TMWSEO\Engine\Logs::info('import', '[TMW-CSV-IMPORT] redirect_start', ['action' => 'tmw_csv_manager_reimport']);
+        $result = Admin::import_keywords_from_csv_path($target, $source_label, false);
+        $notice = ((int)($result['rej'] ?? 0) > 0) ? 'reimport_partial' : 'reimported';
+        wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmw_csv_notice=' . $notice . '&imported=' . (int)($result['raw'] ?? 0) . '&duplicates=' . (int)($result['duplicates'] ?? 0) . '&invalid=' . (int)($result['rej'] ?? 0)));
         exit;
     }
 
@@ -649,7 +663,7 @@ class CSVManagerAdminPage {
         $tmp = (string)$file['tmp_name'];
         $moved = is_uploaded_file($tmp) ? move_uploaded_file($tmp, $target) : @rename($tmp, $target);
         if (!$moved) { wp_die('Upload move failed'); }
-        \TMWSEO\Engine\Logs::info('import', '[TMW-SEED-CSV] upload received', ['file' => basename($target)]);
+        \TMWSEO\Engine\Logs::info('import', '[TMW-CSV-IMPORT] preview_start', ['file' => basename($target)]);
         $preview = self::build_seed_preview($target);
         $preview['file_path'] = $target;
         $preview['import_source'] = sanitize_text_field((string)($_POST['import_source'] ?? 'p1_dataforseo_verification'));
