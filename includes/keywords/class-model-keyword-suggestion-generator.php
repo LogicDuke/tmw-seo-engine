@@ -11,7 +11,10 @@ class ModelKeywordSuggestionGenerator {
         'teen','young','underage','schoolgirl','school','student','child','kids',
         'leaked','leaks','torrent','download','reddit','discord','telegram','onlyfans leak',
         'webcam driver','security camera','surveillance','zoom','teams','logitech',
-        'porn','nude','naked','sex','xxx','anal','blowjob','hardcore',
+        'video','videos','landscape','bed','room','toy','sextoy','dildo','vibrator',
+        'pussy','ass','blowjob','deepthroat','suck','gag','anal','naked','nude','porn','cam porn',
+        'live sex','sex','fuck','fingering','masturbation','missionary','moaning','orgasm','cum','lick',
+        'dirty','nasty','slutty','wet','remote toy','machine','xxx','hardcore',
     ];
 
     private const MODEL_NAME_PATTERNS = [
@@ -23,6 +26,16 @@ class ModelKeywordSuggestionGenerator {
         '{model} webcam model profile',
     ];
 
+
+
+    private const ATTRIBUTE_NORMALIZATION_MAP = [
+        'latina cam girls'   => 'latina',
+        'amateur cam girls'  => 'amateur',
+        'blonde cam girls'   => 'blonde',
+        'big tits cam girls' => 'big tits',
+        'milf cam girls'     => 'milf',
+        'live cam models'    => 'live cam model',
+    ];
 
     private const DESCRIPTIVE_HINTS = [
         'brunette','blonde','latina','asian','ebony','mature','curvy','petite','tattooed','lingerie',
@@ -252,10 +265,10 @@ class ModelKeywordSuggestionGenerator {
         return array_values( $names );
     }
 
-    private function filter_safe_attributes( array $attributes ): array {
+    private function filter_safe_attributes( array $attributes, array &$ignored = [] ): array {
         $safe = [];
         foreach ( $attributes as $attribute ) {
-            $attribute = $this->clean_phrase( (string) $attribute );
+            $attribute = $this->normalize_attribute_label( $this->clean_phrase( (string) $attribute ) );
             $lower     = strtolower( $attribute );
             if ( $attribute === '' ) {
                 continue;
@@ -264,6 +277,7 @@ class ModelKeywordSuggestionGenerator {
             foreach ( self::DISALLOWED_ATTRIBUTES as $needle ) {
                 if ( str_contains( $lower, $needle ) ) {
                     $blocked = true;
+                    $ignored[] = $attribute;
                     break;
                 }
             }
@@ -272,6 +286,24 @@ class ModelKeywordSuggestionGenerator {
             }
         }
         return array_values( $safe );
+    }
+
+
+    private function normalize_attribute_label( string $attribute ): string {
+        $normalized = $this->normalize_term( $attribute );
+        if ( $normalized === '' ) {
+            return '';
+        }
+
+        if ( isset( self::ATTRIBUTE_NORMALIZATION_MAP[ $normalized ] ) ) {
+            return self::ATTRIBUTE_NORMALIZATION_MAP[ $normalized ];
+        }
+
+        if ( preg_match( '/^(.+?)\s+cam\s+girls?$/', $normalized, $matches ) === 1 ) {
+            return trim( (string) ( $matches[1] ?? '' ) );
+        }
+
+        return $normalized;
     }
 
     private function attribute_candidates( array $attributes, string $source, int $seed ): array {
@@ -293,7 +325,7 @@ class ModelKeywordSuggestionGenerator {
 
 
     private function filter_descriptive_attributes( array $attributes, string $model_name, array &$ignored ): array {
-        $safe = $this->filter_safe_attributes( $attributes );
+        $safe = $this->filter_safe_attributes( $attributes, $ignored );
         $kept = [];
         foreach ( $safe as $attribute ) {
             if ( $this->is_name_like_attribute( $attribute, $model_name ) ) {
