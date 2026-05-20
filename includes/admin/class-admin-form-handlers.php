@@ -21,6 +21,7 @@ use TMWSEO\Engine\JobWorker;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\NicheSerpMiningService;
+use TMWSEO\Engine\Keywords\KeywordCleanupClassifier;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -1103,5 +1104,76 @@ class AdminFormHandlers {
             'tmwseo_bulk_count'     => $count,
         ] ), admin_url( 'admin.php' ) ) );
         exit;
+    }
+
+    public static function preview_keyword_cleanup(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( __( 'Insufficient permissions', 'tmwseo' ) ); }
+        check_admin_referer( 'tmwseo_preview_keyword_cleanup' );
+        $include_ignored = isset( $_POST['include_ignored'] );
+        $include_clusters = isset( $_POST['include_clusters'] );
+        $preview = self::run_keyword_cleanup_scan( $include_ignored );
+        set_transient( 'tmwseo_keyword_cleanup_preview_' . get_current_user_id(), $preview, 30 * MINUTE_IN_SECONDS );
+        Logs::info( 'keywords', '[TMW-SEO-CLEANUP] Preview keyword cleanup', $preview );
+        wp_safe_redirect( add_query_arg( [
+            'page' => 'tmwseo-keywords',
+            'tmwseo_notice' => 'keyword_cleanup_preview_ready',
+            'tmwseo_cleanup_include_ignored' => $include_ignored ? 1 : 0,
+            'tmwseo_cleanup_include_clusters' => $include_clusters ? 1 : 0,
+        ], admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    public static function apply_keyword_cleanup(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( __( 'Insufficient permissions', 'tmwseo' ) ); }
+        check_admin_referer( 'tmwseo_apply_keyword_cleanup' );
+        if ( ! isset( $_POST['confirm_apply'] ) ) {
+            wp_safe_redirect( add_query_arg( [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'keyword_cleanup_confirm_required' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $include_ignored = isset( $_POST['include_ignored'] ) && (string) $_POST['include_ignored'] === '1';
+        $scan = self::run_keyword_cleanup_scan( $include_ignored );
+        $updated = 0;
+        foreach ( $scan['matches'] as $row ) {
+            if ( ( $row['status'] ?? '' ) === 'approved' || ( $row['status'] ?? '' ) === 'ignored' ) { continue; }
+            $result = $wpdb->update( $table, [ 'status' => 'ignored', 'updated_at' => current_time( 'mysql' ) ], [ 'id' => (int) $row['id'] ], [ '%s', '%s' ], [ '%d' ] );
+            if ( $result ) { $updated++; }
+        }
+        Logs::info( 'keywords', '[TMW-SEO-CLEANUP] Applied keyword cleanup', [ 'updated' => $updated ] );
+        wp_safe_redirect( add_query_arg( [
+            'page' => 'tmwseo-keywords',
+            'tmwseo_notice' => 'keyword_cleanup_applied',
+            'tmwseo_bulk_count' => $updated,
+        ], admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    /** @return array<string,mixed> */
+    private static function run_keyword_cleanup_scan( bool $include_ignored ): array {
+        global $wpdb;
+        $rows = (array) $wpdb->get_results( 'SELECT id, keyword, status FROM ' . $wpdb->prefix . 'tmw_keyword_candidates', ARRAY_A );
+        $matches = [];
+        $approved_protected = 0;
+        $already_ignored = 0;
+        $would_ignore = 0;
+        foreach ( $rows as $row ) {
+            $status = (string) ( $row['status'] ?? '' );
+            $result = KeywordCleanupClassifier::classify( (string) ( $row['keyword'] ?? '' ) );
+            if ( ! $result['match'] ) { continue; }
+            if ( $status === 'approved' ) { $approved_protected++; continue; }
+            if ( $status === 'ignored' && ! $include_ignored ) { $already_ignored++; continue; }
+            if ( count( $matches ) < 200 ) {
+                $matches[] = [ 'id' => (int) $row['id'], 'keyword' => (string) $row['keyword'], 'status' => $status, 'reason' => (string) $result['reason'] ];
+            }
+            if ( $status !== 'ignored' ) { $would_ignore++; }
+        }
+        return [
+            'total_scanned' => count( $rows ),
+            'would_ignore' => $would_ignore,
+            'approved_protected' => $approved_protected,
+            'already_ignored' => $already_ignored,
+            'matches' => $matches,
+        ];
     }
 }
