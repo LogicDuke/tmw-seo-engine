@@ -15,13 +15,16 @@ class KeywordCleanupClassifier {
         }
 
         $protected_terms = [
-            'adult cam', 'adult cams', 'adult webcam', 'live cam', 'cam model', 'cam girl',
-            'webcam model', 'cam site', 'cam sites', 'private cam', 'video chat',
-            'adult video chat', 'sex chat', 'live chat',
+            'adult cam', 'adult cams', 'adult webcam', 'adult webcams', 'live cam', 'live cams',
+            'cam model', 'cam models', 'cam girl', 'cam girls', 'webcam model', 'webcam models',
+            'cam site', 'cam sites', 'private cam', 'video chat', 'adult video chat', 'sex chat',
+            'live chat', 'live adult chat', 'adult chat', 'webcam chat', 'cam show', 'webcam show',
         ];
 
-        $info_terms = [ 'meaning', 'means', 'name meaning', 'how old', 'age', 'birthday', 'net worth', 'wiki', 'wikipedia', 'biography', 'bio', 'ethnicity', 'real name' ];
-        $celeb_terms = [ 'huffington', 'actor', 'actress', 'movie', 'movies', 'imdb', 'wwe', 'politician', 'greek', 'football', 'soccer', 'bloodborne', 'cafe', 'boutique', 'hair boutique', 'flowers', 'queen' ];
+        $info_terms = [ 'meaning', 'means', 'name meaning', 'meaning of', 'how old', 'age', 'birthday', 'net worth', 'wiki', 'wikipedia', 'biography', 'bio', 'ethnicity', 'real name', 'cursive', 'husband', 'name' ];
+        $name_terms = [ 'arianna', 'smith', 'alessi', 'craviotto', 'bailey', 'reyes', 'rivas', 'huffington', 'huff', 'turturro', 'hailey', 'fontana', 'jackson', 'mcgregor', 'roberson', 'afsar', 'perez', 'rosario', 'gajraj', 'abdul', 'grace', 'fox' ];
+        $local_terms = [ 'grill', 'cafe', 'lakeside', 'boutique', 'hair', 'flowers', 'zucchini' ];
+        $celeb_terms = [ 'bloodborne', 'diegesis', 'movie', 'movies', 'imdb', 'wwe', 'actor', 'actress', 'politician', 'greek', 'queen', 'football', 'soccer' ];
         $hardware_terms = [ 'logitech', 'webcam driver', 'webcam drivers', 'driver download', 'camera app', 'security camera', 'surveillance', 'ip camera', 'webcam test', 'test webcam', 'zoom', 'teams', 'obs', 'software' ];
         $piracy_terms = [ 'leaked', 'leaks', 'torrent', 'download', 'free download', 'reddit', 'discord', 'telegram', 'onlyfans leak', 'mega', 'dropbox' ];
 
@@ -29,6 +32,8 @@ class KeywordCleanupClassifier {
 
         foreach ( [
             'info_intent' => $info_terms,
+            'entity_name_intent' => $name_terms,
+            'wrong_local_intent' => $local_terms,
             'celebrity_non_webcam' => $celeb_terms,
             'hardware_intent' => $hardware_terms,
             'piracy_wrong_intent' => $piracy_terms,

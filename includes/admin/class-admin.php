@@ -3537,7 +3537,7 @@ class Admin {
         wp_nonce_field( 'tmwseo_preview_keyword_cleanup' );
         echo '<input type="hidden" name="action" value="tmwseo_preview_keyword_cleanup">';
         echo '<label><input type="checkbox" name="include_ignored" value="1" ' . checked( $include_ignored, true, false ) . '> ' . esc_html__( 'Include already ignored rows in preview', 'tmwseo' ) . '</label><br>';
-        echo '<label><input type="checkbox" name="include_clusters" value="1" ' . checked( $include_clusters, true, false ) . '> ' . esc_html__( 'Also clean keyword clusters', 'tmwseo' ) . '</label><br>';
+        echo '<label><input type="checkbox" name="include_clusters" value="1" disabled> ' . esc_html__( 'Also clean keyword clusters (coming later)', 'tmwseo' ) . '</label><br>';
         submit_button( __( 'Preview Cleanup', 'tmwseo' ), 'secondary', 'submit', false );
         echo '</form>';
 
