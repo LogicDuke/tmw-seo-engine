@@ -584,7 +584,7 @@ class KeywordMetricsCsvImporter {
                     }
                     var d = resp.data;
                     // Accumulate summary
-                    ['matched','updated','created','skipped','volume_updated','kd_updated','cpc_updated','intent_updated','status_updated'].forEach(function(k){
+                    ['matched','updated','created','attempted_create','skipped','failed_updates','failed_creates','volume_updated','kd_updated','cpc_updated','intent_updated','status_updated'].forEach(function(k){
                         summary[k] = (summary[k] || 0) + (d.summary[k] || 0);
                     });
                     updateProgress(d.processed_total);
@@ -629,6 +629,7 @@ class KeywordMetricsCsvImporter {
     // ── Handle confirm (no-JS fallback + cancel) ─────────────────────────────
 
     public static function handle_import_confirm(): void {
+        global $wpdb;
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( 'Unauthorized' );
         }
@@ -668,6 +669,7 @@ class KeywordMetricsCsvImporter {
                 'source'     => $data['opts']['source'],
                 'batch_key'  => $batch_key,
                 'imported_at'=> current_time( 'mysql' ),
+                'last_error' => $wpdb->last_error,
             ] ) );
             error_log( '[TMW-KW-METRICS-IMPORT] import_completed batch_key=' . $batch_key . ' ' . wp_json_encode( $summary ) );
             wp_safe_redirect( admin_url( 'admin.php?page=' . self::PAGE_SLUG . '&tmwseo_notice=kw_metrics_done' ) );
@@ -715,6 +717,7 @@ class KeywordMetricsCsvImporter {
     // ── AJAX: finalise ───────────────────────────────────────────────────────
 
     public static function ajax_import_finalise(): void {
+        global $wpdb;
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( 'Unauthorized', 403 );
         }
@@ -735,6 +738,7 @@ class KeywordMetricsCsvImporter {
             'source'      => $source,
             'batch_key'   => $batch_key,
             'imported_at' => current_time( 'mysql' ),
+            'last_error'  => $wpdb->last_error,
         ] );
         update_option( 'tmwseo_kw_metrics_last_import', $final );
 
@@ -766,12 +770,12 @@ class KeywordMetricsCsvImporter {
         $batch_id   = substr( md5( ( $opts['batch_id'] ?? '' ) . $offset ), 0, 8 );
 
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
-        $raw_table  = $wpdb->prefix . 'tmw_keyword_raw';
-
         // Table guard
         if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $cand_table ) ) !== $cand_table ) {
             return [ 'error' => 'candidates_table_missing' ];
         }
+        $table_columns_raw = $wpdb->get_col( "SHOW COLUMNS FROM {$cand_table}", 0 );
+        $table_columns     = is_array( $table_columns_raw ) ? array_fill_keys( $table_columns_raw, true ) : [];
 
         $keys  = array_keys( $all_rows );
         $slice = array_slice( $keys, $offset, $batch_size );
@@ -812,15 +816,16 @@ class KeywordMetricsCsvImporter {
             'matched'        => 0,
             'updated'        => 0,
             'created'        => 0,
+            'attempted_create' => 0,
             'skipped'        => 0,
+            'failed_updates' => 0,
+            'failed_creates' => 0,
             'volume_updated' => 0,
             'kd_updated'     => 0,
             'cpc_updated'    => 0,
             'intent_updated' => 0,
             'status_updated' => 0,
         ];
-
-        $to_insert = []; // new candidates (if create_missing is on)
 
         foreach ( $slice as $kw ) {
             $row = $all_rows[ $kw ];
@@ -840,7 +845,6 @@ class KeywordMetricsCsvImporter {
                             $updates['volume']        = $csv_vol;
                             $updates['volume_source'] = $source;
                             $note_tags[]              = 'vol=' . $source;
-                            $summary['volume_updated']++;
                         }
                     }
                 }
@@ -856,7 +860,6 @@ class KeywordMetricsCsvImporter {
                             if ( $opts['overwrite'] || $existing_kd <= 0 ) {
                                 $updates['difficulty'] = $csv_kd;
                                 $note_tags[]           = 'kd=' . $source;
-                                $summary['kd_updated']++;
                             }
                         }
                     }
@@ -873,7 +876,6 @@ class KeywordMetricsCsvImporter {
                             $updates['cpc']        = $csv_cpc;
                             $updates['cpc_source'] = $source;
                             $note_tags[]           = 'cpc=' . $source;
-                            $summary['cpc_updated']++;
                         }
                     }
                 }
@@ -883,7 +885,6 @@ class KeywordMetricsCsvImporter {
                     $csv_intent = self::extract_string( $row, $map, 'intent' );
                     if ( $csv_intent !== '' ) {
                         $updates['intent'] = $csv_intent;
-                        $summary['intent_updated']++;
                     }
                 }
 
@@ -893,7 +894,6 @@ class KeywordMetricsCsvImporter {
                     $forbidden  = [ 'approved', 'published', 'live' ];
                     if ( $csv_status !== '' && ! in_array( $csv_status, $forbidden, true ) ) {
                         $updates['status'] = $csv_status;
-                        $summary['status_updated']++;
                     }
                 }
 
@@ -902,7 +902,6 @@ class KeywordMetricsCsvImporter {
                     $final_vol = isset( $updates['volume'] ) ? $updates['volume'] : (int) ( $ex['volume'] ?? 0 );
                     if ( $final_vol > 0 ) {
                         $updates['status'] = 'scored';
-                        $summary['status_updated']++;
                     }
                 }
 
@@ -918,13 +917,26 @@ class KeywordMetricsCsvImporter {
                     $updates['metrics_updated_at'] = $now;
                     $updates['updated_at']         = $now;
 
-                    $wpdb->update(
+                    $update_result = $wpdb->update(
                         $cand_table,
                         $updates,
                         [ 'id' => (int) $ex['id'] ]
                     );
-                    $summary['updated']++;
-                    error_log( '[TMW-KW-METRICS-IMPORT] row_updated kw=' . $kw . ' fields=' . implode( ',', array_keys( $updates ) ) );
+                    if ( $update_result === false ) {
+                        $summary['failed_updates']++;
+                        error_log( '[TMW-KW-METRICS-IMPORT] row_update_failed kw=' . $kw . ' error=' . $wpdb->last_error );
+                    } elseif ( $update_result === 0 ) {
+                        $summary['skipped']++;
+                        error_log( '[TMW-KW-METRICS-IMPORT] row_update_noop kw=' . $kw );
+                    } else {
+                        $summary['updated']++;
+                        if ( isset( $updates['volume'] ) ) { $summary['volume_updated']++; }
+                        if ( isset( $updates['difficulty'] ) ) { $summary['kd_updated']++; }
+                        if ( isset( $updates['cpc'] ) ) { $summary['cpc_updated']++; }
+                        if ( isset( $updates['intent'] ) ) { $summary['intent_updated']++; }
+                        if ( isset( $updates['status'] ) ) { $summary['status_updated']++; }
+                        error_log( '[TMW-KW-METRICS-IMPORT] row_updated kw=' . $kw . ' fields=' . implode( ',', array_keys( $updates ) ) );
+                    }
                 } else {
                     $summary['skipped']++;
                     error_log( '[TMW-KW-METRICS-IMPORT] row_skipped kw=' . $kw . ' reason=no_updateable_fields' );
@@ -932,40 +944,51 @@ class KeywordMetricsCsvImporter {
             } else {
                 // No match
                 if ( $opts['create_missing'] ) {
-                    $csv_vol = isset( $map['volume'] ) ? self::extract_int( $row, $map, 'volume' ) : null;
-                    $csv_kd  = ( isset( $map['difficulty'] ) && ! $kd25_flag_batch ) ? self::extract_float( $row, $map, 'difficulty' ) : null;
-                    $csv_cpc = isset( $map['cpc'] ) ? self::extract_float( $row, $map, 'cpc' ) : null;
-                    $note_line = '[Import ' . gmdate( 'Y-m-d' ) . ' src=' . $source . ' batch=' . $batch_id . ' new]';
-                    $to_insert[] = $wpdb->prepare(
-                        '(%s, %s, %s, %s, %d, %f, %f, %s, %s, %s)',
-                        $kw,
-                        $kw,
-                        'new',
-                        'informational',
-                        (int) ( $csv_vol ?? 0 ),
-                        (float) ( $csv_cpc ?? 0.0 ),
-                        (float) ( $csv_kd ?? 0.0 ),
-                        'csv_import:' . $source,
-                        $note_line,
-                        $now
-                    );
-                    $summary['created']++;
-                    error_log( '[TMW-KW-METRICS-IMPORT] row_created kw=' . $kw );
+                    $summary['attempted_create']++;
+                    $csv_vol         = isset( $map['volume'] ) ? self::extract_int( $row, $map, 'volume' ) : null;
+                    $csv_kd          = ( isset( $map['difficulty'] ) && ! $kd25_flag_batch ) ? self::extract_float( $row, $map, 'difficulty' ) : null;
+                    $csv_cpc         = isset( $map['cpc'] ) ? self::extract_float( $row, $map, 'cpc' ) : null;
+                    $csv_competition = isset( $map['competition'] ) ? self::extract_float( $row, $map, 'competition' ) : null;
+                    $source_label    = isset( $map['source'] ) ? sanitize_key( self::extract_string( $row, $map, 'source' ) ) : '';
+                    $effective_source = $source_label !== '' ? $source_label : $source;
+                    $note_line       = '[Import ' . gmdate( 'Y-m-d' ) . ' src=' . $effective_source . ' batch=' . $batch_id . ' new]';
+
+                    $insert_data = [
+                        'keyword'    => $kw,
+                        'canonical'  => $kw,
+                        'status'     => 'new',
+                        'intent'     => str_contains( $kw, 'category' ) ? 'category' : 'mixed',
+                        'volume'     => (int) ( $csv_vol ?? 0 ),
+                        'cpc'        => (float) ( $csv_cpc ?? 0.0 ),
+                        'difficulty' => (float) ( $csv_kd ?? 0.0 ),
+                        'sources'    => 'csv_import:' . $effective_source,
+                        'notes'      => $note_line,
+                    ];
+                    if ( isset( $table_columns['competition'] ) ) { $insert_data['competition'] = (float) ( $csv_competition ?? 0.0 ); }
+                    if ( isset( $table_columns['volume_source'] ) ) { $insert_data['volume_source'] = $effective_source; }
+                    if ( isset( $table_columns['cpc_source'] ) ) { $insert_data['cpc_source'] = $effective_source; }
+                    if ( isset( $table_columns['metrics_updated_at'] ) ) { $insert_data['metrics_updated_at'] = $now; }
+                    if ( isset( $table_columns['opportunity'] ) ) { $insert_data['opportunity'] = 0; }
+                    if ( isset( $table_columns['updated_at'] ) ) { $insert_data['updated_at'] = $now; }
+                    if ( isset( $table_columns['created_at'] ) ) { $insert_data['created_at'] = $now; }
+
+                    $insert_result = $wpdb->insert( $cand_table, $insert_data );
+                    if ( $insert_result === false ) {
+                        if ( stripos( $wpdb->last_error, 'duplicate' ) !== false ) {
+                            $summary['skipped']++;
+                            error_log( '[TMW-KW-METRICS-IMPORT] row_create_skipped kw=' . $kw . ' reason=duplicate_or_existing' );
+                        } else {
+                            $summary['failed_creates']++;
+                            error_log( '[TMW-KW-METRICS-IMPORT] row_create_failed kw=' . $kw . ' error=' . $wpdb->last_error );
+                        }
+                    } else {
+                        $summary['created']++;
+                        error_log( '[TMW-KW-METRICS-IMPORT] row_created kw=' . $kw . ' insert_id=' . (int) $wpdb->insert_id );
+                    }
                 } else {
                     $summary['skipped']++;
                     error_log( '[TMW-KW-METRICS-IMPORT] row_skipped kw=' . $kw . ' reason=no_candidate_match' );
                 }
-            }
-        }
-
-        // Bulk insert new candidates
-        if ( ! empty( $to_insert ) ) {
-            foreach ( array_chunk( $to_insert, 100 ) as $chunk ) {
-                $wpdb->query(
-                    "INSERT IGNORE INTO {$cand_table}
-                     (keyword, canonical, status, intent, volume, cpc, difficulty, sources, notes, updated_at)
-                     VALUES " . implode( ',', $chunk ) // phpcs:ignore
-                );
             }
         }
 
@@ -1012,20 +1035,29 @@ class KeywordMetricsCsvImporter {
     // ── Last import notice ───────────────────────────────────────────────────
 
     private static function render_last_import_notice( array $last ): void {
+        $has_warning = ( (int) ( $last['attempted_create'] ?? 0 ) > (int) ( $last['created'] ?? 0 ) )
+            || ( (int) ( $last['failed_updates'] ?? 0 ) > 0 )
+            || ( (int) ( $last['failed_creates'] ?? 0 ) > 0 )
+            || ! empty( $last['last_error'] ?? '' );
+
         $fields = [
             __( 'Imported at', 'tmwseo' )         => $last['imported_at']     ?? '—',
             __( 'Source', 'tmwseo' )               => $last['source']          ?? '—',
             __( 'Matched candidates', 'tmwseo' )   => $last['matched']         ?? 0,
             __( 'Updated rows', 'tmwseo' )         => $last['updated']         ?? 0,
             __( 'Created rows', 'tmwseo' )         => $last['created']         ?? 0,
+            __( 'Attempted creates', 'tmwseo' )    => $last['attempted_create'] ?? 0,
             __( 'Skipped rows', 'tmwseo' )         => $last['skipped']         ?? 0,
+            __( 'Failed updates', 'tmwseo' )       => $last['failed_updates']  ?? 0,
+            __( 'Failed creates', 'tmwseo' )       => $last['failed_creates']  ?? 0,
             __( 'Volume updated', 'tmwseo' )       => $last['volume_updated']  ?? 0,
             __( 'KD updated', 'tmwseo' )           => $last['kd_updated']      ?? 0,
             __( 'CPC updated', 'tmwseo' )          => $last['cpc_updated']     ?? 0,
             __( 'Intent updated', 'tmwseo' )       => $last['intent_updated']  ?? 0,
             __( 'Status updated', 'tmwseo' )       => $last['status_updated']  ?? 0,
         ];
-        echo '<div class="notice notice-success is-dismissible" style="max-width:600px;">';
+        $notice_class = $has_warning ? 'notice notice-warning is-dismissible' : 'notice notice-success is-dismissible';
+        echo '<div class="' . esc_attr( $notice_class ) . '" style="max-width:600px;">';
         echo '<p><strong>' . esc_html__( 'Last Import Summary', 'tmwseo' ) . '</strong></p><ul style="margin:.5em 0 .5em 1em;">';
         foreach ( $fields as $label => $value ) {
             echo '<li><strong>' . esc_html( $label ) . ':</strong> ' . esc_html( (string) $value ) . '</li>';
