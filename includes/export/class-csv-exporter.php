@@ -4,7 +4,7 @@
  *
  * Routes:
  *   /wp-admin/admin-post.php?action=tmwseo_export_csv&dataset=keywords&nonce=...
- *   datasets: keywords | opportunities | orphan_pages | ranking_probability | competitor_gaps | ai_token_log
+ *   datasets: keywords | current_keyword_candidates | opportunities | orphan_pages | ranking_probability | competitor_gaps | ai_token_log
  *
  * @package TMWSEO\Engine\Export
  */
@@ -67,6 +67,9 @@ class CSVExporter {
             case 'keywords':
                 self::export_keywords();
                 break;
+            case 'current_keyword_candidates':
+                self::export_current_keyword_candidates();
+                break;
             case 'opportunities':
                 self::export_opportunities();
                 break;
@@ -114,6 +117,73 @@ class CSVExporter {
 
         self::stream_csv( 'tmwseo-keywords-' . date( 'Y-m-d' ) . '.csv',
             [ 'Keyword', 'Search Volume', 'Difficulty', 'Intent', 'Source', 'Created At' ],
+            (array) $rows
+        );
+    }
+
+    private static function export_current_keyword_candidates(): void {
+        global $wpdb;
+
+        $table_name = $wpdb->prefix . 'tmw_keyword_candidates';
+        $table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table_name ) );
+        if ( $table_exists !== $table_name ) {
+            wp_die( 'Current keyword candidates table not found', 404 );
+        }
+
+        $columns_info = $wpdb->get_results( "SHOW COLUMNS FROM {$table_name}", ARRAY_A );
+        $available_columns = array_map(
+            static fn ( $column ): string => (string) ( $column['Field'] ?? '' ),
+            (array) $columns_info
+        );
+
+        $column_map = [
+            'id'                 => 'ID',
+            'keyword'            => 'Keyword',
+            'canonical'          => 'Canonical',
+            'volume'             => 'Volume',
+            'difficulty'         => 'Difficulty',
+            'cpc'                => 'CPC',
+            'competition'        => 'Competition',
+            'opportunity'        => 'Opportunity',
+            'intent'             => 'Intent',
+            'intent_type'        => 'Intent Type',
+            'entity_type'        => 'Entity Type',
+            'page_type'          => 'Page Type',
+            'status'             => 'Status',
+            'sources'            => 'Sources',
+            'volume_source'      => 'Volume Source',
+            'cpc_source'         => 'CPC Source',
+            'metrics_updated_at' => 'Metrics Updated At',
+            'created_at'         => 'Created At',
+            'updated_at'         => 'Updated At',
+            'notes'              => 'Notes',
+        ];
+
+        $selected_columns = [];
+        $headers = [];
+        foreach ( $column_map as $column_name => $header_label ) {
+            if ( in_array( $column_name, $available_columns, true ) ) {
+                $selected_columns[] = $column_name;
+                $headers[]          = $header_label;
+            }
+        }
+
+        if ( empty( $selected_columns ) ) {
+            wp_die( 'No exportable columns were found', 500 );
+        }
+
+        $order_by = in_array( 'updated_at', $available_columns, true )
+            ? ' ORDER BY CAST(volume AS UNSIGNED) DESC, updated_at DESC'
+            : ' ORDER BY CAST(volume AS UNSIGNED) DESC, id DESC';
+
+        $rows = $wpdb->get_results(
+            "SELECT " . implode( ', ', $selected_columns ) . " FROM {$table_name}{$order_by} LIMIT 20000",
+            ARRAY_A
+        );
+
+        self::stream_csv(
+            'tmwseo-current-keyword-candidates-' . date( 'Y-m-d' ) . '.csv',
+            $headers,
             (array) $rows
         );
     }
@@ -269,4 +339,3 @@ class CSVExporter {
         exit;
     }
 }
-

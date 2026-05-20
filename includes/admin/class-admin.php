@@ -2583,6 +2583,12 @@ class Admin {
         echo '</div>';
 
         echo '<div class="tmwui-card">';
+        echo '<h3 class="tmwui-card-title">' . esc_html__( 'Export Current Keyword Candidates', 'tmwseo' ) . '</h3>';
+        echo '<p class="tmwui-card-desc">' . esc_html__( 'Downloads a CSV export of all current keyword candidates from the live working table for external enrichment and later metrics re-import.', 'tmwseo' ) . '</p>';
+        echo \TMWSEO\Engine\Export\CSVExporter::button( 'current_keyword_candidates', __( 'Export Current Keyword Candidates', 'tmwseo' ) );
+        echo '</div>';
+
+        echo '<div class="tmwui-card">';
         echo '<h3 class="tmwui-card-title">' . esc_html__('System Worker', 'tmwseo') . '</h3>';
         $job_counts = JobWorker::counts();
         echo '<p class="tmwui-card-desc">' . esc_html__('Runs one queued background SEO job immediately. Worker cron also runs every minute.', 'tmwseo') . '</p>';
