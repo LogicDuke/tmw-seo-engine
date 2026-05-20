@@ -209,9 +209,13 @@ class JobWorker {
     public static function counts(): array {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
+        $counts = ['pending' => 0, 'running' => 0, 'failed' => 0, 'done' => 0];
+
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+            return $counts;
+        }
 
         $rows = (array) $wpdb->get_results("SELECT status, COUNT(*) AS cnt FROM {$table} GROUP BY status", ARRAY_A);
-        $counts = ['pending' => 0, 'running' => 0, 'failed' => 0, 'done' => 0];
         foreach ($rows as $row) {
             $status = (string) ($row['status'] ?? '');
             if (isset($counts[$status])) {
