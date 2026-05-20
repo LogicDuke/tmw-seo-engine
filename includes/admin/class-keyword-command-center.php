@@ -126,7 +126,7 @@ class KeywordCommandCenter {
                     'include_categories' => $include_categories,
                     'rows' => $preview_rows,
                 ], 300 );
-                Logs::info( 'assignment', '[TMW-SEO-ASSIGN] Preview model tag keyword suggestions', [
+                Logs::info( 'assignment', '[TMW-SEO-ASSIGN] Preview model frontend tag keyword suggestions', [
                     'limit' => $limit,
                     'models' => count( $preview_rows ),
                     'include_tags' => $include_tags,
@@ -488,17 +488,15 @@ class KeywordCommandCenter {
             return;
         }
 
-        echo '<table class="widefat striped"><thead><tr><th>Model</th><th>Tags</th><th>Categories/Taxonomies</th><th>Primary Keyword</th><th>Extra Keywords (5-8)</th></tr></thead><tbody>';
+        echo '<table class="widefat striped"><thead><tr><th>Model</th><th>Direct Tags</th><th>Related/Frontend Tags</th><th>Direct Categories</th><th>Related/Frontend Categories</th><th>Ignored Terms</th><th>Primary Keyword</th><th>Extra Keywords (5-8)</th></tr></thead><tbody>';
         foreach ( $rows as $row ) {
             echo '<tr>';
             echo '<td><strong>#' . esc_html( (string) ( $row['post_id'] ?? 0 ) ) . '</strong><br>' . esc_html( (string) ( $row['model_name'] ?? '' ) ) . '</td>';
-            echo '<td>' . esc_html( implode( ', ', (array) ( $row['tags'] ?? [] ) ) ) . '</td>';
-            $taxonomy_cell = esc_html( implode( ', ', (array) ( $row['categories'] ?? [] ) ) );
-            $ignored = array_values( array_filter( array_map( 'strval', (array) ( $row['ignored_terms'] ?? [] ) ) ) );
-            if ( ! empty( $ignored ) ) {
-                $taxonomy_cell .= '<br><small style="color:#666;">Ignored tags/categories: ' . esc_html( implode( ', ', $ignored ) ) . '</small>';
-            }
-            echo '<td>' . $taxonomy_cell . '</td>';
+            echo '<td>' . esc_html( implode( ', ', (array) ( $row['direct_tags'] ?? [] ) ) ) . '</td>';
+            echo '<td>' . esc_html( implode( ', ', (array) ( $row['related_tags'] ?? [] ) ) ) . '</td>';
+            echo '<td>' . esc_html( implode( ', ', (array) ( $row['direct_categories'] ?? [] ) ) ) . '</td>';
+            echo '<td>' . esc_html( implode( ', ', (array) ( $row['related_categories'] ?? [] ) ) ) . '</td>';
+            echo '<td>' . esc_html( implode( ', ', array_values( array_filter( array_map( 'strval', (array) ( $row['ignored_terms'] ?? [] ) ) ) ) ) ) . '</td>';
             echo '<td><code>' . esc_html( (string) ( $row['primary_keyword'] ?? '' ) ) . '</code></td>';
             echo '<td><ul style="margin:0;padding-left:18px;">';
             foreach ( (array) ( $row['extra_keywords'] ?? [] ) as $keyword_row ) {
