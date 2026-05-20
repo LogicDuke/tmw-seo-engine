@@ -1898,6 +1898,12 @@ class Admin {
             'tmwseo_kw_updated' => (int) ( $result['updated'] ?? 0 ),
             'tmwseo_kw_skipped' => (int) ( $result['skipped'] ?? 0 ),
             'tmwseo_kw_dfseo_reason' => rawurlencode( (string) ( $result['dataforseo_reason'] ?? '' ) ),
+            'tmwseo_kw_dfseo_called' => (int) ( $result['dfseo_called'] ?? 0 ),
+            'tmwseo_kw_dfseo_usable_kd' => (int) ( $result['dfseo_usable_kd_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_empty_map' => (int) ( $result['dfseo_empty_map'] ?? 0 ),
+            'tmwseo_kw_gkp_called' => (int) ( $result['gkp_called'] ?? 0 ),
+            'tmwseo_kw_gkp_usable_volume' => (int) ( $result['gkp_usable_volume_count'] ?? 0 ),
+            'tmwseo_kw_skip_reasons' => rawurlencode( wp_json_encode( (array) ( $result['skip_reasons'] ?? [] ) ) ),
         ], admin_url( 'admin.php' ) ) );
         exit;
     }
@@ -2060,12 +2066,32 @@ class Admin {
             $updated = isset($_GET['tmwseo_kw_updated']) ? max(0, (int) $_GET['tmwseo_kw_updated']) : 0;
             $skipped = isset($_GET['tmwseo_kw_skipped']) ? max(0, (int) $_GET['tmwseo_kw_skipped']) : 0;
             $dfseo_reason = isset($_GET['tmwseo_kw_dfseo_reason']) ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_reason'])) : '';
+            $dfseo_called = isset($_GET['tmwseo_kw_dfseo_called']) ? (int) $_GET['tmwseo_kw_dfseo_called'] : 0;
+            $dfseo_usable_kd = isset($_GET['tmwseo_kw_dfseo_usable_kd']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_usable_kd']) : 0;
+            $dfseo_empty_map = isset($_GET['tmwseo_kw_dfseo_empty_map']) ? (int) $_GET['tmwseo_kw_dfseo_empty_map'] : 0;
+            $gkp_called = isset($_GET['tmwseo_kw_gkp_called']) ? (int) $_GET['tmwseo_kw_gkp_called'] : 0;
+            $gkp_usable_volume = isset($_GET['tmwseo_kw_gkp_usable_volume']) ? max(0, (int) $_GET['tmwseo_kw_gkp_usable_volume']) : 0;
+            $skip_reasons = isset($_GET['tmwseo_kw_skip_reasons']) ? json_decode((string) wp_unslash($_GET['tmwseo_kw_skip_reasons']), true) : [];
+            $skip_reasons_text = '';
+            if ( is_array( $skip_reasons ) && ! empty( $skip_reasons ) ) {
+                $pairs = [];
+                foreach ( $skip_reasons as $reason => $count ) {
+                    $pairs[] = sanitize_key( (string) $reason ) . ':' . max( 0, (int) $count );
+                }
+                $skip_reasons_text = implode( ', ', $pairs );
+            }
             $message = sprintf(
-                __('Keyword metric enrichment completed. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO: %4$s.', 'tmwseo'),
+                __('Keyword metric enrichment completed. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO called: %4$s, usable KD count: %5$d, empty map: %6$s, status: %7$s. GKP called: %8$s, usable volume count: %9$d. Skipped reasons: %10$s.', 'tmwseo'),
                 $checked,
                 $updated,
                 $skipped,
-                $dfseo_reason !== '' ? $dfseo_reason : 'ok'
+                $dfseo_called ? 'yes' : 'no',
+                $dfseo_usable_kd,
+                $dfseo_empty_map ? 'yes' : 'no',
+                $dfseo_reason !== '' ? $dfseo_reason : 'ok',
+                $gkp_called ? 'yes' : 'no',
+                $gkp_usable_volume,
+                $skip_reasons_text !== '' ? $skip_reasons_text : 'none'
             );
         } elseif ($notice === 'keyword_cycle_queued_worker_dead') {
             $message = __('Keyword cycle job was queued but the background worker (tmwseo_worker_tick) is not scheduled. The job will not process until the worker is kicked manually from Debug Dashboard → Tools.', 'tmwseo');

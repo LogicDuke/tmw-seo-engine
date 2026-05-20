@@ -961,10 +961,11 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         Logs::info( 'keywords', '[TMW-KW-METRICS] metric_enrichment_start', [ 'limit' => $limit ] );
 
         $rows = (array) $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, keyword, volume, difficulty, intent, status, sources
+            "SELECT id, keyword, volume, difficulty, cpc, intent, status, sources, notes, metrics_updated_at
              FROM {$cand_table}
              WHERE status = 'new'
                AND ((difficulty IS NULL OR difficulty = 0) OR (volume IS NULL OR volume = 0))
+               AND (metrics_updated_at IS NULL OR metrics_updated_at < DATE_SUB(NOW(), INTERVAL 14 DAY))
              ORDER BY updated_at DESC
              LIMIT %d",
             $limit
@@ -982,15 +983,35 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         foreach ( $rows as $r ) { $by_keyword[ (string) $r['keyword'] ] = $r; }
 
         $dfseo_map = [];
+        $dfseo_usable_kd_count = 0;
+        $dfseo_empty_map = false;
         $dataforseo_reason = '';
+        $dfseo_called = false;
         if ( DataForSEO::is_configured() && ! DataForSEO::is_over_budget() ) {
+            $dfseo_called = true;
             Logs::info( 'keywords', '[TMW-KW-METRICS] dataforseo_called', [ 'count' => count( $keywords ) ] );
             $kd_res = DataForSEO::bulk_keyword_difficulty( $keywords );
             if ( ! empty( $kd_res['ok'] ) ) {
                 $dfseo_map = (array) ( $kd_res['map'] ?? [] );
+                $dfseo_usable_kd_count = count( array_filter( $dfseo_map, static function( $v ) { return is_numeric( $v ); } ) );
+                $dfseo_empty_map = empty( $dfseo_map );
+                Logs::info( 'keywords', '[TMW-KW-METRICS] dataforseo_result', [
+                    'ok' => true,
+                    'map_count' => count( $dfseo_map ),
+                    'usable_kd_count' => $dfseo_usable_kd_count,
+                    'empty_map' => $dfseo_empty_map ? 1 : 0,
+                    'sample_response_keys' => array_slice( array_keys( $dfseo_map ), 0, 5 ),
+                    'sample_keywords' => array_slice( $keywords, 0, 5 ),
+                ] );
             } else {
                 $dataforseo_reason = (string) ( $kd_res['error'] ?? 'unknown' );
                 Logs::warn( 'keywords', '[TMW-KW-METRICS] dataforseo_failed', [ 'reason' => $dataforseo_reason ] );
+                Logs::warn( 'keywords', '[TMW-KW-METRICS] dataforseo_result', [
+                    'ok' => false,
+                    'map_count' => 0,
+                    'error' => $dataforseo_reason,
+                    'sample_keywords' => array_slice( $keywords, 0, 5 ),
+                ] );
             }
         } else {
             $dataforseo_reason = DataForSEO::is_configured() ? 'over_budget' : 'not_configured';
@@ -998,14 +1019,30 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         }
 
         $gkp_map = [];
+        $gkp_called = false;
+        $gkp_usable_volume_count = 0;
+        $gkp_nonzero_volume_count = 0;
         if ( \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::is_configured() ) {
+            $gkp_called = true;
             Logs::info( 'keywords', '[TMW-KW-METRICS] gkp_called', [ 'count' => count( $keywords ) ] );
             $gkp_res = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::enrich_metrics( $keywords );
             $gkp_map = is_array( $gkp_res ) && isset( $gkp_res['metrics'] ) ? (array) $gkp_res['metrics'] : (array) $gkp_res;
+            foreach ( $gkp_map as $metric_row ) {
+                if ( ! is_array( $metric_row ) ) { continue; }
+                if ( array_key_exists( 'volume', $metric_row ) ) { $gkp_usable_volume_count++; }
+                if ( (int) ( $metric_row['volume'] ?? 0 ) > 0 ) { $gkp_nonzero_volume_count++; }
+            }
+            Logs::info( 'keywords', '[TMW-KW-METRICS] gkp_result', [
+                'metrics_count' => count( $gkp_map ),
+                'usable_volume_count' => $gkp_usable_volume_count,
+                'nonzero_volume_count' => $gkp_nonzero_volume_count,
+                'error_reason' => '',
+            ] );
         }
 
         $updated = 0;
         $skipped = 0;
+        $skip_reasons = [];
         foreach ( $keywords as $kw ) {
             $row = $by_keyword[ $kw ] ?? null;
             if ( ! is_array( $row ) ) { continue; }
@@ -1015,7 +1052,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             $sources = (string) ( $row['sources'] ?? '' );
 
             $kwn = mb_strtolower( $kw, 'UTF-8' );
-            if ( isset( $dfseo_map[ $kwn ] ) && (float) $dfseo_map[ $kwn ] > 0 && ( (float) ( $row['difficulty'] ?? 0 ) <= 0 ) ) {
+            if ( array_key_exists( $kwn, $dfseo_map ) && ( (float) ( $row['difficulty'] ?? 0 ) <= 0 ) ) {
                 $updates['difficulty'] = (float) $dfseo_map[ $kwn ];
                 $updates['difficulty_source'] = 'dataforseo';
                 $formats[] = '%f';
@@ -1027,7 +1064,7 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             $gkp_cpc = (float) ( $gkp['cpc'] ?? 0.0 );
             $gkp_intent = isset( $gkp['intent'] ) ? (string) $gkp['intent'] : '';
 
-            if ( $gkp_vol > 0 && (int) ( $row['volume'] ?? 0 ) <= 0 ) {
+            if ( array_key_exists( 'volume', $gkp ) && (int) ( $row['volume'] ?? 0 ) <= 0 ) {
                 $updates['volume'] = $gkp_vol;
                 $updates['volume_source'] = 'google_keyword_planner';
                 $formats[] = '%d';
@@ -1056,6 +1093,25 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                 Logs::info( 'keywords', '[TMW-KW-METRICS] row_updated', [ 'id' => (int) $row['id'], 'keyword' => $kw ] );
             } else {
                 $skipped++;
+                $reason = 'no_dfseo_kd_no_gkp_volume';
+                if ( $dfseo_called && $dfseo_empty_map ) {
+                    $reason = 'provider_empty';
+                } elseif ( $dfseo_called && $dataforseo_reason !== '' ) {
+                    $reason = 'provider_error';
+                } elseif ( $gkp_called && isset( $gkp ) && is_array( $gkp ) && array_key_exists( 'volume', $gkp ) && (int) ( $gkp['volume'] ?? -1 ) === 0 ) {
+                    $reason = 'explicit_zero_volume';
+                }
+                $skip_reasons[ $reason ] = (int) ( $skip_reasons[ $reason ] ?? 0 ) + 1;
+                $notes = trim( (string) ( $row['notes'] ?? '' ) );
+                if ( strpos( $notes, 'metrics_checked:no_provider_data' ) === false ) {
+                    $notes = trim( $notes . ' | metrics_checked:no_provider_data', ' |' );
+                }
+                $wpdb->update( $cand_table, [
+                    'metrics_updated_at' => current_time( 'mysql' ),
+                    'notes' => $notes,
+                    'updated_at' => current_time( 'mysql' ),
+                ], [ 'id' => (int) $row['id'] ], [ '%s', '%s', '%s' ], [ '%d' ] );
+                Logs::info( 'keywords', '[TMW-KW-METRICS] row_skipped', [ 'keyword' => $kw, 'reason' => $reason ] );
             }
         }
 
@@ -1064,6 +1120,12 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             'updated' => $updated,
             'skipped' => $skipped,
             'dataforseo_reason' => $dataforseo_reason,
+            'dfseo_called' => $dfseo_called ? 1 : 0,
+            'dfseo_usable_kd_count' => $dfseo_usable_kd_count,
+            'dfseo_empty_map' => $dfseo_empty_map ? 1 : 0,
+            'gkp_called' => $gkp_called ? 1 : 0,
+            'gkp_usable_volume_count' => $gkp_usable_volume_count,
+            'skip_reasons' => $skip_reasons,
         ] );
 
         return [
@@ -1071,6 +1133,12 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             'updated' => $updated,
             'skipped' => $skipped,
             'dataforseo_reason' => $dataforseo_reason,
+            'dfseo_called' => $dfseo_called ? 1 : 0,
+            'dfseo_usable_kd_count' => $dfseo_usable_kd_count,
+            'dfseo_empty_map' => $dfseo_empty_map ? 1 : 0,
+            'gkp_called' => $gkp_called ? 1 : 0,
+            'gkp_usable_volume_count' => $gkp_usable_volume_count,
+            'skip_reasons' => $skip_reasons,
         ];
     }
 
