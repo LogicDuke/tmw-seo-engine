@@ -528,7 +528,33 @@ class DataForSEO {
         $res = self::post('/v3/keywords_data/google_ads/search_volume/live', $payload);
         if (!$res['ok']) return $res;
 
-        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        // FIX BUG-PARSER-SV: Google Ads search_volume/live returns a FLAT array of keyword
+        // objects directly under tasks[0].result. Labs endpoints wrap in result[0].items.
+        // Using result[0]['items'] on a Google Ads response returns null → empty map.
+        $result_raw = $res['data']['tasks'][0]['result'] ?? [];
+        $task0      = $res['data']['tasks'][0] ?? [];
+        $task_status_code    = (int) ($task0['status_code']    ?? 0);
+        $task_status_message = (string) ($task0['status_message'] ?? '');
+        $task_result_count   = (int) ($task0['result_count']   ?? 0);
+        $items = [];
+        $parser_path = 'flat';
+        if (is_array($result_raw)) {
+            if (isset($result_raw[0]) && is_array($result_raw[0]) && isset($result_raw[0]['items'])) {
+                // Defensive: Labs-style wrapper (not expected here, but safe to handle)
+                $items = (array) $result_raw[0]['items'];
+                $parser_path = 'labs_items';
+            } else {
+                $items = $result_raw; // Correct: Google Ads flat array
+            }
+        }
+        Logs::info('dataforseo', '[TMW-KW-METRICS] dfseo_exact_task_status', [
+            'path'           => '/v3/keywords_data/google_ads/search_volume/live',
+            'task_status'    => $task_status_code,
+            'task_message'   => $task_status_message,
+            'result_count'   => $task_result_count,
+            'items_found'    => count($items),
+            'parser_path'    => $parser_path,
+        ]);
         $map = [];
         if (is_array($items)) {
             foreach ($items as $it) {
@@ -550,7 +576,11 @@ class DataForSEO {
         }
 
         $result = ['ok' => true, 'map' => $map, 'raw' => $res['data']];
-        set_transient( $cache_key, $result, 7 * DAY_IN_SECONDS );
+        // Safety: do not cache an empty map when the task reported results — that means the
+        // parser failed, not that DataForSEO returned nothing. Cache only genuine empty responses.
+        if (!empty($map) || $task_result_count === 0) {
+            set_transient($cache_key, $result, 7 * DAY_IN_SECONDS);
+        }
         return $result;
     }
 
@@ -568,6 +598,12 @@ class DataForSEO {
         $cache_key  = 'tmwseo_exact_metrics_' . md5(implode(',', $normalized) . self::loc_code() . self::lang_code());
         $cached     = get_transient($cache_key);
         if ($cached !== false && is_array($cached)) {
+            $cached['cache_hit'] = true;
+            Logs::info('dataforseo', '[TMW-KW-METRICS] dfseo_exact_raw_summary', [
+                'cache_hit'   => true,
+                'map_count'   => count($cached['map'] ?? []),
+                'cache_key'   => $cache_key,
+            ]);
             return $cached;
         }
 
@@ -578,11 +614,50 @@ class DataForSEO {
             'include_adult_keywords' => true,
         ]];
 
+        Logs::info('dataforseo', '[TMW-KW-METRICS] dfseo_exact_request', [
+            'keywords_count' => count($normalized),
+            'location_code'  => self::loc_code(),
+            'language_code'  => self::lang_code(),
+            'include_adult'  => true,
+            'endpoint'       => '/v3/keywords_data/google_ads/search_volume/live',
+        ]);
+
         $res = self::post('/v3/keywords_data/google_ads/search_volume/live', $payload);
         if (!$res['ok']) return $res;
 
-        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        // FIX BUG-PARSER-EM: Google Ads search_volume/live returns a FLAT array of keyword
+        // objects under tasks[0].result. The old code read tasks[0].result[0]['items'] which
+        // is the Labs-endpoint shape — resulting in null → [] for every Google Ads response.
+        // Root cause of the persistent empty map confirmed by code inspection of PR #525.
+        $task0               = $res['data']['tasks'][0] ?? [];
+        $task_status_code    = (int)    ($task0['status_code']    ?? 0);
+        $task_status_message = (string) ($task0['status_message'] ?? '');
+        $task_result_count   = (int)    ($task0['result_count']   ?? 0);
+        $result_raw          = $task0['result'] ?? [];
+
+        $items = [];
+        $parser_path = 'flat';
+        if (is_array($result_raw)) {
+            if (isset($result_raw[0]) && is_array($result_raw[0]) && isset($result_raw[0]['items'])) {
+                // Defensive: Labs-style wrapping (not expected here but safe)
+                $items = (array) $result_raw[0]['items'];
+                $parser_path = 'labs_items';
+            } else {
+                $items = $result_raw; // Correct: Google Ads flat array of keyword objects
+            }
+        }
+
+        Logs::info('dataforseo', '[TMW-KW-METRICS] dfseo_exact_raw_summary', [
+            'task_status_code'    => $task_status_code,
+            'task_status_message' => $task_status_message,
+            'task_result_count'   => $task_result_count,
+            'items_found'         => count($items),
+            'parser_path'         => $parser_path,
+            'first_item_keys'     => is_array($items[0] ?? null) ? array_keys($items[0]) : [],
+        ]);
+
         $map = [];
+        $sv_count = 0; $cpc_count = 0; $kd_count = 0;
         if (is_array($items)) {
             foreach ($items as $it) {
                 if (!is_array($it)) continue;
@@ -599,17 +674,47 @@ class DataForSEO {
                 $difficulty = isset($it['keyword_difficulty']) ? (float) $it['keyword_difficulty'] : (isset($info['keyword_difficulty']) ? (float) $info['keyword_difficulty'] : null);
 
                 $map[$kwn] = [
-                    'search_volume' => $sv,
-                    'cpc' => $cpc,
-                    'competition' => $competition,
+                    'search_volume'     => $sv,
+                    'cpc'               => $cpc,
+                    'competition'       => $competition,
                     'competition_index' => $competition_index,
-                    'difficulty' => $difficulty,
+                    'difficulty'        => $difficulty,
                 ];
+                if ($sv !== null) $sv_count++;
+                if ($cpc !== null && $cpc > 0) $cpc_count++;
+                if ($difficulty !== null) $kd_count++;
             }
         }
 
-        $result = ['ok' => true, 'map' => $map, 'raw' => $res['data']];
-        set_transient($cache_key, $result, 7 * DAY_IN_SECONDS);
+        Logs::info('dataforseo', '[TMW-KW-METRICS] dfseo_exact_parsed_counts', [
+            'map_count' => count($map),
+            'sv_count'  => $sv_count,
+            'cpc_count' => $cpc_count,
+            'kd_count'  => $kd_count,
+            'empty_map' => empty($map),
+        ]);
+
+        $result = ['ok' => true, 'map' => $map, 'raw' => $res['data'],
+                   'task_status_code' => $task_status_code,
+                   'task_status_message' => $task_status_message,
+                   'task_result_count' => $task_result_count,
+                   'parser_path' => $parser_path,
+                   'cache_hit' => false];
+
+        // Safety: do not cache an empty map when the task reported results — that means the
+        // parser failed (or the endpoint is misconfigured), not that DataForSEO returned zero.
+        // Genuine empty responses (result_count === 0) are safe to cache to avoid re-hammering.
+        if (!empty($map) || $task_result_count === 0) {
+            set_transient($cache_key, $result, 7 * DAY_IN_SECONDS);
+        } else {
+            Logs::warn('dataforseo', '[TMW-KW-METRICS] dfseo_exact_parser_path', [
+                'warning'           => 'parser_returned_empty_map_but_task_had_results',
+                'task_result_count' => $task_result_count,
+                'items_found'       => count($items),
+                'parser_path'       => $parser_path,
+                'not_cached'        => true,
+            ]);
+        }
         return $result;
     }
 
