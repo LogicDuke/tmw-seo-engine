@@ -129,6 +129,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-unified-keyword-workflow-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-library.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-pack.php' );
+        tmwseo_safe_require( $p . 'class-model-keyword-suggestion-generator.php' );
 
         // Keyword Intelligence subsystem (seo-engine/keyword-intelligence/)
         $ki = TMWSEO_ENGINE_PATH . 'includes/seo-engine/keyword-intelligence/';
