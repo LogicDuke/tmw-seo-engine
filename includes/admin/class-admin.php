@@ -1899,6 +1899,9 @@ class Admin {
             'tmwseo_kw_skipped' => (int) ( $result['skipped'] ?? 0 ),
             'tmwseo_kw_dfseo_reason' => rawurlencode( (string) ( $result['dataforseo_reason'] ?? '' ) ),
             'tmwseo_kw_dfseo_called' => (int) ( $result['dfseo_called'] ?? 0 ),
+            'tmwseo_kw_dfseo_exact_called' => (int) ( $result['dfseo_exact_called'] ?? 0 ),
+            'tmwseo_kw_dfseo_volume_count' => (int) ( $result['dfseo_volume_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_cpc_count' => (int) ( $result['dfseo_cpc_count'] ?? 0 ),
             'tmwseo_kw_dfseo_usable_kd' => (int) ( $result['dfseo_usable_kd_count'] ?? 0 ),
             'tmwseo_kw_dfseo_empty_map' => (int) ( $result['dfseo_empty_map'] ?? 0 ),
             'tmwseo_kw_gkp_called' => (int) ( $result['gkp_called'] ?? 0 ),
@@ -2067,6 +2070,9 @@ class Admin {
             $skipped = isset($_GET['tmwseo_kw_skipped']) ? max(0, (int) $_GET['tmwseo_kw_skipped']) : 0;
             $dfseo_reason = isset($_GET['tmwseo_kw_dfseo_reason']) ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_reason'])) : '';
             $dfseo_called = isset($_GET['tmwseo_kw_dfseo_called']) ? (int) $_GET['tmwseo_kw_dfseo_called'] : 0;
+            $dfseo_exact_called = isset($_GET['tmwseo_kw_dfseo_exact_called']) ? (int) $_GET['tmwseo_kw_dfseo_exact_called'] : 0;
+            $dfseo_volume_count = isset($_GET['tmwseo_kw_dfseo_volume_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_volume_count']) : 0;
+            $dfseo_cpc_count = isset($_GET['tmwseo_kw_dfseo_cpc_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_cpc_count']) : 0;
             $dfseo_usable_kd = isset($_GET['tmwseo_kw_dfseo_usable_kd']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_usable_kd']) : 0;
             $dfseo_empty_map = isset($_GET['tmwseo_kw_dfseo_empty_map']) ? (int) $_GET['tmwseo_kw_dfseo_empty_map'] : 0;
             $gkp_called = isset($_GET['tmwseo_kw_gkp_called']) ? (int) $_GET['tmwseo_kw_gkp_called'] : 0;
@@ -2081,16 +2087,19 @@ class Admin {
                 $skip_reasons_text = implode( ', ', $pairs );
             }
             $message = sprintf(
-                __('Keyword metric enrichment completed. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO called: %4$s, usable KD count: %5$d, empty map: %6$s, status: %7$s. GKP called: %8$s, usable volume count: %9$d. Skipped reasons: %10$s.', 'tmwseo'),
+                __('Keyword metric enrichment completed. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO exact metrics called: %4$s. DataForSEO volume count: %5$d. DataForSEO KD count: %6$d. DataForSEO CPC count: %7$d. DataForSEO empty map: %8$s, status: %9$s. GKP called: %10$s, usable volume count: %11$d. Rows no-data: %12$d. Skipped reasons: %13$s.', 'tmwseo'),
                 $checked,
                 $updated,
                 $skipped,
-                $dfseo_called ? 'yes' : 'no',
+                $dfseo_exact_called ? 'yes' : ( $dfseo_called ? 'legacy_yes' : 'no' ),
+                $dfseo_volume_count,
                 $dfseo_usable_kd,
+                $dfseo_cpc_count,
                 $dfseo_empty_map ? 'yes' : 'no',
                 $dfseo_reason !== '' ? $dfseo_reason : 'ok',
                 $gkp_called ? 'yes' : 'no',
                 $gkp_usable_volume,
+                $skipped,
                 $skip_reasons_text !== '' ? $skip_reasons_text : 'none'
             );
         } elseif ($notice === 'keyword_cycle_queued_worker_dead') {
