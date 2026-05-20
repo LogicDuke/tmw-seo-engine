@@ -15,6 +15,7 @@ class ModelKeywordSuggestionGenerator {
         'pussy','ass','blowjob','deepthroat','suck','gag','anal','naked','nude','porn','cam porn',
         'live sex','sex','fuck','fingering','masturbation','missionary','moaning','orgasm','cum','lick',
         'dirty','nasty','slutty','wet','remote toy','machine','xxx','hardcore',
+        'white','girl','hot','horny','erotic',
     ];
 
     private const MODEL_NAME_PATTERNS = [
@@ -35,6 +36,14 @@ class ModelKeywordSuggestionGenerator {
         'big tits cam girls' => 'big tits',
         'milf cam girls'     => 'milf',
         'live cam models'    => 'live cam model',
+        'brown hair'         => 'brunette',
+        'blonde hair'        => 'blonde',
+        'black hair'         => 'black hair',
+        'tattoo'             => 'tattooed',
+        'tattoos'            => 'tattooed',
+        'sologirl'           => 'solo',
+        'latin'              => 'latina',
+        'natural tits'       => 'natural',
     ];
 
     private const DESCRIPTIVE_HINTS = [
@@ -43,9 +52,8 @@ class ModelKeywordSuggestionGenerator {
     ];
 
     private const ATTRIBUTE_PATTERNS = [
-        '{attribute} adult video chat model','{attribute} live cam girl','{attribute} webcam chat model','{attribute} adult webcam model',
-        '{attribute} private cam show','{attribute} live webcam chat','{attribute} adult cam model','{attribute} webcam video chat',
-        '{attribute} live cam show','{attribute} adult live chat model',
+        '{attribute} adult video chat model','{attribute} webcam chat model','{attribute} live cam girl',
+        '{attribute} adult webcam model','{attribute} private cam show',
     ];
 
     public function generate_for_model( \WP_Post $post, bool $include_tags = true, bool $include_categories = true ): array {
@@ -186,10 +194,10 @@ class ModelKeywordSuggestionGenerator {
 
         foreach ( $name_candidates as $pattern ) {
             $keyword = $this->clean_phrase( str_replace( '{model}', $model_name, $pattern ) );
-            if ( $keyword !== '' ) {
+            if ( $this->is_natural_keyword( $keyword ) ) {
                 $results[] = [ 'keyword' => $keyword, 'source' => 'model_name_pattern' ];
             }
-            if ( count( $results ) >= $target ) {
+            if ( count( $results ) >= min( 4, $target ) ) {
                 break;
             }
         }
@@ -211,7 +219,7 @@ class ModelKeywordSuggestionGenerator {
                     $entry = $source_group[ ( $cursor + $seed + $index ) % count( $source_group ) ];
                 }
 
-                if ( ! empty( $entry['keyword'] ) ) {
+                if ( ! empty( $entry['keyword'] ) && $this->is_natural_keyword( (string) $entry['keyword'] ) ) {
                     $results[] = $entry;
                 }
 
@@ -226,7 +234,7 @@ class ModelKeywordSuggestionGenerator {
         $seen    = [];
         foreach ( $results as $row ) {
             $key = strtolower( trim( (string) ( $row['keyword'] ?? '' ) ) );
-            if ( $key === '' || isset( $seen[ $key ] ) ) {
+            if ( $key === '' || isset( $seen[ $key ] ) || ! $this->is_natural_keyword( (string) ( $row['keyword'] ?? '' ) ) ) {
                 continue;
             }
             $seen[ $key ] = true;
@@ -303,6 +311,10 @@ class ModelKeywordSuggestionGenerator {
             return trim( (string) ( $matches[1] ?? '' ) );
         }
 
+        if ( in_array( $normalized, [ 'anal cam girls', 'free cam girls' ], true ) ) {
+            return '';
+        }
+
         return $normalized;
     }
 
@@ -312,14 +324,59 @@ class ModelKeywordSuggestionGenerator {
         }
         $patterns = $this->patterns_for_seed( self::ATTRIBUTE_PATTERNS, $seed, count( self::ATTRIBUTE_PATTERNS ) );
         $entries  = [];
-        foreach ( $attributes as $i => $attribute ) {
-            $pattern = $patterns[ $i % count( $patterns ) ];
-            $keyword = $this->clean_phrase( str_replace( '{attribute}', $attribute, $pattern ) );
-            if ( $keyword !== '' ) {
-                $entries[] = [ 'keyword' => $keyword, 'source' => $source ];
+        foreach ( $attributes as $attribute ) {
+            foreach ( $this->patterns_for_attribute( $attribute, $patterns ) as $pattern ) {
+                $keyword = $this->clean_phrase( str_replace( '{attribute}', $attribute, $pattern ) );
+                if ( $this->is_natural_keyword( $keyword ) ) {
+                    $entries[] = [ 'keyword' => $keyword, 'source' => $source ];
+                }
             }
         }
         return $entries;
+    }
+
+    private function patterns_for_attribute( string $attribute, array $default_patterns ): array {
+        $normalized = $this->normalize_term( $attribute );
+        if ( str_contains( $normalized, 'cam girl' ) ) {
+            return [
+                '{attribute} webcam chat',
+                '{attribute} live show',
+            ];
+        }
+        if ( str_contains( $normalized, 'live cam model' ) ) {
+            return [
+                '{attribute} profile',
+                '{attribute} webcam chat',
+            ];
+        }
+
+        return $default_patterns;
+    }
+
+    private function is_natural_keyword( string $keyword ): bool {
+        $normalized = $this->normalize_term( $keyword );
+        if ( $normalized === '' ) {
+            return false;
+        }
+        foreach ( self::DISALLOWED_ATTRIBUTES as $blocked ) {
+            if ( str_contains( $normalized, $blocked ) ) {
+                return false;
+            }
+        }
+        if ( preg_match( '/\b(\w+)\s+\1\b/u', $normalized ) === 1 ) {
+            return false;
+        }
+        $awkward_pairs = [
+            'cam girl live cam girl',
+            'live cam model live cam show',
+            'webcam webcam chat',
+        ];
+        foreach ( $awkward_pairs as $pair ) {
+            if ( str_contains( $normalized, $pair ) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
 
