@@ -555,6 +555,11 @@ class DiscoveryControlAdminPage {
         echo '<button class="button button-primary"' . ($data['kill_switch_on']?' disabled title="Enable kill switch first"':'') . '>';
         echo '▶ ' . esc_html__('Run Discovery Cycle Now','tmwseo') . '</button></form>';
 
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_run_worker' );
+        echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
+        echo '<button class="button button-secondary">' . esc_html__( 'Run Worker Healthcheck', 'tmwseo' ) . '</button></form>';
+
         if ($data['breaker_active']) {
             echo '<form method="post">';
             wp_nonce_field('tmwseo_discovery_action','tmwseo_discovery_nonce');
@@ -570,10 +575,14 @@ class DiscoveryControlAdminPage {
         echo '<button class="button button-secondary">' . esc_html($tlbl) . '</button></form>';
 
         echo '</div>';
+        echo '<p class="description" style="margin-top:-12px;">' . esc_html__( 'Processes one pending background job pass. Does not create or publish pages.', 'tmwseo' ) . '</p>';
         echo '<p class="description">' . esc_html__('All actions are logged. "Run Cycle Now" queues a background discovery job and returns immediately.','tmwseo') . '</p>';
     }
 
     private static function render_action_notices(): void {
+        if ( isset( $_GET['tmwseo_notice'] ) && sanitize_key( (string) $_GET['tmwseo_notice'] ) === 'worker_ran' ) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Worker healthcheck ran.', 'tmwseo' ) . '</p></div>';
+        }
         if (!isset($_GET['tmwseo_dc_action'])) { return; }
         $a = sanitize_key((string)$_GET['tmwseo_dc_action']);
         $map = [
