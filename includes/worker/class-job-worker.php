@@ -20,26 +20,80 @@ class JobWorker {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
 
-        if (!DiscoveryGovernor::can_increment('queue_jobs_created', 1)) {
+        // ── Guard 1: table must exist ─────────────────────────────────────
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            Logs::error( 'job_worker', '[TMW-DISCOVERY-CONTROL] enqueue_failed — tmwseo_jobs table missing', [
+                'job_type' => $type,
+            ] );
             return 0;
         }
 
-        $safe_payload = self::sanitize_payload($payload);
-        $wpdb->insert(
+        // ── Guard 2: required columns must exist ──────────────────────────
+        $required_cols = [ 'job_type', 'payload_json', 'status', 'created_at', 'retry_count' ];
+        $col_rows      = $wpdb->get_results( "SHOW COLUMNS FROM {$table}", ARRAY_A ) ?: [];
+        $existing_cols = array_column( $col_rows, 'Field' );
+        $missing_cols  = array_diff( $required_cols, $existing_cols );
+        if ( ! empty( $missing_cols ) ) {
+            Logs::error( 'job_worker', '[TMW-DISCOVERY-CONTROL] enqueue_failed — tmwseo_jobs missing columns', [
+                'job_type'       => $type,
+                'missing_columns' => implode( ', ', $missing_cols ),
+            ] );
+            return 0;
+        }
+
+        // ── Guard 3: governor can_increment (wrapped — must not fatal) ────
+        try {
+            if ( ! DiscoveryGovernor::can_increment( 'queue_jobs_created', 1 ) ) {
+                Logs::warn( 'job_worker', '[TMW-DISCOVERY-CONTROL] enqueue_failed — governor limit reached', [
+                    'job_type' => $type,
+                ] );
+                return 0;
+            }
+        } catch ( \Throwable $e ) {
+            Logs::error( 'job_worker', '[TMW-DISCOVERY-CONTROL] enqueue_failed — governor threw', [
+                'job_type' => $type,
+                'error'    => $e->getMessage(),
+            ] );
+            return 0;
+        }
+
+        // ── Insert ────────────────────────────────────────────────────────
+        $safe_payload = self::sanitize_payload( $payload );
+        $inserted     = $wpdb->insert(
             $table,
             [
-                'job_type' => sanitize_key($type),
-                'payload_json' => wp_json_encode($safe_payload),
-                'status' => 'pending',
-                'created_at' => current_time('mysql'),
-                'retry_count' => 0,
+                'job_type'     => sanitize_key( $type ),
+                'payload_json' => wp_json_encode( $safe_payload ),
+                'status'       => 'pending',
+                'created_at'   => current_time( 'mysql' ),
+                'retry_count'  => 0,
             ],
-            ['%s', '%s', '%s', '%s', '%d']
+            [ '%s', '%s', '%s', '%s', '%d' ]
         );
 
-        DiscoveryGovernor::increment('queue_jobs_created', 1);
+        if ( $inserted === false || $inserted === 0 ) {
+            Logs::error( 'job_worker', '[TMW-DISCOVERY-CONTROL] enqueue_failed — insert returned false', [
+                'job_type'  => $type,
+                'db_error'  => $wpdb->last_error,
+            ] );
+            return 0;
+        }
 
-        return (int) $wpdb->insert_id;
+        $job_id = (int) $wpdb->insert_id;
+
+        // ── Only increment governor after confirmed insert ────────────────
+        try {
+            DiscoveryGovernor::increment( 'queue_jobs_created', 1 );
+        } catch ( \Throwable $e ) {
+            // Non-fatal: job was inserted successfully; governor counter is best-effort.
+            Logs::warn( 'job_worker', 'enqueue_job — governor increment threw after successful insert', [
+                'job_id'   => $job_id,
+                'job_type' => $type,
+                'error'    => $e->getMessage(),
+            ] );
+        }
+
+        return $job_id;
     }
 
     public static function process_next_job(): void {
@@ -208,10 +262,12 @@ class JobWorker {
 
     public static function counts(): array {
         global $wpdb;
-        $table = $wpdb->prefix . 'tmwseo_jobs';
+        $table  = $wpdb->prefix . 'tmwseo_jobs';
         $counts = ['pending' => 0, 'running' => 0, 'failed' => 0, 'done' => 0];
 
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+        // Guard: if tmwseo_jobs does not exist yet (e.g. fresh install, partial migration)
+        // return zeroes instead of generating a silent DB error that can corrupt page output.
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
             return $counts;
         }
 

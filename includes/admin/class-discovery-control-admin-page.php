@@ -13,6 +13,15 @@
  *
  * All POST actions handle before any HTML output (fixes BUG-04 pattern site-wide).
  *
+ * v4.6.3 — Defensive render path:
+ *   • collect_dashboard_data() wrapped in try/catch → fallback page on total failure
+ *   • Each section wrapped individually → inline error box, rest of page still renders
+ *   • JobWorker::counts() guards for missing tmwseo_jobs table (fixed in JobWorker too)
+ *   • last_run() table-existence guard added to avoid silent DB error
+ *   • No paid API calls during page render (DataForSEO budget reads from options/cache only)
+ *   • Logs: [TMW-DISCOVERY-CONTROL] render_start / dashboard_data_failed / section_failed / render_failed
+ *   • PR #516 verified: "Run Cycle Now" queues keyword_discovery job + immediate redirect
+ *
  * @package TMWSEO\Engine\Admin
  * @since   4.6.2
  */
@@ -43,76 +52,168 @@ class DiscoveryControlAdminPage {
 
         // POST handling MUST precede all HTML output (BUG-04 pattern)
         if ( isset( $_POST['tmwseo_discovery_action'] ) ) {
-            self::handle_action();
+            // ── Shutdown catcher: if PHP fatals inside handle_action(), log it ──
+            $dc_action_active = true;
+            register_shutdown_function( static function () use ( &$dc_action_active ): void {
+                if ( ! $dc_action_active ) { return; }
+                $err = error_get_last();
+                if ( ! is_array( $err ) ) { return; }
+                $fatal_mask = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
+                if ( ( (int)($err['type']??0) & $fatal_mask ) === 0 ) { return; }
+                if ( class_exists( Logs::class ) ) {
+                    Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] fatal_shutdown', [
+                        'type'    => (int)($err['type']??0),
+                        'message' => substr( (string)($err['message']??''), 0, 240 ),
+                        'file'    => basename( (string)($err['file']??'') ),
+                        'line'    => (int)($err['line']??0),
+                    ] );
+                }
+                if ( ! headers_sent() && function_exists( 'admin_url' ) ) {
+                    wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-discovery-control&tmwseo_dc_action=cycle_error' ) );
+                    exit;
+                }
+            } );
+
+            try {
+                self::handle_action();
+            } catch ( \Throwable $e ) {
+                $dc_action_active = false;
+                $ref = gmdate( 'Ymd-His' ) . '-' . substr( md5( $e->getMessage() ), 0, 6 );
+                if ( class_exists( Logs::class ) ) {
+                    Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] throwable_caught', [
+                        'error' => $e->getMessage(),
+                        'file'  => basename( $e->getFile() ),
+                        'line'  => $e->getLine(),
+                        'ref'   => $ref,
+                    ] );
+                }
+                self::safe_redirect_back( 'cycle_error', $ref );
+            }
+            $dc_action_active = false;
         }
 
-        Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] render_start', [
-            'user_id' => get_current_user_id(),
-        ] );
+        // ── [TMW-DISCOVERY-CONTROL] render_start ──────────────────────────
+        if ( class_exists( Logs::class ) ) {
+            Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] render_start', [
+                'page'       => 'tmwseo-discovery-control',
+                'request_id' => wp_generate_password( 8, false, false ),
+            ] );
+        }
+
+        // ── Collect data with full try/catch ──────────────────────────────
+        $data           = null;
+        $data_error     = null;
+        $data_error_ref = null;
 
         try {
             $data = self::collect_dashboard_data();
         } catch ( \Throwable $e ) {
-            Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] dashboard_data_failed', [
-                'error' => $e->getMessage(),
-            ] );
-            self::render_fallback_page( $e );
+            $data_error     = $e->getMessage();
+            $data_error_ref = gmdate( 'Ymd-His' ) . '-' . substr( md5( $e->getMessage() ), 0, 6 );
+            if ( class_exists( Logs::class ) ) {
+                Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] dashboard_data_failed', [
+                    'error'   => $e->getMessage(),
+                    'file'    => basename( $e->getFile() ),
+                    'line'    => $e->getLine(),
+                    'ref'     => $data_error_ref,
+                ] );
+            }
+        }
+
+        // ── Open page wrapper ─────────────────────────────────────────────
+        echo '<div class="wrap tmwseo-discovery-control">';
+        AdminUI::enqueue();
+        AdminUI::page_header(
+            __( 'Discovery Control', 'tmwseo' ),
+            __( 'Live operator view of keyword discovery pipeline health, queue depth, governor limits, and cycle history.', 'tmwseo' )
+        );
+
+        self::render_action_notices();
+
+        // ── Fallback: total data-collection failure ───────────────────────
+        if ( $data === null ) {
+            self::render_fallback_page( $data_error ?? 'Unknown error', $data_error_ref ?? 'N/A' );
+            echo '</div>';
+            if ( class_exists( Logs::class ) ) {
+                Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] render_failed', [
+                    'reason' => 'collect_dashboard_data_threw',
+                    'ref'    => $data_error_ref,
+                ] );
+            }
             return;
         }
 
-        echo '<div class="wrap tmwseo-discovery-control">';
-        AdminUI::enqueue();
-        AdminUI::page_header(
-            __( 'Discovery Control', 'tmwseo' ),
-            __( 'Live operator view of keyword discovery pipeline health, queue depth, governor limits, and cycle history.', 'tmwseo' )
-        );
-
-        self::render_action_notices();
-        self::render_dashboard_section( 'health_bar', [ self::class, 'render_health_bar' ], $data );
-        self::render_dashboard_section( 'kpi_row', [ self::class, 'render_kpi_row' ], $data );
-        self::render_dashboard_section( 'governor_meters', [ self::class, 'render_governor_meters' ], $data );
-        self::render_dashboard_section( 'queue_status', [ self::class, 'render_queue_status' ], $data );
-        self::render_dashboard_section( 'last_cycle', [ self::class, 'render_last_cycle' ], $data );
-        self::render_dashboard_section( 'discovery_log', [ self::class, 'render_discovery_log' ], $data );
-        self::render_dashboard_section( 'action_buttons', [ self::class, 'render_action_buttons' ], $data );
+        // ── Render each section defensively ──────────────────────────────
+        self::safe_render( 'health_bar',      fn() => self::render_health_bar( $data ) );
+        self::safe_render( 'kpi_row',         fn() => self::render_kpi_row( $data ) );
+        self::safe_render( 'governor_meters', fn() => self::render_governor_meters( $data ) );
+        self::safe_render( 'queue_status',    fn() => self::render_queue_status( $data ) );
+        self::safe_render( 'last_cycle',      fn() => self::render_last_cycle( $data ) );
+        self::safe_render( 'discovery_log',   fn() => self::render_discovery_log( $data ) );
+        self::safe_render( 'action_buttons',  fn() => self::render_action_buttons( $data ) );
 
         echo '</div>';
     }
 
-    /** @param array<string,mixed> $data */
-    private static function render_dashboard_section( string $section, callable $renderer, array $data ): void {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Defensive section wrapper
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Execute a render callback. On Throwable, log [TMW-DISCOVERY-CONTROL] section_failed
+     * and emit a visible inline error box, then continue.
+     *
+     * @param string   $section  Human-readable section name for logs.
+     * @param callable $callback Render callback.
+     */
+    private static function safe_render( string $section, callable $callback ): void {
         try {
-            call_user_func( $renderer, $data );
+            $callback();
         } catch ( \Throwable $e ) {
-            Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] section_failed', [
-                'section' => $section,
-                'error'   => $e->getMessage(),
-            ] );
-            echo '<div class="notice notice-error inline"><p>';
-            echo esc_html( sprintf( 'Discovery Control section "%s" failed to render. Check logs for details.', $section ) );
-            echo '</p></div>';
+            $ref = gmdate( 'Ymd-His' ) . '-' . substr( md5( $section . $e->getMessage() ), 0, 6 );
+            if ( class_exists( Logs::class ) ) {
+                Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] section_failed', [
+                    'section' => $section,
+                    'error'   => $e->getMessage(),
+                    'file'    => basename( $e->getFile() ),
+                    'line'    => $e->getLine(),
+                    'ref'     => $ref,
+                ] );
+            }
+            echo '<div style="background:#fce8e8;border:1px solid #f87171;border-radius:6px;padding:10px 14px;margin:8px 0;font-size:13px;">';
+            echo '<strong>⚠ Dashboard section "' . esc_html( $section ) . '" could not load.</strong> ';
+            echo 'Ref: <code>' . esc_html( $ref ) . '</code>. Check <code>wp-content/debug.log</code> and TMW SEO logs for details.';
+            echo '</div>';
         }
     }
 
-    private static function render_fallback_page( \Throwable $e ): void {
-        echo '<div class="wrap tmwseo-discovery-control">';
-        AdminUI::enqueue();
-        AdminUI::page_header(
-            __( 'Discovery Control', 'tmwseo' ),
-            __( 'Live operator view of keyword discovery pipeline health, queue depth, governor limits, and cycle history.', 'tmwseo' )
-        );
-        self::render_action_notices();
-        echo '<div class="notice notice-error"><p>';
-        echo esc_html__( 'Discovery dashboard data could not be loaded. Try refreshing the page. If this persists, review plugin logs.', 'tmwseo' );
-        echo '</p></div>';
-        echo '<h2>' . esc_html__( 'Actions', 'tmwseo' ) . '</h2>';
-        echo '<p class="description">' . esc_html__( 'Core actions remain available even when dashboard data fails to load.', 'tmwseo' ) . '</p>';
-        self::render_action_buttons( [ 'kill_switch_on' => false, 'breaker_active' => false ] );
-        echo '</div>';
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fallback page (total failure)
+    // ─────────────────────────────────────────────────────────────────────────
 
-        Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] render_failed', [
-            'error' => $e->getMessage(),
-        ] );
+    private static function render_fallback_page( string $error_msg, string $ref ): void {
+        $ts = gmdate( 'Y-m-d H:i:s \U\T\C' );
+        echo '<div style="background:#fce8e8;border:1px solid #f87171;border-radius:8px;padding:20px 24px;max-width:720px;margin:20px 0;">';
+        echo '<h2 style="margin-top:0;color:#8a1a1a;">&#9888; Discovery Control could not fully load</h2>';
+        echo '<p>No jobs were run. No data was changed. This is a display error only.</p>';
+        echo '<table style="border-collapse:collapse;width:100%;margin-bottom:16px;">';
+        echo '<tr><td style="padding:4px 8px;color:#555;width:140px;">Timestamp</td><td><strong>' . esc_html( $ts ) . '</strong></td></tr>';
+        echo '<tr><td style="padding:4px 8px;color:#555;">Error ref</td><td><code>' . esc_html( $ref ) . '</code></td></tr>';
+        echo '<tr><td style="padding:4px 8px;color:#555;">Error</td><td style="font-family:monospace;font-size:12px;">' . esc_html( substr( $error_msg, 0, 300 ) ) . '</td></tr>';
+        echo '</table>';
+        echo '<p style="margin-bottom:8px;"><strong>Next steps:</strong></p><ul style="margin-left:20px;">';
+        echo '<li>Check <code>wp-content/debug.log</code> for PHP errors around this timestamp.</li>';
+        echo '<li>Enable <code>WP_DEBUG</code> and <code>WP_DEBUG_LOG</code> in <code>wp-config.php</code> if not already on.</li>';
+        echo '<li>Search TMW SEO logs for <code>' . esc_html( $ref ) . '</code>.</li>';
+        echo '</ul>';
+        echo '<p style="margin-top:16px;">';
+
+        $base = admin_url( 'admin.php' );
+        echo '<a class="button" href="' . esc_url( add_query_arg( 'page', 'tmwseo-debug-dashboard',  $base ) ) . '">Debug Dashboard</a> &nbsp;';
+        echo '<a class="button" href="' . esc_url( add_query_arg( 'page', 'tmwseo-csv-manager',      $base ) ) . '">CSV Manager</a> &nbsp;';
+        echo '<a class="button" href="' . esc_url( add_query_arg( 'page', 'tmwseo-seed-registry',    $base ) ) . '">Seed Registry</a>';
+        echo '</p>';
+        echo '</div>';
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -123,19 +224,23 @@ class DiscoveryControlAdminPage {
     private static function collect_dashboard_data(): array {
         global $wpdb;
 
-        $kill_switch_on   = ! DiscoveryGovernor::is_discovery_allowed();
-        $safe_mode_on     = (bool) Settings::get( 'safe_mode', 1 );
-        $dfs_configured   = DataForSEO::is_configured();
-        $dfs_budget       = DataForSEO::get_monthly_budget_stats();
-        $dfs_over_budget  = DataForSEO::is_over_budget();
+        // — Core toggles & DataForSEO budget (all from options/cache, no paid API calls) —
+        $kill_switch_on  = ! DiscoveryGovernor::is_discovery_allowed();
+        $safe_mode_on    = (bool) Settings::get( 'safe_mode', 1 );
+        $dfs_configured  = DataForSEO::is_configured();
+        $dfs_budget      = DataForSEO::get_monthly_budget_stats(); // reads wp_options only
+        $dfs_over_budget = DataForSEO::is_over_budget();           // reads wp_options only
 
+        // — KeywordDiscoveryGovernor —
         $kd_governor = new KeywordDiscoveryGovernor();
         $kd_config   = $kd_governor->config();
-        $kd_today    = $kd_governor->get_keywords_added_today();
+        $kd_today    = $kd_governor->get_keywords_added_today(); // has table-check inside
         $db_size     = size_format( max( 0, (int) $kd_governor->database_size_bytes() ), 2 );
-        $last_kd_run = $kd_governor->last_run();
 
-        // Per-metric API quota meters
+        // last_run() does NOT check table existence inside — guard here
+        $last_kd_run = self::safe_last_run( $kd_governor );
+
+        // — Governor meters (reads tmw_discovery_governor via options fallback) —
         $governor_defaults = DiscoveryGovernor::defaults();
         $governor_meters   = [];
         foreach ( $governor_defaults as $metric => $limit ) {
@@ -149,22 +254,27 @@ class DiscoveryControlAdminPage {
             ];
         }
 
-        $cycle_metrics  = get_option( 'tmw_keyword_engine_metrics', [] );
+        // — Cycle metrics & circuit breaker (options only) —
+        $cycle_metrics = get_option( 'tmw_keyword_engine_metrics', [] );
         if ( ! is_array( $cycle_metrics ) ) { $cycle_metrics = []; }
         $stop_reason    = (string) ( $cycle_metrics['last_stop_reason']    ?? '' );
-        $stop_reason_at = (int)   ( $cycle_metrics['last_stop_reason_at'] ?? 0 );
+        $stop_reason_at = (int)    ( $cycle_metrics['last_stop_reason_at'] ?? 0 );
         $breaker        = get_option( 'tmw_keyword_engine_breaker', [] );
         if ( ! is_array( $breaker ) ) { $breaker = []; }
         $breaker_active = ! empty( $breaker['last_triggered'] )
             && ( time() - (int) $breaker['last_triggered'] ) < 900;
 
+        // — Queue / candidate counts (table-existence guarded) —
         $expansion_counts = class_exists( ExpansionCandidateRepository::class )
-            ? ExpansionCandidateRepository::count_by_status()
+            ? self::safe_expansion_counts()
             : [];
         $kw_cand_counts   = self::get_kw_candidate_counts();
-        $job_counts       = class_exists( JobWorker::class ) ? JobWorker::counts() : [];
+
+        // JobWorker::counts() also table-guarded (fixed in JobWorker, also here)
+        $job_counts       = class_exists( JobWorker::class ) ? self::safe_job_counts() : [];
         $queue_full_since = (int) get_option( 'tmwseo_kw_queue_full_since', 0 );
 
+        // — Discovery log rows —
         $log_table  = $wpdb->prefix . 'tmwseo_discovery_logs';
         $log_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $log_table ) ) === $log_table );
         $log_rows   = $log_exists
@@ -179,6 +289,65 @@ class DiscoveryControlAdminPage {
             'expansion_counts', 'kw_cand_counts', 'job_counts', 'queue_full_since',
             'log_rows'
         );
+    }
+
+    /**
+     * Safe wrapper for KeywordDiscoveryGovernor::last_run().
+     * That method queries tmwseo_discovery_logs directly without a table-existence guard,
+     * which generates a silent $wpdb->last_error on new installs. Guard it here.
+     *
+     * @return array<string,mixed>
+     */
+    private static function safe_last_run( KeywordDiscoveryGovernor $gov ): array {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmwseo_discovery_logs';
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            return [];
+        }
+        try {
+            return $gov->last_run();
+        } catch ( \Throwable $e ) {
+            return [];
+        }
+    }
+
+    /**
+     * Safe wrapper for ExpansionCandidateRepository::count_by_status().
+     * The repository queries its table without an existence guard.
+     *
+     * @return array<string,int>
+     */
+    private static function safe_expansion_counts(): array {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_seed_expansion_candidates';
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            return [];
+        }
+        try {
+            return ExpansionCandidateRepository::count_by_status();
+        } catch ( \Throwable $e ) {
+            return [];
+        }
+    }
+
+    /**
+     * Safe wrapper for JobWorker::counts().
+     * JobWorker::counts() queries tmwseo_jobs without a table-existence guard.
+     * We check here AND the fix in class-job-worker.php adds the same guard there.
+     *
+     * @return array<string,int>
+     */
+    private static function safe_job_counts(): array {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmwseo_jobs';
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            return [ 'pending' => 0, 'running' => 0, 'failed' => 0, 'done' => 0 ];
+        }
+        try {
+            return JobWorker::counts();
+        } catch ( \Throwable $e ) {
+            return [ 'pending' => 0, 'running' => 0, 'failed' => 0, 'done' => 0 ];
+        }
     }
 
     /** @return array<string,int> */
@@ -421,94 +590,199 @@ class DiscoveryControlAdminPage {
     // ─────────────────────────────────────────────────────────────────────────
 
     private static function handle_action(): void {
-        if ( !current_user_can('manage_options') ) { return; }
-        if ( !isset($_POST['tmwseo_discovery_nonce']) ||
-             !wp_verify_nonce(sanitize_text_field(wp_unslash((string)$_POST['tmwseo_discovery_nonce'])),'tmwseo_discovery_action') ) { return; }
-
-        $action = sanitize_key((string)($_POST['tmwseo_discovery_action']??''));
-        $slug   = 'cycle_ran';
         $user_id = get_current_user_id();
 
-        switch ($action) {
-            case 'run_cycle':
-                Logs::info('discovery_control', '[TMW-DISCOVERY-CONTROL] manual_run_requested', [
+        // Capability check — redirect instead of silent return
+        if ( ! current_user_can( 'manage_options' ) ) {
+            if ( class_exists( Logs::class ) ) {
+                Logs::warn( 'discovery_control', '[TMW-DISCOVERY-CONTROL] action_preflight_failed', [
+                    'reason'  => 'capability_check_failed',
                     'user_id' => $user_id,
-                    'source'  => 'manual_discovery_control',
-                    'start_time' => microtime(true),
-                ]);
-
-                $preflight = self::run_cycle_preflight();
-                if (!$preflight['ok']) {
-                    $slug = 'cycle_preflight_failed';
-                    Logs::warn('discovery_control', '[TMW-DISCOVERY-CONTROL] preflight_failed', [
-                        'user_id' => $user_id,
-                        'source'  => 'manual_discovery_control',
-                        'reasons' => $preflight['reasons'],
-                    ]);
-                    break;
-                }
-
-                if (!empty($preflight['already_running'])) {
-                    $slug = 'cycle_already_running';
-                    Logs::warn('discovery_control', '[TMW-DISCOVERY-CONTROL] already_running', [
-                        'user_id' => $user_id,
-                        'source'  => 'manual_discovery_control',
-                    ]);
-                    break;
-                }
-
-                $job_id = class_exists(JobWorker::class)
-                    ? JobWorker::enqueue_job('keyword_discovery', ['source' => 'manual_discovery_control', 'user_id' => $user_id])
-                    : 0;
-
-                if ($job_id > 0) {
-                    $slug = 'cycle_queued';
-                    Logs::info('discovery_control', '[TMW-DISCOVERY-CONTROL] job_queued', [
-                        'job_id' => $job_id,
-                        'user_id' => $user_id,
-                        'source'  => 'manual_discovery_control',
-                    ]);
-                    Logs::info('keywords', '[TMW-KW-CYCLE] queued', [
-                        'job_id' => $job_id,
-                        'user_id' => $user_id,
-                        'source'  => 'manual_discovery_control',
-                        'start_time' => microtime(true),
-                    ]);
-                } else {
-                    $slug = 'cycle_worker_unavailable';
-                    Logs::error('discovery_control', '[TMW-DISCOVERY-CONTROL] queue_failed', [
-                        'user_id' => $user_id,
-                        'source'  => 'manual_discovery_control',
-                        'failure_reason' => 'worker_unavailable_or_queue_insert_failed',
-                    ]);
-                }
-                break;
-            case 'reset_breaker':
-                delete_option('tmw_keyword_engine_breaker');
-                Logs::info('discovery_control','[TMW-DISCOVERY-CONTROL] breaker_reset',['user_id'=>$user_id]);
-                $slug = 'breaker_reset';
-                break;
-            case 'enable_discovery':
-                update_option('tmw_discovery_enabled',1,false);
-                Logs::info('discovery_control','[TMW-DISCOVERY-CONTROL] discovery_enabled',['user_id'=>$user_id]);
-                $slug = 'discovery_on';
-                break;
-            case 'disable_discovery':
-                update_option('tmw_discovery_enabled',0,false);
-                Logs::warn('discovery_control','[TMW-DISCOVERY-CONTROL] discovery_disabled',['user_id'=>$user_id]);
-                $slug = 'discovery_off';
-                break;
-            default: return;
+                ] );
+            }
+            self::safe_redirect_back( 'cycle_preflight_failed' );
         }
 
-        wp_safe_redirect(admin_url('admin.php?page=tmwseo-discovery-control&tmwseo_dc_action='.rawurlencode($slug)));
+        // Nonce check — redirect instead of silent return
+        if ( ! isset( $_POST['tmwseo_discovery_nonce'] ) ||
+             ! wp_verify_nonce( sanitize_text_field( wp_unslash( (string)$_POST['tmwseo_discovery_nonce'] ) ), 'tmwseo_discovery_action' ) ) {
+            if ( class_exists( Logs::class ) ) {
+                Logs::warn( 'discovery_control', '[TMW-DISCOVERY-CONTROL] action_preflight_failed', [
+                    'reason'  => 'nonce_check_failed',
+                    'user_id' => $user_id,
+                ] );
+            }
+            self::safe_redirect_back( 'cycle_preflight_failed' );
+        }
+
+        $action = sanitize_key( (string)( $_POST['tmwseo_discovery_action'] ?? '' ) );
+        $slug   = 'cycle_ran';
+
+        switch ( $action ) {
+            case 'run_cycle':
+                if ( class_exists( Logs::class ) ) {
+                    Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] manual_run_requested', [
+                        'user_id'    => $user_id,
+                        'source'     => 'manual_discovery_control',
+                        'start_time' => microtime( true ),
+                    ] );
+                    Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] action_preflight_start', [
+                        'user_id' => $user_id,
+                    ] );
+                }
+
+                $preflight = self::run_cycle_preflight();
+
+                if ( ! $preflight['ok'] ) {
+                    $slug = 'cycle_preflight_failed';
+                    if ( class_exists( Logs::class ) ) {
+                        Logs::warn( 'discovery_control', '[TMW-DISCOVERY-CONTROL] action_preflight_failed', [
+                            'user_id' => $user_id,
+                            'source'  => 'manual_discovery_control',
+                            'reasons' => $preflight['reasons'],
+                        ] );
+                    }
+                    break;
+                }
+
+                if ( ! empty( $preflight['already_running'] ) ) {
+                    $slug = 'cycle_already_running';
+                    if ( class_exists( Logs::class ) ) {
+                        Logs::warn( 'discovery_control', '[TMW-DISCOVERY-CONTROL] cycle_already_running', [
+                            'user_id' => $user_id,
+                            'source'  => 'manual_discovery_control',
+                        ] );
+                    }
+                    break;
+                }
+
+                if ( class_exists( Logs::class ) ) {
+                    Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] action_preflight_passed', [
+                        'user_id' => $user_id,
+                    ] );
+                    Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] enqueue_start', [
+                        'user_id' => $user_id,
+                        'source'  => 'manual_discovery_control',
+                    ] );
+                }
+
+                // PR #516 / PR #517 — enqueue background job only. Never call run_cycle() inline.
+                $job_id = class_exists( JobWorker::class )
+                    ? JobWorker::enqueue_job( 'keyword_discovery', [
+                        'source'  => 'manual_discovery_control',
+                        'user_id' => $user_id,
+                    ] )
+                    : 0;
+
+                if ( $job_id > 0 ) {
+                    $slug = 'cycle_queued';
+                    if ( class_exists( Logs::class ) ) {
+                        Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] enqueue_success', [
+                            'job_id'  => $job_id,
+                            'user_id' => $user_id,
+                            'source'  => 'manual_discovery_control',
+                        ] );
+                        Logs::info( 'keywords', '[TMW-KW-CYCLE] queued', [
+                            'job_id'     => $job_id,
+                            'user_id'    => $user_id,
+                            'source'     => 'manual_discovery_control',
+                            'start_time' => microtime( true ),
+                        ] );
+                    }
+                } else {
+                    $slug = 'cycle_worker_unavailable';
+                    if ( class_exists( Logs::class ) ) {
+                        Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] enqueue_failed', [
+                            'user_id'        => $user_id,
+                            'source'         => 'manual_discovery_control',
+                            'failure_reason' => 'worker_unavailable_or_queue_insert_failed',
+                        ] );
+                    }
+                }
+                break;
+
+            case 'reset_breaker':
+                delete_option( 'tmw_keyword_engine_breaker' );
+                if ( class_exists( Logs::class ) ) {
+                    Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] breaker_reset', [ 'user_id' => $user_id ] );
+                }
+                $slug = 'breaker_reset';
+                break;
+
+            case 'enable_discovery':
+                update_option( 'tmw_discovery_enabled', 1, false );
+                if ( class_exists( Logs::class ) ) {
+                    Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] discovery_enabled', [ 'user_id' => $user_id ] );
+                }
+                $slug = 'discovery_on';
+                break;
+
+            case 'disable_discovery':
+                update_option( 'tmw_discovery_enabled', 0, false );
+                if ( class_exists( Logs::class ) ) {
+                    Logs::warn( 'discovery_control', '[TMW-DISCOVERY-CONTROL] discovery_disabled', [ 'user_id' => $user_id ] );
+                }
+                $slug = 'discovery_off';
+                break;
+
+            default:
+                // Unknown action — redirect with error instead of silently returning
+                if ( class_exists( Logs::class ) ) {
+                    Logs::warn( 'discovery_control', '[TMW-DISCOVERY-CONTROL] action_preflight_failed', [
+                        'reason'  => 'unknown_action',
+                        'action'  => $action,
+                        'user_id' => $user_id,
+                    ] );
+                }
+                $slug = 'cycle_error';
+                break;
+        }
+
+        if ( class_exists( Logs::class ) ) {
+            Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] redirect_start', [
+                'slug'    => $slug,
+                'user_id' => $user_id,
+            ] );
+        }
+
+        self::safe_redirect_back( $slug );
+    }
+
+    /**
+     * Redirect back to Discovery Control with a notice slug.
+     *
+     * If headers are already sent (rare edge case where output leaked before the
+     * POST handler), falls back to a minimal HTML page with a manual link so the
+     * operator is never left staring at a blank screen.
+     *
+     * This method always terminates execution (exit / echo + exit).
+     *
+     * @param string $slug      tmwseo_dc_action value (e.g. 'cycle_queued').
+     * @param string $error_ref Optional error reference string shown in fallback HTML.
+     * @return never
+     */
+    private static function safe_redirect_back( string $slug, string $error_ref = '' ): void {
+        $url = admin_url( 'admin.php?page=tmwseo-discovery-control&tmwseo_dc_action=' . rawurlencode( $slug ) );
+
+        if ( ! headers_sent() ) {
+            wp_safe_redirect( $url );
+            exit;
+        }
+
+        // Headers already sent — render a minimal fallback so the page is never blank.
+        $ref_note = $error_ref !== '' ? ' (ref: <code>' . esc_html( $error_ref ) . '</code>)' : '';
+        echo '<div style="font-family:sans-serif;padding:24px;max-width:600px;">';
+        echo '<h2>&#9888; Discovery Control — action completed with notice</h2>';
+        echo '<p>The action finished but the redirect could not complete because page output had already started.' . $ref_note . '</p>';
+        echo '<p><a href="' . esc_url( $url ) . '" style="font-size:15px;font-weight:600;">&#8592; Return to Discovery Control</a></p>';
+        echo '</div>';
         exit;
     }
 
     /** @return array{ok:bool,reasons:array<int,string>,already_running:bool} */
     private static function run_cycle_preflight(): array {
         global $wpdb;
-        $reasons = [];
+        $reasons         = [];
         $already_running = false;
 
         if (!DiscoveryGovernor::is_discovery_allowed()) { $reasons[] = 'kill_switch_off'; }
@@ -528,18 +802,19 @@ class DiscoveryControlAdminPage {
 
         $seed_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_seeds WHERE status='active'");
         if ($seed_count <= 0 && class_exists(SeedRegistry::class)) {
-            $trusted = "'" . implode("','", array_map('esc_sql', SeedRegistry::trusted_sources())) . "'";
+            $trusted    = "'" . implode("','", array_map('esc_sql', SeedRegistry::trusted_sources())) . "'";
             $seed_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_seeds WHERE source IN ({$trusted})");
         }
         if ($seed_count <= 0) { $reasons[] = 'no_seeds'; }
 
+        // Budget check via options only — no paid API call
         $budget = DataForSEO::get_monthly_budget_stats();
         if (!is_array($budget)) { $reasons[] = 'budget_unreadable'; }
 
         $lock_key = 'tmw_keyword_cycle_lock';
         $lock_val = get_option($lock_key, null);
         if ($lock_val === null) {
-            // readable, no lock row yet.
+            // No lock row — cycle is free to run.
         } elseif (!is_numeric((string)$lock_val)) {
             $reasons[] = 'lock_unreadable';
         } else {
@@ -548,9 +823,9 @@ class DiscoveryControlAdminPage {
                 $already_running = true;
             } else {
                 Logs::warn('discovery_control', '[TMW-DISCOVERY-CONTROL] stale_lock_detected', [
-                    'source' => 'manual_discovery_control',
+                    'source'           => 'manual_discovery_control',
                     'lock_age_seconds' => $age,
-                    'lock_key' => $lock_key,
+                    'lock_key'         => $lock_key,
                 ]);
             }
         }
