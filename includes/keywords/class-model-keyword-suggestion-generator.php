@@ -21,9 +21,9 @@ class ModelKeywordSuggestionGenerator {
     ];
 
     private const MODEL_NAME_PATTERNS = [
-        '{model} webcam chat girl','{model} adult cam show','{model} private video chat',
-        '{model} live webcam model','{model} webcam chat model','{model} adult webcam model',
-        '{model} private cam show','{model} cam model',
+        '{model} live cam girl','{model} webcam chat','{model} webcam chat girl',
+        '{model} live webcam model','{model} adult video chat model','{model} private cam show',
+        '{model} live cam show','{model} cam model',
     ];
 
 
@@ -51,7 +51,7 @@ class ModelKeywordSuggestionGenerator {
 
     private const ATTRIBUTE_PATTERNS = [
         '{attribute} adult video chat model','{attribute} webcam chat model','{attribute} live cam girl',
-        '{attribute} adult webcam model','{attribute} private cam show',
+        '{attribute} adult webcam model','{attribute} private cam show','{attribute} live cam show',
     ];
 
     public function generate_for_model( \WP_Post $post, bool $include_tags = true, bool $include_categories = true ): array {
@@ -182,75 +182,157 @@ class ModelKeywordSuggestionGenerator {
     private function build_extra_keywords( int $post_id, string $model_name, array $tag_attributes, array $category_attributes, bool $include_tags, bool $include_categories ): array {
         $target = 5 + ( $post_id % 4 ); // 5-8 deterministic.
         $seed   = max( 0, $post_id );
-        $name_target = min( 4, max( 3, $target - 2 ) );
+        $has_clean_attributes = ! empty( $tag_attributes ) || ! empty( $category_attributes );
 
-        $name_candidates = $this->patterns_for_seed( self::MODEL_NAME_PATTERNS, $seed, 8 );
+        $name_target_min = 3;
+        $name_target_max = 4;
+        $attribute_target_min = $has_clean_attributes ? 2 : 0;
+        $attribute_target_max = $has_clean_attributes ? 4 : 0;
 
-        $tag_candidates      = $this->attribute_candidates( $tag_attributes, 'tag_pattern', $seed + 7 );
-        $category_candidates = $this->attribute_candidates( $category_attributes, 'category_pattern', $seed + 13 );
-
-        $results = [];
-
-        foreach ( $name_candidates as $pattern ) {
+        $candidate_pool = [];
+        foreach ( $this->patterns_for_seed( self::MODEL_NAME_PATTERNS, $seed, count( self::MODEL_NAME_PATTERNS ) ) as $pattern ) {
             $keyword = $this->clean_phrase( str_replace( '{model}', $model_name, $pattern ) );
             if ( $this->is_natural_keyword( $keyword ) ) {
-                $results[] = [ 'keyword' => $keyword, 'source' => 'model_name_pattern' ];
-            }
-            if ( count( $results ) >= $name_target ) {
-                break;
+                $candidate_pool[] = [ 'keyword' => $keyword, 'source' => 'model_name_pattern' ];
             }
         }
+        $candidate_pool = array_merge(
+            $candidate_pool,
+            $this->attribute_candidates( $tag_attributes, 'tag_pattern', $seed + 7 ),
+            $this->attribute_candidates( $category_attributes, 'category_pattern', $seed + 13 )
+        );
 
-        if ( empty( $tag_candidates ) && empty( $category_candidates ) ) {
-            return array_slice( $results, 0, $target );
-        }
+        return $this->select_best_keywords( $candidate_pool, $model_name, $target, $name_target_min, $name_target_max, $attribute_target_min, $attribute_target_max );
+    }
 
-        $mix_sources = [ $tag_candidates, $category_candidates, $name_candidates ];
-        $cursor      = 0;
-
-        while ( count( $results ) < $target && $cursor < 40 ) {
-            foreach ( $mix_sources as $index => $source_group ) {
-                if ( empty( $source_group ) ) {
-                    continue;
-                }
-
-                if ( $index === 2 ) {
-                    $pattern = $source_group[ ( $cursor + $seed ) % count( $source_group ) ];
-                    $keyword = $this->clean_phrase( str_replace( '{model}', $model_name, $pattern ) );
-                    $entry   = [ 'keyword' => $keyword, 'source' => 'model_name_pattern' ];
-                } else {
-                    $entry = $source_group[ ( $cursor + $seed + $index ) % count( $source_group ) ];
-                }
-
-                if ( ! empty( $entry['keyword'] ) && $this->is_natural_keyword( (string) $entry['keyword'] ) ) {
-                    $results[] = $entry;
-                }
-
-                if ( count( $results ) >= $target ) {
-                    break 2;
-                }
-            }
-            $cursor++;
-        }
-
-        $deduped = [];
-        $seen    = [];
-        foreach ( $results as $row ) {
-            $key = strtolower( trim( (string) ( $row['keyword'] ?? '' ) ) );
-            if ( $key === '' || isset( $seen[ $key ] ) || ! $this->is_natural_keyword( (string) ( $row['keyword'] ?? '' ) ) ) {
+    private function select_best_keywords( array $candidate_pool, string $model_name, int $target, int $name_min, int $name_max, int $attr_min, int $attr_max ): array {
+        $scored = [];
+        $seen = [];
+        foreach ( $candidate_pool as $row ) {
+            $keyword = $this->clean_phrase( (string) ( $row['keyword'] ?? '' ) );
+            $source = (string) ( $row['source'] ?? '' );
+            $normalized = $this->normalize_term( $keyword );
+            if ( $keyword === '' || $normalized === '' || isset( $seen[ $normalized ] ) || ! $this->is_natural_keyword( $keyword ) ) {
                 continue;
             }
-            $seen[ $key ] = true;
-            $deduped[]    = [
-                'keyword' => (string) $row['keyword'],
-                'source'  => (string) $row['source'],
-            ];
-            if ( count( $deduped ) >= $target ) {
+            $seen[ $normalized ] = true;
+            $score = $this->score_keyword_candidate( $keyword, $source, $model_name );
+            if ( $score <= 0 ) {
+                continue;
+            }
+            $scored[] = [ 'keyword' => $keyword, 'source' => $source, 'score' => $score, 'ending' => $this->keyword_ending( $keyword ) ];
+        }
+
+        usort( $scored, static function ( array $a, array $b ): int {
+            if ( $a['score'] === $b['score'] ) {
+                return strcmp( (string) $a['keyword'], (string) $b['keyword'] );
+            }
+            return $b['score'] <=> $a['score'];
+        } );
+
+        $selected = [];
+        $endings = [];
+        $name_count = 0;
+        $attr_count = 0;
+        foreach ( $scored as $entry ) {
+            $is_name = $entry['source'] === 'model_name_pattern';
+            $is_attr = ! $is_name;
+            if ( $is_name && $name_count >= $name_max ) { continue; }
+            if ( $is_attr && $attr_count >= $attr_max ) { continue; }
+            $ending = (string) $entry['ending'];
+            if ( $ending !== '' && ( $endings[ $ending ] ?? 0 ) >= 2 ) { continue; }
+
+            $selected[] = [ 'keyword' => (string) $entry['keyword'], 'source' => (string) $entry['source'] ];
+            $endings[ $ending ] = ( $endings[ $ending ] ?? 0 ) + 1;
+            $name_count += $is_name ? 1 : 0;
+            $attr_count += $is_attr ? 1 : 0;
+            if ( count( $selected ) >= $target ) { break; }
+        }
+
+        if ( count( $selected ) < $target ) {
+            foreach ( $scored as $entry ) {
+                $keyword = (string) $entry['keyword'];
+                $source = (string) $entry['source'];
+                $exists = array_filter( $selected, static fn( array $row ): bool => strtolower( (string) $row['keyword'] ) === strtolower( $keyword ) );
+                if ( ! empty( $exists ) ) { continue; }
+                $selected[] = [ 'keyword' => $keyword, 'source' => $source ];
+                if ( count( $selected ) >= $target ) { break; }
+            }
+        }
+
+        $name_count = count( array_filter( $selected, static fn( array $row ): bool => (string) ( $row['source'] ?? '' ) === 'model_name_pattern' ) );
+        $attr_count = count( $selected ) - $name_count;
+        if ( $name_count < $name_min || $attr_count < $attr_min ) {
+            $fallback = [];
+            foreach ( array_slice( $scored, 0, $target ) as $entry ) {
+                $fallback[] = [ 'keyword' => (string) $entry['keyword'], 'source' => (string) $entry['source'] ];
+            }
+            return $fallback;
+        }
+
+        return array_slice( $selected, 0, $target );
+    }
+
+    private function score_keyword_candidate( string $keyword, string $source, string $model_name ): int {
+        $normalized = $this->normalize_term( $keyword );
+        $words = array_values( array_filter( preg_split( '/\s+/', $normalized ) ?: [] ) );
+        $word_count = count( $words );
+        $score = 10;
+        $commercial_phrases = [ 'webcam chat', 'live cam', 'adult video chat', 'cam model', 'private cam show', 'live cam show', 'live webcam model' ];
+        $attribute_terms = [ 'latina', 'brunette', 'blonde', 'amateur', 'tattooed', 'lingerie', 'solo', 'milf', 'big tits', 'natural', 'athletic', 'skinny' ];
+        $body_terms = [ 'big tits', 'skinny', 'athletic', 'curvy', 'petite', 'milf', 'mature' ];
+
+        foreach ( $commercial_phrases as $phrase ) {
+            if ( str_contains( $normalized, $phrase ) ) {
+                $score += 8;
                 break;
             }
         }
 
-        return $deduped;
+        if ( str_contains( $normalized, $this->normalize_term( $model_name ) ) ) {
+            $score += 5;
+        }
+        foreach ( $attribute_terms as $term ) {
+            if ( str_contains( $normalized, $term ) ) {
+                $score += 4;
+                break;
+            }
+        }
+
+        $ideal_min = $source === 'model_name_pattern' ? 3 : 3;
+        $ideal_max = $source === 'model_name_pattern' ? 7 : 6;
+        if ( $word_count >= $ideal_min && $word_count <= $ideal_max ) {
+            $score += 4;
+        } elseif ( $word_count < $ideal_min || $word_count > $ideal_max + 1 ) {
+            $score -= 8;
+        }
+
+        if ( preg_match( '/\b(webcam|cam|model|live)\s+\1\b/u', $normalized ) === 1 ) {
+            $score -= 30;
+        }
+
+        $body_hits = 0;
+        foreach ( $body_terms as $term ) {
+            if ( str_contains( $normalized, $term ) ) {
+                $body_hits++;
+            }
+        }
+        if ( $body_hits > 1 ) {
+            $score -= 20;
+        }
+
+        return $score;
+    }
+
+    private function keyword_ending( string $keyword ): string {
+        $normalized = $this->normalize_term( $keyword );
+        $priority_endings = [ 'webcam chat model', 'adult webcam model', 'private cam show', 'live cam show' ];
+        foreach ( $priority_endings as $ending ) {
+            if ( str_ends_with( $normalized, $ending ) ) {
+                return $ending;
+            }
+        }
+        return implode( ' ', array_slice( array_values( array_filter( preg_split( '/\s+/', $normalized ) ?: [] ) ), -3 ) );
     }
 
     private function collect_terms( int $post_id, array $taxonomies ): array {
