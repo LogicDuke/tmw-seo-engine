@@ -3528,7 +3528,6 @@ class Admin {
 
     private static function render_safe_keyword_cleanup_panel(): void {
         $include_ignored = isset( $_GET['tmwseo_cleanup_include_ignored'] ) && (string) $_GET['tmwseo_cleanup_include_ignored'] === '1';
-        $include_clusters = isset( $_GET['tmwseo_cleanup_include_clusters'] ) && (string) $_GET['tmwseo_cleanup_include_clusters'] === '1';
         $preview = get_transient( 'tmwseo_keyword_cleanup_preview_' . get_current_user_id() );
 
         AdminUI::section_start( __( 'Safe Keyword Cleanup', 'tmwseo' ), __( 'Preview and ignore obviously irrelevant keyword candidates. Approved keywords are never changed.', 'tmwseo' ) );
@@ -3537,7 +3536,7 @@ class Admin {
         wp_nonce_field( 'tmwseo_preview_keyword_cleanup' );
         echo '<input type="hidden" name="action" value="tmwseo_preview_keyword_cleanup">';
         echo '<label><input type="checkbox" name="include_ignored" value="1" ' . checked( $include_ignored, true, false ) . '> ' . esc_html__( 'Include already ignored rows in preview', 'tmwseo' ) . '</label><br>';
-        echo '<label><input type="checkbox" name="include_clusters" value="1" ' . checked( $include_clusters, true, false ) . '> ' . esc_html__( 'Also clean keyword clusters', 'tmwseo' ) . '</label><br>';
+        echo '<label><input type="checkbox" value="0" disabled> ' . esc_html__( 'Also clean keyword clusters (coming later)', 'tmwseo' ) . '</label><br>';
         submit_button( __( 'Preview Cleanup', 'tmwseo' ), 'secondary', 'submit', false );
         echo '</form>';
 
@@ -3545,7 +3544,6 @@ class Admin {
         wp_nonce_field( 'tmwseo_apply_keyword_cleanup' );
         echo '<input type="hidden" name="action" value="tmwseo_apply_keyword_cleanup">';
         echo '<input type="hidden" name="include_ignored" value="' . ( $include_ignored ? '1' : '0' ) . '">';
-        echo '<input type="hidden" name="include_clusters" value="' . ( $include_clusters ? '1' : '0' ) . '">';
         echo '<label><input type="checkbox" name="confirm_apply" value="1"> ' . esc_html__( 'I understand this will mark matching non-approved keywords as ignored.', 'tmwseo' ) . '</label><br>';
         submit_button( __( 'Apply Cleanup', 'tmwseo' ), 'primary', 'submit', false );
         echo '</form>';
