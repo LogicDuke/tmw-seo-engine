@@ -558,6 +558,7 @@ class DiscoveryControlAdminPage {
         echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
         wp_nonce_field( 'tmwseo_run_worker' );
         echo '<input type="hidden" name="action" value="tmwseo_run_worker">';
+        echo '<input type="hidden" name="redirect_page" value="tmwseo-discovery-control">';
         echo '<button class="button button-secondary">' . esc_html__( 'Run Worker Healthcheck', 'tmwseo' ) . '</button></form>';
 
         if ($data['breaker_active']) {
