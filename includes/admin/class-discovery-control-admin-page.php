@@ -46,7 +46,19 @@ class DiscoveryControlAdminPage {
             self::handle_action();
         }
 
-        $data = self::collect_dashboard_data();
+        Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] render_start', [
+            'user_id' => get_current_user_id(),
+        ] );
+
+        try {
+            $data = self::collect_dashboard_data();
+        } catch ( \Throwable $e ) {
+            Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] dashboard_data_failed', [
+                'error' => $e->getMessage(),
+            ] );
+            self::render_fallback_page( $e );
+            return;
+        }
 
         echo '<div class="wrap tmwseo-discovery-control">';
         AdminUI::enqueue();
@@ -56,15 +68,51 @@ class DiscoveryControlAdminPage {
         );
 
         self::render_action_notices();
-        self::render_health_bar( $data );
-        self::render_kpi_row( $data );
-        self::render_governor_meters( $data );
-        self::render_queue_status( $data );
-        self::render_last_cycle( $data );
-        self::render_discovery_log( $data );
-        self::render_action_buttons( $data );
+        self::render_dashboard_section( 'health_bar', [ self::class, 'render_health_bar' ], $data );
+        self::render_dashboard_section( 'kpi_row', [ self::class, 'render_kpi_row' ], $data );
+        self::render_dashboard_section( 'governor_meters', [ self::class, 'render_governor_meters' ], $data );
+        self::render_dashboard_section( 'queue_status', [ self::class, 'render_queue_status' ], $data );
+        self::render_dashboard_section( 'last_cycle', [ self::class, 'render_last_cycle' ], $data );
+        self::render_dashboard_section( 'discovery_log', [ self::class, 'render_discovery_log' ], $data );
+        self::render_dashboard_section( 'action_buttons', [ self::class, 'render_action_buttons' ], $data );
 
         echo '</div>';
+    }
+
+    /** @param array<string,mixed> $data */
+    private static function render_dashboard_section( string $section, callable $renderer, array $data ): void {
+        try {
+            call_user_func( $renderer, $data );
+        } catch ( \Throwable $e ) {
+            Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] section_failed', [
+                'section' => $section,
+                'error'   => $e->getMessage(),
+            ] );
+            echo '<div class="notice notice-error inline"><p>';
+            echo esc_html( sprintf( 'Discovery Control section "%s" failed to render. Check logs for details.', $section ) );
+            echo '</p></div>';
+        }
+    }
+
+    private static function render_fallback_page( \Throwable $e ): void {
+        echo '<div class="wrap tmwseo-discovery-control">';
+        AdminUI::enqueue();
+        AdminUI::page_header(
+            __( 'Discovery Control', 'tmwseo' ),
+            __( 'Live operator view of keyword discovery pipeline health, queue depth, governor limits, and cycle history.', 'tmwseo' )
+        );
+        self::render_action_notices();
+        echo '<div class="notice notice-error"><p>';
+        echo esc_html__( 'Discovery dashboard data could not be loaded. Try refreshing the page. If this persists, review plugin logs.', 'tmwseo' );
+        echo '</p></div>';
+        echo '<h2>' . esc_html__( 'Actions', 'tmwseo' ) . '</h2>';
+        echo '<p class="description">' . esc_html__( 'Core actions remain available even when dashboard data fails to load.', 'tmwseo' ) . '</p>';
+        self::render_action_buttons( [ 'kill_switch_on' => false, 'breaker_active' => false ] );
+        echo '</div>';
+
+        Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] render_failed', [
+            'error' => $e->getMessage(),
+        ] );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
