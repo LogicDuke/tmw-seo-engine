@@ -3280,6 +3280,7 @@ class Admin {
         submit_button( 'Force Recheck New Keyword Metrics', 'delete', 'submit', false, [ 'title' => 'Bypasses 14-day skip window and purges stale cache. Use after a provider or parser fix.' ] );
         echo '</form>';
         echo '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tmwseo_run_worker' ), 'tmwseo_run_worker' ) ) . '">Run Worker (healthcheck)</a>';
+        echo \TMWSEO\Engine\Export\CSVExporter::button( 'current_keyword_candidates', __( 'Export Current Keywords CSV', 'tmwseo' ) );
         echo '<a class="button" href="' . esc_url( admin_url( 'admin.php?page=tmwseo-kw-metrics-import' ) ) . '">' . esc_html__( 'Import Metrics CSV', 'tmwseo' ) . '</a>'; // 5.9.0
         echo '</div>';
         echo '<p class="description" style="margin-top:6px;">' . esc_html__( 'Verify: skips rows checked in the last 14 days. Force Recheck: bypasses skip window and purges stale transient cache — use after a parser/provider fix. Neither button approves or publishes anything.', 'tmwseo' ) . '</p>';
