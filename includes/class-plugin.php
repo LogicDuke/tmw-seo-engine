@@ -337,6 +337,7 @@ class Plugin {
             \TMWSEO\Engine\Admin\LinkGraphAdminPage::init();
             \TMWSEO\Engine\Admin\TopicMapsAdminPage::init();
             \TMWSEO\Engine\Admin\CSVManagerAdminPage::init();
+            \TMWSEO\Engine\Admin\KeywordMetricsCsvImporter::init(); // 5.9.0
             \TMWSEO\Engine\Admin\AIContentBriefGeneratorAdmin::init();
             \TMWSEO\Engine\Admin\SEOEngineRunner::init();
             \TMWSEO\Engine\ContentGap\ContentGapAdmin::init();

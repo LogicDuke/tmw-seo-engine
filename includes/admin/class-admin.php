@@ -130,6 +130,7 @@ class Admin {
             'admin_page_tmw-engine-monitor',
             'admin_page_tmwseo-migration',
             'admin_page_tmwseo-import',
+            'admin_page_tmwseo-kw-metrics-import', // 5.9.0
             'admin_page_tmwseo-intelligence',
             'admin_page_tmwseo-pagespeed',
             'admin_page_tmw-seo-clusters',
@@ -1092,6 +1093,7 @@ class Admin {
         add_submenu_page(null, __('Engine Monitor', 'tmwseo'),   __('Engine Monitor', 'tmwseo'),   'manage_options', 'tmw-engine-monitor', [__CLASS__, 'render_engine_monitor']);
         add_submenu_page(null, __('Migration', 'tmwseo'),        __('Migration', 'tmwseo'),        'manage_options', 'tmwseo-migration',   [__CLASS__, 'render_migration']);
         add_submenu_page(null, __('Import', 'tmwseo'),           __('Import', 'tmwseo'),           'manage_options', 'tmwseo-import',      [__CLASS__, 'render_import']);
+        add_submenu_page(null, __('Import Keyword Metrics', 'tmwseo'), __('Import Metrics', 'tmwseo'), 'manage_options', 'tmwseo-kw-metrics-import', ['\TMWSEO\Engine\Admin\KeywordMetricsCsvImporter', 'render_page']); // 5.9.0
 
         // Legacy V2 slugs → server-side redirect to canonical pages (no JS bounces)
         add_submenu_page(null, '', '', 'manage_options', 'tmwseo-engine-v2',        [__CLASS__, 'legacy_redirect_command_center']);
@@ -1154,6 +1156,7 @@ class Admin {
             'tmwseo-tools',
             'tmwseo-dfseo-keyword-strategy-preview',
             'tmwseo-csv-manager',
+            'tmwseo-kw-metrics-import', // 5.9.0
             'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
             'tmwseo-staging-ops',
@@ -2615,6 +2618,7 @@ class Admin {
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-intelligence')) . '">' . esc_html__('Legacy Keyword Research', 'tmwseo') . '</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-staging-validation-helper')) . '">' . esc_html__('Staging Validation Helper', 'tmwseo') . '</a></li>';
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-import')) . '">' . esc_html__('Import Keywords (CSV)', 'tmwseo') . '</a></li>';
+        echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-kw-metrics-import')) . '">' . esc_html__('Import Keyword Metrics (Volume / KD / CPC)', 'tmwseo') . '</a></li>'; // 5.9.0
         echo '<li><a href="' . esc_url(admin_url('admin.php?page=tmwseo-migration')) . '">' . esc_html__('Migration Info', 'tmwseo') . '</a></li>';
         echo '</ul>';
         AdminUI::section_end();
@@ -3270,6 +3274,7 @@ class Admin {
         submit_button( 'Force Recheck New Keyword Metrics', 'delete', 'submit', false, [ 'title' => 'Bypasses 14-day skip window and purges stale cache. Use after a provider or parser fix.' ] );
         echo '</form>';
         echo '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tmwseo_run_worker' ), 'tmwseo_run_worker' ) ) . '">Run Worker (healthcheck)</a>';
+        echo '<a class="button" href="' . esc_url( admin_url( 'admin.php?page=tmwseo-kw-metrics-import' ) ) . '">' . esc_html__( 'Import Metrics CSV', 'tmwseo' ) . '</a>'; // 5.9.0
         echo '</div>';
         echo '<p class="description" style="margin-top:6px;">' . esc_html__( 'Verify: skips rows checked in the last 14 days. Force Recheck: bypasses skip window and purges stale transient cache — use after a parser/provider fix. Neither button approves or publishes anything.', 'tmwseo' ) . '</p>';
 

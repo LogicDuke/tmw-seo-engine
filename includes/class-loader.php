@@ -359,6 +359,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-discovery-control-admin-page.php' );
         tmwseo_safe_require( $p . 'class-keyword-graph-admin-page.php' );
         tmwseo_safe_require( $p . 'class-csv-manager-admin-page.php' );
+        tmwseo_safe_require( $p . 'class-keyword-metrics-csv-importer.php' ); // 5.9.0
         tmwseo_safe_require( $p . 'class-ai-content-brief-generator-admin.php' );
         tmwseo_safe_require( $p . 'class-autopilot-admin-page.php' );
         tmwseo_safe_require( $p . 'class-staging-operations-page.php' );
