@@ -7,7 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ModelKeywordSuggestionGenerator {
 
-    private const DISALLOWED_ATTRIBUTES = [
+    private const RAW_DISALLOWED_ATTRIBUTES = [
         'teen','young','underage','schoolgirl','school','student','child','kids',
         'leaked','leaks','torrent','download','reddit','discord','telegram','onlyfans leak',
         'webcam driver','security camera','surveillance','zoom','teams','logitech',
@@ -42,6 +42,16 @@ class ModelKeywordSuggestionGenerator {
         'sologirl'           => 'solo',
         'latin'              => 'latina',
         'natural tits'       => 'natural',
+    ];
+
+    private const FINAL_DISALLOWED_KEYWORD_TERMS = [
+        'teen','young','underage','schoolgirl','school','student','child','kids',
+        'leaked','leaks','torrent','download','reddit','discord','telegram','onlyfans leak',
+        'webcam driver','security camera','surveillance','zoom','teams','logitech',
+        'video','videos','landscape','bed','room','toy','sextoy','dildo','vibrator',
+        'pussy','ass','blowjob','deepthroat','suck','gag','anal','naked','nude','porn','cam porn',
+        'live sex','sex','fuck','fingering','masturbation','missionary','moaning','orgasm','cum','lick',
+        'dirty','nasty','slutty','wet','remote toy','machine','xxx','hardcore',
     ];
 
     private const APPROVED_ATTRIBUTES = [
@@ -183,7 +193,9 @@ class ModelKeywordSuggestionGenerator {
     }
 
     private function build_extra_keywords( int $post_id, string $model_name, array $tag_attributes, array $category_attributes, bool $include_tags, bool $include_categories ): array {
-        $target = 5 + ( $post_id % 4 ); // 5-8 deterministic.
+        $base_target = 5 + ( $post_id % 4 ); // 5-8 deterministic.
+        $has_attributes = ! empty( $tag_attributes ) || ! empty( $category_attributes );
+        $target = $has_attributes ? max( 7, $base_target ) : $base_target;
         $seed   = max( 0, $post_id );
 
         $model_name_candidates = [];
@@ -245,14 +257,18 @@ class ModelKeywordSuggestionGenerator {
         $selected = [];
         $endings = [];
 
-        $this->append_entries_with_limit( $selected, $endings, $name_entries, $name_target );
-        $this->append_entries_with_limit( $selected, $endings, $attribute_entries, $attribute_target );
+        $this->append_entries_by_count( $selected, $endings, $name_entries, $name_target );
+        $this->append_entries_by_count( $selected, $endings, $attribute_entries, $attribute_target );
+
+        if ( $attribute_candidates_count > 0 && $this->count_selected_attributes( $selected ) === 0 ) {
+            $this->append_entries_by_count( $selected, $endings, $attribute_entries, 1 );
+        }
 
         if ( count( $selected ) < $target ) {
-            $this->append_entries_with_limit( $selected, $endings, $name_entries, $target );
+            $this->append_entries_by_count( $selected, $endings, $attribute_entries, $target - count( $selected ) );
         }
         if ( count( $selected ) < $target ) {
-            $this->append_entries_with_limit( $selected, $endings, $attribute_entries, $target );
+            $this->append_entries_by_count( $selected, $endings, $name_entries, $target - count( $selected ) );
         }
 
         $selected = array_slice( $selected, 0, $target );
@@ -265,13 +281,14 @@ class ModelKeywordSuggestionGenerator {
         ];
     }
 
-    private function append_entries_with_limit( array &$selected, array &$endings, array $entries, int $limit ): void {
-        if ( $limit <= count( $selected ) ) {
+    private function append_entries_by_count( array &$selected, array &$endings, array $entries, int $count ): void {
+        if ( $count <= 0 ) {
             return;
         }
 
+        $added = 0;
         foreach ( $entries as $entry ) {
-            if ( count( $selected ) >= $limit ) {
+            if ( $added >= $count ) {
                 break;
             }
 
@@ -290,7 +307,12 @@ class ModelKeywordSuggestionGenerator {
                 'source'  => (string) ( $entry['source'] ?? '' ),
             ];
             $endings[ $ending ] = ( $endings[ $ending ] ?? 0 ) + 1;
+            $added++;
         }
+    }
+
+    private function count_selected_attributes( array $selected ): int {
+        return count( array_filter( $selected, static fn( array $entry ): bool => (string) ( $entry['source'] ?? '' ) !== 'model_name_pattern' ) );
     }
 
     private function keyword_already_selected( array $selected, string $keyword ): bool {
@@ -397,7 +419,7 @@ class ModelKeywordSuggestionGenerator {
                 continue;
             }
             $blocked = false;
-            foreach ( self::DISALLOWED_ATTRIBUTES as $needle ) {
+            foreach ( self::RAW_DISALLOWED_ATTRIBUTES as $needle ) {
                 if ( str_contains( $lower, $needle ) ) {
                     $blocked = true;
                     $ignored[] = $attribute;
@@ -468,7 +490,7 @@ class ModelKeywordSuggestionGenerator {
         if ( $normalized === '' ) {
             return false;
         }
-        foreach ( self::DISALLOWED_ATTRIBUTES as $blocked ) {
+        foreach ( self::FINAL_DISALLOWED_KEYWORD_TERMS as $blocked ) {
             if ( str_contains( $normalized, $blocked ) ) {
                 return false;
             }
@@ -488,15 +510,17 @@ class ModelKeywordSuggestionGenerator {
         $safe = $this->filter_safe_attributes( $attributes, $ignored );
         $kept = [];
         foreach ( $safe as $attribute ) {
+            if ( in_array( $attribute, self::APPROVED_ATTRIBUTES, true ) ) {
+                $kept[] = $attribute;
+                continue;
+            }
+
             if ( $this->is_name_like_attribute( $attribute, $model_name ) ) {
                 $ignored[] = $attribute;
                 continue;
             }
-            if ( in_array( $attribute, self::APPROVED_ATTRIBUTES, true ) ) {
-                $kept[] = $attribute;
-            } else {
-                $ignored[] = $attribute;
-            }
+
+            $ignored[] = $attribute;
         }
         return $kept;
     }
