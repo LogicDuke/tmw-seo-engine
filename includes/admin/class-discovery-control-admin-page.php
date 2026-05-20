@@ -26,6 +26,7 @@ use TMWSEO\Engine\Keywords\KeywordDiscoveryGovernor;
 use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
 use TMWSEO\Engine\JobWorker;
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Keywords\SeedRegistry;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -343,18 +344,23 @@ class DiscoveryControlAdminPage {
         echo '<button class="button button-secondary">' . esc_html($tlbl) . '</button></form>';
 
         echo '</div>';
-        echo '<p class="description">' . esc_html__('All actions are logged. "Run Cycle Now" executes synchronously — allow up to 60 seconds.','tmwseo') . '</p>';
+        echo '<p class="description">' . esc_html__('All actions are logged. "Run Cycle Now" queues a background discovery job and returns immediately.','tmwseo') . '</p>';
     }
 
     private static function render_action_notices(): void {
         if (!isset($_GET['tmwseo_dc_action'])) { return; }
         $a = sanitize_key((string)$_GET['tmwseo_dc_action']);
         $map = [
-            'cycle_ran'     => ['success', 'Discovery cycle completed.'],
-            'breaker_reset' => ['success', 'Circuit breaker reset.'],
-            'discovery_on'  => ['success', 'Discovery enabled.'],
-            'discovery_off' => ['warning', 'Discovery disabled (kill switch on).'],
-            'cycle_error'   => ['error',   'Cycle error — see Logs for details.'],
+            'cycle_queued'            => ['success', 'Discovery cycle queued. It will run in the background. Check Discovery Control and Debug Dashboard for progress.'],
+            'cycle_started'           => ['success', 'Discovery cycle started. You can monitor progress from Discovery Control and Debug Dashboard.'],
+            'cycle_ran'               => ['success', 'Discovery cycle completed.'],
+            'cycle_error'             => ['error',   'Discovery cycle failed. Please review the Debug Dashboard logs for details.'],
+            'cycle_preflight_failed'  => ['error',   'Discovery cycle could not start because preflight checks failed. Resolve the warning and try again.'],
+            'cycle_already_running'   => ['warning', 'A discovery cycle is already running. Please wait for it to finish before starting another one.'],
+            'cycle_worker_unavailable'=> ['error',   'Discovery worker is unavailable right now, so the cycle could not be queued. Try again shortly or check worker status.'],
+            'breaker_reset'           => ['success', 'Circuit breaker reset.'],
+            'discovery_on'            => ['success', 'Discovery enabled.'],
+            'discovery_off'           => ['warning', 'Discovery disabled (kill switch on).'],
         ];
         if (isset($map[$a])) {
             [$type,$msg] = $map[$a];
@@ -373,32 +379,75 @@ class DiscoveryControlAdminPage {
 
         $action = sanitize_key((string)($_POST['tmwseo_discovery_action']??''));
         $slug   = 'cycle_ran';
+        $user_id = get_current_user_id();
 
         switch ($action) {
             case 'run_cycle':
-                try {
-                    if (class_exists('\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService')) {
-                        \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::run_cycle(['source'=>'manual_discovery_control']);
-                    }
-                    Logs::info('discovery_control','[TMW] Manual discovery cycle triggered from Discovery Control page.');
-                } catch (\Throwable $e) {
-                    $slug = 'cycle_error';
-                    Logs::error('discovery_control','[TMW] Manual cycle error: '.$e->getMessage());
+                Logs::info('discovery_control', '[TMW-DISCOVERY-CONTROL] manual_run_requested', [
+                    'user_id' => $user_id,
+                    'source'  => 'manual_discovery_control',
+                    'start_time' => microtime(true),
+                ]);
+
+                $preflight = self::run_cycle_preflight();
+                if (!$preflight['ok']) {
+                    $slug = 'cycle_preflight_failed';
+                    Logs::warn('discovery_control', '[TMW-DISCOVERY-CONTROL] preflight_failed', [
+                        'user_id' => $user_id,
+                        'source'  => 'manual_discovery_control',
+                        'reasons' => $preflight['reasons'],
+                    ]);
+                    break;
+                }
+
+                if (!empty($preflight['already_running'])) {
+                    $slug = 'cycle_already_running';
+                    Logs::warn('discovery_control', '[TMW-DISCOVERY-CONTROL] already_running', [
+                        'user_id' => $user_id,
+                        'source'  => 'manual_discovery_control',
+                    ]);
+                    break;
+                }
+
+                $job_id = class_exists(JobWorker::class)
+                    ? JobWorker::enqueue_job('keyword_discovery', ['source' => 'manual_discovery_control', 'user_id' => $user_id])
+                    : 0;
+
+                if ($job_id > 0) {
+                    $slug = 'cycle_queued';
+                    Logs::info('discovery_control', '[TMW-DISCOVERY-CONTROL] job_queued', [
+                        'job_id' => $job_id,
+                        'user_id' => $user_id,
+                        'source'  => 'manual_discovery_control',
+                    ]);
+                    Logs::info('keywords', '[TMW-KW-CYCLE] queued', [
+                        'job_id' => $job_id,
+                        'user_id' => $user_id,
+                        'source'  => 'manual_discovery_control',
+                        'start_time' => microtime(true),
+                    ]);
+                } else {
+                    $slug = 'cycle_worker_unavailable';
+                    Logs::error('discovery_control', '[TMW-DISCOVERY-CONTROL] queue_failed', [
+                        'user_id' => $user_id,
+                        'source'  => 'manual_discovery_control',
+                        'failure_reason' => 'worker_unavailable_or_queue_insert_failed',
+                    ]);
                 }
                 break;
             case 'reset_breaker':
                 delete_option('tmw_keyword_engine_breaker');
-                Logs::info('discovery_control','[TMW] Circuit breaker manually reset.');
+                Logs::info('discovery_control','[TMW-DISCOVERY-CONTROL] breaker_reset',['user_id'=>$user_id]);
                 $slug = 'breaker_reset';
                 break;
             case 'enable_discovery':
                 update_option('tmw_discovery_enabled',1,false);
-                Logs::info('discovery_control','[TMW] Discovery kill switch enabled by operator.');
+                Logs::info('discovery_control','[TMW-DISCOVERY-CONTROL] discovery_enabled',['user_id'=>$user_id]);
                 $slug = 'discovery_on';
                 break;
             case 'disable_discovery':
                 update_option('tmw_discovery_enabled',0,false);
-                Logs::warn('discovery_control','[TMW] Discovery kill switch disabled by operator.');
+                Logs::warn('discovery_control','[TMW-DISCOVERY-CONTROL] discovery_disabled',['user_id'=>$user_id]);
                 $slug = 'discovery_off';
                 break;
             default: return;
@@ -407,4 +456,58 @@ class DiscoveryControlAdminPage {
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-discovery-control&tmwseo_dc_action='.rawurlencode($slug)));
         exit;
     }
+
+    /** @return array{ok:bool,reasons:array<int,string>,already_running:bool} */
+    private static function run_cycle_preflight(): array {
+        global $wpdb;
+        $reasons = [];
+        $already_running = false;
+
+        if (!DiscoveryGovernor::is_discovery_allowed()) { $reasons[] = 'kill_switch_off'; }
+
+        $breaker = get_option('tmw_keyword_engine_breaker', []);
+        if (is_array($breaker) && !empty($breaker['last_triggered']) && (time() - (int)$breaker['last_triggered']) < (15 * MINUTE_IN_SECONDS)) {
+            $reasons[] = 'circuit_breaker_active';
+        }
+
+        $tables = ['tmwseo_seeds','tmw_keyword_candidates','tmw_keyword_raw'];
+        foreach ($tables as $suffix) {
+            $t = $wpdb->prefix . $suffix;
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t)) !== $t) {
+                $reasons[] = 'missing_table_' . $suffix;
+            }
+        }
+
+        $seed_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_seeds WHERE status='active'");
+        if ($seed_count <= 0 && class_exists(SeedRegistry::class)) {
+            $trusted = "'" . implode("','", array_map('esc_sql', SeedRegistry::trusted_sources())) . "'";
+            $seed_count = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}tmwseo_seeds WHERE source IN ({$trusted})");
+        }
+        if ($seed_count <= 0) { $reasons[] = 'no_seeds'; }
+
+        $budget = DataForSEO::get_monthly_budget_stats();
+        if (!is_array($budget)) { $reasons[] = 'budget_unreadable'; }
+
+        $lock_key = 'tmw_keyword_cycle_lock';
+        $lock_val = get_option($lock_key, null);
+        if ($lock_val === null) {
+            // readable, no lock row yet.
+        } elseif (!is_numeric((string)$lock_val)) {
+            $reasons[] = 'lock_unreadable';
+        } else {
+            $age = time() - (int)$lock_val;
+            if ($age < (10 * MINUTE_IN_SECONDS)) {
+                $already_running = true;
+            } else {
+                Logs::warn('discovery_control', '[TMW-DISCOVERY-CONTROL] stale_lock_detected', [
+                    'source' => 'manual_discovery_control',
+                    'lock_age_seconds' => $age,
+                    'lock_key' => $lock_key,
+                ]);
+            }
+        }
+
+        return ['ok' => empty($reasons), 'reasons' => $reasons, 'already_running' => $already_running];
+    }
+
 }
