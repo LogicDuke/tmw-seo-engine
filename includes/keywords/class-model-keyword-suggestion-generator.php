@@ -11,6 +11,7 @@ class ModelKeywordSuggestionGenerator {
         'teen','young','underage','schoolgirl','school','student','child','kids',
         'leaked','leaks','torrent','download','reddit','discord','telegram','onlyfans leak',
         'webcam driver','security camera','surveillance','zoom','teams','logitech',
+        'porn','nude','naked','sex','xxx','anal','blowjob','hardcore',
     ];
 
     private const MODEL_NAME_PATTERNS = [
@@ -44,14 +45,21 @@ class ModelKeywordSuggestionGenerator {
         $tag_taxonomies = array_values( array_intersect( [ 'post_tag', 'models' ], $all_taxonomies ) );
         $category_taxonomies = array_values( array_diff( $all_taxonomies, $tag_taxonomies ) );
 
-        $tags       = $include_tags ? $this->collect_terms( $post->ID, $tag_taxonomies ) : [];
-        $categories = $include_categories ? $this->collect_terms( $post->ID, $category_taxonomies ) : [];
+        $direct_tags       = $include_tags ? $this->collect_terms( $post->ID, $tag_taxonomies ) : [];
+        $direct_categories = $include_categories ? $this->collect_terms( $post->ID, $category_taxonomies ) : [];
+        $related           = $this->collect_related_frontend_terms( $post );
+        $related_tags      = $include_tags ? $related['tags'] : [];
+        $related_categories = $include_categories ? $related['categories'] : [];
 
         $ignored_tag_terms = [];
         $ignored_category_terms = [];
 
-        $tag_attributes      = $include_tags ? $this->filter_descriptive_attributes( $tags, $model_name, $ignored_tag_terms ) : [];
-        $category_attributes = $include_categories ? $this->filter_descriptive_attributes( $categories, $model_name, $ignored_category_terms ) : [];
+        $tag_attributes = $include_tags
+            ? $this->filter_descriptive_attributes( array_values( array_unique( array_merge( $direct_tags, $related_tags ) ) ), $model_name, $ignored_tag_terms )
+            : [];
+        $category_attributes = $include_categories
+            ? $this->filter_descriptive_attributes( array_values( array_unique( array_merge( $direct_categories, $related_categories ) ) ), $model_name, $ignored_category_terms )
+            : [];
 
         $extra = $this->build_extra_keywords( (int) $post->ID, $model_name, $tag_attributes, $category_attributes, $include_tags, $include_categories );
 
@@ -60,10 +68,96 @@ class ModelKeywordSuggestionGenerator {
             'model_name'      => $model_name,
             'primary_keyword' => $model_name,
             'extra_keywords'  => $extra,
-            'tags'            => $tags,
-            'categories'      => $categories,
+            'direct_tags'     => $direct_tags,
+            'direct_categories' => $direct_categories,
+            'related_tags'    => $related_tags,
+            'related_categories' => $related_categories,
             'ignored_terms'   => array_values( array_unique( array_merge( $ignored_tag_terms, $ignored_category_terms ) ) ),
         ];
+    }
+
+    /**
+     * @return array{tags:string[],categories:string[]}
+     */
+    private function collect_related_frontend_terms( \WP_Post $post ): array {
+        $related_posts = $this->find_related_posts_for_model( $post );
+        if ( empty( $related_posts ) ) {
+            return [ 'tags' => [], 'categories' => [] ];
+        }
+
+        $tags = [];
+        $categories = [];
+        foreach ( $related_posts as $related_post ) {
+            $tags = array_merge( $tags, $this->collect_terms_by_post_kind( $related_post, 'tag' ) );
+            $categories = array_merge( $categories, $this->collect_terms_by_post_kind( $related_post, 'category' ) );
+        }
+
+        return [
+            'tags' => array_values( array_unique( $tags ) ),
+            'categories' => array_values( array_unique( $categories ) ),
+        ];
+    }
+
+    /**
+     * @return \WP_Post[]
+     */
+    private function find_related_posts_for_model( \WP_Post $post ): array {
+        $slug = sanitize_title( (string) $post->post_name );
+        if ( $slug !== '' && function_exists( 'tmw_get_videos_for_model' ) ) {
+            $items = tmw_get_videos_for_model( $slug, 40 );
+            if ( is_array( $items ) ) {
+                $related = array_filter( $items, static function( $item ): bool {
+                    return $item instanceof \WP_Post && $item->post_status === 'publish';
+                } );
+                if ( ! empty( $related ) ) {
+                    return array_values( $related );
+                }
+            }
+        }
+
+        $query = new \WP_Query( [
+            'post_type' => [ 'post' ],
+            'post_status' => 'publish',
+            'posts_per_page' => 40,
+            's' => trim( (string) $post->post_title ),
+            'fields' => 'all',
+            'no_found_rows' => true,
+        ] );
+        return array_values( array_filter( (array) $query->posts, static function( $item ): bool {
+            return $item instanceof \WP_Post;
+        } ) );
+    }
+
+    private function collect_terms_by_post_kind( \WP_Post $post, string $kind ): array {
+        $taxonomies = (array) get_object_taxonomies( $post->post_type );
+        $names = [];
+        foreach ( $taxonomies as $taxonomy ) {
+            $taxonomy_object = get_taxonomy( $taxonomy );
+            if ( ! $taxonomy_object ) {
+                continue;
+            }
+            $is_hierarchical = ! empty( $taxonomy_object->hierarchical );
+            if ( $kind === 'category' && ! $is_hierarchical ) {
+                continue;
+            }
+            if ( $kind === 'tag' && $is_hierarchical ) {
+                continue;
+            }
+            $terms = get_the_terms( $post, $taxonomy );
+            if ( ! is_array( $terms ) ) {
+                continue;
+            }
+            foreach ( $terms as $term ) {
+                if ( ! $term instanceof \WP_Term ) {
+                    continue;
+                }
+                $label = $this->clean_phrase( (string) $term->name );
+                if ( $label !== '' && strtolower( $label ) !== 'uncategorized' ) {
+                    $names[ strtolower( $label ) ] = $label;
+                }
+            }
+        }
+        return array_values( $names );
     }
 
     private function build_extra_keywords( int $post_id, string $model_name, array $tag_attributes, array $category_attributes, bool $include_tags, bool $include_categories ): array {
