@@ -316,6 +316,7 @@ class AdminDashboardV2 {
                         <button class="td-btn td-btn-secondary">📊 Refresh Metrics</button>
                     </form>
                     <?php echo CSVExporter::button( 'keywords', '📥 Export Keywords CSV' ); ?>
+                    <?php echo CSVExporter::button( 'current_keyword_candidates', '📥 Export Current Keywords CSV' ); ?>
                 </div>
             </div>
 
