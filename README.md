@@ -25,6 +25,7 @@ TMW SEO Engine is a private WordPress plugin that provides a self-hosted SEO int
 - **Linked Seeds Explorer** shows every seed row belonging to a specific import pack with full metrics
 - Summary bar cards link directly to the relevant filtered view
 - Upload accepts controlled columns: `seed_keyword`, `keyword_family`, `cluster`, `page_type`, `priority`, `status`, `verification_status`, `suggested_url_slug`, `notes`
+- `seed_keyword` is the preferred canonical column; legacy `keyword` is still accepted for backward compatibility with older imports
 - Seed CSV upload itself does **not** spend API credits; discovery/DataForSEO remains manual from **Discovery Control** unless explicitly confirmed by the operator
 - Recommended operator flow: **CSV import → Discovery Control → Keywords/Candidates → Clusters → Workbook T6**
 

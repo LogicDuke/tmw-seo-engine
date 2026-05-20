@@ -679,28 +679,34 @@ class CSVManagerAdminPage {
         $meta = self::read_csv_meta($path, 25);
         $headers = array_map(fn($h) => strtolower(trim((string)$h)), (array)$meta['headers']);
         $kwIdx = array_search('seed_keyword', $headers, true);
+        if ($kwIdx === false) {
+            return ['total_rows' => (int)$meta['row_count'], 'valid_rows' => 0, 'duplicate_rows' => 0, 'invalid_rows' => (int)$meta['row_count'], 'preview_rows' => (array)$meta['preview_rows'], 'columns' => (array)$meta['headers'], 'has_seed_keyword' => false];
+        }
         $dupes = 0; $invalid = 0; $seen = []; $valid = 0;
         global $wpdb;
         $seed_table = KeywordDataRepository::seeds_table();
-        $db_hashes = [];
-        if (is_array($meta['preview_rows']) && $kwIdx !== false) {
-            foreach ($meta['preview_rows'] as $r) {
-                $kw = trim((string)($r[$kwIdx] ?? ''));
-                if ($kw === '') { $invalid++; continue; }
-                $norm = \TMWSEO\Engine\Keywords\SeedRegistry::normalize_seed($kw);
-                if ($norm === '') { $invalid++; continue; }
-                if (isset($seen[$norm])) { $dupes++; continue; }
-                $seen[$norm] = md5($norm);
-                $valid++;
-            }
-            if (!empty($seen)) {
-                $hashes = array_values($seen);
-                $ph = implode(',', array_fill(0, count($hashes), '%s'));
-                $db = $wpdb->get_col($wpdb->prepare("SELECT hash FROM {$seed_table} WHERE hash IN ($ph)", ...$hashes));
-                $db_hashes = is_array($db) ? $db : [];
-            }
+        $fh = fopen($path, 'r');
+        if ($fh === false) {
+            return ['total_rows' => (int)$meta['row_count'], 'valid_rows' => 0, 'duplicate_rows' => 0, 'invalid_rows' => (int)$meta['row_count'], 'preview_rows' => (array)$meta['preview_rows'], 'columns' => (array)$meta['headers'], 'has_seed_keyword' => true];
         }
-        $dupes += count($db_hashes);
+        fgetcsv($fh); // skip header row
+        while (($r = fgetcsv($fh)) !== false) {
+            if (!is_array($r)) { continue; }
+            $kw = trim((string)($r[$kwIdx] ?? ''));
+            if ($kw === '') { $invalid++; continue; }
+            $norm = \TMWSEO\Engine\Keywords\SeedRegistry::normalize_seed($kw);
+            if ($norm === '') { $invalid++; continue; }
+            if (isset($seen[$norm])) { $dupes++; continue; }
+            $seen[$norm] = md5($norm);
+            $valid++;
+        }
+        fclose($fh);
+        if (!empty($seen)) {
+            $hashes = array_values($seen);
+            $ph = implode(',', array_fill(0, count($hashes), '%s'));
+            $db = $wpdb->get_col($wpdb->prepare("SELECT hash FROM {$seed_table} WHERE hash IN ($ph)", ...$hashes));
+            $dupes += is_array($db) ? count($db) : 0;
+        }
         return ['total_rows' => (int)$meta['row_count'], 'valid_rows' => $valid, 'duplicate_rows' => $dupes, 'invalid_rows' => $invalid, 'preview_rows' => (array)$meta['preview_rows'], 'columns' => (array)$meta['headers'], 'has_seed_keyword' => $kwIdx !== false];
     }
 
