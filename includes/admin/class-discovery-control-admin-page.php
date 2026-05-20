@@ -50,48 +50,6 @@ class DiscoveryControlAdminPage {
             wp_die( esc_html__( 'You do not have permission to access this page.', 'tmwseo' ) );
         }
 
-        // POST handling MUST precede all HTML output (BUG-04 pattern)
-        if ( isset( $_POST['tmwseo_discovery_action'] ) ) {
-            // ── Shutdown catcher: if PHP fatals inside handle_action(), log it ──
-            $dc_action_active = true;
-            register_shutdown_function( static function () use ( &$dc_action_active ): void {
-                if ( ! $dc_action_active ) { return; }
-                $err = error_get_last();
-                if ( ! is_array( $err ) ) { return; }
-                $fatal_mask = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
-                if ( ( (int)($err['type']??0) & $fatal_mask ) === 0 ) { return; }
-                if ( class_exists( Logs::class ) ) {
-                    Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] fatal_shutdown', [
-                        'type'    => (int)($err['type']??0),
-                        'message' => substr( (string)($err['message']??''), 0, 240 ),
-                        'file'    => basename( (string)($err['file']??'') ),
-                        'line'    => (int)($err['line']??0),
-                    ] );
-                }
-                if ( ! headers_sent() && function_exists( 'admin_url' ) ) {
-                    wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-discovery-control&tmwseo_dc_action=cycle_error' ) );
-                    exit;
-                }
-            } );
-
-            try {
-                self::handle_action();
-            } catch ( \Throwable $e ) {
-                $dc_action_active = false;
-                $ref = gmdate( 'Ymd-His' ) . '-' . substr( md5( $e->getMessage() ), 0, 6 );
-                if ( class_exists( Logs::class ) ) {
-                    Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] throwable_caught', [
-                        'error' => $e->getMessage(),
-                        'file'  => basename( $e->getFile() ),
-                        'line'  => $e->getLine(),
-                        'ref'   => $ref,
-                    ] );
-                }
-                self::safe_redirect_back( 'cycle_error', $ref );
-            }
-            $dc_action_active = false;
-        }
-
         // ── [TMW-DISCOVERY-CONTROL] render_start ──────────────────────────
         if ( class_exists( Logs::class ) ) {
             Logs::info( 'discovery_control', '[TMW-DISCOVERY-CONTROL] render_start', [
@@ -153,6 +111,57 @@ class DiscoveryControlAdminPage {
         self::safe_render( 'action_buttons',  fn() => self::render_action_buttons( $data ) );
 
         echo '</div>';
+    }
+
+    public static function maybe_handle_post_action(): void {
+        if ( ! is_admin() || ! isset( $_POST['tmwseo_discovery_action'] ) ) {
+            return;
+        }
+
+        $page = isset( $_REQUEST['page'] ) ? sanitize_key( wp_unslash( (string) $_REQUEST['page'] ) ) : '';
+        if ( $page !== 'tmwseo-discovery-control' ) {
+            return;
+        }
+
+        // ── Shutdown catcher: if PHP fatals inside handle_action(), log it ──
+        $dc_action_active = true;
+        register_shutdown_function( static function () use ( &$dc_action_active ): void {
+            if ( ! $dc_action_active ) { return; }
+            $err = error_get_last();
+            if ( ! is_array( $err ) ) { return; }
+            $fatal_mask = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR | E_RECOVERABLE_ERROR;
+            if ( ( (int) ( $err['type'] ?? 0 ) & $fatal_mask ) === 0 ) { return; }
+            if ( class_exists( Logs::class ) ) {
+                Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] fatal_shutdown', [
+                    'type'    => (int) ( $err['type'] ?? 0 ),
+                    'message' => substr( (string) ( $err['message'] ?? '' ), 0, 240 ),
+                    'file'    => basename( (string) ( $err['file'] ?? '' ) ),
+                    'line'    => (int) ( $err['line'] ?? 0 ),
+                ] );
+            }
+            if ( ! headers_sent() && function_exists( 'admin_url' ) ) {
+                wp_safe_redirect( admin_url( 'admin.php?page=tmwseo-discovery-control&tmwseo_dc_action=cycle_error' ) );
+                exit;
+            }
+        } );
+
+        try {
+            self::handle_action();
+        } catch ( \Throwable $e ) {
+            $dc_action_active = false;
+            $ref = gmdate( 'Ymd-His' ) . '-' . substr( md5( $e->getMessage() ), 0, 6 );
+            if ( class_exists( Logs::class ) ) {
+                Logs::error( 'discovery_control', '[TMW-DISCOVERY-CONTROL] throwable_caught', [
+                    'error' => $e->getMessage(),
+                    'file'  => basename( $e->getFile() ),
+                    'line'  => $e->getLine(),
+                    'ref'   => $ref,
+                ] );
+            }
+            self::safe_redirect_back( 'cycle_error', $ref );
+        }
+
+        $dc_action_active = false;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ use TMWSEO\Engine\Admin\Tables\ClustersTable;
 use TMWSEO\Engine\Admin\Tables\KeywordClustersTable;
 use TMWSEO\Engine\Admin\AdminFormHandlers;
 use TMWSEO\Engine\Admin\AdminAjaxHandlers;
+use TMWSEO\Engine\Admin\DiscoveryControlAdminPage;
 use TMWSEO\Engine\Affiliates\CrakRevenueCamManager;
 
 if (!defined('ABSPATH')) { exit; }
@@ -34,6 +35,7 @@ class Admin {
         // regardless of hook suffix. This catches pages missed by enqueue_admin_assets.
         add_action('admin_head', [__CLASS__, 'print_admin_css_if_tmw_page']);
         add_action('admin_notices', [__CLASS__, 'render_admin_notices']);
+        add_action('admin_init', [DiscoveryControlAdminPage::class, 'maybe_handle_post_action']);
         add_action('admin_post_tmwseo_run_worker', [__CLASS__, 'run_worker_now']);
         // Legacy handler neutralized — the settings form uses options.php + register_setting().
         // This redirect prevents a stripped save if any old bookmark/form somehow targets this action.
