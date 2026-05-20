@@ -3628,7 +3628,34 @@ class Admin {
             AdminUI::section_start( $section_label );
             $keywords_table = new KeywordsTable( $status_filter, $view );
             $keywords_table->prepare_items();
+            $active_filters = $keywords_table->get_active_filters();
             echo '<div class="tmwui-table-wrap">';
+            $filter_base = [ 'page' => 'tmwseo-keywords', 'view' => 'candidates' ];
+            $quick_links = [
+                'Volume High → Low'      => array_merge( $filter_base, [ 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
+                'Scored With Volume'     => array_merge( $filter_base, [ 'status' => 'scored', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
+                'New With Volume'        => array_merge( $filter_base, [ 'status' => 'new', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
+                'Lowest KD First'        => array_merge( $filter_base, [ 'min_volume' => 1, 'orderby' => 'difficulty', 'order' => 'asc' ] ),
+                'High Volume + Low KD'   => array_merge( $filter_base, [ 'min_volume' => 1, 'max_kd' => 40, 'orderby' => 'volume', 'order' => 'desc' ] ),
+                'Commercial Intent'      => array_merge( $filter_base, [ 'intent' => 'commercial', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
+            ];
+            global $wpdb;
+            $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+            $page_type_exists = (bool) $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$cand_table} LIKE %s", 'page_type' ) );
+            if ( $page_type_exists ) {
+                $quick_links['Category Candidates'] = array_merge( $filter_base, [ 'page_type' => 'category', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] );
+            }
+            $quick_links['Reset Filters'] = $filter_base;
+            echo '<p style="margin:0 0 12px;display:flex;gap:8px;flex-wrap:wrap;">';
+            foreach ( $quick_links as $label => $args ) {
+                echo '<a class="button button-small" href="' . esc_url( add_query_arg( $args, admin_url( 'admin.php' ) ) ) . '">' . esc_html( $label ) . '</a>';
+            }
+            echo '</p>';
+            if ( $active_filters !== [] ) {
+                $parts = [];
+                foreach ( $active_filters as $k => $v ) { $parts[] = $k . '=' . $v; }
+                echo '<div class="notice notice-info inline"><p><strong>Filters active:</strong> ' . esc_html( implode( ', ', $parts ) ) . ' <a href="' . esc_url( add_query_arg( $filter_base, admin_url( 'admin.php' ) ) ) . '">Reset Filters</a></p></div>';
+            }
 
             // ── Bulk-result notice ────────────────────────────────────────────
             if ( isset( $_GET['tmwseo_notice'] ) ) {
@@ -3654,6 +3681,10 @@ class Admin {
             echo '<form method="get" style="margin-bottom:4px;">';
             echo '<input type="hidden" name="page" value="tmwseo-keywords">';
             echo '<input type="hidden" name="view" value="' . esc_attr( $view ) . '">';
+            foreach ( $active_filters as $k => $v ) {
+                if ( in_array( $k, [ 'page', 'view', 's' ], true ) ) { continue; }
+                echo '<input type="hidden" name="' . esc_attr( $k ) . '" value="' . esc_attr( (string) $v ) . '">';
+            }
             $keywords_table->search_box( __( 'Search Keywords', 'tmwseo' ), 'keyword-search' );
             echo '</form>';
 
@@ -3668,6 +3699,10 @@ class Admin {
             echo '<input type="hidden" name="view" value="' . esc_attr( $view ) . '">';
             echo '<input type="hidden" name="_s" value="' . esc_attr( $search_val ) . '">';
             echo '<input type="hidden" name="_paged" value="' . esc_attr( (string) $paged_val ) . '">';
+            foreach ( $active_filters as $k => $v ) {
+                if ( in_array( $k, [ 'page', 'view', 's' ], true ) ) { continue; }
+                echo '<input type="hidden" name="_filter_' . esc_attr( $k ) . '" value="' . esc_attr( (string) $v ) . '">';
+            }
             // wp_nonce_field so our handler can verify; WP_List_Table also outputs
             // its own bulk-keywords nonce inside display() — both target same action.
             wp_nonce_field( 'bulk-keywords' );

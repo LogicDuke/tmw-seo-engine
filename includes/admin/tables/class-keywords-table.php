@@ -14,6 +14,12 @@ class KeywordsTable extends \WP_List_Table {
 
     /** @var string Current view slug — forwarded in pagination/search links */
     private string $current_view;
+    /** @var array<string, string|int|float> */
+    private array $active_filters = [];
+    /** @var bool */
+    private bool $has_page_type = false;
+    /** @var bool */
+    private bool $has_opportunity = false;
 
     /**
      * @param string|null $status_filter  If set, WHERE status = this value.
@@ -42,13 +48,19 @@ class KeywordsTable extends \WP_List_Table {
     }
 
     public function get_sortable_columns(): array {
-        return [
+        $columns = [
             'keyword'    => ['keyword', true],
             'volume'     => ['volume', false],
             'difficulty' => ['difficulty', false],
+            'cpc'        => ['cpc', false],
             'intent'     => ['intent', false],
-            'created_at' => ['updated_at', false],
+            'status'     => ['status', false],
+            'created_at' => ['created_at', false],
         ];
+        if ( $this->has_opportunity ) {
+            $columns['opportunity'] = [ 'opportunity', false ];
+        }
+        return $columns;
     }
 
     protected function get_bulk_actions(): array {
@@ -102,6 +114,16 @@ class KeywordsTable extends \WP_List_Table {
 
     public function column_default($item, $column_name): string {
         $value = $item[$column_name] ?? '';
+        if ( $column_name === 'volume' ) {
+            $volume = (int) $value;
+            $style  = $volume > 0
+                ? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;'
+                : 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#6b7280;font-weight:600;';
+            return '<span style="' . esc_attr( $style ) . '">' . esc_html( (string) $volume ) . '</span>';
+        }
+        if ( in_array( $column_name, [ 'difficulty', 'cpc' ], true ) && ( $value === null || $value === '' || (float) $value <= 0.0 ) ) {
+            return '&mdash;';
+        }
         if ($column_name === 'status') {
             $status = strtolower((string) $value);
             $styles = [
@@ -119,6 +141,10 @@ class KeywordsTable extends \WP_List_Table {
     public function prepare_items(): void {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $columns_info = $wpdb->get_results( "SHOW COLUMNS FROM {$table}", ARRAY_A );
+        $column_names = array_map( static fn( $c ) => (string) ( $c['Field'] ?? '' ), (array) $columns_info );
+        $this->has_page_type   = in_array( 'page_type', $column_names, true );
+        $this->has_opportunity = in_array( 'opportunity', $column_names, true );
 
         $this->process_bulk_action();
 
@@ -127,14 +153,13 @@ class KeywordsTable extends \WP_List_Table {
         $sortable = $this->get_sortable_columns();
         $this->_column_headers = [ $columns, $hidden, $sortable ];
 
-        $allowed_orderby = [ 'keyword', 'volume', 'difficulty', 'intent', 'created_at', 'updated_at' ];
+        $allowed_orderby = [ 'keyword', 'volume', 'difficulty', 'kd', 'intent', 'status', 'cpc', 'created_at', 'updated_at' ];
+        if ( $this->has_opportunity ) { $allowed_orderby[] = 'opportunity'; }
         $orderby = isset( $_GET['orderby'] ) ? sanitize_key( (string) $_GET['orderby'] ) : 'created_at';
         if ( ! in_array( $orderby, $allowed_orderby, true ) ) {
             $orderby = 'created_at';
         }
-        if ( $orderby === 'created_at' ) {
-            $orderby = 'updated_at';
-        }
+        if ( $orderby === 'kd' ) { $orderby = 'difficulty'; }
 
         $order = isset( $_GET['order'] ) ? strtoupper( sanitize_key( (string) $_GET['order'] ) ) : 'DESC';
         if ( ! in_array( $order, [ 'ASC', 'DESC' ], true ) ) {
@@ -142,6 +167,21 @@ class KeywordsTable extends \WP_List_Table {
         }
 
         $search = isset( $_REQUEST['s'] ) ? sanitize_text_field( wp_unslash( (string) $_REQUEST['s'] ) ) : '';
+        $numeric_filters = [ 'min_volume', 'max_volume', 'min_kd', 'max_kd', 'min_cpc', 'max_cpc' ];
+        foreach ( $numeric_filters as $key ) {
+            if ( isset( $_GET[ $key ] ) && $_GET[ $key ] !== '' ) {
+                $this->active_filters[ $key ] = is_numeric( $_GET[ $key ] ) ? (float) $_GET[ $key ] : '';
+            }
+        }
+        foreach ( [ 'status', 'intent', 'orderby', 'order', 's' ] as $key ) {
+            if ( isset( $_GET[ $key ] ) && $_GET[ $key ] !== '' ) { $this->active_filters[ $key ] = sanitize_text_field( (string) $_GET[ $key ] ); }
+        }
+        foreach ( [ 'hide_zero_volume', 'has_volume', 'has_kd', 'has_cpc' ] as $key ) {
+            if ( isset( $_GET[ $key ] ) && (string) $_GET[ $key ] === '1' ) { $this->active_filters[ $key ] = 1; }
+        }
+        if ( $this->has_page_type && isset( $_GET['page_type'] ) && $_GET['page_type'] !== '' ) {
+            $this->active_filters['page_type'] = sanitize_text_field( (string) $_GET['page_type'] );
+        }
 
         // Build WHERE conditions
         $conditions = [];
@@ -156,6 +196,27 @@ class KeywordsTable extends \WP_List_Table {
             $conditions[] = 'keyword LIKE %s';
             $where_args[] = '%' . $wpdb->esc_like( $search ) . '%';
         }
+        if ( isset( $this->active_filters['status'] ) && $this->status_filter === null ) {
+            $conditions[] = 'status = %s';
+            $where_args[] = (string) $this->active_filters['status'];
+        }
+        if ( isset( $this->active_filters['intent'] ) ) {
+            $conditions[] = 'intent = %s';
+            $where_args[] = (string) $this->active_filters['intent'];
+        }
+        if ( $this->has_page_type && isset( $this->active_filters['page_type'] ) ) {
+            $conditions[] = 'page_type = %s';
+            $where_args[] = (string) $this->active_filters['page_type'];
+        }
+        if ( isset( $this->active_filters['min_volume'] ) && (float) $this->active_filters['min_volume'] >= 1 ) { $conditions[] = 'CAST(volume AS UNSIGNED) > 0'; }
+        if ( isset( $this->active_filters['max_volume'] ) ) { $conditions[] = 'CAST(volume AS UNSIGNED) <= %d'; $where_args[] = (int) $this->active_filters['max_volume']; }
+        if ( isset( $this->active_filters['hide_zero_volume'] ) || isset( $this->active_filters['has_volume'] ) ) { $conditions[] = 'CAST(volume AS UNSIGNED) > 0'; }
+        if ( isset( $this->active_filters['min_kd'] ) ) { $conditions[] = 'CAST(difficulty AS DECIMAL(10,2)) >= %f'; $where_args[] = (float) $this->active_filters['min_kd']; }
+        if ( isset( $this->active_filters['max_kd'] ) ) { $conditions[] = '(difficulty IS NULL OR difficulty = "" OR CAST(difficulty AS DECIMAL(10,2)) <= %f)'; $where_args[] = (float) $this->active_filters['max_kd']; }
+        if ( isset( $this->active_filters['has_kd'] ) ) { $conditions[] = 'difficulty IS NOT NULL AND difficulty <> "" AND CAST(difficulty AS DECIMAL(10,2)) > 0'; }
+        if ( isset( $this->active_filters['min_cpc'] ) ) { $conditions[] = 'CAST(cpc AS DECIMAL(10,4)) >= %f'; $where_args[] = (float) $this->active_filters['min_cpc']; }
+        if ( isset( $this->active_filters['max_cpc'] ) ) { $conditions[] = 'CAST(cpc AS DECIMAL(10,4)) <= %f'; $where_args[] = (float) $this->active_filters['max_cpc']; }
+        if ( isset( $this->active_filters['has_cpc'] ) ) { $conditions[] = 'cpc IS NOT NULL AND cpc <> "" AND CAST(cpc AS DECIMAL(10,4)) > 0'; }
 
         $where_sql = $conditions !== [] ? ' WHERE ' . implode( ' AND ', $conditions ) : '';
 
@@ -168,7 +229,19 @@ class KeywordsTable extends \WP_List_Table {
         $current_page = max( 1, isset( $_GET['paged'] ) ? (int) $_GET['paged'] : 1 );
         $offset       = max( 0, ( $current_page - 1 ) * $per_page );
 
-        $sql         = "SELECT id, keyword, volume, difficulty, intent, status, updated_at AS created_at FROM {$table}{$where_sql} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $order_sql = match ( $orderby ) {
+            'volume'      => 'CAST(volume AS UNSIGNED) ' . $order . ', created_at DESC',
+            'difficulty'  => ( $order === 'ASC' ) ? 'CAST(difficulty AS DECIMAL(10,2)) ASC, CAST(volume AS UNSIGNED) DESC' : 'CAST(difficulty AS DECIMAL(10,2)) DESC',
+            'cpc'         => 'CAST(cpc AS DECIMAL(10,4)) ' . $order,
+            'opportunity' => $this->has_opportunity ? 'CAST(opportunity AS DECIMAL(10,4)) ' . $order . ', CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC' : 'CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC',
+            'keyword'     => 'keyword ' . $order,
+            'status'      => 'status ' . $order,
+            'intent'      => 'intent ' . $order,
+            'created_at'  => 'created_at ' . $order,
+            'updated_at'  => 'updated_at ' . $order,
+            default       => 'created_at DESC',
+        };
+        $sql         = "SELECT id, keyword, volume, difficulty, cpc, intent, status, created_at" . ( $this->has_opportunity ? ', opportunity' : '' ) . " FROM {$table}{$where_sql} ORDER BY {$order_sql} LIMIT %d OFFSET %d";
         $query_args  = $where_args;
         $query_args[] = $per_page;
         $query_args[] = $offset;
@@ -182,6 +255,8 @@ class KeywordsTable extends \WP_List_Table {
             'total_pages' => (int) ceil( $total_items / $per_page ),
         ] );
     }
+
+    public function get_active_filters(): array { return $this->active_filters; }
 
     protected function process_bulk_action(): void {
         // Primary bulk handling is via AdminFormHandlers::handle_keyword_candidates_bulk()
