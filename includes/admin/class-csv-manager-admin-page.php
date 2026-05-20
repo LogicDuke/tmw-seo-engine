@@ -14,6 +14,7 @@ class CSVManagerAdminPage {
     private const LARGE_FILE_BYTES    = 5242880;
     private const LINKED_PER_PAGE     = 100;
     private const PAGE_SLUG           = 'tmwseo-csv-manager';
+    private const SEED_IMPORT_ALLOWED_COLUMNS = ['seed_keyword','keyword_family','cluster','page_type','priority','status','verification_status','suggested_url_slug','notes'];
 
     public static function init(): void {
         add_action('admin_post_tmw_csv_manager_delete',          [__CLASS__, 'handle_delete']);
@@ -23,6 +24,8 @@ class CSVManagerAdminPage {
         add_action('admin_post_tmw_csv_manager_delete_pack',     [__CLASS__, 'handle_delete_pack']);
         add_action('admin_post_tmw_csv_linked_seeds_export',     [__CLASS__, 'handle_linked_seeds_export']);
         add_action('admin_post_tmw_csv_linked_seeds_delete_all', [__CLASS__, 'handle_linked_seeds_delete_all']);
+        add_action('admin_post_tmw_csv_seed_upload_preview',     [__CLASS__, 'handle_seed_upload_preview']);
+        add_action('admin_post_tmw_csv_seed_import_confirm',     [__CLASS__, 'handle_seed_import_confirm']);
     }
 
     public static function render_page(): void {
@@ -139,6 +142,7 @@ class CSVManagerAdminPage {
 
     // ── Tab: Import Packs ─────────────────────────────────────────────────────
     private static function render_tab_packs(): void {
+        self::render_seed_upload_panel();
         $csv_dir = self::get_csv_dir();
         if (isset($_GET['tmw_csv_preview'])) {
             $pf = sanitize_file_name(rawurldecode((string)wp_unslash($_GET['tmw_csv_preview'])));
@@ -363,7 +367,57 @@ class CSVManagerAdminPage {
         } elseif ($notice === 'linked_deleted') {
             $c = (int)($_GET['deleted_count'] ?? 0);
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf('%d seed rows deleted from this pack.', $c)) . '</p></div>';
+        } elseif ($notice === 'seed_missing_keyword') {
+            echo '<div class="notice notice-error is-dismissible"><p>Upload failed safely: required column <code>seed_keyword</code> is missing.</p></div>';
+        } elseif ($notice === 'seed_imported') {
+            $imported = (int)($_GET['imported'] ?? 0);
+            $dupes = (int)($_GET['duplicates'] ?? 0);
+            $invalid = (int)($_GET['invalid'] ?? 0);
+            $packs = add_query_arg(['page' => self::PAGE_SLUG, 'tmw_csv_tab' => 'packs'], admin_url('admin.php'));
+            $seed_registry = admin_url('admin.php?page=tmwseo-seed-registry');
+            $discovery = admin_url('admin.php?page=tmwseo-discovery-control');
+            echo '<div class="notice notice-success is-dismissible"><p><strong>Seed CSV import complete.</strong> Imported: ' . $imported . ', duplicates skipped: ' . $dupes . ', invalid skipped: ' . $invalid . '. ';
+            echo '<a href="' . esc_url($packs) . '">Imported Pack</a> · <a href="' . esc_url($seed_registry) . '">Seed Registry</a> · <a href="' . esc_url($discovery) . '">Discovery Control</a></p></div>';
         }
+    }
+
+    private static function render_seed_upload_panel(): void {
+        $preview = get_transient('tmw_csv_seed_preview_' . get_current_user_id());
+        echo '<div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:8px;padding:14px 16px;margin-bottom:16px;">';
+        echo '<h2 style="margin:0 0 10px;">Upload Seed CSV for Keyword Verification</h2>';
+        echo '<p style="margin:0 0 8px;font-size:13px;">Use this to import controlled P1/P2 seed batches. Uploading a CSV does not run DataForSEO and does not create pages. After import, run Discovery manually from Discovery Control.</p>';
+        echo '<p style="margin:0 0 8px;font-size:12px;"><strong>Accepted columns:</strong> <code>' . esc_html(implode(', ', self::SEED_IMPORT_ALLOWED_COLUMNS)) . '</code></p>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data">';
+        wp_nonce_field('tmw_csv_seed_upload_preview');
+        echo '<input type="hidden" name="action" value="tmw_csv_seed_upload_preview">';
+        echo '<p><label><strong>Seed CSV file</strong><br><input type="file" name="keywords_csv" accept=\".csv,text/csv\" required></label></p>';
+        echo '<p><label><strong>Source label</strong><br><input type="text" name="import_source" value="p1_dataforseo_verification" class="regular-text"></label></p>';
+        echo '<p><label><input type="checkbox" name="run_kd" value="1"> Run discovery after import</label> <em>(default OFF)</em></p>';
+        submit_button('Upload & Preview', 'secondary', 'submit', false);
+        echo '</form>';
+        if (is_array($preview)) { self::render_seed_preview_confirmation($preview); }
+        echo '<p style="margin-top:8px;font-size:12px;color:#6b7280;">Legacy <code>tmwseo-import</code> route remains available for now and can be deprecated later.</p>';
+        echo '</div>';
+    }
+
+    private static function render_seed_preview_confirmation(array $p): void {
+        echo '<hr><h3>Preview Before Import</h3>';
+        echo '<p><strong>Total rows:</strong> ' . (int)$p['total_rows'] . ' &nbsp; <strong>Valid rows:</strong> ' . (int)$p['valid_rows'] . ' &nbsp; <strong>Duplicate rows:</strong> ' . (int)$p['duplicate_rows'] . ' &nbsp; <strong>Invalid rows:</strong> ' . (int)$p['invalid_rows'] . '</p>';
+        echo '<p><strong>Detected columns:</strong> <code>' . esc_html(implode(', ', (array)$p['columns'])) . '</code></p>';
+        if (empty($p['has_seed_keyword'])) { echo '<div class="notice notice-error inline"><p>Required column <code>seed_keyword</code> is missing. Import is disabled.</p></div>'; return; }
+        if (!empty($p['preview_rows'])) {
+            echo '<table class="widefat striped"><thead><tr>';
+            foreach ((array)$p['columns'] as $c) { echo '<th>' . esc_html((string)$c) . '</th>'; }
+            echo '</tr></thead><tbody>';
+            foreach ((array)$p['preview_rows'] as $row) { echo '<tr>'; foreach ((array)$row as $cell) { echo '<td>' . esc_html((string)$cell) . '</td>'; } echo '</tr>'; }
+            echo '</tbody></table>';
+        }
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" onsubmit="if(document.getElementById(\'tmw-run-kd-confirm\')?.checked){return confirm(\'This may trigger external/paid discovery actions. Continue?\');} return true;">';
+        wp_nonce_field('tmw_csv_seed_import_confirm');
+        echo '<input type="hidden" name="action" value="tmw_csv_seed_import_confirm">';
+        echo '<p><label><input id="tmw-run-kd-confirm" type="checkbox" name="run_kd_confirm" value="1"' . checked(!empty($p['run_kd']), true, false) . '> Confirm: run discovery after import (optional)</label></p>';
+        submit_button('Confirm Import', 'primary', 'submit', false);
+        echo '</form>';
     }
 
     // ── Inventory row renderer ────────────────────────────────────────────────
@@ -582,6 +636,72 @@ class CSVManagerAdminPage {
         Admin::import_keywords_from_csv_path($target, 'manual_reimport', true);
         wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmw_csv_notice=reimported'));
         exit;
+    }
+
+    public static function handle_seed_upload_preview(): void {
+        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        check_admin_referer('tmw_csv_seed_upload_preview');
+        if (empty($_FILES['keywords_csv']['tmp_name'])) { wp_die('No CSV uploaded'); }
+        $file = $_FILES['keywords_csv'];
+        $filename = sanitize_file_name((string)($file['name'] ?? 'seed-import.csv'));
+        if (strtolower((string)pathinfo($filename, PATHINFO_EXTENSION)) !== 'csv') { wp_die('CSV only'); }
+        $target = trailingslashit(self::get_csv_dir()) . wp_unique_filename(self::get_csv_dir(), $filename);
+        $tmp = (string)$file['tmp_name'];
+        $moved = is_uploaded_file($tmp) ? move_uploaded_file($tmp, $target) : @rename($tmp, $target);
+        if (!$moved) { wp_die('Upload move failed'); }
+        \TMWSEO\Engine\Logs::info('import', '[TMW-SEED-CSV] upload received', ['file' => basename($target)]);
+        $preview = self::build_seed_preview($target);
+        $preview['file_path'] = $target;
+        $preview['import_source'] = sanitize_text_field((string)($_POST['import_source'] ?? 'p1_dataforseo_verification'));
+        $preview['run_kd'] = !empty($_POST['run_kd']);
+        set_transient('tmw_csv_seed_preview_' . get_current_user_id(), $preview, 15 * MINUTE_IN_SECONDS);
+        \TMWSEO\Engine\Logs::info('import', '[TMW-SEED-IMPORT] preview generated', ['total' => $preview['total_rows'], 'valid' => $preview['valid_rows'], 'duplicate' => $preview['duplicate_rows'], 'invalid' => $preview['invalid_rows'], 'run_kd_requested' => $preview['run_kd']]);
+        $notice = empty($preview['has_seed_keyword']) ? 'seed_missing_keyword' : '';
+        wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmw_csv_tab=packs' . ($notice ? '&tmw_csv_notice=' . $notice : '')));
+        exit;
+    }
+
+    public static function handle_seed_import_confirm(): void {
+        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        check_admin_referer('tmw_csv_seed_import_confirm');
+        $preview = get_transient('tmw_csv_seed_preview_' . get_current_user_id());
+        if (!is_array($preview) || empty($preview['file_path']) || empty($preview['has_seed_keyword'])) { wp_die('No valid preview found'); }
+        $run_kd = !empty($_POST['run_kd_confirm']) && !empty($preview['run_kd']);
+        \TMWSEO\Engine\Logs::info('import', '[TMW-SEED-IMPORT] import confirmed', ['file' => basename((string)$preview['file_path']), 'run_kd_requested' => $run_kd]);
+        $result = Admin::import_keywords_from_csv_path((string)$preview['file_path'], (string)$preview['import_source'], $run_kd);
+        delete_transient('tmw_csv_seed_preview_' . get_current_user_id());
+        \TMWSEO\Engine\Logs::info('import', '[TMW-KW] rows imported', ['raw' => (int)($result['raw'] ?? 0), 'invalid_rows_skipped' => (int)$preview['invalid_rows'], 'duplicate_rows_skipped' => (int)$preview['duplicate_rows'], 'discovery_requested' => $run_kd]);
+        wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmw_csv_tab=packs&tmw_csv_notice=seed_imported&imported=' . (int)($result['raw'] ?? 0) . '&duplicates=' . (int)$preview['duplicate_rows'] . '&invalid=' . (int)$preview['invalid_rows']));
+        exit;
+    }
+
+    private static function build_seed_preview(string $path): array {
+        $meta = self::read_csv_meta($path, 25);
+        $headers = array_map(fn($h) => strtolower(trim((string)$h)), (array)$meta['headers']);
+        $kwIdx = array_search('seed_keyword', $headers, true);
+        $dupes = 0; $invalid = 0; $seen = []; $valid = 0;
+        global $wpdb;
+        $seed_table = KeywordDataRepository::seeds_table();
+        $db_hashes = [];
+        if (is_array($meta['preview_rows']) && $kwIdx !== false) {
+            foreach ($meta['preview_rows'] as $r) {
+                $kw = trim((string)($r[$kwIdx] ?? ''));
+                if ($kw === '') { $invalid++; continue; }
+                $norm = \TMWSEO\Engine\Keywords\SeedRegistry::normalize_seed($kw);
+                if ($norm === '') { $invalid++; continue; }
+                if (isset($seen[$norm])) { $dupes++; continue; }
+                $seen[$norm] = md5($norm);
+                $valid++;
+            }
+            if (!empty($seen)) {
+                $hashes = array_values($seen);
+                $ph = implode(',', array_fill(0, count($hashes), '%s'));
+                $db = $wpdb->get_col($wpdb->prepare("SELECT hash FROM {$seed_table} WHERE hash IN ($ph)", ...$hashes));
+                $db_hashes = is_array($db) ? $db : [];
+            }
+        }
+        $dupes += count($db_hashes);
+        return ['total_rows' => (int)$meta['row_count'], 'valid_rows' => $valid, 'duplicate_rows' => $dupes, 'invalid_rows' => $invalid, 'preview_rows' => (array)$meta['preview_rows'], 'columns' => (array)$meta['headers'], 'has_seed_keyword' => $kwIdx !== false];
     }
 
     // ── Inventory helpers ─────────────────────────────────────────────────────

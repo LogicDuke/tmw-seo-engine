@@ -20,10 +20,13 @@ TMW SEO Engine is a private WordPress plugin that provides a self-hosted SEO int
 - Full **provenance tracking** — every seed carries `import_batch_id` and `import_source_label`
 
 ### CSV Import / Linked Seeds / Import Packs
-- **CSV Manager** admin page: upload keyword seed packs as CSV files, inspect them, re-import, download, or delete
+- **CSV Manager** admin page: upload seed CSV packs from **Import Packs → Upload Seed CSV for Keyword Verification**, preview before confirmation, then inspect/re-import/download/delete packs
 - **Import Packs** view shows filesystem files, DB-backed seed batches, and their join status (`linked`, `file_only`, `db_only`, `mismatch`)
 - **Linked Seeds Explorer** shows every seed row belonging to a specific import pack with full metrics
 - Summary bar cards link directly to the relevant filtered view
+- Upload accepts controlled columns: `seed_keyword`, `keyword_family`, `cluster`, `page_type`, `priority`, `status`, `verification_status`, `suggested_url_slug`, `notes`
+- Seed CSV upload itself does **not** spend API credits; discovery/DataForSEO remains manual from **Discovery Control** unless explicitly confirmed by the operator
+- Recommended operator flow: **CSV import → Discovery Control → Keywords/Candidates → Clusters → Workbook T6**
 
 ### Keyword Pipeline & Clusters
 - Raw keywords collected from DataForSEO, Google Search Console, Google Keyword Planner, Google Trends, Bing Suggest, Reddit, and competitor SERP research
