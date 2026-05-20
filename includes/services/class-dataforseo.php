@@ -554,6 +554,65 @@ class DataForSEO {
         return $result;
     }
 
+    /**
+     * Exact keyword metrics enrichment via DataForSEO search_volume endpoint.
+     *
+     * @param string[] $keywords
+     * @return array ok=true, map=[normalized_keyword => metrics]
+     */
+    public static function exact_keyword_metrics(array $keywords): array {
+        $keywords = array_values(array_unique(array_filter(array_map('strval', $keywords))));
+        $keywords = array_slice($keywords, 0, 1000);
+
+        $normalized = array_map(fn($k) => mb_strtolower($k, 'UTF-8'), $keywords);
+        $cache_key  = 'tmwseo_exact_metrics_' . md5(implode(',', $normalized) . self::loc_code() . self::lang_code());
+        $cached     = get_transient($cache_key);
+        if ($cached !== false && is_array($cached)) {
+            return $cached;
+        }
+
+        $payload = [[
+            'keywords' => $normalized,
+            'location_code' => self::loc_code(),
+            'language_code' => self::lang_code(),
+            'include_adult_keywords' => true,
+        ]];
+
+        $res = self::post('/v3/keywords_data/google_ads/search_volume/live', $payload);
+        if (!$res['ok']) return $res;
+
+        $items = $res['data']['tasks'][0]['result'][0]['items'] ?? [];
+        $map = [];
+        if (is_array($items)) {
+            foreach ($items as $it) {
+                if (!is_array($it)) continue;
+                $kw = (string) ($it['keyword'] ?? '');
+                if ($kw === '') continue;
+
+                $kwn = mb_strtolower($kw, 'UTF-8');
+                $info = (isset($it['keyword_info']) && is_array($it['keyword_info'])) ? $it['keyword_info'] : [];
+
+                $sv = isset($it['search_volume']) ? (int) $it['search_volume'] : (isset($info['search_volume']) ? (int) $info['search_volume'] : null);
+                $cpc = isset($it['cpc']) ? (float) $it['cpc'] : (isset($info['cpc']) ? (float) $info['cpc'] : null);
+                $competition = isset($it['competition']) ? (float) $it['competition'] : (isset($info['competition']) ? (float) $info['competition'] : null);
+                $competition_index = isset($it['competition_index']) ? (int) $it['competition_index'] : (isset($info['competition_index']) ? (int) $info['competition_index'] : null);
+                $difficulty = isset($it['keyword_difficulty']) ? (float) $it['keyword_difficulty'] : (isset($info['keyword_difficulty']) ? (float) $info['keyword_difficulty'] : null);
+
+                $map[$kwn] = [
+                    'search_volume' => $sv,
+                    'cpc' => $cpc,
+                    'competition' => $competition,
+                    'competition_index' => $competition_index,
+                    'difficulty' => $difficulty,
+                ];
+            }
+        }
+
+        $result = ['ok' => true, 'map' => $map, 'raw' => $res['data']];
+        set_transient($cache_key, $result, 7 * DAY_IN_SECONDS);
+        return $result;
+    }
+
     // ── NEW: SERP Live (feeds SerpWeaknessEngine with real data) ──────────
 
     /**
