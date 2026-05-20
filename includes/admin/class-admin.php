@@ -58,6 +58,8 @@ class Admin {
         add_action('admin_post_tmwseo_cr_quick_action', [CrakRevenueCamManager::class, 'handle_quick_action']);
         add_action('admin_post_tmwseo_cr_auto_map', [CrakRevenueCamManager::class, 'handle_quick_action']);
         add_action('admin_post_tmwseo_run_dfseo_paid_keyword_scan', [__CLASS__, 'handle_dfseo_paid_keyword_scan']);
+        add_action('admin_post_tmwseo_preview_keyword_cleanup', [__CLASS__, 'preview_keyword_cleanup']);
+        add_action('admin_post_tmwseo_apply_keyword_cleanup', [__CLASS__, 'apply_keyword_cleanup']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -1889,6 +1891,14 @@ class Admin {
         AdminFormHandlers::handle_keyword_candidate_action();
     }
 
+    public static function preview_keyword_cleanup(): void {
+        AdminFormHandlers::preview_keyword_cleanup();
+    }
+
+    public static function apply_keyword_cleanup(): void {
+        AdminFormHandlers::apply_keyword_cleanup();
+    }
+
     /**
      * Fires on load-tmwseo-engine_page_tmwseo-keywords — before admin-header.php,
      * so wp_safe_redirect() is safe. Delegates to AdminFormHandlers for bulk
@@ -3081,6 +3091,22 @@ class Admin {
         echo '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tmwseo_run_worker' ), 'tmwseo_run_worker' ) ) . '">Run Worker (healthcheck)</a>';
         echo '</div>';
 
+        if ( isset( $_GET['tmwseo_notice'] ) ) {
+            $notice = sanitize_key( (string) $_GET['tmwseo_notice'] );
+            if ( $notice === 'keyword_cleanup_preview_ready' ) {
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Keyword cleanup preview generated. Review matches below before applying.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'keyword_cleanup_applied' ) {
+                $count = isset( $_GET['tmwseo_bulk_count'] ) ? max( 0, (int) $_GET['tmwseo_bulk_count'] ) : 0;
+                echo '<div class="notice notice-success is-dismissible"><p>' . sprintf( esc_html__( 'Safe keyword cleanup applied. %d candidate rows were marked as ignored.', 'tmwseo' ), $count ) . '</p></div>';
+            } elseif ( $notice === 'keyword_cleanup_confirm_required' ) {
+                echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'Please confirm cleanup before applying changes.', 'tmwseo' ) . '</p></div>';
+            }
+        }
+
+
+        // ── Safe keyword cleanup panel ───────────────────────────────────────
+        self::render_safe_keyword_cleanup_panel();
+
         // ── View tabs ─────────────────────────────────────────────────────────
         // Map: view slug => [ label, count or null ]
         // NOTE: keyword candidates use `ignored` as the stored status for Reject
@@ -3498,6 +3524,53 @@ class Admin {
         self::footer();
     }
 
+
+
+    private static function render_safe_keyword_cleanup_panel(): void {
+        $include_ignored = isset( $_GET['tmwseo_cleanup_include_ignored'] ) && (string) $_GET['tmwseo_cleanup_include_ignored'] === '1';
+        $include_clusters = isset( $_GET['tmwseo_cleanup_include_clusters'] ) && (string) $_GET['tmwseo_cleanup_include_clusters'] === '1';
+        $preview = get_transient( 'tmwseo_keyword_cleanup_preview_' . get_current_user_id() );
+
+        AdminUI::section_start( __( 'Safe Keyword Cleanup', 'tmwseo' ), __( 'Preview and ignore obviously irrelevant keyword candidates. Approved keywords are never changed.', 'tmwseo' ) );
+        echo '<div class="tmwui-cta-row">';
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_preview_keyword_cleanup' );
+        echo '<input type="hidden" name="action" value="tmwseo_preview_keyword_cleanup">';
+        echo '<label><input type="checkbox" name="include_ignored" value="1" ' . checked( $include_ignored, true, false ) . '> ' . esc_html__( 'Include already ignored rows in preview', 'tmwseo' ) . '</label><br>';
+        echo '<label><input type="checkbox" name="include_clusters" value="1" ' . checked( $include_clusters, true, false ) . '> ' . esc_html__( 'Also clean keyword clusters', 'tmwseo' ) . '</label><br>';
+        submit_button( __( 'Preview Cleanup', 'tmwseo' ), 'secondary', 'submit', false );
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_apply_keyword_cleanup' );
+        echo '<input type="hidden" name="action" value="tmwseo_apply_keyword_cleanup">';
+        echo '<input type="hidden" name="include_ignored" value="' . ( $include_ignored ? '1' : '0' ) . '">';
+        echo '<input type="hidden" name="include_clusters" value="' . ( $include_clusters ? '1' : '0' ) . '">';
+        echo '<label><input type="checkbox" name="confirm_apply" value="1"> ' . esc_html__( 'I understand this will mark matching non-approved keywords as ignored.', 'tmwseo' ) . '</label><br>';
+        submit_button( __( 'Apply Cleanup', 'tmwseo' ), 'primary', 'submit', false );
+        echo '</form>';
+        echo '</div>';
+
+        if ( is_array( $preview ) ) {
+            echo '<p><strong>' . esc_html__( 'Preview Results', 'tmwseo' ) . '</strong></p>';
+            echo '<ul>';
+            echo '<li>' . esc_html__( 'Total candidates scanned:', 'tmwseo' ) . ' ' . (int) ( $preview['total_scanned'] ?? 0 ) . '</li>';
+            echo '<li>' . esc_html__( 'Would be ignored:', 'tmwseo' ) . ' ' . (int) ( $preview['would_ignore'] ?? 0 ) . '</li>';
+            echo '<li>' . esc_html__( 'Protected because approved:', 'tmwseo' ) . ' ' . (int) ( $preview['approved_protected'] ?? 0 ) . '</li>';
+            echo '<li>' . esc_html__( 'Skipped already ignored:', 'tmwseo' ) . ' ' . (int) ( $preview['already_ignored'] ?? 0 ) . '</li>';
+            echo '</ul>';
+            $matches = is_array( $preview['matches'] ?? null ) ? $preview['matches'] : [];
+            if ( ! empty( $matches ) ) {
+                echo '<div class="tmwui-table-wrap"><table class="widefat striped"><thead><tr><th>Keyword</th><th>Current Status</th><th>Reason</th></tr></thead><tbody>';
+                foreach ( $matches as $row ) {
+                    echo '<tr><td>' . esc_html( (string) ( $row['keyword'] ?? '' ) ) . '</td><td>' . esc_html( (string) ( $row['status'] ?? '' ) ) . '</td><td><code>' . esc_html( (string) ( $row['reason'] ?? '' ) ) . '</code></td></tr>';
+                }
+                echo '</tbody></table></div>';
+            }
+        }
+
+        AdminUI::section_end();
+    }
 
     public static function render_generated_pages(): void {
         self::header(__('TMW SEO Engine — Drafts to Review', 'tmwseo'));
