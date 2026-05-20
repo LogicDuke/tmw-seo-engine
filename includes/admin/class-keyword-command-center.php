@@ -504,7 +504,9 @@ class KeywordCommandCenter {
                 $source  = (string) ( $keyword_row['source'] ?? '' );
                 echo '<li>' . esc_html( $keyword ) . ' <small style="color:#666;">(' . esc_html( $source ) . ')</small></li>';
             }
-            echo '</ul></td>';
+            echo '</ul>';
+            echo '<small style="display:block;margin-top:6px;color:#666;">Attribute candidates: ' . esc_html( (string) ( $row['attribute_candidates_count'] ?? 0 ) ) . ' / selected: ' . esc_html( (string) ( $row['selected_attribute_count'] ?? 0 ) ) . '</small>';
+            echo '</td>';
             echo '</tr>';
         }
         echo '</tbody></table>';
