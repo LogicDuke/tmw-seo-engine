@@ -22,6 +22,12 @@ class ModelKeywordSuggestionGenerator {
         '{model} webcam model profile',
     ];
 
+
+    private const DESCRIPTIVE_HINTS = [
+        'brunette','blonde','latina','asian','ebony','mature','curvy','petite','tattooed','lingerie',
+        'solo','natural','webcam','private show','live chat','bbw','milf','redhead','big tits','small tits',
+    ];
+
     private const ATTRIBUTE_PATTERNS = [
         '{attribute} adult video chat model','{attribute} live cam girl','{attribute} webcam chat model','{attribute} adult webcam model',
         '{attribute} private cam show','{attribute} live webcam chat','{attribute} adult cam model','{attribute} webcam video chat',
@@ -34,10 +40,20 @@ class ModelKeywordSuggestionGenerator {
             $model_name = 'Model ' . (int) $post->ID;
         }
 
-        $tags       = $include_tags ? $this->collect_terms( $post->ID, [ 'post_tag', 'models' ] ) : [];
-        $categories = $include_categories ? $this->collect_terms( $post->ID, [ 'category', 'model_category' ] ) : [];
+        $all_taxonomies = $this->taxonomies_for_model_preview();
+        $tag_taxonomies = array_values( array_intersect( [ 'post_tag', 'models' ], $all_taxonomies ) );
+        $category_taxonomies = array_values( array_diff( $all_taxonomies, $tag_taxonomies ) );
 
-        $extra = $this->build_extra_keywords( (int) $post->ID, $model_name, $tags, $categories, $include_tags, $include_categories );
+        $tags       = $include_tags ? $this->collect_terms( $post->ID, $tag_taxonomies ) : [];
+        $categories = $include_categories ? $this->collect_terms( $post->ID, $category_taxonomies ) : [];
+
+        $ignored_tag_terms = [];
+        $ignored_category_terms = [];
+
+        $tag_attributes      = $include_tags ? $this->filter_descriptive_attributes( $tags, $model_name, $ignored_tag_terms ) : [];
+        $category_attributes = $include_categories ? $this->filter_descriptive_attributes( $categories, $model_name, $ignored_category_terms ) : [];
+
+        $extra = $this->build_extra_keywords( (int) $post->ID, $model_name, $tag_attributes, $category_attributes, $include_tags, $include_categories );
 
         return [
             'post_id'         => (int) $post->ID,
@@ -46,17 +62,15 @@ class ModelKeywordSuggestionGenerator {
             'extra_keywords'  => $extra,
             'tags'            => $tags,
             'categories'      => $categories,
+            'ignored_terms'   => array_values( array_unique( array_merge( $ignored_tag_terms, $ignored_category_terms ) ) ),
         ];
     }
 
-    private function build_extra_keywords( int $post_id, string $model_name, array $tags, array $categories, bool $include_tags, bool $include_categories ): array {
+    private function build_extra_keywords( int $post_id, string $model_name, array $tag_attributes, array $category_attributes, bool $include_tags, bool $include_categories ): array {
         $target = 5 + ( $post_id % 4 ); // 5-8 deterministic.
         $seed   = max( 0, $post_id );
 
         $name_candidates = $this->patterns_for_seed( self::MODEL_NAME_PATTERNS, $seed, 4 );
-
-        $tag_attributes      = $include_tags ? $this->filter_safe_attributes( $tags ) : [];
-        $category_attributes = $include_categories ? $this->filter_safe_attributes( $categories ) : [];
 
         $tag_candidates      = $this->attribute_candidates( $tag_attributes, 'tag_pattern', $seed + 7 );
         $category_candidates = $this->attribute_candidates( $category_attributes, 'category_pattern', $seed + 13 );
@@ -180,6 +194,81 @@ class ModelKeywordSuggestionGenerator {
             }
         }
         return $entries;
+    }
+
+
+
+    private function filter_descriptive_attributes( array $attributes, string $model_name, array &$ignored ): array {
+        $safe = $this->filter_safe_attributes( $attributes );
+        $kept = [];
+        foreach ( $safe as $attribute ) {
+            if ( $this->is_name_like_attribute( $attribute, $model_name ) ) {
+                $ignored[] = $attribute;
+                continue;
+            }
+            $kept[] = $attribute;
+        }
+        return $kept;
+    }
+
+    private function is_name_like_attribute( string $attribute, string $model_name ): bool {
+        $attribute_norm = $this->normalize_term( $attribute );
+        $model_norm = $this->normalize_term( $model_name );
+        if ( $attribute_norm === '' || $model_norm === '' ) {
+            return false;
+        }
+
+        if ( $attribute_norm === $model_norm ) {
+            return true;
+        }
+
+        $model_parts = array_values( array_filter( preg_split( '/\s+/', $model_norm ) ?: [] ) );
+        if ( in_array( $attribute_norm, $model_parts, true ) ) {
+            return true;
+        }
+
+        $attribute_parts = array_values( array_filter( preg_split( '/\s+/', $attribute_norm ) ?: [] ) );
+        if ( ! empty( $attribute_parts ) && count( array_diff( $attribute_parts, $model_parts ) ) === 0 ) {
+            return true;
+        }
+
+        $joined = str_replace( ' ', '-', $attribute_norm );
+        if ( $joined === sanitize_title( $model_name ) ) {
+            return true;
+        }
+
+        foreach ( self::DESCRIPTIVE_HINTS as $hint ) {
+            if ( str_contains( $attribute_norm, $this->normalize_term( $hint ) ) ) {
+                return false;
+            }
+        }
+
+        if ( count( $attribute_parts ) >= 2 && count( $attribute_parts ) <= 3 && preg_match( '/^[a-z\s-]+$/', $attribute_norm ) === 1 ) {
+            $generic_tokens = [ 'webcam', 'cam', 'chat', 'live', 'adult', 'private', 'show', 'model', 'solo' ];
+            if ( count( array_intersect( $attribute_parts, $generic_tokens ) ) === 0 ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function normalize_term( string $value ): string {
+        $value = strtolower( $this->clean_phrase( $value ) );
+        $value = preg_replace( '/[^a-z0-9\s-]+/', ' ', $value );
+        $value = preg_replace( '/[-_]+/', ' ', (string) $value );
+        $value = preg_replace( '/\s+/', ' ', (string) $value );
+        return trim( (string) $value );
+    }
+
+    private function taxonomies_for_model_preview(): array {
+        $taxonomies = get_object_taxonomies( 'model', 'names' );
+        if ( ! is_array( $taxonomies ) ) {
+            return [ 'post_tag', 'models', 'category', 'model_category' ];
+        }
+
+        $merged = array_values( array_unique( array_merge( [ 'post_tag', 'models', 'category', 'model_category' ], $taxonomies ) ) );
+        return array_values( array_filter( $merged, 'taxonomy_exists' ) );
     }
 
     private function patterns_for_seed( array $patterns, int $seed, int $count ): array {

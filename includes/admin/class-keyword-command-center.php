@@ -493,7 +493,12 @@ class KeywordCommandCenter {
             echo '<tr>';
             echo '<td><strong>#' . esc_html( (string) ( $row['post_id'] ?? 0 ) ) . '</strong><br>' . esc_html( (string) ( $row['model_name'] ?? '' ) ) . '</td>';
             echo '<td>' . esc_html( implode( ', ', (array) ( $row['tags'] ?? [] ) ) ) . '</td>';
-            echo '<td>' . esc_html( implode( ', ', (array) ( $row['categories'] ?? [] ) ) ) . '</td>';
+            $taxonomy_cell = esc_html( implode( ', ', (array) ( $row['categories'] ?? [] ) ) );
+            $ignored = array_values( array_filter( array_map( 'strval', (array) ( $row['ignored_terms'] ?? [] ) ) ) );
+            if ( ! empty( $ignored ) ) {
+                $taxonomy_cell .= '<br><small style="color:#666;">Ignored tags/categories: ' . esc_html( implode( ', ', $ignored ) ) . '</small>';
+            }
+            echo '<td>' . $taxonomy_cell . '</td>';
             echo '<td><code>' . esc_html( (string) ( $row['primary_keyword'] ?? '' ) ) . '</code></td>';
             echo '<td><ul style="margin:0;padding-left:18px;">';
             foreach ( (array) ( $row['extra_keywords'] ?? [] ) as $keyword_row ) {
