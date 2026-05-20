@@ -80,7 +80,8 @@ class ModelKeywordSuggestionGenerator {
             ? $this->filter_descriptive_attributes( array_values( array_unique( array_merge( $direct_categories, $related_categories ) ) ), $model_name, $ignored_category_terms )
             : [];
 
-        $extra = $this->build_extra_keywords( (int) $post->ID, $model_name, $tag_attributes, $category_attributes, $include_tags, $include_categories );
+        $selection = $this->build_extra_keywords( (int) $post->ID, $model_name, $tag_attributes, $category_attributes, $include_tags, $include_categories );
+        $extra = $selection['keywords'];
 
         return [
             'post_id'         => (int) $post->ID,
@@ -92,6 +93,8 @@ class ModelKeywordSuggestionGenerator {
             'related_tags'    => $related_tags,
             'related_categories' => $related_categories,
             'ignored_terms'   => array_values( array_unique( array_merge( $ignored_tag_terms, $ignored_category_terms ) ) ),
+            'attribute_candidates_count' => (int) ( $selection['attribute_candidates_count'] ?? 0 ),
+            'selected_attribute_count' => (int) ( $selection['selected_attribute_count'] ?? 0 ),
         ];
     }
 
@@ -182,30 +185,25 @@ class ModelKeywordSuggestionGenerator {
     private function build_extra_keywords( int $post_id, string $model_name, array $tag_attributes, array $category_attributes, bool $include_tags, bool $include_categories ): array {
         $target = 5 + ( $post_id % 4 ); // 5-8 deterministic.
         $seed   = max( 0, $post_id );
-        $has_clean_attributes = ! empty( $tag_attributes ) || ! empty( $category_attributes );
 
-        $name_target_min = 3;
-        $name_target_max = 4;
-        $attribute_target_min = $has_clean_attributes ? 2 : 0;
-        $attribute_target_max = $has_clean_attributes ? 4 : 0;
-
-        $candidate_pool = [];
+        $model_name_candidates = [];
         foreach ( $this->patterns_for_seed( self::MODEL_NAME_PATTERNS, $seed, count( self::MODEL_NAME_PATTERNS ) ) as $pattern ) {
             $keyword = $this->clean_phrase( str_replace( '{model}', $model_name, $pattern ) );
             if ( $this->is_natural_keyword( $keyword ) ) {
-                $candidate_pool[] = [ 'keyword' => $keyword, 'source' => 'model_name_pattern' ];
+                $model_name_candidates[] = [ 'keyword' => $keyword, 'source' => 'model_name_pattern' ];
             }
         }
-        $candidate_pool = array_merge(
-            $candidate_pool,
+
+        $attribute_candidates = array_merge(
             $this->attribute_candidates( $tag_attributes, 'tag_pattern', $seed + 7 ),
             $this->attribute_candidates( $category_attributes, 'category_pattern', $seed + 13 )
         );
 
-        return $this->select_best_keywords( $candidate_pool, $model_name, $target, $name_target_min, $name_target_max, $attribute_target_min, $attribute_target_max );
+        return $this->select_best_keywords( $model_name_candidates, $attribute_candidates, $model_name, $target );
     }
 
-    private function select_best_keywords( array $candidate_pool, string $model_name, int $target, int $name_min, int $name_max, int $attr_min, int $attr_max ): array {
+    private function select_best_keywords( array $model_name_candidates, array $attribute_candidates, string $model_name, int $target ): array {
+        $candidate_pool = array_merge( $model_name_candidates, $attribute_candidates );
         $scored = [];
         $seen = [];
         foreach ( $candidate_pool as $row ) {
@@ -233,13 +231,15 @@ class ModelKeywordSuggestionGenerator {
         $name_entries = array_values( array_filter( $scored, static fn( array $entry ): bool => (string) ( $entry['source'] ?? '' ) === 'model_name_pattern' ) );
         $attribute_entries = array_values( array_filter( $scored, static fn( array $entry ): bool => (string) ( $entry['source'] ?? '' ) !== 'model_name_pattern' ) );
 
-        $has_attribute_candidates = ! empty( $attribute_entries );
-        $name_target = min( $name_max, max( $name_min, $target - ( $has_attribute_candidates ? $attr_min : 0 ) ) );
-        $attribute_target = $has_attribute_candidates ? min( $attr_max, max( $attr_min, $target - $name_target ) ) : 0;
-
-        if ( count( $name_entries ) < $name_target ) {
-            $name_target = min( count( $name_entries ), $name_max );
-            $attribute_target = $has_attribute_candidates ? min( $attr_max, max( $attr_min, $target - $name_target ) ) : 0;
+        $attribute_candidates_count = count( $attribute_entries );
+        $name_target = 3;
+        $attribute_target = 0;
+        if ( $attribute_candidates_count > 0 ) {
+            $attribute_target = min( 4, max( 2, $target - $name_target ) );
+            $attribute_target = min( $attribute_target, $attribute_candidates_count );
+            if ( $attribute_target < 2 ) {
+                $name_target = max( 0, $target - $attribute_target );
+            }
         }
 
         $selected = [];
@@ -251,11 +251,18 @@ class ModelKeywordSuggestionGenerator {
         if ( count( $selected ) < $target ) {
             $this->append_entries_with_limit( $selected, $endings, $name_entries, $target );
         }
-        if ( count( $selected ) < $target && $has_attribute_candidates ) {
+        if ( count( $selected ) < $target ) {
             $this->append_entries_with_limit( $selected, $endings, $attribute_entries, $target );
         }
 
-        return array_slice( $selected, 0, $target );
+        $selected = array_slice( $selected, 0, $target );
+        $selected_attribute_count = count( array_filter( $selected, static fn( array $entry ): bool => (string) ( $entry['source'] ?? '' ) !== 'model_name_pattern' ) );
+
+        return [
+            'keywords' => $selected,
+            'attribute_candidates_count' => $attribute_candidates_count,
+            'selected_attribute_count' => $selected_attribute_count,
+        ];
     }
 
     private function append_entries_with_limit( array &$selected, array &$endings, array $entries, int $limit ): void {
