@@ -63,6 +63,10 @@ class ModelKeywordSuggestionGenerator {
         '{attribute} adult video chat model','{attribute} webcam chat model','{attribute} live cam girl',
         '{attribute} adult webcam model','{attribute} private cam show','{attribute} live cam show',
     ];
+    private const ATTRIBUTE_SELECTION_PRIORITY = [
+        'latina','brunette','blonde','amateur','tattooed','lingerie','solo','natural',
+        'big tits','milf','athletic','skinny','sensual','black hair',
+    ];
 
     public function generate_for_model( \WP_Post $post, bool $include_tags = true, bool $include_categories = true ): array {
         $model_name = trim( (string) $post->post_title );
@@ -230,7 +234,13 @@ class ModelKeywordSuggestionGenerator {
             if ( $score <= 0 ) {
                 continue;
             }
-            $scored[] = [ 'keyword' => $keyword, 'source' => $source, 'score' => $score, 'ending' => $this->keyword_ending( $keyword ) ];
+            $scored[] = [
+                'keyword' => $keyword,
+                'source' => $source,
+                'score' => $score,
+                'ending' => $this->keyword_ending( $keyword ),
+                'attribute' => (string) ( $row['attribute'] ?? '' ),
+            ];
         }
 
         usort( $scored, static function ( array $a, array $b ): int {
@@ -258,14 +268,14 @@ class ModelKeywordSuggestionGenerator {
         $endings = [];
 
         $this->append_entries_by_count( $selected, $endings, $name_entries, $name_target );
-        $this->append_entries_by_count( $selected, $endings, $attribute_entries, $attribute_target );
+        $this->append_diverse_attribute_entries( $selected, $endings, $attribute_entries, $attribute_target );
 
         if ( $attribute_candidates_count > 0 && $this->count_selected_attributes( $selected ) === 0 ) {
-            $this->append_entries_by_count( $selected, $endings, $attribute_entries, 1 );
+            $this->append_diverse_attribute_entries( $selected, $endings, $attribute_entries, 1 );
         }
 
         if ( count( $selected ) < $target ) {
-            $this->append_entries_by_count( $selected, $endings, $attribute_entries, $target - count( $selected ) );
+            $this->append_diverse_attribute_entries( $selected, $endings, $attribute_entries, $target - count( $selected ) );
         }
         if ( count( $selected ) < $target ) {
             $this->append_entries_by_count( $selected, $endings, $name_entries, $target - count( $selected ) );
@@ -279,6 +289,62 @@ class ModelKeywordSuggestionGenerator {
             'attribute_candidates_count' => $attribute_candidates_count,
             'selected_attribute_count' => $selected_attribute_count,
         ];
+    }
+
+    private function append_diverse_attribute_entries( array &$selected, array &$endings, array $entries, int $count ): void {
+        if ( $count <= 0 || empty( $entries ) ) {
+            return;
+        }
+
+        $grouped = [];
+        foreach ( $entries as $entry ) {
+            $attribute = $this->normalize_term( (string) ( $entry['attribute'] ?? '' ) );
+            if ( $attribute === '' ) {
+                $attribute = '__no_attribute__';
+            }
+            $grouped[ $attribute ][] = $entry;
+        }
+
+        $ordered_attributes = array_keys( $grouped );
+        usort( $ordered_attributes, function ( string $left, string $right ): int {
+            $left_rank = $this->attribute_priority_rank( $left );
+            $right_rank = $this->attribute_priority_rank( $right );
+            if ( $left_rank === $right_rank ) {
+                return strcmp( $left, $right );
+            }
+            return $left_rank <=> $right_rank;
+        } );
+
+        $first_pass = [];
+        foreach ( $ordered_attributes as $attribute ) {
+            $first_pass[] = $grouped[ $attribute ][0];
+        }
+        $initial_attribute_count = $this->count_selected_attributes( $selected );
+        $this->append_entries_by_count( $selected, $endings, $first_pass, $count );
+
+        $added = $this->count_selected_attributes( $selected ) - $initial_attribute_count;
+        if ( $added >= $count ) {
+            return;
+        }
+
+        $overflow = [];
+        foreach ( $ordered_attributes as $attribute ) {
+            if ( count( $grouped[ $attribute ] ) <= 1 ) {
+                continue;
+            }
+            foreach ( array_slice( $grouped[ $attribute ], 1 ) as $entry ) {
+                $overflow[] = $entry;
+            }
+        }
+        $this->append_entries_by_count( $selected, $endings, $overflow, $count - $added );
+    }
+
+    private function attribute_priority_rank( string $attribute ): int {
+        $rank = array_search( $attribute, self::ATTRIBUTE_SELECTION_PRIORITY, true );
+        if ( is_int( $rank ) ) {
+            return $rank;
+        }
+        return 999;
     }
 
     private function append_entries_by_count( array &$selected, array &$endings, array $entries, int $count ): void {
@@ -461,7 +527,7 @@ class ModelKeywordSuggestionGenerator {
             foreach ( $this->patterns_for_attribute( $attribute, $patterns ) as $pattern ) {
                 $keyword = $this->clean_phrase( str_replace( '{attribute}', $attribute, $pattern ) );
                 if ( $this->is_natural_keyword( $keyword ) ) {
-                    $entries[] = [ 'keyword' => $keyword, 'source' => $source ];
+                    $entries[] = [ 'keyword' => $keyword, 'source' => $source, 'attribute' => $attribute ];
                 }
             }
         }
