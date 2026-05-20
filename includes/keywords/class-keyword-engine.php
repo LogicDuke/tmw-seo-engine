@@ -949,6 +949,131 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         }
     }
 
+    /**
+     * Manual-only metric enrichment for "new" candidates.
+     * Does not trigger discovery expansion, approvals, or publishing flows.
+     */
+    public static function enrich_new_candidates_metrics( int $limit = 50 ): array {
+        global $wpdb;
+        $limit = max( 1, min( 50, $limit ) );
+        $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
+
+        Logs::info( 'keywords', '[TMW-KW-METRICS] metric_enrichment_start', [ 'limit' => $limit ] );
+
+        $rows = (array) $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, keyword, volume, difficulty, intent, status, sources
+             FROM {$cand_table}
+             WHERE status = 'new'
+               AND ((difficulty IS NULL OR difficulty = 0) OR (volume IS NULL OR volume = 0))
+             ORDER BY updated_at DESC
+             LIMIT %d",
+            $limit
+        ), ARRAY_A );
+
+        Logs::info( 'keywords', '[TMW-KW-METRICS] candidates_selected', [ 'count' => count( $rows ) ] );
+
+        if ( empty( $rows ) ) {
+            Logs::info( 'keywords', '[TMW-KW-METRICS] enrichment_completed', [ 'checked' => 0, 'updated' => 0, 'skipped' => 0 ] );
+            return [ 'checked' => 0, 'updated' => 0, 'skipped' => 0, 'dataforseo_reason' => 'no_candidates' ];
+        }
+
+        $keywords = array_values( array_unique( array_map( static function( $r ) { return (string) ( $r['keyword'] ?? '' ); }, $rows ) ) );
+        $by_keyword = [];
+        foreach ( $rows as $r ) { $by_keyword[ (string) $r['keyword'] ] = $r; }
+
+        $dfseo_map = [];
+        $dataforseo_reason = '';
+        if ( DataForSEO::is_configured() && ! DataForSEO::is_over_budget() ) {
+            Logs::info( 'keywords', '[TMW-KW-METRICS] dataforseo_called', [ 'count' => count( $keywords ) ] );
+            $kd_res = DataForSEO::bulk_keyword_difficulty( $keywords );
+            if ( ! empty( $kd_res['ok'] ) ) {
+                $dfseo_map = (array) ( $kd_res['map'] ?? [] );
+            } else {
+                $dataforseo_reason = (string) ( $kd_res['error'] ?? 'unknown' );
+                Logs::warn( 'keywords', '[TMW-KW-METRICS] dataforseo_failed', [ 'reason' => $dataforseo_reason ] );
+            }
+        } else {
+            $dataforseo_reason = DataForSEO::is_configured() ? 'over_budget' : 'not_configured';
+            Logs::warn( 'keywords', '[TMW-KW-METRICS] dataforseo_failed', [ 'reason' => $dataforseo_reason ] );
+        }
+
+        $gkp_map = [];
+        if ( \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::is_configured() ) {
+            Logs::info( 'keywords', '[TMW-KW-METRICS] gkp_called', [ 'count' => count( $keywords ) ] );
+            $gkp_res = \TMWSEO\Engine\Integrations\GoogleAdsKeywordPlannerApi::enrich_metrics( $keywords );
+            $gkp_map = is_array( $gkp_res ) && isset( $gkp_res['metrics'] ) ? (array) $gkp_res['metrics'] : (array) $gkp_res;
+        }
+
+        $updated = 0;
+        $skipped = 0;
+        foreach ( $keywords as $kw ) {
+            $row = $by_keyword[ $kw ] ?? null;
+            if ( ! is_array( $row ) ) { continue; }
+
+            $updates = [];
+            $formats = [];
+            $sources = (string) ( $row['sources'] ?? '' );
+
+            $kwn = mb_strtolower( $kw, 'UTF-8' );
+            if ( isset( $dfseo_map[ $kwn ] ) && (float) $dfseo_map[ $kwn ] > 0 && ( (float) ( $row['difficulty'] ?? 0 ) <= 0 ) ) {
+                $updates['difficulty'] = (float) $dfseo_map[ $kwn ];
+                $updates['difficulty_source'] = 'dataforseo';
+                $formats[] = '%f';
+                $formats[] = '%s';
+            }
+
+            $gkp = isset( $gkp_map[ $kw ] ) && is_array( $gkp_map[ $kw ] ) ? $gkp_map[ $kw ] : [];
+            $gkp_vol = (int) ( $gkp['volume'] ?? 0 );
+            $gkp_cpc = (float) ( $gkp['cpc'] ?? 0.0 );
+            $gkp_intent = isset( $gkp['intent'] ) ? (string) $gkp['intent'] : '';
+
+            if ( $gkp_vol > 0 && (int) ( $row['volume'] ?? 0 ) <= 0 ) {
+                $updates['volume'] = $gkp_vol;
+                $updates['volume_source'] = 'google_keyword_planner';
+                $formats[] = '%d';
+                $formats[] = '%s';
+            }
+            if ( $gkp_cpc > 0 ) {
+                $updates['cpc'] = $gkp_cpc;
+                $updates['cpc_source'] = 'google_keyword_planner';
+                $formats[] = '%f';
+                $formats[] = '%s';
+            }
+            if ( $gkp_intent !== '' && (string) ( $row['intent'] ?? '' ) === '' ) {
+                $updates['intent'] = $gkp_intent;
+                $formats[] = '%s';
+            }
+
+            if ( ! empty( $updates ) ) {
+                $updates['sources'] = self::cap_sources_string( $sources, 'manual_metric_enrichment' );
+                $updates['metrics_updated_at'] = current_time( 'mysql' );
+                $updates['updated_at'] = current_time( 'mysql' );
+                $updates['status'] = 'scored';
+                $formats[] = '%s'; $formats[] = '%s'; $formats[] = '%s'; $formats[] = '%s';
+
+                $wpdb->update( $cand_table, $updates, [ 'id' => (int) $row['id'] ], $formats, [ '%d' ] );
+                $updated++;
+                Logs::info( 'keywords', '[TMW-KW-METRICS] row_updated', [ 'id' => (int) $row['id'], 'keyword' => $kw ] );
+            } else {
+                $skipped++;
+            }
+        }
+
+        Logs::info( 'keywords', '[TMW-KW-METRICS] enrichment_completed', [
+            'checked' => count( $keywords ),
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'dataforseo_reason' => $dataforseo_reason,
+        ] );
+
+        return [
+            'checked' => count( $keywords ),
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'dataforseo_reason' => $dataforseo_reason,
+        ];
+    }
+
 
     public static function run_cluster_projection_job(array $job = []): void {
         $pages_per_day = (int) Settings::get('keyword_pages_per_day', 3);
