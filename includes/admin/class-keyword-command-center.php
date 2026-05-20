@@ -25,6 +25,7 @@ use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
 use TMWSEO\Engine\Keywords\OwnershipEnforcer;
 use TMWSEO\Engine\Keywords\ArchitectureReset;
 use TMWSEO\Engine\Keywords\StagingCleanRebuild;
+use TMWSEO\Engine\Keywords\ModelKeywordSuggestionGenerator;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\Services\TrustPolicy;
 use TMWSEO\Engine\Logs;
@@ -111,6 +112,27 @@ class KeywordCommandCenter {
                         Logs::info( 'assignment', '[TMW-ASSIGN] Keyword assigned', [ 'post_id' => $post_id, 'keyword' => $kw, 'user' => get_current_user_id() ] );
                     }
                 }
+                $tab = 'assign';
+                break;
+
+            case 'preview_model_tag_keywords':
+                $limit = max( 1, min( 100, (int) ( $_POST['preview_limit'] ?? 25 ) ) );
+                $include_tags = ! empty( $_POST['include_tag_keywords'] );
+                $include_categories = ! empty( $_POST['include_category_keywords'] );
+                $preview_rows = self::build_model_keyword_preview( $limit, $include_tags, $include_categories );
+                set_transient( 'tmwseo_model_keyword_preview', [
+                    'limit' => $limit,
+                    'include_tags' => $include_tags,
+                    'include_categories' => $include_categories,
+                    'rows' => $preview_rows,
+                ], 300 );
+                Logs::info( 'assignment', '[TMW-SEO-ASSIGN] Preview model tag keyword suggestions', [
+                    'limit' => $limit,
+                    'models' => count( $preview_rows ),
+                    'include_tags' => $include_tags,
+                    'include_categories' => $include_categories,
+                    'user' => get_current_user_id(),
+                ] );
                 $tab = 'assign';
                 break;
 
@@ -408,36 +430,102 @@ class KeywordCommandCenter {
 
         if ( empty( $rows ) ) {
             echo '<p style="color:#666;">No unassigned approved keywords. Approve keywords in <em>1. Review</em> first.</p>';
+        } else {
+            echo '<table class="widefat striped"><thead><tr>';
+            echo '<th>Keyword</th><th>Vol</th><th>KD</th><th>Opp</th><th>Intent</th>';
+            echo '<th>Suggested Owner</th><th>Assign</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach ( $rows as $r ) {
+                $kw  = (string) $r['keyword'];
+                $sug = OwnershipEnforcer::suggest_owner( $kw );
+
+                echo '<tr><td><strong>' . esc_html( $kw ) . '</strong></td>';
+                echo '<td>' . esc_html( $r['volume'] ?? '-' ) . '</td>';
+                echo '<td>' . esc_html( $r['difficulty'] !== null ? round( (float) $r['difficulty'] ) : '-' ) . '</td>';
+                echo '<td>' . esc_html( $r['opportunity'] !== null ? round( (float) $r['opportunity'] ) : '-' ) . '</td>';
+                echo '<td><small>' . esc_html( $r['intent'] ?? '' ) . '</small></td>';
+                echo '<td><small>' . esc_html( ( $sug['page_type'] ?: '?' ) . ' (' . $sug['reason'] . ')' ) . '</small></td>';
+                echo '<td>';
+                echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline;">';
+                wp_nonce_field( 'tmwseo_cc_nonce' );
+                echo '<input type="hidden" name="action" value="tmwseo_command_center_action">';
+                echo '<input type="hidden" name="cc_action" value="assign">';
+                echo '<input type="hidden" name="keyword" value="' . esc_attr( $kw ) . '">';
+                echo '<input type="number" name="target_post_id" value="' . esc_attr( $sug['entity_id'] ) . '" style="width:80px;" min="0"> ';
+                echo '<button type="submit" class="button button-small button-primary">Assign</button>';
+                echo '</form></td></tr>';
+            }
+
+            echo '</tbody></table>';
+        }
+
+        self::render_model_keyword_preview_panel();
+    }
+
+    private static function render_model_keyword_preview_panel(): void {
+        $preview = get_transient( 'tmwseo_model_keyword_preview' );
+        $limit = max( 1, min( 100, (int) ( $preview['limit'] ?? 25 ) ) );
+        $include_tags = ! isset( $preview['include_tags'] ) || ! empty( $preview['include_tags'] );
+        $include_categories = ! isset( $preview['include_categories'] ) || ! empty( $preview['include_categories'] );
+        $rows = isset( $preview['rows'] ) && is_array( $preview['rows'] ) ? $preview['rows'] : [];
+
+        echo '<hr style="margin:28px 0;">';
+        echo '<h2>Model + Tag Keyword Generator Preview</h2>';
+        echo '<p>Preview primary and long-tail extra keywords generated from model names, tags, and safe commercial webcam patterns. This does not save assignments or generate content.</p>';
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">';
+        wp_nonce_field( 'tmwseo_cc_nonce' );
+        echo '<input type="hidden" name="action" value="tmwseo_command_center_action">';
+        echo '<input type="hidden" name="cc_action" value="preview_model_tag_keywords">';
+        echo '<label>Limit <input type="number" min="1" max="100" name="preview_limit" value="' . esc_attr( (string) $limit ) . '" style="width:80px;"></label>';
+        echo '<label><input type="checkbox" name="include_tag_keywords" value="1" ' . checked( $include_tags, true, false ) . '> Include tag-based keyword suggestions</label>';
+        echo '<label><input type="checkbox" name="include_category_keywords" value="1" ' . checked( $include_categories, true, false ) . '> Include category-based keyword suggestions</label>';
+        echo '<button type="submit" class="button button-secondary">Preview</button>';
+        echo '</form>';
+
+        if ( empty( $rows ) ) {
+            echo '<p style="color:#666;">Run preview to view generated keyword suggestions.</p>';
             return;
         }
 
-        echo '<table class="widefat striped"><thead><tr>';
-        echo '<th>Keyword</th><th>Vol</th><th>KD</th><th>Opp</th><th>Intent</th>';
-        echo '<th>Suggested Owner</th><th>Assign</th>';
-        echo '</tr></thead><tbody>';
-
-        foreach ( $rows as $r ) {
-            $kw  = (string) $r['keyword'];
-            $sug = OwnershipEnforcer::suggest_owner( $kw );
-
-            echo '<tr><td><strong>' . esc_html( $kw ) . '</strong></td>';
-            echo '<td>' . esc_html( $r['volume'] ?? '-' ) . '</td>';
-            echo '<td>' . esc_html( $r['difficulty'] !== null ? round( (float) $r['difficulty'] ) : '-' ) . '</td>';
-            echo '<td>' . esc_html( $r['opportunity'] !== null ? round( (float) $r['opportunity'] ) : '-' ) . '</td>';
-            echo '<td><small>' . esc_html( $r['intent'] ?? '' ) . '</small></td>';
-            echo '<td><small>' . esc_html( ( $sug['page_type'] ?: '?' ) . ' (' . $sug['reason'] . ')' ) . '</small></td>';
-            echo '<td>';
-            echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline;">';
-            wp_nonce_field( 'tmwseo_cc_nonce' );
-            echo '<input type="hidden" name="action" value="tmwseo_command_center_action">';
-            echo '<input type="hidden" name="cc_action" value="assign">';
-            echo '<input type="hidden" name="keyword" value="' . esc_attr( $kw ) . '">';
-            echo '<input type="number" name="target_post_id" value="' . esc_attr( $sug['entity_id'] ) . '" style="width:80px;" min="0"> ';
-            echo '<button type="submit" class="button button-small button-primary">Assign</button>';
-            echo '</form></td></tr>';
+        echo '<table class="widefat striped"><thead><tr><th>Model</th><th>Tags</th><th>Categories/Taxonomies</th><th>Primary Keyword</th><th>Extra Keywords (5-8)</th></tr></thead><tbody>';
+        foreach ( $rows as $row ) {
+            echo '<tr>';
+            echo '<td><strong>#' . esc_html( (string) ( $row['post_id'] ?? 0 ) ) . '</strong><br>' . esc_html( (string) ( $row['model_name'] ?? '' ) ) . '</td>';
+            echo '<td>' . esc_html( implode( ', ', (array) ( $row['tags'] ?? [] ) ) ) . '</td>';
+            echo '<td>' . esc_html( implode( ', ', (array) ( $row['categories'] ?? [] ) ) ) . '</td>';
+            echo '<td><code>' . esc_html( (string) ( $row['primary_keyword'] ?? '' ) ) . '</code></td>';
+            echo '<td><ul style="margin:0;padding-left:18px;">';
+            foreach ( (array) ( $row['extra_keywords'] ?? [] ) as $keyword_row ) {
+                $keyword = (string) ( $keyword_row['keyword'] ?? '' );
+                $source  = (string) ( $keyword_row['source'] ?? '' );
+                echo '<li>' . esc_html( $keyword ) . ' <small style="color:#666;">(' . esc_html( $source ) . ')</small></li>';
+            }
+            echo '</ul></td>';
+            echo '</tr>';
         }
-
         echo '</tbody></table>';
+    }
+
+    private static function build_model_keyword_preview( int $limit, bool $include_tags, bool $include_categories ): array {
+        $posts = get_posts( [
+            'post_type' => 'model',
+            'post_status' => [ 'publish', 'draft', 'pending', 'private', 'future' ],
+            'posts_per_page' => $limit,
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'suppress_filters' => true,
+        ] );
+
+        $generator = new ModelKeywordSuggestionGenerator();
+        $rows = [];
+        foreach ( $posts as $post ) {
+            if ( ! $post instanceof \WP_Post ) {
+                continue;
+            }
+            $rows[] = $generator->generate_for_model( $post, $include_tags, $include_categories );
+        }
+        return $rows;
     }
 
     // === PANEL 3: HEALTH ====================================================
