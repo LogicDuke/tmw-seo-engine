@@ -230,47 +230,70 @@ class ModelKeywordSuggestionGenerator {
             return $b['score'] <=> $a['score'];
         } );
 
+        $name_entries = array_values( array_filter( $scored, static fn( array $entry ): bool => (string) ( $entry['source'] ?? '' ) === 'model_name_pattern' ) );
+        $attribute_entries = array_values( array_filter( $scored, static fn( array $entry ): bool => (string) ( $entry['source'] ?? '' ) !== 'model_name_pattern' ) );
+
+        $has_attribute_candidates = ! empty( $attribute_entries );
+        $name_target = min( $name_max, max( $name_min, $target - ( $has_attribute_candidates ? $attr_min : 0 ) ) );
+        $attribute_target = $has_attribute_candidates ? min( $attr_max, max( $attr_min, $target - $name_target ) ) : 0;
+
+        if ( count( $name_entries ) < $name_target ) {
+            $name_target = min( count( $name_entries ), $name_max );
+            $attribute_target = $has_attribute_candidates ? min( $attr_max, max( $attr_min, $target - $name_target ) ) : 0;
+        }
+
         $selected = [];
         $endings = [];
-        $name_count = 0;
-        $attr_count = 0;
-        foreach ( $scored as $entry ) {
-            $is_name = $entry['source'] === 'model_name_pattern';
-            $is_attr = ! $is_name;
-            if ( $is_name && $name_count >= $name_max ) { continue; }
-            if ( $is_attr && $attr_count >= $attr_max ) { continue; }
-            $ending = (string) $entry['ending'];
-            if ( $ending !== '' && ( $endings[ $ending ] ?? 0 ) >= 2 ) { continue; }
 
-            $selected[] = [ 'keyword' => (string) $entry['keyword'], 'source' => (string) $entry['source'] ];
-            $endings[ $ending ] = ( $endings[ $ending ] ?? 0 ) + 1;
-            $name_count += $is_name ? 1 : 0;
-            $attr_count += $is_attr ? 1 : 0;
-            if ( count( $selected ) >= $target ) { break; }
-        }
+        $this->append_entries_with_limit( $selected, $endings, $name_entries, $name_target );
+        $this->append_entries_with_limit( $selected, $endings, $attribute_entries, $attribute_target );
 
         if ( count( $selected ) < $target ) {
-            foreach ( $scored as $entry ) {
-                $keyword = (string) $entry['keyword'];
-                $source = (string) $entry['source'];
-                $exists = array_filter( $selected, static fn( array $row ): bool => strtolower( (string) $row['keyword'] ) === strtolower( $keyword ) );
-                if ( ! empty( $exists ) ) { continue; }
-                $selected[] = [ 'keyword' => $keyword, 'source' => $source ];
-                if ( count( $selected ) >= $target ) { break; }
-            }
+            $this->append_entries_with_limit( $selected, $endings, $name_entries, $target );
         }
-
-        $name_count = count( array_filter( $selected, static fn( array $row ): bool => (string) ( $row['source'] ?? '' ) === 'model_name_pattern' ) );
-        $attr_count = count( $selected ) - $name_count;
-        if ( $name_count < $name_min || $attr_count < $attr_min ) {
-            $fallback = [];
-            foreach ( array_slice( $scored, 0, $target ) as $entry ) {
-                $fallback[] = [ 'keyword' => (string) $entry['keyword'], 'source' => (string) $entry['source'] ];
-            }
-            return $fallback;
+        if ( count( $selected ) < $target && $has_attribute_candidates ) {
+            $this->append_entries_with_limit( $selected, $endings, $attribute_entries, $target );
         }
 
         return array_slice( $selected, 0, $target );
+    }
+
+    private function append_entries_with_limit( array &$selected, array &$endings, array $entries, int $limit ): void {
+        if ( $limit <= count( $selected ) ) {
+            return;
+        }
+
+        foreach ( $entries as $entry ) {
+            if ( count( $selected ) >= $limit ) {
+                break;
+            }
+
+            $keyword = (string) ( $entry['keyword'] ?? '' );
+            if ( $keyword === '' || $this->keyword_already_selected( $selected, $keyword ) ) {
+                continue;
+            }
+
+            $ending = (string) ( $entry['ending'] ?? '' );
+            if ( $ending !== '' && ( $endings[ $ending ] ?? 0 ) >= 2 ) {
+                continue;
+            }
+
+            $selected[] = [
+                'keyword' => $keyword,
+                'source'  => (string) ( $entry['source'] ?? '' ),
+            ];
+            $endings[ $ending ] = ( $endings[ $ending ] ?? 0 ) + 1;
+        }
+    }
+
+    private function keyword_already_selected( array $selected, string $keyword ): bool {
+        $needle = strtolower( $keyword );
+        foreach ( $selected as $row ) {
+            if ( strtolower( (string) ( $row['keyword'] ?? '' ) ) === $needle ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function score_keyword_candidate( string $keyword, string $source, string $model_name ): int {
