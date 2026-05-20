@@ -953,36 +953,66 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
      * Manual-only metric enrichment for "new" candidates.
      * Does not trigger discovery expansion, approvals, or publishing flows.
      */
+    /**
+     * Manual-only metric enrichment for "new" candidates.
+     * Does not trigger discovery expansion, approvals, or publishing flows.
+     *
+     * @param int  $limit Max candidates to process per call (1–50).
+     * @param bool $force When true: bypass the 14-day metrics_updated_at skip window and
+     *                    purge any stale transient cache for the keyword set. Use this after
+     *                    a provider or parser fix to re-enrich rows stamped before the fix.
+     *                    The normal button leaves $force = false.
+     */
     public static function enrich_new_candidates_metrics( int $limit = 50, bool $force = false ): array {
         global $wpdb;
         $limit = max( 1, min( 50, $limit ) );
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
 
-        Logs::info( 'keywords', '[TMW-KW-METRICS] metric_enrichment_start', [ 'limit' => $limit ] );
+        Logs::info( 'keywords', '[TMW-KW-METRICS] metric_enrichment_start', [ 'limit' => $limit, 'force' => $force ] );
 
-        // When $force is true we bypass the 14-day recency guard so rows stamped by a
-        // previous broken-parser run (e.g. PR #524) are re-checked immediately.
-        $date_guard = $force
+        if ( $force ) {
+            Logs::info( 'keywords', '[TMW-KW-METRICS] force_recheck_requested', [
+                'limit' => $limit,
+                'note'  => 'metrics_updated_at guard bypassed; stale transient will be purged before API call',
+            ] );
+        }
+
+        // When $force = true we drop the 14-day recency guard so rows stamped by an earlier
+        // broken-parser or provider-empty run are eligible for re-enrichment immediately.
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $date_guard_sql = $force
             ? ''
             : "AND (metrics_updated_at IS NULL OR metrics_updated_at < DATE_SUB(NOW(), INTERVAL 14 DAY))";
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $rows = (array) $wpdb->get_results( $wpdb->prepare(
             "SELECT id, keyword, volume, difficulty, cpc, intent, status, sources, notes, metrics_updated_at
              FROM {$cand_table}
              WHERE status = 'new'
                AND ((difficulty IS NULL OR difficulty = 0) OR (volume IS NULL OR volume = 0))
-               {$date_guard}
+               {$date_guard_sql}
              ORDER BY updated_at DESC
              LIMIT %d",
             $limit
         ), ARRAY_A );
 
-        Logs::info( 'keywords', '[TMW-KW-METRICS] candidates_selected', [ 'count' => count( $rows ) ] );
+        if ( $force ) {
+            Logs::info( 'keywords', '[TMW-KW-METRICS] force_recheck_candidates_selected', [
+                'count' => count( $rows ),
+                'date_guard_bypassed' => true,
+            ] );
+        } else {
+            Logs::info( 'keywords', '[TMW-KW-METRICS] candidates_selected', [ 'count' => count( $rows ) ] );
+        }
 
         if ( empty( $rows ) ) {
-            Logs::info( 'keywords', '[TMW-KW-METRICS] enrichment_completed', [ 'checked' => 0, 'updated' => 0, 'skipped' => 0 ] );
-            return [ 'checked' => 0, 'updated' => 0, 'skipped' => 0, 'dataforseo_reason' => 'no_candidates' ];
+            Logs::info( 'keywords', '[TMW-KW-METRICS] enrichment_completed', [ 'checked' => 0, 'updated' => 0, 'skipped' => 0, 'force' => $force ] );
+            return [
+                'checked'          => 0,
+                'updated'          => 0,
+                'skipped'          => 0,
+                'dataforseo_reason'=> 'no_candidates',
+                'force'            => $force,
+            ];
         }
 
         $keywords = array_values( array_unique( array_map( static function( $r ) { return (string) ( $r['keyword'] ?? '' ); }, $rows ) ) );
@@ -1004,22 +1034,17 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         $dfseo_cache_hit           = false;
         if ( DataForSEO::is_configured() && ! DataForSEO::is_over_budget() ) {
             $dfseo_called = true;
-            if ( $force ) {
-                // Purge any stale transient that may have cached an empty map from a broken parser run.
-                $normalized_for_key = array_map( static fn( $k ) => mb_strtolower( $k, 'UTF-8' ), $keywords );
-                $stale_key = 'tmwseo_exact_metrics_' . md5(
-                    implode( ',', $normalized_for_key ) .
-                    DataForSEO::default_location_code() .
-                    DataForSEO::default_language_code()
-                );
-                delete_transient( $stale_key );
-                Logs::info( 'keywords', '[TMW-KW-METRICS] force_recheck_cache_purged', [ 'transient_key' => $stale_key ] );
-            }
-            Logs::info( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_called', [ 'count' => count( $keywords ), 'force' => $force ] );
+            Logs::info( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_called', [ 'count' => count( $keywords ), 'bypass_cache' => $force ] );
             $dfseo_exact_called = true;
-            $exact_res = DataForSEO::exact_keyword_metrics( $keywords );
+            // When $force=true pass bypass_cache=true so any stale empty-map transient is purged.
+            $exact_res = DataForSEO::exact_keyword_metrics( $keywords, $force );
             if ( ! empty( $exact_res['ok'] ) ) {
-                $dfseo_map = (array) ( $exact_res['map'] ?? [] );
+                $dfseo_map                 = (array)   ( $exact_res['map']                 ?? [] );
+                $dfseo_task_status_code    = (int)     ( $exact_res['task_status_code']    ?? 0 );
+                $dfseo_task_status_message = (string)  ( $exact_res['task_status_message'] ?? '' );
+                $dfseo_task_result_count   = (int)     ( $exact_res['task_result_count']   ?? 0 );
+                $dfseo_parser_path         = (string)  ( $exact_res['parser_path']         ?? '' );
+                $dfseo_cache_hit           = ! empty(    $exact_res['cache_hit'] );
                 foreach ( $dfseo_map as $metric_row ) {
                     if ( ! is_array( $metric_row ) ) { continue; }
                     if ( array_key_exists( 'search_volume', $metric_row ) && $metric_row['search_volume'] !== null ) { $dfseo_volume_count++; }
@@ -1027,28 +1052,23 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     if ( array_key_exists( 'difficulty', $metric_row ) && $metric_row['difficulty'] !== null ) { $dfseo_usable_kd_count++; }
                 }
                 $dfseo_empty_map = empty( $dfseo_map );
-                // Capture task-level diagnostics from exact_keyword_metrics for the admin notice.
-                $dfseo_task_status_code    = (int)    ( $exact_res['task_status_code']    ?? 0 );
-                $dfseo_task_status_message = (string) ( $exact_res['task_status_message'] ?? '' );
-                $dfseo_task_result_count   = (int)    ( $exact_res['task_result_count']   ?? 0 );
-                $dfseo_parser_path         = (string) ( $exact_res['parser_path']         ?? '' );
-                $dfseo_cache_hit           = ! empty( $exact_res['cache_hit'] );
                 Logs::info( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_result', [
-                    'ok'              => true,
-                    'map_count'       => count( $dfseo_map ),
-                    'volume_count'    => $dfseo_volume_count,
-                    'cpc_count'       => $dfseo_cpc_count,
-                    'usable_kd_count' => $dfseo_usable_kd_count,
-                    'task_status'     => $dfseo_task_status_code,
-                    'result_count'    => $dfseo_task_result_count,
-                    'parser_path'     => $dfseo_parser_path,
-                    'cache_hit'       => $dfseo_cache_hit,
+                    'ok'               => true,
+                    'map_count'        => count( $dfseo_map ),
+                    'volume_count'     => $dfseo_volume_count,
+                    'cpc_count'        => $dfseo_cpc_count,
+                    'usable_kd_count'  => $dfseo_usable_kd_count,
+                    'task_status'      => $dfseo_task_status_code,
+                    'task_message'     => $dfseo_task_status_message,
+                    'result_count'     => $dfseo_task_result_count,
+                    'parser_path'      => $dfseo_parser_path,
+                    'cache_hit'        => $dfseo_cache_hit,
                 ] );
                 if ( $dfseo_empty_map ) {
                     Logs::warn( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_parser_empty', [
-                        'keywords'         => count( $keywords ),
-                        'task_result_count'=> $dfseo_task_result_count,
-                        'parser_path'      => $dfseo_parser_path,
+                        'keywords'          => count( $keywords ),
+                        'task_result_count' => $dfseo_task_result_count,
+                        'parser_path'       => $dfseo_parser_path,
                     ] );
                 }
             } else {
@@ -1181,26 +1201,12 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             }
         }
 
-        Logs::info( 'keywords', '[TMW-KW-METRICS] enrichment_completed', [
-            'checked' => count( $keywords ),
-            'updated' => $updated,
-            'skipped' => $skipped,
-            'dataforseo_reason' => $dataforseo_reason,
-            'dfseo_called' => $dfseo_called ? 1 : 0,
-            'dfseo_exact_called' => $dfseo_exact_called ? 1 : 0,
-            'dfseo_volume_count' => $dfseo_volume_count,
-            'dfseo_cpc_count' => $dfseo_cpc_count,
-            'dfseo_usable_kd_count' => $dfseo_usable_kd_count,
-            'dfseo_empty_map' => $dfseo_empty_map ? 1 : 0,
-            'gkp_called' => $gkp_called ? 1 : 0,
-            'gkp_usable_volume_count' => $gkp_usable_volume_count,
-            'skip_reasons' => $skip_reasons,
-        ] );
-
-        return [
+        $log_label = $force ? '[TMW-KW-METRICS] force_recheck_completed' : '[TMW-KW-METRICS] enrichment_completed';
+        Logs::info( 'keywords', $log_label, [
             'checked'                  => count( $keywords ),
             'updated'                  => $updated,
             'skipped'                  => $skipped,
+            'force'                    => $force,
             'dataforseo_reason'        => $dataforseo_reason,
             'dfseo_called'             => $dfseo_called ? 1 : 0,
             'dfseo_exact_called'       => $dfseo_exact_called ? 1 : 0,
@@ -1216,6 +1222,28 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
             'gkp_called'               => $gkp_called ? 1 : 0,
             'gkp_usable_volume_count'  => $gkp_usable_volume_count,
             'skip_reasons'             => $skip_reasons,
+        ] );
+
+        return [
+            'checked'                   => count( $keywords ),
+            'updated'                   => $updated,
+            'skipped'                   => $skipped,
+            'force'                     => $force,
+            'dataforseo_reason'         => $dataforseo_reason,
+            'dfseo_called'              => $dfseo_called ? 1 : 0,
+            'dfseo_exact_called'        => $dfseo_exact_called ? 1 : 0,
+            'dfseo_volume_count'        => $dfseo_volume_count,
+            'dfseo_cpc_count'           => $dfseo_cpc_count,
+            'dfseo_usable_kd_count'     => $dfseo_usable_kd_count,
+            'dfseo_empty_map'           => $dfseo_empty_map ? 1 : 0,
+            'dfseo_task_status_code'    => $dfseo_task_status_code,
+            'dfseo_task_status_message' => $dfseo_task_status_message,
+            'dfseo_task_result_count'   => $dfseo_task_result_count,
+            'dfseo_parser_path'         => $dfseo_parser_path,
+            'dfseo_cache_hit'           => $dfseo_cache_hit ? 1 : 0,
+            'gkp_called'                => $gkp_called ? 1 : 0,
+            'gkp_usable_volume_count'   => $gkp_usable_volume_count,
+            'skip_reasons'              => $skip_reasons,
         ];
     }
 

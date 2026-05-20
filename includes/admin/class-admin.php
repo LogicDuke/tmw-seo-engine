@@ -63,6 +63,7 @@ class Admin {
         add_action('admin_post_tmwseo_preview_keyword_cleanup', [__CLASS__, 'preview_keyword_cleanup']);
         add_action('admin_post_tmwseo_apply_keyword_cleanup', [__CLASS__, 'apply_keyword_cleanup']);
         add_action('admin_post_tmwseo_verify_new_keyword_metrics', [__CLASS__, 'verify_new_keyword_metrics_now']);
+        add_action('admin_post_tmwseo_force_recheck_keyword_metrics', [__CLASS__, 'force_recheck_keyword_metrics_now']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
     }
 
@@ -1890,32 +1891,60 @@ class Admin {
             wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
         }
         check_admin_referer( 'tmwseo_verify_new_keyword_metrics' );
-        // force_recheck=1 bypasses the 14-day skip guard and purges any stale empty-map cache.
-        // Use this after a provider/parser fix to re-enrich rows stamped before the fix.
-        $force = ! empty( $_POST['force_recheck'] ) && (int) $_POST['force_recheck'] === 1;
-        $result = \TMWSEO\Engine\Keywords\KeywordEngine::enrich_new_candidates_metrics( 50, $force );
+        $result = \TMWSEO\Engine\Keywords\KeywordEngine::enrich_new_candidates_metrics( 50 );
+        wp_safe_redirect( add_query_arg( [
+            'page' => 'tmwseo-keywords',
+            'tmwseo_notice' => 'kw_metrics_enrichment_completed',
+            'tmwseo_kw_checked' => (int) ( $result['checked'] ?? 0 ),
+            'tmwseo_kw_updated' => (int) ( $result['updated'] ?? 0 ),
+            'tmwseo_kw_skipped' => (int) ( $result['skipped'] ?? 0 ),
+            'tmwseo_kw_dfseo_reason' => rawurlencode( (string) ( $result['dataforseo_reason'] ?? '' ) ),
+            'tmwseo_kw_dfseo_called' => (int) ( $result['dfseo_called'] ?? 0 ),
+            'tmwseo_kw_dfseo_exact_called' => (int) ( $result['dfseo_exact_called'] ?? 0 ),
+            'tmwseo_kw_dfseo_volume_count' => (int) ( $result['dfseo_volume_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_cpc_count' => (int) ( $result['dfseo_cpc_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_usable_kd' => (int) ( $result['dfseo_usable_kd_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_empty_map' => (int) ( $result['dfseo_empty_map'] ?? 0 ),
+            'tmwseo_kw_gkp_called' => (int) ( $result['gkp_called'] ?? 0 ),
+            'tmwseo_kw_gkp_usable_volume' => (int) ( $result['gkp_usable_volume_count'] ?? 0 ),
+            'tmwseo_kw_skip_reasons' => rawurlencode( wp_json_encode( (array) ( $result['skip_reasons'] ?? [] ) ) ),
+        ], admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    /**
+     * Handler for admin_post_tmwseo_force_recheck_keyword_metrics.
+     * Bypasses the 14-day metrics_updated_at skip window and purges stale transients
+     * so rows stamped by earlier broken-parser or no-data runs are re-checked.
+     * Safe: does not approve, publish, generate content, or update RankMath.
+     */
+    public static function force_recheck_keyword_metrics_now(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
+        }
+        check_admin_referer( 'tmwseo_force_recheck_keyword_metrics' );
+        $result = \TMWSEO\Engine\Keywords\KeywordEngine::enrich_new_candidates_metrics( 50, true );
         wp_safe_redirect( add_query_arg( [
             'page'                         => 'tmwseo-keywords',
-            'tmwseo_notice'                => 'kw_metrics_enrichment_completed',
-            'tmwseo_kw_checked'            => (int)    ( $result['checked']                  ?? 0 ),
-            'tmwseo_kw_updated'            => (int)    ( $result['updated']                  ?? 0 ),
-            'tmwseo_kw_skipped'            => (int)    ( $result['skipped']                  ?? 0 ),
-            'tmwseo_kw_dfseo_reason'       => rawurlencode( (string) ( $result['dataforseo_reason'] ?? '' ) ),
-            'tmwseo_kw_dfseo_called'       => (int)    ( $result['dfseo_called']              ?? 0 ),
-            'tmwseo_kw_dfseo_exact_called' => (int)    ( $result['dfseo_exact_called']        ?? 0 ),
-            'tmwseo_kw_dfseo_volume_count' => (int)    ( $result['dfseo_volume_count']        ?? 0 ),
-            'tmwseo_kw_dfseo_cpc_count'    => (int)    ( $result['dfseo_cpc_count']           ?? 0 ),
-            'tmwseo_kw_dfseo_usable_kd'    => (int)    ( $result['dfseo_usable_kd_count']     ?? 0 ),
-            'tmwseo_kw_dfseo_empty_map'    => (int)    ( $result['dfseo_empty_map']           ?? 0 ),
-            'tmwseo_kw_dfseo_task_status'  => (int)    ( $result['dfseo_task_status_code']    ?? 0 ),
+            'tmwseo_notice'                => 'kw_force_recheck_completed',
+            'tmwseo_kw_checked'            => (int)   ( $result['checked']                  ?? 0 ),
+            'tmwseo_kw_updated'            => (int)   ( $result['updated']                  ?? 0 ),
+            'tmwseo_kw_skipped'            => (int)   ( $result['skipped']                  ?? 0 ),
+            'tmwseo_kw_dfseo_reason'       => rawurlencode( (string) ( $result['dataforseo_reason']         ?? '' ) ),
+            'tmwseo_kw_dfseo_called'       => (int)   ( $result['dfseo_called']              ?? 0 ),
+            'tmwseo_kw_dfseo_exact_called' => (int)   ( $result['dfseo_exact_called']        ?? 0 ),
+            'tmwseo_kw_dfseo_volume_count' => (int)   ( $result['dfseo_volume_count']        ?? 0 ),
+            'tmwseo_kw_dfseo_cpc_count'    => (int)   ( $result['dfseo_cpc_count']           ?? 0 ),
+            'tmwseo_kw_dfseo_usable_kd'    => (int)   ( $result['dfseo_usable_kd_count']     ?? 0 ),
+            'tmwseo_kw_dfseo_empty_map'    => (int)   ( $result['dfseo_empty_map']           ?? 0 ),
+            'tmwseo_kw_dfseo_task_status'  => (int)   ( $result['dfseo_task_status_code']    ?? 0 ),
             'tmwseo_kw_dfseo_task_msg'     => rawurlencode( (string) ( $result['dfseo_task_status_message'] ?? '' ) ),
-            'tmwseo_kw_dfseo_result_count' => (int)    ( $result['dfseo_task_result_count']   ?? 0 ),
-            'tmwseo_kw_dfseo_parser_path'  => rawurlencode( (string) ( $result['dfseo_parser_path']   ?? '' ) ),
-            'tmwseo_kw_dfseo_cache_hit'    => (int)    ( $result['dfseo_cache_hit']           ?? 0 ),
-            'tmwseo_kw_gkp_called'         => (int)    ( $result['gkp_called']                ?? 0 ),
-            'tmwseo_kw_gkp_usable_volume'  => (int)    ( $result['gkp_usable_volume_count']   ?? 0 ),
+            'tmwseo_kw_dfseo_result_count' => (int)   ( $result['dfseo_task_result_count']   ?? 0 ),
+            'tmwseo_kw_dfseo_parser_path'  => rawurlencode( (string) ( $result['dfseo_parser_path']         ?? '' ) ),
+            'tmwseo_kw_dfseo_cache_hit'    => (int)   ( $result['dfseo_cache_hit']           ?? 0 ),
+            'tmwseo_kw_gkp_called'         => (int)   ( $result['gkp_called']                ?? 0 ),
+            'tmwseo_kw_gkp_usable_volume'  => (int)   ( $result['gkp_usable_volume_count']   ?? 0 ),
             'tmwseo_kw_skip_reasons'       => rawurlencode( wp_json_encode( (array) ( $result['skip_reasons'] ?? [] ) ) ),
-            'tmwseo_kw_force'              => $force ? 1 : 0,
         ], admin_url( 'admin.php' ) ) );
         exit;
     }
@@ -2077,22 +2106,15 @@ class Admin {
             $checked = isset($_GET['tmwseo_kw_checked']) ? max(0, (int) $_GET['tmwseo_kw_checked']) : 0;
             $updated = isset($_GET['tmwseo_kw_updated']) ? max(0, (int) $_GET['tmwseo_kw_updated']) : 0;
             $skipped = isset($_GET['tmwseo_kw_skipped']) ? max(0, (int) $_GET['tmwseo_kw_skipped']) : 0;
-            $dfseo_reason       = isset($_GET['tmwseo_kw_dfseo_reason'])       ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_reason']))       : '';
-            $dfseo_called       = isset($_GET['tmwseo_kw_dfseo_called'])       ? (int) $_GET['tmwseo_kw_dfseo_called']       : 0;
+            $dfseo_reason = isset($_GET['tmwseo_kw_dfseo_reason']) ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_reason'])) : '';
+            $dfseo_called = isset($_GET['tmwseo_kw_dfseo_called']) ? (int) $_GET['tmwseo_kw_dfseo_called'] : 0;
             $dfseo_exact_called = isset($_GET['tmwseo_kw_dfseo_exact_called']) ? (int) $_GET['tmwseo_kw_dfseo_exact_called'] : 0;
             $dfseo_volume_count = isset($_GET['tmwseo_kw_dfseo_volume_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_volume_count']) : 0;
-            $dfseo_cpc_count    = isset($_GET['tmwseo_kw_dfseo_cpc_count'])    ? max(0, (int) $_GET['tmwseo_kw_dfseo_cpc_count'])    : 0;
-            $dfseo_usable_kd    = isset($_GET['tmwseo_kw_dfseo_usable_kd'])    ? max(0, (int) $_GET['tmwseo_kw_dfseo_usable_kd'])    : 0;
-            $dfseo_empty_map    = isset($_GET['tmwseo_kw_dfseo_empty_map'])    ? (int) $_GET['tmwseo_kw_dfseo_empty_map']    : 0;
-            // New: task-level diagnostics (added after parser fix)
-            $dfseo_task_status  = isset($_GET['tmwseo_kw_dfseo_task_status'])  ? (int) $_GET['tmwseo_kw_dfseo_task_status']  : 0;
-            $dfseo_task_msg     = isset($_GET['tmwseo_kw_dfseo_task_msg'])     ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_task_msg']))     : '';
-            $dfseo_result_count = isset($_GET['tmwseo_kw_dfseo_result_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_result_count']) : 0;
-            $dfseo_parser_path  = isset($_GET['tmwseo_kw_dfseo_parser_path'])  ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_parser_path']))  : '';
-            $dfseo_cache_hit    = isset($_GET['tmwseo_kw_dfseo_cache_hit'])    ? (int) $_GET['tmwseo_kw_dfseo_cache_hit']    : 0;
-            $force_ran          = isset($_GET['tmwseo_kw_force'])              ? (int) $_GET['tmwseo_kw_force']              : 0;
-            $gkp_called         = isset($_GET['tmwseo_kw_gkp_called'])         ? (int) $_GET['tmwseo_kw_gkp_called']         : 0;
-            $gkp_usable_volume  = isset($_GET['tmwseo_kw_gkp_usable_volume'])  ? max(0, (int) $_GET['tmwseo_kw_gkp_usable_volume'])  : 0;
+            $dfseo_cpc_count = isset($_GET['tmwseo_kw_dfseo_cpc_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_cpc_count']) : 0;
+            $dfseo_usable_kd = isset($_GET['tmwseo_kw_dfseo_usable_kd']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_usable_kd']) : 0;
+            $dfseo_empty_map = isset($_GET['tmwseo_kw_dfseo_empty_map']) ? (int) $_GET['tmwseo_kw_dfseo_empty_map'] : 0;
+            $gkp_called = isset($_GET['tmwseo_kw_gkp_called']) ? (int) $_GET['tmwseo_kw_gkp_called'] : 0;
+            $gkp_usable_volume = isset($_GET['tmwseo_kw_gkp_usable_volume']) ? max(0, (int) $_GET['tmwseo_kw_gkp_usable_volume']) : 0;
             $skip_reasons = isset($_GET['tmwseo_kw_skip_reasons']) ? json_decode((string) wp_unslash($_GET['tmwseo_kw_skip_reasons']), true) : [];
             $skip_reasons_text = '';
             if ( is_array( $skip_reasons ) && ! empty( $skip_reasons ) ) {
@@ -2102,33 +2124,88 @@ class Admin {
                 }
                 $skip_reasons_text = implode( ', ', $pairs );
             }
-            // Compose a more descriptive status line so empty map vs genuine-zero is visible.
-            $dfseo_http_ok_label  = $dfseo_exact_called ? 'yes' : ( $dfseo_called ? 'legacy_yes' : 'no' );
-            $dfseo_task_label     = $dfseo_task_status > 0
-                ? $dfseo_task_status . ( $dfseo_task_msg !== '' ? ' ' . $dfseo_task_msg : '' )
-                : ( $dfseo_reason !== '' ? $dfseo_reason : 'ok' );
-            $parser_empty_label  = $dfseo_empty_map && $dfseo_result_count > 0 ? 'yes (parser mismatch)' : ( $dfseo_empty_map ? 'yes (provider returned no data)' : 'no' );
-            $cache_hit_label     = $dfseo_cache_hit ? 'yes (stale — run with Force Recheck to re-call API)' : 'no';
-            $force_label         = $force_ran ? ' [FORCE RECHECK]' : '';
             $message = sprintf(
-                __('Keyword metric enrichment completed%14$s. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO HTTP ok: %4$s. DataForSEO task status: %5$s. DataForSEO result count: %6$d. DataForSEO parsed metric count: %7$d (volume: %8$d, KD: %9$d, CPC: %10$d). Parser empty: %15$s. Cache hit: %16$s. GKP called: %11$s, usable volume: %12$d. Rows no-data: %3$d. Skipped reasons: %13$s.', 'tmwseo'),
+                __('Keyword metric enrichment completed. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO exact metrics called: %4$s. DataForSEO volume count: %5$d. DataForSEO KD count: %6$d. DataForSEO CPC count: %7$d. DataForSEO empty map: %8$s, status: %9$s. GKP called: %10$s, usable volume count: %11$d. Rows no-data: %12$d. Skipped reasons: %13$s.', 'tmwseo'),
                 $checked,
                 $updated,
                 $skipped,
-                $dfseo_http_ok_label,
-                $dfseo_task_label,
-                $dfseo_result_count,
-                $dfseo_volume_count + $dfseo_usable_kd + $dfseo_cpc_count,
+                $dfseo_exact_called ? 'yes' : ( $dfseo_called ? 'legacy_yes' : 'no' ),
                 $dfseo_volume_count,
                 $dfseo_usable_kd,
                 $dfseo_cpc_count,
+                $dfseo_empty_map ? 'yes' : 'no',
+                $dfseo_reason !== '' ? $dfseo_reason : 'ok',
                 $gkp_called ? 'yes' : 'no',
                 $gkp_usable_volume,
-                $skip_reasons_text !== '' ? $skip_reasons_text : 'none',
-                $force_label,
-                $parser_empty_label,
-                $cache_hit_label
+                $skipped,
+                $skip_reasons_text !== '' ? $skip_reasons_text : 'none'
             );
+        } elseif ( $notice === 'kw_force_recheck_completed' ) {
+            $checked            = isset($_GET['tmwseo_kw_checked'])            ? max(0, (int) $_GET['tmwseo_kw_checked'])            : 0;
+            $updated            = isset($_GET['tmwseo_kw_updated'])            ? max(0, (int) $_GET['tmwseo_kw_updated'])            : 0;
+            $skipped            = isset($_GET['tmwseo_kw_skipped'])            ? max(0, (int) $_GET['tmwseo_kw_skipped'])            : 0;
+            $dfseo_reason       = isset($_GET['tmwseo_kw_dfseo_reason'])       ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_reason']))       : '';
+            $dfseo_exact_called = isset($_GET['tmwseo_kw_dfseo_exact_called']) ? (int) $_GET['tmwseo_kw_dfseo_exact_called'] : 0;
+            $dfseo_called       = isset($_GET['tmwseo_kw_dfseo_called'])       ? (int) $_GET['tmwseo_kw_dfseo_called']       : 0;
+            $dfseo_volume_count = isset($_GET['tmwseo_kw_dfseo_volume_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_volume_count']) : 0;
+            $dfseo_cpc_count    = isset($_GET['tmwseo_kw_dfseo_cpc_count'])    ? max(0, (int) $_GET['tmwseo_kw_dfseo_cpc_count'])    : 0;
+            $dfseo_usable_kd    = isset($_GET['tmwseo_kw_dfseo_usable_kd'])    ? max(0, (int) $_GET['tmwseo_kw_dfseo_usable_kd'])    : 0;
+            $dfseo_empty_map    = isset($_GET['tmwseo_kw_dfseo_empty_map'])    ? (int) $_GET['tmwseo_kw_dfseo_empty_map']    : 0;
+            $dfseo_task_status  = isset($_GET['tmwseo_kw_dfseo_task_status'])  ? (int) $_GET['tmwseo_kw_dfseo_task_status']  : 0;
+            $dfseo_task_msg     = isset($_GET['tmwseo_kw_dfseo_task_msg'])     ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_task_msg']))     : '';
+            $dfseo_result_count = isset($_GET['tmwseo_kw_dfseo_result_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_result_count']) : 0;
+            $dfseo_parser_path  = isset($_GET['tmwseo_kw_dfseo_parser_path'])  ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_parser_path']))  : '';
+            $dfseo_cache_hit    = isset($_GET['tmwseo_kw_dfseo_cache_hit'])    ? (int) $_GET['tmwseo_kw_dfseo_cache_hit']    : 0;
+            $gkp_called         = isset($_GET['tmwseo_kw_gkp_called'])         ? (int) $_GET['tmwseo_kw_gkp_called']         : 0;
+            $gkp_usable_volume  = isset($_GET['tmwseo_kw_gkp_usable_volume'])  ? max(0, (int) $_GET['tmwseo_kw_gkp_usable_volume'])  : 0;
+            $skip_reasons       = isset($_GET['tmwseo_kw_skip_reasons'])       ? json_decode((string) wp_unslash($_GET['tmwseo_kw_skip_reasons']), true) : [];
+            $skip_reasons_text  = '';
+            if ( is_array( $skip_reasons ) && ! empty( $skip_reasons ) ) {
+                $parts = [];
+                foreach ( $skip_reasons as $reason => $cnt ) {
+                    $parts[] = sanitize_key( (string) $reason ) . ':' . max( 0, (int) $cnt );
+                }
+                $skip_reasons_text = implode( ', ', $parts );
+            }
+
+            // Build human-readable diagnostic labels.
+            $http_ok_label     = $dfseo_exact_called ? 'yes' : ( $dfseo_called ? 'yes (legacy)' : 'no' );
+            $task_status_label = $dfseo_task_status > 0
+                ? $dfseo_task_status . ( $dfseo_task_msg !== '' ? ' ' . $dfseo_task_msg : '' )
+                : ( $dfseo_reason !== '' ? $dfseo_reason : ( $checked === 0 ? 'no_candidates' : 'ok' ) );
+            $parsed_total      = $dfseo_volume_count + $dfseo_usable_kd + $dfseo_cpc_count;
+            $parser_empty_label = $dfseo_empty_map
+                ? ( $dfseo_result_count > 0 ? 'yes — parser shape mismatch (result_count=' . $dfseo_result_count . ')' : 'yes — provider returned no data' )
+                : 'no';
+            $cache_hit_label   = $dfseo_cache_hit ? 'yes (stale transient was returned)' : 'no (live API call)';
+
+            if ( $checked === 0 ) {
+                $notice_type = 'notice-warning';
+                $message = sprintf(
+                    __( '[FORCE RECHECK] No eligible candidates found. All status=new rows with volume=0 or difficulty=0 are already enriched, or no rows with status=new exist.', 'tmwseo' )
+                );
+            } else {
+                $notice_type = $updated > 0 ? 'notice-success' : 'notice-info';
+                $message = sprintf(
+                    __( '[FORCE RECHECK] Keyword metric enrichment completed. Force recheck: yes. Rows checked: %1$d. Rows updated: %2$d. Rows no-data: %3$d. DataForSEO HTTP ok: %4$s. DataForSEO task status: %5$s. DataForSEO result count: %6$d. DataForSEO parsed metric count: %7$d (volume: %8$d, KD: %9$d, CPC: %10$d). Parser empty: %11$s. Cache hit: %12$s. GKP called: %13$s, usable volume: %14$d. Skipped reasons: %15$s.', 'tmwseo' ),
+                    $checked,
+                    $updated,
+                    $skipped,
+                    $http_ok_label,
+                    $task_status_label,
+                    $dfseo_result_count,
+                    $parsed_total,
+                    $dfseo_volume_count,
+                    $dfseo_usable_kd,
+                    $dfseo_cpc_count,
+                    $parser_empty_label,
+                    $cache_hit_label,
+                    $gkp_called ? 'yes' : 'no',
+                    $gkp_usable_volume,
+                    $skip_reasons_text !== '' ? $skip_reasons_text : 'none'
+                );
+            }
+            echo '<div class="notice ' . esc_attr( $notice_type ?? 'notice-info' ) . ' is-dismissible"><p>' . esc_html( $message ) . '</p></div>';
         } elseif ($notice === 'keyword_cycle_queued_worker_dead') {
             $message = __('Keyword cycle job was queued but the background worker (tmwseo_worker_tick) is not scheduled. The job will not process until the worker is kicked manually from Debug Dashboard → Tools.', 'tmwseo');
             $is_error_notice_override = true;
@@ -3187,9 +3264,14 @@ class Admin {
         echo '<input type="hidden" name="action" value="tmwseo_verify_new_keyword_metrics">';
         submit_button( 'Verify New Keyword Metrics', 'secondary', 'submit', false );
         echo '</form>';
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;">';
+        wp_nonce_field( 'tmwseo_force_recheck_keyword_metrics' );
+        echo '<input type="hidden" name="action" value="tmwseo_force_recheck_keyword_metrics">';
+        submit_button( 'Force Recheck New Keyword Metrics', 'delete', 'submit', false, [ 'title' => 'Bypasses 14-day skip window and purges stale cache. Use after a provider or parser fix.' ] );
+        echo '</form>';
         echo '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tmwseo_run_worker' ), 'tmwseo_run_worker' ) ) . '">Run Worker (healthcheck)</a>';
         echo '</div>';
-        echo '<p class="description" style="margin-top:6px;">' . esc_html__( 'Fetches missing Volume/KD for new candidates only. Does not approve or publish anything.', 'tmwseo' ) . '</p>';
+        echo '<p class="description" style="margin-top:6px;">' . esc_html__( 'Verify: skips rows checked in the last 14 days. Force Recheck: bypasses skip window and purges stale transient cache — use after a parser/provider fix. Neither button approves or publishes anything.', 'tmwseo' ) . '</p>';
 
         if ( isset( $_GET['tmwseo_notice'] ) ) {
             $notice = sanitize_key( (string) $_GET['tmwseo_notice'] );
