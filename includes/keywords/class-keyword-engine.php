@@ -953,19 +953,26 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
      * Manual-only metric enrichment for "new" candidates.
      * Does not trigger discovery expansion, approvals, or publishing flows.
      */
-    public static function enrich_new_candidates_metrics( int $limit = 50 ): array {
+    public static function enrich_new_candidates_metrics( int $limit = 50, bool $force = false ): array {
         global $wpdb;
         $limit = max( 1, min( 50, $limit ) );
         $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
 
         Logs::info( 'keywords', '[TMW-KW-METRICS] metric_enrichment_start', [ 'limit' => $limit ] );
 
+        // When $force is true we bypass the 14-day recency guard so rows stamped by a
+        // previous broken-parser run (e.g. PR #524) are re-checked immediately.
+        $date_guard = $force
+            ? ''
+            : "AND (metrics_updated_at IS NULL OR metrics_updated_at < DATE_SUB(NOW(), INTERVAL 14 DAY))";
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $rows = (array) $wpdb->get_results( $wpdb->prepare(
             "SELECT id, keyword, volume, difficulty, cpc, intent, status, sources, notes, metrics_updated_at
              FROM {$cand_table}
              WHERE status = 'new'
                AND ((difficulty IS NULL OR difficulty = 0) OR (volume IS NULL OR volume = 0))
-               AND (metrics_updated_at IS NULL OR metrics_updated_at < DATE_SUB(NOW(), INTERVAL 14 DAY))
+               {$date_guard}
              ORDER BY updated_at DESC
              LIMIT %d",
             $limit
@@ -990,9 +997,25 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         $dfseo_empty_map = false;
         $dataforseo_reason = '';
         $dfseo_called = false;
+        $dfseo_task_status_code    = 0;
+        $dfseo_task_status_message = '';
+        $dfseo_task_result_count   = 0;
+        $dfseo_parser_path         = '';
+        $dfseo_cache_hit           = false;
         if ( DataForSEO::is_configured() && ! DataForSEO::is_over_budget() ) {
             $dfseo_called = true;
-            Logs::info( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_called', [ 'count' => count( $keywords ) ] );
+            if ( $force ) {
+                // Purge any stale transient that may have cached an empty map from a broken parser run.
+                $normalized_for_key = array_map( static fn( $k ) => mb_strtolower( $k, 'UTF-8' ), $keywords );
+                $stale_key = 'tmwseo_exact_metrics_' . md5(
+                    implode( ',', $normalized_for_key ) .
+                    DataForSEO::default_location_code() .
+                    DataForSEO::default_language_code()
+                );
+                delete_transient( $stale_key );
+                Logs::info( 'keywords', '[TMW-KW-METRICS] force_recheck_cache_purged', [ 'transient_key' => $stale_key ] );
+            }
+            Logs::info( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_called', [ 'count' => count( $keywords ), 'force' => $force ] );
             $dfseo_exact_called = true;
             $exact_res = DataForSEO::exact_keyword_metrics( $keywords );
             if ( ! empty( $exact_res['ok'] ) ) {
@@ -1004,15 +1027,29 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
                     if ( array_key_exists( 'difficulty', $metric_row ) && $metric_row['difficulty'] !== null ) { $dfseo_usable_kd_count++; }
                 }
                 $dfseo_empty_map = empty( $dfseo_map );
+                // Capture task-level diagnostics from exact_keyword_metrics for the admin notice.
+                $dfseo_task_status_code    = (int)    ( $exact_res['task_status_code']    ?? 0 );
+                $dfseo_task_status_message = (string) ( $exact_res['task_status_message'] ?? '' );
+                $dfseo_task_result_count   = (int)    ( $exact_res['task_result_count']   ?? 0 );
+                $dfseo_parser_path         = (string) ( $exact_res['parser_path']         ?? '' );
+                $dfseo_cache_hit           = ! empty( $exact_res['cache_hit'] );
                 Logs::info( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_result', [
-                    'ok' => true,
-                    'map_count' => count( $dfseo_map ),
-                    'volume_count' => $dfseo_volume_count,
-                    'cpc_count' => $dfseo_cpc_count,
+                    'ok'              => true,
+                    'map_count'       => count( $dfseo_map ),
+                    'volume_count'    => $dfseo_volume_count,
+                    'cpc_count'       => $dfseo_cpc_count,
                     'usable_kd_count' => $dfseo_usable_kd_count,
+                    'task_status'     => $dfseo_task_status_code,
+                    'result_count'    => $dfseo_task_result_count,
+                    'parser_path'     => $dfseo_parser_path,
+                    'cache_hit'       => $dfseo_cache_hit,
                 ] );
                 if ( $dfseo_empty_map ) {
-                    Logs::warn( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_parser_empty', [ 'keywords' => count( $keywords ) ] );
+                    Logs::warn( 'keywords', '[TMW-KW-METRICS] dfseo_exact_metrics_parser_empty', [
+                        'keywords'         => count( $keywords ),
+                        'task_result_count'=> $dfseo_task_result_count,
+                        'parser_path'      => $dfseo_parser_path,
+                    ] );
                 }
             } else {
                 $dataforseo_reason = (string) ( $exact_res['error'] ?? 'unknown' );
@@ -1161,19 +1198,24 @@ Logs::info('keywords', 'Inserted candidates', ['count' => $inserted]);
         ] );
 
         return [
-            'checked' => count( $keywords ),
-            'updated' => $updated,
-            'skipped' => $skipped,
-            'dataforseo_reason' => $dataforseo_reason,
-            'dfseo_called' => $dfseo_called ? 1 : 0,
-            'dfseo_exact_called' => $dfseo_exact_called ? 1 : 0,
-            'dfseo_volume_count' => $dfseo_volume_count,
-            'dfseo_cpc_count' => $dfseo_cpc_count,
-            'dfseo_usable_kd_count' => $dfseo_usable_kd_count,
-            'dfseo_empty_map' => $dfseo_empty_map ? 1 : 0,
-            'gkp_called' => $gkp_called ? 1 : 0,
-            'gkp_usable_volume_count' => $gkp_usable_volume_count,
-            'skip_reasons' => $skip_reasons,
+            'checked'                  => count( $keywords ),
+            'updated'                  => $updated,
+            'skipped'                  => $skipped,
+            'dataforseo_reason'        => $dataforseo_reason,
+            'dfseo_called'             => $dfseo_called ? 1 : 0,
+            'dfseo_exact_called'       => $dfseo_exact_called ? 1 : 0,
+            'dfseo_volume_count'       => $dfseo_volume_count,
+            'dfseo_cpc_count'          => $dfseo_cpc_count,
+            'dfseo_usable_kd_count'    => $dfseo_usable_kd_count,
+            'dfseo_empty_map'          => $dfseo_empty_map ? 1 : 0,
+            'dfseo_task_status_code'   => $dfseo_task_status_code,
+            'dfseo_task_status_message'=> $dfseo_task_status_message,
+            'dfseo_task_result_count'  => $dfseo_task_result_count,
+            'dfseo_parser_path'        => $dfseo_parser_path,
+            'dfseo_cache_hit'          => $dfseo_cache_hit ? 1 : 0,
+            'gkp_called'               => $gkp_called ? 1 : 0,
+            'gkp_usable_volume_count'  => $gkp_usable_volume_count,
+            'skip_reasons'             => $skip_reasons,
         ];
     }
 

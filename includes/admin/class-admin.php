@@ -1890,23 +1890,32 @@ class Admin {
             wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
         }
         check_admin_referer( 'tmwseo_verify_new_keyword_metrics' );
-        $result = \TMWSEO\Engine\Keywords\KeywordEngine::enrich_new_candidates_metrics( 50 );
+        // force_recheck=1 bypasses the 14-day skip guard and purges any stale empty-map cache.
+        // Use this after a provider/parser fix to re-enrich rows stamped before the fix.
+        $force = ! empty( $_POST['force_recheck'] ) && (int) $_POST['force_recheck'] === 1;
+        $result = \TMWSEO\Engine\Keywords\KeywordEngine::enrich_new_candidates_metrics( 50, $force );
         wp_safe_redirect( add_query_arg( [
-            'page' => 'tmwseo-keywords',
-            'tmwseo_notice' => 'kw_metrics_enrichment_completed',
-            'tmwseo_kw_checked' => (int) ( $result['checked'] ?? 0 ),
-            'tmwseo_kw_updated' => (int) ( $result['updated'] ?? 0 ),
-            'tmwseo_kw_skipped' => (int) ( $result['skipped'] ?? 0 ),
-            'tmwseo_kw_dfseo_reason' => rawurlencode( (string) ( $result['dataforseo_reason'] ?? '' ) ),
-            'tmwseo_kw_dfseo_called' => (int) ( $result['dfseo_called'] ?? 0 ),
-            'tmwseo_kw_dfseo_exact_called' => (int) ( $result['dfseo_exact_called'] ?? 0 ),
-            'tmwseo_kw_dfseo_volume_count' => (int) ( $result['dfseo_volume_count'] ?? 0 ),
-            'tmwseo_kw_dfseo_cpc_count' => (int) ( $result['dfseo_cpc_count'] ?? 0 ),
-            'tmwseo_kw_dfseo_usable_kd' => (int) ( $result['dfseo_usable_kd_count'] ?? 0 ),
-            'tmwseo_kw_dfseo_empty_map' => (int) ( $result['dfseo_empty_map'] ?? 0 ),
-            'tmwseo_kw_gkp_called' => (int) ( $result['gkp_called'] ?? 0 ),
-            'tmwseo_kw_gkp_usable_volume' => (int) ( $result['gkp_usable_volume_count'] ?? 0 ),
-            'tmwseo_kw_skip_reasons' => rawurlencode( wp_json_encode( (array) ( $result['skip_reasons'] ?? [] ) ) ),
+            'page'                         => 'tmwseo-keywords',
+            'tmwseo_notice'                => 'kw_metrics_enrichment_completed',
+            'tmwseo_kw_checked'            => (int)    ( $result['checked']                  ?? 0 ),
+            'tmwseo_kw_updated'            => (int)    ( $result['updated']                  ?? 0 ),
+            'tmwseo_kw_skipped'            => (int)    ( $result['skipped']                  ?? 0 ),
+            'tmwseo_kw_dfseo_reason'       => rawurlencode( (string) ( $result['dataforseo_reason'] ?? '' ) ),
+            'tmwseo_kw_dfseo_called'       => (int)    ( $result['dfseo_called']              ?? 0 ),
+            'tmwseo_kw_dfseo_exact_called' => (int)    ( $result['dfseo_exact_called']        ?? 0 ),
+            'tmwseo_kw_dfseo_volume_count' => (int)    ( $result['dfseo_volume_count']        ?? 0 ),
+            'tmwseo_kw_dfseo_cpc_count'    => (int)    ( $result['dfseo_cpc_count']           ?? 0 ),
+            'tmwseo_kw_dfseo_usable_kd'    => (int)    ( $result['dfseo_usable_kd_count']     ?? 0 ),
+            'tmwseo_kw_dfseo_empty_map'    => (int)    ( $result['dfseo_empty_map']           ?? 0 ),
+            'tmwseo_kw_dfseo_task_status'  => (int)    ( $result['dfseo_task_status_code']    ?? 0 ),
+            'tmwseo_kw_dfseo_task_msg'     => rawurlencode( (string) ( $result['dfseo_task_status_message'] ?? '' ) ),
+            'tmwseo_kw_dfseo_result_count' => (int)    ( $result['dfseo_task_result_count']   ?? 0 ),
+            'tmwseo_kw_dfseo_parser_path'  => rawurlencode( (string) ( $result['dfseo_parser_path']   ?? '' ) ),
+            'tmwseo_kw_dfseo_cache_hit'    => (int)    ( $result['dfseo_cache_hit']           ?? 0 ),
+            'tmwseo_kw_gkp_called'         => (int)    ( $result['gkp_called']                ?? 0 ),
+            'tmwseo_kw_gkp_usable_volume'  => (int)    ( $result['gkp_usable_volume_count']   ?? 0 ),
+            'tmwseo_kw_skip_reasons'       => rawurlencode( wp_json_encode( (array) ( $result['skip_reasons'] ?? [] ) ) ),
+            'tmwseo_kw_force'              => $force ? 1 : 0,
         ], admin_url( 'admin.php' ) ) );
         exit;
     }
@@ -2068,15 +2077,22 @@ class Admin {
             $checked = isset($_GET['tmwseo_kw_checked']) ? max(0, (int) $_GET['tmwseo_kw_checked']) : 0;
             $updated = isset($_GET['tmwseo_kw_updated']) ? max(0, (int) $_GET['tmwseo_kw_updated']) : 0;
             $skipped = isset($_GET['tmwseo_kw_skipped']) ? max(0, (int) $_GET['tmwseo_kw_skipped']) : 0;
-            $dfseo_reason = isset($_GET['tmwseo_kw_dfseo_reason']) ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_reason'])) : '';
-            $dfseo_called = isset($_GET['tmwseo_kw_dfseo_called']) ? (int) $_GET['tmwseo_kw_dfseo_called'] : 0;
+            $dfseo_reason       = isset($_GET['tmwseo_kw_dfseo_reason'])       ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_reason']))       : '';
+            $dfseo_called       = isset($_GET['tmwseo_kw_dfseo_called'])       ? (int) $_GET['tmwseo_kw_dfseo_called']       : 0;
             $dfseo_exact_called = isset($_GET['tmwseo_kw_dfseo_exact_called']) ? (int) $_GET['tmwseo_kw_dfseo_exact_called'] : 0;
             $dfseo_volume_count = isset($_GET['tmwseo_kw_dfseo_volume_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_volume_count']) : 0;
-            $dfseo_cpc_count = isset($_GET['tmwseo_kw_dfseo_cpc_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_cpc_count']) : 0;
-            $dfseo_usable_kd = isset($_GET['tmwseo_kw_dfseo_usable_kd']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_usable_kd']) : 0;
-            $dfseo_empty_map = isset($_GET['tmwseo_kw_dfseo_empty_map']) ? (int) $_GET['tmwseo_kw_dfseo_empty_map'] : 0;
-            $gkp_called = isset($_GET['tmwseo_kw_gkp_called']) ? (int) $_GET['tmwseo_kw_gkp_called'] : 0;
-            $gkp_usable_volume = isset($_GET['tmwseo_kw_gkp_usable_volume']) ? max(0, (int) $_GET['tmwseo_kw_gkp_usable_volume']) : 0;
+            $dfseo_cpc_count    = isset($_GET['tmwseo_kw_dfseo_cpc_count'])    ? max(0, (int) $_GET['tmwseo_kw_dfseo_cpc_count'])    : 0;
+            $dfseo_usable_kd    = isset($_GET['tmwseo_kw_dfseo_usable_kd'])    ? max(0, (int) $_GET['tmwseo_kw_dfseo_usable_kd'])    : 0;
+            $dfseo_empty_map    = isset($_GET['tmwseo_kw_dfseo_empty_map'])    ? (int) $_GET['tmwseo_kw_dfseo_empty_map']    : 0;
+            // New: task-level diagnostics (added after parser fix)
+            $dfseo_task_status  = isset($_GET['tmwseo_kw_dfseo_task_status'])  ? (int) $_GET['tmwseo_kw_dfseo_task_status']  : 0;
+            $dfseo_task_msg     = isset($_GET['tmwseo_kw_dfseo_task_msg'])     ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_task_msg']))     : '';
+            $dfseo_result_count = isset($_GET['tmwseo_kw_dfseo_result_count']) ? max(0, (int) $_GET['tmwseo_kw_dfseo_result_count']) : 0;
+            $dfseo_parser_path  = isset($_GET['tmwseo_kw_dfseo_parser_path'])  ? sanitize_text_field((string) wp_unslash($_GET['tmwseo_kw_dfseo_parser_path']))  : '';
+            $dfseo_cache_hit    = isset($_GET['tmwseo_kw_dfseo_cache_hit'])    ? (int) $_GET['tmwseo_kw_dfseo_cache_hit']    : 0;
+            $force_ran          = isset($_GET['tmwseo_kw_force'])              ? (int) $_GET['tmwseo_kw_force']              : 0;
+            $gkp_called         = isset($_GET['tmwseo_kw_gkp_called'])         ? (int) $_GET['tmwseo_kw_gkp_called']         : 0;
+            $gkp_usable_volume  = isset($_GET['tmwseo_kw_gkp_usable_volume'])  ? max(0, (int) $_GET['tmwseo_kw_gkp_usable_volume'])  : 0;
             $skip_reasons = isset($_GET['tmwseo_kw_skip_reasons']) ? json_decode((string) wp_unslash($_GET['tmwseo_kw_skip_reasons']), true) : [];
             $skip_reasons_text = '';
             if ( is_array( $skip_reasons ) && ! empty( $skip_reasons ) ) {
@@ -2086,21 +2102,32 @@ class Admin {
                 }
                 $skip_reasons_text = implode( ', ', $pairs );
             }
+            // Compose a more descriptive status line so empty map vs genuine-zero is visible.
+            $dfseo_http_ok_label  = $dfseo_exact_called ? 'yes' : ( $dfseo_called ? 'legacy_yes' : 'no' );
+            $dfseo_task_label     = $dfseo_task_status > 0
+                ? $dfseo_task_status . ( $dfseo_task_msg !== '' ? ' ' . $dfseo_task_msg : '' )
+                : ( $dfseo_reason !== '' ? $dfseo_reason : 'ok' );
+            $parser_empty_label  = $dfseo_empty_map && $dfseo_result_count > 0 ? 'yes (parser mismatch)' : ( $dfseo_empty_map ? 'yes (provider returned no data)' : 'no' );
+            $cache_hit_label     = $dfseo_cache_hit ? 'yes (stale — run with Force Recheck to re-call API)' : 'no';
+            $force_label         = $force_ran ? ' [FORCE RECHECK]' : '';
             $message = sprintf(
-                __('Keyword metric enrichment completed. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO exact metrics called: %4$s. DataForSEO volume count: %5$d. DataForSEO KD count: %6$d. DataForSEO CPC count: %7$d. DataForSEO empty map: %8$s, status: %9$s. GKP called: %10$s, usable volume count: %11$d. Rows no-data: %12$d. Skipped reasons: %13$s.', 'tmwseo'),
+                __('Keyword metric enrichment completed%14$s. Rows checked: %1$d, updated: %2$d, skipped: %3$d. DataForSEO HTTP ok: %4$s. DataForSEO task status: %5$s. DataForSEO result count: %6$d. DataForSEO parsed metric count: %7$d (volume: %8$d, KD: %9$d, CPC: %10$d). Parser empty: %15$s. Cache hit: %16$s. GKP called: %11$s, usable volume: %12$d. Rows no-data: %3$d. Skipped reasons: %13$s.', 'tmwseo'),
                 $checked,
                 $updated,
                 $skipped,
-                $dfseo_exact_called ? 'yes' : ( $dfseo_called ? 'legacy_yes' : 'no' ),
+                $dfseo_http_ok_label,
+                $dfseo_task_label,
+                $dfseo_result_count,
+                $dfseo_volume_count + $dfseo_usable_kd + $dfseo_cpc_count,
                 $dfseo_volume_count,
                 $dfseo_usable_kd,
                 $dfseo_cpc_count,
-                $dfseo_empty_map ? 'yes' : 'no',
-                $dfseo_reason !== '' ? $dfseo_reason : 'ok',
                 $gkp_called ? 'yes' : 'no',
                 $gkp_usable_volume,
-                $skipped,
-                $skip_reasons_text !== '' ? $skip_reasons_text : 'none'
+                $skip_reasons_text !== '' ? $skip_reasons_text : 'none',
+                $force_label,
+                $parser_empty_label,
+                $cache_hit_label
             );
         } elseif ($notice === 'keyword_cycle_queued_worker_dead') {
             $message = __('Keyword cycle job was queued but the background worker (tmwseo_worker_tick) is not scheduled. The job will not process until the worker is kicked manually from Debug Dashboard → Tools.', 'tmwseo');
