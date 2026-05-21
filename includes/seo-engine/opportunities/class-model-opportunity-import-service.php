@@ -159,6 +159,27 @@ class ModelOpportunityImportService {
             $wpdb->prepare( "SHOW COLUMNS FROM {$kw_table} LIKE %s", 'competition' )
         );
 
+        if ( $mode === 'kws_single_model_family' ) {
+            return self::apply_single_model_family_rows(
+                $import_id,
+                $rows,
+                $context,
+                $preview,
+                $result,
+                $model_map,
+                $opp_table,
+                $kw_table,
+                [
+                    'has_score_explanation' => $has_score_explanation,
+                    'has_kws_seo_score'     => $has_kws_seo_score,
+                    'has_kws_competition'   => $has_kws_competition,
+                    'has_page_type'         => $has_page_type,
+                    'kw_has_seo_score'      => $kw_has_seo_score,
+                    'kw_has_competition'    => $kw_has_competition,
+                ]
+            );
+        }
+
         foreach ( $rows as $row ) {
             $result['row_count']++;
 
@@ -346,6 +367,185 @@ class ModelOpportunityImportService {
         }
 
         return $result;
+    }
+
+    /**
+     * Dedicated importer path for kws_single_model_family.
+     * Aggregates once at family level, inserts all keyword rows.
+     *
+     * @param array<string,mixed> $result
+     * @param array<string,mixed> $schema
+     * @param array<string,string> $model_map
+     * @return array{row_count:int,created_count:int,updated_count:int,noise_count:int,failed_count:int,preview:array}
+     */
+    private static function apply_single_model_family_rows(
+        int   $import_id,
+        array $rows,
+        array $context,
+        bool  $preview,
+        array $result,
+        array $model_map,
+        string $opp_table,
+        string $kw_table,
+        array $schema
+    ): array {
+        global $wpdb;
+
+        $model = trim( (string) ( $context['model_entity'] ?? '' ) );
+        $entity = self::match_model( $model, $model_map ) ?: ModelOpportunityNormalizer::normalize_model_name( $model );
+        $canonical = ModelOpportunityNormalizer::canonical_entity_key( $entity );
+        $norm_model = ModelOpportunityNormalizer::normalize_keyword( $entity );
+
+        $candidates = [];
+        $total_volume = 0;
+
+        foreach ( $rows as $row ) {
+            $result['row_count']++;
+            $keyword = trim( (string) ( $row['keyword'] ?? '' ) );
+            if ( $keyword === '' ) { continue; }
+            $is_total = str_starts_with( strtolower( $keyword ), 'total volume' );
+            $vol = (int) preg_replace( '/[^0-9]/', '', (string) ( $row['volume'] ?? '0' ) );
+            if ( $is_total ) {
+                if ( $vol > 0 ) { $total_volume = $vol; }
+                if ( $preview ) {
+                    $result['preview'][] = [
+                        'entity' => $entity,
+                        'opportunity_type' => 'total_volume_summary',
+                        'family_volume' => $vol,
+                        'total_volume_row' => true,
+                    ];
+                }
+                continue;
+            }
+
+            $traffic = (float) preg_replace( '/[^0-9.]/', '', (string) ( $row['traffic_value'] ?? '0' ) );
+            $kws_seo_score = self::parse_kws_decimal( $row['seo_score'] ?? '' );
+            $kws_competition = self::parse_kws_competition( $row['competition'] ?? '' );
+            $role = ModelKeywordRoleClassifier::classify( $keyword, $entity );
+
+            $candidates[] = compact( 'row', 'keyword', 'vol', 'traffic', 'kws_seo_score', 'kws_competition', 'role' );
+            if ( ! in_array( $role, [ 'noise', 'risky_explicit' ], true ) ) {
+                $result['noise_count'] += 0;
+            }
+
+            if ( $preview ) {
+                $result['preview'][] = [
+                    'keyword' => $keyword,
+                    'entity' => $entity,
+                    'role' => $role,
+                    'opportunity_type' => 'existing_model_optimization',
+                    'vol' => $vol,
+                    'traffic' => $traffic,
+                    'kws_seo_score' => $kws_seo_score,
+                    'kws_competition' => $kws_competition,
+                ];
+            }
+        }
+
+        if ( empty( $candidates ) || $preview ) {
+            return $result;
+        }
+
+        $pick = self::select_family_primary_candidate( $candidates, $norm_model );
+        if ( $pick === null ) { return $result; }
+
+        $family_volume = $total_volume > 0 ? $total_volume : array_sum( array_map( static fn( $c ) => (int) $c['vol'], array_filter( $candidates, static fn( $c ) => ! in_array( $c['role'], [ 'noise', 'risky_explicit' ], true ) ) ) );
+        $max_safe_traffic = 0.0;
+        foreach ( $candidates as $c ) {
+            if ( in_array( $c['role'], [ 'manual_review', 'risky_explicit', 'noise' ], true ) ) { continue; }
+            $max_safe_traffic = max( $max_safe_traffic, (float) $c['traffic'] );
+        }
+        $traffic = max( (float) $pick['traffic'], $max_safe_traffic );
+
+        $existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$opp_table} WHERE canonical_entity_key=%s LIMIT 1", $canonical ), ARRAY_A );
+        $score_result = ModelOpportunityScorer::score( [
+            'primary_volume' => (int) $pick['vol'],
+            'family_volume' => $family_volume,
+            'traffic_value' => $traffic,
+            'matched_post_id' => (int) ( $existing['matched_post_id'] ?? 0 ),
+            'platform_signals_count' => (int) ( $existing['platform_signals_count'] ?? 0 ),
+            'competitor_signal' => (int) ( $existing['competitor_signal'] ?? 0 ),
+            'manual_competitor_exact_match_weakness' => (int) ( $existing['manual_competitor_exact_match_weakness'] ?? 0 ),
+            'kws_seo_score' => (float) $pick['kws_seo_score'],
+            'kws_competition' => (float) $pick['kws_competition'],
+        ] );
+
+        $opportunity_type = ( (int) ( $existing['matched_post_id'] ?? 0 ) > 0 || empty( $context['missing_model'] ) ) ? 'existing_model_optimization' : 'missing_model_acquisition';
+        if ( (int) ( $existing['matched_post_id'] ?? 0 ) === 0 && ! empty( $context['missing_model'] ) ) {
+            $opportunity_type = 'missing_model_acquisition';
+        }
+
+        $payload = [
+            'canonical_entity_key' => $canonical,
+            'model_entity' => $entity,
+            'opportunity_type' => $opportunity_type,
+            'primary_keyword' => (string) $pick['keyword'],
+            'primary_volume' => (int) $pick['vol'],
+            'family_volume' => $family_volume,
+            'traffic_value' => $traffic,
+            'score' => $score_result['score'],
+            'priority' => $score_result['priority'],
+            'updated_at' => current_time( 'mysql' ),
+        ];
+        if ( $schema['has_score_explanation'] ) { $payload['score_explanation'] = $score_result['score_explanation']; }
+        if ( $schema['has_kws_seo_score'] && (float) $pick['kws_seo_score'] >= 0 ) { $payload['kws_seo_score'] = (float) $pick['kws_seo_score']; }
+        if ( $schema['has_kws_competition'] && (float) $pick['kws_competition'] >= 0 ) { $payload['kws_competition'] = (float) $pick['kws_competition']; }
+        if ( $schema['has_page_type'] ) { $payload['page_type'] = $context['page_type'] ?? 'model_page'; }
+
+        if ( $existing ) {
+            $ok = $wpdb->update( $opp_table, $payload, [ 'id' => (int) $existing['id'] ] );
+            if ( $ok === false ) { $result['failed_count']++; return $result; }
+            $opp_id = (int) $existing['id'];
+            $result['updated_count']++;
+        } else {
+            $payload['created_at'] = current_time( 'mysql' );
+            $ok = $wpdb->insert( $opp_table, $payload );
+            if ( $ok === false || (int) $wpdb->insert_id <= 0 ) { $result['failed_count']++; return $result; }
+            $opp_id = (int) $wpdb->insert_id;
+            $result['created_count']++;
+        }
+
+        foreach ( $candidates as $c ) {
+            $kw_payload = [
+                'opportunity_id' => $opp_id,
+                'import_id' => $import_id,
+                'keyword' => $c['keyword'],
+                'normalized_keyword' => ModelOpportunityNormalizer::normalize_keyword( (string) $c['keyword'] ),
+                'role' => $c['role'],
+                'volume' => (int) $c['vol'],
+                'source' => ( $context['source'] ?? null ),
+                'competitor_domain' => ( $context['competitor_domain'] ?? null ),
+                'platform_detected' => ( $context['platform'] ?? null ),
+                'raw_row_json' => wp_json_encode( $c['row'] ),
+                'created_at' => current_time( 'mysql' ),
+                'updated_at' => current_time( 'mysql' ),
+            ];
+            if ( $schema['kw_has_seo_score'] && (float) $c['kws_seo_score'] >= 0 ) { $kw_payload['seo_score'] = (float) $c['kws_seo_score']; }
+            if ( $schema['kw_has_competition'] && (float) $c['kws_competition'] >= 0 ) { $kw_payload['competition'] = (float) $c['kws_competition']; }
+            $wpdb->insert( $kw_table, $kw_payload );
+        }
+
+        return $result;
+    }
+
+    private static function select_family_primary_candidate( array $candidates, string $normalized_entity ): ?array {
+        $buckets = [
+            static fn( $c ) => $c['role'] === 'primary',
+            static fn( $c ) => ModelOpportunityNormalizer::normalize_keyword( (string) $c['keyword'] ) === $normalized_entity,
+            static fn( $c ) => $c['role'] === 'rankmath_candidate',
+            static fn( $c ) => $c['role'] === 'content_support',
+        ];
+        foreach ( $buckets as $filter ) {
+            $pool = array_values( array_filter( $candidates, static function( $c ) use ( $filter ) {
+                if ( in_array( $c['role'], [ 'manual_review', 'risky_explicit', 'noise' ], true ) ) { return false; }
+                return $filter( $c );
+            } ) );
+            if ( ! empty( $pool ) ) {
+                usort( $pool, static fn( $a, $b ) => (int) $b['vol'] <=> (int) $a['vol'] );
+                return $pool[0];
+            }
+        }
+        return null;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────
