@@ -1,6 +1,7 @@
 <?php
 namespace TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Opportunities\ModelOpportunityNormalizer;
+use TMWSEO\Engine\Opportunities\ModelOpportunityImportService;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -25,7 +26,8 @@ class ModelOpportunityAdminPage {
         echo '<p><input name="model_entity" placeholder="Model name (single mode)" /></p>';
         echo '<p><input name="competitor_domain" placeholder="Competitor domain" /></p>';
         echo '<p><input name="platform" placeholder="Platform key" /></p>';
-        echo '<p><input type="file" name="opp_file" accept=".csv,text/csv" required /></p>';
+        echo '<p><label><input type="checkbox" name="preview_only" value="1" /> Preview only</label></p>';
+        echo '<p><input type="file" name="opp_file" accept=".csv,text/csv" required /></p>'; 
         submit_button('Import');
         echo '</form></div>';
     }
@@ -74,8 +76,24 @@ class ModelOpportunityAdminPage {
             wp_safe_redirect(admin_url('admin.php?page='.self::PAGE_SLUG.'&notice=import_failed'));
             exit;
         }
-        error_log('[TMW-MODEL-OPP] Import created mode='.$mode.' model='.ModelOpportunityNormalizer::normalize_model_name($model));
-        wp_safe_redirect(admin_url('admin.php?page='.self::PAGE_SLUG.'&notice=imported'));
+        $import_id = (int) $wpdb->insert_id;
+        $preview = !empty($_POST['preview_only']);
+        $summary = ModelOpportunityImportService::import($import_id, $mode, $tmp_name, [
+            'model_entity' => $model,
+            'competitor_domain' => sanitize_text_field((string)($_POST['competitor_domain'] ?? '')) ?: null,
+            'platform' => sanitize_text_field((string)($_POST['platform'] ?? '')) ?: null,
+            'source' => $source,
+        ], $preview);
+        $wpdb->update($table, [
+            'row_count' => (int) ($summary['row_count'] ?? 0),
+            'created_count' => (int) ($summary['created_count'] ?? 0),
+            'updated_count' => (int) ($summary['updated_count'] ?? 0),
+            'noise_count' => (int) ($summary['noise_count'] ?? 0),
+            'options_json' => $preview ? wp_json_encode(['preview' => $summary['preview'] ?? []]) : null,
+            'updated_at' => current_time('mysql'),
+        ], ['id' => $import_id]);
+        error_log('[TMW-MODEL-OPP] Import processed mode='.$mode.' model='.ModelOpportunityNormalizer::normalize_model_name($model).' rows='.(int)($summary['row_count'] ?? 0).' created='.(int)($summary['created_count'] ?? 0).' updated='.(int)($summary['updated_count'] ?? 0).' noise='.(int)($summary['noise_count'] ?? 0).' preview='.(int)$preview);
+        wp_safe_redirect(admin_url('admin.php?page='.self::PAGE_SLUG.'&notice=' . ($preview ? 'previewed' : 'imported')));
         exit;
     }
 }
