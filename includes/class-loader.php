@@ -146,6 +146,9 @@ class Loader {
         tmwseo_safe_require( $ki . 'class-tag-modifier-expander.php' );
 
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/expansion/class-keyword-expansion-engine.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-opportunity-normalizer.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-keyword-role-classifier.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-opportunity-scorer.php' );
     }
 
     // ── Content ───────────────────────────────────────────────────────────────
@@ -373,6 +376,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-video-seo-metabox.php' );
         tmwseo_safe_require( $p . 'class-model-helper.php' );
         tmwseo_safe_require( $p . 'class-admin-dashboard-v2.php' );
+        tmwseo_safe_require( $p . 'class-model-opportunity-admin-page.php' );
         tmwseo_safe_require( $p . 'class-cluster-admin-page.php' );
 
         // SERP Keyword Gaps admin page (4.6.3)

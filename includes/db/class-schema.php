@@ -1049,6 +1049,78 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             KEY post_lookup (post_id, page_type),
             KEY endpoint_seed (endpoint, seed)
         ) $charset_collate;";
+        $model_opp_imports = $wpdb->prefix . 'tmwseo_model_opportunity_imports';
+        $model_opps = $wpdb->prefix . 'tmwseo_model_opportunities';
+        $model_opp_keywords = $wpdb->prefix . 'tmwseo_model_opportunity_keywords';
+        $sql_model_opp_imports = "CREATE TABLE $model_opp_imports (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            import_mode VARCHAR(64) NOT NULL,
+            source VARCHAR(64) NOT NULL,
+            filename VARCHAR(255) NOT NULL,
+            model_entity VARCHAR(255) NULL,
+            competitor_domain VARCHAR(255) NULL,
+            platform VARCHAR(64) NULL,
+            research_type VARCHAR(64) NULL,
+            location VARCHAR(128) NULL,
+            language VARCHAR(64) NULL,
+            adult_keywords TINYINT(1) NULL,
+            row_count INT(11) NOT NULL DEFAULT 0,
+            created_count INT(11) NOT NULL DEFAULT 0,
+            updated_count INT(11) NOT NULL DEFAULT 0,
+            noise_count INT(11) NOT NULL DEFAULT 0,
+            options_json LONGTEXT NULL,
+            created_by BIGINT(20) UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY mode_created (import_mode, created_at)
+        ) $charset_collate;";
+        $sql_model_opps = "CREATE TABLE $model_opps (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            canonical_entity_key VARCHAR(255) NOT NULL,
+            model_entity VARCHAR(255) NOT NULL,
+            opportunity_type VARCHAR(64) NOT NULL,
+            status VARCHAR(64) NOT NULL DEFAULT 'pending_review',
+            priority VARCHAR(16) NULL,
+            score DECIMAL(8,2) NOT NULL DEFAULT 0,
+            primary_keyword VARCHAR(255) NULL,
+            primary_volume INT(11) NULL,
+            family_volume INT(11) NULL,
+            traffic_value DECIMAL(14,2) NULL,
+            platform_signals_json LONGTEXT NULL,
+            competitor_sources_json LONGTEXT NULL,
+            manual_competitor_exact_match_weakness TINYINT(1) NOT NULL DEFAULT 0,
+            needs_dfseo_verification TINYINT(1) NOT NULL DEFAULT 0,
+            matched_post_id BIGINT(20) UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY canonical_entity_key (canonical_entity_key),
+            KEY opportunity_type (opportunity_type),
+            KEY status (status),
+            KEY priority (priority),
+            KEY score (score)
+        ) $charset_collate;";
+        $sql_model_opp_keywords = "CREATE TABLE $model_opp_keywords (
+            id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            opportunity_id BIGINT(20) UNSIGNED NOT NULL,
+            import_id BIGINT(20) UNSIGNED NULL,
+            keyword VARCHAR(255) NOT NULL,
+            normalized_keyword VARCHAR(255) NOT NULL,
+            role VARCHAR(64) NOT NULL,
+            volume INT(11) NULL,
+            source VARCHAR(64) NULL,
+            competitor_domain VARCHAR(255) NULL,
+            platform_detected VARCHAR(64) NULL,
+            risk_flags_json LONGTEXT NULL,
+            raw_row_json LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY opportunity_id (opportunity_id),
+            KEY normalized_keyword (normalized_keyword),
+            KEY role (role)
+        ) $charset_collate;";
 
         dbDelta($sql_jobs);
         dbDelta($sql_tmwseo_jobs);
@@ -1100,6 +1172,9 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_discovery_governor);
         dbDelta($sql_dfseo_scan_runs);
         dbDelta($sql_dfseo_scan_items);
+        dbDelta($sql_model_opp_imports);
+        dbDelta($sql_model_opps);
+        dbDelta($sql_model_opp_keywords);
 
         // ── Keyword usage deduplication tables (anti-cannibalization) ──────
         $kw_usage     = $wpdb->prefix . 'tmwseo_keyword_usage';
