@@ -55,3 +55,12 @@ Priority mapping:
 - Entity grouping and opportunity record creation from parsed rows.
 - Review queue UI (filters/actions/status workflows).
 - Rank Math preview/apply action (via existing mapper only).
+
+## v5.10.2 Review Dashboard
+- Added Model Opportunities admin review dashboard with tabs: Import, Opportunities, Opportunity Detail.
+- Opportunities tab supports filter + sorting for status, priority, type, DataForSEO flag, matched state, and search.
+- Row actions (P1/P2/P3/archive/restore/dfseo flags) require manage_options, nonce checks, sanitized IDs/actions, safe redirects, and [TMW-MODEL-OPP] logs.
+- Opportunity Detail shows opportunity record, keyword variants, role counts, grouped keyword roles, competitor/platform fields, and collapsible raw JSON.
+- Import tab now includes last 10 import ledger rows and compact preview rendering (max 50 preview rows).
+- Workflow remains review-first: no Rank Math writes, no auto-post creation, no auto-publish, no external requests.
+- Operator flow after import: review Opportunities list -> prioritize/archive/flag -> inspect Detail -> manually create missing model only after verification.
