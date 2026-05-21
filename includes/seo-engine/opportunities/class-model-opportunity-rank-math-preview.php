@@ -68,7 +68,7 @@ class ModelOpportunityRankMathPreview {
         if ($primary_keyword !== '' && self::is_focus_safe($primary_keyword, $keywords)) {
             return $primary_keyword;
         }
-        return $model_entity !== '' ? $model_entity : $primary_keyword;
+        return '';
     }
 
     private static function is_focus_safe(string $keyword, array $rows): bool {

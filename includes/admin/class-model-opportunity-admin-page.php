@@ -166,9 +166,17 @@ class ModelOpportunityAdminPage {
         if ((int) ($row['matched_post_id'] ?? 0) > 0) {
             $current_focus = (string) get_post_meta((int) $row['matched_post_id'], 'rank_math_focus_keyword', true);
             echo '<p><strong>Current Rank Math focus keyword:</strong> ' . esc_html($current_focus !== '' ? $current_focus : '(empty)') . '</p>';
-            echo '<p><strong>Suggested Rank Math focus keyword:</strong> ' . esc_html((string) ($preview['focus_keyword'] ?? '')) . '</p>';
+            if ((string) ($preview['focus_keyword'] ?? '') === '') {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> No safe focus keyword available. Review risky/noise/manual-review rows before applying SEO metadata.</p>';
+            } else {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> ' . esc_html((string) ($preview['focus_keyword'] ?? '')) . '</p>';
+            }
         } else {
-            echo '<p><strong>Suggested Rank Math focus keyword:</strong> ' . esc_html((string) ($preview['focus_keyword'] ?? '')) . '</p>';
+            if ((string) ($preview['focus_keyword'] ?? '') === '') {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> No safe focus keyword available. Review risky/noise/manual-review rows before applying SEO metadata.</p>';
+            } else {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> ' . esc_html((string) ($preview['focus_keyword'] ?? '')) . '</p>';
+            }
             echo '<p><em>Missing model opportunity — preview only. Create model manually before applying Rank Math metadata.</em></p>';
         }
         echo '<p><strong>Suggested supporting keywords:</strong><br>' . esc_html(implode(', ', (array) ($preview['supporting_keywords'] ?? []))) . '</p>';
