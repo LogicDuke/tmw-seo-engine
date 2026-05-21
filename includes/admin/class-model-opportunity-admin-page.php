@@ -15,7 +15,7 @@ class ModelOpportunityAdminPage {
         'kws_competitor_keywords' => 'kws_everywhere',
         'platform_model_list' => 'platform_csv',
     ];
-    private const ALLOWED_PRIORITIES = ['p1', 'p2', 'p3', 'archive'];
+    private const ALLOWED_PRIORITIES = ['P1', 'P2', 'P3', 'archive'];
     private const ALLOWED_TYPES = [
         'existing_model_optimization', 'missing_model_acquisition', 'competitor_gap', 'platform_coverage',
         'generic_keyword_candidate', 'noise_archive',
@@ -115,7 +115,7 @@ class ModelOpportunityAdminPage {
         echo '<table class="widefat striped"><thead><tr><th>Priority</th><th>Score</th><th>Model / Entity</th><th>Opportunity Type</th><th>Status</th><th>Primary Keyword</th><th>Primary Volume</th><th>Family Volume</th><th>Traffic Value</th><th>Matched Post</th><th>Platform Signals</th><th>Competitor Sources</th><th>Needs DataForSEO</th><th>Updated At</th><th>Actions</th></tr></thead><tbody>';
         foreach ($rows as $row) {
             $id = (int) $row['id'];
-            echo '<tr><td>' . esc_html(strtoupper((string) $row['priority'])) . '</td><td>' . esc_html((string) $row['score']) . '</td><td>' . esc_html((string) $row['model_entity']) . '</td><td>' . esc_html((string) $row['opportunity_type']) . '</td><td>' . esc_html((string) $row['status']) . '</td><td>' . esc_html((string) $row['primary_keyword']) . '</td><td>' . (int) $row['primary_volume'] . '</td><td>' . (int) $row['family_volume'] . '</td><td>' . esc_html((string) $row['traffic_value']) . '</td><td>' . (int) $row['matched_post_id'] . '</td><td><code>' . esc_html((string) $row['platform_signals_json']) . '</code></td><td><code>' . esc_html((string) $row['competitor_sources_json']) . '</code></td><td>' . ((int)$row['needs_dfseo_verification'] ? 'Yes' : 'No') . '</td><td>' . esc_html((string) $row['updated_at']) . '</td><td>' . self::render_row_actions($id, $filters) . '</td></tr>';
+            echo '<tr><td>' . esc_html((string) $row['priority']) . '</td><td>' . esc_html((string) $row['score']) . '</td><td>' . esc_html((string) $row['model_entity']) . '</td><td>' . esc_html((string) $row['opportunity_type']) . '</td><td>' . esc_html((string) $row['status']) . '</td><td>' . esc_html((string) $row['primary_keyword']) . '</td><td>' . (int) $row['primary_volume'] . '</td><td>' . (int) $row['family_volume'] . '</td><td>' . esc_html((string) $row['traffic_value']) . '</td><td>' . (int) $row['matched_post_id'] . '</td><td><code>' . esc_html((string) $row['platform_signals_json']) . '</code></td><td><code>' . esc_html((string) $row['competitor_sources_json']) . '</code></td><td>' . ((int)$row['needs_dfseo_verification'] ? 'Yes' : 'No') . '</td><td>' . esc_html((string) $row['updated_at']) . '</td><td>' . self::render_row_actions($id, $filters) . '</td></tr>';
         }
         echo '</tbody></table>';
     }
@@ -187,9 +187,9 @@ class ModelOpportunityAdminPage {
         $table = $wpdb->prefix . 'tmwseo_model_opportunities';
         $action = sanitize_key((string) ($_GET['opp_action'] ?? ''));
         $changes = [];
-        if ($action === 'mark_p1') { $changes = ['priority' => 'p1', 'status' => 'pending_review']; }
-        elseif ($action === 'mark_p2') { $changes = ['priority' => 'p2', 'status' => 'pending_review']; }
-        elseif ($action === 'mark_p3') { $changes = ['priority' => 'p3', 'status' => 'pending_review']; }
+        if ($action === 'mark_p1') { $changes = ['priority' => 'P1', 'status' => 'pending_review']; }
+        elseif ($action === 'mark_p2') { $changes = ['priority' => 'P2', 'status' => 'pending_review']; }
+        elseif ($action === 'mark_p3') { $changes = ['priority' => 'P3', 'status' => 'pending_review']; }
         elseif ($action === 'archive') { $changes = ['priority' => 'archive', 'status' => 'archived']; }
         elseif ($action === 'restore') { $changes = ['priority' => null, 'status' => 'pending_review']; }
         elseif ($action === 'set_dfseo') { $changes = ['needs_dfseo_verification' => 1]; }
@@ -207,7 +207,7 @@ class ModelOpportunityAdminPage {
     private static function render_filter_form(array $filters): void {
         echo '<form method="get"><input type="hidden" name="page" value="' . esc_attr(self::PAGE_SLUG) . '"><input type="hidden" name="tab" value="opportunities">';
         echo 'Status <input name="status" value="' . esc_attr($filters['status']) . '"> ';
-        echo 'Priority <select name="priority"><option value="">All</option><option value="p1">P1</option><option value="p2">P2</option><option value="p3">P3</option><option value="archive">archive</option></select> ';
+        echo 'Priority <select name="priority"><option value="">All</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option><option value="archive">archive</option></select> ';
         echo 'Type <input name="opportunity_type" value="' . esc_attr($filters['opportunity_type']) . '"> ';
         echo 'Needs DFSEO <select name="needs_dfseo_verification"><option value="">All</option><option value="1">Yes</option><option value="0">No</option></select> ';
         echo 'Matched <select name="match_state"><option value="">All</option><option value="matched">Matched</option><option value="missing">Missing</option></select> ';
@@ -217,7 +217,8 @@ class ModelOpportunityAdminPage {
     }
 
     private static function read_filters(): array {
-        $priority = strtolower(sanitize_text_field((string) ($_GET['priority'] ?? '')));
+        $priority = sanitize_text_field((string) ($_GET['priority'] ?? ''));
+        if (in_array(strtolower($priority), ['p1', 'p2', 'p3'], true)) { $priority = strtoupper($priority); }
         $type = sanitize_key((string) ($_GET['opportunity_type'] ?? ''));
         return [
             'tab' => 'opportunities',
