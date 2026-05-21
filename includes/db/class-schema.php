@@ -1179,12 +1179,11 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY canonical_entity_key (canonical_entity_key),
-            KEY opportunity_type (opportunity_type),
-            KEY status (status),
-            KEY priority (priority),
-            KEY score (score)
-        ) $charset_collate;";
-        $sql_model_opp_keywords = "CREATE TABLE $model_opp_keywords (
+             KEY priority (priority),
+            KEY score (score),
+            KEY page_type (page_type)
+            ) $charset_collate;";
+            $sql_model_opp_keywords = "CREATE TABLE $model_opp_keywords (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             opportunity_id BIGINT(20) UNSIGNED NOT NULL,
             import_id BIGINT(20) UNSIGNED NULL,
