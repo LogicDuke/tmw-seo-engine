@@ -126,4 +126,37 @@ class RankMathMapper {
         $list    = array_values( array_unique( array_filter( array_map( 'trim', $list ), 'strlen' ) ) );
         return implode( ',', array_slice( $list, 0, 1 + self::RANK_MATH_EXTRA_CAP ) );
     }
+
+    /**
+     * Apply a reviewed focus/supporting keyword pack to Rank Math with backup.
+     *
+     * @param int      $post_id
+     * @param string   $focus_keyword
+     * @param string[] $supporting_keywords
+     */
+    public static function apply_reviewed_keyword_pack( int $post_id, string $focus_keyword, array $supporting_keywords = [] ): bool {
+        $focus = trim( $focus_keyword );
+        if ( $post_id <= 0 || $focus === '' ) {
+            return false;
+        }
+
+        $extras = array_values( array_filter( array_map( 'trim', array_map( 'strval', $supporting_keywords ) ), 'strlen' ) );
+        $extras = array_slice( $extras, 0, self::RANK_MATH_EXTRA_CAP );
+
+        $focus_list = array_merge( [ $focus ], $extras );
+        $focus_list = array_values( array_unique( array_filter( array_map( 'trim', $focus_list ), 'strlen' ) ) );
+        $focus_csv  = implode( ',', array_slice( $focus_list, 0, 1 + self::RANK_MATH_EXTRA_CAP ) );
+
+        $previous = (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true );
+        if ( $previous === $focus_csv ) {
+            return true;
+        }
+
+        if ( (string) get_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword', true ) === '' ) {
+            update_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword', $previous );
+            update_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword_at', current_time( 'mysql' ) );
+        }
+
+        return update_post_meta( $post_id, 'rank_math_focus_keyword', $focus_csv ) !== false;
+    }
 }
