@@ -156,8 +156,6 @@ class ModelOpportunityAdminPage {
             $link = get_permalink($post_id);
             if ($link) echo '<a class="button" target="_blank" href="' . esc_url($link) . '">View model page</a>';
             echo '</p>';
-        } else {
-            echo '<p><strong>Missing model opportunity</strong> — preview only. Create model manually before applying Rank Math metadata.</p>';
         }
 
         $preview = ModelOpportunityRankMathPreview::build($id);
