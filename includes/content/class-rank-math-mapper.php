@@ -148,8 +148,14 @@ class RankMathMapper {
         $focus_csv  = implode( ',', array_slice( $focus_list, 0, 1 + self::RANK_MATH_EXTRA_CAP ) );
 
         $previous = (string) get_post_meta( $post_id, 'rank_math_focus_keyword', true );
-        update_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword', $previous );
-        update_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword_at', current_time( 'mysql' ) );
+        if ( $previous === $focus_csv ) {
+            return true;
+        }
+
+        if ( (string) get_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword', true ) === '' ) {
+            update_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword', $previous );
+            update_post_meta( $post_id, '_tmwseo_prev_rank_math_focus_keyword_at', current_time( 'mysql' ) );
+        }
 
         return update_post_meta( $post_id, 'rank_math_focus_keyword', $focus_csv ) !== false;
     }

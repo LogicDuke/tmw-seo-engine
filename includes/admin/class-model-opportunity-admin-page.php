@@ -289,7 +289,7 @@ class ModelOpportunityAdminPage {
         $post_id = absint((int) ($opp['matched_post_id'] ?? 0));
         if ($post_id <= 0 || !get_post($post_id)) { return false; }
         if (trim((string)($preview['focus_keyword'] ?? '')) === '') { return false; }
-        return !empty($preview['supporting_keywords']) || trim((string)($preview['focus_keyword'] ?? '')) !== '';
+        return true;
     }
 
     private static function redirect_detail(int $id, string $notice): void {
