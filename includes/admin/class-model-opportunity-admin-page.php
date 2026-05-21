@@ -3,6 +3,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Opportunities\ModelOpportunityImportService;
 use TMWSEO\Engine\Opportunities\ModelOpportunityNormalizer;
+use TMWSEO\Engine\Opportunities\ModelOpportunityRankMathPreview;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -132,7 +133,9 @@ class ModelOpportunityAdminPage {
             $parts[] = '<a href="' . esc_url($url) . '">' . esc_html($label) . '</a>';
         }
         $detail = add_query_arg(['page' => self::PAGE_SLUG, 'tab' => 'detail', 'id' => $id], admin_url('admin.php'));
+        $preview = $detail . '#rank-math-preview';
         $parts[] = '<a href="' . esc_url($detail) . '">View Details</a>';
+        $parts[] = '<a href="' . esc_url($preview) . '">Preview Rank Math</a>';
         return implode(' | ', $parts);
     }
 
@@ -153,9 +156,31 @@ class ModelOpportunityAdminPage {
             $link = get_permalink($post_id);
             if ($link) echo '<a class="button" target="_blank" href="' . esc_url($link) . '">View model page</a>';
             echo '</p>';
-        } else {
-            echo '<p><strong>Missing model opportunity</strong> — Create model manually after verification.</p>';
         }
+
+        $preview = ModelOpportunityRankMathPreview::build($id);
+        echo '<h3 id="rank-math-preview">Rank Math Preview</h3>';
+        echo '<p><strong>Preview only. This PR does not write Rank Math metadata.</strong></p>';
+        if ((int) ($row['matched_post_id'] ?? 0) > 0) {
+            $current_focus = (string) get_post_meta((int) $row['matched_post_id'], 'rank_math_focus_keyword', true);
+            echo '<p><strong>Current Rank Math focus keyword:</strong> ' . esc_html($current_focus !== '' ? $current_focus : '(empty)') . '</p>';
+            if ((string) ($preview['focus_keyword'] ?? '') === '') {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> No safe focus keyword available. Review risky/noise/manual-review rows before applying SEO metadata.</p>';
+            } else {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> ' . esc_html((string) ($preview['focus_keyword'] ?? '')) . '</p>';
+            }
+        } else {
+            if ((string) ($preview['focus_keyword'] ?? '') === '') {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> No safe focus keyword available. Review risky/noise/manual-review rows before applying SEO metadata.</p>';
+            } else {
+                echo '<p><strong>Suggested Rank Math focus keyword:</strong> ' . esc_html((string) ($preview['focus_keyword'] ?? '')) . '</p>';
+            }
+            echo '<p><em>Missing model opportunity — preview only. Create model manually before applying Rank Math metadata.</em></p>';
+        }
+        echo '<p><strong>Suggested supporting keywords:</strong><br>' . esc_html(implode(', ', (array) ($preview['supporting_keywords'] ?? []))) . '</p>';
+        echo '<p><strong>Excluded risky keywords:</strong><br>' . esc_html(implode(', ', (array) ($preview['excluded_risky'] ?? []))) . '</p>';
+        echo '<p><strong>Excluded noise keywords:</strong><br>' . esc_html(implode(', ', (array) ($preview['excluded_noise'] ?? []))) . '</p>';
+        echo '<p><strong>Source explanation:</strong> ' . esc_html((string) ($preview['source_note'] ?? '')) . '</p>';
 
         $keywords = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$kw_table} WHERE opportunity_id=%d ORDER BY volume DESC", $id), ARRAY_A);
         $role_counts = [];

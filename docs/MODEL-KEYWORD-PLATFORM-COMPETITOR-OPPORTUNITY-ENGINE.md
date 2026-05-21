@@ -64,3 +64,40 @@ Priority mapping:
 - Import tab now includes last 10 import ledger rows and compact preview rendering (max 50 preview rows).
 - Workflow remains review-first: no Rank Math writes, no auto-post creation, no auto-publish, no external requests.
 - Operator flow after import: review Opportunities list -> prioritize/archive/flag -> inspect Detail -> manually create missing model only after verification.
+
+## v5.10.3 Rank Math Preview (preview-only)
+- Added a **Rank Math Preview** section in Opportunity Detail.
+- Added an Opportunities action link: **Preview Rank Math** (opens Detail anchored to the preview block).
+- Added preview builder service: `ModelOpportunityRankMathPreview::build(int $opportunity_id): array`.
+
+### Focus keyword rules
+- Prefer exact model/entity name.
+- If `primary_keyword` exactly equals `model_entity`, use `primary_keyword`.
+- Otherwise use `model_entity` when available.
+- Never accept focus keywords that resolve to risky/noise/manual-review role rows.
+
+### Supporting keyword rules
+- Select up to 4 keywords from keyword roles in this order:
+  1. `rankmath_candidate`
+  2. `platform_intent`
+  3. `content_support`
+- Keywords are read in volume-desc order from stored opportunity keyword rows.
+- Exclude:
+  - `risky_explicit`
+  - `noise`
+  - `manual_review`
+  - duplicates after keyword normalization
+  - exact duplicate of focus keyword
+
+### Exclusion and source explanation
+- Preview output includes explicit lists for:
+  - excluded risky keywords
+  - excluded noise keywords
+- Preview includes a source explanation note describing role-order and volume-order selection behavior.
+
+### Preview-only safety boundary
+- The preview only reads existing opportunity/model metadata and keyword rows.
+- No Rank Math writes are performed in this flow.
+- No direct `update_post_meta(..., 'rank_math_focus_keyword', ...)` call is added for the preview.
+- No auto-create model posts/pages.
+- No auto-publish.
