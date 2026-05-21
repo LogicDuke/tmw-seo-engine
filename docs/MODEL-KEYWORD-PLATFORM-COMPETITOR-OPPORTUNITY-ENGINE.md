@@ -101,3 +101,38 @@ Priority mapping:
 - No direct `update_post_meta(..., 'rank_math_focus_keyword', ...)` call is added for the preview.
 - No auto-create model posts/pages.
 - No auto-publish.
+
+## v5.10.4 Rank Math Apply (manual, single-opportunity)
+- Added an explicit **Apply Rank Math Keyword Pack** action in Opportunity Detail → Rank Math Preview.
+- Apply is manual and one-opportunity-at-a-time (no bulk apply).
+- Apply is shown only when:
+  - the opportunity exists,
+  - `matched_post_id` is present and still resolves to a real post,
+  - operator has `manage_options`,
+  - opportunity is not archived,
+  - opportunity type is not `noise_archive`,
+  - a safe non-empty focus keyword exists.
+- Missing model opportunities cannot be applied.
+
+### Apply safety exclusions and caps
+- Apply always rebuilds preview server-side before writing.
+- Apply blocks if focus keyword is empty/unsafe.
+- Apply excludes risky/noise/manual-review keywords and caps supporting keywords to 4.
+- No direct admin-page write to `rank_math_focus_keyword`; writes are centralized via `RankMathMapper`.
+
+### Backup behavior before apply
+- Before writing Rank Math focus keyword CSV, previous value is stored in:
+  - `_tmwseo_prev_rank_math_focus_keyword`
+  - `_tmwseo_prev_rank_math_focus_keyword_at`
+
+### Post-apply status update
+- On success, opportunity is updated to:
+  - `status = rankmath_applied`
+  - `updated_at = current_time('mysql')`
+  - append notes entry when `notes` column exists.
+
+### Apply action boundaries preserved
+- No auto-create model posts/pages.
+- No auto-publish.
+- No external API requests.
+- No DataForSEO calls in apply flow.

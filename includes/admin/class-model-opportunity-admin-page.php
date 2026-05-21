@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Opportunities\ModelOpportunityImportService;
 use TMWSEO\Engine\Opportunities\ModelOpportunityNormalizer;
 use TMWSEO\Engine\Opportunities\ModelOpportunityRankMathPreview;
+use TMWSEO\Engine\Content\RankMathMapper;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -25,6 +26,7 @@ class ModelOpportunityAdminPage {
     public static function init(): void {
         add_action('admin_post_tmw_model_opp_import', [__CLASS__, 'handle_import']);
         add_action('admin_post_' . self::ACTION, [__CLASS__, 'handle_row_action']);
+        add_action('admin_post_tmw_model_opp_apply_rank_math', [__CLASS__, 'handle_apply_rank_math']);
     }
 
     public static function render_page(): void {
@@ -160,7 +162,11 @@ class ModelOpportunityAdminPage {
 
         $preview = ModelOpportunityRankMathPreview::build($id);
         echo '<h3 id="rank-math-preview">Rank Math Preview</h3>';
-        echo '<p><strong>Preview only. This PR does not write Rank Math metadata.</strong></p>';
+        echo '<p>This action only applies the reviewed keyword pack to the matched model page. It does not create posts, publish content, call APIs, or modify page text.</p>';
+        if ((string)($row['status'] ?? '') === 'rankmath_applied') {
+            echo '<p><strong>Last applied status:</strong> rankmath_applied</p>';
+        }
+        $can_apply = self::can_show_apply_button($row, $preview);
         if ((int) ($row['matched_post_id'] ?? 0) > 0) {
             $current_focus = (string) get_post_meta((int) $row['matched_post_id'], 'rank_math_focus_keyword', true);
             echo '<p><strong>Current Rank Math focus keyword:</strong> ' . esc_html($current_focus !== '' ? $current_focus : '(empty)') . '</p>';
@@ -181,6 +187,15 @@ class ModelOpportunityAdminPage {
         echo '<p><strong>Excluded risky keywords:</strong><br>' . esc_html(implode(', ', (array) ($preview['excluded_risky'] ?? []))) . '</p>';
         echo '<p><strong>Excluded noise keywords:</strong><br>' . esc_html(implode(', ', (array) ($preview['excluded_noise'] ?? []))) . '</p>';
         echo '<p><strong>Source explanation:</strong> ' . esc_html((string) ($preview['source_note'] ?? '')) . '</p>';
+        if ($can_apply) {
+            $apply_url = admin_url('admin-post.php');
+            echo '<form method="post" action="' . esc_url($apply_url) . '">';
+            echo '<input type="hidden" name="action" value="tmw_model_opp_apply_rank_math" />';
+            echo '<input type="hidden" name="id" value="' . (int) $id . '" />';
+            wp_nonce_field('tmw_model_opp_apply_rank_math_' . $id);
+            submit_button('Apply Rank Math Keyword Pack', 'primary', '', false);
+            echo '</form>';
+        }
 
         $keywords = (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$kw_table} WHERE opportunity_id=%d ORDER BY volume DESC", $id), ARRAY_A);
         $role_counts = [];
@@ -226,6 +241,59 @@ class ModelOpportunityAdminPage {
         }
         $redirect = add_query_arg(self::read_filters(), admin_url('admin.php?page=' . self::PAGE_SLUG . '&tab=opportunities'));
         wp_safe_redirect($redirect);
+        exit;
+    }
+
+    public static function handle_apply_rank_math(): void {
+        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        $id = absint((int) ($_POST['id'] ?? 0));
+        if ($id <= 0) { self::redirect_detail($id, 'invalid_opportunity'); }
+        check_admin_referer('tmw_model_opp_apply_rank_math_' . $id);
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmwseo_model_opportunities';
+        $opp = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id), ARRAY_A);
+        if (!is_array($opp)) { self::redirect_detail($id, 'invalid_opportunity'); }
+        if ((string)($opp['status'] ?? '') === 'archived') { self::redirect_detail($id, 'archived_opportunity'); }
+        if ((string)($opp['opportunity_type'] ?? '') === 'noise_archive') { self::redirect_detail($id, 'invalid_opportunity'); }
+
+        $post_id = absint((int) ($opp['matched_post_id'] ?? 0));
+        if ($post_id <= 0 || !get_post($post_id)) { self::redirect_detail($id, 'missing_post'); }
+
+        $preview = ModelOpportunityRankMathPreview::build($id);
+        $focus = trim((string) ($preview['focus_keyword'] ?? ''));
+        if ($focus === '') { self::redirect_detail($id, 'no_safe_focus'); }
+        $supporting = array_slice((array) ($preview['supporting_keywords'] ?? []), 0, 4);
+        $supporting = array_values(array_filter(array_map('sanitize_text_field', $supporting), 'strlen'));
+
+        if (!RankMathMapper::apply_reviewed_keyword_pack($post_id, $focus, $supporting)) {
+            self::redirect_detail($id, 'rankmath_apply_failed');
+        }
+
+        $now = current_time('mysql');
+        $notes_append = 'Rank Math keyword pack applied from opportunity ID ' . $id;
+        $has_notes = (bool) $wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'notes'));
+        $updates = ['status' => 'rankmath_applied', 'updated_at' => $now];
+        if ($has_notes) {
+            $existing = trim((string) ($opp['notes'] ?? ''));
+            $updates['notes'] = trim($existing . "\n" . $notes_append);
+        }
+        $wpdb->update($table, $updates, ['id' => $id]);
+        error_log('[TMW-MODEL-OPP] [TMW-RANKMATH] applied opportunity_id=' . $id . ' post_id=' . $post_id . ' focus_keyword=' . $focus . ' supporting_count=' . count($supporting));
+        self::redirect_detail($id, 'rankmath_applied');
+    }
+
+    private static function can_show_apply_button(array $opp, array $preview): bool {
+        if (!current_user_can('manage_options')) { return false; }
+        if ((string)($opp['status'] ?? '') === 'archived') { return false; }
+        if ((string)($opp['opportunity_type'] ?? '') === 'noise_archive') { return false; }
+        $post_id = absint((int) ($opp['matched_post_id'] ?? 0));
+        if ($post_id <= 0 || !get_post($post_id)) { return false; }
+        if (trim((string)($preview['focus_keyword'] ?? '')) === '') { return false; }
+        return !empty($preview['supporting_keywords']) || trim((string)($preview['focus_keyword'] ?? '')) !== '';
+    }
+
+    private static function redirect_detail(int $id, string $notice): void {
+        wp_safe_redirect(add_query_arg(['page' => self::PAGE_SLUG, 'tab' => 'detail', 'id' => $id, 'notice' => $notice], admin_url('admin.php')));
         exit;
     }
 
