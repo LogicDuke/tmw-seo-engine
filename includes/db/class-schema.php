@@ -168,6 +168,10 @@ class Schema {
                 manual_competitor_exact_match_weakness TINYINT(1) NOT NULL DEFAULT 0,
                 needs_dfseo_verification TINYINT(1) NOT NULL DEFAULT 0,
                 matched_post_id BIGINT(20) UNSIGNED NULL,
+                kws_seo_score DECIMAL(6,2) NULL,
+                kws_competition DECIMAL(8,4) NULL,
+                score_explanation TEXT NULL,
+                page_type VARCHAR(32) NOT NULL DEFAULT 'model_page',
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
                 PRIMARY KEY (id),
@@ -175,7 +179,8 @@ class Schema {
                 KEY opportunity_type (opportunity_type),
                 KEY status (status),
                 KEY priority (priority),
-                KEY score (score)
+                KEY score (score),
+                KEY page_type (page_type)
             ) $charset_collate;",
             $model_opp_keywords => "CREATE TABLE $model_opp_keywords (
                 id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -188,6 +193,8 @@ class Schema {
                 source VARCHAR(64) NULL,
                 competitor_domain VARCHAR(255) NULL,
                 platform_detected VARCHAR(64) NULL,
+                seo_score DECIMAL(6,2) NULL,
+                competition DECIMAL(8,4) NULL,
                 risk_flags_json LONGTEXT NULL,
                 raw_row_json LONGTEXT NULL,
                 created_at DATETIME NOT NULL,
@@ -1164,16 +1171,19 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             manual_competitor_exact_match_weakness TINYINT(1) NOT NULL DEFAULT 0,
             needs_dfseo_verification TINYINT(1) NOT NULL DEFAULT 0,
             matched_post_id BIGINT(20) UNSIGNED NULL,
+            kws_seo_score DECIMAL(6,2) NULL,
+            kws_competition DECIMAL(8,4) NULL,
+            score_explanation TEXT NULL,
+            page_type VARCHAR(32) NOT NULL DEFAULT 'model_page',
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY canonical_entity_key (canonical_entity_key),
-            KEY opportunity_type (opportunity_type),
-            KEY status (status),
-            KEY priority (priority),
-            KEY score (score)
-        ) $charset_collate;";
-        $sql_model_opp_keywords = "CREATE TABLE $model_opp_keywords (
+             KEY priority (priority),
+            KEY score (score),
+            KEY page_type (page_type)
+            ) $charset_collate;";
+            $sql_model_opp_keywords = "CREATE TABLE $model_opp_keywords (
             id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
             opportunity_id BIGINT(20) UNSIGNED NOT NULL,
             import_id BIGINT(20) UNSIGNED NULL,
@@ -1184,6 +1194,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
             source VARCHAR(64) NULL,
             competitor_domain VARCHAR(255) NULL,
             platform_detected VARCHAR(64) NULL,
+            seo_score DECIMAL(6,2) NULL,
+            competition DECIMAL(8,4) NULL,
             risk_flags_json LONGTEXT NULL,
             raw_row_json LONGTEXT NULL,
             created_at DATETIME NOT NULL,
