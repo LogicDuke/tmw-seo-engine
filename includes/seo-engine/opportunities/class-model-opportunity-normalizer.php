@@ -22,8 +22,9 @@ class ModelOpportunityNormalizer {
     public static function is_numeric_only(string $value): bool { return (bool) preg_match('/^\d+$/', trim($value)); }
     public static function is_one_char(string $value): bool { return mb_strlen(trim($value)) <= 1; }
     public static function is_noise(string $value): bool {
+        if (self::is_email($value) || self::is_url_or_domain($value)) return true;
         $k = self::normalize_keyword($value);
-        if ($k === '' || self::is_email($k) || self::is_url_or_domain($k) || self::is_numeric_only($k) || self::is_one_char($k)) return true;
+        if ($k === '' || self::is_numeric_only($k) || self::is_one_char($k)) return true;
         foreach (['site moved','deleted','premium','support','domain','email','hot girls','shooting star','wild thing','studio 69','infinity','flower'] as $needle) {
             if (str_contains($k, $needle)) return true;
         }

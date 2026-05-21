@@ -1,42 +1,57 @@
 # Model Keyword, Platform & Competitor Opportunity Engine
 
-## What it does
-Adds a **CSV-only** review-first workflow to import model keyword families, bulk discovery keywords, competitor keyword exports, and platform model lists into structured model opportunities.
+## What this PR currently delivers
+This PR is **foundation-only**:
+- schema/storage tables,
+- normalization/classification/scoring service scaffolding,
+- safe admin import ledger entrypoint.
 
-## Import modes
-- `kws_single_model_family`
-- `kws_bulk_discovery`
-- `kws_competitor_keywords`
-- `platform_model_list`
+It does **not** yet implement full CSV parsing, grouped opportunity creation, review queue tables, or Rank Math preview/apply UI.
+
+## Current admin location
+Use **TMW SEO Engine → Model Opportunities**.
+
+## Current import modes (allowlisted)
+- `kws_single_model_family` → source `kws_everywhere`
+- `kws_bulk_discovery` → source `kws_everywhere`
+- `kws_competitor_keywords` → source `kws_everywhere`
+- `platform_model_list` → source `platform_csv`
+
+## Current upload handling in this PR
+- Upload is validated server-side (not browser `accept` only).
+- This foundation PR accepts **CSV only** right now.
+- TXT/paste support for platform lists is planned follow-up work.
 
 ## KWS policy
 - KWS is CSV-only.
-- No API integration.
+- No KWS API integration.
 - No browser token storage.
 - Never paste browser tokens into WordPress, GitHub, or logs.
 
-## Typical workflow
-1. Open **TMW SEO → Model Opportunities**.
-2. Select import mode and upload CSV/TXT.
-3. Review pending opportunities.
-4. Use manual actions to prioritize (P1/P2/P3), archive noise, or prepare Rank Math preview.
+## Scoring currently implemented (exact)
+`ModelOpportunityScorer` currently applies:
+- demand: `log10(max(1, primary_volume + family_volume)) * 8`, capped at 30,
+- traffic value: `log10(max(1, traffic_value)) * 5`, capped at 15 when `traffic_value > 0`,
+- `+15` when `matched_post_id` exists,
+- `+8` when `platform_signals_count` exists,
+- `+8` when `competitor_signal` exists,
+- `+7` when `manual_competitor_exact_match_weakness` is truthy,
+- `-30` when `is_noise` is truthy.
 
-## Scoring
-Scoring is deterministic and combines:
-- demand,
-- traffic value,
-- platform/verified signals,
-- existing page leverage,
-- competitor gap signals,
-- risk penalties.
+Priority mapping:
+- `P1` for score `>= 75`
+- `P2` for score `>= 50`
+- `P3` for score `>= 25`
+- `archive` otherwise
 
-## Rank Math recommendations
-- Import creates preview-friendly keyword families.
-- No direct `rank_math_focus_keyword` writes during import.
-- Any apply action must route through `RankMathMapper`.
+## Safety boundaries preserved
+- No external KWS requests.
+- No auto-create model posts/pages.
+- No auto-publish behavior.
+- No direct `rank_math_focus_keyword` writes.
 
-## Risky terms
-Explicit/risky terms are kept for manual insight only and are not auto-applied as Rank Math chips.
-
-## DataForSEO boundary
-DataForSEO remains a separate verification layer for SERP realism and exact-match weakness validation.
+## Planned follow-up PRs
+- Full CSV row parsing + column mapping.
+- Entity grouping and opportunity record creation from parsed rows.
+- Review queue UI (filters/actions/status workflows).
+- Rank Math preview/apply action (via existing mapper only).

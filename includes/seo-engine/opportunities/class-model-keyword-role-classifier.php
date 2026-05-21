@@ -5,6 +5,7 @@ class ModelKeywordRoleClassifier {
     public static function classify(string $keyword, string $model): string {
         $k = ModelOpportunityNormalizer::normalize_keyword($keyword);
         $m = ModelOpportunityNormalizer::normalize_keyword($model);
+        if ($m === '') return 'noise';
         if (ModelOpportunityNormalizer::is_noise($keyword)) return 'noise';
         if ($k === $m) return 'primary';
         if (preg_match('/\b(porn|sex|xxx|nude|leaks?)\b/i', $k)) return 'risky_explicit';
