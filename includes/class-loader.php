@@ -149,6 +149,7 @@ class Loader {
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-opportunity-normalizer.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-keyword-role-classifier.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-opportunity-scorer.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-opportunity-rank-math-preview.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-opportunity-import-service.php' );
     }
 
