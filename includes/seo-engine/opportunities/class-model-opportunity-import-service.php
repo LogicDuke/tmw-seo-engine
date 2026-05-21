@@ -395,6 +395,9 @@ class ModelOpportunityImportService {
         $entity = self::match_model( $model, $model_map ) ?: ModelOpportunityNormalizer::normalize_model_name( $model );
         $canonical = ModelOpportunityNormalizer::canonical_entity_key( $entity );
         $norm_model = ModelOpportunityNormalizer::normalize_keyword( $entity );
+        $existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$opp_table} WHERE canonical_entity_key=%s LIMIT 1", $canonical ), ARRAY_A );
+        $matched_post_id = (int) ( $existing['matched_post_id'] ?? 0 );
+        $family_opportunity_type = $matched_post_id > 0 ? 'existing_model_optimization' : 'missing_model_acquisition';
 
         $candidates = [];
         $total_volume = 0;
@@ -433,7 +436,7 @@ class ModelOpportunityImportService {
                     'keyword' => $keyword,
                     'entity' => $entity,
                     'role' => $role,
-                    'opportunity_type' => 'existing_model_optimization',
+                    'opportunity_type' => $family_opportunity_type,
                     'vol' => $vol,
                     'traffic' => $traffic,
                     'kws_seo_score' => $kws_seo_score,
@@ -457,7 +460,6 @@ class ModelOpportunityImportService {
         }
         $traffic = max( (float) $pick['traffic'], $max_safe_traffic );
 
-        $existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$opp_table} WHERE canonical_entity_key=%s LIMIT 1", $canonical ), ARRAY_A );
         $score_result = ModelOpportunityScorer::score( [
             'primary_volume' => (int) $pick['vol'],
             'family_volume' => $family_volume,
@@ -470,10 +472,7 @@ class ModelOpportunityImportService {
             'kws_competition' => (float) $pick['kws_competition'],
         ] );
 
-        $opportunity_type = ( (int) ( $existing['matched_post_id'] ?? 0 ) > 0 || empty( $context['missing_model'] ) ) ? 'existing_model_optimization' : 'missing_model_acquisition';
-        if ( (int) ( $existing['matched_post_id'] ?? 0 ) === 0 && ! empty( $context['missing_model'] ) ) {
-            $opportunity_type = 'missing_model_acquisition';
-        }
+        $opportunity_type = $family_opportunity_type;
 
         $payload = [
             'canonical_entity_key' => $canonical,

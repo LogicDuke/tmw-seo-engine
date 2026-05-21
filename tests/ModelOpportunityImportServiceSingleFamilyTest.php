@@ -75,9 +75,30 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
         $this->assertSame(12100, (int)$opp['primary_volume']);
         $this->assertSame(19950, (int)$opp['family_volume']);
         $this->assertNotSame('archive', $opp['priority']);
-        $this->assertContains($opp['opportunity_type'], ['existing_model_optimization','missing_model_acquisition']);
+        $this->assertSame('missing_model_acquisition', $opp['opportunity_type']);
         $this->assertNotSame('platform_coverage', $opp['opportunity_type']);
         $this->assertCount(4, $wpdb->kws);
         $this->assertSame(1, $result['created_count']);
+    }
+
+    public function test_single_model_family_uses_existing_model_optimization_when_matched_post_exists(): void {
+        global $wpdb;
+        $wpdb->opps['anisyia'] = [
+            'id' => 77,
+            'canonical_entity_key' => 'anisyia',
+            'matched_post_id' => 123,
+            'family_volume' => 0,
+        ];
+
+        $rows = [
+            ['keyword'=>'anisyia','volume'=>'12100','seo_score'=>'68','competition'=>'0','traffic_value'=>'55'],
+            ['keyword'=>'Total Volume','volume'=>'19950'],
+        ];
+
+        ModelOpportunityImportService::apply_rows(2, 'kws_single_model_family', $rows, ['model_entity' => 'Anisyia'], false);
+        $opp = $wpdb->opps['anisyia'];
+
+        $this->assertSame('existing_model_optimization', $opp['opportunity_type']);
+        $this->assertSame(123, (int) $opp['matched_post_id']);
     }
 }
