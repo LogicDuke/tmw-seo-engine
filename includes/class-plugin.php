@@ -239,7 +239,15 @@ class Plugin {
         // Content gap analysis service (weekly queue + storage sync)
         \TMWSEO\Engine\ContentGap\ContentGapService::init();
         // Admin Dashboard v2
-        \TMWSEO\Engine\Admin\AdminDashboardV2::init();
+        $admin_dashboard_v2_file = TMWSEO_ENGINE_PATH . 'includes/admin/class-admin-dashboard-v2.php';
+        if (!class_exists('\TMWSEO\Engine\Admin\AdminDashboardV2', false) && file_exists($admin_dashboard_v2_file)) {
+            require_once $admin_dashboard_v2_file;
+        }
+        if (class_exists('\TMWSEO\Engine\Admin\AdminDashboardV2', false) && method_exists('\TMWSEO\Engine\Admin\AdminDashboardV2', 'init')) {
+            \TMWSEO\Engine\Admin\AdminDashboardV2::init();
+        } else {
+            error_log('[TMW-ADMIN-DASHBOARD-V2] AdminDashboardV2 class unavailable; dashboard init skipped to prevent fatal.');
+        }
         // ──────────────────────────────────────────────────────────────────
 
         Migration::maybe_migrate_legacy();
