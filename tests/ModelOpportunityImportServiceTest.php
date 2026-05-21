@@ -1,12 +1,12 @@
 <?php
+if (!defined('ABSPATH')) { define('ABSPATH', __DIR__); }
+if (!function_exists('remove_accents')) { function remove_accents($v){ return $v; } }
+
 require_once __DIR__ . '/../includes/seo-engine/opportunities/class-model-opportunity-normalizer.php';
 require_once __DIR__ . '/../includes/seo-engine/opportunities/class-model-opportunity-import-service.php';
 
 use PHPUnit\Framework\TestCase;
 use TMWSEO\Engine\Opportunities\ModelOpportunityImportService;
-
-if (!defined('ABSPATH')) { define('ABSPATH', __DIR__); }
-if (!function_exists('remove_accents')) { function remove_accents($v){ return $v; } }
 
 final class ModelOpportunityImportServiceTest extends TestCase {
     /** @dataProvider csvProvider */
