@@ -27,6 +27,7 @@ class ModelOpportunityAdminPage {
         add_action('admin_post_tmw_model_opp_import', [__CLASS__, 'handle_import']);
         add_action('admin_post_' . self::ACTION, [__CLASS__, 'handle_row_action']);
         add_action('admin_post_tmw_model_opp_apply_rank_math', [__CLASS__, 'handle_apply_rank_math']);
+        add_action('admin_post_tmw_model_opp_delete_import', [__CLASS__, 'handle_delete_import']);
     }
 
     public static function render_page(): void {
@@ -66,9 +67,17 @@ class ModelOpportunityAdminPage {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_model_opportunity_imports';
         $rows = (array) $wpdb->get_results("SELECT * FROM {$table} ORDER BY id DESC LIMIT 10", ARRAY_A);
-        echo '<h2>Recent Imports</h2><table class="widefat striped"><thead><tr><th>ID</th><th>Mode</th><th>Source</th><th>Filename</th><th>Model Entity</th><th>Competitor Domain</th><th>Platform</th><th>Row Count</th><th>Created</th><th>Updated</th><th>Noise</th><th>Created At</th></tr></thead><tbody>';
+        echo '<h2>Recent Imports</h2><table class="widefat striped"><thead><tr><th>ID</th><th>Mode</th><th>Source</th><th>Filename</th><th>Model Entity</th><th>Competitor Domain</th><th>Platform</th><th>Row Count</th><th>Created</th><th>Updated</th><th>Noise</th><th>Created At</th><th>Actions</th></tr></thead><tbody>';
         foreach ($rows as $row) {
-            echo '<tr><td>' . (int) $row['id'] . '</td><td>' . esc_html((string) $row['import_mode']) . '</td><td>' . esc_html((string) $row['source']) . '</td><td>' . esc_html((string) $row['filename']) . '</td><td>' . esc_html((string) $row['model_entity']) . '</td><td>' . esc_html((string) $row['competitor_domain']) . '</td><td>' . esc_html((string) $row['platform']) . '</td><td>' . (int) $row['row_count'] . '</td><td>' . (int) $row['created_count'] . '</td><td>' . (int) $row['updated_count'] . '</td><td>' . (int) $row['noise_count'] . '</td><td>' . esc_html((string) $row['created_at']) . '</td></tr>';
+            $import_id = (int) $row['id'];
+            $delete_url = wp_nonce_url(
+                add_query_arg(
+                    ['action' => 'tmw_model_opp_delete_import', 'id' => $import_id],
+                    admin_url('admin-post.php')
+                ),
+                'tmw_model_opp_delete_import_' . $import_id
+            );
+            echo '<tr><td>' . $import_id . '</td><td>' . esc_html((string) $row['import_mode']) . '</td><td>' . esc_html((string) $row['source']) . '</td><td>' . esc_html((string) $row['filename']) . '</td><td>' . esc_html((string) $row['model_entity']) . '</td><td>' . esc_html((string) $row['competitor_domain']) . '</td><td>' . esc_html((string) $row['platform']) . '</td><td>' . (int) $row['row_count'] . '</td><td>' . (int) $row['created_count'] . '</td><td>' . (int) $row['updated_count'] . '</td><td>' . (int) $row['noise_count'] . '</td><td>' . esc_html((string) $row['created_at']) . '</td><td><a href="' . esc_url($delete_url) . '">Delete</a></td></tr>';
             self::render_preview_summary((string) ($row['options_json'] ?? ''));
         }
         echo '</tbody></table>';
@@ -78,7 +87,7 @@ class ModelOpportunityAdminPage {
         $decoded = json_decode($options_json, true);
         if (!is_array($decoded) || empty($decoded['preview']) || !is_array($decoded['preview'])) return;
         $preview = array_slice($decoded['preview'], 0, 50);
-        echo '<tr><td colspan="12"><details><summary>Preview rows (' . count($preview) . ' shown)</summary><ol>';
+        echo '<tr><td colspan="13"><details><summary>Preview rows (' . count($preview) . ' shown)</summary><ol>';
         foreach ($preview as $item) {
             echo '<li><code>' . esc_html(wp_json_encode($item)) . '</code></li>';
         }
@@ -241,6 +250,42 @@ class ModelOpportunityAdminPage {
         }
         $redirect = add_query_arg(self::read_filters(), admin_url('admin.php?page=' . self::PAGE_SLUG . '&tab=opportunities'));
         wp_safe_redirect($redirect);
+        exit;
+    }
+
+
+    public static function handle_delete_import(): void {
+        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        $id = absint((int) ($_GET['id'] ?? 0));
+        if ($id <= 0) {
+            wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tab=import&notice=invalid_import_id'));
+            exit;
+        }
+
+        check_admin_referer('tmw_model_opp_delete_import_' . $id);
+
+        global $wpdb;
+        $imports_table = $wpdb->prefix . 'tmwseo_model_opportunity_imports';
+        $keywords_table = $wpdb->prefix . 'tmwseo_model_opportunity_keywords';
+
+        $import = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$imports_table} WHERE id=%d", $id), ARRAY_A);
+        if (!is_array($import)) {
+            wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tab=import&notice=import_not_found'));
+            exit;
+        }
+
+        $options = json_decode((string) ($import['options_json'] ?? ''), true);
+        $has_preview_data = is_array($options) && !empty($options['preview']) && is_array($options['preview']);
+        $preview_only = ((int) ($import['created_count'] ?? 0) === 0) && ((int) ($import['updated_count'] ?? 0) === 0) && $has_preview_data;
+
+        if (!$preview_only) {
+            $keywords_deleted = (int) $wpdb->delete($keywords_table, ['import_id' => $id], ['%d']);
+            error_log('[TMW-MODEL-OPP] import_deleted id=' . $id . ' keyword_rows_deleted=' . $keywords_deleted);
+        }
+
+        $wpdb->delete($imports_table, ['id' => $id], ['%d']);
+
+        wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tab=import&notice=import_deleted'));
         exit;
     }
 
