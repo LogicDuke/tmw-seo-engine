@@ -393,10 +393,16 @@ class ModelOpportunityImportService {
 
         $model = trim( (string) ( $context['model_entity'] ?? '' ) );
         $entity = self::match_model( $model, $model_map ) ?: ModelOpportunityNormalizer::normalize_model_name( $model );
+        $model_lookup = self::build_model_lookup();
+        $matched_model = self::match_model_lookup( $entity, $model_lookup )
+            ?: self::match_model_lookup( $model, $model_lookup );
         $canonical = ModelOpportunityNormalizer::canonical_entity_key( $entity );
         $norm_model = ModelOpportunityNormalizer::normalize_keyword( $entity );
         $existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$opp_table} WHERE canonical_entity_key=%s LIMIT 1", $canonical ), ARRAY_A );
-        $matched_post_id = (int) ( $existing['matched_post_id'] ?? 0 );
+        $matched_post_id = (int) ( $matched_model['post_id'] ?? 0 );
+        if ( $matched_post_id <= 0 ) {
+            $matched_post_id = (int) ( $existing['matched_post_id'] ?? 0 );
+        }
         $family_opportunity_type = $matched_post_id > 0 ? 'existing_model_optimization' : 'missing_model_acquisition';
 
         $candidates = [];
@@ -464,7 +470,7 @@ class ModelOpportunityImportService {
             'primary_volume' => (int) $pick['vol'],
             'family_volume' => $family_volume,
             'traffic_value' => $traffic,
-            'matched_post_id' => (int) ( $existing['matched_post_id'] ?? 0 ),
+            'matched_post_id' => $matched_post_id,
             'platform_signals_count' => (int) ( $existing['platform_signals_count'] ?? 0 ),
             'competitor_signal' => (int) ( $existing['competitor_signal'] ?? 0 ),
             'manual_competitor_exact_match_weakness' => (int) ( $existing['manual_competitor_exact_match_weakness'] ?? 0 ),
@@ -482,6 +488,7 @@ class ModelOpportunityImportService {
             'primary_volume' => (int) $pick['vol'],
             'family_volume' => $family_volume,
             'traffic_value' => $traffic,
+            'matched_post_id' => $matched_post_id,
             'score' => $score_result['score'],
             'priority' => $score_result['priority'],
             'updated_at' => current_time( 'mysql' ),
@@ -584,6 +591,22 @@ class ModelOpportunityImportService {
      * @return array<string,string>
      */
     private static function build_model_map(): array {
+        $lookup = self::build_model_lookup();
+        $map    = [];
+
+        foreach ( $lookup as $model ) {
+            $map[ $model['key'] ] = $model['title'];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Build a canonical-key → model post lookup from existing model posts.
+     *
+     * @return array<string,array{title:string,post_id:int,key:string}>
+     */
+    private static function build_model_lookup(): array {
         $posts = get_posts( [
             'post_type'      => 'model_bio',
             'post_status'    => 'any',
@@ -593,6 +616,7 @@ class ModelOpportunityImportService {
 
         $map = [];
         foreach ( $posts as $id ) {
+            $post_id = (int) $id;
             $title = (string) get_the_title( $id );
             $slug  = (string) get_post_field( 'post_name', $id );
             foreach ( [
@@ -600,8 +624,15 @@ class ModelOpportunityImportService {
                 $slug,
                 ModelOpportunityNormalizer::normalize_model_name( $title ),
                 ModelOpportunityNormalizer::compact_name_key( $title ),
+                ModelOpportunityNormalizer::compact_name_key( $slug ),
             ] as $k ) {
-                $map[ ModelOpportunityNormalizer::compact_name_key( $k ) ] = $title;
+                $key = ModelOpportunityNormalizer::compact_name_key( $k );
+                if ( $key === '' ) { continue; }
+                $map[ $key ] = [
+                    'title'   => $title,
+                    'post_id' => $post_id,
+                    'key'     => $key,
+                ];
             }
         }
 
@@ -611,6 +642,18 @@ class ModelOpportunityImportService {
     private static function match_model( string $model, array $map ): string {
         $k = ModelOpportunityNormalizer::compact_name_key( $model );
         return $map[ $k ] ?? '';
+    }
+
+    /**
+     * @param array<string,array{title:string,post_id:int,key:string}> $lookup
+     * @return array{title:string,post_id:int,key:string}|null
+     */
+    private static function match_model_lookup( string $model, array $lookup ): ?array {
+        $k = ModelOpportunityNormalizer::compact_name_key( $model );
+        if ( $k === '' || ! isset( $lookup[ $k ] ) ) {
+            return null;
+        }
+        return $lookup[ $k ];
     }
 
     private static function extract_model_from_keyword( string $keyword ): string {
