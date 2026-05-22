@@ -680,7 +680,7 @@ class ModelOpportunityImportService {
 
     /**
      * @param array<string,array{title:string,post_id:int,post_type:string,key:string}> $lookup
-     * @return array{title:string,post_id:int,key:string}|null
+     * @return array{title:string,post_id:int,post_type:string,key:string}|null
      */
     private static function match_model_lookup( string $model, array $lookup ): ?array {
         $k = ModelOpportunityNormalizer::compact_name_key( $model );
