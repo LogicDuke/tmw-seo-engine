@@ -77,7 +77,7 @@ class ModelOpportunityAdminPage {
                 ),
                 'tmw_model_opp_delete_import_' . $import_id
             );
-            echo '<tr><td>' . $import_id . '</td><td>' . esc_html((string) $row['import_mode']) . '</td><td>' . esc_html((string) $row['source']) . '</td><td>' . esc_html((string) $row['filename']) . '</td><td>' . esc_html((string) $row['model_entity']) . '</td><td>' . esc_html((string) $row['competitor_domain']) . '</td><td>' . esc_html((string) $row['platform']) . '</td><td>' . (int) $row['row_count'] . '</td><td>' . (int) $row['created_count'] . '</td><td>' . (int) $row['updated_count'] . '</td><td>' . (int) $row['noise_count'] . '</td><td>' . esc_html((string) $row['created_at']) . '</td><td><a href="' . esc_url($delete_url) . '">Delete</a></td></tr>';
+            echo '<tr><td>' . $import_id . '</td><td>' . esc_html((string) $row['import_mode']) . '</td><td>' . esc_html((string) $row['source']) . '</td><td>' . esc_html((string) $row['filename']) . '</td><td>' . esc_html((string) $row['model_entity']) . '</td><td>' . esc_html((string) $row['competitor_domain']) . '</td><td>' . esc_html((string) $row['platform']) . '</td><td>' . (int) $row['row_count'] . '</td><td>' . (int) $row['created_count'] . '</td><td>' . (int) $row['updated_count'] . '</td><td>' . (int) $row['noise_count'] . '</td><td>' . esc_html((string) $row['created_at']) . '</td><td><a href="' . esc_url($delete_url) . '" onclick="return confirm(\'Delete this import log? For real imports, associated keyword rows from this import will also be deleted. Parent opportunities are preserved.\');">Delete</a></td></tr>';
             self::render_preview_summary((string) ($row['options_json'] ?? ''));
         }
         echo '</tbody></table>';
