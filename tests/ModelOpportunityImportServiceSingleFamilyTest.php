@@ -5,12 +5,30 @@ if ( ! defined( 'ARRAY_A' ) ) { define( 'ARRAY_A', 'ARRAY_A' ); }
 if ( ! function_exists( 'remove_accents' ) ) { function remove_accents( $v ) { return $v; } }
 if ( ! function_exists( 'current_time' ) ) { function current_time( $type ) { return '2026-05-22 00:00:00'; } }
 if ( ! function_exists( 'wp_json_encode' ) ) { function wp_json_encode( $v ) { return json_encode( $v ); } }
+if ( ! function_exists( 'apply_filters' ) ) {
+    function apply_filters( $hook, $value ) { return $value; }
+}
+if ( ! function_exists( 'sanitize_key' ) ) {
+    function sanitize_key( $key ) { return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', (string) $key ) ); }
+}
+if ( ! function_exists( 'post_type_exists' ) ) {
+    function post_type_exists( $post_type ) {
+        return in_array( $post_type, [ 'model', 'model_bio' ], true );
+    }
+}
 
 $GLOBALS['tmw_test_model_posts'] = [];
 
 if ( ! function_exists( 'get_posts' ) ) {
     function get_posts( $args = [] ) {
-        return array_keys( $GLOBALS['tmw_test_model_posts'] );
+        $types = (array) ( $args['post_type'] ?? [] );
+        $ids = [];
+        foreach ( $GLOBALS['tmw_test_model_posts'] as $id => $post ) {
+            if ( empty( $types ) || in_array( (string) ( $post['post_type'] ?? '' ), $types, true ) ) {
+                $ids[] = (int) $id;
+            }
+        }
+        return $ids;
     }
 }
 if ( ! function_exists( 'get_the_title' ) ) {
@@ -20,8 +38,9 @@ if ( ! function_exists( 'get_the_title' ) ) {
 }
 if ( ! function_exists( 'get_post_field' ) ) {
     function get_post_field( $field, $id ) {
-        if ( $field !== 'post_name' ) { return ''; }
-        return $GLOBALS['tmw_test_model_posts'][ $id ]['slug'] ?? '';
+        if ( $field === 'post_name' ) { return $GLOBALS['tmw_test_model_posts'][ $id ]['slug'] ?? ''; }
+        if ( $field === 'post_type' ) { return $GLOBALS['tmw_test_model_posts'][ $id ]['post_type'] ?? ''; }
+        return '';
     }
 }
 
@@ -42,7 +61,7 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
 
     public function test_matches_existing_model_post_and_sets_existing_model_optimization(): void {
         $GLOBALS['tmw_test_model_posts'] = [
-            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia' ],
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
         ];
 
         $rows = [
@@ -69,6 +88,39 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
         $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
         $this->assertSame( 0, (int) ( $opp['matched_post_id'] ?? 0 ) );
         $this->assertSame( 'missing_model_acquisition', $opp['opportunity_type'] ?? '' );
+    }
+
+    public function test_collision_prefers_model_post_type_by_priority(): void {
+        $GLOBALS['tmw_test_model_posts'] = [
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
+            9999 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model_bio' ],
+        ];
+
+        $rows = [
+            [ 'keyword' => 'anisyia', 'volume' => '12100', 'traffic_value' => '100', 'seo_score' => '50', 'competition' => '10' ],
+        ];
+
+        ModelOpportunityImportService::apply_rows( 101, 'kws_single_model_family', $rows, [ 'model_entity' => 'Anisyia' ], false );
+
+        $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
+        $this->assertSame( 4457, (int) ( $opp['matched_post_id'] ?? 0 ) );
+    }
+
+    public function test_preview_includes_match_debug_fields(): void {
+        $GLOBALS['tmw_test_model_posts'] = [
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
+        ];
+
+        $rows = [
+            [ 'keyword' => 'anisyia', 'volume' => '12100', 'traffic_value' => '100', 'seo_score' => '50', 'competition' => '10' ],
+        ];
+
+        $result = ModelOpportunityImportService::apply_rows( 102, 'kws_single_model_family', $rows, [ 'model_entity' => 'Anisyia' ], true );
+        $preview = $result['preview'][0] ?? [];
+
+        $this->assertSame( 4457, (int) ( $preview['matched_post_id'] ?? 0 ) );
+        $this->assertSame( 'model', (string) ( $preview['matched_post_type'] ?? '' ) );
+        $this->assertSame( 'lookup:model', (string) ( $preview['matched_source'] ?? '' ) );
     }
 }
 

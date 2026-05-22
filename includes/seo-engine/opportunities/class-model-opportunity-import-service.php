@@ -400,8 +400,14 @@ class ModelOpportunityImportService {
         $norm_model = ModelOpportunityNormalizer::normalize_keyword( $entity );
         $existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$opp_table} WHERE canonical_entity_key=%s LIMIT 1", $canonical ), ARRAY_A );
         $matched_post_id = (int) ( $matched_model['post_id'] ?? 0 );
+        $matched_post_type = (string) ( $matched_model['post_type'] ?? '' );
+        $matched_source = $matched_post_id > 0 ? 'lookup:' . $matched_post_type : 'none';
         if ( $matched_post_id <= 0 ) {
             $matched_post_id = (int) ( $existing['matched_post_id'] ?? 0 );
+            if ( $matched_post_id > 0 ) {
+                $matched_post_type = (string) ( $existing['post_type'] ?? $matched_post_type );
+                $matched_source = 'existing_row_fallback';
+            }
         }
         $family_opportunity_type = $matched_post_id > 0 ? 'existing_model_optimization' : 'missing_model_acquisition';
 
@@ -447,6 +453,9 @@ class ModelOpportunityImportService {
                     'traffic' => $traffic,
                     'kws_seo_score' => $kws_seo_score,
                     'kws_competition' => $kws_competition,
+                    'matched_post_id' => $matched_post_id,
+                    'matched_post_type' => $matched_post_type,
+                    'matched_source' => $matched_source,
                 ];
             }
         }
@@ -604,11 +613,30 @@ class ModelOpportunityImportService {
     /**
      * Build a canonical-key → model post lookup from existing model posts.
      *
-     * @return array<string,array{title:string,post_id:int,key:string}>
+     * @return array<string,array{title:string,post_id:int,post_type:string,key:string}>
      */
     private static function build_model_lookup(): array {
+        $model_post_types = apply_filters( 'tmwseo_model_opportunity_lookup_post_types', [ 'model', 'model_bio' ] );
+        if ( ! is_array( $model_post_types ) || empty( $model_post_types ) ) {
+            $model_post_types = [ 'model', 'model_bio' ];
+        }
+
+        $seen = [];
+        $valid_post_types = [];
+        foreach ( $model_post_types as $post_type ) {
+            $post_type = sanitize_key( (string) $post_type );
+            if ( $post_type === '' || isset( $seen[ $post_type ] ) ) { continue; }
+            if ( function_exists( 'post_type_exists' ) && ! post_type_exists( $post_type ) ) { continue; }
+            $seen[ $post_type ] = true;
+            $valid_post_types[] = $post_type;
+        }
+
+        if ( empty( $valid_post_types ) ) {
+            return [];
+        }
+
         $posts = get_posts( [
-            'post_type'      => 'model_bio',
+            'post_type'      => $valid_post_types,
             'post_status'    => 'any',
             'posts_per_page' => -1,
             'fields'         => 'ids',
@@ -619,6 +647,7 @@ class ModelOpportunityImportService {
             $post_id = (int) $id;
             $title = (string) get_the_title( $id );
             $slug  = (string) get_post_field( 'post_name', $id );
+            $post_type = (string) get_post_field( 'post_type', $id );
             foreach ( [
                 $title,
                 $slug,
@@ -628,10 +657,15 @@ class ModelOpportunityImportService {
             ] as $k ) {
                 $key = ModelOpportunityNormalizer::compact_name_key( $k );
                 if ( $key === '' ) { continue; }
+                if ( isset( $map[ $key ] ) ) {
+                    error_log( '[TMW-MODEL-OPP] model_lookup_key_collision key=' . $key . ' kept_post_id=' . (int) $map[ $key ]['post_id'] . ' skipped_post_id=' . $post_id );
+                    continue;
+                }
                 $map[ $key ] = [
-                    'title'   => $title,
-                    'post_id' => $post_id,
-                    'key'     => $key,
+                    'title'     => $title,
+                    'post_id'   => $post_id,
+                    'post_type' => $post_type,
+                    'key'       => $key,
                 ];
             }
         }
@@ -645,7 +679,7 @@ class ModelOpportunityImportService {
     }
 
     /**
-     * @param array<string,array{title:string,post_id:int,key:string}> $lookup
+     * @param array<string,array{title:string,post_id:int,post_type:string,key:string}> $lookup
      * @return array{title:string,post_id:int,key:string}|null
      */
     private static function match_model_lookup( string $model, array $lookup ): ?array {
