@@ -73,6 +73,139 @@ class ModelContentDraftService {
         ];
     }
 
+
+
+    /**
+     * Build a deterministic, preview-only long-form draft payload.
+     *
+     * @param int   $post_id Model post ID.
+     * @param array $context Optional keyword-role context.
+     * @return array<string,mixed>
+     */
+    public static function build_longform_preview_draft(int $post_id, array $context = []): array {
+        $payload = self::build_basic_draft_payload($post_id, $context);
+        if (empty($payload)) {
+            return ['ok' => false, 'post_id' => $post_id];
+        }
+
+        $name = (string) ($payload['model_name'] ?? 'Model');
+        $ctx = is_array($context) ? $context : [];
+
+        $primary_keyword = self::first_string($ctx['primary_keyword'] ?? '');
+        if ($primary_keyword === '') {
+            $primary_keyword = strtolower($name);
+        }
+
+        $safe_keywords = self::sanitize_keyword_bucket([
+            $ctx['rankmath_candidate'] ?? [],
+            $ctx['content_support'] ?? [],
+        ]);
+        $platform_keywords = self::sanitize_keyword_bucket([$ctx['platform_intent'] ?? []]);
+        $excluded_keywords = self::sanitize_keyword_bucket([
+            $ctx['manual_review'] ?? [],
+            $ctx['risky_explicit'] ?? [],
+            $ctx['excluded_keywords'] ?? [],
+            $payload['tags_blocked'] ?? [],
+        ]);
+
+        $safe_keywords = array_values(array_filter($safe_keywords, static fn(string $kw): bool => !self::contains_excluded_fragment($kw, $excluded_keywords)));
+        $platform_keywords = array_values(array_filter($platform_keywords, static fn(string $kw): bool => !self::contains_excluded_fragment($kw, $excluded_keywords)));
+
+        $title_keyword = self::first_string($safe_keywords[0] ?? '') ?: $primary_keyword;
+        $title_suggestion = sprintf('%s Live Cam Profile and Chat Guide', ucwords($title_keyword));
+
+        $intro = sprintf(
+            '%1$s is a profile-based guide built for viewers who want a clear overview before visiting a live room. This preview summarizes public signals, tag context, and platform hints in one place. Availability can vary, so always check the official room or profile for current status and verified updates. Viewer experience may depend on platform availability and account settings.',
+            $name
+        );
+
+        $sections = [
+            ['heading' => sprintf('About %s', $name), 'level' => 'h2', 'body' => sprintf('%1$s appears across model directories where fans compare style, posting consistency, and profile completeness. This section is based on profile-based information and taxonomy context only, with no assumptions about private availability. For SEO planning, %2$s is used naturally while supporting terms are blended carefully to avoid repetitive phrasing. The objective is clear relevance, readable structure, and safe language for broad audiences.', $name, $primary_keyword)],
+            ['heading' => sprintf('%s Live Cam Style', $name), 'level' => 'h2', 'body' => sprintf('A useful model page explains presentation style in neutral terms: stream tone, pacing, and recurring themes visible from profile metadata. Instead of overpromising, describe what viewers may notice in introductions, highlights, and room descriptions. If you use terms like %1$s, keep wording informational and avoid certainty claims. This creates a consistent expectation that real-time experience can change between sessions.', self::first_string($safe_keywords[1] ?? $primary_keyword))],
+            ['heading' => 'Chat Experience and Viewer Interaction', 'level' => 'h2', 'body' => sprintf('Chat quality often depends on moderation, audience size, and platform features rather than a fixed script. For this reason, the draft emphasizes practical guidance: check greeting style, tip menus, and schedule notes in the official profile. Mentioning %1$s once can help search intent alignment, but the copy should stay focused on safety, clarity, and realistic expectations.', self::first_string($safe_keywords[2] ?? $primary_keyword))],
+            ['heading' => sprintf('Where to Watch %s', $name), 'level' => 'h2', 'body' => sprintf('Platform references are included for discovery, not guarantees. If platform-intent keywords are available (for example %1$s), place them in a factual sentence and remind readers to verify the current room state directly on the platform. Availability can vary by region, session timing, and profile status. Always check the official room or profile before assuming a stream is active.', self::first_string($platform_keywords[0] ?? $primary_keyword))],
+            ['heading' => 'Similar Models and Internal Links', 'level' => 'h2', 'body' => 'Internal exploration should guide users to broad catalog pages first. Use safe links like /models/, /videos/, /photos/, and /blog/ so readers can continue discovery without hardcoded assumptions about related names. This improves crawl paths and keeps navigation flexible while editorial teams validate deeper relationship mapping in later phases.'],
+        ];
+
+        $faq = [
+            ['question' => sprintf('Who is %s?', $name), 'answer' => sprintf('%s is presented here through profile-based information, taxonomy context, and public model-page metadata.', $name)],
+            ['question' => sprintf('Where can I find %s live updates?', $name), 'answer' => 'Availability can vary, so check the official room or profile for the most current session status.'],
+            ['question' => 'Does this page guarantee live availability?', 'answer' => 'No. Viewer experience may depend on platform availability, scheduling, and profile settings.'],
+            ['question' => 'What should I review before joining a room?', 'answer' => 'Review profile details, latest schedule notes, and platform rules to set accurate expectations.'],
+            ['question' => 'Where can I browse related content?', 'answer' => 'Use internal sections such as /models/, /videos/, /photos/, and /blog/ for broader browsing.'],
+        ];
+
+        $faq_section_body = 'Common questions are answered below in a short, neutral format designed for safe discovery and user clarity.';
+        $sections[] = ['heading' => sprintf('FAQ About %s', $name), 'level' => 'h2', 'body' => $faq_section_body];
+
+        $html = '<p>' . esc_html($intro) . '</p>';
+        foreach ($sections as $section) {
+            $html .= '<h2>' . esc_html((string) $section['heading']) . '</h2>';
+            $html .= '<p>' . esc_html((string) $section['body']) . '</p>';
+            if ((string) $section['heading'] === sprintf('FAQ About %s', $name)) {
+                foreach ($faq as $item) {
+                    $html .= '<h3>' . esc_html((string) $item['question']) . '</h3>';
+                    $html .= '<p>' . esc_html((string) $item['answer']) . '</p>';
+                }
+            }
+        }
+
+        $word_count_estimate = str_word_count(wp_strip_all_tags($html));
+        error_log('[TMW-MODEL-DRAFT] longform_preview_built post_id=' . (int) $post_id);
+
+        return [
+            'ok' => true,
+            'post_id' => (int) $post_id,
+            'model_name' => $name,
+            'word_count_estimate' => $word_count_estimate,
+            'title_suggestion' => $title_suggestion,
+            'primary_keyword' => $primary_keyword,
+            'safe_keywords' => $safe_keywords,
+            'platform_keywords' => $platform_keywords,
+            'excluded_keywords' => $excluded_keywords,
+            'sections' => $sections,
+            'faq' => $faq,
+            'html_preview' => $html,
+        ];
+    }
+
+    private static function first_string($value): string {
+        if (is_string($value)) {
+            return trim($value);
+        }
+        return '';
+    }
+
+    private static function contains_excluded_fragment(string $keyword, array $excluded_keywords): bool {
+        $low = strtolower(trim($keyword));
+        if ($low === '') return false;
+        foreach ($excluded_keywords as $excluded) {
+            $term = strtolower(trim((string) $excluded));
+            if ($term !== '' && str_contains($low, $term)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function sanitize_keyword_bucket(array $sources): array {
+        $items = [];
+        foreach ($sources as $source) {
+            if (is_string($source) && $source !== '') {
+                $source = array_map('trim', explode(',', $source));
+            }
+            if (!is_array($source)) continue;
+            foreach ($source as $item) {
+                if (!is_string($item)) continue;
+                $item = strtolower(trim($item));
+                if ($item === '') continue;
+                if (preg_match('/\b(porn|sex|nude|xxx)\b/i', $item)) continue;
+                $items[] = $item;
+            }
+        }
+        return array_values(array_unique($items));
+    }
+
     private static function normalize_tag(string $tag): string {
         $tag = trim($tag);
         $tag = preg_replace('/\s+/', ' ', $tag);

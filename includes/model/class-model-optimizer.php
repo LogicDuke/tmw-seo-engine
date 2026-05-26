@@ -266,6 +266,22 @@ class ModelOptimizer {
             }
             echo '</p>';
         }
+
+        if (class_exists('\\TMWSEO\\Engine\\Model\\ModelContentDraftService')) {
+            $longform = ModelContentDraftService::build_longform_preview_draft((int) $post->ID, []);
+            if (!empty($longform['ok'])) {
+                echo '<hr />';
+                echo '<h3>Long-Form SEO Draft Preview</h3>';
+                echo '<p><strong>Preview only. This does not modify post content.</strong></p>';
+                echo '<p><strong>Title suggestion:</strong> ' . esc_html((string) ($longform['title_suggestion'] ?? '')) . '</p>';
+                echo '<p><strong>Word count estimate:</strong> ' . (int) ($longform['word_count_estimate'] ?? 0) . '</p>';
+                echo '<p><strong>Primary keyword:</strong> ' . esc_html((string) ($longform['primary_keyword'] ?? '')) . '</p>';
+                echo '<p><strong>Safe keywords:</strong> ' . esc_html(implode(', ', (array) ($longform['safe_keywords'] ?? []))) . '</p>';
+                echo '<p><strong>Platform keywords:</strong> ' . esc_html(implode(', ', (array) ($longform['platform_keywords'] ?? []))) . '</p>';
+                echo '<p><strong>Excluded keywords:</strong> ' . esc_html(implode(', ', (array) ($longform['excluded_keywords'] ?? []))) . '</p>';
+                echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:12px;max-height:350px;overflow:auto;">' . wp_kses_post((string) ($longform['html_preview'] ?? '')) . '</div>';
+            }
+        }
     }
 
     public static function handle_generate(): void {
