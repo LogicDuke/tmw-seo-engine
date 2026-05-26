@@ -182,6 +182,25 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $merged_p1      = $this->merge_serp_items_pub( $pack_p1['items'] );
         $p1_candidates  = $this->extract_candidates_from_items_pub( $merged_p1['items'] );
         $p1_successful  = array_values( array_filter( $p1_candidates, static fn( $c ) => ! empty( $c['success'] ) ) );
+        $alias_diag     = $this->extract_serp_alias_candidates( $pack_p1['items'], $model_name );
+        $accepted_aliases = array_slice( $alias_diag['accepted'], 0, parent::AUDIT_MAX_SERP_ALIASES_ACCEPTED );
+
+        Logs::info( 'model_research', '[TMW-MODEL-ALIAS] Alias extraction completed', [
+            'discovered' => count( $alias_diag['discovered'] ),
+            'accepted'   => count( $accepted_aliases ),
+            'rejected'   => count( $alias_diag['rejected'] ),
+        ] );
+
+        $alias_followup = $this->build_alias_followup_query_pack_audit(
+            $model_name,
+            $accepted_aliases,
+            max( parent::AUDIT_RESERVED_ALIAS_QUERY_BUDGET, parent::AUDIT_MAX_ALIAS_FOLLOWUP_QUERIES ),
+            parent::AUDIT_MAX_ALIAS_QUERIES_PER_ALIAS
+        );
+        $pack_alias = [ 'items' => [], 'query_stats' => [], 'succeeded' => 0, 'failed' => 0 ];
+        if ( ! empty( $alias_followup['queries'] ) ) {
+            $pack_alias = $this->run_query_pack_pub( $alias_followup['queries'], parent::AUDIT_SERP_DEPTH, $post_id );
+        }
 
         $already_confirmed = [];
         foreach ( $p1_successful as $c ) {
@@ -205,6 +224,7 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $this->checkpoint( 'serp_pass2', [
             'p2_items'              => count( $items_p2 ),
             'p2_queries'            => count( $pass_two['query_stats'] ?? [] ),
+            'alias_followup_queries' => count( $pack_alias['query_stats'] ?? [] ),
             'seeds_built'           => count( $handle_seeds ),
             'platforms_already_confirmed' => count( $already_confirmed ),
         ] );
@@ -254,9 +274,9 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
 
         // ── Merge and parse ───────────────────────────────────────────────────
         $all_items    = [];
-        $all_items    = array_merge( $pack_p1['items'], $items_p2 );
+        $all_items    = array_merge( $pack_p1['items'], $pack_alias['items'] ?? [], $items_p2 );
         $merged_all   = $this->merge_serp_items_pub( $all_items );
-        $query_stats  = array_merge( $pack_p1['query_stats'], $pass_two['query_stats'] ?? [] );
+        $query_stats  = array_merge( $pack_p1['query_stats'], $pack_alias['query_stats'] ?? [], $pass_two['query_stats'] ?? [] );
 
         $this->checkpoint( 'harvest', [
             'harvest_seed_pages'  => count( $harvest_seed_pages ),
@@ -323,8 +343,13 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             'seed_cap'                 => parent::AUDIT_SEED_CAP,
             'handle_variant_cap'       => parent::AUDIT_MAX_HANDLE_VARIANTS,
             'total_queries_built'      => count( $queries_p1 ),
-            'queries_succeeded'        => $pack_p1['succeeded'],
+            'queries_succeeded'        => $pack_p1['succeeded'] + (int) ( $pack_alias['succeeded'] ?? 0 ),
             'aliases_used'             => count( $aliases ),
+            'aliases_discovered'       => $alias_diag['discovered'],
+            'aliases_accepted'         => $accepted_aliases,
+            'aliases_rejected'         => $alias_diag['rejected'],
+            'alias_followup_queries_attempted' => array_map( static fn( $r ) => (string) ( $r['query'] ?? '' ), $alias_followup['queries'] ),
+            'alias_followup_queries_skipped' => $alias_followup['skipped'],
             'seeds_built'              => count( $handle_seeds ),
             'probes_attempted'         => (int) ( $probe_diagnostics['probes_attempted'] ?? 0 ),
             'probes_accepted'          => (int) ( $probe_diagnostics['probes_accepted'] ?? 0 ),
@@ -374,6 +399,46 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $result['notes'] = $coverage_note . ' | ' . $result['notes'];
 
         return $result;
+    }
+
+    /**
+     * @return array{discovered:array<int,array<string,mixed>>,accepted:array<int,array<string,mixed>>,rejected:array<int,array<string,mixed>>}
+     */
+    private function extract_serp_alias_candidates( array $items, string $model_name ): array {
+        $stop = [ 'profile','photos','videos','webcam','chat','live','model','instagram','twitter','x','stripchat','chaturbate','livejasmin' ];
+        $found = [];
+        foreach ( $items as $item ) {
+            $src = trim( (string) ( ($item['title'] ?? '') . ' ' . ($item['description'] ?? '') . ' ' . ($item['url'] ?? '') ) );
+            preg_match_all( '/@([A-Za-z0-9_]{3,30})|\\b([A-Z][a-z]+[A-Z][A-Za-z0-9]{1,28}|[a-z][a-z0-9_]{4,29})\\b/u', $src, $m );
+            $tokens = array_filter( array_merge( $m[1] ?? [], $m[2] ?? [] ) );
+            foreach ( $tokens as $t ) {
+                $alias = trim( (string) $t, " \t\n\r\0\x0B@()" );
+                $norm = strtolower( preg_replace( '/[^a-z0-9]/', '', $alias ) );
+                if ( strlen( $norm ) < 5 || strlen( $norm ) > 30 ) { continue; }
+                if ( in_array( $norm, $stop, true ) ) { continue; }
+                $score = 0.2;
+                if ( str_contains( $src, '@' . $alias ) ) { $score += 0.35; }
+                if ( preg_match( '/stripchat|chaturbate|livejasmin|instagram|x\\.com|twitter/i', $src ) ) { $score += 0.2; }
+                if ( str_contains( strtolower( preg_replace( '/\s+/', '', $model_name ) ), substr( $norm, 0, 5 ) ) ) { $score += 0.1; }
+                $k = $norm;
+                if ( ! isset( $found[ $k ] ) || $score > (float) $found[ $k ]['confidence_score'] ) {
+                    $found[ $k ] = [
+                        'alias' => $alias,
+                        'normalized_alias' => $norm,
+                        'source' => $src,
+                        'confidence_score' => min( 1.0, $score ),
+                        'reason' => 'serp_token_match',
+                        'discovered_from_query' => (string) ( $item['_query'] ?? '' ),
+                    ];
+                }
+            }
+        }
+        $accepted = []; $rejected = [];
+        foreach ( array_values( $found ) as $row ) {
+            if ( (float) $row['confidence_score'] >= 0.45 ) { $accepted[] = $row; }
+            else { $row['rejection_reason'] = 'low_confidence_or_generic'; $rejected[] = $row; }
+        }
+        return [ 'discovered' => array_values( $found ), 'accepted' => $accepted, 'rejected' => $rejected ];
     }
 
     // ── Public wrappers for protected parent methods ──────────────────────────
