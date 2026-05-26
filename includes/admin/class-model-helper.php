@@ -862,12 +862,16 @@ class ModelHelper {
         echo '  if(sTxt)sTxt.textContent="Full audit — enqueuing background job…";';
         echo '  startBarAnimation();';
         // STEP 1: enqueue the job (returns ~50ms with status:"queued").
+        echo '  var parseJsonResponse=function(txt){try{return {ok:true,json:JSON.parse(txt||"")};}catch(e){return {ok:false,error:e};}};';
+        echo '  var safeResponseSnippet=function(txt){var raw=(txt||"").toString().replace(/\s+/g," ").trim();if(!raw)return "(empty response)";return raw.substring(0,220);};';
         echo '  var ax=new XMLHttpRequest();ax.timeout=120000;';
         echo '  ax.open("POST",AJAX,true);';
         echo '  ax.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
         echo '  ax.onload=function(){';
-        echo '    try{var d=JSON.parse(ax.responseText);';
-        echo '      if(!d.success){clearInterval(barTimer);showError(d.data&&d.data.message?d.data.message:"Could not enqueue Full Audit.");return;}';
+        echo '    var parsed=parseJsonResponse(ax.responseText);';
+        echo '    if(!parsed.ok){clearInterval(barTimer);auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;var snippet=safeResponseSnippet(ax.responseText);showError("Server returned invalid response: "+snippet);console.warn("[TMW-MODEL-AUDIT-AJAX] invalid response caught by JS",{post_id:PID,response_snippet:snippet});return;}';
+        echo '    var d=parsed.json;';
+        echo '      if(!d.success){clearInterval(barTimer);auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;showError(d.data&&d.data.message?d.data.message:"Could not enqueue Full Audit.");return;}';
         // If the fallback path ran sync and returned a terminal status, just reload.
         echo '      var st=d.data&&d.data.status?d.data.status:"queued";';
         echo '      if(st==="researched"||st==="partial"||st==="error"){silentReload();return;}';
@@ -915,7 +919,6 @@ class ModelHelper {
         echo '        };';
         echo '        p.send("action=tmwseo_research_status_poll&post_id="+PID+"&nonce="+POLL_N);';
         echo '      },4000);';
-        echo '    }catch(e){clearInterval(barTimer);showError("Server returned malformed response.");}';
         echo '  };';
         echo '  ax.ontimeout=function(){clearInterval(barTimer);showError("Enqueue request timed out — the worker may still pick it up. Refresh in 60s to check.");};';
         echo '  ax.onerror=function(){clearInterval(barTimer);showError("Network error.");auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;};';
@@ -2436,15 +2439,28 @@ class ModelHelper {
      * for environments where the JobWorker cron is disabled.
      */
     public static function ajax_enqueue_full_audit(): void {
+        $ob_level = (int) ob_get_level();
+
         $post_id = (int) ( $_POST['post_id'] ?? 0 );
         $nonce   = sanitize_text_field( wp_unslash( (string) ( $_POST['nonce'] ?? '' ) ) );
 
-        if ( $post_id <= 0 || ! wp_verify_nonce( $nonce, 'tmwseo_full_audit_' . $post_id ) ) {
-            wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
-        }
-        if ( ! current_user_can( 'edit_post', $post_id ) ) {
-            wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
-        }
+        $raw_aliases = get_post_meta( $post_id, self::META_ALIASES, true );
+        $aliases     = is_array( $raw_aliases ) ? $raw_aliases : [];
+        $model_name  = $post_id > 0 ? (string) get_the_title( $post_id ) : '';
+
+        Logs::info( 'model_research', '[TMW-MODEL-AUDIT-AJAX] enqueue started', [
+            'post_id'    => $post_id,
+            'model_name' => $model_name,
+            'aliases'    => $aliases,
+        ] );
+
+        try {
+            if ( $post_id <= 0 || ! wp_verify_nonce( $nonce, 'tmwseo_full_audit_' . $post_id ) ) {
+                wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
+            }
+            if ( ! current_user_can( 'edit_post', $post_id ) ) {
+                wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
+            }
 
         if ( ! class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
             $f = TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php';
@@ -2653,6 +2669,14 @@ class ModelHelper {
             'probe_http'   => (int)    ( $kick['probe_http']   ?? 0 ),
         ] );
 
+        Logs::info( 'model_research', '[TMW-MODEL-AUDIT-AJAX] enqueue success', [
+            'post_id'    => $post_id,
+            'model_name' => $model_name,
+            'aliases'    => $aliases,
+            'job_id'     => $job_id,
+            'mode'       => 'background',
+        ] );
+
         wp_send_json_success( [
             'status'           => 'queued',
             'job_id'           => $job_id,
@@ -2664,6 +2688,29 @@ class ModelHelper {
             'probe_endpoint'   => (string) ( $kick['probe_endpoint'] ?? '' ),
             'message'          => 'Full Audit job enqueued — page will refresh when it finishes.',
         ] );
+        } catch ( \Throwable $e ) {
+            while ( ob_get_level() > $ob_level ) {
+                @ob_end_clean();
+            }
+            $safe_message = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $e->getMessage() ) ) );
+            if ( $safe_message === '' ) {
+                $safe_message = 'Unexpected server error while starting Full Audit.';
+            }
+            Logs::error( 'model_research', '[TMW-MODEL-AUDIT-AJAX] enqueue failed', [
+                'post_id'            => $post_id,
+                'model_name'         => $model_name,
+                'aliases'            => $aliases,
+                'exception_message'  => $e->getMessage(),
+                'exception_class'    => get_class( $e ),
+                'exception_code'     => (int) $e->getCode(),
+                'exception_file'     => $e->getFile(),
+                'exception_line'     => (int) $e->getLine(),
+            ] );
+            wp_send_json_error( [
+                'status'  => 'error',
+                'message' => 'Full Audit could not start. ' . $safe_message,
+            ], 500 );
+        }
     }
 
     /**
