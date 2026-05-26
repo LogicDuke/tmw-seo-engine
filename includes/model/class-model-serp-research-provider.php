@@ -174,6 +174,10 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
     protected const AUDIT_MAX_HANDLE_VARIANTS = 10;  // raised from MAX_HANDLE_VARIANTS=5
     protected const AUDIT_ALIAS_CAP           = 10;  // raised from 3
     protected const AUDIT_SEED_CAP            = 12;  // raised from 5
+    protected const AUDIT_MAX_SERP_ALIASES_ACCEPTED = 6;
+    protected const AUDIT_MAX_ALIAS_QUERIES_PER_ALIAS = 6;
+    protected const AUDIT_MAX_ALIAS_FOLLOWUP_QUERIES = 24;
+    protected const AUDIT_RESERVED_ALIAS_QUERY_BUDGET = 8;
 
     /**
      * Platform slugs whose extracted profile URLs belong in social_urls.
@@ -677,6 +681,52 @@ class ModelSerpResearchProvider implements ModelResearchProvider {
         }
 
         return $queries;
+    }
+
+    /**
+     * Build one-pass alias follow-up queries from accepted alias rows.
+     *
+     * @param string $model_name
+     * @param array<int,array<string,mixed>> $accepted_aliases
+     * @param int $max_total
+     * @param int $max_per_alias
+     * @return array{queries:array<int,array<string,string>>,skipped:array<int,array<string,mixed>>}
+     */
+    protected function build_alias_followup_query_pack_audit( string $model_name, array $accepted_aliases, int $max_total, int $max_per_alias ): array {
+        $queries = [];
+        $seen = [];
+        $skipped = [];
+        $model_lc = strtolower( preg_replace( '/\s+/', '', $model_name ) );
+        foreach ( $accepted_aliases as $row ) {
+            if ( count( $queries ) >= $max_total ) { break; }
+            $alias = trim( (string) ( $row['alias'] ?? '' ) );
+            if ( $alias === '' ) { continue; }
+            $forms = [
+                '"' . $alias . '"',
+                '"' . $alias . '" webcam',
+                '"' . $alias . '" cam model',
+                '"' . $alias . '" livejasmin OR stripchat OR chaturbate OR camsoda',
+                '"' . $alias . '" instagram OR x.com OR twitter',
+                'site:stripchat.com "' . $alias . '"',
+                'site:chaturbate.com "' . $alias . '"',
+                'site:livejasmin.com "' . $alias . '"',
+                'site:instagram.com "' . $alias . '"',
+                'site:x.com "' . $alias . '"',
+            ];
+            $used = 0;
+            foreach ( $forms as $q ) {
+                if ( count( $queries ) >= $max_total || $used >= $max_per_alias ) { break; }
+                $key = strtolower( trim( $q ) );
+                if ( isset( $seen[ $key ] ) ) { continue; }
+                $seen[ $key ] = true;
+                $queries[] = [ 'query' => $q, 'family' => 'alias_followup', '_alias_source' => $alias ];
+                $used++;
+            }
+            if ( $used < min( count( $forms ), $max_per_alias ) ) {
+                $skipped[] = [ 'alias' => $alias, 'reason' => 'budget_cap_reached' ];
+            }
+        }
+        return [ 'queries' => $queries, 'skipped' => $skipped ];
     }
 
     /**
