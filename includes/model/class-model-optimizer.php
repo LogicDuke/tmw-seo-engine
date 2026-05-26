@@ -494,6 +494,8 @@ class ModelOptimizer {
         $name = trim((string)$post->post_title);
         if ($name === '') $name = 'Model';
 
+        $draft_payload = ModelContentDraftService::build_basic_draft_payload((int) $post->ID);
+
         $tags_all = self::collect_model_tags($post);
         $ft = self::filter_tags($tags_all);
         $tags = $ft['used'];
@@ -503,7 +505,10 @@ class ModelOptimizer {
         $top_tags = array_slice($tags, 0, 6);
 
         $platforms = [];
-        if (class_exists('\\TMWSEO\\Engine\\Platform\\PlatformProfiles')) {
+        if (is_array($draft_payload['platforms'] ?? null)) {
+            $platforms = array_values(array_filter(array_map('strval', $draft_payload['platforms'])));
+        }
+        if (empty($platforms) && class_exists('\\TMWSEO\\Engine\\Platform\\PlatformProfiles')) {
             $links = PlatformProfiles::get_links((int)$post->ID);
             if (is_array($links)) {
                 foreach ($links as $l) {
