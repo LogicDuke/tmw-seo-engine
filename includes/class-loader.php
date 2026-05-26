@@ -191,6 +191,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-research-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-model-context-aware-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-rollback.php' );
+        tmwseo_safe_require( $p . 'class-model-draft-context-builder.php' );
         tmwseo_safe_require( $p . 'class-model-content-draft-service.php' );
         tmwseo_safe_require( $p . 'class-model-optimizer.php' );
         tmwseo_safe_require( $p . 'class-model-discovery-worker.php' );

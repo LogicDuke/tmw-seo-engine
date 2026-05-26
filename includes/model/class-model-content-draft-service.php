@@ -90,21 +90,26 @@ class ModelContentDraftService {
 
         $name = (string) ($payload['model_name'] ?? 'Model');
         $ctx = is_array($context) ? $context : [];
+        $ctx_roles = is_array($ctx['opportunity']['keywords_by_role'] ?? null) ? (array) $ctx['opportunity']['keywords_by_role'] : [];
 
-        $primary_keyword = self::first_string($ctx['primary_keyword'] ?? '');
+        $primary_keyword = self::first_string($ctx['primary_keyword'] ?? ($ctx['opportunity']['primary_keyword'] ?? ''));
         if ($primary_keyword === '') {
             $primary_keyword = strtolower($name);
         }
 
         $safe_keywords = self::sanitize_keyword_bucket([
-            $ctx['rankmath_candidate'] ?? [],
-            $ctx['content_support'] ?? [],
+            $ctx['safe_keywords'] ?? [],
+            $ctx['rankmath_candidate'] ?? ($ctx_roles['rankmath_candidate'] ?? []),
+            $ctx['content_support'] ?? ($ctx_roles['content_support'] ?? []),
         ]);
-        $platform_keywords = self::sanitize_keyword_bucket([$ctx['platform_intent'] ?? []]);
+        $platform_keywords = self::sanitize_keyword_bucket([
+            $ctx['platform_keywords'] ?? [],
+            $ctx['platform_intent'] ?? ($ctx_roles['platform_intent'] ?? []),
+        ]);
         $excluded_keywords = self::sanitize_keyword_bucket([
-            $ctx['manual_review'] ?? [],
-            $ctx['risky_explicit'] ?? [],
             $ctx['excluded_keywords'] ?? [],
+            $ctx['manual_review'] ?? ($ctx_roles['manual_review'] ?? []),
+            $ctx['risky_explicit'] ?? ($ctx_roles['risky_explicit'] ?? []),
             $payload['tags_blocked'] ?? [],
         ]);
 
