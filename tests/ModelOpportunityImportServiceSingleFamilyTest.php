@@ -10,7 +10,15 @@ $GLOBALS['tmw_test_model_posts'] = [];
 
 if ( ! function_exists( 'get_posts' ) ) {
     function get_posts( $args = [] ) {
-        return array_keys( $GLOBALS['tmw_test_model_posts'] );
+        $post_type = $args['post_type'] ?? '';
+        $ids = [];
+        foreach ( $GLOBALS['tmw_test_model_posts'] as $id => $post ) {
+            if ( $post_type !== '' && ( $post['post_type'] ?? '' ) !== $post_type ) {
+                continue;
+            }
+            $ids[] = $id;
+        }
+        return $ids;
     }
 }
 if ( ! function_exists( 'get_the_title' ) ) {
@@ -42,7 +50,7 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
 
     public function test_matches_existing_model_post_and_sets_existing_model_optimization(): void {
         $GLOBALS['tmw_test_model_posts'] = [
-            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia' ],
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
         ];
 
         $rows = [
@@ -55,6 +63,8 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
         $this->assertSame( 1, $result['created_count'] );
         $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
         $this->assertSame( 4457, (int) ( $opp['matched_post_id'] ?? 0 ) );
+        $this->assertSame( 'model', $opp['matched_post_type'] ?? '' );
+        $this->assertSame( 'lookup:model', $opp['matched_source'] ?? '' );
         $this->assertSame( 'existing_model_optimization', $opp['opportunity_type'] ?? '' );
     }
 
@@ -69,6 +79,39 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
         $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
         $this->assertSame( 0, (int) ( $opp['matched_post_id'] ?? 0 ) );
         $this->assertSame( 'missing_model_acquisition', $opp['opportunity_type'] ?? '' );
+    }
+
+    public function test_model_post_type_is_prioritized_over_model_bio_for_duplicate_lookup_key(): void {
+        $GLOBALS['tmw_test_model_posts'] = [
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
+            7788 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model_bio' ],
+        ];
+
+        $rows = [
+            [ 'keyword' => 'anisyia', 'volume' => '12100', 'traffic_value' => '100', 'seo_score' => '50', 'competition' => '10' ],
+        ];
+
+        ModelOpportunityImportService::apply_rows( 101, 'kws_single_model_family', $rows, [ 'model_entity' => 'Anisyia' ], false );
+
+        $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
+        $this->assertSame( 4457, (int) ( $opp['matched_post_id'] ?? 0 ) );
+        $this->assertSame( 'model', $opp['matched_post_type'] ?? '' );
+    }
+
+    public function test_preview_contains_matched_model_debug_fields(): void {
+        $GLOBALS['tmw_test_model_posts'] = [
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
+        ];
+        $rows = [
+            [ 'keyword' => 'anisyia', 'volume' => '12100', 'traffic_value' => '100', 'seo_score' => '50', 'competition' => '10' ],
+        ];
+
+        $result = ModelOpportunityImportService::apply_rows( 102, 'kws_single_model_family', $rows, [ 'model_entity' => 'Anisyia' ], true );
+
+        $preview = $result['preview'][0] ?? [];
+        $this->assertSame( 4457, (int) ( $preview['matched_post_id'] ?? 0 ) );
+        $this->assertSame( 'model', $preview['matched_post_type'] ?? '' );
+        $this->assertSame( 'lookup:model', $preview['matched_source'] ?? '' );
     }
 }
 
