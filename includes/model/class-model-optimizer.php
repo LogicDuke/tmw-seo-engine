@@ -276,8 +276,8 @@ class ModelOptimizer {
             return;
         }
 
-        // TODO: pass Model Opportunity keyword-role context directly once the read path is finalized.
-        $longform_context = apply_filters('tmwseo_modelopt_longform_preview_context', [], (int) $post->ID, $post);
+        $longform_context = ModelDraftContextBuilder::build((int) $post->ID);
+        $longform_context = apply_filters('tmwseo_modelopt_longform_preview_context', $longform_context, (int) $post->ID, $post);
         if (!is_array($longform_context)) {
             $longform_context = [];
         }
@@ -290,7 +290,7 @@ class ModelOptimizer {
         echo '<hr />';
         echo '<h3>Long-Form SEO Draft Preview</h3>';
         echo '<p><strong>Preview only. This does not modify post content.</strong></p>';
-        echo '<p><em>This first version uses model metadata and safe tags. Opportunity keyword integration will be added in a later step.</em></p>';
+        echo '<p><em>This preview is read-only and uses normalized model context data.</em></p>';
         echo '<p><strong>Title suggestion:</strong> ' . esc_html((string) ($longform['title_suggestion'] ?? '')) . '</p>';
         echo '<p><strong>Word count estimate:</strong> ' . (int) ($longform['word_count_estimate'] ?? 0) . '</p>';
         echo '<p><strong>Primary keyword:</strong> ' . esc_html((string) ($longform['primary_keyword'] ?? '')) . '</p>';
