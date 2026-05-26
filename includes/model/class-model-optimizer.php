@@ -174,6 +174,7 @@ class ModelOptimizer {
 
         if (empty($suggestions)) {
             echo '<p><em>No suggestions saved yet.</em></p>';
+            self::render_longform_preview($post);
             return;
         }
 
@@ -266,6 +267,37 @@ class ModelOptimizer {
             }
             echo '</p>';
         }
+
+        self::render_longform_preview($post);
+    }
+
+    private static function render_longform_preview(\WP_Post $post): void {
+        if (!class_exists('\\TMWSEO\\Engine\\Model\\ModelContentDraftService')) {
+            return;
+        }
+
+        // TODO: pass Model Opportunity keyword-role context directly once the read path is finalized.
+        $longform_context = apply_filters('tmwseo_modelopt_longform_preview_context', [], (int) $post->ID, $post);
+        if (!is_array($longform_context)) {
+            $longform_context = [];
+        }
+
+        $longform = ModelContentDraftService::build_longform_preview_draft((int) $post->ID, $longform_context);
+        if (empty($longform['ok'])) {
+            return;
+        }
+
+        echo '<hr />';
+        echo '<h3>Long-Form SEO Draft Preview</h3>';
+        echo '<p><strong>Preview only. This does not modify post content.</strong></p>';
+        echo '<p><em>This first version uses model metadata and safe tags. Opportunity keyword integration will be added in a later step.</em></p>';
+        echo '<p><strong>Title suggestion:</strong> ' . esc_html((string) ($longform['title_suggestion'] ?? '')) . '</p>';
+        echo '<p><strong>Word count estimate:</strong> ' . (int) ($longform['word_count_estimate'] ?? 0) . '</p>';
+        echo '<p><strong>Primary keyword:</strong> ' . esc_html((string) ($longform['primary_keyword'] ?? '')) . '</p>';
+        echo '<p><strong>Safe keywords:</strong> ' . esc_html(implode(', ', (array) ($longform['safe_keywords'] ?? []))) . '</p>';
+        echo '<p><strong>Platform keywords:</strong> ' . esc_html(implode(', ', (array) ($longform['platform_keywords'] ?? []))) . '</p>';
+        echo '<p><strong>Excluded keywords:</strong> ' . esc_html(implode(', ', (array) ($longform['excluded_keywords'] ?? []))) . '</p>';
+        echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:12px;max-height:350px;overflow:auto;">' . wp_kses_post((string) ($longform['html_preview'] ?? '')) . '</div>';
     }
 
     public static function handle_generate(): void {
