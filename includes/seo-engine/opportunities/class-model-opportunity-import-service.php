@@ -152,6 +152,12 @@ class ModelOpportunityImportService {
         $has_page_type = (bool) $wpdb->get_var(
             $wpdb->prepare( "SHOW COLUMNS FROM {$opp_table} LIKE %s", 'page_type' )
         );
+        $has_matched_post_type = (bool) $wpdb->get_var(
+            $wpdb->prepare( "SHOW COLUMNS FROM {$opp_table} LIKE %s", 'matched_post_type' )
+        );
+        $has_matched_source = (bool) $wpdb->get_var(
+            $wpdb->prepare( "SHOW COLUMNS FROM {$opp_table} LIKE %s", 'matched_source' )
+        );
         $kw_has_seo_score   = (bool) $wpdb->get_var(
             $wpdb->prepare( "SHOW COLUMNS FROM {$kw_table} LIKE %s", 'seo_score' )
         );
@@ -174,6 +180,8 @@ class ModelOpportunityImportService {
                     'has_kws_seo_score'     => $has_kws_seo_score,
                     'has_kws_competition'   => $has_kws_competition,
                     'has_page_type'         => $has_page_type,
+                    'has_matched_post_type' => $has_matched_post_type,
+                    'has_matched_source'    => $has_matched_source,
                     'kw_has_seo_score'      => $kw_has_seo_score,
                     'kw_has_competition'    => $kw_has_competition,
                 ]
@@ -500,12 +508,12 @@ class ModelOpportunityImportService {
             'family_volume' => $family_volume,
             'traffic_value' => $traffic,
             'matched_post_id' => $matched_post_id,
-            'matched_post_type' => $matched_post_type,
-            'matched_source' => $matched_source,
             'score' => $score_result['score'],
             'priority' => $score_result['priority'],
             'updated_at' => current_time( 'mysql' ),
         ];
+        if ( $schema['has_matched_post_type'] ) { $payload['matched_post_type'] = $matched_post_type; }
+        if ( $schema['has_matched_source'] ) { $payload['matched_source'] = $matched_source; }
         if ( $schema['has_score_explanation'] ) { $payload['score_explanation'] = $score_result['score_explanation']; }
         if ( $schema['has_kws_seo_score'] && (float) $pick['kws_seo_score'] >= 0 ) { $payload['kws_seo_score'] = (float) $pick['kws_seo_score']; }
         if ( $schema['has_kws_competition'] && (float) $pick['kws_competition'] >= 0 ) { $payload['kws_competition'] = (float) $pick['kws_competition']; }
@@ -645,6 +653,9 @@ class ModelOpportunityImportService {
                     $key = ModelOpportunityNormalizer::compact_name_key( $k );
                     if ( $key === '' ) { continue; }
                     if ( isset( $map[ $key ] ) ) {
+                        if ( (int) $map[ $key ]['post_id'] === $post_id ) {
+                            continue;
+                        }
                         error_log(
                             sprintf(
                                 '[TMW-MODEL-OPP] model_lookup_key_collision key=%s kept_post_id=%d skipped_post_id=%d',
