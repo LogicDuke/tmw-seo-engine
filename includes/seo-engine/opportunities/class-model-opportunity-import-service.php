@@ -152,6 +152,12 @@ class ModelOpportunityImportService {
         $has_page_type = (bool) $wpdb->get_var(
             $wpdb->prepare( "SHOW COLUMNS FROM {$opp_table} LIKE %s", 'page_type' )
         );
+        $has_matched_post_type = (bool) $wpdb->get_var(
+            $wpdb->prepare( "SHOW COLUMNS FROM {$opp_table} LIKE %s", 'matched_post_type' )
+        );
+        $has_matched_source = (bool) $wpdb->get_var(
+            $wpdb->prepare( "SHOW COLUMNS FROM {$opp_table} LIKE %s", 'matched_source' )
+        );
         $kw_has_seo_score   = (bool) $wpdb->get_var(
             $wpdb->prepare( "SHOW COLUMNS FROM {$kw_table} LIKE %s", 'seo_score' )
         );
@@ -174,6 +180,8 @@ class ModelOpportunityImportService {
                     'has_kws_seo_score'     => $has_kws_seo_score,
                     'has_kws_competition'   => $has_kws_competition,
                     'has_page_type'         => $has_page_type,
+                    'has_matched_post_type' => $has_matched_post_type,
+                    'has_matched_source'    => $has_matched_source,
                     'kw_has_seo_score'      => $kw_has_seo_score,
                     'kw_has_competition'    => $kw_has_competition,
                 ]
@@ -400,8 +408,16 @@ class ModelOpportunityImportService {
         $norm_model = ModelOpportunityNormalizer::normalize_keyword( $entity );
         $existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$opp_table} WHERE canonical_entity_key=%s LIMIT 1", $canonical ), ARRAY_A );
         $matched_post_id = (int) ( $matched_model['post_id'] ?? 0 );
+        $matched_post_type = (string) ( $matched_model['post_type'] ?? '' );
+        $matched_source = (string) ( $matched_model['source'] ?? '' );
         if ( $matched_post_id <= 0 ) {
             $matched_post_id = (int) ( $existing['matched_post_id'] ?? 0 );
+        }
+        if ( $matched_post_type === '' && $matched_post_id > 0 ) {
+            $matched_post_type = (string) ( $existing['matched_post_type'] ?? '' );
+        }
+        if ( $matched_source === '' && $matched_post_id > 0 ) {
+            $matched_source = (string) ( $existing['matched_source'] ?? '' );
         }
         $family_opportunity_type = $matched_post_id > 0 ? 'existing_model_optimization' : 'missing_model_acquisition';
 
@@ -447,6 +463,9 @@ class ModelOpportunityImportService {
                     'traffic' => $traffic,
                     'kws_seo_score' => $kws_seo_score,
                     'kws_competition' => $kws_competition,
+                    'matched_post_id' => $matched_post_id,
+                    'matched_post_type' => $matched_post_type,
+                    'matched_source' => $matched_source,
                 ];
             }
         }
@@ -493,6 +512,8 @@ class ModelOpportunityImportService {
             'priority' => $score_result['priority'],
             'updated_at' => current_time( 'mysql' ),
         ];
+        if ( $schema['has_matched_post_type'] ) { $payload['matched_post_type'] = $matched_post_type; }
+        if ( $schema['has_matched_source'] ) { $payload['matched_source'] = $matched_source; }
         if ( $schema['has_score_explanation'] ) { $payload['score_explanation'] = $score_result['score_explanation']; }
         if ( $schema['has_kws_seo_score'] && (float) $pick['kws_seo_score'] >= 0 ) { $payload['kws_seo_score'] = (float) $pick['kws_seo_score']; }
         if ( $schema['has_kws_competition'] && (float) $pick['kws_competition'] >= 0 ) { $payload['kws_competition'] = (float) $pick['kws_competition']; }
@@ -604,35 +625,55 @@ class ModelOpportunityImportService {
     /**
      * Build a canonical-key → model post lookup from existing model posts.
      *
-     * @return array<string,array{title:string,post_id:int,key:string}>
+     * @return array<string,array{title:string,post_id:int,key:string,post_type:string,source:string}>
      */
     private static function build_model_lookup(): array {
-        $posts = get_posts( [
-            'post_type'      => 'model_bio',
-            'post_status'    => 'any',
-            'posts_per_page' => -1,
-            'fields'         => 'ids',
-        ] );
-
+        error_log( '[TMW-MODEL-OPP] model_lookup_multi_cpt_v5_10_active' );
         $map = [];
-        foreach ( $posts as $id ) {
-            $post_id = (int) $id;
-            $title = (string) get_the_title( $id );
-            $slug  = (string) get_post_field( 'post_name', $id );
-            foreach ( [
-                $title,
-                $slug,
-                ModelOpportunityNormalizer::normalize_model_name( $title ),
-                ModelOpportunityNormalizer::compact_name_key( $title ),
-                ModelOpportunityNormalizer::compact_name_key( $slug ),
-            ] as $k ) {
-                $key = ModelOpportunityNormalizer::compact_name_key( $k );
-                if ( $key === '' ) { continue; }
-                $map[ $key ] = [
-                    'title'   => $title,
-                    'post_id' => $post_id,
-                    'key'     => $key,
-                ];
+
+        foreach ( [ 'model', 'model_bio' ] as $post_type ) {
+            $posts = get_posts( [
+                'post_type'      => $post_type,
+                'post_status'    => 'any',
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+            ] );
+
+            foreach ( $posts as $id ) {
+                $post_id = (int) $id;
+                $title = (string) get_the_title( $id );
+                $slug  = (string) get_post_field( 'post_name', $id );
+                foreach ( [
+                    $title,
+                    $slug,
+                    ModelOpportunityNormalizer::normalize_model_name( $title ),
+                    ModelOpportunityNormalizer::compact_name_key( $title ),
+                    ModelOpportunityNormalizer::compact_name_key( $slug ),
+                ] as $k ) {
+                    $key = ModelOpportunityNormalizer::compact_name_key( $k );
+                    if ( $key === '' ) { continue; }
+                    if ( isset( $map[ $key ] ) ) {
+                        if ( (int) $map[ $key ]['post_id'] === $post_id ) {
+                            continue;
+                        }
+                        error_log(
+                            sprintf(
+                                '[TMW-MODEL-OPP] model_lookup_key_collision key=%s kept_post_id=%d skipped_post_id=%d',
+                                $key,
+                                (int) $map[ $key ]['post_id'],
+                                $post_id
+                            )
+                        );
+                        continue;
+                    }
+                    $map[ $key ] = [
+                        'title'     => $title,
+                        'post_id'   => $post_id,
+                        'key'       => $key,
+                        'post_type' => $post_type,
+                        'source'    => 'lookup:' . $post_type,
+                    ];
+                }
             }
         }
 
