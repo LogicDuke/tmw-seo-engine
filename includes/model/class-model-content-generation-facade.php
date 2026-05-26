@@ -650,12 +650,16 @@ class ModelContentGenerationFacade {
             $items[] = '<a href="' . esc_url( $url ) . '">' . esc_html( $label ) . '</a>';
         }
 
-        // Term links
+        // Term links — same-site validation required before rendering.
         $terms = is_array( $internal_links['terms'] ?? null ) ? (array) $internal_links['terms'] : [];
         foreach ( array_slice( $terms, 0, 8 ) as $term ) {
             $term_url  = trim( (string) ( $term['url']  ?? '' ) );
             $term_name = trim( (string) ( $term['name'] ?? '' ) );
             if ( $term_url === '' || $term_name === '' ) {
+                continue;
+            }
+            // Skip term URLs that are not on the same site (safety guard).
+            if ( ! self::is_same_site_url( $term_url ) ) {
                 continue;
             }
             $items[] = '<a href="' . esc_url( $term_url ) . '">' . esc_html( $term_name ) . '</a>';
@@ -733,21 +737,42 @@ class ModelContentGenerationFacade {
             $raw = [];
         }
 
-        $out = [
-            'models_archive' => trim( (string) ( $raw['models_archive'] ?? '' ) ),
-            'videos_archive' => trim( (string) ( $raw['videos_archive'] ?? '' ) ),
-            'photos_archive' => trim( (string) ( $raw['photos_archive'] ?? '' ) ),
-            'blog_archive'   => trim( (string) ( $raw['blog_archive']   ?? '' ) ),
-            'terms'          => is_array( $raw['terms'] ?? null ) ? (array) $raw['terms'] : [],
+        $slug_defaults = [
+            'models_archive' => '/models/',
+            'videos_archive' => '/videos/',
+            'photos_archive' => '/photos/',
+            'blog_archive'   => '/blog/',
         ];
 
-        // Fill empties with fallback slugs
-        if ( $out['models_archive'] === '' ) { $out['models_archive'] = home_url( '/models/' ); }
-        if ( $out['videos_archive'] === '' ) { $out['videos_archive'] = home_url( '/videos/' ); }
-        if ( $out['photos_archive'] === '' ) { $out['photos_archive'] = home_url( '/photos/' ); }
-        if ( $out['blog_archive']   === '' ) { $out['blog_archive']   = home_url( '/blog/'   ); }
+        $out = [ 'terms' => is_array( $raw['terms'] ?? null ) ? (array) $raw['terms'] : [] ];
+
+        foreach ( $slug_defaults as $key => $default_slug ) {
+            $candidate = trim( (string) ( $raw[ $key ] ?? '' ) );
+            // Accept only if it is a valid URL on the same host as home_url().
+            if ( $candidate !== '' && self::is_same_site_url( $candidate ) ) {
+                $out[ $key ] = $candidate;
+            } else {
+                $out[ $key ] = home_url( $default_slug );
+            }
+        }
 
         return $out;
+    }
+
+    /**
+     * Return true only if $url is a syntactically valid URL whose host
+     * matches the site's home_url() host (same-site guard for internal links).
+     */
+    private static function is_same_site_url( string $url ): bool {
+        if ( ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+            return false;
+        }
+        $site_host = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+        $url_host  = (string) wp_parse_url( $url, PHP_URL_HOST );
+        if ( $site_host === '' || $url_host === '' ) {
+            return false;
+        }
+        return strtolower( $url_host ) === strtolower( $site_host );
     }
 
     /** Filter out any keyword containing a risky fragment. */
@@ -805,7 +830,15 @@ class ModelContentGenerationFacade {
                 continue;
             }
 
-            // Safety check
+            // Risky-fragment check — block tags containing porn, sex, nude, xxx.
+            foreach ( self::$risky_fragments as $frag ) {
+                if ( str_contains( $norm, $frag ) ) {
+                    $blocked[] = (string) $t;
+                    continue 2;
+                }
+            }
+
+            // Explicit blocked-tag exact match check.
             foreach ( self::$blocked_tags as $b ) {
                 if ( $norm === $b ) {
                     $blocked[] = (string) $t;

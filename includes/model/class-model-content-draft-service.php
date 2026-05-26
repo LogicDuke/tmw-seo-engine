@@ -105,7 +105,10 @@ class ModelContentDraftService {
      */
     public static function build_longform_preview_draft( int $post_id, array $context = [] ): array {
         // Prefer the facade (high-quality, same logic as sidebar Generate).
-        if ( class_exists( '\\TMWSEO\\Engine\\Model\\ModelContentGenerationFacade' ) ) {
+        if (
+            class_exists( '\\TMWSEO\\Engine\\Model\\ModelContentGenerationFacade' )
+            && method_exists( '\\TMWSEO\\Engine\\Model\\ModelContentGenerationFacade', 'build_preview_draft' )
+        ) {
             return ModelContentGenerationFacade::build_preview_draft( $post_id, $context );
         }
 
