@@ -421,7 +421,13 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
         $stop = [ 'profile','photos','videos','webcam','chat','live','model','instagram','twitter','x','stripchat','chaturbate','livejasmin' ];
         $found = [];
         foreach ( $items as $item ) {
-            $src = trim( (string) ( ($item['title'] ?? '') . ' ' . ($item['description'] ?? '') . ' ' . ($item['url'] ?? '') ) );
+            $src = trim( (string) (
+                ( $item['title'] ?? '' ) . ' ' .
+                ( $item['snippet'] ?? '' ) . ' ' .
+                ( $item['description'] ?? '' ) . ' ' .
+                ( $item['url'] ?? '' ) . ' ' .
+                ( $item['link'] ?? '' )
+            ) );
             preg_match_all( '/@([A-Za-z0-9_]{3,30})|\\b([A-Z][a-z]+[A-Z][A-Za-z0-9]{1,28}|[a-z][a-z0-9_]{4,29})\\b/u', $src, $m );
             $tokens = array_filter( array_merge( $m[1] ?? [], $m[2] ?? [] ) );
             foreach ( $tokens as $t ) {
