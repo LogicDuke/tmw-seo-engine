@@ -192,6 +192,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-context-aware-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-rollback.php' );
         tmwseo_safe_require( $p . 'class-model-draft-context-builder.php' );
+        tmwseo_safe_require( $p . 'class-model-content-generation-facade.php' ); // 5.9.0 — preview adapter (must load before draft service)
         tmwseo_safe_require( $p . 'class-model-content-draft-service.php' );
         tmwseo_safe_require( $p . 'class-model-optimizer.php' );
         tmwseo_safe_require( $p . 'class-model-discovery-worker.php' );
