@@ -191,10 +191,23 @@ class ModelFullAuditProvider extends ModelSerpResearchProvider {
             'rejected'   => count( $alias_diag['rejected'] ),
         ] );
 
+        $alias_followup_budget = min(
+            parent::AUDIT_MAX_ALIAS_FOLLOWUP_QUERIES,
+            max(
+                parent::AUDIT_RESERVED_ALIAS_QUERY_BUDGET,
+                parent::AUDIT_MAX_ALIAS_FOLLOWUP_QUERIES - count( $queries_p1 )
+            )
+        );
+        Logs::info( 'model_research', '[TMW-MODEL-BUDGET] Alias follow-up budget computed', [
+            'pass_one_queries'     => count( $queries_p1 ),
+            'reserved_budget'      => parent::AUDIT_RESERVED_ALIAS_QUERY_BUDGET,
+            'max_followup_queries' => parent::AUDIT_MAX_ALIAS_FOLLOWUP_QUERIES,
+            'effective_budget'     => $alias_followup_budget,
+        ] );
         $alias_followup = $this->build_alias_followup_query_pack_audit(
             $model_name,
             $accepted_aliases,
-            max( parent::AUDIT_RESERVED_ALIAS_QUERY_BUDGET, parent::AUDIT_MAX_ALIAS_FOLLOWUP_QUERIES ),
+            $alias_followup_budget,
             parent::AUDIT_MAX_ALIAS_QUERIES_PER_ALIAS
         );
         $pack_alias = [ 'items' => [], 'query_stats' => [], 'succeeded' => 0, 'failed' => 0 ];
