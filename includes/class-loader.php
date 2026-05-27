@@ -221,6 +221,7 @@ class Loader {
     private static function load_categories(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/categories/';
         tmwseo_safe_require( $p . 'class-category-registry.php' );
+        tmwseo_safe_require( $p . 'class-category-keyword-classifier.php' );
     }
 
     // ── Integrations ──────────────────────────────────────────────────────────
