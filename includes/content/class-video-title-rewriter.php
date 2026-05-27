@@ -23,21 +23,21 @@ class VideoTitleRewriter {
     public const META_ORIGINAL     = '_tmwseo_original_title';
     public const META_SELECTED     = '_tmwseo_selected_title_id';
 
-    /** Title patterns — {model}, {tag}, {platform}, {descriptor} are replaced. */
+    /**
+     * Title patterns — {model}, {tag}, {platform} are replaced.
+     * No junk descriptors (HD, Full, Latest, New). Platform token
+     * handled gracefully when source is unknown.
+     */
     private const PATTERNS = [
-        '{model} {tag} — {descriptor} Live Cam',
-        'Watch {model} in {tag} — {platform} Highlights',
-        '{model} {tag} Session — Live Webcam Clip',
-        '{model} — {tag} {descriptor} on {platform}',
-        '{model} {descriptor} — {tag} Cam Show',
-        'Live {tag} with {model} — {platform}',
-        '{model} {tag} Video — Watch on {platform}',
-        '{model} Live {tag} — {descriptor} Session',
-    ];
-
-    /** Descriptors used as filler when metadata is sparse. */
-    private const DESCRIPTORS = [
-        'HD', 'Full', 'Latest', 'New', 'Featured', 'Exclusive', 'Premium',
+        '{model} — {tag} Live Webcam Show',
+        '{model} {tag} Cam Session on {platform}',
+        'Watch {model}: {tag} Cam Show',
+        '{model} — {tag} Webcam Session',
+        '{tag} Cam Show — Live Webcam Clip',
+        '{tag} Webcam Model Video Chat',
+        '{model} Live Cam Chat — {tag} Webcam Clip',
+        '{model} {tag} Webcam Model Video Chat',
+        '{model} — {tag} Cam Show',
     ];
 
     /**
@@ -80,23 +80,35 @@ class VideoTitleRewriter {
             }
             $used_patterns[] = $idx;
 
-            $descriptor_idx = ( $hash + $i ) % count( self::DESCRIPTORS );
-            $tag_to_use     = ( $i === 0 ) ? $primary_tag : ( $secondary_tag ?: $primary_tag );
+            $tag_to_use  = ( $i === 0 ) ? $primary_tag : ( $secondary_tag ?: $primary_tag );
 
-            $title = strtr( self::PATTERNS[ $idx ], [
-                '{model}'      => $model_name,
-                '{tag}'        => ucfirst( $tag_to_use ),
-                '{platform}'   => $platform,
-                '{descriptor}' => self::DESCRIPTORS[ $descriptor_idx ],
+            // Strip " on {platform}" fragment cleanly when platform is unknown.
+            $pattern_str = ( $platform === '' )
+                ? str_ireplace( ' on {platform}', '', self::PATTERNS[ $idx ] )
+                : self::PATTERNS[ $idx ];
+
+            $title = strtr( $pattern_str, [
+                '{model}'    => $model_name,
+                '{tag}'      => ucfirst( $tag_to_use ),
+                '{platform}' => $platform,
             ] );
 
-            // Clean up double spaces, trailing dashes.
-            $title = trim( preg_replace( '/\s+/', ' ', $title ) );
-            $title = rtrim( $title, ' —-' );
+            // Remove duplicate adjacent words (e.g. "webcam webcam", "cam cam").
+            $title = self::remove_duplicate_words( $title );
 
-            // Truncate to 60 chars.
-            if ( mb_strlen( $title ) > 60 ) {
-                $title = mb_substr( $title, 0, 57 ) . '...';
+            // Remove duplicate model name when fallback collides with pattern text.
+            if ( substr_count( mb_strtolower( $title ), mb_strtolower( $model_name ) ) > 1 ) {
+                $quoted = preg_quote( $model_name, '/' );
+                $title  = preg_replace( '/(' . $quoted . ')(.+?)' . $quoted . '/i', '$1$2', $title );
+            }
+
+            // Clean up double spaces, trailing punctuation.
+            $title = trim( preg_replace( '/\s+/', ' ', $title ) );
+            $title = rtrim( $title, ' —-:' );
+
+            // Truncate to 70 chars (spec: 45–70 ideal).
+            if ( mb_strlen( $title ) > 70 ) {
+                $title = mb_substr( $title, 0, 67 ) . '...';
             }
 
             $score = self::score_title( $title, $model_name, $primary_tag, $post_id );
@@ -222,11 +234,11 @@ class VideoTitleRewriter {
             $score += 10.0;
         }
 
-        // Length: ideal 40–60 chars.
+        // Length: ideal 45–70 chars.
         $len = mb_strlen( $title );
-        if ( $len >= 40 && $len <= 60 ) {
+        if ( $len >= 45 && $len <= 70 ) {
             $score += 10.0;
-        } elseif ( $len >= 30 && $len <= 70 ) {
+        } elseif ( $len >= 35 && $len <= 75 ) {
             $score += 5.0;
         }
 
@@ -268,13 +280,19 @@ class VideoTitleRewriter {
             return $meta_name;
         }
 
-        // Fallback: first word of title (common import pattern).
-        $parts = explode( ' ', $post->post_title, 3 );
-        return $parts[0] ?? 'Model';
+        // Fallback: use generic safe label — first word of raw title is unreliable.
+        return 'Webcam Model';
     }
 
     private static function extract_tags( \WP_Post $post ): array {
-        $generic = [ 'girl', 'hot', 'sexy', 'cute', 'naked', 'cam', 'webcam', 'live', 'model', 'show', 'hd' ];
+        // Generic/weak terms and explicit terms that must not dominate SEO titles.
+        $generic = [
+            'girl', 'hot', 'sexy', 'cute', 'cam', 'webcam', 'live', 'model', 'show', 'hd',
+            // explicit — filtered per SEO indexing guidelines
+            'naked', 'nude', 'xxx', 'fuck', 'pussy', 'dildo', 'fingering',
+            'masturbation', 'horny', 'cumshot', 'blowjob', 'cum', 'cock',
+            'squirt', 'orgasm', 'penis', 'vagina', 'live sex',
+        ];
         $tags = wp_get_post_terms( $post->ID, 'post_tag', [ 'fields' => 'names' ] );
         if ( is_wp_error( $tags ) || ! is_array( $tags ) ) {
             return [];
@@ -308,7 +326,8 @@ class VideoTitleRewriter {
             }
         }
 
-        return 'Webcam';
+        // No platform detected — return empty; pattern will strip " on {platform}" cleanly.
+        return '';
     }
 
     /** @return string[] */
@@ -328,6 +347,22 @@ class VideoTitleRewriter {
             $titles[] = (string) get_the_title( (int) $pid );
         }
         return $titles;
+    }
+
+    // ── Title helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Remove duplicate adjacent words (case-insensitive).
+     * Prevents "webcam webcam", "cam cam", "live live" artifacts.
+     */
+    private static function remove_duplicate_words( string $title ): string {
+        // Repeat until stable (handles triple repeats).
+        $prev = null;
+        while ( $prev !== $title ) {
+            $prev  = $title;
+            $title = (string) preg_replace( '/\b(\w+)(\s+\1)+\b/iu', '$1', $title );
+        }
+        return $title;
     }
 
     // ── Storage ───────────────────────────────────────────────────────────
