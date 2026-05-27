@@ -14,6 +14,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Jobs;
+use TMWSEO\Engine\Settings;
 use TMWSEO\Engine\Content\ContentEngine;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
@@ -24,6 +25,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class AdminAjaxHandlers {
     private const AI_MARKER = '<!-- TMWSEO:AI -->';
+    private const AI_MARKER_START = '<!-- TMWSEO:AI:START -->';
+    private const AI_MARKER_END   = '<!-- TMWSEO:AI:END -->';
 
     /**
      * wp_ajax_tmwseo_generate_now
@@ -171,6 +174,27 @@ class AdminAjaxHandlers {
         }
 
         if ( $post_type === 'post' && self::is_video_post( $post_id ) && ! $refresh_keywords_only ) {
+            if ( Settings::is_safe_mode() ) {
+                wp_send_json_error( [
+                    'message' => __( 'Generation blocked: Safe Mode is enabled.', 'tmwseo' ),
+                ], 409 );
+            }
+
+            $gate = ContentGenerationGate::evaluate( $post_id );
+            if ( empty( $gate['allowed'] ) ) {
+                $reasons = ! empty( $gate['reasons'] ) && is_array( $gate['reasons'] )
+                    ? array_values( array_map( 'strval', $gate['reasons'] ) )
+                    : [];
+                $message = __( 'Generation blocked by content prerequisites.', 'tmwseo' );
+                if ( ! empty( $reasons ) ) {
+                    $message .= ' ' . implode( ', ', $reasons );
+                }
+                wp_send_json_error( [
+                    'message' => $message,
+                    'reasons' => $reasons,
+                ], 409 );
+            }
+
             $generated_html = self::build_inline_video_content_html( $post_id );
             if ( $generated_html === '' ) {
                 wp_send_json_error( [
@@ -269,10 +293,17 @@ class AdminAjaxHandlers {
             return $content;
         }
 
+        $bounded_block = self::AI_MARKER_START . "\n" . $html . "\n" . self::AI_MARKER_END;
+
+        $bounded_pattern = '/' . preg_quote( self::AI_MARKER_START, '/' ) . '.*?' . preg_quote( self::AI_MARKER_END, '/' ) . '/s';
+        if ( preg_match( $bounded_pattern, $content ) ) {
+            return (string) preg_replace( $bounded_pattern, $bounded_block, $content, 1 );
+        }
+
         if ( strpos( $content, self::AI_MARKER ) !== false ) {
             $parts  = explode( self::AI_MARKER, $content, 2 );
             $before = rtrim( (string) $parts[0] );
-            return $before . "\n" . self::AI_MARKER . "\n" . $html . "\n";
+            return $before . "\n" . $bounded_block . "\n";
         }
 
         $content = rtrim( $content );
@@ -280,7 +311,7 @@ class AdminAjaxHandlers {
             $content .= "\n\n";
         }
 
-        return $content . self::AI_MARKER . "\n" . $html . "\n";
+        return $content . $bounded_block . "\n";
     }
 
     /**
