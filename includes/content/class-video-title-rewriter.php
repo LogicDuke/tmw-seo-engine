@@ -64,60 +64,55 @@ class VideoTitleRewriter {
         $primary_tag = ! empty( $tags ) ? $tags[0] : 'webcam';
         $secondary_tag = isset( $tags[1] ) ? $tags[1] : '';
 
-        $seed = $post_id . '-' . $model_name;
-        $hash = abs( crc32( $seed ) );
+        // Try to build candidates from the cleaned original title first.
+        $source_title   = (string) ( get_post_meta( $post_id, self::META_ORIGINAL, true ) ?: $original );
+        $clean_original = self::clean_original_title( $source_title );
+        $use_original   = $clean_original !== '';
 
-        // Generate candidates from patterns.
         $candidates = [];
-        $used_patterns = [];
 
-        // Select 3 diverse patterns.
-        $pattern_count = count( self::PATTERNS );
-        for ( $i = 0; $i < 3; $i++ ) {
-            $idx = ( $hash + $i * 3 ) % $pattern_count;
-            while ( in_array( $idx, $used_patterns, true ) ) {
-                $idx = ( $idx + 1 ) % $pattern_count;
-            }
-            $used_patterns[] = $idx;
-
-            $tag_to_use  = ( $i === 0 ) ? $primary_tag : ( $secondary_tag ?: $primary_tag );
-
-            // Strip " on {platform}" fragment cleanly when platform is unknown.
-            $pattern_str = ( $platform === '' )
-                ? str_ireplace( ' on {platform}', '', self::PATTERNS[ $idx ] )
-                : self::PATTERNS[ $idx ];
-
-            $title = strtr( $pattern_str, [
-                '{model}'    => $model_name,
-                '{tag}'      => ucfirst( $tag_to_use ),
-                '{platform}' => $platform,
-            ] );
-
-            // Remove duplicate adjacent words (e.g. "webcam webcam", "cam cam").
-            $title = self::remove_duplicate_words( $title );
-
-            // Remove duplicate model name when fallback collides with pattern text.
-            if ( substr_count( mb_strtolower( $title ), mb_strtolower( $model_name ) ) > 1 ) {
-                $quoted = preg_quote( $model_name, '/' );
-                $title  = preg_replace( '/(' . $quoted . ')(.+?)' . $quoted . '/i', '$1$2', $title );
+        if ( $use_original ) {
+            // Candidates 1 & 2: model + cleaned original scene title + SEO suffix.
+            $suffixes = [ '— Live Webcam Clip', '— Webcam Video Chat' ];
+            foreach ( $suffixes as $suffix ) {
+                $title = self::build_original_candidate( $model_name, $clean_original, $suffix );
+                $candidates[] = [
+                    'title'  => $title,
+                    'score'  => self::score_title( $title, $model_name, $primary_tag, $post_id ),
+                    'source' => 'original_cleaned',
+                ];
             }
 
-            // Clean up double spaces, trailing punctuation.
-            $title = trim( preg_replace( '/\s+/', ' ', $title ) );
-            $title = rtrim( $title, ' —-:' );
-
-            // Truncate to 70 chars (spec: 45–70 ideal).
-            if ( mb_strlen( $title ) > 70 ) {
-                $title = mb_substr( $title, 0, 67 ) . '...';
-            }
-
-            $score = self::score_title( $title, $model_name, $primary_tag, $post_id );
-
+            // Candidate 3: tag-based pattern as a diversity fallback.
+            $seed = $post_id . '-' . $model_name;
+            $idx  = abs( crc32( $seed ) ) % count( self::PATTERNS );
+            $title = self::build_pattern_from_idx( $idx, $model_name, $primary_tag, $platform );
             $candidates[] = [
                 'title'  => $title,
-                'score'  => $score,
+                'score'  => self::score_title( $title, $model_name, $primary_tag, $post_id ) - 5.0,
                 'source' => 'template_pattern_' . $idx,
             ];
+        } else {
+            // Original unusable (too short, too explicit) — full pattern-based generation.
+            $seed          = $post_id . '-' . $model_name;
+            $hash          = abs( crc32( $seed ) );
+            $pattern_count = count( self::PATTERNS );
+            $used_patterns = [];
+
+            for ( $i = 0; $i < 3; $i++ ) {
+                $idx = ( $hash + $i * 3 ) % $pattern_count;
+                while ( in_array( $idx, $used_patterns, true ) ) {
+                    $idx = ( $idx + 1 ) % $pattern_count;
+                }
+                $used_patterns[] = $idx;
+                $tag_to_use      = ( $i === 0 ) ? $primary_tag : ( $secondary_tag ?: $primary_tag );
+                $title           = self::build_pattern_from_idx( $idx, $model_name, $tag_to_use, $platform );
+                $candidates[]    = [
+                    'title'  => $title,
+                    'score'  => self::score_title( $title, $model_name, $primary_tag, $post_id ),
+                    'source' => 'template_pattern_' . $idx,
+                ];
+            }
         }
 
         // Sort by score descending.
@@ -128,6 +123,7 @@ class VideoTitleRewriter {
 
         Logs::info( 'video_title', '[TMW-VIDEO-TITLE] Generated candidates', [
             'post_id'    => $post_id,
+            'strategy'   => $use_original ? 'original_cleaned' : 'pattern_fallback',
             'candidates' => count( $candidates ),
             'top_score'  => $candidates[0]['score'] ?? 0,
         ] );
@@ -350,6 +346,126 @@ class VideoTitleRewriter {
     }
 
     // ── Title helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Strip leading junk words from an imported title and return a cleaned
+     * version suitable for SEO use, or '' if the remainder is too short or
+     * too explicit to be usable.
+     */
+    private static function clean_original_title( string $original ): string {
+        if ( $original === '' ) {
+            return '';
+        }
+
+        // Strip leading weak/import junk words.
+        $weak_leading = [ 'hot', 'sexy', 'babe', 'girl', 'video', 'hd', 'full', 'new', 'latest' ];
+        $words = explode( ' ', $original );
+        while ( ! empty( $words ) && in_array( strtolower( $words[0] ), $weak_leading, true ) ) {
+            array_shift( $words );
+        }
+        $cleaned = trim( implode( ' ', $words ) );
+
+        // Must retain at least 3 meaningful words.
+        if ( str_word_count( $cleaned ) < 3 ) {
+            return '';
+        }
+
+        // If 2+ explicit terms remain, the scene description is unusable — fall back to patterns.
+        $explicit = [
+            'fuck', 'fucking', 'pussy', 'dildo', 'fingering', 'masturbation',
+            'horny', 'xxx', 'nude', 'naked', 'cumshot', 'blowjob', 'cum',
+            'cock', 'squirt', 'orgasm',
+        ];
+        $lower          = mb_strtolower( $cleaned );
+        $explicit_count = 0;
+        foreach ( $explicit as $term ) {
+            if ( mb_strpos( $lower, $term ) !== false ) {
+                $explicit_count++;
+            }
+        }
+        if ( $explicit_count >= 2 ) {
+            return '';
+        }
+
+        return $cleaned;
+    }
+
+    /**
+     * Combine model name + cleaned original title + SEO suffix into a final
+     * candidate, trimming the core if needed to stay within 70 chars.
+     */
+    private static function build_original_candidate(
+        string $model_name,
+        string $clean_original,
+        string $suffix
+    ): string {
+        // If model name already appears in the cleaned title, skip prepending.
+        $core = ( stripos( $clean_original, $model_name ) !== false )
+            ? $clean_original
+            : $model_name . ' ' . $clean_original;
+
+        $title = $core . ' ' . $suffix;
+        $title = self::remove_duplicate_words( $title );
+        $title = trim( preg_replace( '/\s+/', ' ', $title ) );
+        $title = rtrim( $title, ' —-:' );
+
+        // If over 70 chars, trim the original-title portion, keep model + suffix intact.
+        if ( mb_strlen( $title ) > 70 ) {
+            $budget = 70 - mb_strlen( $model_name ) - mb_strlen( ' ' . $suffix ) - 1;
+            if ( $budget > 10 ) {
+                $trimmed = mb_substr( $clean_original, 0, $budget );
+                // Break at last space to avoid mid-word cuts.
+                $last = mb_strrpos( $trimmed, ' ' );
+                if ( $last !== false ) {
+                    $trimmed = mb_substr( $trimmed, 0, $last );
+                }
+                $title = $model_name . ' ' . $trimmed . ' ' . $suffix;
+                $title = trim( preg_replace( '/\s+/', ' ', $title ) );
+            } else {
+                $title = mb_substr( $title, 0, 67 ) . '...';
+            }
+        }
+
+        return $title;
+    }
+
+    /**
+     * Build a single pattern-based title from PATTERNS[$idx].
+     * Shared by both the original-strategy fallback and full pattern mode.
+     */
+    private static function build_pattern_from_idx(
+        int    $idx,
+        string $model_name,
+        string $tag_to_use,
+        string $platform
+    ): string {
+        $pattern_str = ( $platform === '' )
+            ? str_ireplace( ' on {platform}', '', self::PATTERNS[ $idx ] )
+            : self::PATTERNS[ $idx ];
+
+        $title = strtr( $pattern_str, [
+            '{model}'    => $model_name,
+            '{tag}'      => ucfirst( $tag_to_use ),
+            '{platform}' => $platform,
+        ] );
+
+        $title = self::remove_duplicate_words( $title );
+
+        // Remove duplicate model name when fallback label collides with pattern text.
+        if ( substr_count( mb_strtolower( $title ), mb_strtolower( $model_name ) ) > 1 ) {
+            $quoted = preg_quote( $model_name, '/' );
+            $title  = preg_replace( '/(' . $quoted . ')(.+?)' . $quoted . '/i', '$1$2', $title );
+        }
+
+        $title = trim( preg_replace( '/\s+/', ' ', $title ) );
+        $title = rtrim( $title, ' —-:' );
+
+        if ( mb_strlen( $title ) > 70 ) {
+            $title = mb_substr( $title, 0, 67 ) . '...';
+        }
+
+        return $title;
+    }
 
     /**
      * Remove duplicate adjacent words (case-insensitive).
