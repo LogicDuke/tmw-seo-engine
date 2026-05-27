@@ -132,7 +132,7 @@ class CategoryKeywordCsvDryRunAdminPage {
             echo '<h2>' . esc_html__('Classification Preview', 'tmwseo') . '</h2>';
             echo '<div style="overflow:auto;max-width:100%;">';
             echo '<table class="widefat striped"><thead><tr>';
-            $headers = ['Keyword','Volume','CPC','Competition','SEO Score','Trend','Decision','Risk Level','Recommended Page Type','Generator Safe','Public Category Candidate','SEO Research Candidate','Review Required','Blocked','Reasons'];
+            $headers = ['Keyword','Volume','CPC','Competition','SEO Score','Trend','Decision','Risk Level','Recommended Page Type','Approval Bucket','Approval Action','Generator Safe','Public Category Candidate','SEO Research Candidate','Review Required','Blocked','Reasons'];
             foreach ($headers as $h) { echo '<th>' . esc_html($h) . '</th>'; }
             echo '</tr></thead><tbody>';
             foreach ($results as $row) {
@@ -146,6 +146,8 @@ class CategoryKeywordCsvDryRunAdminPage {
                 echo '<td>' . esc_html((string) ($row['decision'] ?? '')) . '</td>';
                 echo '<td>' . esc_html((string) ($row['risk_level'] ?? '')) . '</td>';
                 echo '<td>' . esc_html((string) ($row['recommended_page_type'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) ($row['approval_bucket'] ?? '')) . '</td>';
+                echo '<td>' . esc_html((string) ($row['approval_action'] ?? '')) . '</td>';
                 echo '<td>' . esc_html(!empty($row['generator_safe']) ? 'yes' : 'no') . '</td>';
                 echo '<td>' . esc_html(!empty($row['public_category_candidate']) ? 'yes' : 'no') . '</td>';
                 echo '<td>' . esc_html(!empty($row['seo_research_candidate']) ? 'yes' : 'no') . '</td>';
@@ -230,6 +232,14 @@ class CategoryKeywordCsvDryRunAdminPage {
             'Platform candidates' => 0,
             'Adult-intent review' => 0,
             'Modifier review' => 0,
+            'Public category bucket' => 0,
+            'Platform category bucket' => 0,
+            'Manual pillar bucket' => 0,
+            'Manual guide bucket' => 0,
+            'Modifier review bucket' => 0,
+            'SEO research only bucket' => 0,
+            'Blocked bucket' => 0,
+            'Ignored/noise bucket' => 0,
         ];
 
         foreach ($results as $row) {
@@ -243,6 +253,16 @@ class CategoryKeywordCsvDryRunAdminPage {
             $reasons = strtolower(implode(' ', is_array($row['reasons'] ?? null) ? $row['reasons'] : []));
             if (str_contains($reasons, 'adult/explicit intent')) { $summary['Adult-intent review']++; }
             if (str_contains($reasons, 'sensitive modifier')) { $summary['Modifier review']++; }
+
+            $approvalBucket = (string) ($row['approval_bucket'] ?? '');
+            if ($approvalBucket === 'public_category_candidate') { $summary['Public category bucket']++; }
+            if ($approvalBucket === 'platform_category_candidate') { $summary['Platform category bucket']++; }
+            if ($approvalBucket === 'manual_pillar_candidate') { $summary['Manual pillar bucket']++; }
+            if ($approvalBucket === 'manual_guide_candidate') { $summary['Manual guide bucket']++; }
+            if ($approvalBucket === 'modifier_review_required') { $summary['Modifier review bucket']++; }
+            if ($approvalBucket === 'seo_research_only') { $summary['SEO research only bucket']++; }
+            if ($approvalBucket === 'blocked') { $summary['Blocked bucket']++; }
+            if ($approvalBucket === 'ignore') { $summary['Ignored/noise bucket']++; }
         }
 
         return $summary;
@@ -267,6 +287,8 @@ class CategoryKeywordCsvDryRunAdminPage {
             'Decision',
             'Risk Level',
             'Recommended Page Type',
+            'Approval Bucket',
+            'Approval Action',
             'Generator Safe',
             'Public Category Candidate',
             'SEO Research Candidate',
@@ -296,6 +318,8 @@ class CategoryKeywordCsvDryRunAdminPage {
                 (string) ($row['decision'] ?? ''),
                 (string) ($row['risk_level'] ?? ''),
                 (string) ($row['recommended_page_type'] ?? ''),
+                (string) ($row['approval_bucket'] ?? ''),
+                (string) ($row['approval_action'] ?? ''),
                 !empty($row['generator_safe']) ? 'yes' : 'no',
                 !empty($row['public_category_candidate']) ? 'yes' : 'no',
                 !empty($row['seo_research_candidate']) ? 'yes' : 'no',

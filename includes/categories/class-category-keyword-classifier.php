@@ -87,6 +87,8 @@ class CategoryKeywordClassifier {
             'seo_research_candidate' => false,
             'review_required' => false,
             'blocked' => false,
+            'approval_bucket' => 'ignore',
+            'approval_action' => 'ignore_noise',
             'reasons' => [],
         ];
 
@@ -197,7 +199,7 @@ class CategoryKeywordClassifier {
             $result['reasons'][] = 'Matched CategoryRegistry entries but not public-safe for direct generation.';
         }
 
-        return $result;
+        return $this->apply_approval_bucket($result);
     }
 
     public function classify_rows(array $rows): array {
@@ -229,6 +231,82 @@ class CategoryKeywordClassifier {
         }
 
         return false;
+    }
+
+    private function apply_approval_bucket(array $result): array {
+        $recommendedPageType = (string) ($result['recommended_page_type'] ?? '');
+        $decision = (string) ($result['decision'] ?? '');
+        $reviewRequired = !empty($result['review_required']);
+        $blocked = !empty($result['blocked']);
+        $publicCategoryCandidate = !empty($result['public_category_candidate']);
+        $seoResearchCandidate = !empty($result['seo_research_candidate']);
+        $isModifierReview = $this->is_modifier_review_required($result);
+
+        if ($blocked) {
+            $result['approval_bucket'] = 'blocked';
+            $result['approval_action'] = 'do_not_use';
+            return $result;
+        }
+
+        if ($recommendedPageType === 'platform_category' && !$reviewRequired) {
+            $result['approval_bucket'] = 'platform_category_candidate';
+            $result['approval_action'] = 'review_platform_category_manually';
+            return $result;
+        }
+
+        if ($publicCategoryCandidate && !$reviewRequired) {
+            $result['approval_bucket'] = 'public_category_candidate';
+            $result['approval_action'] = 'approve_public_category_manually';
+            return $result;
+        }
+
+        if ($recommendedPageType === 'pillar_page' && $seoResearchCandidate && $reviewRequired) {
+            $result['approval_bucket'] = 'manual_pillar_candidate';
+            $result['approval_action'] = 'review_manual_pillar_page';
+            return $result;
+        }
+
+        if ($recommendedPageType === 'blog_or_guide' && $seoResearchCandidate && $reviewRequired) {
+            $result['approval_bucket'] = 'manual_guide_candidate';
+            $result['approval_action'] = 'review_manual_guide_page';
+            return $result;
+        }
+
+        if ($reviewRequired && $isModifierReview) {
+            $result['approval_bucket'] = 'modifier_review_required';
+            $result['approval_action'] = 'requires_human_review';
+            return $result;
+        }
+
+        if ($seoResearchCandidate) {
+            $result['approval_bucket'] = 'seo_research_only';
+            $result['approval_action'] = 'keep_for_research_only';
+            return $result;
+        }
+
+        if ($decision === 'ignore') {
+            $result['approval_bucket'] = 'ignore';
+            $result['approval_action'] = 'ignore_noise';
+            return $result;
+        }
+
+        $result['approval_bucket'] = 'ignore';
+        $result['approval_action'] = 'ignore_noise';
+        return $result;
+    }
+
+    private function is_modifier_review_required(array $result): bool {
+        $reasons = is_array($result['reasons'] ?? null) ? $result['reasons'] : [];
+        $reasonsJoined = strtolower(implode(' ', $reasons));
+
+        return str_contains($reasonsJoined, 'sensitive modifier')
+            || str_contains($reasonsJoined, 'ethnicity')
+            || str_contains($reasonsJoined, 'nationality')
+            || str_contains($reasonsJoined, 'region')
+            || str_contains($reasonsJoined, 'language')
+            || str_contains($reasonsJoined, 'body')
+            || str_contains($reasonsJoined, 'style')
+            || str_contains($reasonsJoined, 'appearance');
     }
 
     private function has_adult_typo_context_pattern(string $keyword): bool {

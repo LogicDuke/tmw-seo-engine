@@ -41,6 +41,7 @@ PR 559 added:
   - `blocked`
   - `seo_research_candidate`
 - Shows summary counts and a classification preview table in admin.
+- Adds explicit planning-only `approval_bucket` and `approval_action` outputs to preview/export rows.
 
 ## What the tool does NOT do
 
@@ -65,6 +66,35 @@ PR 559 added:
 - Ethnicity/nationality/region/language modifiers are `review_required`.
 - Style/appearance/body modifiers are `review_required`.
 - Platform model keywords may be `public_category_candidate`/`platform_category`, but model/platform association still requires verified link evidence in later workflow stages.
+
+## Manual Approval Buckets
+
+The dry-run classifier now emits two additional planning fields per row:
+
+- `approval_bucket`
+- `approval_action`
+
+These are stable, review-focused outputs that make manual SEO workflow triage clearer while preserving strict dry-run safety.
+
+### Bucket set
+
+- `public_category_candidate` → `approve_public_category_manually`
+- `platform_category_candidate` → `review_platform_category_manually`
+- `manual_pillar_candidate` → `review_manual_pillar_page`
+- `manual_guide_candidate` → `review_manual_guide_page`
+- `seo_research_only` → `keep_for_research_only`
+- `modifier_review_required` → `requires_human_review`
+- `blocked` → `do_not_use`
+- `ignore` → `ignore_noise`
+
+### Safety intent of buckets
+
+- Adult SEO keywords are allowed for research/planning.
+- Adult-intent terms remain review-required and are **not** automatically used in public categories or generated model text.
+- Public category candidates require manual approval.
+- Manual pillar/guide candidates require editorial review.
+- Blocked terms must not be used.
+- No bucket triggers persistence behavior; no DB writes/imports/content/category generation occur.
 
 ## Manual verification sample
 
