@@ -23,6 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class AdminAjaxHandlers {
+    private const AI_MARKER = '<!-- TMWSEO:AI -->';
 
     /**
      * wp_ajax_tmwseo_generate_now
@@ -169,6 +170,41 @@ class AdminAjaxHandlers {
             ], 500 );
         }
 
+        if ( $post_type === 'post' && self::is_video_post( $post_id ) && ! $refresh_keywords_only ) {
+            $generated_html = self::build_inline_video_content_html( $post_id );
+            if ( $generated_html === '' ) {
+                wp_send_json_error( [
+                    'message' => __( 'Video inline generation unavailable. Please refresh and try again.', 'tmwseo' ),
+                ], 500 );
+            }
+
+            $current_content = (string) get_post_field( 'post_content', $post_id );
+            $next_content    = self::upsert_managed_ai_block( $current_content, $generated_html );
+
+            $updated = wp_update_post( [
+                'ID'           => $post_id,
+                'post_content' => $next_content,
+            ], true );
+
+            if ( is_wp_error( $updated ) ) {
+                Logs::error( 'admin', '[TMW-VIDEO] Inline video generation write failed', [
+                    'post_id' => $post_id,
+                    'error'   => $updated->get_error_message(),
+                ] );
+                wp_send_json_error( [
+                    'message' => __( 'Video generation failed while saving content.', 'tmwseo' ),
+                ], 500 );
+            }
+
+            clean_post_cache( $post_id );
+            Logs::info( 'admin', '[TMW-VIDEO] Inline video AI block generated from sidebar', [ 'post_id' => $post_id ] );
+            wp_send_json_success( [
+                'generated_now' => true,
+                'reload'        => true,
+                'message'       => __( 'Video content generated. Reloading editor.', 'tmwseo' ),
+            ] );
+        }
+
         Jobs::enqueue( 'optimize_post', (string) $post_type, $post_id, $job_payload );
 
         Logs::info( 'admin', '[TMW-QUEUE] optimize_post queued from ajax_generate_now', [
@@ -191,6 +227,60 @@ class AdminAjaxHandlers {
                 ? __( 'Keyword refresh queued. Refresh in a few seconds.', 'tmwseo' )
                 : __( 'Generation queued. Refresh in a few seconds.', 'tmwseo' ),
         ] );
+    }
+
+    private static function is_video_post( int $post_id ): bool {
+        if ( has_post_format( 'video', $post_id ) ) {
+            return true;
+        }
+
+        $format = (string) get_post_format( $post_id );
+        return $format === 'video';
+    }
+
+    private static function build_inline_video_content_html( int $post_id ): string {
+        $title          = trim( (string) get_the_title( $post_id ) );
+        $imported_title = trim( (string) get_post_meta( $post_id, '_tmw_original_title', true ) );
+        $model_name     = trim( (string) get_post_meta( $post_id, '_tmw_model_name', true ) );
+        if ( $model_name === '' ) {
+            $model_name = trim( (string) get_post_meta( $post_id, '_tmw_linked_model_name', true ) );
+        }
+
+        $terms      = wp_get_post_terms( $post_id, [ 'post_tag', 'category' ], [ 'fields' => 'names' ] );
+        $term_names = is_wp_error( $terms ) ? [] : array_values( array_filter( array_map( 'sanitize_text_field', array_map( 'strval', (array) $terms ) ) ) );
+        $safe_terms = array_slice( $term_names, 0, 4 );
+        $safe_list  = ! empty( $safe_terms ) ? implode( ', ', array_map( 'esc_html', $safe_terms ) ) : 'live webcam clip, webcam video';
+
+        $subject = $title !== '' ? $title : 'this webcam video';
+        $context = $model_name !== '' ? $model_name : 'the featured performer';
+        $origin  = $imported_title !== '' ? ' Originally imported as "' . esc_html( $imported_title ) . '." ' : ' ';
+
+        $paragraphs   = [];
+        $paragraphs[] = '<p>' . esc_html( $subject ) . ' is presented as a live webcam clip with neutral viewing context for readers who want quick background before opening the video.' . $origin . '</p>';
+        $paragraphs[] = '<p>This post highlights webcam video and video chat context around ' . esc_html( $context ) . ', with a focus on basic watch intent, safe browsing expectations, and cam show discovery language.</p>';
+        $paragraphs[] = '<p>Related tags and categories include ' . $safe_list . ', which helps keep the page descriptive for indexing while staying general and non-graphic.</p>';
+
+        return implode( "\n", $paragraphs );
+    }
+
+    private static function upsert_managed_ai_block( string $content, string $html ): string {
+        $html = trim( $html );
+        if ( $html === '' ) {
+            return $content;
+        }
+
+        if ( strpos( $content, self::AI_MARKER ) !== false ) {
+            $parts  = explode( self::AI_MARKER, $content, 2 );
+            $before = rtrim( (string) $parts[0] );
+            return $before . "\n" . self::AI_MARKER . "\n" . $html . "\n";
+        }
+
+        $content = rtrim( $content );
+        if ( $content !== '' ) {
+            $content .= "\n\n";
+        }
+
+        return $content . self::AI_MARKER . "\n" . $html . "\n";
     }
 
     /**
