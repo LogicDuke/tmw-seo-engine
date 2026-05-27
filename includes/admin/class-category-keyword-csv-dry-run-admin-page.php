@@ -11,6 +11,45 @@ class CategoryKeywordCsvDryRunAdminPage {
 
     public static function init(): void {
         add_action('admin_menu', [__CLASS__, 'register_menu']);
+        add_action('admin_init', [__CLASS__, 'maybe_handle_csv_download']);
+    }
+
+
+    public static function maybe_handle_csv_download(): void {
+        if (!is_admin() || !current_user_can('manage_options')) { return; }
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !isset($_POST['tmwseo_cat_dry_run_download'])) { return; }
+
+        $page = isset($_REQUEST['page']) ? sanitize_key(wp_unslash((string) $_REQUEST['page'])) : '';
+        if ($page !== self::PAGE_SLUG) { return; }
+
+        check_admin_referer('tmwseo_cat_keyword_csv_dry_run_nonce');
+
+        $csvInput = isset($_POST['tmwseo_csv_payload']) ? wp_unslash((string) $_POST['tmwseo_csv_payload']) : '';
+        if (trim($csvInput) === '') {
+            add_settings_error('tmwseo_cat_dry_run', 'tmwseo_cat_dry_run_missing_csv', __('Download request is missing CSV input. Please run a new dry-run classification.', 'tmwseo'), 'error');
+            return;
+        }
+
+        $parsed = self::parse_csv($csvInput);
+        if (!empty($parsed['notices'])) {
+            foreach ($parsed['notices'] as $notice) {
+                add_settings_error('tmwseo_cat_dry_run', 'tmwseo_cat_dry_run_parse_' . wp_generate_uuid4(), (string) ($notice['text'] ?? ''), ($notice['type'] ?? '') === 'notice-warning' ? 'warning' : 'error');
+            }
+        }
+
+        if (empty($parsed['rows'])) {
+            add_settings_error('tmwseo_cat_dry_run', 'tmwseo_cat_dry_run_empty_rows', __('No classified rows were available to export.', 'tmwseo'), 'error');
+            return;
+        }
+
+        $classifier = new CategoryKeywordClassifier();
+        $results = $classifier->classify_rows($parsed['rows']);
+        if (empty($results)) {
+            add_settings_error('tmwseo_cat_dry_run', 'tmwseo_cat_dry_run_empty_results', __('No classified rows were available to export.', 'tmwseo'), 'error');
+            return;
+        }
+
+        self::stream_classification_csv($results);
     }
 
     public static function register_menu(): void {
@@ -33,24 +72,7 @@ class CategoryKeywordCsvDryRunAdminPage {
         $csvInput = '';
         $downloadReady = false;
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_cat_dry_run_download'])) {
-            check_admin_referer('tmwseo_cat_keyword_csv_dry_run_nonce');
-            $csvInput = isset($_POST['tmwseo_csv_payload']) ? wp_unslash((string) $_POST['tmwseo_csv_payload']) : '';
-            if (trim($csvInput) === '') {
-                $notices[] = ['type' => 'notice-error', 'text' => 'Download request is missing CSV input. Please run a new dry-run classification.'];
-            } else {
-                $parsed = self::parse_csv($csvInput);
-                if (!empty($parsed['rows'])) {
-                    $classifier = new CategoryKeywordClassifier();
-                    $results = $classifier->classify_rows($parsed['rows']);
-                    self::stream_classification_csv($results);
-                }
-                $notices = array_merge($notices, $parsed['notices']);
-                if (empty($results)) {
-                    $notices[] = ['type' => 'notice-error', 'text' => 'No classified rows were available to export.'];
-                }
-            }
-        } elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_cat_dry_run_submit'])) {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_cat_dry_run_submit'])) {
             check_admin_referer('tmwseo_cat_keyword_csv_dry_run_nonce');
 
             $uploadCsv = self::read_uploaded_csv();
@@ -86,6 +108,8 @@ class CategoryKeywordCsvDryRunAdminPage {
         foreach ($notices as $notice) {
             echo '<div class="notice ' . esc_attr($notice['type']) . ' is-dismissible"><p>' . esc_html($notice['text']) . '</p></div>';
         }
+
+        settings_errors('tmwseo_cat_dry_run');
 
         echo '<form method="post" enctype="multipart/form-data">';
         wp_nonce_field('tmwseo_cat_keyword_csv_dry_run_nonce');
@@ -225,7 +249,6 @@ class CategoryKeywordCsvDryRunAdminPage {
     }
 
     private static function stream_classification_csv(array $results): void {
-        if (headers_sent()) { return; }
         nocache_headers();
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="tmw-category-keyword-classification-' . gmdate('Y-m-d') . '.csv"');
