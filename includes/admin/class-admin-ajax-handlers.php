@@ -19,6 +19,7 @@ use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\Content\VideoGeneratePolicy;
 use TMWSEO\Engine\Content\VideoContentBuilder;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
+use TMWSEO\Engine\Model\Rollback;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -208,6 +209,7 @@ class AdminAjaxHandlers {
             }
 
             $build = VideoContentBuilder::build( $post_id );
+            Rollback::snapshot( $post_id );
             $generated_html = $build['html'] ?? '';
             if ( $generated_html === '' ) {
                 wp_send_json_error( [
@@ -234,7 +236,9 @@ class AdminAjaxHandlers {
             }
 
             // Write Rank Math SEO fields (guarded — never touches robots/noindex)
-            VideoContentBuilder::write_rank_math_fields( $post_id, $build );
+            VideoContentBuilder::write_rank_math_fields( $post_id, $build, true );
+            self::maybe_update_video_slug( $post_id, (string) ( $build['focus_keyword'] ?? '' ) );
+            self::maybe_update_video_featured_image_alt( $post_id, (string) ( $build['focus_keyword'] ?? '' ) );
 
             clean_post_cache( $post_id );
             Logs::info( 'admin', '[TMW-VIDEO-GENERATE] Inline video AI block generated from sidebar', [
@@ -306,6 +310,43 @@ class AdminAjaxHandlers {
             $model_name = trim( (string) get_post_meta( $post_id, '_tmw_linked_model_name', true ) );
         }
         return $model_name !== '';
+    }
+
+    private static function maybe_update_video_slug( int $post_id, string $focus_keyword ): void {
+        $post = get_post( $post_id );
+        if ( ! $post instanceof \WP_Post || trim( $focus_keyword ) === '' ) {
+            return;
+        }
+        $current_slug = (string) $post->post_name;
+        $target_slug  = sanitize_title( $focus_keyword );
+        if ( $target_slug === '' || $current_slug === $target_slug || strpos( $current_slug, $target_slug ) !== false ) {
+            return;
+        }
+        if ( (string) get_post_meta( $post_id, '_tmwseo_prev_video_slug', true ) === '' && $current_slug !== '' ) {
+            update_post_meta( $post_id, '_tmwseo_prev_video_slug', $current_slug );
+            update_post_meta( $post_id, '_tmwseo_prev_video_slug_at', current_time( 'mysql' ) );
+        }
+        $unique_slug = wp_unique_post_slug( $target_slug, $post_id, $post->post_status, $post->post_type, (int) $post->post_parent );
+        wp_update_post( [ 'ID' => $post_id, 'post_name' => $unique_slug ] );
+        Logs::info( 'admin', '[TMW-VIDEO-SLUG] updated', [ 'post_id' => $post_id, 'from' => $current_slug, 'to' => $unique_slug ] );
+    }
+
+    private static function maybe_update_video_featured_image_alt( int $post_id, string $focus_keyword ): void {
+        $thumb_id = (int) get_post_thumbnail_id( $post_id );
+        if ( $thumb_id <= 0 || trim( $focus_keyword ) === '' ) {
+            return;
+        }
+        $new_alt = trim( $focus_keyword . ' webcam clip' );
+        $old_alt = trim( (string) get_post_meta( $thumb_id, '_wp_attachment_image_alt', true ) );
+        if ( $old_alt === $new_alt ) {
+            return;
+        }
+        if ( (string) get_post_meta( $post_id, '_tmwseo_prev_video_image_alt', true ) === '' && $old_alt !== '' ) {
+            update_post_meta( $post_id, '_tmwseo_prev_video_image_alt', $old_alt );
+            update_post_meta( $post_id, '_tmwseo_prev_video_image_alt_at', current_time( 'mysql' ) );
+        }
+        update_post_meta( $thumb_id, '_wp_attachment_image_alt', $new_alt );
+        Logs::info( 'admin', '[TMW-VIDEO-IMAGE-ALT] updated', [ 'post_id' => $post_id, 'thumb_id' => $thumb_id, 'alt' => $new_alt ] );
     }
 
     /**
