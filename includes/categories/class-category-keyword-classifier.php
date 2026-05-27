@@ -33,6 +33,18 @@ class CategoryKeywordClassifier {
         '/\bnsfw\b/u',
     ];
 
+    private const ADULT_EXPLICIT_CONTEXT_TERMS = [
+        'cam', 'cams', 'chat', 'chats', 'webcam', 'webcams', 'video', 'videos', 'call', 'calls', 'room', 'rooms', 'site', 'sites', 'live', 'online', 'free',
+    ];
+
+    private const ADULT_EXPLICIT_TERMS = [
+        'nude', 'dirty', 'sexy', 'naked', 'porn', 'adult', 'sex',
+    ];
+
+    private const ADULT_TYPO_TERMS = [
+        'pron', 'pirn', 'swx', 'sxe', 'srx', 'sx', 'sez', 'sec',
+    ];
+
     private const ETHNICITY_REGION_LANGUAGE_TERMS = [
         'asian','latina','ebony','indian','arab','brazilian','russian','european','filipina','korean','japanese','chinese','thai','spanish','french','german',
     ];
@@ -101,6 +113,10 @@ class CategoryKeywordClassifier {
                 CategoryRegistry::FAMILY_EXPLICIT_INTENT_REVIEW,
             ]);
 
+        $hasAdultExplicitContextPattern = $this->has_adult_explicit_context_pattern($normalized);
+        $hasAdultTypoContextPattern = $this->has_adult_typo_context_pattern($normalized);
+        $hasAdultIntent = $hasAdultIntent || $hasAdultExplicitContextPattern || $hasAdultTypoContextPattern;
+
         $hasSensitiveModifier = $this->contains_any_term($normalized, self::ETHNICITY_REGION_LANGUAGE_TERMS)
             || $this->contains_any_term($normalized, self::STYLE_APPEARANCE_TERMS)
             || $this->family_match($registryMatches['families'], [
@@ -137,7 +153,9 @@ class CategoryKeywordClassifier {
             $result['seo_research_candidate'] = true;
             $result['generator_safe'] = false;
             $result['public_category_candidate'] = false;
-            $result['reasons'][] = 'Adult/explicit intent detected; SEO research only and not generator-safe.';
+            $result['reasons'][] = $hasAdultTypoContextPattern
+                ? 'Adult-intent typo/context pattern detected; review-required SEO research only.'
+                : 'Adult/explicit intent pattern detected; SEO research only and not generator-safe.';
         }
 
         if ($isPlatform && !$hasSensitiveModifier && !$hasAdultIntent) {
@@ -198,6 +216,49 @@ class CategoryKeywordClassifier {
         }
 
         return $results;
+    }
+
+
+    private function has_adult_explicit_context_pattern(string $keyword): bool {
+        $collapsed = str_replace(' ', '', $keyword);
+
+        foreach (self::ADULT_EXPLICIT_TERMS as $term) {
+            if ($this->contains_word_or_compound($keyword, $collapsed, $term) && $this->contains_any_context_term($keyword, $collapsed)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function has_adult_typo_context_pattern(string $keyword): bool {
+        $collapsed = str_replace(' ', '', $keyword);
+
+        foreach (self::ADULT_TYPO_TERMS as $term) {
+            if ($this->contains_word_or_compound($keyword, $collapsed, $term) && $this->contains_any_context_term($keyword, $collapsed)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function contains_word_or_compound(string $keyword, string $collapsedKeyword, string $term): bool {
+        if (preg_match('/\b' . preg_quote($term, '/') . '\b/u', $keyword) === 1) {
+            return true;
+        }
+
+        return str_contains($collapsedKeyword, $term);
+    }
+
+    private function contains_any_context_term(string $keyword, string $collapsedKeyword): bool {
+        foreach (self::ADULT_EXPLICIT_CONTEXT_TERMS as $term) {
+            if ($this->contains_word_or_compound($keyword, $collapsedKeyword, $term)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function blocked_result(array $result, string $reason): array {
