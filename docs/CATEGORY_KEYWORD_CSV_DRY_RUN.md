@@ -27,6 +27,7 @@ PR 559 added:
 
 - Reads keyword rows from CSV upload or pasted CSV text.
 - Classifies each keyword using hardened Category Registry-aligned rules.
+- Can export the current dry-run classification results as a downloadable CSV for offline review in Excel/Google Sheets.
 - Detects and flags:
   - adult-intent terms
   - platform terms
@@ -44,6 +45,7 @@ PR 559 added:
 ## What the tool does NOT do
 
 - Does **not** write to the database.
+- Does **not** persist uploads or classification results (export is generated statelessly from current dry-run input only).
 - Does **not** import keywords.
 - Does **not** create categories/tags/terms.
 - Does **not** create or update posts.
@@ -92,3 +94,9 @@ Expected dry-run outcomes:
 ## Scope and behavior guarantee
 
 This tool is intentionally dry-run only. It exists to preview classification outcomes for human review and downstream workflow decisions, without persistence side effects.
+
+The CSV export is also dry-run only:
+
+- Export is generated from the current dry-run input only.
+- Export does not import keywords or create categories.
+- Export is for offline review only.

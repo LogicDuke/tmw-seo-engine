@@ -30,8 +30,27 @@ class CategoryKeywordCsvDryRunAdminPage {
         $notices = [];
         $results = [];
         $summary = [];
+        $csvInput = '';
+        $downloadReady = false;
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_cat_dry_run_submit'])) {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_cat_dry_run_download'])) {
+            check_admin_referer('tmwseo_cat_keyword_csv_dry_run_nonce');
+            $csvInput = isset($_POST['tmwseo_csv_payload']) ? wp_unslash((string) $_POST['tmwseo_csv_payload']) : '';
+            if (trim($csvInput) === '') {
+                $notices[] = ['type' => 'notice-error', 'text' => 'Download request is missing CSV input. Please run a new dry-run classification.'];
+            } else {
+                $parsed = self::parse_csv($csvInput);
+                if (!empty($parsed['rows'])) {
+                    $classifier = new CategoryKeywordClassifier();
+                    $results = $classifier->classify_rows($parsed['rows']);
+                    self::stream_classification_csv($results);
+                }
+                $notices = array_merge($notices, $parsed['notices']);
+                if (empty($results)) {
+                    $notices[] = ['type' => 'notice-error', 'text' => 'No classified rows were available to export.'];
+                }
+            }
+        } elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tmwseo_cat_dry_run_submit'])) {
             check_admin_referer('tmwseo_cat_keyword_csv_dry_run_nonce');
 
             $uploadCsv = self::read_uploaded_csv();
@@ -41,20 +60,21 @@ class CategoryKeywordCsvDryRunAdminPage {
                 if (trim($pastedCsv) !== '') {
                     $notices[] = ['type' => 'notice-warning', 'text' => 'Both upload and pasted CSV were provided; uploaded file was used.'];
                 }
-                $csv = $uploadCsv;
+                $csvInput = $uploadCsv;
             } else {
-                $csv = $pastedCsv;
+                $csvInput = $pastedCsv;
             }
 
-            if (trim($csv) === '') {
+            if (trim($csvInput) === '') {
                 $notices[] = ['type' => 'notice-error', 'text' => 'Please upload a CSV file or paste CSV text.'];
             } else {
-                $parsed = self::parse_csv($csv);
+                $parsed = self::parse_csv($csvInput);
                 $notices = array_merge($notices, $parsed['notices']);
                 if (!empty($parsed['rows'])) {
                     $classifier = new CategoryKeywordClassifier();
                     $results = $classifier->classify_rows($parsed['rows']);
                     $summary = self::build_summary($results);
+                    $downloadReady = true;
                 }
             }
         }
@@ -71,7 +91,7 @@ class CategoryKeywordCsvDryRunAdminPage {
         wp_nonce_field('tmwseo_cat_keyword_csv_dry_run_nonce');
         echo '<table class="form-table" role="presentation">';
         echo '<tr><th scope="row"><label for="tmwseo_csv_file">' . esc_html__('Upload CSV File', 'tmwseo') . '</label></th><td><input type="file" id="tmwseo_csv_file" name="tmwseo_csv_file" accept=".csv,text/csv"></td></tr>';
-        echo '<tr><th scope="row"><label for="tmwseo_csv_text">' . esc_html__('Paste CSV Text', 'tmwseo') . '</label></th><td><textarea id="tmwseo_csv_text" name="tmwseo_csv_text" rows="10" cols="120" class="large-text code" placeholder="Keyword,Volume,CPC,Competition,SEO Score,Trend"></textarea></td></tr>';
+        echo '<tr><th scope="row"><label for="tmwseo_csv_text">' . esc_html__('Paste CSV Text', 'tmwseo') . '</label></th><td><textarea id="tmwseo_csv_text" name="tmwseo_csv_text" rows="10" cols="120" class="large-text code" placeholder="Keyword,Volume,CPC,Competition,SEO Score,Trend">' . esc_textarea($csvInput) . '</textarea></td></tr>';
         echo '</table>';
         submit_button(__('Run Dry-Run Classification', 'tmwseo'), 'primary', 'tmwseo_cat_dry_run_submit');
         echo '</form>';
@@ -112,6 +132,16 @@ class CategoryKeywordCsvDryRunAdminPage {
                 echo '</tr>';
             }
             echo '</tbody></table></div>';
+
+            if ($downloadReady && trim($csvInput) !== '') {
+                echo '<h2>' . esc_html__('Export', 'tmwseo') . '</h2>';
+                echo '<form method="post">';
+                wp_nonce_field('tmwseo_cat_keyword_csv_dry_run_nonce');
+                echo '<textarea name="tmwseo_csv_payload" style="display:none;">' . esc_textarea($csvInput) . '</textarea>';
+                submit_button(__('Download Classified CSV', 'tmwseo'), 'secondary', 'tmwseo_cat_dry_run_download', false);
+                echo '<p class="description">' . esc_html__('Download is generated from the current dry-run only. No data is saved or imported.', 'tmwseo') . '</p>';
+                echo '</form>';
+            }
         }
 
         echo '</div>';
@@ -192,5 +222,72 @@ class CategoryKeywordCsvDryRunAdminPage {
         }
 
         return $summary;
+    }
+
+    private static function stream_classification_csv(array $results): void {
+        if (headers_sent()) { return; }
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="tmw-category-keyword-classification-' . gmdate('Y-m-d') . '.csv"');
+
+        $out = fopen('php://output', 'w');
+        if ($out === false) { exit; }
+
+        $headers = [
+            'Original Keyword',
+            'Normalized Keyword',
+            'Volume',
+            'CPC',
+            'Competition',
+            'SEO Score',
+            'Trend',
+            'Decision',
+            'Risk Level',
+            'Recommended Page Type',
+            'Generator Safe',
+            'Public Category Candidate',
+            'SEO Research Candidate',
+            'Review Required',
+            'Blocked',
+            'Matched Registry Keys',
+            'Matched Families',
+            'Reasons',
+            'Platform Candidate',
+            'Adult Intent Review',
+            'Modifier Review',
+        ];
+        fputcsv($out, $headers);
+
+        foreach ($results as $row) {
+            $reasons = is_array($row['reasons'] ?? null) ? $row['reasons'] : [];
+            $reasonsText = implode(' | ', $reasons);
+            $reasonsJoined = strtolower(implode(' ', $reasons));
+            fputcsv($out, [
+                (string) ($row['keyword'] ?? ''),
+                (string) ($row['normalized_keyword'] ?? ''),
+                (string) ($row['volume'] ?? ''),
+                (string) ($row['cpc'] ?? ''),
+                (string) ($row['competition'] ?? ''),
+                (string) ($row['seo_score'] ?? ''),
+                (string) ($row['trend'] ?? ''),
+                (string) ($row['decision'] ?? ''),
+                (string) ($row['risk_level'] ?? ''),
+                (string) ($row['recommended_page_type'] ?? ''),
+                !empty($row['generator_safe']) ? 'yes' : 'no',
+                !empty($row['public_category_candidate']) ? 'yes' : 'no',
+                !empty($row['seo_research_candidate']) ? 'yes' : 'no',
+                !empty($row['review_required']) ? 'yes' : 'no',
+                !empty($row['blocked']) ? 'yes' : 'no',
+                implode(' | ', is_array($row['matched_registry_keys'] ?? null) ? $row['matched_registry_keys'] : []),
+                implode(' | ', is_array($row['matched_families'] ?? null) ? $row['matched_families'] : []),
+                $reasonsText,
+                (($row['recommended_page_type'] ?? '') === 'platform_category') ? 'yes' : 'no',
+                str_contains($reasonsJoined, 'adult/explicit intent') ? 'yes' : 'no',
+                str_contains($reasonsJoined, 'sensitive modifier') ? 'yes' : 'no',
+            ]);
+        }
+
+        fclose($out);
+        exit;
     }
 }
