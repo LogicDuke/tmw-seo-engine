@@ -163,6 +163,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-video-title-rewriter.php' );
         tmwseo_safe_require( $p . 'class-video-content-architecture.php' );
         tmwseo_safe_require( $p . 'class-video-generate-policy.php' );
+        tmwseo_safe_require( $p . 'class-video-content-builder.php' );
         tmwseo_safe_require( $p . 'class-audit-trail.php' );
         tmwseo_safe_require( $p . 'class-rank-math-mapper.php' );
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );

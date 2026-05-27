@@ -17,6 +17,7 @@ use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Content\ContentEngine;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\Content\VideoGeneratePolicy;
+use TMWSEO\Engine\Content\VideoContentBuilder;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -206,7 +207,8 @@ class AdminAjaxHandlers {
                 ], 409 );
             }
 
-            $generated_html = self::build_inline_video_content_html( $post_id );
+            $build = VideoContentBuilder::build( $post_id );
+            $generated_html = $build['html'] ?? '';
             if ( $generated_html === '' ) {
                 wp_send_json_error( [
                     'message' => __( 'Video inline generation unavailable. Please refresh and try again.', 'tmwseo' ),
@@ -231,10 +233,15 @@ class AdminAjaxHandlers {
                 ], 500 );
             }
 
+            // Write Rank Math SEO fields (guarded — never touches robots/noindex)
+            VideoContentBuilder::write_rank_math_fields( $post_id, $build );
+
             clean_post_cache( $post_id );
             Logs::info( 'admin', '[TMW-VIDEO-GENERATE] Inline video AI block generated from sidebar', [
-                'post_id' => $post_id,
-                'keyword' => $gate['keyword'] ?? '',
+                'post_id'    => $post_id,
+                'keyword'    => $gate['keyword'] ?? '',
+                'word_count' => $build['word_count'] ?? 0,
+                'focus_kw'   => $build['focus_keyword'] ?? '',
             ] );
             wp_send_json_success( [
                 'generated_now' => true,
@@ -301,30 +308,12 @@ class AdminAjaxHandlers {
         return $model_name !== '';
     }
 
-    private static function build_inline_video_content_html( int $post_id ): string {
-        $title          = trim( (string) get_the_title( $post_id ) );
-        $imported_title = trim( (string) get_post_meta( $post_id, '_tmw_original_title', true ) );
-        $model_name     = trim( (string) get_post_meta( $post_id, '_tmw_model_name', true ) );
-        if ( $model_name === '' ) {
-            $model_name = trim( (string) get_post_meta( $post_id, '_tmw_linked_model_name', true ) );
-        }
-
-        $terms      = wp_get_post_terms( $post_id, [ 'post_tag', 'category' ], [ 'fields' => 'names' ] );
-        $term_names = is_wp_error( $terms ) ? [] : array_values( array_filter( array_map( 'sanitize_text_field', array_map( 'strval', (array) $terms ) ) ) );
-        $safe_terms = array_slice( $term_names, 0, 4 );
-        $safe_list  = ! empty( $safe_terms ) ? implode( ', ', array_map( 'esc_html', $safe_terms ) ) : 'live webcam clip, webcam video';
-
-        $subject = $title !== '' ? $title : 'this webcam video';
-        $context = $model_name !== '' ? $model_name : 'the featured performer';
-        $origin  = $imported_title !== '' ? ' Originally imported as "' . esc_html( $imported_title ) . '." ' : ' ';
-
-        $paragraphs   = [];
-        $paragraphs[] = '<p>' . esc_html( $subject ) . ' is presented as a live webcam clip with neutral viewing context for readers who want quick background before opening the video.' . $origin . '</p>';
-        $paragraphs[] = '<p>This post highlights webcam video and video chat context around ' . esc_html( $context ) . ', with a focus on basic watch intent, safe browsing expectations, and cam show discovery language.</p>';
-        $paragraphs[] = '<p>Related tags and categories include ' . $safe_list . ', which helps keep the page descriptive for indexing while staying general and non-graphic.</p>';
-
-        return implode( "\n", $paragraphs );
-    }
+    /**
+     * NOTE: build_inline_video_content_html() was removed in v5.8.13.
+     * Video content is now produced by VideoContentBuilder::build().
+     * The 85-word placeholder it generated has been replaced with a full
+     * 600-800 word SEO-ready block including H2/H3 headings and Rank Math fields.
+     */
 
     private static function upsert_managed_ai_block( string $content, string $html ): string {
         $html = trim( $html );
