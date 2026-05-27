@@ -1161,6 +1161,7 @@ class Admin {
             'tmwseo-tools',
             'tmwseo-dfseo-keyword-strategy-preview',
             'tmwseo-csv-manager',
+            'tmwseo-category-keyword-csv-dry-run',
             'tmwseo-kw-metrics-import', // 5.9.0
             'tmwseo-gkp-test',
             'tmwseo-staging-validation-helper',
