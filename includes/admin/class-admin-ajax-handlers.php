@@ -16,6 +16,7 @@ use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Content\ContentEngine;
 use TMWSEO\Engine\Content\ContentGenerationGate;
+use TMWSEO\Engine\Content\VideoGeneratePolicy;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -173,18 +174,35 @@ class AdminAjaxHandlers {
         }
 
         if ( $post_type === 'post' && self::is_video_post( $post_id ) && ! $refresh_keywords_only ) {
-            $gate = ContentGenerationGate::evaluate( $post_id );
+            // ── Video posts use VideoGeneratePolicy, NOT ContentGenerationGate ──
+            // ContentGenerationGate reads _tmwseo_keyword which is the base model name
+            // on imported posts; that always triggers model_page_owns_keyword.
+            // VideoGeneratePolicy resolves the keyword from the post title first and
+            // applies a video-aware ownership policy that allows model-name-in-title.
+            $gate = VideoGeneratePolicy::evaluate( $post_id );
+
+            Logs::info( 'admin', '[TMW-VIDEO-GENERATE] VideoGeneratePolicy result', [
+                'post_id' => $post_id,
+                'allowed' => $gate['allowed'],
+                'keyword' => $gate['keyword'] ?? '',
+                'reasons' => $gate['reasons'] ?? [],
+            ] );
+
             if ( empty( $gate['allowed'] ) ) {
-                $reasons = ! empty( $gate['reasons'] ) && is_array( $gate['reasons'] )
+                $reasons  = ! empty( $gate['reasons'] ) && is_array( $gate['reasons'] )
                     ? array_values( array_map( 'strval', $gate['reasons'] ) )
                     : [];
-                $message = __( 'Generation blocked by content prerequisites.', 'tmwseo' );
+                $kw_label = isset( $gate['keyword'] ) && $gate['keyword'] !== ''
+                    ? ' [keyword: ' . $gate['keyword'] . ']'
+                    : '';
+                $message  = __( 'Generation blocked by content prerequisites.', 'tmwseo' );
                 if ( ! empty( $reasons ) ) {
-                    $message .= ' ' . implode( ', ', $reasons );
+                    $message .= $kw_label . ' ' . implode( ', ', $reasons );
                 }
                 wp_send_json_error( [
                     'message' => $message,
                     'reasons' => $reasons,
+                    'keyword' => $gate['keyword'] ?? '',
                 ], 409 );
             }
 
@@ -204,7 +222,7 @@ class AdminAjaxHandlers {
             ], true );
 
             if ( is_wp_error( $updated ) ) {
-                Logs::error( 'admin', '[TMW-VIDEO] Inline video generation write failed', [
+                Logs::error( 'admin', '[TMW-VIDEO-GENERATE] Inline video generation write failed', [
                     'post_id' => $post_id,
                     'error'   => $updated->get_error_message(),
                 ] );
@@ -214,7 +232,10 @@ class AdminAjaxHandlers {
             }
 
             clean_post_cache( $post_id );
-            Logs::info( 'admin', '[TMW-VIDEO] Inline video AI block generated from sidebar', [ 'post_id' => $post_id ] );
+            Logs::info( 'admin', '[TMW-VIDEO-GENERATE] Inline video AI block generated from sidebar', [
+                'post_id' => $post_id,
+                'keyword' => $gate['keyword'] ?? '',
+            ] );
             wp_send_json_success( [
                 'generated_now' => true,
                 'reload'        => true,
@@ -246,13 +267,38 @@ class AdminAjaxHandlers {
         ] );
     }
 
+    /**
+     * Detect whether a 'post' type post is eligible for the video inline generate path.
+     *
+     * Uses three signals to avoid silently routing imported posts to the queue when
+     * their post_format was never explicitly set to 'video':
+     *
+     *   1. WordPress post_format = 'video'  (most reliable, use when set)
+     *   2. _tmwseo_title_rewritten = '1'    (operator has run VideoTitleRewriter)
+     *   3. Has _tmw_model_name or _tmw_linked_model_name (imported via video importer)
+     *
+     * Mirrors VideoGeneratePolicy::detect_video_signals() — keep in sync.
+     */
     private static function is_video_post( int $post_id ): bool {
+        // Signal 1: explicit WordPress post format
         if ( has_post_format( 'video', $post_id ) ) {
             return true;
         }
+        if ( (string) get_post_format( $post_id ) === 'video' ) {
+            return true;
+        }
 
-        $format = (string) get_post_format( $post_id );
-        return $format === 'video';
+        // Signal 2: title has been rewritten by VideoTitleRewriter
+        if ( (string) get_post_meta( $post_id, '_tmwseo_title_rewritten', true ) === '1' ) {
+            return true;
+        }
+
+        // Signal 3: post was imported via the video importer (has a linked model name)
+        $model_name = trim( (string) get_post_meta( $post_id, '_tmw_model_name', true ) );
+        if ( $model_name === '' ) {
+            $model_name = trim( (string) get_post_meta( $post_id, '_tmw_linked_model_name', true ) );
+        }
+        return $model_name !== '';
     }
 
     private static function build_inline_video_content_html( int $post_id ): string {
