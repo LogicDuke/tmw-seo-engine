@@ -48,6 +48,14 @@ class VideoContentBuilder {
     /** Target word count range. */
     private const TARGET_WORDS_MIN = 600;
     private const TARGET_WORDS_MAX = 800;
+    private const EXPLICIT_SKIP_EXACT = [
+        'girl', 'girls', 'hot', 'sexy', 'cute', 'naked', 'cam', 'webcam',
+        'live', 'model', 'hd', 'solo', 'amateur', 'xxx', 'porn', 'sex',
+        'ass', 'pussy', 'dildo', 'fuck', 'fucking', 'fucked', 'blowjob',
+        'cum', 'cumshot', 'cock', 'penis', 'vagina', 'nude', 'horny',
+        'orgasm', 'squirt', 'fingering', 'masturbation', 'anal',
+    ];
+    private const EXPLICIT_SKIP_PATTERN = '/\b(ass|puss(?:y|ies)|dildo(?:s)?|fuck(?:ed|ing|er|ers)?|blow\s*job(?:s)?|cum(?:shot|shots)?|cock(?:s)?|penis(?:es)?|vagina(?:s)?|nude|naked|horny|orgasm(?:s|ic)?|squirt(?:ing)?|finger(?:ing|ed)?|masturbat(?:e|es|ed|ing|ion)|anal)\b/i';
 
     /**
      * Build complete video content: HTML body + Rank Math field recommendations.
@@ -66,7 +74,7 @@ class VideoContentBuilder {
     public static function build( int $post_id ): array {
         $post = get_post( $post_id );
         if ( ! $post instanceof \WP_Post ) {
-            Logs::warning( 'video_build', '[TMW-VIDEO-BUILD] post not found', [ 'post_id' => $post_id ] );
+            Logs::warn( 'video_build', '[TMW-VIDEO-BUILD] post not found', [ 'post_id' => $post_id ] );
             return self::empty_result();
         }
 
@@ -429,9 +437,11 @@ class VideoContentBuilder {
         array $secondary
     ): string {
         $mn         = $model_name !== '' ? $model_name : 'the featured model';
+        $safe_title = self::sanitize_visible_video_phrase( $title, 'this webcam video page' );
+        $safe_imported_title = self::sanitize_visible_video_phrase( $imported_title, '' );
         $mn_safe    = esc_html( $mn );
         $fk_safe    = esc_html( $focus_kw !== '' ? $focus_kw : 'this webcam video' );
-        $title_safe = esc_html( $title !== '' ? $title : 'this webcam video page' );
+        $title_safe = esc_html( $safe_title );
         $brand      = esc_html( self::SITE_BRAND );
 
         // Tags list for body text (max 4, safe)
@@ -446,8 +456,8 @@ class VideoContentBuilder {
 
         // Original import title reference (if different from current title)
         $origin_note = '';
-        if ( $imported_title !== '' && strtolower( $imported_title ) !== strtolower( $title ) ) {
-            $origin_note = ' The original imported scene title was <em>' . esc_html( $imported_title ) . '</em>.';
+        if ( $safe_imported_title !== '' && strtolower( $safe_imported_title ) !== strtolower( $safe_title ) ) {
+            $origin_note = ' The original imported scene title was <em>' . esc_html( $safe_imported_title ) . '</em>.';
         }
 
         // Internal link to model page
@@ -674,19 +684,6 @@ class VideoContentBuilder {
     }
 
     private static function collect_safe_tags( int $post_id ): array {
-        // Tags to skip (too generic or unsafe / explicit).
-        $skip_exact = [
-            'girl', 'girls', 'hot', 'sexy', 'cute', 'naked', 'cam', 'webcam',
-            'live', 'model', 'hd', 'solo', 'amateur', 'xxx', 'porn', 'sex',
-            'ass', 'pussy', 'dildo', 'fuck', 'fucking', 'fucked', 'blowjob',
-            'cum', 'cumshot', 'cock', 'penis', 'vagina', 'nude', 'horny',
-            'orgasm', 'squirt', 'fingering', 'masturbation', 'anal',
-        ];
-
-        // Unsafe roots / phrase fragments to block variants such as:
-        // "big-ass", "pussy-play", "cum shot", "fucking-hard", etc.
-        $skip_pattern = '/\b(ass|puss(?:y|ies)|dildo(?:s)?|fuck(?:ed|ing|er|ers)?|blow\s*job(?:s)?|cum(?:shot|shots)?|cock(?:s)?|penis(?:es)?|vagina(?:s)?|nude|naked|horny|orgasm(?:s|ic)?|squirt(?:ing)?|finger(?:ing|ed)?|masturbat(?:e|es|ed|ing|ion)|anal)\b/i';
-
         $terms = wp_get_post_terms( $post_id, 'post_tag', [ 'fields' => 'names' ] );
         if ( is_wp_error( $terms ) || ! is_array( $terms ) ) {
             return [];
@@ -700,13 +697,13 @@ class VideoContentBuilder {
                 continue;
             }
 
-            if ( in_array( $tl, $skip_exact, true ) ) {
+            if ( in_array( $tl, self::EXPLICIT_SKIP_EXACT, true ) ) {
                 continue;
             }
 
             // Normalize separators so phrase and partial variants are caught.
             $normalized = str_replace( [ '-', '_', '/', '\\', '.' ], ' ', $tl );
-            if ( preg_match( $skip_pattern, $normalized ) === 1 ) {
+            if ( preg_match( self::EXPLICIT_SKIP_PATTERN, $normalized ) === 1 ) {
                 continue;
             }
 
@@ -719,6 +716,22 @@ class VideoContentBuilder {
             }
         }
         return array_slice( $safe, 0, 5 );
+    }
+
+    private static function sanitize_visible_video_phrase( string $phrase, string $fallback ): string {
+        $clean = trim( $phrase );
+        if ( $clean === '' ) {
+            return $fallback;
+        }
+        $lower = strtolower( $clean );
+        if ( in_array( $lower, self::EXPLICIT_SKIP_EXACT, true ) ) {
+            return $fallback;
+        }
+        $normalized = str_replace( [ '-', '_', '/', '\\', '.' ], ' ', $lower );
+        if ( preg_match( self::EXPLICIT_SKIP_PATTERN, $normalized ) === 1 ) {
+            return $fallback;
+        }
+        return $clean;
     }
 
     private static function resolve_platform( int $post_id ): string {
