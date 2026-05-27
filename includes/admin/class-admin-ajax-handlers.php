@@ -14,7 +14,6 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Jobs;
-use TMWSEO\Engine\Settings;
 use TMWSEO\Engine\Content\ContentEngine;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
@@ -174,12 +173,6 @@ class AdminAjaxHandlers {
         }
 
         if ( $post_type === 'post' && self::is_video_post( $post_id ) && ! $refresh_keywords_only ) {
-            if ( Settings::is_safe_mode() ) {
-                wp_send_json_error( [
-                    'message' => __( 'Generation blocked: Safe Mode is enabled.', 'tmwseo' ),
-                ], 409 );
-            }
-
             $gate = ContentGenerationGate::evaluate( $post_id );
             if ( empty( $gate['allowed'] ) ) {
                 $reasons = ! empty( $gate['reasons'] ) && is_array( $gate['reasons'] )
