@@ -104,6 +104,8 @@ class VideoContentBuilder {
             $secondary
         );
 
+        $html = self::enforce_minimum_word_count( $html, $model_name, $focus_kw, $model_url );
+
         $word_count = str_word_count( wp_strip_all_tags( $html ) );
 
         Logs::info( 'video_build', '[TMW-VIDEO-BUILD] Content assembled', [
@@ -131,6 +133,71 @@ class VideoContentBuilder {
             'keyword_pack'       => $keyword_pack,
             'word_count'         => $word_count,
         ];
+    }
+
+    /**
+     * Ensure content reaches minimum words by appending deterministic, neutral sections.
+     *
+     * Appends one or more safe blocks while preserving H2/H3 structure and avoiding
+     * keyword stuffing. Keeps total length near TARGET_WORDS_MAX when feasible.
+     */
+    private static function enforce_minimum_word_count(
+        string $html,
+        string $model_name,
+        string $focus_kw,
+        string $model_url
+    ): string {
+        $word_count = str_word_count( wp_strip_all_tags( $html ) );
+        if ( $word_count >= self::TARGET_WORDS_MIN ) {
+            return $html;
+        }
+
+        $mn      = $model_name !== '' ? $model_name : 'the featured model';
+        $mn_safe = esc_html( $mn );
+        $fk_safe = esc_html( $focus_kw !== '' ? $focus_kw : 'this webcam video' );
+
+        $model_link = '';
+        if ( $model_url !== '' && $model_name !== '' ) {
+            $model_link = '<a href="' . esc_url( $model_url ) . '">'
+                . esc_html( $model_name ) . ' webcam model profile</a>';
+        }
+
+        $sections = [
+            [
+                '<h2>More Context for This Webcam Video Page</h2>',
+                '<p>This page is designed as a browsing guide for visitors who want a quick overview before opening a webcam clip. It keeps the description neutral, explains where the clip fits in the site structure, and helps users move between related pages without confusion. The content is intentionally informational and avoids explicit language while still describing the page topic clearly for readers and search engines.</p>',
+                '<p>When someone searches for ' . $fk_safe . ', they often want to confirm they have landed on the right video page. This section supports that goal by clarifying how this post connects with tags, categories, and related model pages. It also helps first-time visitors understand that video posts are part of a wider library of webcam sessions and discovery pages.</p>',
+            ],
+            [
+                '<h2>How to Discover Related Video Pages</h2>',
+                '<p>A practical way to continue browsing is to open related tags and category links from this page. Those navigation paths group similar webcam sessions and make it easier to compare different clips by theme, format, and model relationship. This improves internal discovery without changing the original video metadata or post intent.</p>',
+                '<p>Visitors can move from one video page to another using internal links and archive pages, then return when needed. This creates a clear browsing flow that supports quick scanning and deeper exploration. The approach is simple: start with this video, follow relevant topics, and use model-oriented pages to refine what you want to watch next.</p>',
+            ],
+            [
+                '<h3>FAQ: How Does This Video Relate to the Model Page?</h3>',
+                '<p>This video page focuses on one session, while the model page provides broader context such as profile details, related clips, and navigation to additional content. '
+                    . ( $model_link !== ''
+                        ? 'If you want a fuller overview, visit the ' . $model_link . ' and then return to this post for the specific session reference. '
+                        : 'If a dedicated profile link is not available, use tags and categories on this page to find similar posts connected to ' . $mn_safe . '. ' )
+                    . 'Together, these page types help organize browsing in a consistent, user-friendly format.</p>',
+            ],
+        ];
+
+        foreach ( $sections as $section_parts ) {
+            if ( $word_count >= self::TARGET_WORDS_MIN ) {
+                break;
+            }
+            $candidate_html  = $html . "\n\n" . implode( "\n\n", $section_parts );
+            $candidate_words = str_word_count( wp_strip_all_tags( $candidate_html ) );
+
+            // Prefer staying near the target max when possible.
+            if ( $word_count < self::TARGET_WORDS_MIN && $word_count < self::TARGET_WORDS_MAX ) {
+                $html       = $candidate_html;
+                $word_count = $candidate_words;
+            }
+        }
+
+        return $html;
     }
 
     /**
