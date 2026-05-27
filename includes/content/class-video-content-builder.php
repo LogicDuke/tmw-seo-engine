@@ -674,9 +674,18 @@ class VideoContentBuilder {
     }
 
     private static function collect_safe_tags( int $post_id ): array {
-        // Tags to skip (too generic or flagged)
-        $skip = [ 'girl', 'girls', 'hot', 'sexy', 'cute', 'naked', 'cam', 'webcam',
-                  'live', 'model', 'hd', 'solo', 'amateur', 'xxx', 'porn', 'sex' ];
+        // Tags to skip (too generic or unsafe / explicit).
+        $skip_exact = [
+            'girl', 'girls', 'hot', 'sexy', 'cute', 'naked', 'cam', 'webcam',
+            'live', 'model', 'hd', 'solo', 'amateur', 'xxx', 'porn', 'sex',
+            'ass', 'pussy', 'dildo', 'fuck', 'fucking', 'fucked', 'blowjob',
+            'cum', 'cumshot', 'cock', 'penis', 'vagina', 'nude', 'horny',
+            'orgasm', 'squirt', 'fingering', 'masturbation', 'anal',
+        ];
+
+        // Unsafe roots / phrase fragments to block variants such as:
+        // "big-ass", "pussy-play", "cum shot", "fucking-hard", etc.
+        $skip_pattern = '/\b(ass|puss(?:y|ies)|dildo(?:s)?|fuck(?:ed|ing|er|ers)?|blow\s*job(?:s)?|cum(?:shot|shots)?|cock(?:s)?|penis(?:es)?|vagina(?:s)?|nude|naked|horny|orgasm(?:s|ic)?|squirt(?:ing)?|finger(?:ing|ed)?|masturbat(?:e|es|ed|ing|ion)|anal)\b/i';
 
         $terms = wp_get_post_terms( $post_id, 'post_tag', [ 'fields' => 'names' ] );
         if ( is_wp_error( $terms ) || ! is_array( $terms ) ) {
@@ -685,8 +694,27 @@ class VideoContentBuilder {
 
         $safe = [];
         foreach ( $terms as $t ) {
-            $tl = strtolower( trim( (string) $t ) );
-            if ( $tl !== '' && ! in_array( $tl, $skip, true ) && strlen( $tl ) >= 3 ) {
+            $raw = trim( (string) $t );
+            $tl  = strtolower( $raw );
+            if ( $tl === '' || strlen( $tl ) < 3 ) {
+                continue;
+            }
+
+            if ( in_array( $tl, $skip_exact, true ) ) {
+                continue;
+            }
+
+            // Normalize separators so phrase and partial variants are caught.
+            $normalized = str_replace( [ '-', '_', '/', '\\', '.' ], ' ', $tl );
+            if ( preg_match( $skip_pattern, $normalized ) === 1 ) {
+                continue;
+            }
+
+            if ( preg_match( '/^[a-z0-9\s\-]+$/i', $raw ) !== 1 && preg_match( '/\p{L}/u', $raw ) !== 1 ) {
+                continue;
+            }
+
+            if ( ! in_array( $raw, $safe, true ) ) {
                 $safe[] = (string) $t;
             }
         }
