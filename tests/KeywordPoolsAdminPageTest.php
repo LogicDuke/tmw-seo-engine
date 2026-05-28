@@ -1,0 +1,96 @@
+<?php
+/**
+ * Tests for the keyword pools dry-run admin page.
+ */
+
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+use TMWSEO\Engine\Admin\KeywordPoolsAdminPage;
+use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
+use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
+
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
+require_once __DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php';
+
+class KeywordPoolsAdminPageTest extends TestCase {
+
+    protected function tearDown(): void {
+        $_GET = [];
+        $_POST = [];
+        $_FILES = [];
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        parent::tearDown();
+    }
+
+    public function test_class_slug_and_capability_are_available(): void {
+        $this->assertTrue(class_exists(KeywordPoolsAdminPage::class));
+        $this->assertSame('tmwseo-keyword-pools', KeywordPoolsAdminPage::slug());
+        $this->assertSame('manage_options', KeywordPoolsAdminPage::capability());
+    }
+
+    public function test_pool_names_are_constrained_to_three_active_pools(): void {
+        $this->assertSame([ 'model', 'video', 'category' ], KeywordPoolsAdminPage::allowed_pools());
+    }
+
+    public function test_render_method_includes_dry_run_safety_copy_and_form_fields(): void {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET['pool'] = 'model';
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = ob_get_clean();
+
+        $this->assertIsString($html);
+        $this->assertStringContainsString('Keyword Pools', $html);
+        $this->assertStringContainsString('Dry-run preview only', $html);
+        $this->assertStringContainsString('does not save keywords', $html);
+        $this->assertStringContainsString('does not write Rank Math fields', $html);
+        $this->assertStringContainsString('does not change post content', $html);
+        $this->assertStringContainsString('tmwseo_keyword_pools_nonce', $html);
+        $this->assertStringContainsString('name="action" value="tmwseo_keyword_pools_dry_run"', $html);
+        $this->assertStringContainsString('name="tmwseo_keyword_pool" value="model"', $html);
+        $this->assertStringContainsString('Run Dry Run Preview', $html);
+    }
+
+    public function test_export_helper_outputs_expected_csv_header(): void {
+        $csv = KeywordPoolsAdminPage::build_export_csv([]);
+        $header = str_getcsv(rtrim((string) strtok($csv, "\n"), "\r"));
+
+        $this->assertSame(KeywordPoolsAdminPage::export_headers(), $header);
+    }
+
+    public function test_export_helper_outputs_current_preview_rows(): void {
+        $parser = new KeywordPoolCsvParser();
+        $parsed = $parser->parse_text("keyword,volume,difficulty,cpc,competition,intent,source,model_name\nLexy Ness webcam video,1200,33,0.42,0.2,video,kws,Lexy Ness\n");
+        $dryRun = (new KeywordPoolDryRunService())->dry_run($parsed, 'video');
+
+        $csv = KeywordPoolsAdminPage::build_export_csv($dryRun['rows']);
+
+        $this->assertStringContainsString('Lexy Ness webcam video', $csv);
+        $this->assertStringContainsString('video_intent_detected', $csv);
+    }
+
+    public function test_admin_page_source_does_not_call_persistent_keyword_or_content_writes(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
+        $this->assertIsString($source);
+
+        $forbiddenCalls = [
+            '$wpdb->insert',
+            '$wpdb->update',
+            'VideoKeywordCandidateRepository',
+            'ModelOpportunityImportService::import',
+            'CategoryPageKeywordGenerator',
+            'RankMathMapper',
+            'ContentEngine',
+            'wp_insert_post',
+            'wp_update_post',
+            'update_post_meta',
+        ];
+
+        foreach ($forbiddenCalls as $call) {
+            $this->assertStringNotContainsString($call, $source);
+        }
+    }
+}

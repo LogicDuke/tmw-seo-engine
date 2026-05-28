@@ -66,6 +66,7 @@ class Admin {
         add_action('admin_post_tmwseo_force_recheck_keyword_metrics', [__CLASS__, 'force_recheck_keyword_metrics_now']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
         \TMWSEO\Engine\Admin\KeywordMetricsCsvImporter::init();
+        \TMWSEO\Engine\Admin\KeywordPoolsAdminPage::init();
         \TMWSEO\Engine\Admin\ModelOpportunityAdminPage::init();
     }
 
@@ -104,6 +105,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-competitor-domains',
             self::MENU_SLUG . '_page_tmwseo-content-gap',
             self::MENU_SLUG . '_page_tmwseo-keywords',
+            self::MENU_SLUG . '_page_tmwseo-keyword-pools',
             self::MENU_SLUG . '_page_tmwseo-opportunities',
             self::MENU_SLUG . '_page_tmwseo-traffic-forecast',
             self::MENU_SLUG . '_page_tmwseo-autopilot',
@@ -1040,6 +1042,7 @@ class Admin {
         // Store the hook so we can register the early bulk-action handler below.
         $kw_page_hook = add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'), __('Keywords', 'tmwseo'), 'manage_options', 'tmwseo-keywords', [__CLASS__, 'render_keywords']);
         add_submenu_page(self::MENU_SLUG, __('Model Opportunities', 'tmwseo'), __('Model Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-model-opportunities', ['\\TMWSEO\\Engine\\Admin\\ModelOpportunityAdminPage', 'render_page']);
+        add_submenu_page(self::MENU_SLUG, __('Keyword Pools', 'tmwseo'), __('Keyword Pools', 'tmwseo'), 'manage_options', 'tmwseo-keyword-pools', ['\\TMWSEO\\Engine\\Admin\\KeywordPoolsAdminPage', 'render_page']);
         // Early handler fires before admin-header.php so wp_safe_redirect() is safe.
         add_action( 'load-' . $kw_page_hook, [ __CLASS__, 'handle_keywords_page_load' ] );
         add_submenu_page(self::MENU_SLUG, __('Autopilot', 'tmwseo'),           __('Autopilot', 'tmwseo'),           'manage_options', 'tmwseo-autopilot',          ['\\TMWSEO\\Engine\\Admin\\AutopilotAdminPage', 'render_page']);
