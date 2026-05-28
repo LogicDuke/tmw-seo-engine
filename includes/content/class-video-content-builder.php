@@ -35,6 +35,7 @@
 namespace TMWSEO\Engine\Content;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Platform\AffiliateLinkBuilder;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -830,7 +831,7 @@ class VideoContentBuilder {
     }
 
     /**
-     * Resolve the affiliate/go URL for the model connected to this video post.
+     * Resolve the external affiliate URL for the model connected to this video post.
      *
      * Source priority:
      *  1. _tmwseo_platform_username_livejasmin on the video post itself
@@ -838,9 +839,10 @@ class VideoContentBuilder {
      *
      * Only returns a URL when:
      *  - A non-empty LiveJasmin username is found via the approved platform profile system
-     *  - The /go/ rewrite route is registered (AffiliateLinkBuilder::go_url uses home_url)
+     *  - Approved LiveJasmin affiliate tracking config exists
+     *  - The resolved URL is external (never the internal /go/ redirect route)
      *
-     * Returns empty string when no approved username is found (content omits affiliate section).
+     * Returns empty string when no approved username/config is found (content omits affiliate section).
      *
      * @since 5.8.14
      */
@@ -865,15 +867,37 @@ class VideoContentBuilder {
         }
 
         if ( $username === '' ) {
+            Logs::info( 'video_affiliate', '[TMW-VIDEO-AFFILIATE] skipped_missing_model_username', [
+                'post_id'    => $post_id,
+                'model_name' => $model_name,
+            ] );
             return ''; // No approved LiveJasmin profile on file — omit link.
         }
 
-        // Use TMW internal /go/ redirect route (handles tracking/affiliate routing).
-        if ( function_exists( 'home_url' ) ) {
-            return home_url( '/go/livejasmin/' . rawurlencode( $username ) . '/' );
+        if ( ! class_exists( AffiliateLinkBuilder::class ) ) {
+            Logs::warn( 'video_affiliate', '[TMW-VIDEO-AFFILIATE] skipped_missing_affiliate_config', [
+                'post_id' => $post_id,
+                'reason'  => 'affiliate_link_builder_unavailable',
+            ] );
+            return '';
         }
 
-        return '';
+        $url = AffiliateLinkBuilder::build_seo_content_affiliate_url( 'livejasmin', $username );
+        if ( $url === '' ) {
+            Logs::info( 'video_affiliate', '[TMW-VIDEO-AFFILIATE] skipped_missing_affiliate_config', [
+                'post_id'  => $post_id,
+                'username' => $username,
+            ] );
+            return '';
+        }
+
+        Logs::info( 'video_affiliate', '[TMW-VIDEO-AFFILIATE] external_link_added', [
+            'post_id'  => $post_id,
+            'username' => $username,
+            'host'     => (string) wp_parse_url( $url, PHP_URL_HOST ),
+        ] );
+
+        return $url;
     }
 
     /**
