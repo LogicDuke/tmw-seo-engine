@@ -67,12 +67,24 @@ class VideoKeywordCandidateRepository {
         }
 
         $columns = $this->columns();
-        if ( empty( $columns['keyword'] ) ) {
-            $this->log( 'warn', 'repository_missing_column', [ 'table' => $this->table_name(), 'column' => 'keyword' ] );
+        if ( ! $this->has_required_video_scope_columns( $columns ) ) {
             return 0;
         }
 
-        $existing_id = $this->find_existing_id( $post_id, $keyword, $columns );
+        $existing = $this->find_existing_by_keyword( $keyword, $columns );
+        if ( is_array( $existing ) && ! $this->can_update_existing_row_for_video( $existing, $post_id ) ) {
+            $this->log( 'warn', 'candidate_conflicts_existing_keyword', [
+                'post_id'        => $post_id,
+                'keyword'        => $keyword,
+                'existing_id'    => (int) ( $existing['id'] ?? 0 ),
+                'intent_type'    => (string) ( $existing['intent_type'] ?? '' ),
+                'entity_type'    => (string) ( $existing['entity_type'] ?? '' ),
+                'entity_id'      => (int) ( $existing['entity_id'] ?? 0 ),
+                'existing_status'=> (string) ( $existing['status'] ?? '' ),
+            ] );
+            return 0;
+        }
+
         $now         = function_exists( 'current_time' ) ? current_time( 'mysql' ) : gmdate( 'Y-m-d H:i:s' );
         $status      = $this->sanitize_status( (string) ( $args['status'] ?? self::DEFAULT_STATUS ) );
         $entity_type = $this->sanitize_entity_type( (string) ( $args['entity_type'] ?? self::DEFAULT_ENTITY_TYPE ) );
@@ -85,17 +97,13 @@ class VideoKeywordCandidateRepository {
             $data['status'] = $status;
         }
         if ( ! empty( $columns['intent'] ) ) {
-            $data['intent'] = (string) ( $args['intent'] ?? self::INTENT_TYPE );
+            $data['intent'] = self::INTENT_TYPE;
         }
-        if ( ! empty( $columns['intent_type'] ) ) {
-            $data['intent_type'] = self::INTENT_TYPE;
-        }
+        $data['intent_type'] = self::INTENT_TYPE;
         if ( ! empty( $columns['entity_type'] ) ) {
             $data['entity_type'] = $entity_type;
         }
-        if ( ! empty( $columns['entity_id'] ) ) {
-            $data['entity_id'] = $post_id;
-        }
+        $data['entity_id'] = $post_id;
 
         foreach ( [ 'volume', 'cpc', 'difficulty', 'opportunity' ] as $metric ) {
             if ( array_key_exists( $metric, $args ) && ! empty( $columns[ $metric ] ) ) {
@@ -113,7 +121,13 @@ class VideoKeywordCandidateRepository {
             $data['updated_at'] = $now;
         }
 
-        if ( $existing_id > 0 ) {
+        if ( is_array( $existing ) ) {
+            $existing_id = (int) ( $existing['id'] ?? 0 );
+            if ( $existing_id <= 0 ) {
+                $this->log( 'warn', 'candidate_conflicts_existing_keyword', [ 'post_id' => $post_id, 'keyword' => $keyword ] );
+                return 0;
+            }
+
             $updated = $wpdb->update( $this->table_name(), $data, [ 'id' => $existing_id ] );
             if ( $updated === false ) {
                 return 0;
@@ -141,21 +155,12 @@ class VideoKeywordCandidateRepository {
         }
 
         $columns = $this->columns();
-        if ( empty( $columns['keyword'] ) ) {
-            $this->log( 'warn', 'repository_missing_column', [ 'table' => $this->table_name(), 'column' => 'keyword' ] );
+        if ( ! $this->has_required_video_scope_columns( $columns ) ) {
             return [];
         }
 
-        $where = [ '1=1' ];
-        $params = [];
-        if ( ! empty( $columns['intent_type'] ) ) {
-            $where[] = 'intent_type = %s';
-            $params[] = self::INTENT_TYPE;
-        }
-        if ( ! empty( $columns['entity_id'] ) ) {
-            $where[] = 'entity_id = %d';
-            $params[] = $post_id;
-        }
+        $where = [ 'intent_type = %s', 'entity_id = %d' ];
+        $params = [ self::INTENT_TYPE, $post_id ];
         if ( ! empty( $columns['entity_type'] ) ) {
             $where[] = "entity_type IN ('post','video')";
         }
@@ -191,15 +196,18 @@ class VideoKeywordCandidateRepository {
         }
 
         $columns = $this->columns();
-        $where = [ 'keyword' => $keyword ];
-        if ( ! empty( $columns['intent_type'] ) ) {
-            $where['intent_type'] = self::INTENT_TYPE;
-        }
-        if ( ! empty( $columns['entity_id'] ) ) {
-            $where['entity_id'] = $post_id;
+        if ( ! $this->has_required_video_scope_columns( $columns ) ) {
+            return false;
         }
 
-        return $wpdb->delete( $this->table_name(), $where ) !== false;
+        return $wpdb->delete(
+            $this->table_name(),
+            [
+                'keyword'     => $keyword,
+                'intent_type' => self::INTENT_TYPE,
+                'entity_id'   => $post_id,
+            ]
+        ) !== false;
     }
 
     public function normalize_keyword( string $keyword ): string {
@@ -284,9 +292,7 @@ class VideoKeywordCandidateRepository {
         }
 
         if ( empty( $columns ) ) {
-            foreach ( [ 'id', 'keyword', 'canonical', 'status', 'intent', 'intent_type', 'entity_type', 'entity_id', 'volume', 'cpc', 'difficulty', 'opportunity', 'sources', 'notes', 'updated_at' ] as $field ) {
-                $columns[ $field ] = true;
-            }
+            $this->log( 'warn', 'repository_column_discovery_failed', [ 'table' => $table ] );
         }
 
         self::$columns_cache[ $table ] = $columns;
@@ -294,26 +300,54 @@ class VideoKeywordCandidateRepository {
     }
 
     /** @param array<string,bool> $columns */
-    private function find_existing_id( int $post_id, string $keyword, array $columns ): int {
+    private function has_required_video_scope_columns( array $columns ): bool {
+        $missing = [];
+        foreach ( [ 'keyword', 'intent_type', 'entity_id' ] as $required ) {
+            if ( empty( $columns[ $required ] ) ) {
+                $missing[] = $required;
+            }
+        }
+
+        if ( ! empty( $missing ) ) {
+            $this->log( 'warn', 'repository_missing_required_columns', [
+                'table'   => $this->table_name(),
+                'missing' => $missing,
+            ] );
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Look up by keyword only because tmw_keyword_candidates has UNIQUE KEY keyword.
+     *
+     * @param array<string,bool> $columns
+     * @return array<string,mixed>|null
+     */
+    private function find_existing_by_keyword( string $keyword, array $columns ): ?array {
         global $wpdb;
-        if ( empty( $columns['id'] ) ) {
-            return 0;
+
+        $sql = 'SELECT * FROM ' . $this->table_name() . ' WHERE keyword = %s LIMIT 1';
+        $row = $wpdb->get_row( $wpdb->prepare( $sql, $keyword ), ARRAY_A );
+        return is_array( $row ) ? $row : null;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function can_update_existing_row_for_video( array $row, int $post_id ): bool {
+        $intent_type = (string) ( $row['intent_type'] ?? '' );
+        $entity_id   = (int) ( $row['entity_id'] ?? 0 );
+        $status      = (string) ( $row['status'] ?? '' );
+
+        if ( $intent_type === self::INTENT_TYPE ) {
+            return $entity_id === 0 || $entity_id === $post_id;
         }
 
-        $where = [ 'keyword = %s' ];
-        $params = [ $keyword ];
-        if ( ! empty( $columns['intent_type'] ) ) {
-            $where[] = 'intent_type = %s';
-            $params[] = self::INTENT_TYPE;
-        }
-        if ( ! empty( $columns['entity_id'] ) ) {
-            $where[] = 'entity_id = %d';
-            $params[] = $post_id;
+        if ( in_array( $intent_type, [ '', 'generic' ], true ) && $entity_id === 0 && $status !== 'approved' ) {
+            return true;
         }
 
-        $sql = 'SELECT id FROM ' . $this->table_name() . ' WHERE ' . implode( ' AND ', $where ) . ' LIMIT 1';
-        $id = $wpdb->get_var( $wpdb->prepare( $sql, ...$params ) );
-        return (int) $id;
+        return false;
     }
 
     /** @param array<string,bool> $columns */

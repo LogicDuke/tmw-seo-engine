@@ -73,6 +73,8 @@ final class VideoKeywordCandidateRepositoryTest extends TestCase {
         $this->assertSame('primary webcam video', $rows[0]['keyword']);
         $this->assertStringContainsString('LIMIT 5', $wpdb->last_results_sql);
         $this->assertStringContainsString('primary', $wpdb->last_results_sql);
+        $this->assertStringContainsString('intent_type =', $wpdb->last_results_sql);
+        $this->assertStringContainsString('entity_id =', $wpdb->last_results_sql);
     }
 
     public function test_missing_table_fails_safely(): void {
@@ -82,6 +84,104 @@ final class VideoKeywordCandidateRepositoryTest extends TestCase {
         $this->assertFalse($repo->table_exists());
         $this->assertSame(0, $repo->upsert_for_video(123, 'Anisyia webcam video', ['model_name' => 'Anisyia']));
         $this->assertSame([], $repo->list_for_video(123));
+    }
+
+    public function test_missing_intent_type_or_entity_id_causes_safe_failure(): void {
+        $columns = ['id', 'keyword', 'status', 'intent', 'entity_type', 'sources', 'notes', 'updated_at'];
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp588_', true, $columns);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $this->assertSame(0, $repo->upsert_for_video(123, 'Anisyia webcam video', ['model_name' => 'Anisyia']));
+        $this->assertSame([], $repo->list_for_video(123));
+        $this->assertFalse($repo->delete_for_video(123, 'Anisyia webcam video'));
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_column_discovery_failure_returns_safe_failure(): void {
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp589_', true, []);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $this->assertSame(0, $repo->upsert_for_video(123, 'Anisyia webcam video', ['model_name' => 'Anisyia']));
+        $this->assertSame([], $repo->list_approved_for_video(123));
+        $this->assertFalse($repo->delete_for_video(123, 'Anisyia webcam video'));
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_intent_cannot_be_overridden_by_args(): void {
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp590_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $id = $repo->upsert_for_video(123, 'Anisyia webcam video', [
+            'model_name' => 'Anisyia',
+            'intent'     => 'generic',
+        ]);
+
+        $this->assertSame(1001, $id);
+        $this->assertSame('video', $wpdb->candidate_inserts[0]['data']['intent']);
+        $this->assertSame('video', $wpdb->candidate_inserts[0]['data']['intent_type']);
+    }
+
+    public function test_existing_keyword_only_row_is_updated_without_duplicate_insert(): void {
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp591_', true, null, [
+            'id'          => 77,
+            'keyword'     => 'anisyia webcam video',
+            'status'      => 'candidate',
+            'intent_type' => 'generic',
+            'entity_id'   => 0,
+        ]);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $id = $repo->upsert_for_video(123, 'Anisyia webcam video', ['model_name' => 'Anisyia']);
+
+        $this->assertSame(77, $id);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertCount(1, $wpdb->candidate_updates);
+        $this->assertSame(['id' => 77], $wpdb->candidate_updates[0]['where']);
+        $this->assertSame('video', $wpdb->candidate_updates[0]['data']['intent_type']);
+        $this->assertSame(123, $wpdb->candidate_updates[0]['data']['entity_id']);
+    }
+
+    public function test_conflicting_existing_non_video_row_is_not_overwritten(): void {
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp592_', true, null, [
+            'id'          => 88,
+            'keyword'     => 'anisyia webcam video',
+            'status'      => 'approved',
+            'intent_type' => 'model',
+            'entity_id'   => 456,
+        ]);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $this->assertSame(0, $repo->upsert_for_video(123, 'Anisyia webcam video', ['model_name' => 'Anisyia']));
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_valid_existing_video_row_can_be_updated(): void {
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp593_', true, null, [
+            'id'          => 99,
+            'keyword'     => 'anisyia webcam video',
+            'status'      => 'candidate',
+            'intent_type' => 'video',
+            'entity_id'   => 123,
+        ]);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $id = $repo->upsert_for_video(123, 'Anisyia webcam video', ['model_name' => 'Anisyia', 'status' => 'approved']);
+
+        $this->assertSame(99, $id);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertCount(1, $wpdb->candidate_updates);
+        $this->assertSame('approved', $wpdb->candidate_updates[0]['data']['status']);
+        $this->assertSame('video', $wpdb->candidate_updates[0]['data']['intent']);
+        $this->assertSame('video', $wpdb->candidate_updates[0]['data']['intent_type']);
     }
 
     public function test_repository_does_not_write_rank_math_or_post_content(): void {
@@ -106,11 +206,22 @@ final class VideoKeywordCandidateRepositoryFakeWpdb {
     public array $queries = [];
     public string $last_results_sql = '';
     public string $last_insert_table = '';
+    public array $candidate_inserts = [];
+    public array $candidate_updates = [];
     private bool $table_exists;
+    /** @var array<int,string> */
+    private array $columns;
+    /** @var array<string,mixed>|null */
+    private ?array $existing_row;
 
-    public function __construct(string $prefix, bool $table_exists) {
+    public function __construct(string $prefix, bool $table_exists, ?array $columns = null, ?array $existing_row = null) {
         $this->prefix = $prefix;
         $this->table_exists = $table_exists;
+        $this->columns = $columns ?? [
+            'id', 'keyword', 'canonical', 'status', 'intent', 'intent_type', 'entity_type', 'entity_id',
+            'volume', 'cpc', 'difficulty', 'opportunity', 'sources', 'notes', 'updated_at',
+        ];
+        $this->existing_row = $existing_row;
     }
 
     public function esc_like(string $text): string {
@@ -130,8 +241,13 @@ final class VideoKeywordCandidateRepositoryFakeWpdb {
         if (str_starts_with($sql, 'SHOW TABLES LIKE')) {
             return $this->table_exists ? $this->prefix . 'tmw_keyword_candidates' : null;
         }
-        if (str_starts_with($sql, 'SELECT id FROM')) {
-            return null;
+        return null;
+    }
+
+    public function get_row(string $sql, string $output = 'OBJECT') {
+        $this->queries[] = $sql;
+        if (str_starts_with($sql, 'SELECT * FROM')) {
+            return $this->existing_row;
         }
         return null;
     }
@@ -140,10 +256,7 @@ final class VideoKeywordCandidateRepositoryFakeWpdb {
         $this->queries[] = $sql;
         $this->last_results_sql = $sql;
         if (str_starts_with($sql, 'SHOW COLUMNS FROM')) {
-            return array_map(fn($field) => ['Field' => $field], [
-                'id', 'keyword', 'canonical', 'status', 'intent', 'intent_type', 'entity_type', 'entity_id',
-                'volume', 'cpc', 'difficulty', 'opportunity', 'sources', 'notes', 'updated_at',
-            ]);
+            return array_map(fn($field) => ['Field' => $field], $this->columns);
         }
         if (str_starts_with($sql, 'SELECT * FROM')) {
             return [
@@ -161,6 +274,7 @@ final class VideoKeywordCandidateRepositoryFakeWpdb {
         $this->queries[] = 'INSERT:' . $table . ':' . json_encode($data);
         if (!str_contains($table, 'tmw_logs')) {
             $this->last_insert_table = $table;
+            $this->candidate_inserts[] = ['table' => $table, 'data' => $data];
         }
         $this->insert_id++;
         return 1;
@@ -168,6 +282,9 @@ final class VideoKeywordCandidateRepositoryFakeWpdb {
 
     public function update(string $table, array $data, array $where, array $format = [], array $where_format = []) {
         $this->queries[] = 'UPDATE:' . $table . ':' . json_encode($data) . ':' . json_encode($where);
+        if (!str_contains($table, 'tmw_logs')) {
+            $this->candidate_updates[] = ['table' => $table, 'data' => $data, 'where' => $where];
+        }
         return 1;
     }
 
