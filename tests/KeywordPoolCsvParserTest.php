@@ -80,6 +80,37 @@ class KeywordPoolCsvParserTest extends TestCase {
         $this->assertSame($expected, KeywordPoolCsvParser::normalize_header('search   intent'));
     }
 
+
+    /**
+     * @return array<int, array{0:string,1:string,2:string}>
+     */
+    public function metric_alias_provider(): array {
+        return [
+            [ 'Avg CPC', 'cpc', '5.99' ],
+            [ 'Average CPC', 'cpc', '5.99' ],
+            [ 'CPC (USD)', 'cpc', '5.99' ],
+            [ 'SEO Score', 'seo_score', '81' ],
+            [ 'Traffic Value', 'traffic_value', '123.45' ],
+            [ 'Ad Difficulty', 'ad_difficulty', '17' ],
+        ];
+    }
+
+    /**
+     * @dataProvider metric_alias_provider
+     */
+    public function test_metric_alias_headers_map_to_preview_only_fields(string $header, string $canonical, string $value): void {
+        $parser = new KeywordPoolCsvParser();
+        $result = $parser->parse_text('Keyword,"' . $header . '"' . "\nasian cam models," . $value . "\n");
+        $row    = $result['rows'][0];
+
+        $this->assertSame('keyword', $result['header_map'][0]);
+        $this->assertSame($canonical, $result['header_map'][1]);
+        $this->assertSame($value, $row[$canonical]);
+        if ('SEO Score' === $header) {
+            $this->assertArrayNotHasKey('difficulty', $row);
+        }
+    }
+
     public function test_parses_pasted_text_with_result_contract(): void {
         $parser = new KeywordPoolCsvParser();
         $result = $parser->parse_text("keyword,volume\nalpha,10\nbeta,20\n");

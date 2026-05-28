@@ -152,3 +152,33 @@ Spreadsheet footer rows are blocked with `summary_or_footer_row`, including:
 These preview fields are designed to support a future import/review workflow. A future PR may use `priority_preview`, `is_golden_keyword`, `commercial_score_preview`, and `recommended_action` to seed review queues or operator exports, but that future work must separately define persistence rules and safety gates.
 
 This PR remains preview-only and does not write to keyword candidates, model opportunity tables, Rank Math fields, post content, indexing settings, or Generate workflows.
+
+## Metric Alias Mapping Notes
+
+PR-589 expands the preview-only CSV header aliases used before dry-run scoring so common Keywords Everywhere, Claude strategy, and spreadsheet exports hydrate the expected metric fields:
+
+- CPC aliases map to `cpc`, including `cpc`, `CPC`, `Avg CPC`, `Average CPC`, `avg_cpc`, `average_cpc`, `avg cpc`, `average cpc`, `cost_per_click`, `cost per click`, `average cost per click`, `avg. cpc`, and `CPC (USD)`.
+- Difficulty aliases map to `difficulty` only when the label is an actual difficulty/KD metric, including `difficulty`, `kd`, `keyword_difficulty`, `keyword difficulty`, `seo_difficulty`, `seo difficulty`, `competition_difficulty`, and `keyword difficulty score`.
+- `SEO Score` is intentionally kept separate as `seo_score` instead of being treated as keyword difficulty, because score semantics can differ by source and should not corrupt difficulty/KD data.
+- Preview/export-only optional metrics now include `seo_score`, `traffic_value`, `trend`, and `ad_difficulty`.
+
+The parser normalizes case plus common separators, so labels such as `Avg CPC`, `avg_cpc`, and quoted `CPC (USD)` can be accepted without changing persistence behavior.
+
+## Golden Formula Diagnostics
+
+Every dry-run preview row includes:
+
+- `golden_formula_summary`: `volume>=500, competition<0.20, cpc>=2.00`
+- `golden_missing_reasons`: a list of unmet or missing metric requirements when `is_golden_keyword` is false.
+
+Possible missing reasons include:
+
+- `missing_cpc`
+- `volume_below_500`
+- `competition_missing`
+- `competition_not_below_0_20`
+- `cpc_below_2_00`
+
+This makes it clear why strong-looking phrases such as `asian cam models`, `asian webcam models`, `livejasmin models`, `couples live webcam`, or `live cam shows` do or do not qualify as golden in a specific uploaded CSV.
+
+A keyword can be `P1` but not golden when CPC is missing. Priority can be driven by high search volume alone (`volume >= 1000`), while golden status requires all three formula inputs: sufficient volume, low competition, and CPC of at least 2.00. In that case the preview shows `Priority = P1`, `Golden? = no`, and `Golden Missing Reasons = missing_cpc` so the operator can immediately identify a metric mapping or source-data issue.

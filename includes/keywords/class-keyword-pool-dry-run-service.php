@@ -101,9 +101,11 @@ class KeywordPoolDryRunService {
 
             $preview_row['reason_codes']       = array_values(array_unique($preview_row['reason_codes']));
             $preview_row['priority_preview']   = $this->priority_preview($preview_row);
-            $preview_row['is_golden_keyword']  = $this->is_golden_keyword($preview_row);
-            $preview_row['recommended_action'] = $this->recommended_action($preview_row);
-            $preview_row['reason_summary']     = $this->summarize_reasons($preview_row['reason_codes']);
+            $preview_row['is_golden_keyword']       = $this->is_golden_keyword($preview_row);
+            $preview_row['golden_missing_reasons']  = $this->golden_missing_reasons($preview_row);
+            $preview_row['golden_formula_summary']  = $this->golden_formula_summary();
+            $preview_row['recommended_action']      = $this->recommended_action($preview_row);
+            $preview_row['reason_summary']          = $this->summarize_reasons($preview_row['reason_codes']);
             $preview[]                         = $preview_row;
 
             ++$summary['total_rows'];
@@ -164,10 +166,16 @@ class KeywordPoolDryRunService {
             'is_golden_keyword'         => false,
             'recommended_action'        => 'queue_for_review',
             'commercial_score_preview'  => 0,
+            'golden_missing_reasons'  => [],
+            'golden_formula_summary'  => $this->golden_formula_summary(),
             'volume'                 => $this->normalize_metric($row['volume'] ?? '', 'volume', $reason_codes),
             'difficulty'             => $this->normalize_metric($row['difficulty'] ?? '', 'difficulty', $reason_codes),
             'cpc'                    => $this->normalize_metric($row['cpc'] ?? '', 'cpc', $reason_codes),
             'competition'            => $this->normalize_metric($row['competition'] ?? '', 'competition', $reason_codes),
+            'seo_score'              => $this->normalize_metric($row['seo_score'] ?? '', 'seo_score', $reason_codes),
+            'traffic_value'          => $this->normalize_metric($row['traffic_value'] ?? '', 'traffic_value', $reason_codes),
+            'trend'                  => $this->clean_text($row['trend'] ?? ''),
+            'ad_difficulty'          => $this->normalize_metric($row['ad_difficulty'] ?? '', 'ad_difficulty', $reason_codes),
             'intent'                 => $this->normalize_token($row['intent'] ?? ''),
             'source'                 => $this->normalize_source($row['source'] ?? ''),
             'model_name'             => $this->clean_text($row['model_name'] ?? ''),
@@ -204,6 +212,8 @@ class KeywordPoolDryRunService {
         $preview['reason_codes']             = array_values(array_unique($reason_codes));
         $preview['priority_preview']         = $this->priority_preview($preview);
         $preview['is_golden_keyword']        = $this->is_golden_keyword($preview);
+        $preview['golden_missing_reasons']   = $this->golden_missing_reasons($preview);
+        $preview['golden_formula_summary']   = $this->golden_formula_summary();
         $preview['commercial_score_preview'] = $this->commercial_score($preview);
         $preview['recommended_action']       = $this->recommended_action($preview);
         $preview['reason_summary']           = $this->summarize_reasons($preview['reason_codes']);
@@ -317,6 +327,44 @@ class KeywordPoolDryRunService {
             && (float) $competition < 0.20
             && is_numeric($cpc)
             && (float) $cpc >= 2.00;
+    }
+
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     * @return array<int, string>
+     */
+    private function golden_missing_reasons(array $row): array {
+        if ($this->is_golden_keyword($row)) {
+            return [];
+        }
+
+        $reasons     = [];
+        $volume      = $row['volume'] ?? null;
+        $cpc         = $row['cpc'] ?? null;
+        $competition = $row['competition'] ?? null;
+
+        if (! is_int($volume) || $volume < 500) {
+            $reasons[] = 'volume_below_500';
+        }
+
+        if (! is_numeric($competition)) {
+            $reasons[] = 'competition_missing';
+        } elseif ((float) $competition >= 0.20) {
+            $reasons[] = 'competition_not_below_0_20';
+        }
+
+        if (! is_numeric($cpc)) {
+            $reasons[] = 'missing_cpc';
+        } elseif ((float) $cpc < 2.00) {
+            $reasons[] = 'cpc_below_2_00';
+        }
+
+        return $reasons;
+    }
+
+    private function golden_formula_summary(): string {
+        return 'volume>=500, competition<0.20, cpc>=2.00';
     }
 
     /**
@@ -479,7 +527,7 @@ class KeywordPoolDryRunService {
      * @param array<string, mixed> $row Preview row.
      */
     private function row_has_large_metric(array $row): bool {
-        foreach ([ 'volume', 'difficulty', 'cpc', 'competition' ] as $metric) {
+        foreach ([ 'volume', 'difficulty', 'cpc', 'competition', 'seo_score', 'traffic_value', 'ad_difficulty' ] as $metric) {
             $value = $row[$metric] ?? null;
             if (is_int($value) || is_float($value)) {
                 if ($value >= 1000) {
