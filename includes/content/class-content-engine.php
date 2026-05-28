@@ -1324,6 +1324,23 @@ class ContentEngine {
                 $generated_content = (string)$tpl['content'];
                 $seo_title = TitleFixer::shorten((string)$tpl['seo_title'], 70);
                 $meta_desc = TitleFixer::shorten((string)$tpl['meta_description'], 160);
+            } elseif ($post->post_type === 'tmw_category_page') {
+                // v5.8.14: use the proper category-page template builder instead of placeholder.
+                $cat_preview = self::build_template_preview_payload(
+                    $post,
+                    $keyword_pack,
+                    $focus_kw,
+                    self::PREVIEW_TEMPLATE_CATEGORY_PAGE
+                );
+                $generated_content = (string)($cat_preview['content_html'] ?? '');
+                $seo_title         = TitleFixer::shorten((string)($cat_preview['seo_title'] ?? ''), 70);
+                $meta_desc         = TitleFixer::shorten((string)($cat_preview['meta_description'] ?? ''), 160);
+                if ($generated_content === '') {
+                    // Absolute fallback — should never be reached.
+                    $seo_title = TitleFixer::shorten(TitleFixer::fix((string)$post->post_title), 70);
+                    $meta_desc = TitleFixer::shorten('Browse ' . $post->post_title . ' webcam models on ' . get_bloginfo('name') . '.', 160);
+                    $generated_content = '<h2>' . esc_html($post->post_title) . '</h2><p>Category page content is being prepared.</p>';
+                }
             } else {
                 // Generic template fallback.
                 $seo_title = TitleFixer::shorten(TitleFixer::fix((string)$post->post_title), 70);
