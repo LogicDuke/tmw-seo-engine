@@ -121,9 +121,16 @@ class ModelKeywordPack {
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
+        if ($is_model_page) {
+            $additional_pool = self::filter_scored_pool_for_model_page($additional_pool);
+            $fallback_additional = PageTypeKeywordFilter::filter_for_model_page($fallback_additional);
+        }
+
         // Model pages always expose exactly 4 additional keywords, and every one
         // of them must stay name-free so Rank Math chips do not repeat the exact
-        // model name or push density over the safe range later on.
+        // model name or push density over the safe range later on. Filtering is
+        // applied to the pool before this point so safe replacements can refill
+        // the selected list instead of shrinking it after selection.
         $additional_target = $is_model_page
             ? 4
             : self::dynamic_additional_count($additional_pool, $platform_slugs, $safe_tags);
@@ -133,7 +140,7 @@ class ModelKeywordPack {
                 $additional_pool,
                 $additional_target,
                 $primary,
-                self::fallback_additional($primary, $platform_slugs, $top_tags)
+                $fallback_additional
             );
             self::debug_assert_model_additional_keywords($additional, $primary);
         } else {
@@ -162,21 +169,20 @@ class ModelKeywordPack {
         }
 
         if ($is_model_page) {
+            $longtail_pool = self::filter_scored_pool_for_model_page($longtail_pool);
+            $fallback_longtail = PageTypeKeywordFilter::filter_for_model_page($fallback_longtail);
             $longtail = self::pick_name_free_top(
                 $longtail_pool,
                 8,
                 $primary,
-                self::fallback_longtail($primary, $platform_slugs, $top_tags)
+                $fallback_longtail
             );
         } else {
             $longtail = self::pick_top($longtail_pool, 8, $primary, 8);
         }
 
         // Patch 2.1: compute keyword confidence from real scoring data.
-        // Confidence = how well the selected additional keywords scored.
-        $additional = PageTypeKeywordFilter::filter_for_model_page($additional);
-        $longtail = PageTypeKeywordFilter::filter_for_model_page($longtail);
-
+        // Confidence = how well the final selected additional keywords scored.
         $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
 
         // Dedicated Rank Math chips: model-name-led, varied per post.
@@ -455,6 +461,37 @@ class ModelKeywordPack {
         }
 
         return self::dedupe_keywords($out);
+    }
+
+
+    /**
+     * @param array<string,int> $pool
+     * @return array<string,int>
+     */
+    private static function filter_scored_pool_for_model_page(array $pool): array {
+        if (empty($pool)) {
+            return [];
+        }
+
+        $allowed = PageTypeKeywordFilter::filter_for_model_page(array_keys($pool));
+        $allowed_keys = [];
+        foreach ($allowed as $kw) {
+            $allowed_keys[strtolower(self::normalize_keyword((string) $kw))] = true;
+        }
+
+        $filtered = [];
+        foreach ($pool as $kw => $score) {
+            $clean = self::normalize_keyword((string) $kw);
+            if ($clean === '') {
+                continue;
+            }
+            if (!isset($allowed_keys[strtolower($clean)])) {
+                continue;
+            }
+            $filtered[$clean] = max((int) ($filtered[$clean] ?? 0), (int) $score);
+        }
+
+        return $filtered;
     }
 
     private static function allow_generic_tag_queries(): bool {

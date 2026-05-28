@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace {
     if (!defined('ABSPATH')) define('ABSPATH', __DIR__);
-    if (!class_exists('WP_Post')) { class WP_Post { public $ID=0; public $post_name=''; public $post_status='publish'; public $post_type='post'; public $post_parent=0; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
+    require_once __DIR__ . '/bootstrap/wp-post-stub.php';
     if (!class_exists('WP_Term')) { class WP_Term { public $name=''; public $slug=''; public $taxonomy=''; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
     $GLOBALS['_tmw_meta'] = [];
     $GLOBALS['_tmw_posts'] = [];

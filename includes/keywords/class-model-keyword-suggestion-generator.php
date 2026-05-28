@@ -96,10 +96,6 @@ class ModelKeywordSuggestionGenerator {
 
         $selection = $this->build_extra_keywords( (int) $post->ID, $model_name, $tag_attributes, $category_attributes, $include_tags, $include_categories );
         $extra = $selection['keywords'];
-        $extra = array_values( array_filter( $extra, static function ( array $row ): bool {
-            return ! PageTypeKeywordFilter::is_unsafe( (string) ( $row['keyword'] ?? '' ) )
-                && ! empty( PageTypeKeywordFilter::filter_for_model_page( [ (string) ( $row['keyword'] ?? '' ) ] ) );
-        } ) );
 
         return [
             'post_id'         => (int) $post->ID,
@@ -231,6 +227,9 @@ class ModelKeywordSuggestionGenerator {
             $source = (string) ( $row['source'] ?? '' );
             $normalized = $this->normalize_term( $keyword );
             if ( $keyword === '' || $normalized === '' || isset( $seen[ $normalized ] ) || ! $this->is_natural_keyword( $keyword ) ) {
+                continue;
+            }
+            if ( ! $this->is_safe_model_intent_keyword( $keyword ) ) {
                 continue;
             }
             $seen[ $normalized ] = true;
@@ -393,6 +392,15 @@ class ModelKeywordSuggestionGenerator {
             }
         }
         return false;
+    }
+
+
+    private function is_safe_model_intent_keyword( string $keyword ): bool {
+        if ( PageTypeKeywordFilter::is_unsafe( $keyword ) ) {
+            return false;
+        }
+
+        return ! empty( PageTypeKeywordFilter::filter_for_model_page( [ $keyword ] ) );
     }
 
     private function score_keyword_candidate( string $keyword, string $source, string $model_name ): int {

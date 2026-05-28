@@ -116,9 +116,7 @@ if ( ! function_exists( 'sanitize_key' ) ) {
 		return (string) preg_replace( '#[^a-z0-9_\-]#', '', $key );
 	}
 }
-if ( ! class_exists( 'WP_Post' ) ) {
-	class WP_Post { public $ID = 0; public $post_title = ''; public $post_type = 'model'; }
-}
+require_once __DIR__ . '/bootstrap/wp-post-stub.php';
 
 require_once dirname( __DIR__ ) . '/includes/content/class-model-research-evidence.php';
 require_once dirname( __DIR__ ) . '/includes/content/class-model-copy-cleanup.php';

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace {
     if (!defined('ABSPATH')) define('ABSPATH', __DIR__);
-    if (!class_exists('WP_Post')) { class WP_Post { public $ID=0; public $post_title=''; public $post_type='tmw_category_page'; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
+    require_once __DIR__ . '/bootstrap/wp-post-stub.php';
     if (!function_exists('esc_html')) { function esc_html($s){ return htmlspecialchars((string)$s, ENT_QUOTES); } }
     if (!function_exists('esc_url')) { function esc_url($s){ return (string)$s; } }
     if (!function_exists('home_url')) { function home_url($path=''){ return 'https://top-models.webcam' . $path; } }

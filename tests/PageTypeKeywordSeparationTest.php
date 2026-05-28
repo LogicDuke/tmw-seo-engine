@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace {
     if (!defined('ABSPATH')) define('ABSPATH', __DIR__);
-    if (!class_exists('WP_Post')) { class WP_Post { public $ID=0; public $post_title=''; public $post_name=''; public $post_status='publish'; public $post_type='post'; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
+    require_once __DIR__ . '/bootstrap/wp-post-stub.php';
     if (!class_exists('WP_Term')) { class WP_Term { public $name=''; public $slug=''; public $taxonomy=''; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
     if (!class_exists('WP_Error')) { class WP_Error { private $m; public function __construct($c='',$m=''){ $this->m=$m; } public function get_error_message(){ return $this->m; } } }
 
@@ -113,6 +113,8 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringNotContainsString('cam show', $joined);
             $this->assertStringNotContainsString('private cam show', $joined);
             $this->assertStringNotContainsString('live cam show', $joined);
+            $actual_attribute_count = count(array_filter($pack['extra_keywords'], static fn($row): bool => (string)($row['source'] ?? '') !== 'model_name_pattern'));
+            $this->assertSame($actual_attribute_count, $pack['selected_attribute_count']);
         }
 
         public function test_video_secondary_keywords_do_not_include_profile_or_earnings_modifiers(): void {
