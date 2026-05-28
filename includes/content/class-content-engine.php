@@ -740,22 +740,25 @@ class ContentEngine {
         }
 
         $content =
-            '<p>' . esc_html($category_term) . ' is a browsing category designed to help visitors discover relevant live webcam models and videos in a neutral, easy-to-scan format.</p>' .
+            '<p>' . esc_html($category_term) . ' is a category page designed for practical discovery across live webcam model profiles and related video archives, giving visitors a neutral way to browse a focused theme without changing any category terms or taxonomy structure.</p>' .
+            '<p>This draft keeps language safe, non-graphic, and editorially reviewable while helping users move between model pages, video pages, and supporting archives from one clear starting point.</p>' .
             '<h2>About ' . esc_html($category_term) . '</h2>' .
-            '<p>This category groups related performers and clips so visitors can compare themes quickly, move between model profiles, and discover additional video pages without changing taxonomy settings or archive structure.</p>' .
+            '<p>The purpose of this category is to gather relevant model and video listings under a single archive topic so visitors can scan quickly, compare options, and continue browsing using internal site navigation. It works as a directory layer rather than a platform-specific claim, and it does not assume one network or operator unless that relationship is already verified elsewhere in site data.</p>' .
+            '<p>In SEO terms, the page improves topic clarity for search engines while keeping visitors in a predictable path: open the archive, review connected model cards or clips, and move deeper through related internal links. This supports indexing readiness without requiring category creation, renaming, or slug edits in the generation pipeline.</p>' .
             '<h2>Browse ' . esc_html($category_term) . ' Videos and Models</h2>' .
-            '<p>Use the internal library pages to continue browsing:</p>' .
+            '<p>Visitors can continue with two core navigation hubs that remain stable across the site:</p>' .
             '<ul><li><a href="' . esc_url(home_url('/models/')) . '">Models Directory</a></li><li><a href="' . esc_url(home_url('/videos/')) . '">Videos Directory</a></li></ul>' .
-            '<p>From there, visitors can open linked profiles, check recent clips, and follow on-site tags or categories that match this topic.</p>' .
+            '<p>From the models directory, users can open profile pages, review linked media, and pivot into adjacent categories through existing taxonomy links. From the videos directory, users can compare clip context and return to category or tag archives that align with the same browsing intent. These paths are internal, consistent, and suitable for manual SEO review workflows.</p>' .
             '<h2>How This Category Helps Visitors</h2>' .
-            '<p>The page supports straightforward discovery intent, improves internal navigation, and keeps content context focused on safe, factual descriptions suitable for editorial review before any manual apply action.</p>' .
+            '<p>This page supports people who want a quick, organized way to explore a specific webcam topic without jumping across unrelated sections. The structure is useful for both new and returning visitors because it provides a shortlist-style archive context, then points them to model and video destinations where they can continue discovery based on preference.</p>' .
+            '<p>For operators, this draft-oriented content block is also practical: metadata and copy can be generated, reviewed, and manually applied to the linked tmw_category_page draft without auto-publish behavior. That keeps quality control in human review while preserving the existing bridge that maps approved content to the real category archive output.</p>' .
             '<h2>Related Webcam Categories</h2>' .
-            '<p>Related category or tag archive links can be added during operator review when verified as relevant.</p>' .
+            '<p>Related category or tag archive references can be included when they are already present and contextually relevant. This avoids invented external destinations and keeps visitors inside known site sections that match the same theme.</p>' .
             $related_links_html .
             '<h2>Frequently Asked Questions</h2>' .
-            '<h3>What are ' . esc_html($category_term) . '?</h3><p>They are category listings that organize models and videos under one discoverable archive topic.</p>' .
-            '<h3>How do I find related webcam videos?</h3><p>Open the Videos Directory and use connected category and tag links to browse more matching clips.</p>' .
-            '<h3>Can I browse by model?</h3><p>Yes. Use the Models Directory to open profiles, then navigate to related videos and archives from each model page.</p>';
+            '<h3>What are ' . esc_html($category_term) . '?</h3><p>They are archive-style category pages that group matching webcam models and videos into one discoverable topic so visitors can browse efficiently.</p>' .
+            '<h3>How do I find related webcam videos?</h3><p>Use the Videos Directory and follow existing internal category or tag links to continue into clips that match this same browsing focus.</p>' .
+            '<h3>Can I browse by model?</h3><p>Yes. Open the Models Directory to view profile pages, then navigate to related clips and connected archives from each model page.</p>';
 
         return [
             'seo_title' => $seo_title,
@@ -763,14 +766,6 @@ class ContentEngine {
             'content_html' => $content,
             'outline' => "- About {$category_term}\n- Browse {$category_term} Videos and Models\n- How This Category Helps Visitors\n- Related Webcam Categories\n- Frequently Asked Questions",
         ];
-    }
-
-    private static function build_category_page_seo_title(string $focus_keyword, string $year): string {
-        return TitleFixer::shorten($focus_keyword . ': Best Live Cam Guide ' . $year, 70);
-    }
-
-    private static function build_category_page_meta_description(string $focus_keyword, string $brand): string {
-        return TitleFixer::shorten($focus_keyword . ' category page with neutral browsing context, related videos, model links, and live webcam discovery on ' . $brand . '.', 160);
     }
 
     /** @return array<string,string> */

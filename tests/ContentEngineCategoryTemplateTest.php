@@ -51,6 +51,23 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringContainsString('<h3>What are Amateur Webcam Models?</h3>', $content);
         }
 
+        public function test_category_template_targets_non_thin_content_length(): void {
+            $post = new \WP_Post(['ID' => 14, 'post_title' => 'Amateur Webcam Models']);
+            $payload = $this->invoke('build_category_page_template_preview', [$post, 'Amateur Webcam Models', []]);
+            $word_count = str_word_count(trim(strip_tags((string) $payload['content_html'])));
+            $this->assertGreaterThanOrEqual(500, $word_count);
+            $this->assertLessThanOrEqual(800, $word_count);
+        }
+
+        public function test_category_template_includes_required_internal_links_and_no_external_links(): void {
+            $post = new \WP_Post(['ID' => 15, 'post_title' => 'Blonde Webcam Models']);
+            $payload = $this->invoke('build_category_page_template_preview', [$post, 'Blonde Webcam Models', []]);
+            $content = (string) $payload['content_html'];
+            $this->assertStringContainsString('href="https://top-models.webcam/models/"', $content);
+            $this->assertStringContainsString('href="https://top-models.webcam/videos/"', $content);
+            $this->assertSame(2, preg_match_all('/href="https?:\/\/[^\"]+"/', $content, $matches));
+        }
+
         public function test_category_template_does_not_write_term_or_robot_state(): void {
             $post = new \WP_Post(['ID' => 12, 'post_title' => 'Blonde Webcam Models']);
             $payload = $this->invoke('build_category_page_template_preview', [$post, 'Blonde Webcam Models', []]);
