@@ -1042,7 +1042,14 @@ class Admin {
         // Store the hook so we can register the early bulk-action handler below.
         $kw_page_hook = add_submenu_page(self::MENU_SLUG, __('Keywords', 'tmwseo'), __('Keywords', 'tmwseo'), 'manage_options', 'tmwseo-keywords', [__CLASS__, 'render_keywords']);
         add_submenu_page(self::MENU_SLUG, __('Model Opportunities', 'tmwseo'), __('Model Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-model-opportunities', ['\\TMWSEO\\Engine\\Admin\\ModelOpportunityAdminPage', 'render_page']);
-        add_submenu_page(self::MENU_SLUG, __('Keyword Pools', 'tmwseo'), __('Keyword Pools', 'tmwseo'), 'manage_options', 'tmwseo-keyword-pools', ['\\TMWSEO\\Engine\\Admin\\KeywordPoolsAdminPage', 'render_page']);
+        add_submenu_page(
+            self::MENU_SLUG,
+            __('Keyword Pools', 'tmwseo'),
+            __('Keyword Pools', 'tmwseo'),
+            \TMWSEO\Engine\Admin\KeywordPoolsAdminPage::capability(),
+            \TMWSEO\Engine\Admin\KeywordPoolsAdminPage::slug(),
+            [\TMWSEO\Engine\Admin\KeywordPoolsAdminPage::class, 'render']
+        );
         // Early handler fires before admin-header.php so wp_safe_redirect() is safe.
         add_action( 'load-' . $kw_page_hook, [ __CLASS__, 'handle_keywords_page_load' ] );
         add_submenu_page(self::MENU_SLUG, __('Autopilot', 'tmwseo'),           __('Autopilot', 'tmwseo'),           'manage_options', 'tmwseo-autopilot',          ['\\TMWSEO\\Engine\\Admin\\AutopilotAdminPage', 'render_page']);
