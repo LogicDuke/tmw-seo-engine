@@ -61,7 +61,14 @@ class AffiliateLinkBuilder {
     }
 
     /**
-     * Build an approved external affiliate URL for generated SEO content.
+     * Single global API for affiliate links inside generated SEO body content.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * Generated SEO text/content blocks that need Rank Math outbound-link
+     * scoring must call this method instead of go_url(), build_affiliate_url(),
+     * or any raw /go/ helper. This method returns only approved external
+     * affiliate destinations and returns an empty string when required platform
+     * username/tracking config is unavailable.
      *
      * Unlike build_affiliate_url(), this resolver never falls back to raw
      * platform profile URLs or internal /go/ routes. Generated post content
@@ -96,6 +103,15 @@ class AffiliateLinkBuilder {
         return $url;
     }
 
+    /**
+     * Build the normal affiliate/profile destination used by redirect and
+     * non-generated-body contexts.
+     *
+     * This method may fall back to profile URLs and is intentionally preserved
+     * for existing /go/ redirect behavior. Generated SEO body content must use
+     * build_seo_content_affiliate_url() instead so Rank Math sees an approved
+     * external affiliate href only when tracking config exists.
+     */
     public static function build_affiliate_url($platform, $username): string {
         $platform_slug = self::canonical_platform_slug((string) $platform);
         if (!PlatformRegistry::get($platform_slug)) {
@@ -139,6 +155,17 @@ class AffiliateLinkBuilder {
         return $profile_url;
     }
 
+    /**
+     * Build the internal cloaked redirect URL for frontend/click-tracking UI.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * - Use go_url() for frontend buttons, cards, theme links, and other places
+     *   where internal click tracking/cloaking is intentional.
+     * - Do NOT use go_url() inside generated SEO body text that is intended to
+     *   satisfy Rank Math outbound-link detection; Rank Math sees the site host
+     *   as internal and will not count the eventual redirect target.
+     * - Generated SEO body content must use build_seo_content_affiliate_url().
+     */
     public static function go_url($platform, $username): string {
         $platform_slug = self::canonical_platform_slug((string) $platform);
         $clean_username = self::sanitize_username((string) $username);
