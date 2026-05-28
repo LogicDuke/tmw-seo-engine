@@ -60,6 +60,58 @@ class AffiliateLinkBuilder {
         return str_replace('{username}', rawurlencode($clean_username), $pattern);
     }
 
+    /**
+     * Single global API for affiliate links inside generated SEO body content.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * Generated SEO text/content blocks that need Rank Math outbound-link
+     * scoring must call this method instead of go_url(), build_affiliate_url(),
+     * or any raw /go/ helper. This method returns only approved external
+     * affiliate destinations and returns an empty string when required platform
+     * username/tracking config is unavailable.
+     *
+     * Unlike build_affiliate_url(), this resolver never falls back to raw
+     * platform profile URLs or internal /go/ routes. Generated post content
+     * needs a real outbound href so SEO tooling can detect an external link.
+     *
+     * @param string $platform Platform slug or alias.
+     * @param string $username Approved platform username.
+     * @return string External affiliate URL, or empty string when required
+     *                affiliate configuration is missing/invalid.
+     */
+    public static function build_seo_content_affiliate_url( string $platform, string $username ): string {
+        $platform_slug = self::canonical_platform_slug( $platform );
+        if ( $platform_slug !== 'livejasmin' || ! PlatformRegistry::get( $platform_slug ) ) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username( $username );
+        if ( $clean_username === '' ) {
+            return '';
+        }
+
+        $settings = self::get_platform_affiliate_settings( $platform_slug );
+        if ( ! self::has_livejasmin_seo_affiliate_config( $settings ) ) {
+            return '';
+        }
+
+        $url = self::build_livejasmin_affiliate_url( $clean_username, $settings );
+        if ( $url === '' || ! self::is_external_url( $url ) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    /**
+     * Build the normal affiliate/profile destination used by redirect and
+     * non-generated-body contexts.
+     *
+     * This method may fall back to profile URLs and is intentionally preserved
+     * for existing /go/ redirect behavior. Generated SEO body content must use
+     * build_seo_content_affiliate_url() instead so Rank Math sees an approved
+     * external affiliate href only when tracking config exists.
+     */
     public static function build_affiliate_url($platform, $username): string {
         $platform_slug = self::canonical_platform_slug((string) $platform);
         if (!PlatformRegistry::get($platform_slug)) {
@@ -103,6 +155,17 @@ class AffiliateLinkBuilder {
         return $profile_url;
     }
 
+    /**
+     * Build the internal cloaked redirect URL for frontend/click-tracking UI.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * - Use go_url() for frontend buttons, cards, theme links, and other places
+     *   where internal click tracking/cloaking is intentional.
+     * - Do NOT use go_url() inside generated SEO body text that is intended to
+     *   satisfy Rank Math outbound-link detection; Rank Math sees the site host
+     *   as internal and will not count the eventual redirect target.
+     * - Generated SEO body content must use build_seo_content_affiliate_url().
+     */
     public static function go_url($platform, $username): string {
         $platform_slug = self::canonical_platform_slug((string) $platform);
         $clean_username = self::sanitize_username((string) $username);
@@ -335,6 +398,44 @@ class AffiliateLinkBuilder {
     public static function canonical_platform_slug(string $platform): string {
         $slug = sanitize_key($platform);
         return self::PLATFORM_ALIASES[$slug] ?? $slug;
+    }
+
+    /**
+     * Confirm LiveJasmin has enough operator-approved affiliate configuration
+     * to emit a monetized external link in generated SEO content.
+     *
+     * The canonical endpoint is code-defined, but at least one tracking value
+     * must be stored in tmwseo_platform_affiliate_settings so generated content
+     * does not invent an untracked external URL.
+     *
+     * @param array<string,mixed> $settings
+     */
+    private static function has_livejasmin_seo_affiliate_config( array $settings ): bool {
+        if ( empty( $settings ) ) {
+            return false;
+        }
+
+        foreach ( [ 'psid', 'pstool', 'psprogram', 'campaign_id', 'subaffid' ] as $key ) {
+            if ( trim( (string) ( $settings[ $key ] ?? '' ) ) !== '' ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function is_external_url( string $url ): bool {
+        if ( ! wp_http_validate_url( $url ) ) {
+            return false;
+        }
+
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        if ( $host === '' ) {
+            return false;
+        }
+
+        $home_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+        return $home_host === '' || $host !== $home_host;
     }
 
     /**

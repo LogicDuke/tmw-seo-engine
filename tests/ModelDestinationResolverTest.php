@@ -117,6 +117,35 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringNotContainsString('www.livejasmin.com/en/free/chat', $destination);
     }
 
+
+    public function test_generated_seo_affiliate_url_uses_global_external_resolver(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => 'model-body',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $url = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', 'Anisyia');
+        $this->assertNotSame('', $url);
+        $this->assertSame('ctwmsg.com', (string) wp_parse_url($url, PHP_URL_HOST));
+        $this->assertStringContainsString('Topmodels4u', $url);
+        $this->assertStringContainsString('model-body', $url);
+        $this->assertStringNotContainsString('/go/livejasmin/', $url);
+    }
+
+    public function test_generated_seo_affiliate_url_empty_without_config(): void {
+        $this->assertSame('', \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', 'Anisyia'));
+    }
+
     public function test_resolver_separates_watch_from_social_and_link_hubs(): void {
         $platform_links = [
             ['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1],
@@ -282,6 +311,71 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertStringContainsString('/go/livejasmin/Anisyia/', $watch);
         $this->assertStringContainsString('/go/livejasmin/Anisyia/', $official);
         $this->assertStringNotContainsString('https://www.livejasmin.com/en/free/chat/Anisyia', $watch . $official);
+    }
+
+    public function test_model_generated_seo_content_uses_external_affiliate_resolver(): void {
+        update_option('tmwseo_platform_affiliate_settings', [
+            'livejasmin' => [
+                'enabled' => 0,
+                'template' => '',
+                'psid' => 'Topmodels4u',
+                'pstool' => '205_1',
+                'psprogram' => 'revs',
+                'campaign_id' => '',
+                'subaffid' => 'model-seo',
+                'siteid' => 'jasmin',
+                'categoryname' => 'girl',
+                'pagename' => 'freechat',
+            ],
+        ]);
+
+        $post = new \WP_Post();
+        $post->ID = 780;
+        $resolved = ModelDestinationResolver::resolve(
+            780,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => (array) ($resolved['watch_cta_destinations'] ?? []),
+            'comparison_copy' => '',
+        ]);
+
+        $watch = (string) ($payload['watch_section_html'] ?? '');
+        $external = (string) ($payload['external_info_html'] ?? '');
+        $this->assertStringContainsString('/go/livejasmin/Anisyia/', $watch, 'Frontend/click-tracking CTA should preserve /go/.');
+        $this->assertStringContainsString('href="https://ctwmsg.com/', $external);
+        $this->assertStringContainsString('rel="sponsored nofollow noopener"', $external);
+        $this->assertStringContainsString('target="_blank"', $external);
+        $this->assertStringNotContainsString('/go/livejasmin/', $external);
+        $this->assertStringNotContainsString('https://www.livejasmin.com/en/chat/Anisyia', $external);
+    }
+
+    public function test_model_generated_seo_content_skips_affiliate_when_config_missing(): void {
+        $post = new \WP_Post();
+        $post->ID = 781;
+        $resolved = ModelDestinationResolver::resolve(
+            781,
+            [['platform' => 'livejasmin', 'username' => 'Anisyia', 'go_url' => '', 'is_primary' => 1]],
+            [],
+            ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]
+        );
+
+        $payload = TemplateContent::build_model_renderer_support_payload($post, [
+            'name' => 'Anisyia',
+            'resolved_destinations' => $resolved,
+            'cta_links' => (array) ($resolved['watch_cta_destinations'] ?? []),
+            'comparison_copy' => '',
+        ]);
+
+        $external = (string) ($payload['external_info_html'] ?? '');
+        $this->assertStringNotContainsString('ctwmsg.com', $external);
+        $this->assertStringNotContainsString('/go/livejasmin/', $external);
+        $this->assertStringNotContainsString('www.livejasmin.com', $external);
     }
 
     public function test_mixed_livejasmin_inputs_normalize_to_single_canonical_flow(): void {

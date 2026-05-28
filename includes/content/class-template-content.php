@@ -10,6 +10,7 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Model\VerifiedLinks;
 use TMWSEO\Engine\Model\VerifiedLinksFamilies;
+use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -405,12 +406,9 @@ class TemplateContent {
         ] );
 
         // ── Explore More / end section: ONE consolidated outbound link block ──
-        // render_guaranteed_external_platform_links() already resolves affiliate
-        // → profile → registry URLs in priority order and covers all active
-        // platforms. Combining it with render_preferred_external_platform_links()
-        // produced two near-identical LiveJasmin + Stripchat link blocks.
-        // Use only the guaranteed block so Rank Math sees exactly one outbound
-        // link group at the end of content — no duplicates.
+        // Generated SEO body content must use AffiliateLinkBuilder::build_seo_content_affiliate_url()
+        // so Rank Math sees a real approved external affiliate href, not an
+        // internal /go/ redirect. Do not add raw profile/registry fallbacks here.
         $ext_info_html = self::join_html_blocks([
             $guaranteed_outbound,
             $curated_external,
@@ -2481,27 +2479,14 @@ class TemplateContent {
     }
 
     /**
-     * Build a guaranteed visible outbound link block using platform usernames.
+     * Build the generated-SEO outbound affiliate block from platform usernames.
      *
-     * This is a last-resort guarantee layer: it constructs profile URLs directly
-     * from PlatformRegistry patterns, bypassing all affiliate settings. Called
-     * separately from render_preferred_external_platform_links() so that even if
-     * the Explore More section is empty, at least one detectable external link
-     * exists in the Watch section HTML.
+     * This block is the model-page counterpart to the video generated-content
+     * affiliate link. It intentionally uses the global SEO-content resolver only:
+     * no /go/ URL, no raw profile URL, and no registry-pattern fallback belongs
+     * in generated body text used for Rank Math outbound scoring.
      *
-     * Returns empty string only when no platform username exists at all.
-     *
-     * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
-     */
-    /**
-     * Build a guaranteed visible outbound link block using platform usernames.
-     *
-     * v3 URL resolution order (corrected):
-     *   1. AffiliateLinkBuilder::build_affiliate_url()  — uses configured partner template
-     *   2. AffiliateLinkBuilder::build_profile_url()    — bare profile URL via AffiliateLinkBuilder
-     *   3. PlatformRegistry profile_url_pattern direct  — last-resort, always produces a real URL
-     *
-     * Returns empty string ONLY when no platform username exists at all.
+     * Returns empty string unless an approved external affiliate URL exists.
      *
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
      */
@@ -2541,24 +2526,20 @@ class TemplateContent {
                 continue;
             }
 
-            $external_url = AffiliateLinkBuilder::build_affiliate_url($platform, $username);
+            $external_url = AffiliateLinkBuilder::build_seo_content_affiliate_url($platform, $username);
             if ($external_url === '') {
-                $external_url = AffiliateLinkBuilder::build_profile_url($platform, $username);
-            }
-            if ($external_url === '') {
-                $platform_data = PlatformRegistry::get($platform);
-                $pattern       = is_array($platform_data) ? (string) ($platform_data['profile_url_pattern'] ?? '') : '';
-                if ($pattern !== '') {
-                    $candidate = str_replace('{username}', rawurlencode($username), $pattern);
-                    if (wp_http_validate_url($candidate)) {
-                        $external_url = $candidate;
-                    }
-                }
-            }
-
-            if ($external_url === '') {
+                self::log_model_affiliate_event('skipped_missing_affiliate_config', [
+                    'platform' => $platform,
+                    'username' => $username,
+                ]);
                 continue;
             }
+
+            self::log_model_affiliate_event('external_link_added', [
+                'platform' => $platform,
+                'username' => $username,
+                'host' => (string) wp_parse_url($external_url, PHP_URL_HOST),
+            ]);
 
             $targets[]       = [
                 'platform' => $platform,
@@ -2572,6 +2553,22 @@ class TemplateContent {
         }
 
         return $targets;
+    }
+
+    /**
+     * Caller-level audit logging for generated model SEO affiliate decisions.
+     *
+     * URL decision logic stays centralized in AffiliateLinkBuilder; this method
+     * only adds model-generation context to the global result.
+     *
+     * @param array<string,mixed> $data
+     */
+    private static function log_model_affiliate_event(string $event, array $data = []): void {
+        if (!class_exists(Logs::class)) {
+            return;
+        }
+
+        Logs::info('model_affiliate', '[TMW-MODEL-AFFILIATE] ' . $event, $data);
     }
 
     /**
@@ -2589,7 +2586,7 @@ class TemplateContent {
             if ($url === '' || $label === '') {
                 continue;
             }
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="noopener external">' . esc_html($label . ' profile') . '</a></li>';
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html($label . ' profile') . '</a></li>';
         }
         if (empty($items)) {
             return '';

@@ -66,6 +66,9 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringContainsString('href="https://top-models.webcam/models/"', $content);
             $this->assertStringContainsString('href="https://top-models.webcam/videos/"', $content);
             $this->assertSame(2, preg_match_all('/href="https?:\/\/[^\"]+"/', $content, $matches));
+            $this->assertStringNotContainsString('ctwmsg.com', $content);
+            $this->assertStringNotContainsString('livejasmin.com', $content);
+            $this->assertStringNotContainsString('/go/livejasmin/', $content);
         }
 
         public function test_category_template_does_not_write_term_or_robot_state(): void {
