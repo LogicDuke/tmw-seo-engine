@@ -100,6 +100,9 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $header = str_getcsv(rtrim((string) strtok($csv, "\n"), "\r"));
 
         $this->assertSame(KeywordPoolsAdminPage::export_headers(), $header);
+        $this->assertContains('Priority', $header);
+        $this->assertContains('Golden?', $header);
+        $this->assertContains('Recommended Action', $header);
     }
 
     public function test_export_helper_outputs_current_preview_rows(): void {
@@ -111,6 +114,8 @@ class KeywordPoolsAdminPageTest extends TestCase {
 
         $this->assertStringContainsString('Lexy Ness webcam video', $csv);
         $this->assertStringContainsString('video_intent_detected', $csv);
+        $this->assertStringContainsString('P1', $csv);
+        $this->assertStringContainsString('approve_candidate', $csv);
     }
 
     public function test_admin_page_source_does_not_call_persistent_keyword_or_content_writes(): void {

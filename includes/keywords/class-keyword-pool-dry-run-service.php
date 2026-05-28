@@ -28,6 +28,28 @@ class KeywordPoolDryRunService {
         'ignored',
     ];
 
+    /** @var array<int, string> */
+    private const ARCHIVE_KEYWORDS = [
+        'schoolgirl roleplay',
+        'spy cam shows',
+        'free video chat',
+        'online video chat',
+        'free cam chat',
+        'webcam models near me',
+        'cam models near me',
+        'local webcam models',
+        'local cam models',
+        'local webcam girls',
+        'local cam girls',
+        'webcam girls near me',
+        'cam girls near me',
+        'new cam models',
+        'featured webcam models',
+        'real webcam models',
+        'premium webcam models',
+        'verified webcam models',
+    ];
+
     /**
      * Run a deterministic dry-run preview for one target keyword pool.
      *
@@ -67,6 +89,7 @@ class KeywordPoolDryRunService {
                     $preview_row['is_duplicate_in_upload'] = true;
                     $preview_row['duplicate_of_row']       = $seen[$normalized];
                     $preview_row['reason_codes'][]         = 'duplicate_in_upload';
+                    $preview_row['priority_preview']       = 'Archive';
                     if (! in_array($preview_row['decision'], [ 'reject', 'block' ], true)) {
                         $preview_row['validation_state'] = 'review_required';
                         $preview_row['decision']         = 'review_required';
@@ -76,9 +99,12 @@ class KeywordPoolDryRunService {
                 }
             }
 
-            $preview_row['reason_codes']   = array_values(array_unique($preview_row['reason_codes']));
-            $preview_row['reason_summary'] = $this->summarize_reasons($preview_row['reason_codes']);
-            $preview[]                     = $preview_row;
+            $preview_row['reason_codes']       = array_values(array_unique($preview_row['reason_codes']));
+            $preview_row['priority_preview']   = $this->priority_preview($preview_row);
+            $preview_row['is_golden_keyword']  = $this->is_golden_keyword($preview_row);
+            $preview_row['recommended_action'] = $this->recommended_action($preview_row);
+            $preview_row['reason_summary']     = $this->summarize_reasons($preview_row['reason_codes']);
+            $preview[]                         = $preview_row;
 
             ++$summary['total_rows'];
             if ($preview_row['is_duplicate_in_upload']) {
@@ -134,6 +160,10 @@ class KeywordPoolDryRunService {
             'decision'               => 'accept',
             'reason_codes'           => [],
             'reason_summary'         => '',
+            'priority_preview'          => 'P3',
+            'is_golden_keyword'         => false,
+            'recommended_action'        => 'queue_for_review',
+            'commercial_score_preview'  => 0,
             'volume'                 => $this->normalize_metric($row['volume'] ?? '', 'volume', $reason_codes),
             'difficulty'             => $this->normalize_metric($row['difficulty'] ?? '', 'difficulty', $reason_codes),
             'cpc'                    => $this->normalize_metric($row['cpc'] ?? '', 'cpc', $reason_codes),
@@ -160,17 +190,26 @@ class KeywordPoolDryRunService {
             $preview['decision']         = 'block';
             $reason_codes[]              = 'summary_or_footer_row';
         } else {
-            $pool_decision = $this->classify_for_pool($preview, $pool);
-            $preview       = array_merge($preview, $pool_decision);
-            $reason_codes  = array_merge($reason_codes, $pool_decision['reason_codes']);
+            $archive_decision = $this->classify_archive_keyword($preview);
+            if ([] !== $archive_decision) {
+                $preview      = array_merge($preview, $archive_decision);
+                $reason_codes = array_merge($reason_codes, $archive_decision['reason_codes']);
+            } else {
+                $pool_decision = $this->classify_for_pool($preview, $pool);
+                $preview       = array_merge($preview, $pool_decision);
+                $reason_codes  = array_merge($reason_codes, $pool_decision['reason_codes']);
+            }
         }
 
-        $preview['reason_codes']   = array_values(array_unique($reason_codes));
-        $preview['reason_summary'] = $this->summarize_reasons($preview['reason_codes']);
+        $preview['reason_codes']             = array_values(array_unique($reason_codes));
+        $preview['priority_preview']         = $this->priority_preview($preview);
+        $preview['is_golden_keyword']        = $this->is_golden_keyword($preview);
+        $preview['commercial_score_preview'] = $this->commercial_score($preview);
+        $preview['recommended_action']       = $this->recommended_action($preview);
+        $preview['reason_summary']           = $this->summarize_reasons($preview['reason_codes']);
 
         return $preview;
     }
-
     /**
      * @param array<string, mixed> $row Preview row.
      * @return array<string, mixed>
@@ -211,11 +250,181 @@ class KeywordPoolDryRunService {
         if ('' !== $model_name && $keyword === $model_name) {
             return $this->classification('review_required', 'review_required', [ 'standalone_model_name' ]);
         }
-        if ($this->has_any($keyword, [ 'category', 'categories', 'browse', 'archive', 'topic', 'models', 'webcam models', 'blonde', 'brunette', 'teen', 'mature' ])) {
+        if ($this->has_any($keyword, [ 'category', 'categories', 'browse', 'archive', 'topic', 'model', 'models', 'cam model', 'cam models', 'webcam model', 'webcam models', 'cam girls', 'webcam girls', 'live cam', 'cam chat', 'cam shows', 'livejasmin', 'jasmin', 'couples live webcam', 'private cam shows', 'blonde', 'brunette', 'latina', 'lesbian', 'ebony', 'asian', 'indian', 'busty', 'teen', 'mature' ])) {
             return $this->classification('valid', 'accept', [ 'category_intent_detected' ]);
         }
 
         return $this->classification('review_required', 'review_required', [ 'category_intent_unclear' ]);
+    }
+
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     * @return array<string, mixed>
+     */
+    private function classify_archive_keyword(array $row): array {
+        $keyword = (string) ($row['normalized_keyword'] ?? '');
+        if ('' === $keyword) {
+            return [];
+        }
+
+        $reasons = [];
+        if (in_array($keyword, self::ARCHIVE_KEYWORDS, true)) {
+            $reasons[] = 'archive_keyword';
+        }
+        if ('schoolgirl roleplay' === $keyword || 'spy cam shows' === $keyword) {
+            $reasons[] = 'archive_keyword';
+            $reasons[] = 'unsafe_keyword';
+        }
+        if ('schoolgirl roleplay' === $keyword) {
+            $reasons[] = 'rename_recommended';
+        }
+        if ($this->has_any($keyword, [ ' near me', 'local webcam', 'local cam', 'local ' ])) {
+            $reasons[] = 'archive_keyword';
+            $reasons[] = 'geo_local_intent';
+        }
+        if ($this->has_any($keyword, [ 'free video chat', 'online video chat', 'free cam chat' ])) {
+            $reasons[] = 'archive_keyword';
+            $reasons[] = 'too_broad_low_commercial_intent';
+        }
+        if (0 === (int) ($row['volume'] ?? -1) && ! $this->has_strong_commercial_webcam_intent($keyword)) {
+            $reasons[] = 'archive_keyword';
+            $reasons[] = 'zero_volume_noise';
+        }
+
+        if ([] === $reasons) {
+            return [];
+        }
+
+        return $this->classification('blocked', 'block', array_values(array_unique($reasons)));
+    }
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     */
+    private function is_golden_keyword(array $row): bool {
+        if (in_array((string) ($row['decision'] ?? ''), [ 'reject', 'block' ], true) || 'Archive' === (string) ($row['priority_preview'] ?? '')) {
+            return false;
+        }
+
+        $volume      = $row['volume'] ?? null;
+        $cpc         = $row['cpc'] ?? null;
+        $competition = $row['competition'] ?? null;
+
+        return is_int($volume)
+            && $volume >= 500
+            && is_numeric($competition)
+            && (float) $competition < 0.20
+            && is_numeric($cpc)
+            && (float) $cpc >= 2.00;
+    }
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     */
+    private function commercial_score(array $row): int {
+        $keyword = (string) ($row['normalized_keyword'] ?? '');
+        $volume  = is_int($row['volume'] ?? null) ? (int) $row['volume'] : 0;
+        $cpc     = is_numeric($row['cpc'] ?? null) ? (float) $row['cpc'] : 0.0;
+
+        $score = 0;
+        if ($volume >= 1000) {
+            $score += 35;
+        } elseif ($volume >= 500) {
+            $score += 25;
+        } elseif ($volume >= 100) {
+            $score += 15;
+        } elseif ($volume > 0) {
+            $score += 5;
+        }
+
+        if ($cpc >= 5.00) {
+            $score += 35;
+        } elseif ($cpc >= 3.00) {
+            $score += 25;
+        } elseif ($cpc >= 2.00) {
+            $score += 15;
+        } elseif ($cpc > 0) {
+            $score += 5;
+        }
+
+        if ($this->has_strong_commercial_webcam_intent($keyword)) {
+            $score += 30;
+        } elseif ($this->has_any($keyword, [ 'cam', 'webcam', 'chat', 'shows', 'models' ])) {
+            $score += 15;
+        }
+
+        return max(0, min(100, $score));
+    }
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     */
+    private function priority_preview(array $row): string {
+        $decision = (string) ($row['decision'] ?? '');
+        $reasons  = is_array($row['reason_codes'] ?? null) ? $row['reason_codes'] : [];
+        if (in_array($decision, [ 'reject', 'block' ], true) || ! empty($row['is_duplicate_in_upload']) || in_array('archive_keyword', $reasons, true) || in_array('summary_or_footer_row', $reasons, true)) {
+            return 'Archive';
+        }
+
+        $keyword = (string) ($row['normalized_keyword'] ?? '');
+        $volume  = is_int($row['volume'] ?? null) ? (int) $row['volume'] : null;
+        $cpc     = is_numeric($row['cpc'] ?? null) ? (float) $row['cpc'] : null;
+
+        if (null !== $volume && $volume >= 1000) {
+            return 'P1';
+        }
+        if (null !== $volume && null !== $cpc && $cpc >= 3.00 && $volume >= 100 && $this->has_strong_commercial_webcam_intent($keyword)) {
+            return 'P1';
+        }
+        if ((null !== $volume && $volume >= 100 && $volume <= 999) || (0 === $volume && $this->has_strong_long_tail_adult_webcam_relevance($keyword))) {
+            return 'P2';
+        }
+
+        return 'P3';
+    }
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     */
+    private function recommended_action(array $row): string {
+        $decision = (string) ($row['decision'] ?? '');
+        if ('block' === $decision || 'reject' === $decision) {
+            return 'block' === $decision ? 'block_candidate' : 'archive_candidate';
+        }
+        if ('Archive' === (string) ($row['priority_preview'] ?? '')) {
+            return 'archive_candidate';
+        }
+        if ('accept' === $decision && 'P1' === (string) ($row['priority_preview'] ?? '')) {
+            return 'approve_candidate';
+        }
+        return 'queue_for_review';
+    }
+
+    private function has_strong_commercial_webcam_intent(string $keyword): bool {
+        return $this->has_any($keyword, [
+            'cam model',
+            'cam models',
+            'webcam model',
+            'webcam models',
+            'cam girls',
+            'webcam girls',
+            'live cam',
+            'cam show',
+            'cam shows',
+            'private cam',
+            'cam2cam',
+            'livejasmin',
+            'jasmin models',
+            'couples live webcam',
+            'live webcam',
+        ]);
+    }
+
+    private function has_strong_long_tail_adult_webcam_relevance(string $keyword): bool {
+        return $this->has_strong_commercial_webcam_intent($keyword)
+            && str_word_count($keyword) >= 3
+            && ! $this->has_any($keyword, [ 'free video chat', 'online video chat', 'near me', 'local ' ]);
     }
 
     /**
@@ -405,6 +614,10 @@ class KeywordPoolDryRunService {
         if ([] === $reason_codes) {
             return 'No dry-run warnings.';
         }
-        return implode(', ', array_values(array_unique($reason_codes)));
+        $summary = implode(', ', array_values(array_unique($reason_codes)));
+        if (in_array('rename_recommended', $reason_codes, true)) {
+            $summary .= '. Use "uniform roleplay cam girls" instead.';
+        }
+        return $summary;
     }
 }

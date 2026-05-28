@@ -146,6 +146,68 @@ Total Volume,704750
         $this->assertContains('summary_or_footer_row', $result['rows'][1]['reason_codes']);
     }
 
+
+    public function test_priority_scoring_marks_high_volume_category_keywords_p1_and_golden(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,cpc,competition\nasian cam models,18100,5.99,0.02\nlivejasmin models,3600,3.11,0.02\n"), 'category');
+
+        foreach ($result['rows'] as $row) {
+            $this->assertSame('valid', $row['validation_state']);
+            $this->assertSame('accept', $row['decision']);
+            $this->assertSame('P1', $row['priority_preview']);
+            $this->assertTrue($row['is_golden_keyword']);
+            $this->assertSame('approve_candidate', $row['recommended_action']);
+        }
+    }
+
+    public function test_cam2cam_high_cpc_is_p1_but_not_golden_below_volume_threshold(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,cpc,competition\ncam2cam shows,170,6.61,0.03\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertSame('valid', $row['validation_state']);
+        $this->assertSame('accept', $row['decision']);
+        $this->assertSame('P1', $row['priority_preview']);
+        $this->assertFalse($row['is_golden_keyword']);
+        $this->assertGreaterThanOrEqual(80, $row['commercial_score_preview']);
+    }
+
+    public function test_archive_and_safety_rules_block_do_not_test_keywords(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,cpc,competition\nschoolgirl roleplay,0,,\nspy cam shows,10,1,0.5\nfree video chat,1000,0.1,0.5\nwebcam models near me,500,2,0.1\n"), 'category');
+        $rows   = $result['rows'];
+
+        $this->assertSame('blocked', $rows[0]['validation_state']);
+        $this->assertSame('block', $rows[0]['decision']);
+        $this->assertSame('Archive', $rows[0]['priority_preview']);
+        $this->assertSame('block_candidate', $rows[0]['recommended_action']);
+        $this->assertContains('archive_keyword', $rows[0]['reason_codes']);
+        $this->assertContains('unsafe_keyword', $rows[0]['reason_codes']);
+        $this->assertContains('rename_recommended', $rows[0]['reason_codes']);
+        $this->assertStringContainsString('Use "uniform roleplay cam girls" instead.', $rows[0]['reason_summary']);
+
+        $this->assertSame('blocked', $rows[1]['validation_state']);
+        $this->assertSame('Archive', $rows[1]['priority_preview']);
+        $this->assertContains('unsafe_keyword', $rows[1]['reason_codes']);
+
+        $this->assertSame('blocked', $rows[2]['validation_state']);
+        $this->assertSame('Archive', $rows[2]['priority_preview']);
+        $this->assertContains('too_broad_low_commercial_intent', $rows[2]['reason_codes']);
+
+        $this->assertSame('blocked', $rows[3]['validation_state']);
+        $this->assertSame('Archive', $rows[3]['priority_preview']);
+        $this->assertContains('geo_local_intent', $rows[3]['reason_codes']);
+        $this->assertFalse($rows[3]['is_golden_keyword']);
+    }
+
+    public function test_footer_rows_have_archive_priority_and_block_action(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume\nTotal Volume,704750\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertSame('blocked', $row['validation_state']);
+        $this->assertSame('block', $row['decision']);
+        $this->assertSame('Archive', $row['priority_preview']);
+        $this->assertSame('block_candidate', $row['recommended_action']);
+        $this->assertContains('summary_or_footer_row', $row['reason_codes']);
+    }
+
     public function test_no_db_rank_math_or_post_content_writes_are_present(): void {
         $parserSource = file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php');
         $dryRunSource = file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php');
