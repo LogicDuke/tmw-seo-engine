@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace {
 if (!defined('ABSPATH')) define('ABSPATH', __DIR__);
-if (!class_exists('WP_Post')) { class WP_Post { public $ID=0; public $post_title=''; public $post_excerpt=''; public $post_name=''; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
+require_once __DIR__ . '/bootstrap/wp-post-stub.php';
 if (!function_exists('get_post')) { function get_post($id){ return $GLOBALS['_rb_posts'][$id] ?? null; } }
 if (!function_exists('get_post_meta')) { function get_post_meta($id,$k,$s=true){ return $GLOBALS['_rb_meta'][$id][$k] ?? ''; } }
 if (!function_exists('update_post_meta')) { function update_post_meta($id,$k,$v){ $GLOBALS['_rb_meta'][$id][$k]=$v; return true; } }

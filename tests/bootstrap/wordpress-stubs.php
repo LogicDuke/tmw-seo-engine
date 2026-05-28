@@ -19,6 +19,8 @@ if ( ! defined( 'SODIUM_CRYPTO_SECRETBOX_KEYBYTES' ) ) { define( 'SODIUM_CRYPTO_
 if ( ! defined( 'SODIUM_CRYPTO_SECRETBOX_NONCEBYTES' ) ) { define( 'SODIUM_CRYPTO_SECRETBOX_NONCEBYTES', 24 ); }
 
 
+require_once __DIR__ . '/wp-post-stub.php';
+
 // ── WordPress DB result format constants ─────────────────────────────────────
 if ( ! defined( 'ARRAY_A' ) )  { define( 'ARRAY_A',  'ARRAY_A' ); }
 if ( ! defined( 'ARRAY_N' ) )  { define( 'ARRAY_N',  'ARRAY_N' ); }
@@ -278,11 +280,7 @@ require_once TMWSEO_ENGINE_PATH . 'includes/admin/class-model-helper.php';
 // before the main class because render_metabox()/render_row()/save_metabox()
 // reference VerifiedLinksFamilies. WP_Post stub is needed because save_metabox
 // is type-hinted \WP_Post (parameter is never read in the function body).
-if ( ! class_exists( 'WP_Post' ) ) {
-    class WP_Post {
-        public int $ID = 0;
-    }
-}
+require_once __DIR__ . '/wp-post-stub.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links-families.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-verified-links.php';
 

@@ -22,8 +22,8 @@ class ModelKeywordSuggestionGenerator {
 
     private const MODEL_NAME_PATTERNS = [
         '{model} live cam girl','{model} webcam chat','{model} webcam chat girl',
-        '{model} live webcam model','{model} adult video chat model','{model} private cam show',
-        '{model} live cam show','{model} cam model',
+        '{model} live webcam model','{model} live cam chat','{model} cam profile',
+        '{model} cam model',
     ];
 
 
@@ -60,8 +60,8 @@ class ModelKeywordSuggestionGenerator {
     ];
 
     private const ATTRIBUTE_PATTERNS = [
-        '{attribute} adult video chat model','{attribute} webcam chat model','{attribute} live cam girl',
-        '{attribute} adult webcam model','{attribute} private cam show','{attribute} live cam show',
+        '{attribute} webcam chat model','{attribute} live cam girl',
+        '{attribute} adult webcam model','{attribute} cam profile','{attribute} live cam chat',
     ];
     private const ATTRIBUTE_SELECTION_PRIORITY = [
         'latina','brunette','blonde','amateur','tattooed','lingerie','solo','natural',
@@ -229,6 +229,9 @@ class ModelKeywordSuggestionGenerator {
             if ( $keyword === '' || $normalized === '' || isset( $seen[ $normalized ] ) || ! $this->is_natural_keyword( $keyword ) ) {
                 continue;
             }
+            if ( ! $this->is_safe_model_intent_keyword( $keyword ) ) {
+                continue;
+            }
             $seen[ $normalized ] = true;
             $score = $this->score_keyword_candidate( $keyword, $source, $model_name );
             if ( $score <= 0 ) {
@@ -391,12 +394,21 @@ class ModelKeywordSuggestionGenerator {
         return false;
     }
 
+
+    private function is_safe_model_intent_keyword( string $keyword ): bool {
+        if ( PageTypeKeywordFilter::is_unsafe( $keyword ) ) {
+            return false;
+        }
+
+        return ! empty( PageTypeKeywordFilter::filter_for_model_page( [ $keyword ] ) );
+    }
+
     private function score_keyword_candidate( string $keyword, string $source, string $model_name ): int {
         $normalized = $this->normalize_term( $keyword );
         $words = array_values( array_filter( preg_split( '/\s+/', $normalized ) ?: [] ) );
         $word_count = count( $words );
         $score = 10;
-        $commercial_phrases = [ 'webcam chat', 'live cam', 'adult video chat', 'cam model', 'private cam show', 'live cam show', 'live webcam model' ];
+        $commercial_phrases = [ 'webcam chat', 'live cam', 'cam model', 'cam profile', 'live cam chat', 'live webcam model' ];
         $attribute_terms = [ 'latina', 'brunette', 'blonde', 'amateur', 'tattooed', 'lingerie', 'solo', 'milf', 'big tits', 'natural', 'athletic', 'skinny' ];
         $body_terms = [ 'big tits', 'skinny', 'athletic', 'curvy', 'petite', 'milf', 'mature' ];
 
@@ -444,7 +456,7 @@ class ModelKeywordSuggestionGenerator {
 
     private function keyword_ending( string $keyword ): string {
         $normalized = $this->normalize_term( $keyword );
-        $priority_endings = [ 'webcam chat model', 'adult webcam model', 'private cam show', 'live cam show' ];
+        $priority_endings = [ 'webcam chat model', 'adult webcam model', 'cam profile', 'live cam chat' ];
         foreach ( $priority_endings as $ending ) {
             if ( str_ends_with( $normalized, $ending ) ) {
                 return $ending;
@@ -561,7 +573,7 @@ class ModelKeywordSuggestionGenerator {
                 return false;
             }
         }
-        if ( str_contains( $normalized, 'live cam model live cam show' ) || str_contains( $normalized, 'cam girl live cam girl' ) || str_contains( $normalized, 'webcam webcam chat' ) ) {
+        if ( str_contains( $normalized, 'live cam model live cam chat' ) || str_contains( $normalized, 'cam girl live cam girl' ) || str_contains( $normalized, 'webcam webcam chat' ) ) {
             return false;
         }
         if ( preg_match( '/\b(\w+)\s+\1\b/u', $normalized ) === 1 ) {

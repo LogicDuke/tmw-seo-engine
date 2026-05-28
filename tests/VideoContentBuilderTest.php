@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace {
     if (!defined('ABSPATH')) define('ABSPATH', __DIR__);
-    if (!class_exists('WP_Post')) { class WP_Post { public $ID=0; public $post_name=''; public $post_status='publish'; public $post_type='post'; public $post_parent=0; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
+    require_once __DIR__ . '/bootstrap/wp-post-stub.php';
     if (!class_exists('WP_Term')) { class WP_Term { public $name=''; public $slug=''; public $taxonomy=''; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
     $GLOBALS['_tmw_meta'] = [];
     $GLOBALS['_tmw_posts'] = [];
@@ -46,6 +46,7 @@ WP_Error('e','boom'); $id=(int)$arr['ID']; if(isset($GLOBALS['_tmw_posts'][$id])
     require_once dirname(__DIR__) . '/includes/services/class-settings.php';
     require_once dirname(__DIR__) . '/includes/platform/class-platform-registry.php';
     require_once dirname(__DIR__) . '/includes/platform/class-affiliate-link-builder.php';
+    require_once dirname(__DIR__) . '/includes/keywords/class-page-type-keyword-filter.php';
     require_once dirname(__DIR__) . '/includes/content/class-video-content-builder.php';
     require_once dirname(__DIR__) . '/includes/admin/class-admin-ajax-handlers.php';
 }

@@ -35,6 +35,7 @@
 namespace TMWSEO\Engine\Content;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Keywords\PageTypeKeywordFilter;
 use TMWSEO\Engine\Platform\AffiliateLinkBuilder;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -270,8 +271,8 @@ class VideoContentBuilder {
                 }
             }
 
-            // Write focus keyword CSV: primary + up to 4 secondary. Hide risky imported phrases.
-            $safe_secondary = self::filter_visible_safe_terms( array_slice( $secondary, 0, 4 ) );
+            // Write focus keyword CSV: primary + up to 4 secondary. Hide risky imported phrases and non-video intent.
+            $safe_secondary = self::filter_visible_safe_terms( PageTypeKeywordFilter::filter_for_video_page( array_slice( $secondary, 0, 4 ) ) );
             $kw_list        = array_values( array_unique( array_filter( array_map( 'trim', array_merge(
                 [ $focus_kw ],
                 $safe_secondary
@@ -456,7 +457,7 @@ class VideoContentBuilder {
             $deduped[]           = trim( (string) $kw );
         }
 
-        return array_slice( $deduped, 0, 4 );
+        return array_slice( PageTypeKeywordFilter::filter_for_video_page( $deduped ), 0, 4 );
     }
 
     // ── SEO title + meta description ─────────────────────────────────────────
