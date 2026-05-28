@@ -18,8 +18,8 @@ class VideoKeywordCandidateRepository {
     private const INTENT_TYPE = 'video';
     private const DEFAULT_ENTITY_TYPE = 'post';
     private const ALLOWED_ENTITY_TYPES = [ 'post', 'video' ];
-    private const ALLOWED_STATUSES = [ 'candidate', 'reviewed', 'approved', 'rejected', 'archived' ];
-    private const DEFAULT_STATUS = 'candidate';
+    private const ALLOWED_STATUSES = [ 'new', 'discovered', 'scored', 'queued_for_review', 'approved', 'rejected', 'ignored' ];
+    private const DEFAULT_STATUS = 'new';
 
     /** @var array<string,array<string,bool>> */
     private static array $columns_cache = [];

@@ -139,11 +139,25 @@ final class VideoKeywordCandidateRepositoryTest extends TestCase {
         $this->assertSame('video', $wpdb->candidate_inserts[0]['data']['intent_type']);
     }
 
+    public function test_unknown_status_falls_back_to_new_lifecycle_default(): void {
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp595_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $id = $repo->upsert_for_video(123, 'Anisyia webcam video', [
+            'model_name' => 'Anisyia',
+            'status'     => 'not_a_lifecycle_status',
+        ]);
+
+        $this->assertSame(1001, $id);
+        $this->assertSame('new', $wpdb->candidate_inserts[0]['data']['status']);
+    }
+
     public function test_existing_keyword_only_row_is_updated_without_duplicate_insert(): void {
         $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp591_', true, null, [
             'id'          => 77,
             'keyword'     => 'anisyia webcam video',
-            'status'      => 'candidate',
+            'status'      => 'new',
             'intent_type' => 'generic',
             'entity_id'   => 0,
         ]);
@@ -180,7 +194,7 @@ final class VideoKeywordCandidateRepositoryTest extends TestCase {
         $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp593_', true, null, [
             'id'          => 99,
             'keyword'     => 'anisyia webcam video',
-            'status'      => 'candidate',
+            'status'      => 'new',
             'intent_type' => 'video',
             'entity_id'   => 123,
         ]);

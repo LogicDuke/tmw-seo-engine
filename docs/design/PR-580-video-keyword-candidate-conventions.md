@@ -16,7 +16,7 @@ Video rows use the existing keyword candidate columns with these conventions:
 | --- | --- |
 | `keyword` | Normalized candidate phrase, such as `model name webcam video`. |
 | `canonical` | Same normalized phrase unless a caller supplies a canonical phrase. |
-| `status` | One of `candidate`, `reviewed`, `approved`, `rejected`, or `archived`. |
+| `status` | Reuses the existing keyword candidate lifecycle: `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`. |
 | `intent` | `video` when the column exists. |
 | `intent_type` | `video`. |
 | `entity_type` | `post` by default; `video` is also allowed for installs that prefer that label. |
@@ -44,13 +44,17 @@ Using these fields first keeps video keyword candidates aligned with the current
 
 ## Status lifecycle
 
-1. `candidate` — imported, generated, or manually added for later review.
-2. `reviewed` — inspected by an operator but not approved for use.
-3. `approved` — eligible for a future Generate/Rank Math integration.
-4. `rejected` — kept for audit/history but not eligible for use.
-5. `archived` — removed from active review without deleting history.
+PR 580 does not create a new video-specific status lifecycle. Video keyword rows must reuse the existing `tmw_keyword_candidates.status` values:
 
-This PR only defines and stores the status. It does not add a review UI.
+1. `new` — newly inserted unreviewed candidates; this repository uses it as the default for generated/imported video candidates.
+2. `discovered` — candidates discovered by keyword workflows before scoring.
+3. `scored` — candidates with available metrics or scoring output.
+4. `queued_for_review` — candidates ready for operator review.
+5. `approved` — candidates approved for a future integration to consume.
+6. `rejected` — reviewed candidates that should not be used.
+7. `ignored` — candidates intentionally ignored without deleting history.
+
+This PR only reuses and stores existing status values. It does not add a review UI or introduce statuses such as `candidate`, `reviewed`, or `archived`.
 
 ## Video-intent examples
 
