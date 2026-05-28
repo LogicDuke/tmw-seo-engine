@@ -708,47 +708,69 @@ class ContentEngine {
      * @return array<string,string>
      */
     private static function build_category_page_template_preview(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
-        $blog_name = (string) get_bloginfo('name');
-        $category_term = $focus_kw !== '' ? $focus_kw : (string) $post->post_title;
-        $seo_title = TitleFixer::shorten('Best ' . $category_term . ' Sites: Features, Safety & Tips', 70);
-        $meta_description = TitleFixer::shorten('Compare top ' . $category_term . ' options with safety tips, feature breakdowns, and practical guidance to choose the right live chat platform.', 160);
+        $category_term = trim($focus_kw !== '' ? $focus_kw : (string) $post->post_title);
+        if ($category_term === '') {
+            $category_term = 'Webcam Models';
+        }
+
+        $year = (string) gmdate('Y');
+        $brand = trim((string) wp_parse_url((string) home_url('/'), PHP_URL_HOST));
+        if ($brand === '') {
+            $brand = 'Top-Models.Webcam';
+        }
+
+        $seo_title = self::build_category_page_seo_title($category_term, $year);
+        $meta_description = self::build_category_page_meta_description($category_term, $brand);
 
         $related_topics = !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
-            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 4)
+            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6)
             : [];
 
-        $related_block = '';
+        $related_links_html = '';
         if (!empty($related_topics)) {
-            $items = '';
+            $related_links_html .= '<ul>';
             foreach ($related_topics as $topic) {
-                $items .= '<li>' . esc_html($topic) . '</li>';
+                $topic_safe = trim((string) $topic);
+                if ($topic_safe === '') {
+                    continue;
+                }
+                $related_links_html .= '<li>' . esc_html($topic_safe) . '</li>';
             }
-            $related_block = '<h2>Related ' . esc_html($category_term) . ' Subtopics</h2><ul>' . $items . '</ul>';
+            $related_links_html .= '</ul>';
         }
 
         $content =
-            '<h1>Best ' . esc_html($category_term) . ' Sites</h1>' .
-            '<p>This draft preview helps visitors evaluate <strong>' . esc_html($category_term) . '</strong> options quickly, with emphasis on trust, feature fit, and user intent.</p>' .
-            '<h2>What to Expect From ' . esc_html($category_term) . '</h2>' .
-            '<p>Explain the category scope, common user goals, and the kinds of experiences people usually want from this page type.</p>' .
-            '<h2>How to Choose the Right ' . esc_html($category_term) . ' Platform</h2>' .
-            '<p>Provide practical selection criteria: onboarding quality, performer variety, language support, and platform reliability.</p>' .
-            '<h2>Features That Matter for ' . esc_html($category_term) . '</h2>' .
-            '<ul><li>Search/filter depth for faster matching</li><li>Transparent pricing and token options</li><li>Mobile and desktop usability</li></ul>' .
-            '<h2>Safety, Privacy, and Billing Tips</h2>' .
-            '<p>Include concise guidance on account security, payment clarity, and personal boundaries when using live chat products.</p>' .
-            '<h2>FAQ About ' . esc_html($category_term) . '</h2>' .
-            '<h3>How do I compare options in this category?</h3><p>Use the same shortlist criteria across platforms to make a fair comparison.</p>' .
-            '<h3>What should I check before spending?</h3><p>Review billing terms, trial options, and moderation/safety settings first.</p>' .
-            $related_block .
-            '<p><em>Preview intent summary:</em> This category-page draft is structured for taxonomy intent and operator review before any manual draft apply in ' . esc_html($blog_name) . '.</p>';
+            '<p>' . esc_html($category_term) . ' is a browsing category designed to help visitors discover relevant live webcam models and videos in a neutral, easy-to-scan format.</p>' .
+            '<h2>About ' . esc_html($category_term) . '</h2>' .
+            '<p>This category groups related performers and clips so visitors can compare themes quickly, move between model profiles, and discover additional video pages without changing taxonomy settings or archive structure.</p>' .
+            '<h2>Browse ' . esc_html($category_term) . ' Videos and Models</h2>' .
+            '<p>Use the internal library pages to continue browsing:</p>' .
+            '<ul><li><a href="' . esc_url(home_url('/models/')) . '">Models Directory</a></li><li><a href="' . esc_url(home_url('/videos/')) . '">Videos Directory</a></li></ul>' .
+            '<p>From there, visitors can open linked profiles, check recent clips, and follow on-site tags or categories that match this topic.</p>' .
+            '<h2>How This Category Helps Visitors</h2>' .
+            '<p>The page supports straightforward discovery intent, improves internal navigation, and keeps content context focused on safe, factual descriptions suitable for editorial review before any manual apply action.</p>' .
+            '<h2>Related Webcam Categories</h2>' .
+            '<p>Related category or tag archive links can be added during operator review when verified as relevant.</p>' .
+            $related_links_html .
+            '<h2>Frequently Asked Questions</h2>' .
+            '<h3>What are ' . esc_html($category_term) . '?</h3><p>They are category listings that organize models and videos under one discoverable archive topic.</p>' .
+            '<h3>How do I find related webcam videos?</h3><p>Open the Videos Directory and use connected category and tag links to browse more matching clips.</p>' .
+            '<h3>Can I browse by model?</h3><p>Yes. Use the Models Directory to open profiles, then navigate to related videos and archives from each model page.</p>';
 
         return [
             'seo_title' => $seo_title,
             'meta_description' => $meta_description,
             'content_html' => $content,
-            'outline' => "- Best {$category_term} Sites\n- What to Expect From {$category_term}\n- How to Choose the Right {$category_term} Platform\n- Features That Matter for {$category_term}\n- Safety, Privacy, and Billing Tips\n- FAQ About {$category_term}",
+            'outline' => "- About {$category_term}\n- Browse {$category_term} Videos and Models\n- How This Category Helps Visitors\n- Related Webcam Categories\n- Frequently Asked Questions",
         ];
+    }
+
+    private static function build_category_page_seo_title(string $focus_keyword, string $year): string {
+        return TitleFixer::shorten($focus_keyword . ': Best Live Cam Guide ' . $year, 70);
+    }
+
+    private static function build_category_page_meta_description(string $focus_keyword, string $brand): string {
+        return TitleFixer::shorten($focus_keyword . ' category page with neutral browsing context, related videos, model links, and live webcam discovery on ' . $brand . '.', 160);
     }
 
     /** @return array<string,string> */
