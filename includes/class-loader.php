@@ -89,6 +89,8 @@ class Loader {
     private static function load_keywords(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/keywords/';
         tmwseo_safe_require( $p . 'class-keyword-validator.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-csv-parser.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
         tmwseo_safe_require( $p . 'class-page-type-keyword-filter.php' );
         tmwseo_safe_require( $p . 'class-category-page-keyword-generator.php' );
         tmwseo_safe_require( $p . 'class-keyword-cleanup-classifier.php' );
