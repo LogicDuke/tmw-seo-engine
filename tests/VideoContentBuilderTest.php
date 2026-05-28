@@ -23,10 +23,10 @@ WP_Error('e','boom'); $id=(int)$arr['ID']; if(isset($GLOBALS['_tmw_posts'][$id])
     if (!class_exists('WP_Error')) { class WP_Error { private $m; public function __construct($c='',$m=''){ $this->m=$m; } public function get_error_message(){ return $this->m; } } }
     if (!function_exists('get_post_thumbnail_id')) { function get_post_thumbnail_id($id){ return (int)($GLOBALS['_tmw_thumb'][$id] ?? 0); } }
 
-    $GLOBALS['_tmw_options'] = [];
-    if (!function_exists('get_option')) { function get_option($k,$d=false){ return array_key_exists($k,$GLOBALS['_tmw_options']) ? $GLOBALS['_tmw_options'][$k] : $d; } }
-    if (!function_exists('update_option')) { function update_option($k,$v){ $GLOBALS['_tmw_options'][$k]=$v; return true; } }
-    if (!function_exists('delete_option')) { function delete_option($k){ unset($GLOBALS['_tmw_options'][$k]); return true; } }
+    $GLOBALS['_tmw_test_options'] = [];
+    if (!function_exists('get_option')) { function get_option($k,$d=false){ return array_key_exists($k,$GLOBALS['_tmw_test_options']) ? $GLOBALS['_tmw_test_options'][$k] : $d; } }
+    if (!function_exists('update_option')) { function update_option($k,$v){ $GLOBALS['_tmw_test_options'][$k]=$v; return true; } }
+    if (!function_exists('delete_option')) { function delete_option($k){ unset($GLOBALS['_tmw_test_options'][$k]); return true; } }
     if (!function_exists('sanitize_text_field')) { function sanitize_text_field($s){ return trim(strip_tags((string)$s)); } }
     if (!function_exists('sanitize_key')) { function sanitize_key($s){ return strtolower(preg_replace('/[^a-z0-9_\-]/','',(string)$s)); } }
     if (!function_exists('wp_unslash')) { function wp_unslash($v){ return is_string($v) ? stripslashes($v) : $v; } }
@@ -57,7 +57,7 @@ namespace TMWSEO\Engine\Tests {
             $GLOBALS['_tmw_posts'] = [10 => new \WP_Post(['ID'=>10,'post_name'=>'old-slug'])];
             $GLOBALS['_tmw_thumb'] = [10 => 55];
             $GLOBALS['_tmw_force_wp_update_error'] = false;
-            $GLOBALS['_tmw_options'] = [];
+            $GLOBALS['_tmw_test_options'] = [];
         }
         private function callPrivate(string $method, array $args){ $r=new ReflectionMethod(AdminAjaxHandlers::class,$method); $r->setAccessible(true); return $r->invokeArgs(null,$args); }
 
