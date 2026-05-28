@@ -15,7 +15,7 @@ Core recommendations:
 - Map rows to existing video posts using a confidence-ranked combination of `post_id`, URL, slug, title, model name, and imported keyword text.
 - Reject unsafe keywords and non-video-intent keywords during preview.
 - Reject standalone model-name keywords such as `Lexy Ness` for video pages, while accepting model-name-led video-intent phrases such as `Lexy Ness webcam video`.
-- Show explicit candidate lifecycle status values: `candidate`, `reviewed`, `approved`, `rejected`, and `archived`.
+- Use existing `tmw_keyword_candidates` status values for any later persistence: dry-run rows have no stored status; saved rows should use values such as `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or admin-recognized `ignored`, depending on the row state and current code convention.
 - Postpone repository writes, Generate selection, Rank Math application, and any content generation changes to later PRs.
 
 ## B. Recommended admin workflow
@@ -112,7 +112,7 @@ At least one keyword column is required:
 | `source` | `tool`, `provider`, `import_source` | Examples: DataForSEO, GKP, Ahrefs, Semrush, manual. |
 | `locale` | `language`, `country`, `location` | Optional planning metadata. |
 | `notes` | `note`, `review_notes` | Human context only. |
-| `status` | `candidate_status` | Future save should accept only safe lifecycle values and default to `candidate`. |
+| `status` | `candidate_status` | Optional hint only. Dry-run has no stored status. Future save should accept only existing pipeline/admin statuses such as `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`. Unknown values should be normalized or rejected. |
 
 ### Minimal examples
 
@@ -234,7 +234,7 @@ A keyword that starts with or contains the model name can be accepted when it al
 
 - Model name: `Lexy Ness`
 - Keyword: `Lexy Ness webcam video`
-- Decision: candidate or approved-eligible in preview
+- Decision: valid preview row; eligible for later save as `new`/`discovered`/`scored` or explicit `approved` depending on metrics and human action
 - Reason codes: `contains_model_name`, `contains_video_intent`
 - Explanation: the phrase targets a model-specific video page rather than the model profile alone.
 
@@ -300,9 +300,9 @@ The dry-run preview table should be optimized for review and export. Recommended
 | `row_number` | Original CSV row number for correction. |
 | `keyword` | Original keyword phrase. |
 | `normalized_keyword` | Normalized comparison phrase. |
-| `proposed_status` | Initial lifecycle status, default `candidate`; rejected rows show `rejected` or `archived` recommendation. |
+| `stored_status_preview` | Preview-only recommended stored status for a later import. Blank/no DB status during dry-run. Suggested values must be existing statuses such as `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`. Do not show unknown/invisible statuses. |
 | `validation_state` | `valid_video_candidate`, `review_required`, `rejected`, or `blocked`. |
-| `decision` | Human-readable preview decision: `candidate`, `needs_review`, `reject`, `block`, `duplicate`, `unmapped`, `ambiguous`. |
+| `decision` | Human-readable preview decision: `importable_new`, `importable_scored`, `needs_review`, `approve_if_selected`, `reject`, `ignore`, `block`, `duplicate`, `unmapped`, `ambiguous`. |
 | `reason_codes` | Machine-readable reasons. |
 | `reason_summary` | Short admin-friendly explanation. |
 | `model_name` | Imported or inferred model name. |
@@ -322,7 +322,7 @@ The dry-run preview table should be optimized for review and export. Recommended
 | `notes` | Imported or classifier notes. |
 | `eligible_for_later_save` | Boolean-like `yes`/`no`. |
 
-The table should support filtering by decision, mapping state, status, and reason code. Export should include all preview columns so reviewers can fix a CSV offline and rerun the dry-run.
+The table should support filtering by decision, mapping state, previewed existing status value, and reason code. Export should include all preview columns so reviewers can fix a CSV offline and rerun the dry-run.
 
 ## H. Save/import behavior for a later PR
 
@@ -332,52 +332,57 @@ Saving must be postponed until after the dry-run page is implemented and reviewe
 2. The default dry-run action must remain no-write.
 3. Only rows with `eligible_for_later_save = yes` can be selected for save.
 4. Blocked, rejected, unmapped, ambiguous, invalid-post, and missing-keyword rows must not be saved as approved candidates.
-5. Rows requiring review may be saved only as `reviewed` or `candidate`, never auto-approved.
-6. `approved` should require explicit user selection or a separate approval action.
-7. Saving should use nonce/capability checks and should record actor/time/source metadata if supported by the repository.
-8. Saving should be idempotent by normalized keyword plus video entity identity.
-9. Import should not update posts, post meta, Rank Math fields, slugs, `post_content`, indexing settings, affiliate settings, or publication state.
-10. Import should not run Generate.
+5. Rows requiring review should be saved as `queued_for_review`, never auto-approved.
+6. Safe imported rows without metrics should be saved as `new` or `discovered` based on the repository's existing convention; safe imported rows with normalized metrics may be saved as `scored` if that matches the current pipeline semantics.
+7. `approved` should require explicit user selection or a separate approval action.
+8. Saving should use nonce/capability checks and should record actor/time/source metadata if supported by the repository.
+9. Saving should be idempotent by normalized keyword plus video entity identity.
+10. Import should not update posts, post meta, Rank Math fields, slugs, `post_content`, indexing settings, affiliate settings, or publication state.
+11. Import should not run Generate.
 
 Recommended later import actions:
 
-- **Save selected as candidates** — stores safe/mapped rows with status `candidate`.
-- **Save selected as reviewed** — stores safe/mapped rows with status `reviewed` when a reviewer confirms they were inspected.
-- **Approve selected candidates** — optional later action; requires explicit confirmation and should not run Generate.
-- **Archive/reject selected existing candidates** — optional management action after repository-backed listing exists.
+- **Save selected as new/discovered** — stores safe/mapped rows without metrics using the existing near-term status convention (`new` or `discovered`).
+- **Save selected as scored** — stores safe/mapped rows with validated metrics as `scored` when the existing pipeline expects scored imports to use that status.
+- **Queue selected for review** — stores safe/mapped but uncertain rows as `queued_for_review`.
+- **Approve selected candidates** — optional later action; stores rows as `approved` only after explicit confirmation and should not run Generate.
+- **Reject/ignore selected existing candidates** — optional management action after repository-backed listing exists; use `rejected` where supported by the pipeline and `ignored` where that is the admin-recognized stored convention.
 - **Export dry-run CSV** — remains no-write and can ship with the first UI PR.
 
 ## I. Status lifecycle
 
-The future workflow should use a small explicit lifecycle:
+The future workflow should not invent a parallel video-only lifecycle. It should use statuses already recognized by the existing `tmw_keyword_candidates` pipeline and admin filters. Dry-run rows have **no stored status** because no database write occurs. A preview may display a recommended future status, but that recommendation must be one of the existing known values.
 
-1. `candidate`
-   - Default saved state for safe mapped rows.
-   - Indicates the keyword is available for human review but not preferred by Generate yet unless later settings allow candidate fallback.
-2. `reviewed`
-   - A human has inspected the row, but it is not approved for Generate preference.
-   - Useful for rows that need evidence, uncertain mapping, or editorial judgment.
-3. `approved`
-   - A human explicitly approved the candidate for the mapped video post.
-   - Later Generate integration may prefer this status.
-4. `rejected`
-   - The candidate should not be used for the mapped video post.
-   - Keep for audit/idempotency so the same bad phrase is not repeatedly reintroduced.
-5. `archived`
-   - The candidate is no longer active for operational use but retained historically.
+### Existing status values to prefer
 
-### Suggested transitions
+1. `new`
+   - Near-term default for a safe mapped row imported without scoring/metric enrichment when the current repository/admin convention treats `new` as the stored initial state.
+2. `discovered`
+   - Alternative initial pipeline state for an imported/discovered row when the keyword pipeline expects discovery-stage candidates to use this value.
+3. `scored`
+   - Use only when imported metrics have been validated and the existing pipeline considers the row scored.
+4. `queued_for_review`
+   - Use for safe but uncertain rows that need human review, evidence checks, low-confidence mapping review, sensitive modifier review, or editorial judgment.
+5. `approved`
+   - Use only when an operator explicitly approves the candidate for later Generate preference. Later Generate integration may prefer this status.
+6. `rejected`
+   - Use when the operator rejects a candidate and the current repository/admin path recognizes `rejected` for this table.
+7. `ignored`
+   - Use instead of `rejected` when the current admin UI/storage convention expects ignored rows to be stored as `ignored`.
 
-- `candidate` → `reviewed`
-- `candidate` → `approved`
-- `candidate` → `rejected`
-- `reviewed` → `approved`
-- `reviewed` → `rejected`
-- `approved` → `archived`
-- `rejected` → `archived`
-- `archived` → `candidate` only by explicit restore action
+Do **not** introduce `candidate`, `reviewed`, or `archived` as stored statuses in the near-term implementation. `candidate` may remain an English noun in labels such as "keyword candidate," but it should not be persisted as a status unless a future lifecycle/admin PR explicitly adds it. `reviewed` should map to `queued_for_review` or `approved` depending on the human decision. `archived` should not be introduced unless a future lifecycle/admin change adds visible admin filtering and repository support.
 
-Dry-run preview may propose these statuses, but should not persist them.
+### Suggested transitions using existing statuses
+
+- dry-run preview only → no stored status
+- no-metric safe import → `new` or `discovered`
+- metric-enriched safe import → `scored`
+- uncertain/sensitive/low-confidence row → `queued_for_review`
+- `new`/`discovered`/`scored`/`queued_for_review` → `approved` by explicit operator action
+- `new`/`discovered`/`scored`/`queued_for_review` → `rejected` or `ignored` by explicit operator action
+- `approved` → `rejected` or `ignored` only by explicit operator reversal
+
+No schema change, admin filter change, or status enum expansion is included in PR 581.
 
 ## J. How this connects to VideoKeywordCandidateRepository
 
@@ -402,8 +407,8 @@ Recommended repository responsibilities:
 
 - Upsert by normalized keyword and video entity identity.
 - Preserve or merge metrics without erasing stronger existing data.
-- Enforce allowed statuses.
-- Prevent unsafe state escalation, such as turning rejected rows into approved rows without explicit caller intent.
+- Enforce only existing allowed statuses recognized by the keyword pipeline/admin UI.
+- Prevent unsafe state escalation, such as turning `rejected`/`ignored` rows into `approved` rows without explicit caller intent.
 - Return counts for created, updated, skipped, duplicate, and rejected rows.
 
 Recommended workflow responsibilities before calling the repository:
@@ -422,8 +427,8 @@ Generate integration must be a separate later PR after repository-backed candida
 1. Video Generate should continue to work exactly as it does today when no approved candidate exists.
 2. The right-sidebar Generate button must not change behavior or break.
 3. Generate should query approved candidates for the current video post through a service/repository abstraction, not by reading raw CSV uploads or admin preview state.
-4. Generate should prefer `approved` candidates only, unless a future explicit setting allows `reviewed` fallback.
-5. Candidate selection should respect safety flags and must not choose blocked/rejected/archived rows.
+4. Generate should prefer `approved` candidates only; it should not treat `new`, `discovered`, `scored`, or `queued_for_review` as approved fallbacks unless a future explicit product decision changes that behavior.
+5. Candidate selection should respect safety flags and must not choose blocked, `rejected`, `ignored`, or review-queued rows.
 6. Generate should not auto-approve candidates.
 7. Generate should not write candidate rows.
 8. Generate should not change noindex/indexing behavior.
@@ -433,7 +438,7 @@ Generate integration must be a separate later PR after repository-backed candida
 Recommended later selection order:
 
 1. Approved candidate explicitly assigned to the video post.
-2. If multiple approved candidates exist, choose the strongest candidate by manual priority if available, then search metrics, then newest reviewed/approved timestamp.
+2. If multiple approved candidates exist, choose the strongest candidate by manual priority if available, then search metrics, then newest approval timestamp.
 3. If no approved candidate exists, fall back to the existing video keyword generation behavior.
 
 This preserves backward compatibility and avoids making imported research data operational until a human approval step has occurred.
@@ -484,13 +489,13 @@ Do not build any of the following in PR 581 or the immediate design-only work:
 
 4. **PR 585 — Repository-backed save of selected candidates**
    - Depend on `VideoKeywordCandidateRepository` only if PR 580 has merged.
-   - Save selected safe mapped rows as `candidate`/`reviewed`/explicit `approved`.
+   - Save selected safe mapped rows using existing statuses: `new`/`discovered`, `scored`, `queued_for_review`, or explicit `approved`.
    - Add idempotent duplicate handling and import result counts.
    - Do not touch Generate, Rank Math, or content.
 
 5. **PR 586 — Candidate management/review actions**
    - List existing video candidates.
-   - Support status transitions, archive/reject, and audit metadata.
+   - Support existing status transitions, reject/ignore actions, and audit metadata; do not add archive behavior unless a separate lifecycle/admin PR adds visible support.
    - No Generate change yet.
 
 6. **PR 587 — Optional Generate preference for approved candidates**
