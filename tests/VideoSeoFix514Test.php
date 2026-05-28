@@ -144,6 +144,35 @@ class VideoSeoFixTest extends \PHPUnit\Framework\TestCase {
         $this->assertStringContainsString( 'webcam-video-chat', $slug );
     }
 
+
+    public function test_body_focus_phrase_removes_em_dash_without_changing_slug_expectation(): void {
+        $title = 'Alice Schuster — Babe Cam Show';
+        $this->assertSame( 'Alice Schuster Babe Cam Show', VideoContentBuilder::clean_body_focus_phrase( $title ) );
+        $this->assertSame( 'alice-schuster-babe-cam-show', sanitize_title( $title ) );
+    }
+
+    public function test_faq_heading_avoids_a_alice_wording(): void {
+        $method = new \ReflectionMethod( VideoContentBuilder::class, 'build_content_html' );
+        $method->setAccessible( true );
+        $html = $method->invoke(
+            null,
+            577,
+            'Alice Schuster — Babe Cam Show',
+            '',
+            'Alice Schuster',
+            '',
+            [ 'Free Cam Chat & Webcam Models' ],
+            [ 'babe cam show', 'cam porn' ],
+            'Top-Models.Webcam',
+            'Alice Schuster — Babe Cam Show',
+            [ 'Alice Schuster webcam video' ]
+        );
+
+        $this->assertStringNotContainsString( 'Is This a Alice', $html );
+        $this->assertStringContainsString( 'Is This an Alice Schuster Video Page?', $html );
+        $this->assertStringNotContainsString( 'cam porn', strtolower( $html ) );
+    }
+
     // ── G3: Rank Math keyword CSV: primary first, no duplicates ──────────────
 
     public function test_build_secondary_keywords_excludes_primary(): void {

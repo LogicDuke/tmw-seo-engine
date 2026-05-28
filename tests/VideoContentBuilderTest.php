@@ -4,8 +4,11 @@ declare(strict_types=1);
 namespace {
     if (!defined('ABSPATH')) define('ABSPATH', __DIR__);
     if (!class_exists('WP_Post')) { class WP_Post { public $ID=0; public $post_name=''; public $post_status='publish'; public $post_type='post'; public $post_parent=0; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
+    if (!class_exists('WP_Term')) { class WP_Term { public $name=''; public $slug=''; public $taxonomy=''; public function __construct($a=[]){foreach($a as $k=>$v){$this->$k=$v;}} } }
     $GLOBALS['_tmw_meta'] = [];
     $GLOBALS['_tmw_posts'] = [];
+    $GLOBALS['_tmw_titles'] = [];
+    $GLOBALS['_tmw_terms'] = [];
     if (!function_exists('esc_html')) { function esc_html($s){ return (string)$s; } }
     if (!function_exists('esc_url')) { function esc_url($s){ return (string)$s; } }
     if (!function_exists('wp_strip_all_tags')) { function wp_strip_all_tags($s){ return strip_tags((string)$s); } }
@@ -13,7 +16,7 @@ namespace {
     if (!function_exists('update_post_meta')) { function update_post_meta($id,$k,$v){ $GLOBALS['_tmw_meta'][$id][$k]=$v; return true; } }
     if (!function_exists('delete_post_meta')) { function delete_post_meta($id,$k){ unset($GLOBALS['_tmw_meta'][$id][$k]); return true; } }
     if (!function_exists('current_time')) { function current_time($t){ return '2026-05-28 00:00:00'; } }
-    if (!function_exists('get_the_title')) { function get_the_title($id=0){ return 'Title'; } }
+    if (!function_exists('get_the_title')) { function get_the_title($id=0){ return $GLOBALS['_tmw_titles'][$id] ?? 'Title'; } }
     if (!function_exists('get_post')) { function get_post($id){ return $GLOBALS['_tmw_posts'][$id] ?? null; } }
     if (!function_exists('sanitize_title')) { function sanitize_title($s){ return strtolower(trim(preg_replace('/[^a-z0-9]+/i','-',(string)$s),'-')); } }
     if (!function_exists('wp_unique_post_slug')) { function wp_unique_post_slug($slug){ return $slug; } }
@@ -22,6 +25,9 @@ WP_Error('e','boom'); $id=(int)$arr['ID']; if(isset($GLOBALS['_tmw_posts'][$id])
     if (!function_exists('is_wp_error')) { function is_wp_error($x){ return $x instanceof \WP_Error; } }
     if (!class_exists('WP_Error')) { class WP_Error { private $m; public function __construct($c='',$m=''){ $this->m=$m; } public function get_error_message(){ return $this->m; } } }
     if (!function_exists('get_post_thumbnail_id')) { function get_post_thumbnail_id($id){ return (int)($GLOBALS['_tmw_thumb'][$id] ?? 0); } }
+    if (!function_exists('wp_get_post_terms')) { function wp_get_post_terms($post_id,$taxonomy,$args=[]){ return $GLOBALS['_tmw_terms'][$post_id][$taxonomy] ?? []; } }
+    if (!function_exists('get_term_by')) { function get_term_by($field,$value,$taxonomy){ return new \WP_Term(['name'=>(string)$value,'slug'=>sanitize_title((string)$value),'taxonomy'=>$taxonomy]); } }
+    if (!function_exists('get_term_link')) { function get_term_link($term){ return 'https://top-models.webcam/' . $term->taxonomy . '/' . $term->slug . '/'; } }
 
     $GLOBALS['_tmw_test_options'] = [];
     if (!function_exists('get_option')) { function get_option($k,$d=false){ return array_key_exists($k,$GLOBALS['_tmw_test_options']) ? $GLOBALS['_tmw_test_options'][$k] : $d; } }
@@ -55,13 +61,15 @@ namespace TMWSEO\Engine\Tests {
         protected function setUp(): void {
             $GLOBALS['_tmw_meta'] = [];
             $GLOBALS['_tmw_posts'] = [10 => new \WP_Post(['ID'=>10,'post_name'=>'old-slug'])];
+            $GLOBALS['_tmw_titles'] = [10 => 'Alice Schuster — Babe Cam Show'];
+            $GLOBALS['_tmw_terms'] = [];
             $GLOBALS['_tmw_thumb'] = [10 => 55];
             $GLOBALS['_tmw_force_wp_update_error'] = false;
             $GLOBALS['_tmw_test_options'] = [];
         }
         private function callPrivate(string $method, array $args){ $r=new ReflectionMethod(AdminAjaxHandlers::class,$method); $r->setAccessible(true); return $r->invokeArgs(null,$args); }
 
-        public function test_derive_focus_keyword_prefers_video_chat(): void { $this->assertSame('Lexy Ness video chat', VideoContentBuilder::derive_focus_keyword('Lexy Ness Plays — Webcam Video Chat', 'Lexy Ness')); }
+        public function test_derive_focus_keyword_strips_dash_suffix_without_changing_slug_tests(): void { $this->assertSame('Lexy Ness Plays', VideoContentBuilder::derive_focus_keyword('Lexy Ness Plays — Webcam Video Chat', 'Lexy Ness')); }
         public function test_secondary_keywords_exclude_primary_even_without_model(): void { $this->assertNotContains('video chat', VideoContentBuilder::build_secondary_keywords('', 'video chat')); }
         public function test_secondary_keywords_are_unique_and_exclude_primary(): void { $secondary = VideoContentBuilder::build_secondary_keywords('Lexy Ness', 'Lexy Ness video chat'); $this->assertNotContains('Lexy Ness video chat', $secondary); $this->assertSame($secondary, array_values(array_unique($secondary))); }
         public function test_seo_title_starts_with_focus_keyword_and_has_best_and_year(): void { $title = VideoContentBuilder::build_seo_title('Lexy Ness', 'Lexy Ness video chat', 'X'); $this->assertStringStartsWith('Lexy Ness Video Chat:', $title); $this->assertStringContainsString('Best', $title); $this->assertStringContainsString(gmdate('Y'), $title); }
@@ -119,6 +127,82 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringContainsString('target="_blank"', $html);
             $this->assertStringContainsString('href="https://ctwmsg.com/', $html);
             $this->assertStringNotContainsString('/go/livejasmin/', $html);
+        }
+
+
+
+        public function test_clean_body_focus_phrase_removes_dash_for_alice_title(): void {
+            $this->assertSame('Alice Schuster Babe Cam Show', VideoContentBuilder::clean_body_focus_phrase('Alice Schuster — Babe Cam Show'));
+        }
+
+        public function test_generated_content_starts_with_clean_body_focus_phrase(): void {
+            $r=new ReflectionMethod(VideoContentBuilder::class,'build_content_html'); $r->setAccessible(true);
+            $html=$r->invoke(null,10,'Alice Schuster — Babe Cam Show','', 'Alice Schuster','',['Free Cam Chat & Webcam Models'],['babe cam show','cam porn'],'Top-Models.Webcam','Alice Schuster — Babe Cam Show',['Alice Schuster webcam video']);
+            $text=wp_strip_all_tags($html);
+            $this->assertStringStartsWith('Alice Schuster Babe Cam Show is', $text);
+            $this->assertStringNotContainsString('Alice Schuster — Babe Cam Show is', $text);
+        }
+
+        public function test_slug_generation_remains_full_title_based(): void {
+            $slug=sanitize_title('Alice Schuster — Babe Cam Show');
+            $this->assertSame('alice-schuster-babe-cam-show', $slug);
+            $this->assertStringContainsString('babe-cam-show', $slug);
+        }
+
+        public function test_unsafe_visible_tag_filtered_but_safe_tags_and_categories_remain(): void {
+            $GLOBALS['_tmw_terms'][10]['post_tag']=['cam porn','bed','brown hair'];
+            $GLOBALS['_tmw_terms'][10]['category']=['Amateur Cam Girls & Webcam Models','Busty Cam Girls & Webcam Models'];
+            $r=new ReflectionMethod(VideoContentBuilder::class,'collect_safe_tags'); $r->setAccessible(true);
+            $tags=$r->invoke(null,10);
+            $this->assertNotContains('cam porn', $tags);
+            $this->assertContains('bed', $tags);
+
+            $htmlMethod=new ReflectionMethod(VideoContentBuilder::class,'build_content_html'); $htmlMethod->setAccessible(true);
+            $html=$htmlMethod->invoke(null,10,'Lexy Ness Plays With Her Amazing Body','', 'Lexy Ness','',$GLOBALS['_tmw_terms'][10]['category'],$tags,'Top-Models.Webcam','Lexy Ness Plays With Her Amazing Body',['Lexy Ness webcam video']);
+            $this->assertStringNotContainsString('cam porn', strtolower($html));
+            $this->assertStringContainsString('bed', $html);
+            $this->assertStringContainsString('Amateur Cam Girls & Webcam Models', $html);
+            $this->assertStringContainsString('Busty Cam Girls & Webcam Models', $html);
+        }
+
+        public function test_all_unsafe_tags_fall_back_to_safe_generic_terms(): void {
+            $GLOBALS['_tmw_terms'][10]['post_tag']=['cam porn','xxx','nude'];
+            $r=new ReflectionMethod(VideoContentBuilder::class,'collect_safe_tags'); $r->setAccessible(true);
+            $tags=$r->invoke(null,10);
+            $this->assertSame(['webcam video','cam show','live webcam clip','video chat'], $tags);
+        }
+
+        public function test_faq_heading_avoids_a_alice(): void {
+            $r=new ReflectionMethod(VideoContentBuilder::class,'build_content_html'); $r->setAccessible(true);
+            $html=$r->invoke(null,10,'Alice Schuster — Babe Cam Show','', 'Alice Schuster','',[],['babe cam show'],'Top-Models.Webcam','Alice Schuster — Babe Cam Show',['Alice Schuster webcam video']);
+            $this->assertStringNotContainsString('Is This a Alice', $html);
+            $this->assertStringContainsString('Is This an Alice Schuster Video Page?', $html);
+        }
+
+        public function test_variants_are_different_by_post_id_and_deterministic(): void {
+            $r=new ReflectionMethod(VideoContentBuilder::class,'build_content_html'); $r->setAccessible(true);
+            $args=[10,'Alice Schuster — Babe Cam Show','', 'Alice Schuster','',[],['babe cam show'],'Top-Models.Webcam','Alice Schuster — Babe Cam Show',['Alice Schuster webcam video']];
+            $first=$r->invokeArgs(null,$args);
+            $again=$r->invokeArgs(null,$args);
+            $args[0]=11;
+            $different=$r->invokeArgs(null,$args);
+            $this->assertSame($first,$again);
+            $this->assertNotSame($first,$different);
+        }
+
+        public function test_generated_content_has_no_internal_go_links_and_word_count_near_target(): void {
+            update_option('tmwseo_platform_affiliate_settings',['livejasmin'=>['psid'=>'Topmodels4u','pstool'=>'205_1','psprogram'=>'revs']]);
+            $GLOBALS['_tmw_posts'][10]=new \WP_Post(['ID'=>10,'post_name'=>'old-slug']);
+            $GLOBALS['_tmw_titles'][10]='Alice Schuster — Babe Cam Show';
+            $GLOBALS['_tmw_meta'][10]['_tmw_model_name']='Alice Schuster';
+            $GLOBALS['_tmw_meta'][10]['_tmwseo_platform_username_livejasmin']='alice';
+            $GLOBALS['_tmw_terms'][10]['post_tag']=['babe cam show','cam porn','bed'];
+            $GLOBALS['_tmw_terms'][10]['category']=['Free Cam Chat & Webcam Models'];
+            $build=VideoContentBuilder::build(10);
+            $this->assertStringStartsWith('Alice Schuster Babe Cam Show is', wp_strip_all_tags($build['html']));
+            $this->assertStringNotContainsString('/go/livejasmin/', $build['html']);
+            $this->assertGreaterThanOrEqual(600, $build['word_count']);
+            $this->assertLessThanOrEqual(850, $build['word_count']);
         }
 
         public function test_generated_content_skips_affiliate_section_without_approved_url(): void {

@@ -58,6 +58,12 @@ class VideoContentBuilder {
     ];
     private const EXPLICIT_SKIP_PATTERN = '/\b(ass|puss(?:y|ies)|dildo(?:s)?|fuck(?:ed|ing|er|ers)?|blow\s*job(?:s)?|cum(?:shot|shots)?|cock(?:s)?|penis(?:es)?|vagina(?:s)?|nude|naked|horny|orgasm(?:s|ic)?|squirt(?:ing)?|finger(?:ing|ed)?|masturbat(?:e|es|ed|ing|ion)|anal)\b/i';
 
+    /** Risky imported tag phrases hidden from visible safe SEO copy. */
+    private const VISIBLE_TAG_DENYLIST = [ 'cam porn', 'porn', 'xxx', 'sex', 'fuck', 'nude', 'naked' ];
+
+    /** Safe fallback terms used when imported post tags are all filtered. */
+    private const SAFE_TAG_FALLBACKS = [ 'webcam video', 'cam show', 'live webcam clip', 'video chat' ];
+
     /**
      * Build complete video content: HTML body + Rank Math field recommendations.
      *
@@ -113,7 +119,7 @@ class VideoContentBuilder {
             $secondary
         );
 
-        $html = self::enforce_minimum_word_count( $html, $model_name, $focus_kw, $model_url );
+        $html = self::enforce_minimum_word_count( $html, $model_name, self::clean_body_focus_phrase( $focus_kw ), $model_url );
 
         $word_count = str_word_count( wp_strip_all_tags( $html ) );
 
@@ -264,10 +270,11 @@ class VideoContentBuilder {
                 }
             }
 
-            // Write focus keyword CSV: primary + up to 4 secondary
-            $kw_list = array_values( array_unique( array_filter( array_map( 'trim', array_merge(
+            // Write focus keyword CSV: primary + up to 4 secondary. Hide risky imported phrases.
+            $safe_secondary = self::filter_visible_safe_terms( array_slice( $secondary, 0, 4 ) );
+            $kw_list        = array_values( array_unique( array_filter( array_map( 'trim', array_merge(
                 [ $focus_kw ],
-                array_slice( $secondary, 0, 4 )
+                $safe_secondary
             ) ) ) ) );
             $kw_csv = implode( ',', array_slice( $kw_list, 0, 5 ) );
 
@@ -341,6 +348,71 @@ class VideoContentBuilder {
         }
 
         return $mn !== '' ? $mn . ' webcam video' : 'webcam video';
+    }
+
+    /**
+     * Clean the focus/title phrase for visible body sentences without changing slugs or titles.
+     */
+    public static function clean_body_focus_phrase( string $phrase ): string {
+        $clean = trim( wp_strip_all_tags( $phrase ) );
+        if ( $clean === '' ) {
+            return '';
+        }
+
+        $clean = (string) preg_replace( '/\s*[—–]+\s*/u', ' ', $clean );
+        $clean = (string) preg_replace( '/\s{2,}/u', ' ', $clean );
+
+        return trim( $clean );
+    }
+
+    /**
+     * Deterministically choose one safe content variant for a post and section.
+     */
+    private static function pick_variant( int $post_id, string $section, array $variants ): string {
+        if ( empty( $variants ) ) {
+            return '';
+        }
+
+        $seed  = $post_id > 0 ? (string) $post_id : '0';
+        $index = abs( crc32( $seed . '|' . $section ) ) % count( $variants );
+
+        return (string) $variants[ $index ];
+    }
+
+    /**
+     * Return imported tags that are acceptable for visible safe SEO copy.
+     */
+    private static function filter_visible_safe_terms( array $terms ): array {
+        $safe = [];
+        foreach ( $terms as $term ) {
+            $raw = trim( (string) $term );
+            if ( $raw === '' ) {
+                continue;
+            }
+
+            $normalized = mb_strtolower( (string) preg_replace( '/[\-_\/\\.]+/u', ' ', $raw ), 'UTF-8' );
+            $normalized = trim( (string) preg_replace( '/\s{2,}/u', ' ', $normalized ) );
+
+            $blocked = in_array( $normalized, self::VISIBLE_TAG_DENYLIST, true );
+            if ( ! $blocked ) {
+                foreach ( self::VISIBLE_TAG_DENYLIST as $deny ) {
+                    if ( preg_match( '/\b' . preg_quote( $deny, '/' ) . '\b/i', $normalized ) === 1 ) {
+                        $blocked = true;
+                        break;
+                    }
+                }
+            }
+
+            if ( $blocked ) {
+                continue;
+            }
+
+            if ( ! in_array( $raw, $safe, true ) ) {
+                $safe[] = $raw;
+            }
+        }
+
+        return $safe;
     }
 
     /**
@@ -474,14 +546,8 @@ class VideoContentBuilder {
         $safe_title = self::sanitize_visible_video_phrase( $title, 'this webcam video page' );
         $safe_imported_title = self::sanitize_visible_video_phrase( $imported_title, '' );
         $mn_safe    = esc_html( $mn );
-        $fk_safe    = esc_html( $focus_kw !== '' ? $focus_kw : 'this webcam video' );
         $title_safe = esc_html( $safe_title );
         $brand      = esc_html( self::SITE_BRAND );
-
-        // Tags list for body text (max 4, safe)
-        $tag_list = ! empty( $tags )
-            ? implode( ', ', array_map( 'esc_html', array_slice( $tags, 0, 4 ) ) )
-            : 'live webcam clip, cam show, video chat';
 
         // Category list for body text (max 3)
         $cat_list = ! empty( $categories )
@@ -513,14 +579,27 @@ class VideoContentBuilder {
         $tag_links_html      = self::build_tag_links_html( $post_id, $tags );
         $category_links_html = self::build_category_links_html( $post_id, $categories );
 
+        $body_focus       = self::clean_body_focus_phrase( $focus_kw !== '' ? $focus_kw : $safe_title );
+        $body_focus_safe  = esc_html( $body_focus !== '' ? $body_focus : 'this webcam video' );
+        $safe_tags        = self::filter_visible_safe_terms( $tags );
+        $safe_tags        = ! empty( $safe_tags ) ? $safe_tags : self::SAFE_TAG_FALLBACKS;
+        $tag_list         = implode( ', ', array_map( 'esc_html', array_slice( $safe_tags, 0, 4 ) ) );
+        $secondary_safe   = self::filter_visible_safe_terms( $secondary );
+        $secondary_safe   = ! empty( $secondary_safe ) ? $secondary_safe : self::SAFE_TAG_FALLBACKS;
+        $primary_context  = ! empty( $safe_tags ) ? esc_html( $safe_tags[0] ) : 'webcam video';
+        $category_context = ! empty( $categories ) ? esc_html( $categories[0] ) : 'webcam videos';
+
         $parts = [];
 
         // ── Intro paragraph ───────────────────────────────────────────────────
         $parts[] = '<p>'
-            . ucfirst( $fk_safe ) . ' is a live webcam video page on ' . $brand . ' dedicated to '
-            . $title_safe . '. '
-            . 'This page provides neutral browsing context for visitors who want quick background before opening the clip, '
-            . 'along with safe category browsing, related video links, and discovery language for search engines.'
+            . $body_focus_safe . ' is a live webcam video page on ' . $brand . ' featuring ' . $mn_safe . '. '
+            . self::pick_variant( $post_id, 'intro', [
+                'This page gives visitors a neutral overview of the clip, the model connection, and the safest ways to continue browsing related webcam content without relying on repetitive boilerplate.',
+                'It summarizes the video context in plain language, connects the page with model and topic navigation, and keeps the visible copy suitable for search visitors.',
+                'The page is written as a concise browsing guide, pairing the original video topic with safe tags, preserved categories, and useful internal discovery paths.',
+            ] )
+            . ' The visible title remains ' . $title_safe . ', while the body wording uses a cleaner phrase for natural reading.'
             . $origin_note
             . '</p>';
 
@@ -528,37 +607,47 @@ class VideoContentBuilder {
         $parts[] = '<h2>About This ' . $mn_safe . ' Webcam Video</h2>';
 
         $parts[] = '<p>'
-            . 'The ' . $fk_safe . ' page covers a single webcam session connected to ' . $mn_safe . ' on ' . $brand . '. '
-            . 'Webcam video pages like this one exist to give search visitors a neutral landing point — describing '
-            . 'what kind of content to expect, linking to related clips, and supporting safe browsing across the site. '
-            . 'The page does not reproduce graphic material; it provides context for the video only.'
+            . self::pick_variant( $post_id, 'about', [
+                'This video page focuses on one session connected to ' . $mn_safe . ' and organizes the main details around the title phrase, safe tags, and category context.',
+                'The page gives ' . $mn_safe . ' a dedicated video entry that is easier to understand than a bare imported title or tag list.',
+                'This entry keeps the emphasis on ' . $mn_safe . ' and the specific webcam clip while avoiding graphic descriptions or unsupported claims.',
+            ] ) . ' '
+            . 'The strongest visible context is ' . $body_focus_safe . ', supported by terms such as ' . $tag_list . ' and the preserved category label ' . $category_context . '. '
+            . 'The copy is intentionally neutral and does not reproduce explicit material.'
             . '</p>';
 
         $parts[] = '<p>'
-            . 'Video pages on ' . $brand . ' are connected to model pages, category pages, and tag archives. '
-            . 'Each page targets a specific long-tail webcam video keyword so that visitors searching for '
-            . esc_html( $focus_kw ) . ' or related terms find exactly the right page. '
-            . 'The content on this page is non-graphic, non-invasive, and designed to meet safe search standards.'
+            . self::pick_variant( $post_id, 'about-secondary', [
+                'Model pages, categories, and tag archives all help visitors understand where a video belongs in the wider site library.',
+                'Instead of repeating the same generic description on every post, this page uses the available model, tag, and category details to describe the clip in a more specific way.',
+                'The surrounding navigation gives search visitors a practical way to compare this clip with adjacent webcam videos and model-focused pages.',
+            ] ) . ' '
+            . 'Visitors searching for ' . $body_focus_safe . ' can confirm the subject quickly, then use related links to continue browsing similar safe webcam video topics.'
             . '</p>';
 
         // ── H2: What Viewers Can Expect ───────────────────────────────────────
         $parts[] = '<h2>What Viewers Can Expect From This Live Webcam Clip</h2>';
 
         $parts[] = '<p>'
-            . 'This live webcam clip page gives visitors a clear description before they click through to the video. '
-            . 'The clip is connected to the ' . esc_html( $platform ) . ' platform and tagged with '
-            . $tag_list . '. '
-            . 'The page is categorised under ' . $cat_list . ', making it discoverable through both keyword search '
-            . 'and site category browsing.'
+            . self::pick_variant( $post_id, 'expect', [
+                'Viewers can expect a page that explains the clip before any outbound or internal browsing choice is made.',
+                'The page sets expectations by highlighting the model name, the source context, and the safest descriptive tags available for this post.',
+                'This section keeps the description practical: who the page is about, what topic signals are attached, and how the clip fits the site structure.',
+            ] ) . ' '
+            . 'The clip is connected to the ' . esc_html( $platform ) . ' platform and tagged with ' . $tag_list . '. '
+            . 'It is categorised under ' . $cat_list . ', with category labels preserved exactly as imported.'
             . '</p>';
 
         $parts[] = '<p>'
-            . 'Visitors arriving on this page are typically searching for terms like '
-            . esc_html( $focus_kw ) . ', '
-            . esc_html( $secondary[0] ?? ( $model_name !== '' ? $model_name . ' webcam video' : 'live webcam video' ) ) . ', '
-            . esc_html( $secondary[1] ?? 'live webcam clip' ) . ', or '
-            . esc_html( $secondary[2] ?? 'cam show content' ) . '. '
-            . 'Each of these searches leads to this page because the content, tags, and categories align with those browsing patterns.'
+            . self::pick_variant( $post_id, 'expect-search', [
+                'Search visitors may arrive through the full title phrase, the model name, or a supporting webcam-video query.',
+                'Different visitors may search from the model angle, the clip-title angle, or a broader live webcam browsing angle.',
+                'The same page can serve several safe search intents as long as the wording stays concise and does not overload the copy with repeated keywords.',
+            ] ) . ' '
+            . 'Related safe keyword ideas include ' . esc_html( $secondary_safe[0] ?? 'webcam video' ) . ', '
+            . esc_html( $secondary_safe[1] ?? 'live webcam clip' ) . ', and '
+            . esc_html( $secondary_safe[2] ?? 'video chat' ) . '. '
+            . 'Those phrases support discovery while keeping the page readable.'
             . '</p>';
 
         // ── H3: Model and Site Context ────────────────────────────────────────
@@ -566,14 +655,14 @@ class VideoContentBuilder {
 
         if ( $model_link !== '' ) {
             $parts[] = '<p>'
-                . $mn_safe . ' is a live cam model with a dedicated profile page on ' . $brand . '. '
-                . 'Visit the ' . $model_link . ' for platform links, related webcam clips, session schedules, and more content from this model. '
-                . 'The video page you are viewing now is one of several ' . $mn_safe . ' webcam video pages on the site.'
+                . $mn_safe . ' is connected to a dedicated profile page on ' . $brand . '. '
+                . 'Visit the ' . $model_link . ' for model-level context and related webcam clips, then return to this post for the specific video reference. '
+                . 'This keeps the video page focused while the model page provides broader navigation.'
                 . '</p>';
         } else {
             $parts[] = '<p>'
-                . $mn_safe . ' is a live cam model featured on ' . $brand . '. '
-                . 'Browse the tags and categories on this page to find related ' . $mn_safe . ' webcam clips, cam shows, and live webcam video content from similar models.'
+                . $mn_safe . ' is the featured model for this video page on ' . $brand . '. '
+                . 'When a dedicated profile link is not available, the safe tags and preserved categories on this post provide the main browsing paths for similar webcam video content.'
                 . '</p>';
         }
 
@@ -590,11 +679,12 @@ class VideoContentBuilder {
         $parts[] = '<h2>Related Webcam Videos and Model Clips</h2>';
 
         $parts[] = '<p>'
-            . 'Top-Models.Webcam publishes hundreds of webcam video pages covering live cam sessions, '
-            . 'video chat clips, cam show recordings, and webcam session previews. '
-            . 'Use the tag and category links below to browse more '
-            . esc_html( $focus_kw ) . ' content, find similar clips from ' . $mn_safe . ', '
-            . 'or discover related models and sessions across the site.'
+            . self::pick_variant( $post_id, 'related', [
+                'Related video discovery works best when visitors can move from one precise clip page to nearby model, tag, and category pages.',
+                'A useful related-video section should point readers toward adjacent clips without making every generated page sound identical.',
+                'The related browsing path for this post starts with the model name and then expands through safe topic labels and category archives.',
+            ] ) . ' '
+            . 'Use the links below to browse more ' . $body_focus_safe . ' context, compare other ' . $mn_safe . ' clips, or continue through safe terms like ' . $primary_context . '.'
             . '</p>';
 
         // Related Tags — real archive links
@@ -613,42 +703,45 @@ class VideoContentBuilder {
         $parts[] = '<h2>Why This Video Page Is Useful</h2>';
 
         $parts[] = '<p>'
-            . 'Video pages on ' . $brand . ' serve two purposes. For visitors, they provide context '
-            . 'before clicking through to a live webcam clip or cam show recording — confirming the subject '
-            . 'matches the search query without opening the video first. '
-            . 'For search engines, these pages target specific long-tail keywords like '
-            . $fk_safe . ' and connect model profiles, category pages, and individual clips into a coherent '
-            . 'site structure that supports discovery across thousands of webcam sessions.'
+            . self::pick_variant( $post_id, 'useful', [
+                'This page is useful because it turns an imported video record into a readable landing page with model context, safe topic language, and internal navigation.',
+                'For visitors, the page provides enough context to decide whether the clip matches their search before they continue browsing.',
+                'For search engines, the page connects the exact video topic with stable metadata, preserved categories, safe tags, and model-oriented navigation.',
+            ] ) . ' '
+            . 'It supports long-tail discovery for ' . $body_focus_safe . ' without changing indexing settings, publishing status, category names, or the original slug behavior.'
             . '</p>';
 
         // ── H2: FAQ ───────────────────────────────────────────────────────────
         $parts[] = '<h2>Frequently Asked Questions</h2>';
 
-        // FAQ 1
-        $parts[] = '<h3>Is This a ' . $mn_safe . ' Webcam Video?</h3>';
+        $parts[] = '<h3>Is This an ' . $mn_safe . ' Video Page?</h3>';
         $parts[] = '<p>'
-            . 'Yes. This page is connected to ' . $mn_safe . ' and covers a specific webcam video session. '
-            . 'The title and tags on this page reflect the original scene. '
-            . 'For the full ' . $mn_safe . ' profile and live cam links, see the model page on ' . $brand . '.'
+            . self::pick_variant( $post_id, 'faq-one', [
+                'Yes. This page is connected to ' . $mn_safe . ' and describes one specific webcam video entry in neutral terms.',
+                'Yes. It is a ' . $mn_safe . ' video page built around the original post title, safe tags, and preserved category context.',
+                'Yes. The page focuses on a single ' . $mn_safe . ' webcam clip and gives visitors a clear, non-graphic overview.',
+            ] ) . ' '
+            . ( $model_link !== '' ? 'For broader model information, use the ' . $model_link . '. ' : '' )
+            . 'The wording is designed for safe browsing and does not alter the visible post title.'
             . '</p>';
 
-        // FAQ 2
         $parts[] = '<h3>What Kind of Video Page Is This?</h3>';
         $parts[] = '<p>'
-            . 'This is a webcam video discovery page — a neutral content page designed to give visitors context '
-            . 'about a specific live cam session. It describes the video, links to related content, and helps '
-            . 'search engines understand the page\'s topic without reproducing graphic material.'
+            . self::pick_variant( $post_id, 'faq-two', [
+                'It is a webcam video discovery page that gives context for a single clip while preserving the original site taxonomy.',
+                'It is a neutral landing page for a specific video, combining title context with safe tags and category navigation.',
+                'It is an informational video page intended to help readers and search engines understand the clip topic without explicit copy.',
+            ] )
             . '</p>';
 
-        // FAQ 3
         $parts[] = '<h3>Where Can I Find More Webcam Clips Like This?</h3>';
         $parts[] = '<p>'
-            . 'Use the category and tag links on this page to browse similar webcam video clips and cam show pages. '
-            . ( $model_link !== ''
-                ? 'You can also visit the ' . $model_link . ' for more content from ' . $mn_safe . '. '
-                : '' )
-            . 'Top-Models.Webcam publishes regular video pages covering a wide range of live webcam sessions, '
-            . 'video chat recordings, and cam show clips.'
+            . self::pick_variant( $post_id, 'faq-three', [
+                'Start with the related tag and category links on this page, then move to model pages when a profile link is available.',
+                'Use the safe tags, preserved categories, and model navigation on this post to find nearby webcam video pages.',
+                'Browse outward from this page through category archives, tag archives, and model-linked clips for similar live webcam video context.',
+            ] ) . ' '
+            . 'These paths keep discovery within normal site navigation and do not add internal /go/ affiliate links to the generated body.'
             . '</p>';
 
         return implode( "\n\n", $parts );
@@ -782,6 +875,11 @@ class VideoContentBuilder {
                 $safe[] = (string) $t;
             }
         }
+        $safe = self::filter_visible_safe_terms( $safe );
+        if ( empty( $safe ) ) {
+            return self::SAFE_TAG_FALLBACKS;
+        }
+
         return array_slice( $safe, 0, 5 );
     }
 
@@ -909,6 +1007,7 @@ class VideoContentBuilder {
      * @since 5.8.14
      */
     private static function build_tag_links_html( int $post_id, array $safe_tags ): string {
+        $safe_tags = self::filter_visible_safe_terms( $safe_tags );
         if ( empty( $safe_tags ) ) {
             return '';
         }
