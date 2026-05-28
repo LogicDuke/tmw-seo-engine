@@ -71,7 +71,7 @@ class VideoKeywordCandidateRepository {
             return 0;
         }
 
-        $existing = $this->find_existing_by_keyword( $keyword, $columns );
+        $existing = $this->find_existing_by_keyword( $keyword );
         if ( is_array( $existing ) && ! $this->can_update_existing_row_for_video( $existing, $post_id ) ) {
             $this->log( 'warn', 'candidate_conflicts_existing_keyword', [
                 'post_id'        => $post_id,
@@ -80,7 +80,7 @@ class VideoKeywordCandidateRepository {
                 'intent_type'    => (string) ( $existing['intent_type'] ?? '' ),
                 'entity_type'    => (string) ( $existing['entity_type'] ?? '' ),
                 'entity_id'      => (int) ( $existing['entity_id'] ?? 0 ),
-                'existing_status'=> (string) ( $existing['status'] ?? '' ),
+                'existing_status' => (string) ( $existing['status'] ?? '' ),
             ] );
             return 0;
         }
@@ -322,10 +322,9 @@ class VideoKeywordCandidateRepository {
     /**
      * Look up by keyword only because tmw_keyword_candidates has UNIQUE KEY keyword.
      *
-     * @param array<string,bool> $columns
      * @return array<string,mixed>|null
      */
-    private function find_existing_by_keyword( string $keyword, array $columns ): ?array {
+    private function find_existing_by_keyword( string $keyword ): ?array {
         global $wpdb;
 
         $sql = 'SELECT * FROM ' . $this->table_name() . ' WHERE keyword = %s LIMIT 1';

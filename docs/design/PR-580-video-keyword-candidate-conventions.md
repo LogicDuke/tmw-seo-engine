@@ -26,7 +26,9 @@ Video rows use the existing keyword candidate columns with these conventions:
 | `notes` | Optional compact JSON/text metadata, such as `{ "primary": true }`. |
 | `updated_at` | Current time when the row is inserted or updated. |
 
-The repository checks for table/column availability before writing. Missing tables and missing required columns are logged with the `[TMW-VIDEO-KW]` tag and fail safely.
+The repository checks for table/column availability before any CRUD operation. It requires `keyword`, `intent_type`, and `entity_id` so reads, writes, and deletes cannot leak into generic or cross-entity keyword rows. If those required video-scope columns are missing, or if column discovery returns no schema, the repository logs with the `[TMW-VIDEO-KW]` tag and returns a safe default without touching candidate rows.
+
+Because the central table has a keyword-only unique key, upserts first resolve an existing row by normalized `keyword`. Existing rows are updated only when they are already video candidates for the same `entity_id` or safe generic/unassigned rows. Conflicting non-video rows, rows assigned to another entity, and approved non-video keywords are not overwritten blindly; they are rejected and logged as `candidate_conflicts_existing_keyword`.
 
 ## Why no new video table
 

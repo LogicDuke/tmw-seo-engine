@@ -86,9 +86,22 @@ final class VideoKeywordCandidateRepositoryTest extends TestCase {
         $this->assertSame([], $repo->list_for_video(123));
     }
 
-    public function test_missing_intent_type_or_entity_id_causes_safe_failure(): void {
-        $columns = ['id', 'keyword', 'status', 'intent', 'entity_type', 'sources', 'notes', 'updated_at'];
+    public function test_missing_intent_type_causes_safe_failure(): void {
+        $columns = ['id', 'keyword', 'status', 'intent', 'entity_type', 'entity_id', 'sources', 'notes', 'updated_at'];
         $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp588_', true, $columns);
+        $GLOBALS['wpdb'] = $wpdb;
+        $repo = new VideoKeywordCandidateRepository();
+
+        $this->assertSame(0, $repo->upsert_for_video(123, 'Anisyia webcam video', ['model_name' => 'Anisyia']));
+        $this->assertSame([], $repo->list_for_video(123));
+        $this->assertFalse($repo->delete_for_video(123, 'Anisyia webcam video'));
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_missing_entity_id_causes_safe_failure(): void {
+        $columns = ['id', 'keyword', 'status', 'intent', 'intent_type', 'entity_type', 'sources', 'notes', 'updated_at'];
+        $wpdb = new VideoKeywordCandidateRepositoryFakeWpdb('wp594_', true, $columns);
         $GLOBALS['wpdb'] = $wpdb;
         $repo = new VideoKeywordCandidateRepository();
 
