@@ -103,11 +103,16 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertContains('Priority', $header);
         $this->assertContains('Golden?', $header);
         $this->assertContains('Recommended Action', $header);
+        $this->assertContains('Golden Missing Reasons', $header);
+        $this->assertContains('Golden Formula', $header);
+        $this->assertContains('SEO Score', $header);
+        $this->assertContains('Traffic Value', $header);
+        $this->assertContains('Ad Difficulty', $header);
     }
 
     public function test_export_helper_outputs_current_preview_rows(): void {
         $parser = new KeywordPoolCsvParser();
-        $parsed = $parser->parse_text("keyword,volume,difficulty,cpc,competition,intent,source,model_name\nLexy Ness webcam video,1200,33,0.42,0.2,video,kws,Lexy Ness\n");
+        $parsed = $parser->parse_text("keyword,volume,difficulty,cpc,competition,SEO Score,Traffic Value,Ad Difficulty,intent,source,model_name\nLexy Ness webcam video,1200,33,0.42,0.2,88,42.25,11,video,kws,Lexy Ness\n");
         $dryRun = (new KeywordPoolDryRunService())->dry_run($parsed, 'video');
 
         $csv = KeywordPoolsAdminPage::build_export_csv($dryRun['rows']);
@@ -116,6 +121,11 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString('video_intent_detected', $csv);
         $this->assertStringContainsString('P1', $csv);
         $this->assertStringContainsString('approve_candidate', $csv);
+        $this->assertStringContainsString('Golden Missing Reasons', $csv);
+        $this->assertStringContainsString('Golden Formula', $csv);
+        $this->assertStringContainsString('cpc_below_2_00', $csv);
+        $this->assertStringContainsString('88', $csv);
+        $this->assertStringContainsString('42.25', $csv);
     }
 
     public function test_admin_page_source_does_not_call_persistent_keyword_or_content_writes(): void {

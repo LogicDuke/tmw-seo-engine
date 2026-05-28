@@ -77,12 +77,18 @@ class KeywordPoolsAdminPage {
             'Decision',
             'Priority',
             'Golden?',
+            'Golden Missing Reasons',
+            'Golden Formula',
             'Recommended Action',
             'Reasons',
             'Volume',
             'Difficulty',
             'CPC',
             'Competition',
+            'SEO Score',
+            'Traffic Value',
+            'Trend',
+            'Ad Difficulty',
             'Intent',
             'Source',
             'Model',
@@ -426,7 +432,7 @@ class KeywordPoolsAdminPage {
             }
             echo '<tr>';
             foreach (self::row_to_preview_values($row) as $index => $value) {
-                if (19 === $index && '' !== $value) {
+                if (25 === $index && '' !== $value) {
                     echo '<td><a href="' . esc_url($value) . '" target="_blank" rel="noopener noreferrer">' . esc_html($value) . '</a></td>';
                 } else {
                     echo '<td>' . esc_html($value) . '</td>';
@@ -443,6 +449,7 @@ class KeywordPoolsAdminPage {
      */
     private static function row_to_preview_values(array $row): array {
         $reasons = is_array($row['reason_codes'] ?? null) ? implode(' | ', array_map('strval', $row['reason_codes'])) : (string) ($row['reason_summary'] ?? '');
+        $golden_missing_reasons = is_array($row['golden_missing_reasons'] ?? null) ? implode(' | ', array_map('strval', $row['golden_missing_reasons'])) : (string) ($row['golden_missing_reasons'] ?? '');
         return [
             (string) ($row['row_number'] ?? ''),
             (string) ($row['keyword'] ?? ''),
@@ -452,12 +459,18 @@ class KeywordPoolsAdminPage {
             (string) ($row['decision'] ?? ''),
             (string) ($row['priority_preview'] ?? ''),
             !empty($row['is_golden_keyword']) ? 'yes' : 'no',
+            $golden_missing_reasons,
+            (string) ($row['golden_formula_summary'] ?? ''),
             (string) ($row['recommended_action'] ?? ''),
             $reasons,
             self::metric_to_string($row['volume'] ?? null),
             self::metric_to_string($row['difficulty'] ?? null),
             self::metric_to_string($row['cpc'] ?? null),
             self::metric_to_string($row['competition'] ?? null),
+            self::metric_to_string($row['seo_score'] ?? null),
+            self::metric_to_string($row['traffic_value'] ?? null),
+            (string) ($row['trend'] ?? ''),
+            self::metric_to_string($row['ad_difficulty'] ?? null),
             (string) ($row['intent'] ?? ''),
             (string) ($row['source'] ?? ''),
             (string) ($row['model_name'] ?? ''),

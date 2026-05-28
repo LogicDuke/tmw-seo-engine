@@ -155,6 +155,8 @@ Total Volume,704750
             $this->assertSame('accept', $row['decision']);
             $this->assertSame('P1', $row['priority_preview']);
             $this->assertTrue($row['is_golden_keyword']);
+            $this->assertSame([], $row['golden_missing_reasons']);
+            $this->assertSame('volume>=500, competition<0.20, cpc>=2.00', $row['golden_formula_summary']);
             $this->assertSame('approve_candidate', $row['recommended_action']);
         }
     }
@@ -167,7 +169,35 @@ Total Volume,704750
         $this->assertSame('accept', $row['decision']);
         $this->assertSame('P1', $row['priority_preview']);
         $this->assertFalse($row['is_golden_keyword']);
+        $this->assertContains('volume_below_500', $row['golden_missing_reasons']);
         $this->assertGreaterThanOrEqual(80, $row['commercial_score_preview']);
+    }
+
+
+    public function test_golden_diagnostics_explain_missing_cpc(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,competition\nasian cam models,18100,0.02\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertSame('P1', $row['priority_preview']);
+        $this->assertFalse($row['is_golden_keyword']);
+        $this->assertContains('missing_cpc', $row['golden_missing_reasons']);
+        $this->assertSame('volume>=500, competition<0.20, cpc>=2.00', $row['golden_formula_summary']);
+    }
+
+    public function test_golden_diagnostics_explain_high_competition(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,cpc,competition\nasian cam models,18100,5.99,0.22\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertFalse($row['is_golden_keyword']);
+        $this->assertContains('competition_not_below_0_20', $row['golden_missing_reasons']);
+    }
+
+    public function test_golden_diagnostics_explain_low_volume(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,cpc,competition\nasian cam models,390,5.99,0.02\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertFalse($row['is_golden_keyword']);
+        $this->assertContains('volume_below_500', $row['golden_missing_reasons']);
     }
 
     public function test_archive_and_safety_rules_block_do_not_test_keywords(): void {
