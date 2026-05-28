@@ -112,7 +112,7 @@ At least one keyword column is required:
 | `source` | `tool`, `provider`, `import_source` | Examples: DataForSEO, GKP, Ahrefs, Semrush, manual. |
 | `locale` | `language`, `country`, `location` | Optional planning metadata. |
 | `notes` | `note`, `review_notes` | Human context only. |
-| `status` | `candidate_status` | Optional hint only. Dry-run has no stored status. Future save should accept only existing pipeline/admin statuses such as `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`. Unknown values should be normalized or rejected. |
+| `status` | `pipeline_status`, `import_status` | Optional hint only. Dry-run has no stored status. Future save should accept only existing pipeline/admin statuses such as `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`. Unknown values should be normalized or rejected so future UI does not create invisible statuses. |
 
 ### Minimal examples
 
@@ -284,7 +284,7 @@ Unsafe decisions should emit explicit reason codes such as:
 
 Recommended validation states:
 
-- `valid_video_candidate`
+- `valid_video_keyword`
 - `review_required`
 - `rejected`
 - `blocked`
@@ -301,7 +301,7 @@ The dry-run preview table should be optimized for review and export. Recommended
 | `keyword` | Original keyword phrase. |
 | `normalized_keyword` | Normalized comparison phrase. |
 | `stored_status_preview` | Preview-only recommended stored status for a later import. Blank/no DB status during dry-run. Suggested values must be existing statuses such as `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`. Do not show unknown/invisible statuses. |
-| `validation_state` | `valid_video_candidate`, `review_required`, `rejected`, or `blocked`. |
+| `validation_state` | `valid_video_keyword`, `review_required`, `rejected`, or `blocked`. |
 | `decision` | Human-readable preview decision: `importable_new`, `importable_scored`, `needs_review`, `approve_if_selected`, `reject`, `ignore`, `block`, `duplicate`, `unmapped`, `ambiguous`. |
 | `reason_codes` | Machine-readable reasons. |
 | `reason_summary` | Short admin-friendly explanation. |
@@ -326,7 +326,7 @@ The table should support filtering by decision, mapping state, previewed existin
 
 ## H. Save/import behavior for a later PR
 
-Saving must be postponed until after the dry-run page is implemented and reviewed. When a later PR adds saving, it should follow these rules:
+Saving must be postponed until after the dry-run page is implemented and maintainers have reviewed the behavior. When a later PR adds saving, it should follow these rules:
 
 1. Saving must be a separate explicit admin action after preview.
 2. The default dry-run action must remain no-write.
@@ -339,6 +339,13 @@ Saving must be postponed until after the dry-run page is implemented and reviewe
 9. Saving should be idempotent by normalized keyword plus video entity identity.
 10. Import should not update posts, post meta, Rank Math fields, slugs, `post_content`, indexing settings, affiliate settings, or publication state.
 11. Import should not run Generate.
+
+### Status compatibility guarantees
+
+- Dry-run rows have no stored status because PR 581 is markdown-only and the future preview action must remain no-write.
+- Future saved rows must use existing `tmw_keyword_candidates` statuses only: `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`.
+- Future UI must not create invisible or unknown status values. If an uploaded CSV contains a status outside the recognized set, the preview should flag it and the save action should normalize it to an existing status or reject the row.
+- PR 581 does not include PHP changes, schema changes, admin filter changes, repository changes, or status enum expansion.
 
 Recommended later import actions:
 
@@ -397,7 +404,7 @@ Recommended integration contract from the workflow to the repository:
 - `post_id` or video entity ID
 - `entity_type`/`intent_type` values that identify video-page intent
 - `model_name` if available
-- `status`
+- `status` using only existing values: `new`, `discovered`, `scored`, `queued_for_review`, `approved`, `rejected`, or `ignored`
 - `source`
 - metrics such as `volume`, `difficulty`, `cpc`, `competition`
 - `reason_codes` or review metadata if supported
@@ -407,7 +414,7 @@ Recommended repository responsibilities:
 
 - Upsert by normalized keyword and video entity identity.
 - Preserve or merge metrics without erasing stronger existing data.
-- Enforce only existing allowed statuses recognized by the keyword pipeline/admin UI.
+- Enforce only existing allowed statuses recognized by the keyword pipeline/admin UI, rejecting or normalizing anything else before it can be stored.
 - Prevent unsafe state escalation, such as turning `rejected`/`ignored` rows into `approved` rows without explicit caller intent.
 - Return counts for created, updated, skipped, duplicate, and rejected rows.
 
@@ -450,6 +457,7 @@ Do not build any of the following in PR 581 or the immediate design-only work:
 - Database tables.
 - Migrations.
 - Admin screens or UI implementation.
+- PHP changes.
 - Repository-dependent code that assumes PR 580 has merged.
 - Writes to `wp_tmw_keyword_candidates` or any candidate table.
 - Writes to Rank Math fields.
@@ -466,6 +474,7 @@ Do not build any of the following in PR 581 or the immediate design-only work:
 - Bulk approval automation.
 - Background imports.
 - Scheduled jobs.
+- Schema changes or status enum/admin filter changes.
 - Automatic creation of video posts, categories, tags, or model entities.
 - Any behavior that could affect the right-sidebar Generate button.
 
