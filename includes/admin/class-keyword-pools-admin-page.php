@@ -99,6 +99,10 @@ class KeywordPoolsAdminPage {
         return array_merge(self::preview_columns(), [ 'Reason Codes' ]);
     }
 
+    public static function render(): void {
+        self::render_page();
+    }
+
     public static function render_page(): void {
         if (!current_user_can(self::CAPABILITY)) {
             wp_die(esc_html(__('Unauthorized', 'tmwseo')));

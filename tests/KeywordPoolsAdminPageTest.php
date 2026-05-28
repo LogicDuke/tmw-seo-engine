@@ -28,6 +28,28 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertTrue(class_exists(KeywordPoolsAdminPage::class));
         $this->assertSame('tmwseo-keyword-pools', KeywordPoolsAdminPage::slug());
         $this->assertSame('manage_options', KeywordPoolsAdminPage::capability());
+        $this->assertTrue(method_exists(KeywordPoolsAdminPage::class, 'render'));
+    }
+
+    public function test_admin_menu_registers_keyword_pools_submenu(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/admin/class-admin.php');
+        $this->assertIsString($source);
+
+        $this->assertStringContainsString('add_submenu_page(', $source);
+        $this->assertStringContainsString('\TMWSEO\Engine\Admin\KeywordPoolsAdminPage::capability()', $source);
+        $this->assertStringContainsString('\TMWSEO\Engine\Admin\KeywordPoolsAdminPage::slug()', $source);
+        $this->assertStringContainsString("[\TMWSEO\Engine\Admin\KeywordPoolsAdminPage::class, 'render']", $source);
+    }
+
+    public function test_loader_requires_keyword_pools_admin_page_before_importer_init(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/class-loader.php');
+        $this->assertIsString($source);
+
+        $keywordPoolsPosition = strpos($source, "class-keyword-pools-admin-page.php");
+        $keywordMetricsPosition = strpos($source, "class-keyword-metrics-csv-importer.php");
+        $this->assertNotFalse($keywordPoolsPosition);
+        $this->assertNotFalse($keywordMetricsPosition);
+        $this->assertLessThan($keywordMetricsPosition, $keywordPoolsPosition);
     }
 
     public function test_pool_names_are_constrained_to_three_active_pools(): void {
