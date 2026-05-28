@@ -48,6 +48,14 @@ class VideoContentBuilder {
     /** Target word count range. */
     private const TARGET_WORDS_MIN = 600;
     private const TARGET_WORDS_MAX = 800;
+    private const EXPLICIT_SKIP_EXACT = [
+        'girl', 'girls', 'hot', 'sexy', 'cute', 'naked', 'cam', 'webcam',
+        'live', 'model', 'hd', 'solo', 'amateur', 'xxx', 'porn', 'sex',
+        'ass', 'pussy', 'dildo', 'fuck', 'fucking', 'fucked', 'blowjob',
+        'cum', 'cumshot', 'cock', 'penis', 'vagina', 'nude', 'horny',
+        'orgasm', 'squirt', 'fingering', 'masturbation', 'anal',
+    ];
+    private const EXPLICIT_SKIP_PATTERN = '/\b(ass|puss(?:y|ies)|dildo(?:s)?|fuck(?:ed|ing|er|ers)?|blow\s*job(?:s)?|cum(?:shot|shots)?|cock(?:s)?|penis(?:es)?|vagina(?:s)?|nude|naked|horny|orgasm(?:s|ic)?|squirt(?:ing)?|finger(?:ing|ed)?|masturbat(?:e|es|ed|ing|ion)|anal)\b/i';
 
     /**
      * Build complete video content: HTML body + Rank Math field recommendations.
@@ -66,7 +74,7 @@ class VideoContentBuilder {
     public static function build( int $post_id ): array {
         $post = get_post( $post_id );
         if ( ! $post instanceof \WP_Post ) {
-            Logs::warning( 'video_build', '[TMW-VIDEO-BUILD] post not found', [ 'post_id' => $post_id ] );
+            Logs::warn( 'video_build', '[TMW-VIDEO-BUILD] post not found', [ 'post_id' => $post_id ] );
             return self::empty_result();
         }
 
@@ -104,6 +112,8 @@ class VideoContentBuilder {
             $secondary
         );
 
+        $html = self::enforce_minimum_word_count( $html, $model_name, $focus_kw, $model_url );
+
         $word_count = str_word_count( wp_strip_all_tags( $html ) );
 
         Logs::info( 'video_build', '[TMW-VIDEO-BUILD] Content assembled', [
@@ -134,6 +144,71 @@ class VideoContentBuilder {
     }
 
     /**
+     * Ensure content reaches minimum words by appending deterministic, neutral sections.
+     *
+     * Appends one or more safe blocks while preserving H2/H3 structure and avoiding
+     * keyword stuffing. Keeps total length near TARGET_WORDS_MAX when feasible.
+     */
+    private static function enforce_minimum_word_count(
+        string $html,
+        string $model_name,
+        string $focus_kw,
+        string $model_url
+    ): string {
+        $word_count = str_word_count( wp_strip_all_tags( $html ) );
+        if ( $word_count >= self::TARGET_WORDS_MIN ) {
+            return $html;
+        }
+
+        $mn      = $model_name !== '' ? $model_name : 'the featured model';
+        $mn_safe = esc_html( $mn );
+        $fk_safe = esc_html( $focus_kw !== '' ? $focus_kw : 'this webcam video' );
+
+        $model_link = '';
+        if ( $model_url !== '' && $model_name !== '' ) {
+            $model_link = '<a href="' . esc_url( $model_url ) . '">'
+                . esc_html( $model_name ) . ' webcam model profile</a>';
+        }
+
+        $sections = [
+            [
+                '<h2>More Context for This Webcam Video Page</h2>',
+                '<p>This page is designed as a browsing guide for visitors who want a quick overview before opening a webcam clip. It keeps the description neutral, explains where the clip fits in the site structure, and helps users move between related pages without confusion. The content is intentionally informational and avoids explicit language while still describing the page topic clearly for readers and search engines.</p>',
+                '<p>When someone searches for ' . $fk_safe . ', they often want to confirm they have landed on the right video page. This section supports that goal by clarifying how this post connects with tags, categories, and related model pages. It also helps first-time visitors understand that video posts are part of a wider library of webcam sessions and discovery pages.</p>',
+            ],
+            [
+                '<h2>How to Discover Related Video Pages</h2>',
+                '<p>A practical way to continue browsing is to open related tags and category links from this page. Those navigation paths group similar webcam sessions and make it easier to compare different clips by theme, format, and model relationship. This improves internal discovery without changing the original video metadata or post intent.</p>',
+                '<p>Visitors can move from one video page to another using internal links and archive pages, then return when needed. This creates a clear browsing flow that supports quick scanning and deeper exploration. The approach is simple: start with this video, follow relevant topics, and use model-oriented pages to refine what you want to watch next.</p>',
+            ],
+            [
+                '<h3>FAQ: How Does This Video Relate to the Model Page?</h3>',
+                '<p>This video page focuses on one session, while the model page provides broader context such as profile details, related clips, and navigation to additional content. '
+                    . ( $model_link !== ''
+                        ? 'If you want a fuller overview, visit the ' . $model_link . ' and then return to this post for the specific session reference. '
+                        : 'If a dedicated profile link is not available, use tags and categories on this page to find similar posts connected to ' . $mn_safe . '. ' )
+                    . 'Together, these page types help organize browsing in a consistent, user-friendly format.</p>',
+            ],
+        ];
+
+        foreach ( $sections as $section_parts ) {
+            if ( $word_count >= self::TARGET_WORDS_MIN ) {
+                break;
+            }
+            $candidate_html  = $html . "\n\n" . implode( "\n\n", $section_parts );
+            $candidate_words = str_word_count( wp_strip_all_tags( $candidate_html ) );
+
+            // Prefer staying near the target max when possible.
+            if ( $word_count < self::TARGET_WORDS_MIN && $word_count < self::TARGET_WORDS_MAX ) {
+                $html       = $candidate_html;
+                $word_count = $candidate_words;
+            }
+        }
+
+        return $html;
+    }
+
+    /**
      * Write Rank Math fields after content has been saved.
      *
      * Guards:
@@ -145,15 +220,16 @@ class VideoContentBuilder {
      *
      * @param int    $post_id
      * @param array  $build   Output from self::build()
+     * @param bool   $is_manual_generate Allow explicit sidebar Generate to overwrite existing SEO title/description.
      */
-    public static function write_rank_math_fields( int $post_id, array $build ): void {
+    public static function write_rank_math_fields( int $post_id, array $build, bool $is_manual_generate = false ): void {
         $focus_kw    = trim( (string) ( $build['focus_keyword'] ?? '' ) );
         $seo_title   = trim( (string) ( $build['seo_title'] ?? '' ) );
         $meta_desc   = trim( (string) ( $build['meta_description'] ?? '' ) );
         $secondary   = is_array( $build['secondary_keywords'] ?? null ) ? $build['secondary_keywords'] : [];
 
         // ── SEO title (guarded) ───────────────────────────────────────────────
-        if ( $seo_title !== '' && self::is_rank_math_title_writable( $post_id ) ) {
+        if ( $seo_title !== '' && ( $is_manual_generate || self::is_rank_math_title_writable( $post_id ) ) ) {
             update_post_meta( $post_id, 'rank_math_title', $seo_title );
             Logs::info( 'video_meta', '[TMW-VIDEO-META] Wrote rank_math_title', [
                 'post_id' => $post_id,
@@ -168,7 +244,7 @@ class VideoContentBuilder {
         }
 
         // ── Meta description (guarded) ────────────────────────────────────────
-        if ( $meta_desc !== '' && self::is_rank_math_description_writable( $post_id ) ) {
+        if ( $meta_desc !== '' && ( $is_manual_generate || self::is_rank_math_description_writable( $post_id ) ) ) {
             update_post_meta( $post_id, 'rank_math_description', $meta_desc );
             Logs::info( 'video_meta', '[TMW-VIDEO-META] Wrote rank_math_description', [
                 'post_id' => $post_id,
@@ -196,6 +272,8 @@ class VideoContentBuilder {
 
             update_post_meta( $post_id, 'rank_math_focus_keyword', $kw_csv );
             update_post_meta( $post_id, '_tmwseo_keyword', $focus_kw );
+            update_post_meta( $post_id, '_tmwseo_video_rankmath_managed', '1' );
+            update_post_meta( $post_id, '_tmwseo_video_rankmath_managed_at', current_time( 'mysql' ) );
 
             Logs::info( 'video_meta', '[TMW-VIDEO-META] Wrote rank_math_focus_keyword', [
                 'post_id'  => $post_id,
@@ -208,47 +286,60 @@ class VideoContentBuilder {
     // ── Focus keyword derivation ──────────────────────────────────────────────
 
     /**
-     * Derive a short, search-friendly video focus keyword from the post title.
+     * Derive focus keyword from post title.
      *
-     * Strategy: look for a video modifier in the title and combine it with the
-     * model name to produce a scannable, 3-4 word phrase.
+     * Strategy (v5.8.14):
+     *   1. Use the full cleaned post title stripped of brand/em-dash suffix.
+     *      Example: "Lexy Ness Plays With Her Amazing Body — Webcam Video Chat"
+     *               → "Lexy Ness Plays With Her Amazing Body Webcam Video Chat"
+     *   2. If the title is blank or too short, fall back to model-name + modifier.
      *
-     * Example: "Lexy Ness Plays With Her Amazing Body — Webcam Video Chat"
-     *   → title contains "video chat" → "Lexy Ness video chat"
-     *   → falls through to "Lexy Ness webcam video" (default)
+     * This makes the focus keyword match the authoritative title phrase so
+     * RankMath can score the page against the real keyword visitors search for.
      */
     public static function derive_focus_keyword( string $title, string $model_name ): string {
+        $clean = trim( $title );
+
+        if ( $clean !== '' ) {
+            // Strip em-dash / en-dash suffixes (brand append)
+            $stripped = (string) preg_replace( '/\s*[—–]\s*.+$/', '', $clean );
+            if ( $stripped === null ) {
+                $stripped = $clean;
+            }
+            $stripped = trim( $stripped );
+            // Use title if long enough (≥ 3 words)
+            if ( str_word_count( $stripped ) >= 3 ) {
+                return $stripped;
+            }
+            // Full title without the pipe or dash append
+            if ( str_word_count( $clean ) >= 3 ) {
+                return $clean;
+            }
+        }
+
+        // Fallback: model name + detected modifier
         $title_lc = mb_strtolower( trim( $title ), 'UTF-8' );
         $mn       = trim( $model_name );
 
-        // Ordered preference: check which modifier appears first in the title
         $modifier_map = [
-            'video chat'      => 'video chat',
-            'webcam video'    => 'webcam video',
+            'video chat'       => 'video chat',
+            'webcam video'     => 'webcam video',
             'live webcam clip' => 'live webcam clip',
-            'cam show'        => 'cam show',
-            'cam session'     => 'webcam session',
-            'webcam session'  => 'webcam session',
-            'video'           => 'webcam video',
-            'clip'            => 'live webcam clip',
-            'webcam'          => 'webcam video',
+            'cam show'         => 'cam show',
+            'cam session'      => 'webcam session',
+            'webcam session'   => 'webcam session',
+            'video'            => 'webcam video',
+            'clip'             => 'live webcam clip',
+            'webcam'           => 'webcam video',
         ];
 
         foreach ( $modifier_map as $needle => $modifier ) {
             if ( strpos( $title_lc, $needle ) !== false ) {
-                if ( $mn !== '' ) {
-                    return $mn . ' ' . $modifier;
-                }
-                return $modifier;
+                return $mn !== '' ? $mn . ' ' . $modifier : $modifier;
             }
         }
 
-        // Default
-        if ( $mn !== '' ) {
-            return $mn . ' webcam video';
-        }
-
-        return 'webcam video';
+        return $mn !== '' ? $mn . ' webcam video' : 'webcam video';
     }
 
     /**
@@ -257,22 +348,23 @@ class VideoContentBuilder {
      * @return string[]
      */
     public static function build_secondary_keywords( string $model_name, string $primary_kw ): array {
+        $base = [];
         if ( $model_name === '' ) {
-            return [
+            $base = [
                 'webcam video',
                 'live webcam clip',
                 'video chat',
                 'cam show',
             ];
+        } else {
+            $base = [
+                $model_name . ' webcam video',
+                $model_name . ' video chat',
+                $model_name . ' live webcam clip',
+                $model_name . ' cam show',
+                'watch ' . $model_name . ' webcam video',
+            ];
         }
-
-        $base = [
-            $model_name . ' webcam video',
-            $model_name . ' video chat',
-            $model_name . ' live webcam clip',
-            $model_name . ' cam show',
-            'watch ' . $model_name . ' webcam video',
-        ];
 
         // Remove exact primary keyword to avoid duplication
         $primary_lc = mb_strtolower( trim( $primary_kw ), 'UTF-8' );
@@ -280,7 +372,18 @@ class VideoContentBuilder {
             return mb_strtolower( trim( $kw ), 'UTF-8' ) !== $primary_lc;
         } ) );
 
-        return array_slice( $filtered, 0, 4 );
+        $deduped = [];
+        $seen    = [];
+        foreach ( $filtered as $kw ) {
+            $normalized = mb_strtolower( trim( (string) $kw ), 'UTF-8' );
+            if ( $normalized === '' || isset( $seen[ $normalized ] ) ) {
+                continue;
+            }
+            $seen[ $normalized ] = true;
+            $deduped[]           = trim( (string) $kw );
+        }
+
+        return array_slice( $deduped, 0, 4 );
     }
 
     // ── SEO title + meta description ─────────────────────────────────────────
@@ -294,8 +397,13 @@ class VideoContentBuilder {
     public static function build_seo_title( string $model_name, string $focus_kw, string $title ): string {
         $brand = self::SITE_BRAND;
         if ( $focus_kw !== '' ) {
+            $year    = gmdate( 'Y' );
             $display = ucwords( $focus_kw );
-            return $display . ' | ' . $brand;
+            $title   = $display . ': Best Webcam Clip Guide ' . $year;
+            if ( mb_strlen( $title, 'UTF-8' ) > 70 ) {
+                $title = mb_substr( $title, 0, 70, 'UTF-8' );
+            }
+            return rtrim( $title, " \t\n\r\0\x0B-:|" );
         }
         if ( $model_name !== '' ) {
             return $model_name . ' Webcam Video | ' . $brand;
@@ -314,7 +422,7 @@ class VideoContentBuilder {
     public static function build_meta_description( string $model_name, string $focus_kw, string $title ): string {
         $brand = self::SITE_BRAND;
         if ( $focus_kw !== '' ) {
-            $desc = 'Watch the ' . $focus_kw . ' with neutral scene context, related model links, and similar live webcam video pages on ' . $brand . '.';
+            $desc = $focus_kw . ' page with neutral webcam clip context, model links, related tags, and similar live cam videos on ' . $brand . '.';
         } elseif ( $model_name !== '' ) {
             $desc = 'Browse the ' . $model_name . ' webcam video page with neutral context, safe category browsing, and related live webcam clips on ' . $brand . '.';
         } else {
@@ -362,9 +470,11 @@ class VideoContentBuilder {
         array $secondary
     ): string {
         $mn         = $model_name !== '' ? $model_name : 'the featured model';
+        $safe_title = self::sanitize_visible_video_phrase( $title, 'this webcam video page' );
+        $safe_imported_title = self::sanitize_visible_video_phrase( $imported_title, '' );
         $mn_safe    = esc_html( $mn );
         $fk_safe    = esc_html( $focus_kw !== '' ? $focus_kw : 'this webcam video' );
-        $title_safe = esc_html( $title !== '' ? $title : 'this webcam video page' );
+        $title_safe = esc_html( $safe_title );
         $brand      = esc_html( self::SITE_BRAND );
 
         // Tags list for body text (max 4, safe)
@@ -379,8 +489,8 @@ class VideoContentBuilder {
 
         // Original import title reference (if different from current title)
         $origin_note = '';
-        if ( $imported_title !== '' && strtolower( $imported_title ) !== strtolower( $title ) ) {
-            $origin_note = ' The original imported scene title was <em>' . esc_html( $imported_title ) . '</em>.';
+        if ( $safe_imported_title !== '' && strtolower( $safe_imported_title ) !== strtolower( $safe_title ) ) {
+            $origin_note = ' The original imported scene title was <em>' . esc_html( $safe_imported_title ) . '</em>.';
         }
 
         // Internal link to model page
@@ -389,6 +499,18 @@ class VideoContentBuilder {
             $model_link = '<a href="' . esc_url( $model_url ) . '">'
                 . esc_html( $model_name ) . ' webcam model profile</a>';
         }
+
+        // Affiliate link to LiveJasmin (outbound, sponsored) — v5.8.14
+        $affiliate_url = self::resolve_model_affiliate_url( $post_id, $model_name );
+        $affiliate_link = '';
+        if ( $affiliate_url !== '' && $model_name !== '' ) {
+            $affiliate_link = '<a href="' . esc_url( $affiliate_url ) . '" target="_blank" rel="sponsored nofollow noopener">'
+                . 'Watch ' . esc_html( $model_name ) . ' Live on LiveJasmin</a>';
+        }
+
+        // Real tag archive links HTML — v5.8.14
+        $tag_links_html      = self::build_tag_links_html( $post_id, $tags );
+        $category_links_html = self::build_category_links_html( $post_id, $categories );
 
         $parts = [];
 
@@ -432,10 +554,10 @@ class VideoContentBuilder {
         $parts[] = '<p>'
             . 'Visitors arriving on this page are typically searching for terms like '
             . esc_html( $focus_kw ) . ', '
-            . esc_html( $model_name !== '' ? $model_name . ' video chat' : 'live webcam video' ) . ', '
-            . 'live webcam clip, or cam show content. '
-            . 'The page is structured to match those search intents and to provide neutral, safe context that helps '
-            . 'visitors decide whether this webcam session matches what they are looking for.'
+            . esc_html( $secondary[0] ?? ( $model_name !== '' ? $model_name . ' webcam video' : 'live webcam video' ) ) . ', '
+            . esc_html( $secondary[1] ?? 'live webcam clip' ) . ', or '
+            . esc_html( $secondary[2] ?? 'cam show content' ) . '. '
+            . 'Each of these searches leads to this page because the content, tags, and categories align with those browsing patterns.'
             . '</p>';
 
         // ── H3: Model and Site Context ────────────────────────────────────────
@@ -454,27 +576,48 @@ class VideoContentBuilder {
                 . '</p>';
         }
 
+        // ── Affiliate link section (outbound — satisfies RankMath outbound check) ──
+        if ( $affiliate_link !== '' ) {
+            $parts[] = '<h3>Official Profile Access</h3>';
+            $parts[] = '<p>'
+                . 'LiveJasmin is the confirmed live-room option for this model. Start there for live access. '
+                . $affiliate_link . '.'
+                . '</p>';
+        }
+
         // ── H2: Related Videos ────────────────────────────────────────────────
         $parts[] = '<h2>Related Webcam Videos and Model Clips</h2>';
 
         $parts[] = '<p>'
             . 'Top-Models.Webcam publishes hundreds of webcam video pages covering live cam sessions, '
             . 'video chat clips, cam show recordings, and webcam session previews. '
-            . 'Use the tag and category links on this page to browse more '
+            . 'Use the tag and category links below to browse more '
             . esc_html( $focus_kw ) . ' content, find similar clips from ' . $mn_safe . ', '
             . 'or discover related models and sessions across the site.'
             . '</p>';
+
+        // Related Tags — real archive links
+        if ( $tag_links_html !== '' ) {
+            $parts[] = '<h3>Related Tags</h3>';
+            $parts[] = $tag_links_html;
+        }
+
+        // Browse More — real category archive links
+        if ( $category_links_html !== '' ) {
+            $parts[] = '<h3>Browse More</h3>';
+            $parts[] = $category_links_html;
+        }
 
         // ── H2: Why This Page Is Useful ───────────────────────────────────────
         $parts[] = '<h2>Why This Video Page Is Useful</h2>';
 
         $parts[] = '<p>'
-            . 'Video pages on ' . $brand . ' serve two purposes. For visitors, they provide neutral, safe context '
-            . 'before opening a live webcam clip or cam show recording — useful when browsing from search results '
-            . 'and wanting to confirm the content matches the search query. '
+            . 'Video pages on ' . $brand . ' serve two purposes. For visitors, they provide context '
+            . 'before clicking through to a live webcam clip or cam show recording — confirming the subject '
+            . 'matches the search query without opening the video first. '
             . 'For search engines, these pages target specific long-tail keywords like '
-            . $fk_safe . ' and help connect model profiles, category pages, and individual clips into a coherent '
-            . 'site structure that supports webcam model discovery.'
+            . $fk_safe . ' and connect model profiles, category pages, and individual clips into a coherent '
+            . 'site structure that supports discovery across thousands of webcam sessions.'
             . '</p>';
 
         // ── H2: FAQ ───────────────────────────────────────────────────────────
@@ -607,10 +750,6 @@ class VideoContentBuilder {
     }
 
     private static function collect_safe_tags( int $post_id ): array {
-        // Tags to skip (too generic or flagged)
-        $skip = [ 'girl', 'girls', 'hot', 'sexy', 'cute', 'naked', 'cam', 'webcam',
-                  'live', 'model', 'hd', 'solo', 'amateur', 'xxx', 'porn', 'sex' ];
-
         $terms = wp_get_post_terms( $post_id, 'post_tag', [ 'fields' => 'names' ] );
         if ( is_wp_error( $terms ) || ! is_array( $terms ) ) {
             return [];
@@ -618,12 +757,47 @@ class VideoContentBuilder {
 
         $safe = [];
         foreach ( $terms as $t ) {
-            $tl = strtolower( trim( (string) $t ) );
-            if ( $tl !== '' && ! in_array( $tl, $skip, true ) && strlen( $tl ) >= 3 ) {
+            $raw = trim( (string) $t );
+            $tl  = strtolower( $raw );
+            if ( $tl === '' || strlen( $tl ) < 3 ) {
+                continue;
+            }
+
+            if ( in_array( $tl, self::EXPLICIT_SKIP_EXACT, true ) ) {
+                continue;
+            }
+
+            // Normalize separators so phrase and partial variants are caught.
+            $normalized = str_replace( [ '-', '_', '/', '\\', '.' ], ' ', $tl );
+            if ( preg_match( self::EXPLICIT_SKIP_PATTERN, $normalized ) === 1 ) {
+                continue;
+            }
+
+            if ( preg_match( '/^[a-z0-9\s\-]+$/i', $raw ) !== 1 && preg_match( '/\p{L}/u', $raw ) !== 1 ) {
+                continue;
+            }
+
+            if ( ! in_array( $raw, $safe, true ) ) {
                 $safe[] = (string) $t;
             }
         }
         return array_slice( $safe, 0, 5 );
+    }
+
+    private static function sanitize_visible_video_phrase( string $phrase, string $fallback ): string {
+        $clean = trim( $phrase );
+        if ( $clean === '' ) {
+            return $fallback;
+        }
+        $lower = strtolower( $clean );
+        if ( in_array( $lower, self::EXPLICIT_SKIP_EXACT, true ) ) {
+            return $fallback;
+        }
+        $normalized = str_replace( [ '-', '_', '/', '\\', '.' ], ' ', $lower );
+        if ( preg_match( self::EXPLICIT_SKIP_PATTERN, $normalized ) === 1 ) {
+            return $fallback;
+        }
+        return $clean;
     }
 
     private static function resolve_platform( int $post_id ): string {
@@ -653,5 +827,104 @@ class VideoContentBuilder {
             'keyword_pack'       => [],
             'word_count'         => 0,
         ];
+    }
+
+    /**
+     * Resolve the affiliate/go URL for the model connected to this video post.
+     *
+     * Source priority:
+     *  1. _tmwseo_platform_username_livejasmin on the video post itself
+     *  2. _tmwseo_platform_username_livejasmin on the linked model page
+     *
+     * Only returns a URL when:
+     *  - A non-empty LiveJasmin username is found via the approved platform profile system
+     *  - The /go/ rewrite route is registered (AffiliateLinkBuilder::go_url uses home_url)
+     *
+     * Returns empty string when no approved username is found (content omits affiliate section).
+     *
+     * @since 5.8.14
+     */
+    private static function resolve_model_affiliate_url( int $post_id, string $model_name ): string {
+        // Try video post meta directly (approved platform profile field).
+        $username = trim( (string) get_post_meta( $post_id, '_tmwseo_platform_username_livejasmin', true ) );
+
+        // Fall back to model page meta (same field on the linked model CPT).
+        if ( $username === '' && $model_name !== '' ) {
+            $slug  = sanitize_title( $model_name );
+            $posts = get_posts( [
+                'post_type'      => 'model',
+                'name'           => $slug,
+                'posts_per_page' => 1,
+                'post_status'    => 'publish',
+                'fields'         => 'ids',
+                'no_found_rows'  => true,
+            ] );
+            if ( ! empty( $posts ) ) {
+                $username = trim( (string) get_post_meta( (int) $posts[0], '_tmwseo_platform_username_livejasmin', true ) );
+            }
+        }
+
+        if ( $username === '' ) {
+            return ''; // No approved LiveJasmin profile on file — omit link.
+        }
+
+        // Use TMW internal /go/ redirect route (handles tracking/affiliate routing).
+        if ( function_exists( 'home_url' ) ) {
+            return home_url( '/go/livejasmin/' . rawurlencode( $username ) . '/' );
+        }
+
+        return '';
+    }
+
+    /**
+     * Build actual tag archive links HTML from post tag terms.
+     *
+     * @param  int    $post_id
+     * @param  array  $safe_tags  Already-filtered tags from collect_safe_tags()
+     * @return string  HTML <ul> of links or empty string
+     * @since 5.8.14
+     */
+    private static function build_tag_links_html( int $post_id, array $safe_tags ): string {
+        if ( empty( $safe_tags ) ) {
+            return '';
+        }
+        $items = [];
+        foreach ( array_slice( $safe_tags, 0, 5 ) as $tag_name ) {
+            $term = get_term_by( 'name', $tag_name, 'post_tag' );
+            if ( $term instanceof \WP_Term ) {
+                $url     = get_term_link( $term );
+                $url_str = is_wp_error( $url ) ? '' : (string) $url;
+                if ( $url_str !== '' ) {
+                    $items[] = '<li><a href="' . esc_url( $url_str ) . '">' . esc_html( $tag_name ) . '</a></li>';
+                }
+            }
+        }
+        return empty( $items ) ? '' : '<ul>' . implode( '', $items ) . '</ul>';
+    }
+
+    /**
+     * Build actual category archive links HTML from post categories.
+     *
+     * @param  int   $post_id
+     * @param  array $categories  Already-filtered categories from collect_categories()
+     * @return string  HTML <ul> of links or empty string
+     * @since 5.8.14
+     */
+    private static function build_category_links_html( int $post_id, array $categories ): string {
+        if ( empty( $categories ) ) {
+            return '';
+        }
+        $items = [];
+        foreach ( array_slice( $categories, 0, 3 ) as $cat_name ) {
+            $term = get_term_by( 'name', $cat_name, 'category' );
+            if ( $term instanceof \WP_Term ) {
+                $url     = get_term_link( $term );
+                $url_str = is_wp_error( $url ) ? '' : (string) $url;
+                if ( $url_str !== '' ) {
+                    $items[] = '<li><a href="' . esc_url( $url_str ) . '">' . esc_html( $cat_name ) . '</a></li>';
+                }
+            }
+        }
+        return empty( $items ) ? '' : '<ul>' . implode( '', $items ) . '</ul>';
     }
 }

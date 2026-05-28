@@ -18,7 +18,10 @@ use TMWSEO\Engine\Content\ContentEngine;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\Content\VideoGeneratePolicy;
 use TMWSEO\Engine\Content\VideoContentBuilder;
+use TMWSEO\Engine\Content\ModelCopyCleanup;
+use TMWSEO\Engine\Content\RankMathMapper;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
+use TMWSEO\Engine\Model\Rollback;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -208,12 +211,20 @@ class AdminAjaxHandlers {
             }
 
             $build = VideoContentBuilder::build( $post_id );
+            Rollback::snapshot( $post_id );
             $generated_html = $build['html'] ?? '';
             if ( $generated_html === '' ) {
                 wp_send_json_error( [
                     'message' => __( 'Video inline generation unavailable. Please refresh and try again.', 'tmwseo' ),
                 ], 500 );
             }
+
+            // ── Humanizer pass (v5.8.14) — mirrors model page pipeline ──
+            if ( class_exists( ModelCopyCleanup::class ) ) {
+                $generated_html = ModelCopyCleanup::cleanup( $generated_html, (string) get_the_title( $post_id ) );
+            }
+
+            $build['html'] = $generated_html;
 
             $current_content = (string) get_post_field( 'post_content', $post_id );
             $next_content    = self::upsert_managed_ai_block( $current_content, $generated_html );
@@ -234,7 +245,9 @@ class AdminAjaxHandlers {
             }
 
             // Write Rank Math SEO fields (guarded — never touches robots/noindex)
-            VideoContentBuilder::write_rank_math_fields( $post_id, $build );
+            VideoContentBuilder::write_rank_math_fields( $post_id, $build, true );
+            $slug_result = self::maybe_update_video_slug( $post_id, (string) ( $build['focus_keyword'] ?? '' ) );
+            self::maybe_update_video_featured_image_alt( $post_id, (string) ( $build['focus_keyword'] ?? '' ) );
 
             clean_post_cache( $post_id );
             Logs::info( 'admin', '[TMW-VIDEO-GENERATE] Inline video AI block generated from sidebar', [
@@ -247,7 +260,68 @@ class AdminAjaxHandlers {
                 'generated_now' => true,
                 'reload'        => true,
                 'message'       => __( 'Video content generated. Reloading editor.', 'tmwseo' ),
+                'slug_updated'  => (bool) ( $slug_result['updated'] ?? false ),
+                'slug_error'    => (string) ( $slug_result['error'] ?? '' ),
             ] );
+        }
+
+        // ── Category page: inline generation (v5.8.14) ──────────────────────
+        // Previously fell through to queue-only which silently produced placeholder
+        // content. Category pages now run inline just like model and video pages.
+        if ( $post_type === 'tmw_category_page' && ! $refresh_keywords_only ) {
+            $cat_post = get_post( $post_id );
+            if ( $cat_post instanceof \WP_Post ) {
+                ob_start();
+                $cat_threw = false;
+                try {
+                    $cat_result = ContentEngine::build_preview_only_content_assist( $cat_post, [
+                        'strategy' => 'template',
+                        'context'  => 'category_page',
+                    ] );
+                } catch ( \Throwable $e ) {
+                    $cat_threw = true;
+                    ob_end_clean();
+                    Logs::error( 'admin', '[TMW-CATEGORY-GENERATE] Inline category generation failed', [
+                        'post_id' => $post_id,
+                        'error'   => $e->getMessage(),
+                    ] );
+                    wp_send_json_error( [ 'message' => __( 'Category generation failed. Check logs.', 'tmwseo' ) ], 500 );
+                }
+                if ( ! $cat_threw ) {
+                    ob_end_clean();
+                }
+
+                if ( ! empty( $cat_result['content_html'] ) && empty( $cat_result['blocked'] ) ) {
+                    $cat_html        = (string) $cat_result['content_html'];
+                    $current_content = (string) get_post_field( 'post_content', $post_id );
+                    $next_content    = self::upsert_managed_ai_block( $current_content, $cat_html );
+                    wp_update_post( [ 'ID' => $post_id, 'post_content' => $next_content ] );
+
+                    // Write Rank Math meta.
+                    $seo_title = trim( (string) ( $cat_result['seo_title'] ?? '' ) );
+                    $meta_desc = trim( (string) ( $cat_result['meta_description'] ?? '' ) );
+                    $focus_kw  = trim( (string) ( $cat_result['focus_keyword'] ?? '' ) );
+                    if ( $seo_title !== '' ) update_post_meta( $post_id, 'rank_math_title', $seo_title );
+                    if ( $meta_desc !== '' ) update_post_meta( $post_id, 'rank_math_description', $meta_desc );
+                    if ( $focus_kw !== '' ) {
+                        update_post_meta( $post_id, 'rank_math_focus_keyword', $focus_kw );
+                        update_post_meta( $post_id, '_tmwseo_keyword', $focus_kw );
+                    }
+                    update_post_meta( $post_id, '_tmwseo_optimize_done', 'category_inline' );
+                    clean_post_cache( $post_id );
+
+                    Logs::info( 'admin', '[TMW-CATEGORY-GENERATE] Inline category content generated', [
+                        'post_id'   => $post_id,
+                        'focus_kw'  => $focus_kw,
+                    ] );
+                    wp_send_json_success( [
+                        'generated_now' => true,
+                        'reload'        => true,
+                        'message'       => __( 'Category content generated. Reloading editor.', 'tmwseo' ),
+                    ] );
+                }
+            }
+            // Fall through to queue if inline attempt produced no content.
         }
 
         Jobs::enqueue( 'optimize_post', (string) $post_type, $post_id, $job_payload );
@@ -306,6 +380,134 @@ class AdminAjaxHandlers {
             $model_name = trim( (string) get_post_meta( $post_id, '_tmw_linked_model_name', true ) );
         }
         return $model_name !== '';
+    }
+
+    /**
+     * Updates the video slug from the full post TITLE.
+     *
+     * sanitize_title() already converts em-dashes and special chars to hyphens,
+     * so the full title "Lexy Ness Plays With Her Amazing Body — Webcam Video Chat"
+     * naturally becomes: lexy-ness-plays-with-her-amazing-body-webcam-video-chat
+     *
+     * No manual em-dash stripping is needed or wanted — that would drop
+     * "Webcam Video Chat" from the URL.
+     *
+     * @return array{updated:bool,error:string}
+     * @since 5.8.14
+     */
+    private static function maybe_update_video_slug( int $post_id, string $focus_keyword ): array {
+        $post = get_post( $post_id );
+        if ( ! $post instanceof \WP_Post ) {
+            return [ 'updated' => false, 'error' => '' ];
+        }
+
+        // Use the full raw post title — sanitize_title() handles all normalisation.
+        $raw_title   = trim( (string) get_the_title( $post_id ) );
+        $target_slug = sanitize_title( $raw_title );
+
+        if ( $target_slug === '' ) {
+            return [ 'updated' => false, 'error' => '' ];
+        }
+
+        $current_slug = (string) $post->post_name;
+        if ( $current_slug === $target_slug ) {
+            return [ 'updated' => false, 'error' => '' ];
+        }
+
+        // Backup previous slug (once).
+        if ( (string) get_post_meta( $post_id, '_tmwseo_prev_video_slug', true ) === '' && $current_slug !== '' ) {
+            update_post_meta( $post_id, '_tmwseo_prev_video_slug', $current_slug );
+            update_post_meta( $post_id, '_tmwseo_prev_video_slug_at', current_time( 'mysql' ) );
+        }
+
+        $unique_slug = wp_unique_post_slug( $target_slug, $post_id, $post->post_status, $post->post_type, (int) $post->post_parent );
+        $result      = wp_update_post( [ 'ID' => $post_id, 'post_name' => $unique_slug ], true );
+        if ( is_wp_error( $result ) ) {
+            $error = $result->get_error_message();
+            Logs::error( 'admin', '[TMW-VIDEO-SLUG] update failed', [ 'post_id' => $post_id, 'target' => $unique_slug, 'error' => $error ] );
+            return [ 'updated' => false, 'error' => $error ];
+        }
+        if ( ! $result ) {
+            Logs::error( 'admin', '[TMW-VIDEO-SLUG] update failed', [ 'post_id' => $post_id, 'target' => $unique_slug, 'error' => 'unknown_failure' ] );
+            return [ 'updated' => false, 'error' => 'unknown_failure' ];
+        }
+        Logs::info( 'admin', '[TMW-VIDEO-SLUG] updated to full title-derived slug', [ 'post_id' => $post_id, 'from' => $current_slug, 'to' => $unique_slug ] );
+        return [ 'updated' => true, 'error' => '' ];
+    }
+
+    /**
+     * Updates featured image alt, title, caption, and description safely.
+     *
+     * Safety rules (v5.8.14 / audit-corrected):
+     *   - Alt:   always written; backed up once before first TMW overwrite.
+     *   - Title / Caption / Description on the attachment post:
+     *       · Fill when the field is currently empty.
+     *       · Overwrite when marked TMW-managed (_tmwseo_img_managed = '1').
+     *       · Never touch a non-empty, non-TMW-managed value (shared attachments safe).
+     *   - After any write, mark the attachment as TMW-managed.
+     *
+     * Field values:
+     *   Alt:         {focus_keyword} webcam clip
+     *   Title:       {post title} webcam video clip
+     *   Caption:     Watch {focus_keyword} on Top-Models.Webcam
+     *   Description: {focus_keyword} webcam video clip from Top-Models.Webcam.
+     *
+     * @since 5.8.14
+     */
+    private static function maybe_update_video_featured_image_alt( int $post_id, string $focus_keyword ): void {
+        $thumb_id = (int) get_post_thumbnail_id( $post_id );
+        if ( $thumb_id <= 0 || trim( $focus_keyword ) === '' ) {
+            return;
+        }
+
+        $post_title  = trim( (string) get_the_title( $post_id ) );
+        $new_alt     = trim( $focus_keyword . ' webcam clip' );
+        $new_title   = ( $post_title !== '' ? $post_title : $focus_keyword ) . ' webcam video clip';
+        $new_caption = 'Watch ' . $focus_keyword . ' on Top-Models.Webcam';
+        $new_desc    = $focus_keyword . ' webcam video clip from Top-Models.Webcam.';
+
+        // ── Alt text ──────────────────────────────────────────────────────────
+        $old_alt = trim( (string) get_post_meta( $thumb_id, '_wp_attachment_image_alt', true ) );
+        // Backup once before first TMW overwrite.
+        if ( (string) get_post_meta( $post_id, '_tmwseo_prev_video_image_alt', true ) === '' && $old_alt !== '' ) {
+            update_post_meta( $post_id, '_tmwseo_prev_video_image_alt', $old_alt );
+            update_post_meta( $post_id, '_tmwseo_prev_video_image_alt_at', current_time( 'mysql' ) );
+        }
+        update_post_meta( $thumb_id, '_wp_attachment_image_alt', $new_alt );
+
+        // ── Attachment post fields (title / caption / description) ────────────
+        $attachment   = get_post( $thumb_id );
+        $is_tmw_managed = $attachment instanceof \WP_Post
+            && (string) get_post_meta( $thumb_id, '_tmwseo_img_managed', true ) === '1';
+
+        if ( $attachment instanceof \WP_Post ) {
+            $update_args = [ 'ID' => $thumb_id ];
+
+            if ( trim( $attachment->post_title )   === '' || $is_tmw_managed ) {
+                $update_args['post_title']   = $new_title;
+            }
+            if ( trim( $attachment->post_excerpt ) === '' || $is_tmw_managed ) {
+                $update_args['post_excerpt'] = $new_caption;
+            }
+            if ( trim( $attachment->post_content ) === '' || $is_tmw_managed ) {
+                $update_args['post_content'] = $new_desc;
+            }
+
+            if ( count( $update_args ) > 1 ) {
+                wp_update_post( $update_args );
+            }
+
+            // Mark as TMW-managed so future Generate calls can safely overwrite.
+            update_post_meta( $thumb_id, '_tmwseo_img_managed', '1' );
+            update_post_meta( $thumb_id, '_tmwseo_img_managed_at', current_time( 'mysql' ) );
+        }
+
+        Logs::info( 'admin', '[TMW-VIDEO-IMAGE-META] Image meta updated', [
+            'post_id'     => $post_id,
+            'thumb_id'    => $thumb_id,
+            'alt'         => $new_alt,
+            'was_managed' => $is_tmw_managed,
+        ] );
     }
 
     /**
