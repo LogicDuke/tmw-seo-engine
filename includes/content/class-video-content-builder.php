@@ -220,15 +220,16 @@ class VideoContentBuilder {
      *
      * @param int    $post_id
      * @param array  $build   Output from self::build()
+     * @param bool   $is_manual_generate Allow explicit sidebar Generate to overwrite existing SEO title/description.
      */
-    public static function write_rank_math_fields( int $post_id, array $build ): void {
+    public static function write_rank_math_fields( int $post_id, array $build, bool $is_manual_generate = false ): void {
         $focus_kw    = trim( (string) ( $build['focus_keyword'] ?? '' ) );
         $seo_title   = trim( (string) ( $build['seo_title'] ?? '' ) );
         $meta_desc   = trim( (string) ( $build['meta_description'] ?? '' ) );
         $secondary   = is_array( $build['secondary_keywords'] ?? null ) ? $build['secondary_keywords'] : [];
 
         // ── SEO title (guarded) ───────────────────────────────────────────────
-        if ( $seo_title !== '' && self::is_rank_math_title_writable( $post_id ) ) {
+        if ( $seo_title !== '' && ( $is_manual_generate || self::is_rank_math_title_writable( $post_id ) ) ) {
             update_post_meta( $post_id, 'rank_math_title', $seo_title );
             Logs::info( 'video_meta', '[TMW-VIDEO-META] Wrote rank_math_title', [
                 'post_id' => $post_id,
@@ -243,7 +244,7 @@ class VideoContentBuilder {
         }
 
         // ── Meta description (guarded) ────────────────────────────────────────
-        if ( $meta_desc !== '' && self::is_rank_math_description_writable( $post_id ) ) {
+        if ( $meta_desc !== '' && ( $is_manual_generate || self::is_rank_math_description_writable( $post_id ) ) ) {
             update_post_meta( $post_id, 'rank_math_description', $meta_desc );
             Logs::info( 'video_meta', '[TMW-VIDEO-META] Wrote rank_math_description', [
                 'post_id' => $post_id,
@@ -271,6 +272,8 @@ class VideoContentBuilder {
 
             update_post_meta( $post_id, 'rank_math_focus_keyword', $kw_csv );
             update_post_meta( $post_id, '_tmwseo_keyword', $focus_kw );
+            update_post_meta( $post_id, '_tmwseo_video_rankmath_managed', '1' );
+            update_post_meta( $post_id, '_tmwseo_video_rankmath_managed_at', current_time( 'mysql' ) );
 
             Logs::info( 'video_meta', '[TMW-VIDEO-META] Wrote rank_math_focus_keyword', [
                 'post_id'  => $post_id,
@@ -332,22 +335,23 @@ class VideoContentBuilder {
      * @return string[]
      */
     public static function build_secondary_keywords( string $model_name, string $primary_kw ): array {
+        $base = [];
         if ( $model_name === '' ) {
-            return [
+            $base = [
                 'webcam video',
                 'live webcam clip',
                 'video chat',
                 'cam show',
             ];
+        } else {
+            $base = [
+                $model_name . ' webcam video',
+                $model_name . ' video chat',
+                $model_name . ' live webcam clip',
+                $model_name . ' cam show',
+                'watch ' . $model_name . ' webcam video',
+            ];
         }
-
-        $base = [
-            $model_name . ' webcam video',
-            $model_name . ' video chat',
-            $model_name . ' live webcam clip',
-            $model_name . ' cam show',
-            'watch ' . $model_name . ' webcam video',
-        ];
 
         // Remove exact primary keyword to avoid duplication
         $primary_lc = mb_strtolower( trim( $primary_kw ), 'UTF-8' );
@@ -355,7 +359,18 @@ class VideoContentBuilder {
             return mb_strtolower( trim( $kw ), 'UTF-8' ) !== $primary_lc;
         } ) );
 
-        return array_slice( $filtered, 0, 4 );
+        $deduped = [];
+        $seen    = [];
+        foreach ( $filtered as $kw ) {
+            $normalized = mb_strtolower( trim( (string) $kw ), 'UTF-8' );
+            if ( $normalized === '' || isset( $seen[ $normalized ] ) ) {
+                continue;
+            }
+            $seen[ $normalized ] = true;
+            $deduped[]           = trim( (string) $kw );
+        }
+
+        return array_slice( $deduped, 0, 4 );
     }
 
     // ── SEO title + meta description ─────────────────────────────────────────
@@ -369,8 +384,13 @@ class VideoContentBuilder {
     public static function build_seo_title( string $model_name, string $focus_kw, string $title ): string {
         $brand = self::SITE_BRAND;
         if ( $focus_kw !== '' ) {
+            $year    = gmdate( 'Y' );
             $display = ucwords( $focus_kw );
-            return $display . ' | ' . $brand;
+            $title   = $display . ': Best Webcam Clip Guide ' . $year;
+            if ( mb_strlen( $title, 'UTF-8' ) > 70 ) {
+                $title = mb_substr( $title, 0, 70, 'UTF-8' );
+            }
+            return rtrim( $title, " \t\n\r\0\x0B-:|" );
         }
         if ( $model_name !== '' ) {
             return $model_name . ' Webcam Video | ' . $brand;
@@ -389,7 +409,7 @@ class VideoContentBuilder {
     public static function build_meta_description( string $model_name, string $focus_kw, string $title ): string {
         $brand = self::SITE_BRAND;
         if ( $focus_kw !== '' ) {
-            $desc = 'Watch the ' . $focus_kw . ' with neutral scene context, related model links, and similar live webcam video pages on ' . $brand . '.';
+            $desc = $focus_kw . ' page with neutral webcam clip context, model links, related tags, and similar live cam videos on ' . $brand . '.';
         } elseif ( $model_name !== '' ) {
             $desc = 'Browse the ' . $model_name . ' webcam video page with neutral context, safe category browsing, and related live webcam clips on ' . $brand . '.';
         } else {
@@ -509,8 +529,9 @@ class VideoContentBuilder {
         $parts[] = '<p>'
             . 'Visitors arriving on this page are typically searching for terms like '
             . esc_html( $focus_kw ) . ', '
-            . esc_html( $model_name !== '' ? $model_name . ' video chat' : 'live webcam video' ) . ', '
-            . 'live webcam clip, or cam show content. '
+            . esc_html( $secondary[0] ?? ( $model_name !== '' ? $model_name . ' webcam video' : 'live webcam video' ) ) . ', '
+            . esc_html( $secondary[1] ?? 'live webcam clip' ) . ', or '
+            . esc_html( $secondary[2] ?? 'cam show content' ) . '. '
             . 'The page is structured to match those search intents and to provide neutral, safe context that helps '
             . 'visitors decide whether this webcam session matches what they are looking for.'
             . '</p>';
