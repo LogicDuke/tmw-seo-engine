@@ -116,6 +116,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-dirty-queue.php' );
         tmwseo_safe_require( $p . 'class-content-keyword-miner.php' );
         tmwseo_safe_require( $p . 'class-competitor-mining-service.php' );
+        tmwseo_safe_require( $p . 'class-video-keyword-candidate-repository.php' );
         tmwseo_safe_require( $p . 'class-niche-serp-mining-service.php' );
         tmwseo_safe_require( $p . 'class-discovery-orchestrator.php' );
         tmwseo_safe_require( $p . 'class-keyword-idea-provider-interface.php' );
