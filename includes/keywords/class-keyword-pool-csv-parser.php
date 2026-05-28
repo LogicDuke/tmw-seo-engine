@@ -152,9 +152,8 @@ class KeywordPoolCsvParser {
     public static function normalize_header(string $header): string {
         $header = preg_replace('/^\xEF\xBB\xBF/', '', $header) ?? $header;
         $header = strtolower(trim($header));
-        $header = str_replace([ '-', '/' ], ' ', $header);
-        $header = preg_replace('/\s+/', ' ', $header) ?? $header;
-        return trim($header);
+        $header = preg_replace('/[\s_\-\/]+/', '_', $header) ?? $header;
+        return trim($header, '_');
     }
 
     /**

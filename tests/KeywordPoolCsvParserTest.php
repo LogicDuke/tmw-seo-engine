@@ -38,6 +38,48 @@ class KeywordPoolCsvParserTest extends TestCase {
         $this->assertSame('Lexy Ness webcam model', $row['keyword']);
     }
 
+    public function test_header_separator_variants_map_to_same_canonical_fields(): void {
+        $parser = new KeywordPoolCsvParser();
+        $result = $parser->parse_text("search-term,Search Intent,Term Name,Target URL,Avg Monthly Searches\nLexy Ness webcam model,commercial,Blonde,https://example.test/blonde,1200\n");
+        $row    = $result['rows'][0];
+
+        $this->assertSame('keyword', $result['header_map'][0]);
+        $this->assertSame('intent', $result['header_map'][1]);
+        $this->assertSame('category', $result['header_map'][2]);
+        $this->assertSame('url', $result['header_map'][3]);
+        $this->assertSame('volume', $result['header_map'][4]);
+        $this->assertSame('Lexy Ness webcam model', $row['keyword']);
+        $this->assertSame('commercial', $row['intent']);
+        $this->assertSame('Blonde', $row['category']);
+        $this->assertSame('https://example.test/blonde', $row['url']);
+        $this->assertSame('1200', $row['volume']);
+
+        $underscore_result = $parser->parse_text("keyword_text,search_intent\nalternate keyword,informational\n");
+        $this->assertSame('keyword', $underscore_result['header_map'][0]);
+        $this->assertSame('intent', $underscore_result['header_map'][1]);
+    }
+
+    public function test_spaced_headers_produce_canonical_row_keys_for_dry_run_input(): void {
+        $parser = new KeywordPoolCsvParser();
+        $result = $parser->parse_text("Search Term,Search Intent,Target URL,Avg Monthly Searches\nblonde webcam models,commercial,https://example.test/blonde,2400\n");
+        $row    = $result['rows'][0];
+
+        $this->assertSame('blonde webcam models', $row['keyword']);
+        $this->assertSame('commercial', $row['intent']);
+        $this->assertSame('https://example.test/blonde', $row['url']);
+        $this->assertSame('2400', $row['volume']);
+    }
+
+    public function test_header_normalization_equates_spaces_underscores_hyphens_and_slashes(): void {
+        $expected = KeywordPoolCsvParser::normalize_header('search intent');
+
+        $this->assertSame($expected, KeywordPoolCsvParser::normalize_header('Search Intent'));
+        $this->assertSame($expected, KeywordPoolCsvParser::normalize_header('search_intent'));
+        $this->assertSame($expected, KeywordPoolCsvParser::normalize_header('search-intent'));
+        $this->assertSame($expected, KeywordPoolCsvParser::normalize_header('search/intent'));
+        $this->assertSame($expected, KeywordPoolCsvParser::normalize_header('search   intent'));
+    }
+
     public function test_parses_pasted_text_with_result_contract(): void {
         $parser = new KeywordPoolCsvParser();
         $result = $parser->parse_text("keyword,volume\nalpha,10\nbeta,20\n");
