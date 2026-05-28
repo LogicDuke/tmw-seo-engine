@@ -39,12 +39,15 @@ namespace {
     if (!function_exists('home_url')) { function home_url($path=''){ return 'https://top-models.webcam' . $path; } }
     if (!function_exists('esc_url_raw')) { function esc_url_raw($s){ return filter_var((string)$s, FILTER_SANITIZE_URL) ?: ''; } }
     if (!function_exists('wp_http_validate_url')) { function wp_http_validate_url($s){ return (bool) filter_var((string)$s, FILTER_VALIDATE_URL); } }
+    if (!function_exists('wp_upload_dir')) { function wp_upload_dir($time=null,$create_dir=true,$refresh_cache=false){ return ['basedir'=>sys_get_temp_dir()]; } }
 
     if (!class_exists('WP_Query')) { class WP_Query { public $posts = []; public function __construct($args=[]){} } }
     if (!class_exists('TMWSEO\\Engine\\Logs')) { eval('namespace TMWSEO\\Engine; class Logs { public static function info($c,$m,$d=[]){} public static function warn($c,$m,$d=[]){} public static function error($c,$m,$d=[]){} public static function debug($c,$m,$d=[]){} }'); }
 
     require_once dirname(__DIR__) . '/includes/keywords/class-page-type-keyword-filter.php';
     require_once dirname(__DIR__) . '/includes/keywords/class-category-page-keyword-generator.php';
+    require_once dirname(__DIR__) . '/includes/keywords/class-keyword-library.php';
+    require_once dirname(__DIR__) . '/includes/keywords/class-model-keyword-pack.php';
     require_once dirname(__DIR__) . '/includes/keywords/class-model-keyword-suggestion-generator.php';
     require_once dirname(__DIR__) . '/includes/services/class-settings.php';
     require_once dirname(__DIR__) . '/includes/platform/class-platform-registry.php';
@@ -59,6 +62,7 @@ namespace TMWSEO\Engine\Tests {
     use TMWSEO\Engine\Content\RankMathMapper;
     use TMWSEO\Engine\Content\VideoContentBuilder;
     use TMWSEO\Engine\Keywords\CategoryPageKeywordGenerator;
+    use TMWSEO\Engine\Keywords\ModelKeywordPack;
     use TMWSEO\Engine\Keywords\ModelKeywordSuggestionGenerator;
     use TMWSEO\Engine\Keywords\PageTypeKeywordFilter;
     use TMWSEO\Engine\Platform\AffiliateLinkBuilder;
@@ -117,6 +121,27 @@ namespace TMWSEO\Engine\Tests {
             $this->assertSame($actual_attribute_count, $pack['selected_attribute_count']);
         }
 
+        public function test_model_rank_math_chips_do_not_include_livejasmin_without_verified_platform(): void {
+            $chips = $this->buildModelRankMathChips('Alice Schuster', 581, []);
+            $this->assertNotContains('Alice Schuster LiveJasmin', $chips);
+            $this->assertNotEmpty($chips);
+            $this->assertSame($chips, PageTypeKeywordFilter::filter_for_model_page($chips));
+        }
+
+        public function test_model_rank_math_chips_allow_livejasmin_when_verified_platform_present(): void {
+            $chips = $this->buildModelRankMathChips('Alice Schuster', 581, ['livejasmin']);
+            $this->assertContains('Alice Schuster LiveJasmin', $chips);
+        }
+
+        public function test_model_suggestion_generator_does_not_emit_unverified_livejasmin_pattern(): void {
+            $post = new \WP_Post(['ID'=>582,'post_title'=>'Alice Schuster','post_name'=>'alice-schuster','post_type'=>'model']);
+            $generator = new ModelKeywordSuggestionGenerator();
+            $pack = $generator->generate_for_model($post, false, false);
+            $keywords = array_map(static fn($row): string => (string)($row['keyword'] ?? ''), $pack['extra_keywords']);
+            $this->assertNotContains('Alice Schuster LiveJasmin', $keywords);
+            $this->assertNotEmpty($keywords);
+        }
+
         public function test_video_secondary_keywords_do_not_include_profile_or_earnings_modifiers(): void {
             $secondary = VideoContentBuilder::build_secondary_keywords('Lexy Ness', 'Lexy Ness video chat');
             $joined = strtolower(implode('|', $secondary));
@@ -150,6 +175,13 @@ namespace TMWSEO\Engine\Tests {
             $this->assertNotSame('', $url);
             $this->assertStringNotContainsString('/go/', $url);
             $this->assertStringContainsString('livejasmin.com', $url);
+        }
+
+        /** @param string[] $platform_slugs */
+        private function buildModelRankMathChips(string $name, int $post_id, array $platform_slugs): array {
+            $method = new ReflectionMethod(ModelKeywordPack::class, 'build_rankmath_chips');
+            $method->setAccessible(true);
+            return $method->invoke(null, $name, $post_id, $platform_slugs);
         }
     }
 }

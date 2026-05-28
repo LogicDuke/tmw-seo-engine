@@ -23,7 +23,7 @@ class ModelKeywordSuggestionGenerator {
     private const MODEL_NAME_PATTERNS = [
         '{model} live cam girl','{model} webcam chat','{model} webcam chat girl',
         '{model} live webcam model','{model} live cam chat','{model} cam profile',
-        '{model} LiveJasmin','{model} cam model',
+        '{model} cam model',
     ];
 
 

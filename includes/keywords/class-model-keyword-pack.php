@@ -572,7 +572,6 @@ class ModelKeywordPack {
         // Modifier pool — compact, readable, 1–4 word suffixes.
         $modifiers = [
             'webcam model',
-            'LiveJasmin',
             'live cam chat',
             'cam profile',
             'webcam chat',
