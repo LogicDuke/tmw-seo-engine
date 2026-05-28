@@ -174,6 +174,9 @@ class ModelKeywordPack {
 
         // Patch 2.1: compute keyword confidence from real scoring data.
         // Confidence = how well the selected additional keywords scored.
+        $additional = PageTypeKeywordFilter::filter_for_model_page($additional);
+        $longtail = PageTypeKeywordFilter::filter_for_model_page($longtail);
+
         $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
 
         // Dedicated Rank Math chips: model-name-led, varied per post.
@@ -407,12 +410,12 @@ class ModelKeywordPack {
         $out[] = 'HD live stream';
         $out[] = 'real-time chat features';
         $out[] = 'live webcam chat tips';
-        $out[] = 'live show schedule';
+        $out[] = 'live chat schedule';
 
         foreach (array_slice($tags, 0, 1) as $tag) {
             $tag_phrase = trim(str_replace('-', ' ', (string) $tag));
             if ($tag_phrase !== '') {
-                $out[] = $tag_phrase . ' live shows';
+                $out[] = $tag_phrase . ' live chat';
             }
         }
 
@@ -426,8 +429,8 @@ class ModelKeywordPack {
         $secondary_platform = $labels[1] ?? '';
 
         $out = [
-            'how to watch live webcam shows',
-            'live show schedule',
+            'how to join live cam chat',
+            'live chat schedule',
             'private live chat tips',
             'HD live stream experience',
             'real-time chat features',
@@ -435,7 +438,7 @@ class ModelKeywordPack {
         ];
 
         if ($primary_platform !== '') {
-            $out[] = $primary_platform . ' live show schedule';
+            $out[] = $primary_platform . ' live chat schedule';
             $out[] = $primary_platform . ' profile guide';
         }
         if ($secondary_platform !== '') {
@@ -447,7 +450,7 @@ class ModelKeywordPack {
             if ($tag_phrase === '') {
                 continue;
             }
-            $out[] = $tag_phrase . ' live show ideas';
+            $out[] = $tag_phrase . ' chat ideas';
             $out[] = $tag_phrase . ' chat style';
         }
 
@@ -531,19 +534,13 @@ class ModelKeywordPack {
 
         // Modifier pool — compact, readable, 1–4 word suffixes.
         $modifiers = [
-            'webcam',
-            'live cam',
+            'webcam model',
+            'LiveJasmin',
+            'live cam chat',
+            'cam profile',
+            'webcam chat',
             'cam model',
             'cam girl',
-            'webcam chat',
-            'cam chat',
-            'adult webcam',
-            'adult cam',
-            'adult video chat',
-            'live video chat',
-            'cam show',
-            'webcam platform',
-            'webcam earnings',
         ];
 
         // Deterministic Fisher-Yates shuffle seeded by name + post_id.
@@ -588,7 +585,7 @@ class ModelKeywordPack {
             }
         }
 
-        return array_slice(self::dedupe_keywords($chips), 0, 4);
+        return array_slice(PageTypeKeywordFilter::filter_for_model_page(self::dedupe_keywords($chips)), 0, 4);
     }
 
     private static function platform_keyword_label(string $platform): string {

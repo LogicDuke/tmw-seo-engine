@@ -78,6 +78,7 @@ if ( ! function_exists( 'get_the_title' ) ) {
 // ── Autoload plugin classes ───────────────────────────────────────────────────
 
 // VideoContentBuilder lives in content/
+require_once __DIR__ . '/../includes/keywords/class-page-type-keyword-filter.php';
 $vcb_path = __DIR__ . '/../includes/content/class-video-content-builder.php';
 if ( ! class_exists( VideoContentBuilder::class ) && file_exists( $vcb_path ) ) {
     // Provide the Logs stub so the file can be included.

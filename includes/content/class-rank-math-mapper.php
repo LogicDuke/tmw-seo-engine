@@ -19,6 +19,8 @@
  */
 namespace TMWSEO\Engine\Content;
 
+use TMWSEO\Engine\Keywords\PageTypeKeywordFilter;
+
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class RankMathMapper {
@@ -41,7 +43,7 @@ class RankMathMapper {
      */
     public static function sync_to_rank_math( int $post_id, array $keyword_pack, bool $persist_audit = true ): void {
         $primary = self::extract_primary( $post_id, $keyword_pack );
-        $extras  = self::extract_extras( $keyword_pack );
+        $extras  = self::extract_extras( $keyword_pack, $post_id );
 
         // Build Rank Math CSV: primary first, then up to 4 extras.
         $focus_list = array_merge( [ $primary ], $extras );
@@ -96,7 +98,7 @@ class RankMathMapper {
      *
      * @return string[]
      */
-    public static function extract_extras( array $keyword_pack ): array {
+    public static function extract_extras( array $keyword_pack, int $post_id = 0 ): array {
         // Prefer the dedicated Rank Math chip field when present and non-empty.
         if ( ! empty( $keyword_pack['rankmath_additional'] ) && is_array( $keyword_pack['rankmath_additional'] ) ) {
             $additional = $keyword_pack['rankmath_additional'];
@@ -109,6 +111,9 @@ class RankMathMapper {
         }
 
         $extras = array_values( array_filter( array_map( 'trim', array_map( 'strval', $additional ) ), 'strlen' ) );
+        if ( $post_id > 0 ) {
+            $extras = PageTypeKeywordFilter::filter( $extras, self::page_type_for_post( $post_id ) );
+        }
 
         return array_slice( $extras, 0, self::RANK_MATH_EXTRA_CAP );
     }
@@ -121,10 +126,21 @@ class RankMathMapper {
      */
     public static function preview_rank_math_csv( int $post_id, array $keyword_pack ): string {
         $primary = self::extract_primary( $post_id, $keyword_pack );
-        $extras  = self::extract_extras( $keyword_pack );
+        $extras  = self::extract_extras( $keyword_pack, $post_id );
         $list    = array_merge( [ $primary ], $extras );
         $list    = array_values( array_unique( array_filter( array_map( 'trim', $list ), 'strlen' ) ) );
         return implode( ',', array_slice( $list, 0, 1 + self::RANK_MATH_EXTRA_CAP ) );
+    }
+
+    private static function page_type_for_post( int $post_id ): string {
+        $post_type = (string) get_post_field( 'post_type', $post_id );
+        if ( $post_type === 'model' ) {
+            return 'model';
+        }
+        if ( $post_type === 'post' ) {
+            return 'video';
+        }
+        return 'category';
     }
 
     /**
