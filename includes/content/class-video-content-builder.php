@@ -220,6 +220,7 @@ class VideoContentBuilder {
      *
      * @param int    $post_id
      * @param array  $build   Output from self::build()
+     * @param bool   $is_manual_generate Allow explicit sidebar Generate to overwrite existing SEO title/description.
      */
     public static function write_rank_math_fields( int $post_id, array $build, bool $is_manual_generate = false ): void {
         $focus_kw    = trim( (string) ( $build['focus_keyword'] ?? '' ) );
@@ -334,22 +335,23 @@ class VideoContentBuilder {
      * @return string[]
      */
     public static function build_secondary_keywords( string $model_name, string $primary_kw ): array {
+        $base = [];
         if ( $model_name === '' ) {
-            return [
+            $base = [
                 'webcam video',
                 'live webcam clip',
                 'video chat',
                 'cam show',
             ];
+        } else {
+            $base = [
+                $model_name . ' webcam video',
+                $model_name . ' video chat',
+                $model_name . ' live webcam clip',
+                $model_name . ' cam show',
+                'watch ' . $model_name . ' webcam video',
+            ];
         }
-
-        $base = [
-            $model_name . ' webcam video',
-            $model_name . ' video chat',
-            $model_name . ' live webcam clip',
-            $model_name . ' cam show',
-            'watch ' . $model_name . ' webcam video',
-        ];
 
         // Remove exact primary keyword to avoid duplication
         $primary_lc = mb_strtolower( trim( $primary_kw ), 'UTF-8' );
@@ -357,7 +359,18 @@ class VideoContentBuilder {
             return mb_strtolower( trim( $kw ), 'UTF-8' ) !== $primary_lc;
         } ) );
 
-        return array_slice( array_values( array_unique( $filtered ) ), 0, 4 );
+        $deduped = [];
+        $seen    = [];
+        foreach ( $filtered as $kw ) {
+            $normalized = mb_strtolower( trim( (string) $kw ), 'UTF-8' );
+            if ( $normalized === '' || isset( $seen[ $normalized ] ) ) {
+                continue;
+            }
+            $seen[ $normalized ] = true;
+            $deduped[]           = trim( (string) $kw );
+        }
+
+        return array_slice( $deduped, 0, 4 );
     }
 
     // ── SEO title + meta description ─────────────────────────────────────────

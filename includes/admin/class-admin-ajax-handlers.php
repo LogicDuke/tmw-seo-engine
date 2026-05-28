@@ -237,7 +237,7 @@ class AdminAjaxHandlers {
 
             // Write Rank Math SEO fields (guarded — never touches robots/noindex)
             VideoContentBuilder::write_rank_math_fields( $post_id, $build, true );
-            self::maybe_update_video_slug( $post_id, (string) ( $build['focus_keyword'] ?? '' ) );
+            $slug_result = self::maybe_update_video_slug( $post_id, (string) ( $build['focus_keyword'] ?? '' ) );
             self::maybe_update_video_featured_image_alt( $post_id, (string) ( $build['focus_keyword'] ?? '' ) );
 
             clean_post_cache( $post_id );
@@ -251,6 +251,8 @@ class AdminAjaxHandlers {
                 'generated_now' => true,
                 'reload'        => true,
                 'message'       => __( 'Video content generated. Reloading editor.', 'tmwseo' ),
+                'slug_updated'  => (bool) ( $slug_result['updated'] ?? false ),
+                'slug_error'    => (string) ( $slug_result['error'] ?? '' ),
             ] );
         }
 
@@ -312,25 +314,44 @@ class AdminAjaxHandlers {
         return $model_name !== '';
     }
 
-    private static function maybe_update_video_slug( int $post_id, string $focus_keyword ): void {
+    /**
+     * Updates the video slug from focus keyword and returns operation result.
+     *
+     * @return array{updated:bool,error:string}
+     */
+    private static function maybe_update_video_slug( int $post_id, string $focus_keyword ): array {
         $post = get_post( $post_id );
         if ( ! $post instanceof \WP_Post || trim( $focus_keyword ) === '' ) {
-            return;
+            return [ 'updated' => false, 'error' => '' ];
         }
         $current_slug = (string) $post->post_name;
         $target_slug  = sanitize_title( $focus_keyword );
         if ( $target_slug === '' || $current_slug === $target_slug || strpos( $current_slug, $target_slug ) !== false ) {
-            return;
+            return [ 'updated' => false, 'error' => '' ];
         }
         if ( (string) get_post_meta( $post_id, '_tmwseo_prev_video_slug', true ) === '' && $current_slug !== '' ) {
             update_post_meta( $post_id, '_tmwseo_prev_video_slug', $current_slug );
             update_post_meta( $post_id, '_tmwseo_prev_video_slug_at', current_time( 'mysql' ) );
         }
         $unique_slug = wp_unique_post_slug( $target_slug, $post_id, $post->post_status, $post->post_type, (int) $post->post_parent );
-        wp_update_post( [ 'ID' => $post_id, 'post_name' => $unique_slug ] );
+        $result      = wp_update_post( [ 'ID' => $post_id, 'post_name' => $unique_slug ], true );
+        if ( is_wp_error( $result ) ) {
+            $error = $result->get_error_message();
+            Logs::error( 'admin', '[TMW-VIDEO-SLUG] update failed', [ 'post_id' => $post_id, 'target' => $unique_slug, 'error' => $error ] );
+            return [ 'updated' => false, 'error' => $error ];
+        }
+        if ( ! $result ) {
+            $error = 'unknown_failure';
+            Logs::error( 'admin', '[TMW-VIDEO-SLUG] update failed', [ 'post_id' => $post_id, 'target' => $unique_slug, 'error' => $error ] );
+            return [ 'updated' => false, 'error' => $error ];
+        }
         Logs::info( 'admin', '[TMW-VIDEO-SLUG] updated', [ 'post_id' => $post_id, 'from' => $current_slug, 'to' => $unique_slug ] );
+        return [ 'updated' => true, 'error' => '' ];
     }
 
+    /**
+     * Updates featured image alt text from focus keyword for manual Generate.
+     */
     private static function maybe_update_video_featured_image_alt( int $post_id, string $focus_keyword ): void {
         $thumb_id = (int) get_post_thumbnail_id( $post_id );
         if ( $thumb_id <= 0 || trim( $focus_keyword ) === '' ) {
