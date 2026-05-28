@@ -1144,6 +1144,7 @@ class Admin {
             'tmwseo-suggestions',
             'tmwseo-content-briefs',
             'tmwseo-keywords',
+            'tmwseo-keyword-pools',
             'tmwseo-model-opportunities',
             'tmwseo-autopilot',
             'tmwseo-seed-registry',
