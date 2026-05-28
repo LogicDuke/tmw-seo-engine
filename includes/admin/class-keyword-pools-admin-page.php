@@ -75,6 +75,9 @@ class KeywordPoolsAdminPage {
             'Status Preview',
             'Validation State',
             'Decision',
+            'Priority',
+            'Golden?',
+            'Recommended Action',
             'Reasons',
             'Volume',
             'Difficulty',
@@ -423,7 +426,7 @@ class KeywordPoolsAdminPage {
             }
             echo '<tr>';
             foreach (self::row_to_preview_values($row) as $index => $value) {
-                if (16 === $index && '' !== $value) {
+                if (19 === $index && '' !== $value) {
                     echo '<td><a href="' . esc_url($value) . '" target="_blank" rel="noopener noreferrer">' . esc_html($value) . '</a></td>';
                 } else {
                     echo '<td>' . esc_html($value) . '</td>';
@@ -447,6 +450,9 @@ class KeywordPoolsAdminPage {
             (string) ($row['status_preview'] ?? ''),
             (string) ($row['validation_state'] ?? ''),
             (string) ($row['decision'] ?? ''),
+            (string) ($row['priority_preview'] ?? ''),
+            !empty($row['is_golden_keyword']) ? 'yes' : 'no',
+            (string) ($row['recommended_action'] ?? ''),
             $reasons,
             self::metric_to_string($row['volume'] ?? null),
             self::metric_to_string($row['difficulty'] ?? null),
