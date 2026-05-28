@@ -93,6 +93,59 @@ class KeywordPoolDryRunServiceTest extends TestCase {
         $this->assertContains('model_entity_detected', $row['reason_codes']);
     }
 
+    /**
+     * @return array<int, array<int, string>>
+     */
+    public function summary_footer_keyword_provider(): array {
+        return [
+            [ 'Total Volume' ],
+            [ 'Grand Total' ],
+            [ 'Subtotal' ],
+            [ 'Summary' ],
+        ];
+    }
+
+    /**
+     * @dataProvider summary_footer_keyword_provider
+     */
+    public function test_summary_footer_rows_are_blocked(string $keyword): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume
+{$keyword},704750
+"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertSame('blocked', $row['validation_state']);
+        $this->assertSame('block', $row['decision']);
+        $this->assertContains('summary_or_footer_row', $row['reason_codes']);
+    }
+
+    public function test_category_pool_keeps_real_webcam_model_keywords_valid(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume
+webcam models,1200
+top webcam models,900
+"), 'category');
+
+        $this->assertSame('valid', $result['rows'][0]['validation_state']);
+        $this->assertSame('accept', $result['rows'][0]['decision']);
+        $this->assertContains('category_intent_detected', $result['rows'][0]['reason_codes']);
+        $this->assertSame('valid', $result['rows'][1]['validation_state']);
+        $this->assertSame('accept', $result['rows'][1]['decision']);
+        $this->assertContains('category_intent_detected', $result['rows'][1]['reason_codes']);
+    }
+
+    public function test_footer_rows_are_not_counted_as_valid_accepts(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume
+webcam models,1200
+Total Volume,704750
+"), 'category');
+
+        $this->assertSame(1, $result['summary']['accepted']);
+        $this->assertSame(1, $result['summary']['blocked']);
+        $this->assertSame('blocked', $result['rows'][1]['validation_state']);
+        $this->assertSame('block', $result['rows'][1]['decision']);
+        $this->assertContains('summary_or_footer_row', $result['rows'][1]['reason_codes']);
+    }
+
     public function test_no_db_rank_math_or_post_content_writes_are_present(): void {
         $parserSource = file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php');
         $dryRunSource = file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php');

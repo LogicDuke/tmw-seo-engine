@@ -63,6 +63,10 @@ The preview table shows:
 
 Summary cards show total parsed rows, accepted parser rows, skipped parser rows, valid rows, review-required rows, rejected rows, blocked rows, and duplicates in upload.
 
+## Summary and footer rows
+
+The shared dry-run service previews CSV summary/footer rows, but rows whose keyword field is only a reporting label such as `Total Volume`, `Grand Total`, `Subtotal`, or `Summary` are marked with `summary_or_footer_row` and blocked from future import. This keeps metric totals and other report-only labels visible for operator review without allowing aggregate numbers to enter any keyword pool as search queries.
+
 ## Export behavior
 
 After a dry run, the page shows **Download Dry-Run Preview CSV**. The export is generated from the current preview payload posted by the browser and includes the preview columns plus `Reason Codes`.

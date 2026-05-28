@@ -51,6 +51,7 @@ class KeywordPoolDryRunService {
             'rejected'         => 0,
             'duplicates'       => 0,
             'invalid_keywords' => 0,
+            'blocked'          => 0,
         ];
 
         foreach ($rows as $index => $row) {
@@ -66,9 +67,9 @@ class KeywordPoolDryRunService {
                     $preview_row['is_duplicate_in_upload'] = true;
                     $preview_row['duplicate_of_row']       = $seen[$normalized];
                     $preview_row['reason_codes'][]         = 'duplicate_in_upload';
-                    $preview_row['validation_state']       = 'review_required';
-                    if ('reject' !== $preview_row['decision']) {
-                        $preview_row['decision'] = 'review_required';
+                    if (! in_array($preview_row['decision'], [ 'reject', 'block' ], true)) {
+                        $preview_row['validation_state'] = 'review_required';
+                        $preview_row['decision']         = 'review_required';
                     }
                 } else {
                     $seen[$normalized] = $preview_row['row_number'];
@@ -90,6 +91,8 @@ class KeywordPoolDryRunService {
                 ++$summary['accepted'];
             } elseif ('reject' === $preview_row['decision']) {
                 ++$summary['rejected'];
+            } elseif ('block' === $preview_row['decision']) {
+                ++$summary['blocked'];
             } else {
                 ++$summary['review_required'];
             }
@@ -152,6 +155,10 @@ class KeywordPoolDryRunService {
             $preview['validation_state'] = 'invalid';
             $preview['decision']         = 'reject';
             $reason_codes[]              = 'missing_keyword';
+        } elseif ($this->is_summary_or_footer_row($preview)) {
+            $preview['validation_state'] = 'blocked';
+            $preview['decision']         = 'block';
+            $reason_codes[]              = 'summary_or_footer_row';
         } else {
             $pool_decision = $this->classify_for_pool($preview, $pool);
             $preview       = array_merge($preview, $pool_decision);
@@ -209,6 +216,77 @@ class KeywordPoolDryRunService {
         }
 
         return $this->classification('review_required', 'review_required', [ 'category_intent_unclear' ]);
+    }
+
+    /**
+     * Detect CSV footer, summary, and metric-only rows before pool classification.
+     *
+     * @param array<string, mixed> $row Preview row.
+     */
+    private function is_summary_or_footer_row(array $row): bool {
+        $keyword = $this->reporting_label_key((string) ($row['normalized_keyword'] ?? ''));
+        if ('' === $keyword) {
+            return false;
+        }
+
+        if ($this->is_reporting_label($keyword)) {
+            return true;
+        }
+
+        if ($this->row_has_large_metric($row) && preg_match('/^(?:grand\s+)?total(?:s)?\s+(?:volume|keywords?|searches|results|rows|traffic)$/', $keyword)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function is_reporting_label(string $keyword): bool {
+        $labels = [
+            'total',
+            'totals',
+            'total volume',
+            'grand total',
+            'subtotal',
+            'sub total',
+            'summary',
+            'all keywords total',
+            'all keyword total',
+            'keywords total',
+            'keyword total',
+            'total keywords',
+            'total keyword',
+            'overall total',
+            'report total',
+        ];
+
+        if (in_array($keyword, $labels, true)) {
+            return true;
+        }
+
+        return (bool) preg_match('/^(?:grand\s+)?total(?:s)?$/', $keyword);
+    }
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     */
+    private function row_has_large_metric(array $row): bool {
+        foreach ([ 'volume', 'difficulty', 'cpc', 'competition' ] as $metric) {
+            $value = $row[$metric] ?? null;
+            if (is_int($value) || is_float($value)) {
+                if ($value >= 1000) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function reporting_label_key(string $keyword): string {
+        $keyword = strtolower($this->clean_text($keyword));
+        $keyword = preg_replace('/[^a-z0-9]+/', ' ', $keyword) ?? $keyword;
+        $keyword = preg_replace('/\s+/', ' ', $keyword) ?? $keyword;
+        return trim($keyword);
     }
 
     /**
