@@ -41,6 +41,25 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString("[\TMWSEO\Engine\Admin\KeywordPoolsAdminPage::class, 'render']", $source);
     }
 
+    public function test_admin_menu_reorder_keeps_keyword_pools_near_keyword_group(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/admin/class-admin.php');
+        $this->assertIsString($source);
+
+        $this->assertMatchesRegularExpression('/\$desired_order\s*=\s*\[(?P<order>.*?)\];/s', $source);
+        preg_match('/\$desired_order\s*=\s*\[(?P<order>.*?)\];/s', $source, $matches);
+        $desiredOrder = $matches['order'];
+
+        $keywordsPosition = strpos($desiredOrder, "'tmwseo-keywords'");
+        $keywordPoolsPosition = strpos($desiredOrder, "'tmwseo-keyword-pools'");
+        $modelOpportunitiesPosition = strpos($desiredOrder, "'tmwseo-model-opportunities'");
+
+        $this->assertNotFalse($keywordsPosition);
+        $this->assertNotFalse($keywordPoolsPosition);
+        $this->assertNotFalse($modelOpportunitiesPosition);
+        $this->assertGreaterThan($keywordsPosition, $keywordPoolsPosition);
+        $this->assertLessThan($modelOpportunitiesPosition, $keywordPoolsPosition);
+    }
+
     public function test_loader_requires_keyword_pools_admin_page_before_importer_init(): void {
         $source = file_get_contents(__DIR__ . '/../includes/class-loader.php');
         $this->assertIsString($source);
