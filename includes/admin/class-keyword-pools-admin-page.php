@@ -323,7 +323,7 @@ class KeywordPoolsAdminPage {
             'valid rows'             => self::count_rows_by_state((array) ($dry_run['rows'] ?? []), 'valid'),
             'review-required rows'   => (int) ($summary['review_required'] ?? 0),
             'rejected rows'          => (int) ($summary['rejected'] ?? 0),
-            'blocked rows'           => self::count_blocked_rows((array) ($dry_run['rows'] ?? [])),
+            'blocked rows'           => (int) ($summary['blocked'] ?? self::count_blocked_rows((array) ($dry_run['rows'] ?? []))),
             'duplicates in upload'   => (int) ($summary['duplicates'] ?? 0),
         ];
 
@@ -358,7 +358,7 @@ class KeywordPoolsAdminPage {
                 continue;
             }
             $reasons = is_array($row['reason_codes'] ?? null) ? $row['reason_codes'] : [];
-            if ('reject' === (string) ($row['decision'] ?? '') || in_array('standalone_model_name', $reasons, true) || in_array('missing_keyword', $reasons, true)) {
+            if (in_array((string) ($row['decision'] ?? ''), [ 'reject', 'block' ], true) || in_array('standalone_model_name', $reasons, true) || in_array('missing_keyword', $reasons, true) || in_array('summary_or_footer_row', $reasons, true)) {
                 ++$count;
             }
         }
