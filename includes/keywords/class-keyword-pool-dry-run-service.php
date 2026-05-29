@@ -169,16 +169,16 @@ class KeywordPoolDryRunService {
             'commercial_score_preview'  => 0,
             'golden_missing_reasons'  => [],
             'golden_formula_summary'  => $this->golden_formula_summary(),
-            'volume'                 => $this->normalize_metric($row['volume'] ?? '', 'volume', $reason_codes),
-            'difficulty'             => $this->normalize_metric($row['difficulty'] ?? '', 'difficulty', $reason_codes),
-            'cpc'                    => $this->normalize_metric($row['cpc'] ?? '', 'cpc', $reason_codes),
-            'competition'            => $this->normalize_metric($row['competition'] ?? '', 'competition', $reason_codes),
-            'seo_score'              => $this->normalize_metric($row['seo_score'] ?? '', 'seo_score', $reason_codes),
-            'opportunity_score'      => $this->normalize_metric($row['opportunity_score'] ?? '', 'opportunity_score', $reason_codes),
-            'traffic_value'          => $this->normalize_metric($row['traffic_value'] ?? '', 'traffic_value', $reason_codes),
+            'volume'                 => $this->normalize_optional_metric($row, 'volume', $reason_codes),
+            'difficulty'             => $this->normalize_optional_metric($row, 'difficulty', $reason_codes),
+            'cpc'                    => $this->normalize_optional_metric($row, 'cpc', $reason_codes),
+            'competition'            => $this->normalize_optional_metric($row, 'competition', $reason_codes),
+            'seo_score'              => $this->normalize_optional_metric($row, 'seo_score', $reason_codes),
+            'opportunity_score'      => $this->normalize_optional_metric($row, 'opportunity_score', $reason_codes),
+            'traffic_value'          => $this->normalize_optional_metric($row, 'traffic_value', $reason_codes),
             'trend'                  => $this->clean_text($row['trend'] ?? ''),
             'trend_direction'        => $this->clean_text($row['trend_direction'] ?? ''),
-            'ad_difficulty'          => $this->normalize_metric($row['ad_difficulty'] ?? '', 'ad_difficulty', $reason_codes),
+            'ad_difficulty'          => $this->normalize_optional_metric($row, 'ad_difficulty', $reason_codes),
             'intent'                 => $this->normalize_token($row['intent'] ?? ''),
             'source'                 => $this->normalize_source($row['source'] ?? ''),
             'model_name'             => $this->clean_text($row['model_name'] ?? ''),
@@ -589,18 +589,31 @@ class KeywordPoolDryRunService {
     }
 
     /**
+     * @param array<string, mixed> $row Parsed canonical row.
+     * @param string               $metric Metric name.
+     * @param array<int,string>    $reason_codes Mutable reason list.
+     * @return int|float|null
+     */
+    private function normalize_optional_metric(array $row, string $metric, array &$reason_codes) {
+        if (! array_key_exists($metric, $row)) {
+            return null;
+        }
+
+        return $this->normalize_metric($row[$metric], $metric, $reason_codes);
+    }
+
+    /**
      * @param mixed             $value Raw metric.
      * @param string            $metric Metric name.
      * @param array<int,string> $reason_codes Mutable reason list.
      * @return int|float|null
      */
     private function normalize_metric($value, string $metric, array &$reason_codes) {
-        $raw = (string) $value;
-        if ($this->is_blank_metric_value($raw)) {
+        if ($this->is_blank_metric_value($value)) {
             return null;
         }
 
-        $raw     = $this->clean_metric_value($raw);
+        $raw     = $this->clean_metric_value((string) $value);
         $numeric = str_replace([ ',', '$', '%' ], '', $raw);
         if (! is_numeric($numeric)) {
             $reason_codes[] = 'invalid_' . $metric;
@@ -614,8 +627,17 @@ class KeywordPoolDryRunService {
         return $number;
     }
 
-    private function is_blank_metric_value(string $value): bool {
-        return '' === $this->clean_metric_value($value);
+    private function is_blank_metric_value($value): bool {
+        if (null === $value) {
+            return true;
+        }
+
+        if (is_float($value) && is_nan($value)) {
+            return true;
+        }
+
+        $cleaned = strtolower($this->clean_metric_value((string) $value));
+        return '' === $cleaned || in_array($cleaned, [ 'nan', 'n/a', 'na', 'null' ], true);
     }
 
     private function clean_metric_value(string $value): string {

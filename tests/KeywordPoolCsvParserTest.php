@@ -111,6 +111,15 @@ class KeywordPoolCsvParserTest extends TestCase {
         }
     }
 
+    public function test_ad_difficulty_whitespace_cell_cleans_to_blank(): void {
+        $parser = new KeywordPoolCsvParser();
+        $nbsp   = chr(194) . chr(160);
+        $result = $parser->parse_text("keyword,Ad Difficulty\nasian cam models, " . $nbsp . " \n");
+        $row    = $result['rows'][0];
+
+        $this->assertSame('', $row['ad_difficulty']);
+    }
+
     public function test_parses_pasted_text_with_result_contract(): void {
         $parser = new KeywordPoolCsvParser();
         $result = $parser->parse_text("keyword,volume\nalpha,10\nbeta,20\n");

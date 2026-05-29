@@ -205,6 +205,7 @@ class KeywordPoolCsvParser {
     private function clean_cell($value): string {
         $value = (string) $value;
         $value = preg_replace('/^\xEF\xBB\xBF/', '', $value) ?? $value;
+        $value = preg_replace('/[\p{Z}\s]+/u', ' ', $value) ?? $value;
         return trim($value);
     }
 

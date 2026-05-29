@@ -197,6 +197,25 @@ dani daniels,1200,2.50,0.10,75
         $this->assertStringContainsString('42.25', $csv);
     }
 
+
+    public function test_export_helper_removes_invalid_ad_difficulty_for_blank_metric(): void {
+        $parser = new KeywordPoolCsvParser();
+        $parsed = $parser->parse_text("keyword,Ad Difficulty\nasian cam models,\n");
+        $dryRun = (new KeywordPoolDryRunService())->dry_run($parsed, 'category');
+        $row    = $dryRun['rows'][0];
+        $row['reason_codes'][] = 'invalid_ad_difficulty';
+
+        $csv  = KeywordPoolsAdminPage::build_export_csv([ $row ]);
+        $rows = array_map('str_getcsv', array_filter(explode("\n", trim($csv))));
+        $header = $rows[0];
+        $values = $rows[1];
+        $reasonCodesIndex = array_search('Reason Codes', $header, true);
+
+        $this->assertIsInt($reasonCodesIndex);
+        $this->assertStringNotContainsString('invalid_ad_difficulty', $values[$reasonCodesIndex]);
+        $this->assertStringContainsString('category_intent_detected', $values[$reasonCodesIndex]);
+    }
+
     public function test_admin_page_source_does_not_call_persistent_keyword_or_content_writes(): void {
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->assertIsString($source);
