@@ -479,7 +479,9 @@ class KeywordPoolsAdminPage {
     }
 
     /**
-     * @param array<int, mixed> $rows Rows.
+     * @param string $pool Active keyword pool.
+     * @param array<string, mixed> $parser_result Parser result used to rebuild the dry run.
+     * @param array<string, mixed> $dry_run Current dry-run result.
      */
     private static function render_save_selected_form(string $pool, array $parser_result, array $dry_run): void {
         $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];

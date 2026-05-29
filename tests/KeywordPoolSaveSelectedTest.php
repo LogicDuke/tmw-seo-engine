@@ -134,6 +134,105 @@ final class KeywordPoolSaveSelectedTest extends TestCase {
         $this->assertStringContainsString('unsupported_metrics', $wpdb->candidate_inserts[0]['data']['notes']);
     }
 
+
+
+    public function test_existing_sources_and_notes_are_preserved_and_merged_on_update(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_merge_', true, null, [
+            'id' => 55,
+            'keyword' => 'asian cam models',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'status' => 'queued_for_review',
+            'sources' => '{"manual_source":"curated","reason_codes":["existing_reason"]}',
+            'notes' => '{"manual_note":"keep this","unknown_key":{"nested":true},"warnings":["existing_warning"],"keyword_pools_import":{"pool":"category","priority_preview":"P2"}}',
+        ]);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition\nasian cam models,18100,5.99,0.02\n", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['updated']);
+        $this->assertCount(1, $wpdb->candidate_updates);
+        $sources = json_decode($wpdb->candidate_updates[0]['data']['sources'], true);
+        $notes = json_decode($wpdb->candidate_updates[0]['data']['notes'], true);
+        $this->assertSame('curated', $sources['manual_source']);
+        $this->assertSame('keep this', $notes['manual_note']);
+        $this->assertSame(['nested' => true], $notes['unknown_key']);
+        $this->assertContains('existing_warning', $notes['warnings']);
+        $this->assertTrue($notes['keyword_pools_import']['imported_from_keyword_pools']);
+        $this->assertNotEmpty($notes['keyword_pools_import_history']);
+    }
+
+    public function test_existing_global_keyword_row_is_not_claimed_by_entity_scoped_save(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_global_conflict_', true, null, [
+            'id' => 56,
+            'keyword' => 'asian cam models',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'status' => 'queued_for_review',
+        ]);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition\nasian cam models,18100,5.99,0.02\n", 'category');
+        $dryRun['rows'][0]['entity_id'] = 123;
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('conflict', $result['rows'][0]['action']);
+        $this->assertSame(123, $result['rows'][0]['entity_id']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_category_pool_uses_entity_id_instead_of_post_id(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_entity_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,post_id\nasian cam models,18100,5.99,0.02,999\n", 'category');
+        $dryRun['rows'][0]['entity_id'] = 55;
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertSame(55, $wpdb->candidate_inserts[0]['data']['entity_id']);
+        $this->assertSame(55, $result['rows'][0]['entity_id']);
+    }
+
+    public function test_category_pool_without_entity_id_saves_as_global_even_with_post_id(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_global_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,post_id\nasian cam models,18100,5.99,0.02,999\n", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertSame(0, $wpdb->candidate_inserts[0]['data']['entity_id']);
+        $this->assertSame(0, $result['rows'][0]['entity_id']);
+    }
+
+    public function test_model_and_video_pools_prefer_post_id_over_entity_id(): void {
+        $modelWpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_post_', true);
+        $GLOBALS['wpdb'] = $modelWpdb;
+        $modelDryRun = $this->dryRun("keyword,volume,cpc,competition,model_name,post_id\nLexy Ness webcam model,900,3.25,0.08,Lexy Ness,77\n", 'model');
+        $modelDryRun['rows'][0]['entity_id'] = 88;
+
+        $modelResult = (new KeywordPoolSelectedImportService())->save_selected($modelDryRun, 'model', [2], 'approved');
+        $this->assertSame(1, $modelResult['summary']['inserted']);
+        $this->assertSame(77, $modelWpdb->candidate_inserts[0]['data']['entity_id']);
+        $this->assertSame(77, $modelResult['rows'][0]['entity_id']);
+
+        $videoWpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_video_post_', true);
+        $GLOBALS['wpdb'] = $videoWpdb;
+        $videoDryRun = $this->dryRun("keyword,volume,cpc,competition,model_name,post_id\nLexy Ness webcam video,1200,2.50,0.1,Lexy Ness,66\n", 'video');
+        $videoDryRun['rows'][0]['entity_id'] = 99;
+
+        $videoResult = (new KeywordPoolSelectedImportService())->save_selected($videoDryRun, 'video', [2], 'approved');
+        $this->assertSame(1, $videoResult['summary']['inserted']);
+        $this->assertSame(66, $videoWpdb->candidate_inserts[0]['data']['entity_id']);
+        $this->assertSame(66, $videoResult['rows'][0]['entity_id']);
+    }
+
     public function test_save_selected_does_not_write_rank_math_posts_or_generate(): void {
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_safe_', true);
         $GLOBALS['wpdb'] = $wpdb;

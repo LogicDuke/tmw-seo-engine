@@ -156,7 +156,7 @@ class KeywordPoolSelectedImportService {
             'keyword' => (string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''),
             'intent_type' => $pool,
             'entity_type' => $this->entity_type_for_pool($pool),
-            'entity_id' => max(0, (int) ($row['post_id'] ?? $row['entity_id'] ?? 0)),
+            'entity_id' => $this->entity_id_for_pool($row, $pool),
             'status' => $this->status_for_row($row, $save_mode),
             'provenance' => $this->provenance_for_row($row, $pool),
         ];
@@ -183,6 +183,18 @@ class KeywordPoolSelectedImportService {
             return 'approved';
         }
         return 'queued_for_review';
+    }
+
+
+    /** @param array<string,mixed> $row */
+    private function entity_id_for_pool(array $row, string $pool): int {
+        if ('category' === $pool) {
+            return max(0, (int) ($row['entity_id'] ?? 0));
+        }
+        if (array_key_exists('post_id', $row) && '' !== (string) $row['post_id']) {
+            return max(0, (int) $row['post_id']);
+        }
+        return max(0, (int) ($row['entity_id'] ?? 0));
     }
 
     private function entity_type_for_pool(string $pool): string {
@@ -230,7 +242,7 @@ class KeywordPoolSelectedImportService {
             'seo_score' => $row['seo_score'] ?? null,
             'traffic_value' => $row['traffic_value'] ?? null,
             'entity_type' => $this->entity_type_for_pool($pool),
-            'entity_id' => max(0, (int) ($row['post_id'] ?? $row['entity_id'] ?? 0)),
+            'entity_id' => $this->entity_id_for_pool($row, $pool),
         ];
     }
 }

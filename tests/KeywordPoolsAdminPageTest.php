@@ -97,6 +97,18 @@ class KeywordPoolsAdminPageTest extends TestCase {
 
 
 
+
+
+    public function test_save_selected_form_phpdoc_matches_actual_parameters(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
+        $this->assertIsString($source);
+
+        $this->assertMatchesRegularExpression('/@param\s+string\s+\$pool\b/', $source);
+        $this->assertMatchesRegularExpression('/@param\s+array<string, mixed>\s+\$parser_result\b/', $source);
+        $this->assertMatchesRegularExpression('/@param\s+array<string, mixed>\s+\$dry_run\b/', $source);
+        $this->assertDoesNotMatchRegularExpression('/@param\s+array<int, mixed>\s+\$rows\s+Rows\.\s*\*\/\s*private static function render_save_selected_form/s', $source);
+    }
+
     public function test_preview_includes_save_selected_controls_for_eligible_rows(): void {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST = [

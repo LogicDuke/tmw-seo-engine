@@ -111,13 +111,12 @@ class KeywordPoolCandidateRepository {
         }
 
         if (!empty($columns['sources'])) {
-            $data['sources'] = $this->encode_json($provenance);
+            $existing_sources = is_array($existing) ? ($existing['sources'] ?? null) : null;
+            $data['sources'] = $this->encode_json($this->merge_sources($existing_sources, $provenance));
         }
         if (!empty($columns['notes'])) {
-            $data['notes'] = $this->encode_json([
-                'keyword_pools_import' => $provenance,
-                'warnings' => $warnings,
-            ]);
+            $existing_notes = is_array($existing) ? ($existing['notes'] ?? null) : null;
+            $data['notes'] = $this->encode_json($this->merge_notes($existing_notes, $provenance, $warnings));
         }
 
         if (is_array($existing)) {
@@ -185,13 +184,113 @@ class KeywordPoolCandidateRepository {
         $existing_id = (int) ($row['entity_id'] ?? 0);
         $existing_status = (string) ($row['status'] ?? '');
 
-        if ($existing_intent === $intent && ($existing_entity === '' || $existing_entity === $entity_type) && ($existing_id === 0 || $existing_id === $entity_id)) {
+        $same_entity_id = 0 === $entity_id ? 0 === $existing_id : $existing_id === $entity_id;
+        if ($existing_intent === $intent && ($existing_entity === '' || $existing_entity === $entity_type) && $same_entity_id) {
             return true;
         }
-        if (in_array($existing_intent, [ '', 'generic' ], true) && $existing_id === 0 && 'approved' !== $existing_status) {
+        if (0 === $entity_id && in_array($existing_intent, [ '', 'generic' ], true) && 0 === $existing_id && 'approved' !== $existing_status) {
             return true;
         }
         return false;
+    }
+
+
+    /**
+     * @param mixed $existing Existing JSON/string/array value.
+     * @param array<string,mixed> $provenance New import provenance.
+     * @return array<string,mixed>
+     */
+    private function merge_sources($existing, array $provenance): array {
+        $sources = $this->decode_json_field($existing);
+        if ([] === $sources) {
+            return $provenance;
+        }
+
+        $merged = $sources;
+        foreach ($provenance as $key => $value) {
+            if (!array_key_exists($key, $merged)) {
+                $merged[$key] = $value;
+                continue;
+            }
+            if ($merged[$key] === $value) {
+                continue;
+            }
+            if (is_array($merged[$key]) && is_array($value)) {
+                $merged[$key] = $this->dedupe_list(array_merge($merged[$key], $value));
+            }
+        }
+
+        $history = is_array($merged['keyword_pools_import_history'] ?? null) ? $merged['keyword_pools_import_history'] : [];
+        $history[] = $provenance;
+        $merged['keyword_pools_import_history'] = $this->dedupe_list($history);
+        if (!array_key_exists('keyword_pools_import', $merged)) {
+            $merged['keyword_pools_import'] = $provenance;
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param mixed $existing Existing JSON/string/array value.
+     * @param array<string,mixed> $provenance New import provenance.
+     * @param array<int,string> $warnings Import warnings.
+     * @return array<string,mixed>
+     */
+    private function merge_notes($existing, array $provenance, array $warnings): array {
+        $notes = $this->decode_json_field($existing);
+        if ([] === $notes) {
+            return [
+                'keyword_pools_import' => $provenance,
+                'warnings' => array_values(array_unique($warnings)),
+            ];
+        }
+
+        $existing_import = is_array($notes['keyword_pools_import'] ?? null) ? $notes['keyword_pools_import'] : [];
+        $notes['keyword_pools_import'] = $this->merge_sources($existing_import, $provenance);
+
+        $existing_warnings = is_array($notes['warnings'] ?? null) ? array_map('strval', $notes['warnings']) : [];
+        $notes['warnings'] = array_values(array_unique(array_merge($existing_warnings, $warnings)));
+
+        $history = is_array($notes['keyword_pools_import_history'] ?? null) ? $notes['keyword_pools_import_history'] : [];
+        $history[] = $provenance;
+        $notes['keyword_pools_import_history'] = $this->dedupe_list($history);
+
+        return $notes;
+    }
+
+    /** @return array<string,mixed> */
+    private function decode_json_field($value): array {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (null === $value || '' === trim((string) $value)) {
+            return [];
+        }
+
+        $decoded = json_decode((string) $value, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+
+        return [ 'legacy_value' => (string) $value ];
+    }
+
+    /**
+     * @param array<int|string,mixed> $items Items to deduplicate.
+     * @return array<int,mixed>
+     */
+    private function dedupe_list(array $items): array {
+        $seen = [];
+        $deduped = [];
+        foreach ($items as $item) {
+            $key = is_scalar($item) || null === $item ? (string) $item : $this->encode_json($item);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $item;
+        }
+        return $deduped;
     }
 
     private function sanitize_intent(string $intent): string {
