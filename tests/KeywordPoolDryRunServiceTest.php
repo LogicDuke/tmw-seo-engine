@@ -11,12 +11,34 @@ use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
+require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 
 class KeywordPoolDryRunServiceTest extends TestCase {
 
     private function parse(string $csv): array {
         return (new KeywordPoolCsvParser())->parse_text($csv);
+    }
+
+    public function test_model_pool_appends_model_keyword_strategy_fields(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,SEO Score,model_name\nanisyia,12100,68,Anisyia\nanisyia livejasmin,1900,50,Anisyia\nanisyia webcam model,,,Anisyia\ncheapest sex cam sites,1000,75,\n"), 'model');
+
+        $this->assertSame('named_model_opportunity', $result['rows'][0]['model_keyword_strategy']);
+        $this->assertSame('lj_named_model_opportunity', $result['rows'][1]['model_keyword_strategy']);
+        $this->assertSame('fallback_model_intent', $result['rows'][2]['model_keyword_strategy']);
+        $this->assertSame('not_model_intent', $result['rows'][3]['model_keyword_strategy']);
+        $this->assertSame('reject', $result['rows'][3]['decision']);
+    }
+
+    public function test_video_and_category_pools_do_not_receive_named_model_strategy(): void {
+        $category = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,model_name\nanisyia,12100,Anisyia\n"), 'category');
+        $video = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,model_name\nanisyia,12100,Anisyia\nanisyia webcam video,1200,Anisyia\n"), 'video');
+
+        $this->assertSame('not_applicable', $category['rows'][0]['model_keyword_strategy']);
+        $this->assertSame('not_applicable', $video['rows'][0]['model_keyword_strategy']);
+        $this->assertSame('reject', $video['rows'][0]['decision']);
+        $this->assertSame('not_applicable', $video['rows'][1]['model_keyword_strategy']);
+        $this->assertSame('accept', $video['rows'][1]['decision']);
     }
 
     public function test_empty_keyword_rejection(): void {
@@ -325,12 +347,18 @@ Total Volume,704750
     public function test_no_db_rank_math_or_post_content_writes_are_present(): void {
         $parserSource = file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php');
         $dryRunSource = file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php');
-        $combined     = $parserSource . "\n" . $dryRunSource;
+        $strategySource = file_get_contents(__DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php');
+        $combined     = $parserSource . "\n" . $dryRunSource . "\n" . $strategySource;
 
         $this->assertStringNotContainsString('$wpdb->insert', $combined);
         $this->assertStringNotContainsString('$wpdb->update', $combined);
         $this->assertStringNotContainsString('update_post_meta', $combined);
         $this->assertStringNotContainsString('rank_math', strtolower($combined));
         $this->assertStringNotContainsString('post_content', $combined);
+        $this->assertStringNotContainsString('wp_insert_post', $combined);
+        $this->assertStringNotContainsString('wp_update_post', $combined);
+        $this->assertStringNotContainsString('dbDelta', $combined);
+        $this->assertStringNotContainsString('CREATE TABLE', $combined);
+        $this->assertStringNotContainsString('noindex', $combined);
     }
 }

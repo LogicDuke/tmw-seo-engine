@@ -129,6 +129,9 @@ class KeywordPoolSelectedImportService {
         if ('archive_do_not_use' === (string) ($row['tmw_indexing_readiness'] ?? '')) {
             return 'tmw_archive_do_not_use';
         }
+        if ('model' === $pool && in_array((string) ($row['model_keyword_recommended_action'] ?? ''), [ 'reject_not_model_intent', 'defer_until_lj_50_model_milestone' ], true)) {
+            return (string) ($row['model_keyword_recommended_action'] ?? 'model_keyword_strategy_blocked');
+        }
         if (!in_array((string) ($row['tmw_recommended_action'] ?? ''), self::ELIGIBLE_ACTIONS, true)) {
             return 'tmw_not_phase_1_ready';
         }
@@ -229,6 +232,10 @@ class KeywordPoolSelectedImportService {
             'tmw_recommended_action' => (string) ($row['tmw_recommended_action'] ?? ''),
             'tmw_score' => (int) ($row['tmw_score'] ?? 0),
             'tmw_reason_codes' => is_array($row['tmw_reason_codes'] ?? null) ? array_values($row['tmw_reason_codes']) : [],
+            'model_keyword_strategy' => (string) ($row['model_keyword_strategy'] ?? ''),
+            'model_keyword_confidence' => (string) ($row['model_keyword_confidence'] ?? ''),
+            'model_keyword_reason_codes' => is_array($row['model_keyword_reason_codes'] ?? null) ? array_values($row['model_keyword_reason_codes']) : [],
+            'model_keyword_recommended_action' => (string) ($row['model_keyword_recommended_action'] ?? ''),
             'reason_codes' => is_array($row['reason_codes'] ?? null) ? array_values($row['reason_codes']) : [],
             'golden_formula_summary' => (string) ($row['golden_formula_summary'] ?? ''),
             'golden_missing_reasons' => is_array($row['golden_missing_reasons'] ?? null) ? array_values($row['golden_missing_reasons']) : [],

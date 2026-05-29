@@ -13,6 +13,7 @@ use TMWSEO\Engine\Keywords\KeywordPoolSelectedImportService;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
+require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
@@ -28,6 +29,30 @@ final class KeywordPoolSaveSelectedTest extends TestCase {
     protected function tearDown(): void {
         $GLOBALS['wpdb'] = $this->original_wpdb;
         parent::tearDown();
+    }
+
+    public function test_save_selected_preserves_model_keyword_strategy_provenance(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp596_mod_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score,model_name\nanisyia,12100,3.25,0.08,68,Anisyia\n", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2], 'auto');
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertStringContainsString('model_keyword_strategy', $wpdb->candidate_inserts[0]['data']['sources']);
+        $this->assertStringContainsString('named_model_opportunity', $wpdb->candidate_inserts[0]['data']['sources']);
+        $this->assertStringContainsString('approve_named_model_keyword', $wpdb->candidate_inserts[0]['data']['notes']);
+    }
+
+    public function test_save_selected_blocks_model_strategy_reject_and_defer_actions(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp596_blk_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score\ncheapest sex cam sites,1200,2.50,0.10,75\nphoenix marie,1200,2.50,0.10,75\n", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2, 3], 'approved');
+
+        $this->assertSame(2, $result['summary']['blocked'] + $result['summary']['skipped']);
+        $this->assertSame([], $wpdb->candidate_inserts);
     }
 
     public function test_save_selected_valid_category_keyword(): void {

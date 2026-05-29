@@ -188,6 +188,10 @@ class KeywordPoolDryRunService {
             'slug'                   => $this->normalize_slug($row['slug'] ?? ''),
             'title'                  => $this->clean_text($row['title'] ?? ''),
             'notes'                  => $this->clean_text($row['notes'] ?? ''),
+            'model_keyword_strategy'            => '',
+            'model_keyword_confidence'          => '',
+            'model_keyword_reason_codes'        => [],
+            'model_keyword_recommended_action'  => '',
             'is_duplicate_in_upload' => false,
             'duplicate_of_row'       => null,
         ];
@@ -222,8 +226,49 @@ class KeywordPoolDryRunService {
         $preview['recommended_action']       = $this->recommended_action($preview);
         $preview['reason_summary']           = $this->summarize_reasons($preview['reason_codes']);
 
-        return array_merge($preview, (new KeywordPoolMetricsScorer())->score($preview, $pool));
+        $preview = array_merge($preview, (new KeywordPoolMetricsScorer())->score($preview, $pool));
+        return $this->append_model_keyword_strategy($preview, $pool);
     }
+    /**
+     * @param array<string, mixed> $row Preview row.
+     * @return array<string, mixed>
+     */
+    private function append_model_keyword_strategy(array $row, string $pool): array {
+        if ('model' !== $pool && 'model' !== (string) ($row['intent'] ?? '')) {
+            $row['model_keyword_strategy'] = 'not_applicable';
+            $row['model_keyword_confidence'] = 'none';
+            $row['model_keyword_reason_codes'] = [];
+            $row['model_keyword_recommended_action'] = '';
+            return $row;
+        }
+
+        $strategy = (new ModelKeywordStrategyClassifier())->classify($row, (string) ($row['model_name'] ?? ''), $pool);
+        $row = array_merge($row, $strategy);
+        $reason_codes = is_array($strategy['model_keyword_reason_codes'] ?? null) ? array_map('strval', $strategy['model_keyword_reason_codes']) : [];
+
+        if (ModelKeywordStrategyClassifier::STRATEGY_NOT_MODEL === (string) ($strategy['model_keyword_strategy'] ?? '')) {
+            $row['validation_state'] = 'invalid';
+            $row['decision'] = 'reject';
+            $row['reason_codes'] = array_values(array_unique(array_merge(
+                is_array($row['reason_codes'] ?? null) ? array_map('strval', $row['reason_codes']) : [],
+                $reason_codes
+            )));
+            $row['reason_summary'] = $this->summarize_reasons($row['reason_codes']);
+            $row = array_merge($row, (new KeywordPoolMetricsScorer())->score($row, $pool));
+        } elseif (ModelKeywordStrategyClassifier::STRATEGY_WEAK_REVIEW === (string) ($strategy['model_keyword_strategy'] ?? '') && 'valid' === (string) ($row['validation_state'] ?? '')) {
+            $row['validation_state'] = 'review_required';
+            $row['decision'] = 'review_required';
+            $row['reason_codes'] = array_values(array_unique(array_merge(
+                is_array($row['reason_codes'] ?? null) ? array_map('strval', $row['reason_codes']) : [],
+                $reason_codes
+            )));
+            $row['reason_summary'] = $this->summarize_reasons($row['reason_codes']);
+            $row = array_merge($row, (new KeywordPoolMetricsScorer())->score($row, $pool));
+        }
+
+        return $row;
+    }
+
     /**
      * @param array<string, mixed> $row Preview row.
      * @return array<string, mixed>

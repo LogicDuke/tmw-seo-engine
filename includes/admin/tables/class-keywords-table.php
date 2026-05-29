@@ -39,6 +39,8 @@ class KeywordsTable extends \WP_List_Table {
     /** @var bool */
     private bool $has_sources = false;
     /** @var bool */
+    private bool $has_notes = false;
+    /** @var bool */
     private bool $has_updated_at = false;
 
     /**
@@ -75,6 +77,7 @@ class KeywordsTable extends \WP_List_Table {
         $columns['status'] = __('Status', 'tmwseo');
         if ( $this->has_sources ) { $columns['sources'] = __('Sources', 'tmwseo'); }
         elseif ( $this->has_source ) { $columns['source'] = __('Source', 'tmwseo'); }
+        if ( $this->has_sources || $this->has_notes ) { $columns['model_keyword_strategy'] = __('Model Keyword Strategy', 'tmwseo'); }
         $columns[ $this->has_updated_at ? 'updated_at' : 'created_at' ] = $this->has_updated_at ? __('Updated', 'tmwseo') : __('Created', 'tmwseo');
 
         return $columns;
@@ -180,6 +183,10 @@ class KeywordsTable extends \WP_List_Table {
         if ( in_array( $column_name, [ 'difficulty', 'competition', 'opportunity', 'seo_score' ], true ) ) {
             return esc_html( rtrim( rtrim( number_format( (float) $value, 4 ), '0' ), '.' ) );
         }
+        if ( 'model_keyword_strategy' === $column_name ) {
+            $strategy = $this->model_keyword_strategy_from_item( is_array($item) ? $item : [] );
+            return '' === $strategy ? '&mdash;' : '<code>' . esc_html( $strategy ) . '</code>';
+        }
         if ( in_array( $column_name, [ 'sources', 'source' ], true ) ) {
             $source_text = is_string( $value ) ? $value : '';
             if ( $source_text === '' ) {
@@ -204,6 +211,67 @@ class KeywordsTable extends \WP_List_Table {
         return esc_html((string) $value);
     }
 
+    /** @param array<string, mixed> $item */
+    private function model_keyword_strategy_from_item(array $item): string {
+        $intent = strtolower((string) ($item['intent_type'] ?? $item['intent'] ?? ''));
+        if ('model' !== $intent) {
+            return '';
+        }
+
+        foreach ([ 'sources', 'notes' ] as $field) {
+            $payload = $this->decode_json_field($item[$field] ?? null);
+            $strategy = $this->find_model_keyword_strategy($payload);
+            if ('' !== $strategy) {
+                return $strategy;
+            }
+        }
+
+        return '';
+    }
+
+    /** @param mixed $value @return array<string, mixed> */
+    private function decode_json_field($value): array {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || '' === trim($value)) {
+            return [];
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<mixed> $value */
+    private function is_list_array(array $value): bool {
+        return array_keys($value) === range(0, count($value) - 1);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function find_model_keyword_strategy(array $payload): string {
+        $strategy = (string) ($payload['model_keyword_strategy'] ?? '');
+        if ('' !== $strategy) {
+            return $strategy;
+        }
+        foreach ([ 'keyword_pools_import', 'keyword_pools_import_history' ] as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) {
+                continue;
+            }
+            if ($this->is_list_array($nested)) {
+                foreach ($nested as $entry) {
+                    if (is_array($entry)) {
+                        $strategy = $this->find_model_keyword_strategy($entry);
+                        if ('' !== $strategy) { return $strategy; }
+                    }
+                }
+            } else {
+                $strategy = $this->find_model_keyword_strategy($nested);
+                if ('' !== $strategy) { return $strategy; }
+            }
+        }
+        return '';
+    }
+
     public function prepare_items(): void {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
@@ -222,6 +290,7 @@ class KeywordsTable extends \WP_List_Table {
         $this->has_competition   = in_array( 'competition', $column_names, true );
         $this->has_source        = in_array( 'source', $column_names, true );
         $this->has_sources       = in_array( 'sources', $column_names, true );
+        $this->has_notes         = in_array( 'notes', $column_names, true );
         $this->has_updated_at    = $has_updated_at;
 
         $date_column = 'id';
@@ -342,7 +411,7 @@ class KeywordsTable extends \WP_List_Table {
         };
 
         $select_columns = [ 'id', 'keyword', 'volume', 'difficulty', 'intent', 'status' ];
-        foreach ( [ 'intent_type', 'entity_type', 'entity_id', 'cpc', 'competition', 'seo_score', 'opportunity', 'traffic_value', 'source', 'sources' ] as $optional_column ) {
+        foreach ( [ 'intent_type', 'entity_type', 'entity_id', 'cpc', 'competition', 'seo_score', 'opportunity', 'traffic_value', 'source', 'sources', 'notes' ] as $optional_column ) {
             if ( in_array( $optional_column, $column_names, true ) ) {
                 $select_columns[] = $optional_column;
             }
