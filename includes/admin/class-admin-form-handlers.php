@@ -22,6 +22,7 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\NicheSerpMiningService;
 use TMWSEO\Engine\Keywords\KeywordCleanupClassifier;
+use TMWSEO\Engine\Keywords\ModelKeywordEntityRepairService;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -1064,7 +1065,7 @@ class AdminFormHandlers {
             $raw_action = sanitize_key( (string) wp_unslash( $_POST['action2'] ) );
         }
 
-        $allowed_actions = [ 'tmwseo_kw_bulk_approve', 'tmwseo_kw_bulk_reject', 'tmwseo_kw_bulk_delete' ];
+        $allowed_actions = [ 'tmwseo_kw_bulk_approve', 'tmwseo_kw_bulk_reject', 'tmwseo_kw_bulk_delete', 'tmwseo_kw_resolve_model_entities' ];
         if ( ! in_array( $raw_action, $allowed_actions, true ) ) {
             // Not a bulk action (e.g. search submit with action=-1) — let render proceed.
             return;
@@ -1094,6 +1095,24 @@ class AdminFormHandlers {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
         $count = 0;
+
+        if ( $raw_action === 'tmwseo_kw_resolve_model_entities' ) {
+            $repair_summary = ( new ModelKeywordEntityRepairService() )->resolve_selected( $ids );
+            wp_safe_redirect( add_query_arg( array_filter( [
+                'page'                  => 'tmwseo-keywords',
+                'view'                  => $view,
+                's'                     => $s,
+                'paged'                 => $paged > 1 ? $paged : null,
+                'intent_type'           => 'model',
+                'model_keyword_filter'  => 'unlinked_model',
+                'tmwseo_notice'         => 'kw_model_entity_repair_done',
+                'tmwseo_repair_selected'=> (int) ( $repair_summary['selected'] ?? 0 ),
+                'tmwseo_repair_linked'  => (int) ( $repair_summary['linked'] ?? 0 ),
+                'tmwseo_repair_unresolved' => (int) ( $repair_summary['unresolved'] ?? 0 ),
+                'tmwseo_repair_ambiguous'  => (int) ( $repair_summary['ambiguous'] ?? 0 ),
+            ] ), admin_url( 'admin.php' ) ) );
+            exit;
+        }
 
         foreach ( $ids as $id ) {
             if ( $raw_action === 'tmwseo_kw_bulk_approve' ) {
