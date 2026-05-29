@@ -3841,7 +3841,7 @@ class Admin {
                 $quick_links['Personal Model CSV Keywords'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'personal_model_csv', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Primary Model Bio Keywords']  = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'primary_model_bio', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Unlinked Model Keywords']     = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'unlinked_model', 'orderby' => 'volume', 'order' => 'desc' ] );
-                $quick_links['Rejected Model Keywords']     = array_merge( $filter_base, [ 'status' => 'rejected', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Ignored Model Keywords']      = array_merge( $filter_base, [ 'status' => 'ignored', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Queued Model Keywords']       = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Queued Video Keywords']      = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Queued Category Keywords']   = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'category', 'orderby' => 'volume', 'order' => 'desc' ] );

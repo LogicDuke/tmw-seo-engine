@@ -23,6 +23,8 @@ class KeywordPoolSelectedImportService {
 
     private KeywordPoolCandidateRepository $repository;
     private ModelEntityResolver $model_entity_resolver;
+    /** @var array<string,array<string,mixed>> */
+    private array $model_entity_resolution_cache = [];
 
     public function __construct(?KeywordPoolCandidateRepository $repository = null, ?ModelEntityResolver $model_entity_resolver = null) {
         $this->repository = $repository ?: new KeywordPoolCandidateRepository();
@@ -68,6 +70,7 @@ class KeywordPoolSelectedImportService {
     private function save_matching_rows(array $dry_run, string $pool, array $selected_lookup, string $save_mode, bool $full_batch): array {
         $pool = $this->sanitize_pool($pool);
         $save_mode = in_array($save_mode, self::SAVE_MODES, true) ? $save_mode : 'auto';
+        $this->model_entity_resolution_cache = [];
 
         $summary = [
             'selected' => count($selected_lookup),
@@ -238,15 +241,31 @@ class KeywordPoolSelectedImportService {
         if ('' === trim($owner) || !in_array($scope, [ 'model_bio_only', 'model_page_only', 'manual_review', 'not_model_eligible' ], true)) {
             return $row;
         }
-        if ($this->entity_id_for_pool($row, $pool) > 0) {
+        $provided_entity_id = $this->entity_id_for_pool($row, $pool);
+        if ($provided_entity_id > 0) {
+            $resolution = [
+                'found' => true,
+                'post_id' => $provided_entity_id,
+                'entity_id' => $provided_entity_id,
+                'post_title' => '',
+                'post_type' => 'model',
+                'match_type' => 'provided_entity_id',
+                'reason_codes' => [ 'model_entity_resolved', 'model_match_provided_entity_id' ],
+                'matches' => [],
+            ];
+            $row['model_entity_resolution'] = $resolution;
             $row['model_entity_resolved'] = true;
-            $row['model_entity_id'] = $this->entity_id_for_pool($row, $pool);
+            $row['model_entity_id'] = $provided_entity_id;
             $row['model_entity_match_type'] = 'provided_entity_id';
-            $row['model_entity_reason_codes'] = [ 'model_entity_resolved', 'model_match_provided_entity_id' ];
+            $row['model_entity_reason_codes'] = $resolution['reason_codes'];
             return $row;
         }
 
-        $resolution = $this->model_entity_resolver->resolve($owner);
+        $cache_key = $this->model_owner_cache_key($owner);
+        if (!isset($this->model_entity_resolution_cache[$cache_key])) {
+            $this->model_entity_resolution_cache[$cache_key] = $this->model_entity_resolver->resolve($owner);
+        }
+        $resolution = $this->model_entity_resolution_cache[$cache_key];
         $row['model_entity_resolution'] = $resolution;
         $row['model_entity_resolved'] = !empty($resolution['found']);
         $row['model_entity_id'] = (int) ($resolution['entity_id'] ?? 0);
@@ -266,6 +285,10 @@ class KeywordPoolSelectedImportService {
             )));
         }
         return $row;
+    }
+
+    private function model_owner_cache_key(string $owner): string {
+        return $this->repository->normalize_keyword($owner);
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

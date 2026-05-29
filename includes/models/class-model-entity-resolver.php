@@ -49,10 +49,10 @@ class ModelEntityResolver {
             if ($candidate['post_id'] <= 0 || 'model' !== $candidate['post_type']) {
                 continue;
             }
-            if (strtolower($candidate['post_title']) === strtolower($owner)) {
+            if ($candidate['post_title'] === $owner) {
                 $buckets['exact_title'][] = $candidate;
             }
-            if (strtolower($candidate['post_name']) === strtolower($owner) || $candidate['post_name'] === $owner_slug) {
+            if ($candidate['post_name'] === $owner) {
                 $buckets['exact_slug'][] = $candidate;
             }
             if ($this->normalize_title($candidate['post_title']) === $owner_title || $this->normalize_compact($candidate['post_title']) === $owner_compact) {

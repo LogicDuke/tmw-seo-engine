@@ -490,14 +490,17 @@ class KeywordsTable extends \WP_List_Table {
         if ( isset( $this->active_filters['model_keyword_filter'] ) ) {
             $filter = (string) $this->active_filters['model_keyword_filter'];
             if ( 'personal_model_csv' === $filter && ( $this->has_sources || $this->has_notes ) ) {
+                $personal_csv_like = '%' . $wpdb->esc_like( 'personal_model_keyword_csv' ) . '%';
                 $likes = [];
-                if ( $this->has_sources ) { $likes[] = 'sources LIKE %s'; $where_args[] = '%personal_model_keyword_csv%'; }
-                if ( $this->has_notes ) { $likes[] = 'notes LIKE %s'; $where_args[] = '%personal_model_keyword_csv%'; }
+                if ( $this->has_sources ) { $likes[] = 'sources LIKE %s'; $where_args[] = $personal_csv_like; }
+                if ( $this->has_notes ) { $likes[] = 'notes LIKE %s'; $where_args[] = $personal_csv_like; }
                 if ( $likes !== [] ) { $conditions[] = '(' . implode( ' OR ', $likes ) . ')'; }
             } elseif ( 'primary_model_bio' === $filter && ( $this->has_sources || $this->has_notes ) ) {
+                $primary_candidate_like = '%' . $wpdb->esc_like( '"model_keyword_primary_candidate":"yes"' ) . '%';
+                $scope_like = '%' . $wpdb->esc_like( '"model_keyword_usage_scope":"model_bio_only"' ) . '%';
                 $likes = [];
-                if ( $this->has_sources ) { $likes[] = '(sources LIKE %s AND sources LIKE %s)'; $where_args[] = '%model_keyword_primary_candidate%'; $where_args[] = '%yes%'; }
-                if ( $this->has_notes ) { $likes[] = '(notes LIKE %s AND notes LIKE %s)'; $where_args[] = '%model_keyword_primary_candidate%'; $where_args[] = '%yes%'; }
+                if ( $this->has_sources ) { $likes[] = '(sources LIKE %s AND sources LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
+                if ( $this->has_notes ) { $likes[] = '(notes LIKE %s AND notes LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
                 if ( $likes !== [] ) { $conditions[] = '(' . implode( ' OR ', $likes ) . ')'; }
             } elseif ( 'unlinked_model' === $filter && $this->has_intent_type && $this->has_entity_type && $this->has_entity_id ) {
                 $conditions[] = 'intent_type = %s AND entity_type = %s AND entity_id = 0';

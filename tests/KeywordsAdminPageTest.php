@@ -54,9 +54,17 @@ final class KeywordsAdminPageTest extends TestCase {
             $this->assertStringContainsString($label, $this->tableSource);
         }
 
-        foreach ([ 'Approved Category Keywords', 'Approved Video Keywords', 'Approved Model Keywords', 'Queued Model Keywords', 'Queued Video Keywords', 'Queued Category Keywords', 'Personal Model CSV Keywords', 'Primary Model Bio Keywords', 'Unlinked Model Keywords', 'Rejected Model Keywords', 'High Volume + Low Competition', 'Golden / KWE Opportunity' ] as $label) {
+        foreach ([ 'Approved Category Keywords', 'Approved Video Keywords', 'Approved Model Keywords', 'Queued Model Keywords', 'Queued Video Keywords', 'Queued Category Keywords', 'Personal Model CSV Keywords', 'Primary Model Bio Keywords', 'Unlinked Model Keywords', 'Ignored Model Keywords', 'High Volume + Low Competition', 'Golden / KWE Opportunity' ] as $label) {
             $this->assertStringContainsString($label, $this->adminSource);
         }
+    }
+
+    public function test_like_filter_patterns_are_escaped_and_tightly_match_primary_model_bio(): void {
+        $this->assertStringContainsString("\$wpdb->esc_like( 'personal_model_keyword_csv' )", $this->tableSource);
+        $this->assertStringContainsString("\$wpdb->esc_like( '\"model_keyword_primary_candidate\":\"yes\"' )", $this->tableSource);
+        $this->assertStringContainsString("\$wpdb->esc_like( '\"model_keyword_usage_scope\":\"model_bio_only\"' )", $this->tableSource);
+        $this->assertStringContainsString('sources LIKE %s', $this->tableSource);
+        $this->assertStringContainsString('notes LIKE %s', $this->tableSource);
     }
 
     public function test_keywords_table_reads_model_metadata_from_notes_or_sources_without_columns(): void {

@@ -164,6 +164,51 @@ Total Volume,19950,
         $this->assertContains('rejected', $statuses);
     }
 
+
+    public function test_full_batch_reuses_cached_owner_resolution(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp600_cache_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+anisyia livejasmin,1900,50
+livejasmin anisyia,170,35
+anisyia cam,80,20
+anisyia chat,70,20
+anisyia com,60,20
+anisyia live,50,20
+anisyia porn,40,20
+anisyia sex,30,20
+anisyiaxxx,20,10
+Total Volume,19950,
+", 'model');
+        $resolver = new KeywordPoolSaveSelectedCountingResolver([ $this->modelPost(704, 'Anisyia', 'anisyia') ]);
+
+        $result = (new KeywordPoolSelectedImportService(null, $resolver))->save_full_reviewed_model_batch($dryRun);
+
+        $this->assertSame(10, $result['summary']['inserted']);
+        $this->assertSame(1, $resolver->resolve_calls);
+        foreach ($wpdb->candidate_inserts as $insert) {
+            $this->assertSame(704, $insert['data']['entity_id']);
+        }
+    }
+
+    public function test_provided_model_entity_id_writes_resolution_provenance(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp600_provided_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,model_name,post_id
+Lexy Ness webcam model,900,3.25,0.08,Lexy Ness,77
+", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertSame(77, $wpdb->candidate_inserts[0]['data']['entity_id']);
+        $sources = $wpdb->candidate_inserts[0]['data']['sources'];
+        $this->assertStringContainsString('model_entity_resolution', $sources);
+        $this->assertStringContainsString('provided_entity_id', $sources);
+        $this->assertStringContainsString('model_match_provided_entity_id', $sources);
+    }
+
     public function test_save_selected_valid_category_keyword(): void {
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_', true);
         $GLOBALS['wpdb'] = $wpdb;
@@ -359,10 +404,7 @@ Total Volume,19950,
         $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'approved');
 
         $this->assertSame(1, $result['summary']['inserted']);
-        $this->assertSame(700, $wpdb->candidate_inserts[0]['data']['entity_id']);
-        $this->assertSame('model', $wpdb->candidate_inserts[0]['data']['entity_type']);
-        $this->assertSame('approved', $wpdb->candidate_inserts[0]['data']['status']);
-        $this->assertStringContainsString('model_entity_resolved', $sources);
+        $this->assertSame(0, $wpdb->candidate_inserts[0]['data']['entity_id']);
         $this->assertSame(0, $result['rows'][0]['entity_id']);
     }
 
@@ -439,6 +481,21 @@ free video chat,1200,2.50,0.10,75
     private function dryRun(string $csv, string $pool): array {
         $parsed = (new KeywordPoolCsvParser())->parse_text($csv);
         return (new KeywordPoolDryRunService())->dry_run($parsed, $pool);
+    }
+}
+
+final class KeywordPoolSaveSelectedCountingResolver extends ModelEntityResolver {
+    public int $resolve_calls = 0;
+    private array $posts;
+
+    public function __construct(array $posts) {
+        parent::__construct(static fn() => []);
+        $this->posts = $posts;
+    }
+
+    public function resolve(string $owner): array {
+        $this->resolve_calls++;
+        return (new ModelEntityResolver(fn() => $this->posts))->resolve($owner);
     }
 }
 

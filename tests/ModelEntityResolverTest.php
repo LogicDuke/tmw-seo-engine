@@ -11,8 +11,8 @@ use TMWSEO\Engine\Models\ModelEntityResolver;
 require_once __DIR__ . '/../includes/models/class-model-entity-resolver.php';
 
 final class ModelEntityResolverTest extends TestCase {
-    public function test_resolves_lowercase_owner_to_existing_model_title(): void {
-        $result = $this->resolver([ $this->post(101, 'Anisyia', 'anisyia') ])->resolve('anisyia');
+    public function test_resolves_lowercase_owner_to_existing_model_title_as_normalized_title(): void {
+        $result = $this->resolver([ $this->post(101, 'Anisyia', 'anisyia-archive') ])->resolve('anisyia');
 
         $this->assertTrue($result['found']);
         $this->assertSame(101, $result['entity_id']);
@@ -27,7 +27,7 @@ final class ModelEntityResolverTest extends TestCase {
         $this->assertSame('exact_title', $result['match_type']);
     }
 
-    public function test_resolves_slug(): void {
+    public function test_resolves_slug_with_literal_raw_slug_match(): void {
         $result = $this->resolver([ $this->post(103, 'Anisyia Official', 'anisyia') ])->resolve('anisyia');
 
         $this->assertTrue($result['found']);
@@ -35,12 +35,20 @@ final class ModelEntityResolverTest extends TestCase {
         $this->assertSame('exact_slug', $result['match_type']);
     }
 
-    public function test_resolves_normalized_variants(): void {
-        $result = $this->resolver([ $this->post(104, 'Lexy Ness', 'lexy-ness') ])->resolve('lexy_ness');
+    public function test_resolves_normalized_title_variant_after_exact_buckets(): void {
+        $result = $this->resolver([ $this->post(104, 'Lexy Ness', 'different-slug') ])->resolve('lexy_ness');
 
         $this->assertTrue($result['found']);
         $this->assertSame(104, $result['entity_id']);
-        $this->assertContains($result['match_type'], [ 'normalized_title', 'normalized_slug' ]);
+        $this->assertSame('normalized_title', $result['match_type']);
+    }
+
+    public function test_resolves_normalized_slug_variant_after_exact_buckets(): void {
+        $result = $this->resolver([ $this->post(107, 'Different Title', 'lexy-ness') ])->resolve('lexy_ness');
+
+        $this->assertTrue($result['found']);
+        $this->assertSame(107, $result['entity_id']);
+        $this->assertSame('normalized_slug', $result['match_type']);
     }
 
     public function test_returns_not_found_without_creating_or_updating_posts(): void {
