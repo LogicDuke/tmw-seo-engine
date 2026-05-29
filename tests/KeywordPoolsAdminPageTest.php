@@ -11,7 +11,10 @@ use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
 use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
 require_once __DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php';
 
 class KeywordPoolsAdminPageTest extends TestCase {
@@ -133,6 +136,30 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString('disabled', $html);
     }
 
+
+    public function test_bulk_select_golden_excludes_tmw_deferred_rows(): void {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'tmwseo_keyword_pools_run_preview' => '1',
+            'tmwseo_keyword_pool' => 'model',
+            'tmwseo_keyword_pools_nonce' => 'test_nonce',
+            'tmwseo_keyword_pools_csv_text' => "keyword,volume,cpc,competition,SEO Score
+webcam models,1200,2.50,0.10,75
+dani daniels,1200,2.50,0.10,75
+",
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString('TMW Priority', $html);
+        $this->assertStringContainsString('tmwseo-keyword-row-golden', $html);
+        $this->assertStringContainsString('defer_until_lj_50_model_milestone', $html);
+        preg_match_all('/<input[^>]+tmwseo-keyword-row-golden/', $html, $matches);
+        $this->assertCount(1, $matches[0]);
+    }
+
     public function test_export_helper_outputs_expected_csv_header(): void {
         $csv = KeywordPoolsAdminPage::build_export_csv([]);
         $header = str_getcsv(rtrim((string) strtok($csv, "\n"), "\r"));
@@ -146,6 +173,10 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertContains('SEO Score', $header);
         $this->assertContains('Traffic Value', $header);
         $this->assertContains('Ad Difficulty', $header);
+        $this->assertContains('TMW Score', $header);
+        $this->assertContains('TMW Priority', $header);
+        $this->assertContains('TMW Indexing Readiness', $header);
+        $this->assertContains('TMW Recommended Action', $header);
     }
 
     public function test_export_helper_outputs_current_preview_rows(): void {

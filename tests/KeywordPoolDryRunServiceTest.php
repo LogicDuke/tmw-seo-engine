@@ -10,6 +10,7 @@ use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
 use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 
 class KeywordPoolDryRunServiceTest extends TestCase {
@@ -91,6 +92,40 @@ class KeywordPoolDryRunServiceTest extends TestCase {
         $this->assertSame('valid', $row['validation_state']);
         $this->assertSame('accept', $row['decision']);
         $this->assertContains('model_entity_detected', $row['reason_codes']);
+    }
+
+
+    public function test_dry_run_appends_tmw_score_fields_for_phase_1_rows(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,cpc,competition,SEO Score,Traffic Value
+webcam models,1200,2.50,0.10,75,840
+"), 'category');
+        $row = $result['rows'][0];
+
+        $this->assertArrayHasKey('tmw_score', $row);
+        $this->assertSame('TMW-P1', $row['tmw_priority']);
+        $this->assertSame('ready_for_phase_1_review', $row['tmw_indexing_readiness']);
+        $this->assertSame('approve_for_phase_1', $row['tmw_recommended_action']);
+    }
+
+    public function test_dry_run_kwe_opportunity_without_cpc_is_not_golden_but_scores(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,competition,SEO Score
+livejasmin models,1200,0.10,75
+"), 'model');
+        $row = $result['rows'][0];
+
+        $this->assertTrue($row['kwe_opportunity_candidate']);
+        $this->assertFalse($row['is_golden_keyword']);
+        $this->assertGreaterThan(0, $row['tmw_score']);
+    }
+
+    public function test_dry_run_defers_big_performer_model_terms(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,cpc,competition,SEO Score
+dani daniels,1200,2.50,0.10,75
+natasha nice,1200,2.50,0.10,75
+"), 'model');
+
+        $this->assertSame('defer_until_lj_50_model_milestone', $result['rows'][0]['tmw_indexing_readiness']);
+        $this->assertSame('defer_until_lj_50_model_milestone', $result['rows'][1]['tmw_indexing_readiness']);
     }
 
     /**

@@ -12,6 +12,7 @@ use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 use TMWSEO\Engine\Keywords\KeywordPoolSelectedImportService;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
@@ -231,6 +232,32 @@ final class KeywordPoolSaveSelectedTest extends TestCase {
         $this->assertSame(1, $videoResult['summary']['inserted']);
         $this->assertSame(66, $videoWpdb->candidate_inserts[0]['data']['entity_id']);
         $this->assertSame(66, $videoResult['rows'][0]['entity_id']);
+    }
+
+
+    public function test_save_selected_skips_tmw_deferred_big_performer_without_error(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp591_defer_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score
+dani daniels,1200,2.50,0.10,75
+", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['skipped']);
+        $this->assertSame('defer_until_lj_50_model_milestone', $result['rows'][0]['reason']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+    }
+
+    public function test_tmw_p1_rows_are_save_eligible_and_archive_rows_are_not(): void {
+        $service = new KeywordPoolSelectedImportService();
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score
+webcam models,1200,2.50,0.10,75
+free video chat,1200,2.50,0.10,75
+", 'category');
+
+        $this->assertTrue($service->is_row_eligible($dryRun['rows'][0], 'category'));
+        $this->assertFalse($service->is_row_eligible($dryRun['rows'][1], 'category'));
     }
 
     public function test_save_selected_does_not_write_rank_math_posts_or_generate(): void {

@@ -82,6 +82,14 @@ class KeywordPoolsAdminPage {
             'Golden Missing Reasons',
             'Golden Formula',
             'Recommended Action',
+            'TMW Score',
+            'TMW Priority',
+            'TMW Difficulty',
+            'TMW Commercial',
+            'TMW Indexing Readiness',
+            'TMW Recommended Action',
+            'TMW Reason Codes',
+            'TMW Score Formula',
             'Reasons',
             'Volume',
             'Difficulty',
@@ -512,20 +520,21 @@ class KeywordPoolsAdminPage {
         }
         echo '</tr></thead><tbody>';
         $import_service = new KeywordPoolSelectedImportService();
+        $url_column_index = (int) array_search('URL', self::preview_columns(), true);
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
             $eligible = $import_service->is_row_eligible($row, $pool);
             $classes = [ 'tmwseo-keyword-row-select' ];
-            if ('P1' === (string) ($row['priority_preview'] ?? '')) { $classes[] = 'tmwseo-keyword-row-p1'; }
-            if (!empty($row['is_golden_keyword'])) { $classes[] = 'tmwseo-keyword-row-golden'; }
-            if ('approve_candidate' === (string) ($row['recommended_action'] ?? '')) { $classes[] = 'tmwseo-keyword-row-approve'; }
+            if ($eligible && 'TMW-P1' === (string) ($row['tmw_priority'] ?? '')) { $classes[] = 'tmwseo-keyword-row-p1'; }
+            if ($eligible && !empty($row['is_golden_keyword']) && !in_array((string) ($row['tmw_indexing_readiness'] ?? ''), [ 'defer_until_lj_50_model_milestone', 'archive_do_not_use' ], true)) { $classes[] = 'tmwseo-keyword-row-golden'; }
+            if ($eligible && 'approve_for_phase_1' === (string) ($row['tmw_recommended_action'] ?? '')) { $classes[] = 'tmwseo-keyword-row-approve'; }
             echo '<tr><td>';
             echo '<input type="checkbox" class="' . esc_attr(implode(' ', $classes)) . '" name="tmwseo_keyword_pool_selected_rows[]" value="' . esc_attr((string) (int) ($row['row_number'] ?? 0)) . '" ' . disabled(!$eligible, true, false) . ' />';
             echo '</td>';
             foreach (self::row_to_preview_values($row) as $index => $value) {
-                if (25 === $index && '' !== $value) {
+                if ($url_column_index === $index && '' !== $value) {
                     echo '<td><a href="' . esc_url($value) . '" target="_blank" rel="noopener noreferrer">' . esc_html($value) . '</a></td>';
                 } else {
                     echo '<td>' . esc_html($value) . '</td>';
@@ -584,6 +593,14 @@ class KeywordPoolsAdminPage {
             $golden_missing_reasons,
             (string) ($row['golden_formula_summary'] ?? ''),
             (string) ($row['recommended_action'] ?? ''),
+            self::metric_to_string($row['tmw_score'] ?? null),
+            (string) ($row['tmw_priority'] ?? ''),
+            (string) ($row['tmw_difficulty_band'] ?? ''),
+            (string) ($row['tmw_commercial_band'] ?? ''),
+            (string) ($row['tmw_indexing_readiness'] ?? ''),
+            (string) ($row['tmw_recommended_action'] ?? ''),
+            is_array($row['tmw_reason_codes'] ?? null) ? implode(' | ', array_map('strval', $row['tmw_reason_codes'])) : '',
+            (string) ($row['tmw_score_formula'] ?? ''),
             $reasons,
             self::metric_to_string($row['volume'] ?? null),
             self::metric_to_string($row['difficulty'] ?? null),

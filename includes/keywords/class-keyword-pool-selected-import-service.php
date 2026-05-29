@@ -13,11 +13,11 @@ if (!defined('ABSPATH')) { exit; }
 
 class KeywordPoolSelectedImportService {
 
-    private const ELIGIBLE_PRIORITIES = [ 'P1', 'P2', 'P3' ];
-    private const ELIGIBLE_ACTIONS = [ 'approve_candidate', 'queue_for_review' ];
+    private const ELIGIBLE_PRIORITIES = [ 'TMW-P1', 'TMW-P2', 'TMW-P3' ];
+    private const ELIGIBLE_ACTIONS = [ 'approve_for_phase_1', 'queue_for_review' ];
     private const BLOCKING_REASONS = [ 'archive_keyword', 'unsafe_keyword', 'summary_or_footer_row', 'geo_local_intent', 'duplicate_in_upload' ];
     private const SAVE_MODES = [ 'auto', 'queued_for_review', 'approved' ];
-    private const METRIC_FIELDS = [ 'volume', 'difficulty', 'cpc', 'competition', 'opportunity', 'seo_score', 'traffic_value', 'trend', 'ad_difficulty', 'difficulty_proxy' ];
+    private const METRIC_FIELDS = [ 'volume', 'difficulty', 'cpc', 'competition', 'opportunity', 'seo_score', 'traffic_value', 'trend', 'ad_difficulty', 'difficulty_proxy', 'opportunity_score', 'trend_direction', 'tmw_score', 'tmw_priority', 'tmw_difficulty_band', 'tmw_commercial_band', 'tmw_indexing_readiness', 'tmw_recommended_action' ];
 
     private KeywordPoolCandidateRepository $repository;
 
@@ -60,6 +60,7 @@ class KeywordPoolSelectedImportService {
                 continue;
             }
 
+            $row = $this->ensure_tmw_scored_row($row, $pool);
             $keyword = $this->repository->normalize_keyword((string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''));
             $result_base = $this->result_base($row, $pool, $this->status_for_row($row, $save_mode));
 
@@ -109,11 +110,15 @@ class KeywordPoolSelectedImportService {
 
     /** @param array<string,mixed> $row */
     private function eligibility_reason(array $row, string $pool, array $seen_keywords): ?string {
+        $row = $this->ensure_tmw_scored_row($row, $pool);
         $keyword = $this->repository->normalize_keyword((string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''));
         $reason_codes = is_array($row['reason_codes'] ?? null) ? array_map('strval', $row['reason_codes']) : [];
 
         if ('' === $keyword) {
             return 'missing_keyword';
+        }
+        if ('defer_until_lj_50_model_milestone' === (string) ($row['tmw_indexing_readiness'] ?? '')) {
+            return 'defer_until_lj_50_model_milestone';
         }
         if ('valid' !== (string) ($row['validation_state'] ?? '')) {
             return 'blocked_validation_state_' . (string) ($row['validation_state'] ?? 'unknown');
@@ -121,11 +126,14 @@ class KeywordPoolSelectedImportService {
         if ('accept' !== (string) ($row['decision'] ?? '')) {
             return 'blocked_decision_' . (string) ($row['decision'] ?? 'unknown');
         }
-        if (!in_array((string) ($row['recommended_action'] ?? ''), self::ELIGIBLE_ACTIONS, true)) {
-            return 'recommended_action_not_saveable';
+        if ('archive_do_not_use' === (string) ($row['tmw_indexing_readiness'] ?? '')) {
+            return 'tmw_archive_do_not_use';
         }
-        if (!in_array((string) ($row['priority_preview'] ?? ''), self::ELIGIBLE_PRIORITIES, true)) {
-            return 'blocked_priority_' . (string) ($row['priority_preview'] ?? 'unknown');
+        if (!in_array((string) ($row['tmw_recommended_action'] ?? ''), self::ELIGIBLE_ACTIONS, true)) {
+            return 'tmw_not_phase_1_ready';
+        }
+        if (!in_array((string) ($row['tmw_priority'] ?? ''), self::ELIGIBLE_PRIORITIES, true)) {
+            return 'tmw_archive_do_not_use';
         }
         foreach (self::BLOCKING_REASONS as $blocking_reason) {
             if (in_array($blocking_reason, $reason_codes, true)) {
@@ -176,8 +184,8 @@ class KeywordPoolSelectedImportService {
         if ('queued_for_review' === $save_mode) {
             return 'queued_for_review';
         }
-        if ('approve_candidate' === (string) ($row['recommended_action'] ?? '') && 'valid' === (string) ($row['validation_state'] ?? '')) {
-            if ('P1' === (string) ($row['priority_preview'] ?? '') && empty($row['is_golden_keyword'])) {
+        if ('approve_for_phase_1' === (string) ($row['tmw_recommended_action'] ?? '') && 'valid' === (string) ($row['validation_state'] ?? '')) {
+            if ('TMW-P1' === (string) ($row['tmw_priority'] ?? '') && empty($row['is_golden_keyword'])) {
                 return 'queued_for_review';
             }
             return 'approved';
@@ -216,12 +224,25 @@ class KeywordPoolSelectedImportService {
             'priority_preview' => (string) ($row['priority_preview'] ?? ''),
             'is_golden_keyword' => !empty($row['is_golden_keyword']),
             'recommended_action' => (string) ($row['recommended_action'] ?? ''),
+            'tmw_priority' => (string) ($row['tmw_priority'] ?? ''),
+            'tmw_indexing_readiness' => (string) ($row['tmw_indexing_readiness'] ?? ''),
+            'tmw_recommended_action' => (string) ($row['tmw_recommended_action'] ?? ''),
+            'tmw_score' => (int) ($row['tmw_score'] ?? 0),
+            'tmw_reason_codes' => is_array($row['tmw_reason_codes'] ?? null) ? array_values($row['tmw_reason_codes']) : [],
             'reason_codes' => is_array($row['reason_codes'] ?? null) ? array_values($row['reason_codes']) : [],
             'golden_formula_summary' => (string) ($row['golden_formula_summary'] ?? ''),
             'golden_missing_reasons' => is_array($row['golden_missing_reasons'] ?? null) ? array_values($row['golden_missing_reasons']) : [],
             'imported_from_keyword_pools' => true,
             'imported_at' => function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s'),
         ];
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function ensure_tmw_scored_row(array $row, string $pool): array {
+        if (array_key_exists('tmw_score', $row) && array_key_exists('tmw_priority', $row)) {
+            return $row;
+        }
+        return array_merge($row, (new KeywordPoolMetricsScorer())->score($row, $pool));
     }
 
     private function sanitize_pool(string $pool): string {

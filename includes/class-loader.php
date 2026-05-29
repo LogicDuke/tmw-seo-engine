@@ -90,6 +90,7 @@ class Loader {
         $p = TMWSEO_ENGINE_PATH . 'includes/keywords/';
         tmwseo_safe_require( $p . 'class-keyword-validator.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-csv-parser.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-metrics-scorer.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-candidate-repository.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-selected-import-service.php' );
