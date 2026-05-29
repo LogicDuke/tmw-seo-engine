@@ -35,7 +35,7 @@ class KeywordPoolCsvParser {
         'ad_difficulty' => [ 'ad_difficulty', 'ad difficulty', 'Ad Difficulty' ],
         'intent'      => [ 'intent', 'search_intent', 'intent_type' ],
         'source'      => [ 'source', 'tool', 'provider', 'import_source' ],
-        'model_name'  => [ 'model_name', 'model', 'performer', 'talent_name' ],
+        'model_name'  => [ 'model_name', 'model', 'performer', 'performer_name', 'talent_name' ],
         'category'    => [ 'category', 'category_name', 'term', 'term_name' ],
         'post_id'     => [ 'post_id', 'video_post_id', 'wp_post_id', 'id' ],
         'url'         => [ 'url', 'video_url', 'permalink', 'target_url', 'page_url' ],

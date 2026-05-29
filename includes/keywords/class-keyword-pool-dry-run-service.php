@@ -64,6 +64,7 @@ class KeywordPoolDryRunService {
         }
 
         $rows       = isset($parsed_rows['rows']) && is_array($parsed_rows['rows']) ? $parsed_rows['rows'] : $parsed_rows;
+        $inferred_model_context = 'model' === $pool ? $this->infer_model_context_from_rows($rows) : '';
         $preview    = [];
         $seen       = [];
         $summary    = [
@@ -81,7 +82,7 @@ class KeywordPoolDryRunService {
                 continue;
             }
 
-            $preview_row = $this->build_preview_row($row, $pool, (int) $index + 2);
+            $preview_row = $this->build_preview_row($row, $pool, (int) $index + 2, $inferred_model_context);
             $normalized  = $preview_row['normalized_keyword'];
 
             if ('' !== $normalized) {
@@ -130,6 +131,7 @@ class KeywordPoolDryRunService {
         return [
             'pool'    => $pool,
             'summary' => $summary,
+            'inferred_model_context' => $inferred_model_context,
             'rows'    => $preview,
         ];
     }
@@ -148,8 +150,10 @@ class KeywordPoolDryRunService {
      * @param array<string, mixed> $row Parsed canonical row.
      * @return array<string, mixed>
      */
-    private function build_preview_row(array $row, string $pool, int $fallback_row_number): array {
+    private function build_preview_row(array $row, string $pool, int $fallback_row_number, string $inferred_model_context = ''): array {
         $keyword            = $this->clean_text($row['keyword'] ?? '');
+        $explicit_model_name = $this->clean_text($row['model_name'] ?? '');
+        $model_name = '' !== $explicit_model_name ? $explicit_model_name : ('model' === $pool ? $inferred_model_context : '');
         $normalized_keyword = $this->normalize_keyword($keyword);
         $reason_codes       = [];
 
@@ -181,7 +185,7 @@ class KeywordPoolDryRunService {
             'ad_difficulty'          => $this->normalize_optional_metric($row, 'ad_difficulty', $reason_codes),
             'intent'                 => $this->normalize_token($row['intent'] ?? ''),
             'source'                 => $this->normalize_source($row['source'] ?? ''),
-            'model_name'             => $this->clean_text($row['model_name'] ?? ''),
+            'model_name'             => $model_name,
             'category'               => $this->clean_text($row['category'] ?? ''),
             'post_id'                => $this->normalize_post_id($row['post_id'] ?? ''),
             'url'                    => $this->clean_text($row['url'] ?? ''),
@@ -192,6 +196,10 @@ class KeywordPoolDryRunService {
             'model_keyword_confidence'          => '',
             'model_keyword_reason_codes'        => [],
             'model_keyword_recommended_action'  => '',
+            'model_keyword_owner'               => '',
+            'model_keyword_usage_scope'         => 'not_applicable',
+            'model_keyword_primary_candidate'   => 'no',
+            'model_keyword_scope_reason_codes'  => [],
             'is_duplicate_in_upload' => false,
             'duplicate_of_row'       => null,
         ];
@@ -239,11 +247,16 @@ class KeywordPoolDryRunService {
             $row['model_keyword_confidence'] = 'none';
             $row['model_keyword_reason_codes'] = [];
             $row['model_keyword_recommended_action'] = '';
+            $row['model_keyword_owner'] = '';
+            $row['model_keyword_usage_scope'] = 'not_applicable';
+            $row['model_keyword_primary_candidate'] = 'no';
+            $row['model_keyword_scope_reason_codes'] = [];
             return $row;
         }
 
         $strategy = (new ModelKeywordStrategyClassifier())->classify($row, (string) ($row['model_name'] ?? ''), $pool);
         $row = array_merge($row, $strategy);
+        $row = $this->append_model_keyword_scope($row, $pool);
         $reason_codes = is_array($strategy['model_keyword_reason_codes'] ?? null) ? array_map('strval', $strategy['model_keyword_reason_codes']) : [];
 
         if (ModelKeywordStrategyClassifier::STRATEGY_NOT_MODEL === (string) ($strategy['model_keyword_strategy'] ?? '')) {
@@ -267,6 +280,117 @@ class KeywordPoolDryRunService {
         }
 
         return $row;
+    }
+
+
+
+    /**
+     * Infer the owner for KWE-style personal model CSVs that have no Model column.
+     *
+     * @param array<int|string, mixed> $rows Parsed rows.
+     */
+    private function infer_model_context_from_rows(array $rows): string {
+        $best = '';
+        $best_score = -1.0;
+        foreach ($rows as $row) {
+            if (! is_array($row) || '' !== $this->clean_text($row['model_name'] ?? '')) {
+                continue;
+            }
+            $keyword = $this->normalize_keyword((string) ($row['keyword'] ?? ''));
+            if (! $this->is_standalone_model_context_candidate($keyword)) {
+                continue;
+            }
+
+            $volume = $this->metric_number($row['volume'] ?? null) ?? 0.0;
+            $seo_score = $this->metric_number($row['seo_score'] ?? null) ?? 0.0;
+            $opportunity_score = $this->metric_number($row['opportunity_score'] ?? null) ?? $this->metric_number($row['opportunity'] ?? null) ?? 0.0;
+            if ($volume < 100.0 && max($seo_score, $opportunity_score) < 40.0) {
+                continue;
+            }
+
+            $score = ($volume * 1000.0) + (max($seo_score, $opportunity_score) * 10.0);
+            if ($score > $best_score) {
+                $best = $keyword;
+                $best_score = $score;
+            }
+        }
+
+        return $best;
+    }
+
+    private function is_standalone_model_context_candidate(string $keyword): bool {
+        if ('' === $keyword) {
+            return false;
+        }
+        $word_count = count(explode(' ', $keyword));
+        if ($word_count < 1 || $word_count > 3) {
+            return false;
+        }
+        if (preg_match('/^[a-z][a-z0-9]*(?: [a-z][a-z0-9]*){0,2}$/', $keyword) !== 1) {
+            return false;
+        }
+        return ! $this->has_any($keyword, [
+            'livejasmin', 'jasmin', 'porn', 'cam', 'webcam', 'chat', 'live', 'sex', 'video', 'videos',
+            'site', 'sites', 'category', 'categories', 'browse', 'archive', 'topic', 'platform', 'app',
+            'model', 'models', 'profile', 'bio', 'performer', 'talent', 'free', 'best', 'cheap', 'cheapest',
+        ]);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function append_model_keyword_scope(array $row, string $pool): array {
+        if ('model' !== $pool) {
+            $row['model_keyword_owner'] = '';
+            $row['model_keyword_usage_scope'] = 'not_applicable';
+            $row['model_keyword_primary_candidate'] = 'no';
+            $row['model_keyword_scope_reason_codes'] = [];
+            return $row;
+        }
+
+        $owner = $this->normalize_keyword((string) ($row['model_name'] ?? ''));
+        $strategy = (string) ($row['model_keyword_strategy'] ?? '');
+        $action = (string) ($row['model_keyword_recommended_action'] ?? '');
+        $scope = 'not_applicable';
+        $primary = 'no';
+        $reasons = [];
+
+        if ('' !== $owner) {
+            $reasons[] = 'personal_model_keyword_csv';
+        }
+
+        if ('' !== $owner && ModelKeywordStrategyClassifier::STRATEGY_NAMED_MODEL === $strategy && 'approve_named_model_keyword' === $action) {
+            $scope = 'model_bio_only';
+            $primary = 'yes';
+            $reasons = array_merge($reasons, [ 'model_specific_keyword', 'bio_primary_candidate' ]);
+        } elseif ('' !== $owner && ModelKeywordStrategyClassifier::STRATEGY_LJ_NAMED_MODEL === $strategy && 'approve_lj_named_model_keyword' === $action) {
+            $scope = 'model_bio_only';
+            $primary = 'yes';
+            $reasons = array_merge($reasons, [ 'model_specific_keyword', 'bio_primary_candidate' ]);
+        } elseif (in_array($strategy, [ ModelKeywordStrategyClassifier::STRATEGY_NAMED_MODEL, ModelKeywordStrategyClassifier::STRATEGY_LJ_NAMED_MODEL ], true)) {
+            $scope = 'manual_review';
+        } elseif (ModelKeywordStrategyClassifier::STRATEGY_FALLBACK_MODEL === $strategy) {
+            $scope = '' !== $owner ? 'model_page_only' : 'manual_review';
+            $reasons[] = 'fallback_model_page_keyword';
+        } elseif (ModelKeywordStrategyClassifier::STRATEGY_WEAK_REVIEW === $strategy) {
+            $scope = 'manual_review';
+        } elseif (ModelKeywordStrategyClassifier::STRATEGY_NOT_MODEL === $strategy) {
+            $scope = 'not_model_eligible';
+        } elseif (ModelKeywordStrategyClassifier::STRATEGY_DEFERRED_PHASE_2 === $strategy) {
+            $scope = 'manual_review';
+        }
+
+        $row['model_keyword_owner'] = $owner;
+        $row['model_keyword_usage_scope'] = $scope;
+        $row['model_keyword_primary_candidate'] = $primary;
+        $row['model_keyword_scope_reason_codes'] = array_values(array_unique(array_filter(array_map('strval', $reasons))));
+        return $row;
+    }
+
+    private function metric_number($value): ?float {
+        if ($this->is_blank_metric_value($value)) {
+            return null;
+        }
+        $numeric = str_replace([ ',', '$', '%' ], '', $this->clean_metric_value((string) $value));
+        return is_numeric($numeric) ? (float) $numeric : null;
     }
 
     /**

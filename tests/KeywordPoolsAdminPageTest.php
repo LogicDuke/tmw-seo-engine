@@ -79,6 +79,30 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertSame([ 'model', 'video', 'category' ], KeywordPoolsAdminPage::allowed_pools());
     }
 
+
+    public function test_preview_and_export_include_model_keyword_scope_columns(): void {
+        $headers = KeywordPoolsAdminPage::preview_columns();
+        $this->assertContains('Model Keyword Owner', $headers);
+        $this->assertContains('Model Keyword Usage Scope', $headers);
+        $this->assertContains('Model Keyword Primary Candidate', $headers);
+        $this->assertContains('Model Keyword Scope Reason Codes', $headers);
+
+        $csv = KeywordPoolsAdminPage::build_export_csv([[
+            'row_number' => 2,
+            'keyword' => 'anisyia',
+            'normalized_keyword' => 'anisyia',
+            'model_keyword_owner' => 'anisyia',
+            'model_keyword_usage_scope' => 'model_bio_only',
+            'model_keyword_primary_candidate' => 'yes',
+            'model_keyword_scope_reason_codes' => [ 'personal_model_keyword_csv', 'model_specific_keyword' ],
+        ]]);
+
+        $this->assertStringContainsString('Model Keyword Owner', $csv);
+        $this->assertStringContainsString('anisyia', $csv);
+        $this->assertStringContainsString('model_bio_only', $csv);
+        $this->assertStringContainsString('personal_model_keyword_csv | model_specific_keyword', $csv);
+    }
+
     public function test_render_method_includes_dry_run_safety_copy_and_form_fields(): void {
         $_SERVER['REQUEST_METHOD'] = 'GET';
         $_GET['pool'] = 'model';
