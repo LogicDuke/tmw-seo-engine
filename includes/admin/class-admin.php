@@ -12,6 +12,7 @@ use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
+use TMWSEO\Engine\Keywords\KeywordCandidateClassificationAudit;
 use TMWSEO\Engine\Admin\Tables\KeywordsTable;
 use TMWSEO\Engine\Admin\Tables\ClustersTable;
 use TMWSEO\Engine\Admin\Tables\KeywordClustersTable;
@@ -1212,6 +1213,79 @@ class Admin {
     public static function render_settings_redirect(): void {
         wp_safe_redirect(admin_url('admin.php?page=tmwseo-settings'));
         exit;
+    }
+
+    /**
+     * Render the read-only saved keyword candidate classification audit report.
+     */
+    private static function render_keyword_candidate_classification_audit(): void {
+        $report = KeywordCandidateClassificationAudit::audit_database(500);
+        $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
+        $rows = is_array($report['rows'] ?? null) ? $report['rows'] : [];
+        $display_limit = (int) ($report['display_limit'] ?? 500);
+        $suspicious_rows_returned = (int) ($report['suspicious_rows_returned'] ?? count($rows));
+
+        AdminUI::section_start(
+            __( 'Keyword Pool Classification Audit', 'tmwseo' ),
+            __( 'Audit-only report for saved wp_tmw_keyword_candidates pool classifications. This view never updates rows, changes statuses, writes Rank Math, writes post content, calls Generate, or changes indexing/noindex.', 'tmwseo' )
+        );
+
+        echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>' . esc_html__( 'Read-only:', 'tmwseo' ) . '</strong> ' . esc_html__( 'Review these rows manually before any later cleanup PR. No automatic reclassification or deletion is performed here.', 'tmwseo' ) . '</p></div>';
+
+        if ($suspicious_rows_returned >= $display_limit) {
+            echo '<p class="description" style="margin:0 0 12px;">' . esc_html(sprintf(__('Showing the first %1$d suspicious rows from a full read-only scan of %2$d saved candidates.', 'tmwseo'), $display_limit, (int) ($summary['total_scanned'] ?? 0))) . '</p>';
+        }
+
+        echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
+        $cards = [
+            __( 'Total candidates scanned', 'tmwseo' ) => (int) ($summary['total_scanned'] ?? 0),
+            __( 'Suspicious model rows', 'tmwseo' ) => (int) ($summary['suspicious_model_rows'] ?? 0),
+            __( 'Suspicious video rows', 'tmwseo' ) => (int) ($summary['suspicious_video_rows'] ?? 0),
+            __( 'Suspicious category rows', 'tmwseo' ) => (int) ($summary['suspicious_category_rows'] ?? 0),
+            __( 'Rows needing manual review', 'tmwseo' ) => (int) ($summary['rows_needing_manual_review'] ?? 0),
+        ];
+        foreach ($cards as $label => $count) {
+            echo '<div class="tmwui-kpi-card" style="min-width:150px;"><strong>' . esc_html((string) $count) . '</strong><span>' . esc_html((string) $label) . '</span></div>';
+        }
+        echo '</div>';
+
+        if ($rows === []) {
+            AdminUI::empty_state(__( 'No suspicious keyword candidate pool classifications found in the current audit sample.', 'tmwseo' ));
+            AdminUI::section_end();
+            return;
+        }
+
+        echo '<div class="tmwui-table-wrap">';
+        echo '<table class="widefat striped"><thead><tr>';
+        foreach ([ 'Keyword', 'Intent Type', 'Entity Type', 'Entity ID', 'Status', 'Volume', 'CPC', 'Competition', 'Opportunity', 'Sources', 'Reason Codes', 'Recommended Review Action' ] as $heading) {
+            echo '<th>' . esc_html($heading) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+
+        foreach ($rows as $row) {
+            $sources = (string) ($row['sources'] ?? '');
+            if ($sources === '') {
+                $sources = (string) ($row['source'] ?? '');
+            }
+            $reason_codes = implode(', ', (array) ($row['reason_codes'] ?? []));
+            echo '<tr>';
+            echo '<td><strong>' . esc_html((string) ($row['keyword'] ?? '')) . '</strong></td>';
+            echo '<td>' . esc_html((string) ($row['intent_type'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['entity_type'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['entity_id'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['status'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['volume'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['cpc'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['competition'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['opportunity'] ?? '')) . '</td>';
+            echo '<td><code>' . esc_html($sources) . '</code></td>';
+            echo '<td><code>' . esc_html($reason_codes) . '</code></td>';
+            echo '<td><strong>' . esc_html((string) ($row['recommended_review_action'] ?? '')) . '</strong></td>';
+            echo '</tr>';
+        }
+
+        echo '</tbody></table></div>';
+        AdminUI::section_end();
     }
 
     public static function render_keywords_redirect(): void {
@@ -3256,7 +3330,7 @@ class Admin {
         // ── Active view ───────────────────────────────────────────────────────
         $allowed_views = [
             'candidates', 'all', 'raw', 'approved', 'new',
-            'ignored', 'queued_for_review', 'clusters',
+            'ignored', 'queued_for_review', 'clusters', 'classification_audit',
         ];
         $view = isset( $_GET['view'] ) ? sanitize_key( (string) $_GET['view'] ) : 'candidates';
         // `rejected` is a legacy URL alias — keyword candidates store rejected
@@ -3367,6 +3441,7 @@ class Admin {
             'ignored'          => [ __( 'Ignored / Rejected', 'tmwseo' ), $ignored_count ],
             'raw'              => [ __( 'Raw Keywords', 'tmwseo' ),        $raw_count ],
             'clusters'         => [ __( 'Keyword Clusters', 'tmwseo' ),   $cluster_count ],
+            'classification_audit' => [ __( 'Keyword Pool Classification Audit', 'tmwseo' ), null ],
         ];
 
         // Normalise: 'all' aliases to 'candidates' in the tab bar
@@ -3389,7 +3464,10 @@ class Admin {
 
         // ── Render content by view ────────────────────────────────────────────
 
-        if ( $view === 'raw' ) {
+        if ( $view === 'classification_audit' ) {
+            self::render_keyword_candidate_classification_audit();
+
+        } elseif ( $view === 'raw' ) {
             // ── Raw Keywords view ────────────────────────────────────────────
             AdminUI::section_start(
                 __( 'Raw Keywords', 'tmwseo' ),

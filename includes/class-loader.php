@@ -97,6 +97,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-page-type-keyword-filter.php' );
         tmwseo_safe_require( $p . 'class-category-page-keyword-generator.php' );
         tmwseo_safe_require( $p . 'class-keyword-cleanup-classifier.php' );
+        tmwseo_safe_require( $p . 'class-keyword-candidate-classification-audit.php' );
         tmwseo_safe_require( $p . 'class-keyword-cluster-reconciler.php' ); // canonical identity + admin-triggered merge
         tmwseo_safe_require( $p . 'class-kd-filter.php' );
         tmwseo_safe_require( $p . 'class-keyword-usage.php' );
