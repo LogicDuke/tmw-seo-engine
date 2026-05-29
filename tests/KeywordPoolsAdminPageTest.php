@@ -12,6 +12,7 @@ use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
+require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
@@ -154,6 +155,7 @@ dani daniels,1200,2.50,0.10,75
         $html = ob_get_clean();
 
         $this->assertStringContainsString('TMW Priority', $html);
+        $this->assertStringContainsString('Model Keyword Strategy', $html);
         $this->assertStringContainsString('tmwseo-keyword-row-golden', $html);
         $this->assertStringContainsString('defer_until_lj_50_model_milestone', $html);
         preg_match_all('/<input[^>]+tmwseo-keyword-row-golden/', $html, $matches);
@@ -177,6 +179,10 @@ dani daniels,1200,2.50,0.10,75
         $this->assertContains('TMW Priority', $header);
         $this->assertContains('TMW Indexing Readiness', $header);
         $this->assertContains('TMW Recommended Action', $header);
+        $this->assertContains('Model Keyword Strategy', $header);
+        $this->assertContains('Model Keyword Confidence', $header);
+        $this->assertContains('Model Keyword Reason Codes', $header);
+        $this->assertContains('Model Keyword Recommended Action', $header);
     }
 
     public function test_export_helper_outputs_current_preview_rows(): void {
