@@ -87,6 +87,54 @@ final class KeywordPoolMetricsScorerTest extends TestCase {
         $this->assertContains('positive_traffic_value', $score['tmw_reason_codes']);
     }
 
+
+    /**
+     * @return array<int, array{0:int, 1:string}>
+     */
+    public function true_kd_difficulty_band_provider(): array {
+        return [
+            [ 18, 'very_easy' ],
+            [ 35, 'easy' ],
+            [ 55, 'moderate' ],
+            [ 75, 'hard' ],
+        ];
+    }
+
+    /**
+     * @dataProvider true_kd_difficulty_band_provider
+     */
+    public function test_true_kd_wins_when_competition_is_missing(int $difficulty, string $expected_band): void {
+        $score = $this->score('livejasmin models', 'model', [ 'difficulty' => $difficulty, 'competition' => null ]);
+
+        $this->assertSame($expected_band, $score['tmw_difficulty_band']);
+        $this->assertContains('difficulty_from_true_kd', $score['tmw_reason_codes']);
+        $this->assertStringContainsString('difficulty band from true KD', $score['tmw_score_formula']);
+    }
+
+    public function test_competition_proxy_is_used_when_true_kd_is_missing(): void {
+        $score = $this->score('livejasmin models', 'model', [ 'difficulty' => null, 'competition' => 0.12 ]);
+
+        $this->assertSame('easy', $score['tmw_difficulty_band']);
+        $this->assertContains('difficulty_from_competition_proxy', $score['tmw_reason_codes']);
+        $this->assertStringContainsString('difficulty band from competition proxy', $score['tmw_score_formula']);
+    }
+
+    public function test_difficulty_unknown_when_true_kd_and_competition_are_missing(): void {
+        $score = $this->score('livejasmin models', 'model', [ 'difficulty' => null, 'competition' => null ]);
+
+        $this->assertSame('unknown', $score['tmw_difficulty_band']);
+        $this->assertContains('difficulty_unknown', $score['tmw_reason_codes']);
+        $this->assertStringContainsString('difficulty band unknown', $score['tmw_score_formula']);
+    }
+
+    public function test_true_kd_wins_when_both_true_kd_and_competition_exist(): void {
+        $score = $this->score('livejasmin models', 'model', [ 'difficulty' => 75, 'competition' => 0.05 ]);
+
+        $this->assertSame('hard', $score['tmw_difficulty_band']);
+        $this->assertContains('difficulty_from_true_kd', $score['tmw_reason_codes']);
+        $this->assertNotContains('difficulty_from_competition_proxy', $score['tmw_reason_codes']);
+    }
+
     /** @param array<string,mixed> $overrides */
     private function score(string $keyword, string $pool, array $overrides = []): array {
         $row = array_merge([

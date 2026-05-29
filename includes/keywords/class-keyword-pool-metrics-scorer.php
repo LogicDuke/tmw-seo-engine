@@ -127,7 +127,7 @@ class KeywordPoolMetricsScorer {
         if ($broad_chat_intent) {
             $priority = 'TMW-Archive';
         }
-        $difficulty_band = $this->difficulty_band($row['competition'] ?? null);
+        $difficulty_band = $this->difficulty_band($row, $tmw_reasons, $formula);
         $commercial_band = $this->commercial_band($row['cpc'] ?? null, $row['traffic_value'] ?? null);
         $readiness = $this->indexing_readiness($priority, $blocked || 'TMW-Archive' === $priority, $strong_pool_fit, $deferred_big_performer, $row);
         $action = $this->recommended_action($readiness, $priority, $blocked);
@@ -310,13 +310,37 @@ class KeywordPoolMetricsScorer {
         return 'queue_for_review';
     }
 
-    private function difficulty_band($competition): string {
-        $competition = $this->number($competition);
-        if (null === $competition) { return 'unknown'; }
-        if ($competition <= 0.10) { return 'very_easy'; }
-        if ($competition <= 0.20) { return 'easy'; }
-        if ($competition <= 0.40) { return 'moderate'; }
-        return 'hard';
+    /**
+     * Resolve the TMW difficulty band, preferring true KD/difficulty over paid competition.
+     *
+     * @param array<string, mixed> $row Preview/scoring row.
+     * @param array<int, string>   $tmw_reasons Mutable TMW reason codes.
+     * @param array<int, string>   $formula Mutable score formula explanations.
+     */
+    private function difficulty_band(array $row, array &$tmw_reasons, array &$formula): string {
+        $difficulty = $this->number($row['difficulty'] ?? null);
+        if (null !== $difficulty) {
+            $tmw_reasons[] = 'difficulty_from_true_kd';
+            $formula[] = 'difficulty band from true KD';
+            if ($difficulty <= 20) { return 'very_easy'; }
+            if ($difficulty <= 40) { return 'easy'; }
+            if ($difficulty <= 60) { return 'moderate'; }
+            return 'hard';
+        }
+
+        $competition = $this->number($row['competition'] ?? null);
+        if (null !== $competition) {
+            $tmw_reasons[] = 'difficulty_from_competition_proxy';
+            $formula[] = 'difficulty band from competition proxy';
+            if ($competition <= 0.10) { return 'very_easy'; }
+            if ($competition <= 0.20) { return 'easy'; }
+            if ($competition <= 0.40) { return 'moderate'; }
+            return 'hard';
+        }
+
+        $tmw_reasons[] = 'difficulty_unknown';
+        $formula[] = 'difficulty band unknown';
+        return 'unknown';
     }
 
     private function commercial_band($cpc, $traffic_value): string {
