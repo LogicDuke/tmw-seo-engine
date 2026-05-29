@@ -3216,6 +3216,43 @@ class Admin {
         $ignored_count         = ( $sc['ignored'] ?? 0 ) + ( $sc['rejected'] ?? 0 );
         $queued_count          = $sc['queued_for_review'] ?? 0;
 
+        $candidate_columns = (array) $wpdb->get_results( "SHOW COLUMNS FROM {$cand_table}", ARRAY_A );
+        $candidate_column_names = array_map(
+            static fn( $col ) => (string) ( $col['Field'] ?? $col['field'] ?? '' ),
+            $candidate_columns
+        );
+        $has_intent_type_column = in_array( 'intent_type', $candidate_column_names, true );
+        $has_competition_column = in_array( 'competition', $candidate_column_names, true );
+        $has_opportunity_column = in_array( 'opportunity', $candidate_column_names, true );
+        $has_seo_score_column   = in_array( 'seo_score', $candidate_column_names, true );
+        $has_sources_column     = in_array( 'sources', $candidate_column_names, true ) || in_array( 'notes', $candidate_column_names, true );
+
+        $pool_counts = [ 'model' => 0, 'video' => 0, 'category' => 0 ];
+        $approved_pool_counts = [ 'model' => 0, 'video' => 0, 'category' => 0 ];
+        if ( $has_intent_type_column ) {
+            $pool_rows = (array) $wpdb->get_results(
+                "SELECT intent_type, COUNT(*) AS cnt FROM {$cand_table} WHERE intent_type IN ('model','video','category') GROUP BY intent_type",
+                ARRAY_A
+            );
+            foreach ( $pool_rows as $row ) {
+                $intent_type = (string) ( $row['intent_type'] ?? '' );
+                if ( array_key_exists( $intent_type, $pool_counts ) ) {
+                    $pool_counts[ $intent_type ] = (int) ( $row['cnt'] ?? 0 );
+                }
+            }
+
+            $approved_pool_rows = (array) $wpdb->get_results(
+                "SELECT intent_type, COUNT(*) AS cnt FROM {$cand_table} WHERE status='approved' AND intent_type IN ('model','video','category') GROUP BY intent_type",
+                ARRAY_A
+            );
+            foreach ( $approved_pool_rows as $row ) {
+                $intent_type = (string) ( $row['intent_type'] ?? '' );
+                if ( array_key_exists( $intent_type, $approved_pool_counts ) ) {
+                    $approved_pool_counts[ $intent_type ] = (int) ( $row['cnt'] ?? 0 );
+                }
+            }
+        }
+
         // ── Active view ───────────────────────────────────────────────────────
         $allowed_views = [
             'candidates', 'all', 'raw', 'approved', 'new',
@@ -3658,8 +3695,50 @@ class Admin {
             $keywords_table = new KeywordsTable( $status_filter, $view );
             $keywords_table->prepare_items();
             $active_filters = $keywords_table->get_active_filters();
+            echo '<div class="notice notice-info inline" style="margin:0 0 12px;"><p>' . esc_html__( 'Keyword candidates are stored in wp_tmw_keyword_candidates. This page is for reviewing saved keyword candidates only. Editing here does not write Rank Math, post content, Generate output, or indexing/noindex.', 'tmwseo' ) . '</p></div>';
+
+            echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
+            $pool_count_cards = [
+                __( 'All Candidates', 'tmwseo' )      => $cand_count,
+                __( 'Model', 'tmwseo' )               => $pool_counts['model'],
+                __( 'Video', 'tmwseo' )               => $pool_counts['video'],
+                __( 'Category', 'tmwseo' )            => $pool_counts['category'],
+                __( 'Approved Model', 'tmwseo' )      => $approved_pool_counts['model'],
+                __( 'Approved Video', 'tmwseo' )      => $approved_pool_counts['video'],
+                __( 'Approved Category', 'tmwseo' )   => $approved_pool_counts['category'],
+            ];
+            foreach ( $pool_count_cards as $label => $count ) {
+                echo '<div class="tmwui-kpi-card" style="min-width:130px;"><strong>' . esc_html( (string) $count ) . '</strong><span>' . esc_html( (string) $label ) . '</span></div>';
+            }
+            echo '</div>';
+
             echo '<div class="tmwui-table-wrap">';
             $filter_base = [ 'page' => 'tmwseo-keywords', 'view' => 'candidates' ];
+            $status_filter_args = $status_filter !== null ? [ 'status' => $status_filter ] : [];
+            $active_pool = $has_intent_type_column && isset( $_GET['intent_type'] ) ? sanitize_key( (string) $_GET['intent_type'] ) : '';
+            if ( ! in_array( $active_pool, [ 'model', 'video', 'category' ], true ) ) {
+                $active_pool = '';
+            }
+            $pool_tabs = [
+                ''         => [ __( 'All Pools', 'tmwseo' ), $cand_count ],
+                'model'    => [ __( 'Model Keywords', 'tmwseo' ), $pool_counts['model'] ],
+                'video'    => [ __( 'Video Keywords', 'tmwseo' ), $pool_counts['video'] ],
+                'category' => [ __( 'Category Keywords', 'tmwseo' ), $pool_counts['category'] ],
+            ];
+            echo '<nav class="nav-tab-wrapper tmwseo-pool-tabs" style="margin:0 0 12px;">';
+            foreach ( $pool_tabs as $pool => [ $label, $count ] ) {
+                $args = array_merge( $filter_base, $status_filter_args );
+                if ( $pool !== '' && $has_intent_type_column ) {
+                    $args['intent_type'] = $pool;
+                }
+                $class = 'nav-tab' . ( $pool === $active_pool ? ' nav-tab-active' : '' );
+                echo '<a class="' . esc_attr( $class ) . '" href="' . esc_url( add_query_arg( $args, admin_url( 'admin.php' ) ) ) . '">' . esc_html( $label ) . ' <span class="tmwui-tab-badge">' . esc_html( (string) $count ) . '</span></a>';
+            }
+            echo '</nav>';
+            if ( ! $has_intent_type_column ) {
+                echo '<p class="description" style="margin:0 0 12px;">' . esc_html__( 'Pool filters are hidden because intent_type is not available on the keyword candidates table.', 'tmwseo' ) . '</p>';
+            }
+
             $quick_links = [
                 'Volume High → Low'      => array_merge( $filter_base, [ 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
                 'Scored With Volume'     => array_merge( $filter_base, [ 'status' => 'scored', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
@@ -3668,9 +3747,25 @@ class Admin {
                 'High Volume + Low KD'   => array_merge( $filter_base, [ 'min_volume' => 1, 'max_kd' => 40, 'orderby' => 'volume', 'order' => 'desc' ] ),
                 'Commercial Intent'      => array_merge( $filter_base, [ 'intent' => 'commercial', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
             ];
-            global $wpdb;
-            $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
-            $page_type_exists = (bool) $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$cand_table} LIKE %s", 'page_type' ) );
+            if ( $has_intent_type_column ) {
+                $quick_links['Approved Category Keywords'] = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'category', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Approved Video Keywords']    = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Approved Model Keywords']    = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Queued Model Keywords']      = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Queued Video Keywords']      = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Queued Category Keywords']   = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'category', 'orderby' => 'volume', 'order' => 'desc' ] );
+            }
+            if ( $has_competition_column ) {
+                $quick_links['High Volume + Low Competition'] = array_merge( $filter_base, [ 'min_volume' => 1, 'max_competition' => 0.35, 'orderby' => 'volume', 'order' => 'desc' ] );
+            }
+            if ( $has_opportunity_column ) {
+                $quick_links['Golden / KWE Opportunity'] = array_merge( $filter_base, [ 'min_volume' => 1, 'min_opportunity' => 0.7, 'orderby' => 'opportunity', 'order' => 'desc' ] );
+            } elseif ( $has_seo_score_column ) {
+                $quick_links['Golden / KWE Opportunity'] = array_merge( $filter_base, [ 'min_volume' => 1, 'min_seo_score' => 70, 'orderby' => 'seo_score', 'order' => 'desc' ] );
+            } elseif ( $has_sources_column ) {
+                $quick_links['Golden / KWE Opportunity'] = array_merge( $filter_base, [ 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] );
+            }
+            $page_type_exists = in_array( 'page_type', $candidate_column_names, true );
             if ( $page_type_exists ) {
                 $quick_links['Category Candidates'] = array_merge( $filter_base, [ 'page_type' => 'category', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] );
             }
