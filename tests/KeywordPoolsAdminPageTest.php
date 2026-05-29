@@ -85,7 +85,7 @@ class KeywordPoolsAdminPageTest extends TestCase {
 
         $this->assertIsString($html);
         $this->assertStringContainsString('Keyword Pools', $html);
-        $this->assertStringContainsString('Dry-run preview only', $html);
+        $this->assertStringContainsString('Dry-run first workflow', $html);
         $this->assertStringContainsString('does not save keywords', $html);
         $this->assertStringContainsString('does not write Rank Math fields', $html);
         $this->assertStringContainsString('does not change post content', $html);
@@ -93,6 +93,32 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString('name="action" value="tmwseo_keyword_pools_dry_run"', $html);
         $this->assertStringContainsString('name="tmwseo_keyword_pool" value="model"', $html);
         $this->assertStringContainsString('Run Dry Run Preview', $html);
+    }
+
+
+
+    public function test_preview_includes_save_selected_controls_for_eligible_rows(): void {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'tmwseo_keyword_pools_run_preview' => '1',
+            'tmwseo_keyword_pool' => 'category',
+            'tmwseo_keyword_pools_nonce' => 'test_nonce',
+            'tmwseo_keyword_pools_csv_text' => "keyword,volume,cpc,competition\nasian cam models,18100,5.99,0.02\nfree video chat,1000,0.1,0.5\n",
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString('Select all P1', $html);
+        $this->assertStringContainsString('Select all Golden', $html);
+        $this->assertStringContainsString('Select all Approve Candidates', $html);
+        $this->assertStringContainsString('Clear selection', $html);
+        $this->assertStringContainsString('Save Selected Keywords', $html);
+        $this->assertStringContainsString('Save selected as:', $html);
+        $this->assertStringContainsString('Saving selected keywords stores them in the review pool only', $html);
+        $this->assertStringContainsString('name="tmwseo_keyword_pool_selected_rows[]"', $html);
+        $this->assertStringContainsString('disabled', $html);
     }
 
     public function test_export_helper_outputs_expected_csv_header(): void {
@@ -133,9 +159,6 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertIsString($source);
 
         $forbiddenCalls = [
-            '$wpdb->insert',
-            '$wpdb->update',
-            'VideoKeywordCandidateRepository',
             'ModelOpportunityImportService::import',
             'CategoryPageKeywordGenerator',
             'RankMathMapper',
