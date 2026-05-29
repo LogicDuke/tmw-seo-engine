@@ -3300,6 +3300,12 @@ class Admin {
         $has_opportunity_column = in_array( 'opportunity', $candidate_column_names, true );
         $has_seo_score_column   = in_array( 'seo_score', $candidate_column_names, true );
         $has_sources_column     = in_array( 'sources', $candidate_column_names, true ) || in_array( 'notes', $candidate_column_names, true );
+        $has_entity_type_column = in_array( 'entity_type', $candidate_column_names, true );
+        $has_entity_id_column   = in_array( 'entity_id', $candidate_column_names, true );
+        $unlinked_model_keyword_count = 0;
+        if ( $has_intent_type_column && $has_entity_type_column && $has_entity_id_column ) {
+            $unlinked_model_keyword_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$cand_table} WHERE intent_type='model' AND status='approved' AND entity_type='model' AND entity_id=0" );
+        }
 
         $pool_counts = [ 'model' => 0, 'video' => 0, 'category' => 0 ];
         $approved_pool_counts = [ 'model' => 0, 'video' => 0, 'category' => 0 ];
@@ -3774,6 +3780,9 @@ class Admin {
             $keywords_table->prepare_items();
             $active_filters = $keywords_table->get_active_filters();
             echo '<div class="notice notice-info inline" style="margin:0 0 12px;"><p>' . esc_html__( 'Keyword candidates are stored in wp_tmw_keyword_candidates. This page is for reviewing saved keyword candidates only. Editing here does not write Rank Math, post content, Generate output, or indexing/noindex.', 'tmwseo' ) . '</p></div>';
+            if ( $unlinked_model_keyword_count > 0 ) {
+                echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>' . esc_html__( 'Unlinked model keywords:', 'tmwseo' ) . '</strong> ' . esc_html( sprintf( _n( '%d approved model keyword has Entity ID 0 and cannot be used for bio automation until linked to a model entity.', '%d approved model keywords have Entity ID 0 and cannot be used for bio automation until linked to a model entity.', $unlinked_model_keyword_count, 'tmwseo' ), $unlinked_model_keyword_count ) ) . '</p></div>';
+            }
 
             echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
             $pool_count_cards = [
@@ -3829,7 +3838,11 @@ class Admin {
                 $quick_links['Approved Category Keywords'] = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'category', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Approved Video Keywords']    = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Approved Model Keywords']    = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
-                $quick_links['Queued Model Keywords']      = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Personal Model CSV Keywords'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'personal_model_csv', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Primary Model Bio Keywords']  = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'primary_model_bio', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Unlinked Model Keywords']     = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'unlinked_model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Rejected Model Keywords']     = array_merge( $filter_base, [ 'status' => 'rejected', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Queued Model Keywords']       = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Queued Video Keywords']      = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Queued Category Keywords']   = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'category', 'orderby' => 'volume', 'order' => 'desc' ] );
             }

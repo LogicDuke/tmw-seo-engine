@@ -94,6 +94,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-keyword-strategy-classifier.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-candidate-repository.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/models/class-model-entity-resolver.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-selected-import-service.php' );
         tmwseo_safe_require( $p . 'class-page-type-keyword-filter.php' );
         tmwseo_safe_require( $p . 'class-category-page-keyword-generator.php' );

@@ -50,18 +50,21 @@ final class KeywordsAdminPageTest extends TestCase {
     }
 
     public function test_candidate_columns_and_quick_filters_are_available_safely(): void {
-        foreach ([ 'CPC', 'Competition', 'SEO Score', 'Opportunity Score', 'Traffic Value', 'Intent', 'Entity Type', 'Entity ID', 'Sources', 'Model Keyword Strategy', 'Updated' ] as $label) {
+        foreach ([ 'CPC', 'Competition', 'SEO Score', 'Opportunity Score', 'Traffic Value', 'Intent', 'Entity Type', 'Entity ID', 'Sources', 'Model Owner', 'Usage Scope', 'Primary?', 'Strategy', 'Recommended Action', 'Provenance', 'Entity Link Status', 'Updated' ] as $label) {
             $this->assertStringContainsString($label, $this->tableSource);
         }
 
-        foreach ([ 'Approved Category Keywords', 'Approved Video Keywords', 'Approved Model Keywords', 'Queued Model Keywords', 'Queued Video Keywords', 'Queued Category Keywords', 'High Volume + Low Competition', 'Golden / KWE Opportunity' ] as $label) {
+        foreach ([ 'Approved Category Keywords', 'Approved Video Keywords', 'Approved Model Keywords', 'Queued Model Keywords', 'Queued Video Keywords', 'Queued Category Keywords', 'Personal Model CSV Keywords', 'Primary Model Bio Keywords', 'Unlinked Model Keywords', 'Rejected Model Keywords', 'High Volume + Low Competition', 'Golden / KWE Opportunity' ] as $label) {
             $this->assertStringContainsString($label, $this->adminSource);
         }
     }
 
-    public function test_keywords_table_reads_model_strategy_from_notes_or_sources_without_columns(): void {
+    public function test_keywords_table_reads_model_metadata_from_notes_or_sources_without_columns(): void {
         $this->assertStringContainsString('model_keyword_strategy_from_item', $this->tableSource);
         $this->assertStringContainsString('find_model_keyword_strategy', $this->tableSource);
+        $this->assertStringContainsString('model_keyword_metadata_from_item', $this->tableSource);
+        $this->assertStringContainsString('Unlinked model keyword', $this->tableSource);
+        $this->assertStringContainsString('source_label_from_item', $this->tableSource);
         $this->assertStringContainsString("'notes'", $this->tableSource);
     }
 
