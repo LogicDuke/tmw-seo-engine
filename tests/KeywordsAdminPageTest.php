@@ -21,7 +21,7 @@ final class KeywordsAdminPageTest extends TestCase {
             $this->assertStringContainsString($label, $this->adminSource);
         }
 
-        foreach ([ 'All Candidates', 'New', 'Queued for Review', 'Approved', 'Ignored / Rejected', 'Raw Keywords', 'Keyword Clusters' ] as $label) {
+        foreach ([ 'All Candidates', 'New', 'Queued for Review', 'Approved', 'Ignored / Rejected', 'Raw Keywords', 'Keyword Clusters', 'Keyword Pool Classification Audit' ] as $label) {
             $this->assertStringContainsString($label, $this->adminSource);
         }
     }
