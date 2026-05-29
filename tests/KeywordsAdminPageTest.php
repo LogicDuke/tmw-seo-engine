@@ -60,9 +60,10 @@ final class KeywordsAdminPageTest extends TestCase {
     }
 
     public function test_like_filter_patterns_are_escaped_and_tightly_match_primary_model_bio(): void {
-        $this->assertStringContainsString("\$wpdb->esc_like( 'personal_model_keyword_csv' )", $this->tableSource);
-        $this->assertStringContainsString("\$wpdb->esc_like( '\"model_keyword_primary_candidate\":\"yes\"' )", $this->tableSource);
-        $this->assertStringContainsString("\$wpdb->esc_like( '\"model_keyword_usage_scope\":\"model_bio_only\"' )", $this->tableSource);
+        $this->assertStringContainsString('escaped_like_contains($wpdb, \'personal_model_keyword_csv\')', $this->tableSource);
+        $this->assertStringContainsString('escaped_like_contains($wpdb, \'"model_keyword_primary_candidate":"yes"\')', $this->tableSource);
+        $this->assertStringContainsString('escaped_like_contains($wpdb, \'"model_keyword_usage_scope":"model_bio_only"\')', $this->tableSource);
+        $this->assertStringContainsString('$wpdb->esc_like($literal)', $this->tableSource);
         $this->assertStringContainsString('sources LIKE %s', $this->tableSource);
         $this->assertStringContainsString('notes LIKE %s', $this->tableSource);
     }

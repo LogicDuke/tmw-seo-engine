@@ -88,7 +88,7 @@ if (!str_contains($sources, 'model_entity_resolution') || !str_contains($sources
 }
 
 $table_source = (string) file_get_contents(dirname(__DIR__) . '/includes/admin/tables/class-keywords-table.php');
-foreach ([ '$wpdb->esc_like( \'personal_model_keyword_csv\' )', '$wpdb->esc_like( \'"model_keyword_primary_candidate":"yes"\' )', '$wpdb->esc_like( \'"model_keyword_usage_scope":"model_bio_only"\' )' ] as $needle) {
+foreach ([ 'escaped_like_contains($wpdb, \'personal_model_keyword_csv\')', 'escaped_like_contains($wpdb, \'"model_keyword_primary_candidate":"yes"\')', 'escaped_like_contains($wpdb, \'"model_keyword_usage_scope":"model_bio_only"\')', '$wpdb->esc_like($literal)' ] as $needle) {
     if (!str_contains($table_source, $needle)) { throw new RuntimeException('Escaped LIKE filter source check failed: ' . $needle); }
 }
 $admin_source = (string) file_get_contents(dirname(__DIR__) . '/includes/admin/class-admin.php');

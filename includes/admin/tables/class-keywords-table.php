@@ -317,6 +317,10 @@ class KeywordsTable extends \WP_List_Table {
         return $fallback;
     }
 
+    private function escaped_like_contains($wpdb, string $literal): string {
+        return '%' . $wpdb->esc_like($literal) . '%';
+    }
+
     /** @param array<string, mixed> $item */
     private function model_keyword_strategy_from_item(array $item): string {
         $intent = strtolower((string) ($item['intent_type'] ?? $item['intent'] ?? ''));
@@ -490,14 +494,14 @@ class KeywordsTable extends \WP_List_Table {
         if ( isset( $this->active_filters['model_keyword_filter'] ) ) {
             $filter = (string) $this->active_filters['model_keyword_filter'];
             if ( 'personal_model_csv' === $filter && ( $this->has_sources || $this->has_notes ) ) {
-                $personal_csv_like = '%' . $wpdb->esc_like( 'personal_model_keyword_csv' ) . '%';
+                $personal_csv_like = $this->escaped_like_contains($wpdb, 'personal_model_keyword_csv');
                 $likes = [];
                 if ( $this->has_sources ) { $likes[] = 'sources LIKE %s'; $where_args[] = $personal_csv_like; }
                 if ( $this->has_notes ) { $likes[] = 'notes LIKE %s'; $where_args[] = $personal_csv_like; }
                 if ( $likes !== [] ) { $conditions[] = '(' . implode( ' OR ', $likes ) . ')'; }
             } elseif ( 'primary_model_bio' === $filter && ( $this->has_sources || $this->has_notes ) ) {
-                $primary_candidate_like = '%' . $wpdb->esc_like( '"model_keyword_primary_candidate":"yes"' ) . '%';
-                $scope_like = '%' . $wpdb->esc_like( '"model_keyword_usage_scope":"model_bio_only"' ) . '%';
+                $primary_candidate_like = $this->escaped_like_contains($wpdb, '"model_keyword_primary_candidate":"yes"');
+                $scope_like = $this->escaped_like_contains($wpdb, '"model_keyword_usage_scope":"model_bio_only"');
                 $likes = [];
                 if ( $this->has_sources ) { $likes[] = '(sources LIKE %s AND sources LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
                 if ( $this->has_notes ) { $likes[] = '(notes LIKE %s AND notes LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
