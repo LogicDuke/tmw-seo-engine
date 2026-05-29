@@ -112,7 +112,7 @@ class ModelKeywordStrategyClassifier {
 
         $has_model_match = $this->has_model_name_match($keyword, $model_name, $row);
         $has_source_lj   = $this->has_livejasmin_source($row);
-        $has_lj_modifier = $this->has_any($keyword, [ 'livejasmin', 'jasmin' ]);
+        $has_lj_modifier = $this->has_livejasmin_modifier($keyword);
         $metrics         = $this->metrics($row);
 
         if ($this->is_standalone_big_performer($keyword) && ! $this->is_current_lj_model($row)) {
@@ -133,21 +133,21 @@ class ModelKeywordStrategyClassifier {
             );
         }
 
+        if ($has_model_match && ($has_lj_modifier || $has_source_lj) && ! $this->has_disqualifying_named_intent($keyword)) {
+            return $this->result(
+                self::STRATEGY_LJ_NAMED_MODEL,
+                $this->livejasmin_named_confidence($metrics),
+                [ 'livejasmin_modifier', 'model_name_match', 'lj_model_search_demand' ],
+                'approve_lj_named_model_keyword'
+            );
+        }
+
         if ($this->has_fallback_modifier($keyword) && ($has_model_match || $this->has_model_placeholder($keyword))) {
             return $this->result(
                 self::STRATEGY_FALLBACK_MODEL,
                 'medium',
                 [ 'fallback_model_modifier', 'model_page_semantic_fit' ],
                 'use_as_fallback_model_keyword'
-            );
-        }
-
-        if ($has_model_match && ($has_lj_modifier || $has_source_lj) && ($metrics['volume'] >= 100 || $metrics['score'] >= 40)) {
-            return $this->result(
-                self::STRATEGY_LJ_NAMED_MODEL,
-                $metrics['volume'] >= 500 || $metrics['score'] >= 60 ? 'high' : 'medium',
-                [ 'livejasmin_modifier', 'model_name_match', 'lj_model_search_demand' ],
-                'approve_lj_named_model_keyword'
             );
         }
 
@@ -194,6 +194,17 @@ class ModelKeywordStrategyClassifier {
         return $metrics['volume'] >= 500 || $metrics['traffic'] > 0.0 || $metrics['score'] >= 60;
     }
 
+    /** @param array{volume:float, traffic:float, score:float} $metrics */
+    private function livejasmin_named_confidence(array $metrics): string {
+        if ($metrics['volume'] >= 500 || $metrics['score'] >= 60 || $metrics['traffic'] > 0.0) {
+            return 'high';
+        }
+        if ($metrics['volume'] >= 100 || $metrics['score'] >= 40) {
+            return 'medium';
+        }
+        return 'low';
+    }
+
     /** @param array<string, mixed> $row */
     private function has_model_name_match(string $keyword, string $model_name, array $row): bool {
         if ('' !== $model_name && $this->contains_phrase($keyword, $model_name)) {
@@ -226,6 +237,10 @@ class ModelKeywordStrategyClassifier {
             return false;
         }
         return $this->has_any($keyword, self::NOT_MODEL_PATTERNS);
+    }
+
+    private function has_livejasmin_modifier(string $keyword): bool {
+        return preg_match('/(?:^|\s)(?:livejasmin|live\s+jasmin|jasmin|lj)(?:\s|$)/', $keyword) === 1;
     }
 
     private function has_fallback_modifier(string $keyword): bool {

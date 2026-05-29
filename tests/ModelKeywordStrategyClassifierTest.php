@@ -32,11 +32,21 @@ final class ModelKeywordStrategyClassifierTest extends TestCase {
     public function test_lj_named_model_opportunities(): void {
         $forward = $this->classifier->classify([ 'keyword' => 'anisyia livejasmin', 'volume' => 1900 ], 'Anisyia', 'model');
         $reverse = $this->classifier->classify([ 'keyword' => 'livejasmin anisyia', 'volume' => 170 ], 'Anisyia', 'model');
+        $jasminForward = $this->classifier->classify([ 'keyword' => 'anisyia jasmin', 'volume' => 90, 'seo_score' => 45 ], 'Anisyia', 'model');
+        $jasminReverse = $this->classifier->classify([ 'keyword' => 'jasmin anisyia', 'volume' => 20 ], 'Anisyia', 'model');
 
         $this->assertSame('lj_named_model_opportunity', $forward['model_keyword_strategy']);
+        $this->assertSame('high', $forward['model_keyword_confidence']);
         $this->assertSame('approve_lj_named_model_keyword', $forward['model_keyword_recommended_action']);
         $this->assertContains('livejasmin_modifier', $forward['model_keyword_reason_codes']);
+        $this->assertContains('model_name_match', $forward['model_keyword_reason_codes']);
+        $this->assertContains('lj_model_search_demand', $forward['model_keyword_reason_codes']);
+        $this->assertNotContains('manual_review_required', $forward['model_keyword_reason_codes']);
         $this->assertSame('lj_named_model_opportunity', $reverse['model_keyword_strategy']);
+        $this->assertContains($reverse['model_keyword_confidence'], [ 'medium', 'high' ]);
+        $this->assertSame('approve_lj_named_model_keyword', $reverse['model_keyword_recommended_action']);
+        $this->assertSame('lj_named_model_opportunity', $jasminForward['model_keyword_strategy']);
+        $this->assertSame('lj_named_model_opportunity', $jasminReverse['model_keyword_strategy']);
     }
 
     public function test_fallback_model_intent_keywords(): void {
@@ -46,7 +56,7 @@ final class ModelKeywordStrategyClassifierTest extends TestCase {
         $this->assertSame('fallback_model_intent', $webcam['model_keyword_strategy']);
         $this->assertSame('use_as_fallback_model_keyword', $webcam['model_keyword_recommended_action']);
         $this->assertContains('fallback_model_modifier', $webcam['model_keyword_reason_codes']);
-        $this->assertSame('fallback_model_intent', $ljModel['model_keyword_strategy']);
+        $this->assertSame('lj_named_model_opportunity', $ljModel['model_keyword_strategy']);
     }
 
     public function test_weak_manual_review_keywords(): void {

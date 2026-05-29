@@ -21,13 +21,14 @@ class KeywordPoolDryRunServiceTest extends TestCase {
     }
 
     public function test_model_pool_appends_model_keyword_strategy_fields(): void {
-        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,SEO Score,model_name\nanisyia,12100,68,Anisyia\nanisyia livejasmin,1900,50,Anisyia\nanisyia webcam model,,,Anisyia\ncheapest sex cam sites,1000,75,\n"), 'model');
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,SEO Score,model_name\nanisyia,12100,68,Anisyia\nanisyia livejasmin,1900,50,Anisyia\nlivejasmin anisyia,170,35,Anisyia\nanisyia webcam model,,,Anisyia\ncheapest sex cam sites,1000,75,\n"), 'model');
 
         $this->assertSame('named_model_opportunity', $result['rows'][0]['model_keyword_strategy']);
         $this->assertSame('lj_named_model_opportunity', $result['rows'][1]['model_keyword_strategy']);
-        $this->assertSame('fallback_model_intent', $result['rows'][2]['model_keyword_strategy']);
-        $this->assertSame('not_model_intent', $result['rows'][3]['model_keyword_strategy']);
-        $this->assertSame('reject', $result['rows'][3]['decision']);
+        $this->assertSame('lj_named_model_opportunity', $result['rows'][2]['model_keyword_strategy']);
+        $this->assertSame('fallback_model_intent', $result['rows'][3]['model_keyword_strategy']);
+        $this->assertSame('not_model_intent', $result['rows'][4]['model_keyword_strategy']);
+        $this->assertSame('reject', $result['rows'][4]['decision']);
     }
 
     public function test_video_and_category_pools_do_not_receive_named_model_strategy(): void {
