@@ -19,9 +19,27 @@ class KeywordsTable extends \WP_List_Table {
     /** @var bool */
     private bool $has_page_type = false;
     /** @var bool */
+    private bool $has_intent_type = false;
+    /** @var bool */
+    private bool $has_entity_type = false;
+    /** @var bool */
+    private bool $has_entity_id = false;
+    /** @var bool */
     private bool $has_opportunity = false;
     /** @var bool */
+    private bool $has_seo_score = false;
+    /** @var bool */
+    private bool $has_traffic_value = false;
+    /** @var bool */
     private bool $has_cpc = false;
+    /** @var bool */
+    private bool $has_competition = false;
+    /** @var bool */
+    private bool $has_source = false;
+    /** @var bool */
+    private bool $has_sources = false;
+    /** @var bool */
+    private bool $has_updated_at = false;
 
     /**
      * @param string|null $status_filter  If set, WHERE status = this value.
@@ -38,15 +56,28 @@ class KeywordsTable extends \WP_List_Table {
     }
 
     public function get_columns(): array {
-        return [
+        $columns = [
             'cb'         => '<input type="checkbox" />',
             'keyword'    => __('Keyword', 'tmwseo'),
             'volume'     => __('Volume', 'tmwseo'),
             'difficulty' => __('KD', 'tmwseo'),
-            'intent'     => __('Intent', 'tmwseo'),
-            'status'     => __('Status', 'tmwseo'),
-            'created_at' => __('Created', 'tmwseo'),
         ];
+
+        if ( $this->has_cpc ) { $columns['cpc'] = __('CPC', 'tmwseo'); }
+        if ( $this->has_competition ) { $columns['competition'] = __('Competition', 'tmwseo'); }
+        if ( $this->has_seo_score ) { $columns['seo_score'] = __('SEO Score', 'tmwseo'); }
+        if ( $this->has_opportunity ) { $columns['opportunity'] = __('Opportunity Score', 'tmwseo'); }
+        if ( $this->has_traffic_value ) { $columns['traffic_value'] = __('Traffic Value', 'tmwseo'); }
+
+        $columns[ $this->has_intent_type ? 'intent_type' : 'intent' ] = __('Intent', 'tmwseo');
+        if ( $this->has_entity_type ) { $columns['entity_type'] = __('Entity Type', 'tmwseo'); }
+        if ( $this->has_entity_id ) { $columns['entity_id'] = __('Entity ID', 'tmwseo'); }
+        $columns['status'] = __('Status', 'tmwseo');
+        if ( $this->has_sources ) { $columns['sources'] = __('Sources', 'tmwseo'); }
+        elseif ( $this->has_source ) { $columns['source'] = __('Source', 'tmwseo'); }
+        $columns[ $this->has_updated_at ? 'updated_at' : 'created_at' ] = $this->has_updated_at ? __('Updated', 'tmwseo') : __('Created', 'tmwseo');
+
+        return $columns;
     }
 
     public function get_sortable_columns(): array {
@@ -58,11 +89,26 @@ class KeywordsTable extends \WP_List_Table {
             'status'     => ['status', false],
             'created_at' => ['created_at', false],
         ];
+        if ( $this->has_intent_type ) {
+            $columns['intent_type'] = [ 'intent_type', false ];
+        }
+        if ( $this->has_updated_at ) {
+            $columns['updated_at'] = [ 'updated_at', false ];
+        }
         if ( $this->has_cpc ) {
             $columns['cpc'] = [ 'cpc', false ];
         }
+        if ( $this->has_competition ) {
+            $columns['competition'] = [ 'competition', false ];
+        }
+        if ( $this->has_seo_score ) {
+            $columns['seo_score'] = [ 'seo_score', false ];
+        }
         if ( $this->has_opportunity ) {
             $columns['opportunity'] = [ 'opportunity', false ];
+        }
+        if ( $this->has_traffic_value ) {
+            $columns['traffic_value'] = [ 'traffic_value', false ];
         }
         return $columns;
     }
@@ -125,8 +171,24 @@ class KeywordsTable extends \WP_List_Table {
                 : 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#6b7280;font-weight:600;';
             return '<span style="' . esc_attr( $style ) . '">' . esc_html( (string) $volume ) . '</span>';
         }
-        if ( in_array( $column_name, [ 'difficulty', 'cpc' ], true ) && ( $value === null || $value === '' || (float) $value <= 0.0 ) ) {
+        if ( in_array( $column_name, [ 'difficulty', 'cpc', 'competition', 'opportunity', 'seo_score', 'traffic_value' ], true ) && ( $value === null || $value === '' || (float) $value <= 0.0 ) ) {
             return '&mdash;';
+        }
+        if ( in_array( $column_name, [ 'cpc', 'traffic_value' ], true ) ) {
+            return esc_html( number_format( (float) $value, 2 ) );
+        }
+        if ( in_array( $column_name, [ 'difficulty', 'competition', 'opportunity', 'seo_score' ], true ) ) {
+            return esc_html( rtrim( rtrim( number_format( (float) $value, 4 ), '0' ), '.' ) );
+        }
+        if ( in_array( $column_name, [ 'sources', 'source' ], true ) ) {
+            $source_text = is_string( $value ) ? $value : '';
+            if ( $source_text === '' ) {
+                return '&mdash;';
+            }
+            if ( strlen( $source_text ) > 120 ) {
+                $source_text = substr( $source_text, 0, 117 ) . '...';
+            }
+            return '<code>' . esc_html( $source_text ) . '</code>';
         }
         if ($column_name === 'status') {
             $status = strtolower((string) $value);
@@ -149,9 +211,18 @@ class KeywordsTable extends \WP_List_Table {
         $column_names = array_map( static fn( $c ) => (string) ( $c['Field'] ?? '' ), (array) $columns_info );
         $has_created_at         = in_array( 'created_at', $column_names, true );
         $has_updated_at         = in_array( 'updated_at', $column_names, true );
-        $this->has_page_type   = in_array( 'page_type', $column_names, true );
-        $this->has_opportunity = in_array( 'opportunity', $column_names, true );
-        $this->has_cpc         = in_array( 'cpc', $column_names, true );
+        $this->has_page_type     = in_array( 'page_type', $column_names, true );
+        $this->has_intent_type   = in_array( 'intent_type', $column_names, true );
+        $this->has_entity_type   = in_array( 'entity_type', $column_names, true );
+        $this->has_entity_id     = in_array( 'entity_id', $column_names, true );
+        $this->has_opportunity   = in_array( 'opportunity', $column_names, true );
+        $this->has_seo_score     = in_array( 'seo_score', $column_names, true );
+        $this->has_traffic_value = in_array( 'traffic_value', $column_names, true );
+        $this->has_cpc           = in_array( 'cpc', $column_names, true );
+        $this->has_competition   = in_array( 'competition', $column_names, true );
+        $this->has_source        = in_array( 'source', $column_names, true );
+        $this->has_sources       = in_array( 'sources', $column_names, true );
+        $this->has_updated_at    = $has_updated_at;
 
         $date_column = 'id';
         if ( $has_created_at ) {
@@ -169,7 +240,10 @@ class KeywordsTable extends \WP_List_Table {
 
         $allowed_orderby = [ 'keyword', 'volume', 'difficulty', 'kd', 'intent', 'status', 'created_at', 'updated_at' ];
         if ( $this->has_cpc ) { $allowed_orderby[] = 'cpc'; }
+        if ( $this->has_competition ) { $allowed_orderby[] = 'competition'; }
+        if ( $this->has_seo_score ) { $allowed_orderby[] = 'seo_score'; }
         if ( $this->has_opportunity ) { $allowed_orderby[] = 'opportunity'; }
+        if ( $this->has_traffic_value ) { $allowed_orderby[] = 'traffic_value'; }
         $orderby = isset( $_GET['orderby'] ) ? sanitize_key( (string) $_GET['orderby'] ) : 'created_at';
         if ( ! in_array( $orderby, $allowed_orderby, true ) ) {
             $orderby = 'created_at';
@@ -182,13 +256,13 @@ class KeywordsTable extends \WP_List_Table {
         }
 
         $search = isset( $_REQUEST['s'] ) ? sanitize_text_field( wp_unslash( (string) $_REQUEST['s'] ) ) : '';
-        $numeric_filters = [ 'min_volume', 'max_volume', 'min_kd', 'max_kd', 'min_cpc', 'max_cpc' ];
+        $numeric_filters = [ 'min_volume', 'max_volume', 'min_kd', 'max_kd', 'min_cpc', 'max_cpc', 'max_competition', 'min_opportunity', 'min_seo_score' ];
         foreach ( $numeric_filters as $key ) {
             if ( isset( $_GET[ $key ] ) && $_GET[ $key ] !== '' ) {
                 $this->active_filters[ $key ] = is_numeric( $_GET[ $key ] ) ? (float) $_GET[ $key ] : '';
             }
         }
-        foreach ( [ 'status', 'intent', 'orderby', 'order', 's' ] as $key ) {
+        foreach ( [ 'status', 'intent', 'intent_type', 'orderby', 'order', 's' ] as $key ) {
             if ( isset( $_GET[ $key ] ) && $_GET[ $key ] !== '' ) { $this->active_filters[ $key ] = sanitize_text_field( (string) $_GET[ $key ] ); }
         }
         foreach ( [ 'hide_zero_volume', 'has_volume', 'has_kd', 'has_cpc' ] as $key ) {
@@ -215,7 +289,10 @@ class KeywordsTable extends \WP_List_Table {
             $conditions[] = 'status = %s';
             $where_args[] = (string) $this->active_filters['status'];
         }
-        if ( isset( $this->active_filters['intent'] ) ) {
+        if ( $this->has_intent_type && isset( $this->active_filters['intent_type'] ) ) {
+            $conditions[] = 'intent_type = %s';
+            $where_args[] = (string) $this->active_filters['intent_type'];
+        } elseif ( isset( $this->active_filters['intent'] ) ) {
             $conditions[] = 'intent = %s';
             $where_args[] = (string) $this->active_filters['intent'];
         }
@@ -232,6 +309,9 @@ class KeywordsTable extends \WP_List_Table {
         if ( $this->has_cpc && isset( $this->active_filters['min_cpc'] ) ) { $conditions[] = 'CAST(cpc AS DECIMAL(10,4)) >= %f'; $where_args[] = (float) $this->active_filters['min_cpc']; }
         if ( $this->has_cpc && isset( $this->active_filters['max_cpc'] ) ) { $conditions[] = 'CAST(cpc AS DECIMAL(10,4)) <= %f'; $where_args[] = (float) $this->active_filters['max_cpc']; }
         if ( $this->has_cpc && isset( $this->active_filters['has_cpc'] ) ) { $conditions[] = 'cpc IS NOT NULL AND cpc <> "" AND CAST(cpc AS DECIMAL(10,4)) > 0'; }
+        if ( $this->has_competition && isset( $this->active_filters['max_competition'] ) ) { $conditions[] = 'CAST(competition AS DECIMAL(10,4)) <= %f'; $where_args[] = (float) $this->active_filters['max_competition']; }
+        if ( $this->has_opportunity && isset( $this->active_filters['min_opportunity'] ) ) { $conditions[] = 'CAST(opportunity AS DECIMAL(10,4)) >= %f'; $where_args[] = (float) $this->active_filters['min_opportunity']; }
+        if ( $this->has_seo_score && isset( $this->active_filters['min_seo_score'] ) ) { $conditions[] = 'CAST(seo_score AS DECIMAL(10,2)) >= %f'; $where_args[] = (float) $this->active_filters['min_seo_score']; }
 
         $where_sql = $conditions !== [] ? ' WHERE ' . implode( ' AND ', $conditions ) : '';
 
@@ -247,19 +327,25 @@ class KeywordsTable extends \WP_List_Table {
         $order_sql = match ( $orderby ) {
             'volume'      => 'CAST(volume AS UNSIGNED) ' . $order . ', ' . $date_column . ' DESC',
             'difficulty'  => ( $order === 'ASC' ) ? 'CAST(difficulty AS DECIMAL(10,2)) ASC, CAST(volume AS UNSIGNED) DESC' : 'CAST(difficulty AS DECIMAL(10,2)) DESC',
-            'cpc'         => $this->has_cpc ? 'CAST(cpc AS DECIMAL(10,4)) ' . $order : $date_column . ' ' . $order,
-            'opportunity' => $this->has_opportunity ? 'CAST(opportunity AS DECIMAL(10,4)) ' . $order . ', CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC' : 'CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC',
+            'cpc'           => $this->has_cpc ? 'CAST(cpc AS DECIMAL(10,4)) ' . $order : $date_column . ' ' . $order,
+            'competition'   => $this->has_competition ? 'CAST(competition AS DECIMAL(10,4)) ' . $order . ', CAST(volume AS UNSIGNED) DESC' : $date_column . ' ' . $order,
+            'seo_score'     => $this->has_seo_score ? 'CAST(seo_score AS DECIMAL(10,2)) ' . $order . ', CAST(volume AS UNSIGNED) DESC' : $date_column . ' ' . $order,
+            'opportunity'   => $this->has_opportunity ? 'CAST(opportunity AS DECIMAL(10,4)) ' . $order . ', CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC' : 'CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC',
+            'traffic_value' => $this->has_traffic_value ? 'CAST(traffic_value AS DECIMAL(14,2)) ' . $order . ', CAST(volume AS UNSIGNED) DESC' : $date_column . ' ' . $order,
             'keyword'     => 'keyword ' . $order,
             'status'      => 'status ' . $order,
             'intent'      => 'intent ' . $order,
+            'intent_type' => $this->has_intent_type ? 'intent_type ' . $order : 'intent ' . $order,
             'created_at'  => $date_column . ' ' . $order,
             'updated_at'  => $has_updated_at ? 'updated_at ' . $order : $date_column . ' ' . $order,
             default       => $date_column . ' DESC',
         };
 
         $select_columns = [ 'id', 'keyword', 'volume', 'difficulty', 'intent', 'status' ];
-        if ( $this->has_cpc ) {
-            $select_columns[] = 'cpc';
+        foreach ( [ 'intent_type', 'entity_type', 'entity_id', 'cpc', 'competition', 'seo_score', 'opportunity', 'traffic_value', 'source', 'sources' ] as $optional_column ) {
+            if ( in_array( $optional_column, $column_names, true ) ) {
+                $select_columns[] = $optional_column;
+            }
         }
         if ( $has_created_at ) {
             $select_columns[] = 'created_at';
@@ -268,8 +354,8 @@ class KeywordsTable extends \WP_List_Table {
         } else {
             $select_columns[] = 'id AS created_at';
         }
-        if ( $this->has_opportunity ) {
-            $select_columns[] = 'opportunity';
+        if ( $has_updated_at ) {
+            $select_columns[] = 'updated_at';
         }
 
         $sql          = 'SELECT ' . implode( ', ', $select_columns ) . " FROM {$table}{$where_sql} ORDER BY {$order_sql} LIMIT %d OFFSET %d";
