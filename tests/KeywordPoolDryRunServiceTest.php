@@ -39,6 +39,47 @@ class KeywordPoolDryRunServiceTest extends TestCase {
         $this->assertContains('invalid_competition', $row['reason_codes']);
     }
 
+
+    public function test_blank_ad_difficulty_does_not_add_invalid_warning(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,Ad Difficulty\nasian cam models,\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertNull($row['ad_difficulty']);
+        $this->assertNotContains('invalid_ad_difficulty', $row['reason_codes']);
+    }
+
+    public function test_missing_ad_difficulty_does_not_add_invalid_warning(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run([ [ 'keyword' => 'asian cam models' ] ], 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertNull($row['ad_difficulty']);
+        $this->assertNotContains('invalid_ad_difficulty', $row['reason_codes']);
+    }
+
+    public function test_whitespace_ad_difficulty_does_not_add_invalid_warning(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run([ [ 'keyword' => 'asian cam models', 'ad_difficulty' => " \t\n\xc2\xa0 " ] ], 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertNull($row['ad_difficulty']);
+        $this->assertNotContains('invalid_ad_difficulty', $row['reason_codes']);
+    }
+
+    public function test_non_numeric_ad_difficulty_adds_invalid_warning(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,Ad Difficulty\nasian cam models,abc\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertNull($row['ad_difficulty']);
+        $this->assertContains('invalid_ad_difficulty', $row['reason_codes']);
+    }
+
+    public function test_numeric_ad_difficulty_is_accepted_without_invalid_warning(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,Ad Difficulty\nasian cam models,17.5\n"), 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertSame(17.5, $row['ad_difficulty']);
+        $this->assertNotContains('invalid_ad_difficulty', $row['reason_codes']);
+    }
+
     public function test_status_normalization_and_unknown_status_fallback(): void {
         $service = new KeywordPoolDryRunService();
         $known   = $service->dry_run($this->parse("keyword,status\nLexy Ness webcam model,queued for review\n"), 'model');
