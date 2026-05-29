@@ -106,6 +106,7 @@ class KeywordPoolDryRunService {
             $preview_row['golden_formula_summary']  = $this->golden_formula_summary();
             $preview_row['recommended_action']      = $this->recommended_action($preview_row);
             $preview_row['reason_summary']          = $this->summarize_reasons($preview_row['reason_codes']);
+            $preview_row = array_merge($preview_row, (new KeywordPoolMetricsScorer())->score($preview_row, $pool));
             $preview[]                         = $preview_row;
 
             ++$summary['total_rows'];
@@ -173,8 +174,10 @@ class KeywordPoolDryRunService {
             'cpc'                    => $this->normalize_metric($row['cpc'] ?? '', 'cpc', $reason_codes),
             'competition'            => $this->normalize_metric($row['competition'] ?? '', 'competition', $reason_codes),
             'seo_score'              => $this->normalize_metric($row['seo_score'] ?? '', 'seo_score', $reason_codes),
+            'opportunity_score'      => $this->normalize_metric($row['opportunity_score'] ?? '', 'opportunity_score', $reason_codes),
             'traffic_value'          => $this->normalize_metric($row['traffic_value'] ?? '', 'traffic_value', $reason_codes),
             'trend'                  => $this->clean_text($row['trend'] ?? ''),
+            'trend_direction'        => $this->clean_text($row['trend_direction'] ?? ''),
             'ad_difficulty'          => $this->normalize_metric($row['ad_difficulty'] ?? '', 'ad_difficulty', $reason_codes),
             'intent'                 => $this->normalize_token($row['intent'] ?? ''),
             'source'                 => $this->normalize_source($row['source'] ?? ''),
@@ -215,10 +218,11 @@ class KeywordPoolDryRunService {
         $preview['golden_missing_reasons']   = $this->golden_missing_reasons($preview);
         $preview['golden_formula_summary']   = $this->golden_formula_summary();
         $preview['commercial_score_preview'] = $this->commercial_score($preview);
+        $preview['kwe_opportunity_candidate'] = $this->is_kwe_opportunity_candidate($preview);
         $preview['recommended_action']       = $this->recommended_action($preview);
         $preview['reason_summary']           = $this->summarize_reasons($preview['reason_codes']);
 
-        return $preview;
+        return array_merge($preview, (new KeywordPoolMetricsScorer())->score($preview, $pool));
     }
     /**
      * @param array<string, mixed> $row Preview row.
@@ -430,6 +434,15 @@ class KeywordPoolDryRunService {
         }
 
         return 'P3';
+    }
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     */
+    private function is_kwe_opportunity_candidate(array $row): bool {
+        $seo_score = is_numeric($row['seo_score'] ?? null) ? (float) $row['seo_score'] : null;
+        $opportunity_score = is_numeric($row['opportunity_score'] ?? null) ? (float) $row['opportunity_score'] : null;
+        return (null !== $seo_score && $seo_score >= 60) || (null !== $opportunity_score && $opportunity_score >= 60);
     }
 
     /**
