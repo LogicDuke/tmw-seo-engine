@@ -49,7 +49,7 @@ class KeywordPoolDryRunServiceTest extends TestCase {
     }
 
     public function test_missing_ad_difficulty_does_not_add_invalid_warning(): void {
-        $result = (new KeywordPoolDryRunService())->dry_run([ [ 'keyword' => 'asian cam models' ] ], 'category');
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword\nasian cam models\n"), 'category');
         $row    = $result['rows'][0];
 
         $this->assertNull($row['ad_difficulty']);
@@ -58,6 +58,14 @@ class KeywordPoolDryRunServiceTest extends TestCase {
 
     public function test_whitespace_ad_difficulty_does_not_add_invalid_warning(): void {
         $result = (new KeywordPoolDryRunService())->dry_run([ [ 'keyword' => 'asian cam models', 'ad_difficulty' => " \t\n\xc2\xa0 " ] ], 'category');
+        $row    = $result['rows'][0];
+
+        $this->assertNull($row['ad_difficulty']);
+        $this->assertNotContains('invalid_ad_difficulty', $row['reason_codes']);
+    }
+
+    public function test_nan_ad_difficulty_blank_does_not_add_invalid_warning(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run([ [ 'keyword' => 'asian cam models', 'ad_difficulty' => NAN ] ], 'category');
         $row    = $result['rows'][0];
 
         $this->assertNull($row['ad_difficulty']);

@@ -579,7 +579,7 @@ class KeywordPoolsAdminPage {
      * @return array<int, string>
      */
     private static function row_to_preview_values(array $row): array {
-        $reasons = is_array($row['reason_codes'] ?? null) ? implode(' | ', array_map('strval', $row['reason_codes'])) : (string) ($row['reason_summary'] ?? '');
+        $reasons = is_array($row['reason_codes'] ?? null) ? implode(' | ', self::exportable_reason_codes($row)) : (string) ($row['reason_summary'] ?? '');
         $golden_missing_reasons = is_array($row['golden_missing_reasons'] ?? null) ? implode(' | ', array_map('strval', $row['golden_missing_reasons'])) : (string) ($row['golden_missing_reasons'] ?? '');
         return [
             (string) ($row['row_number'] ?? ''),
@@ -627,8 +627,39 @@ class KeywordPoolsAdminPage {
      * @return array<int, string>
      */
     private static function row_to_export_values(array $row): array {
-        $reason_codes = is_array($row['reason_codes'] ?? null) ? implode('|', array_map('strval', $row['reason_codes'])) : '';
+        $reason_codes = is_array($row['reason_codes'] ?? null) ? implode('|', self::exportable_reason_codes($row)) : '';
         return array_merge(self::row_to_preview_values($row), [ $reason_codes ]);
+    }
+
+    /**
+     * @param array<string, mixed> $row Preview row.
+     * @return array<int, string>
+     */
+    private static function exportable_reason_codes(array $row): array {
+        $reason_codes = is_array($row['reason_codes'] ?? null) ? array_map('strval', $row['reason_codes']) : [];
+        if (self::is_blank_optional_metric($row['ad_difficulty'] ?? null)) {
+            $reason_codes = array_values(array_filter(
+                $reason_codes,
+                static fn(string $reason): bool => 'invalid_ad_difficulty' !== $reason
+            ));
+        }
+
+        return $reason_codes;
+    }
+
+    private static function is_blank_optional_metric($value): bool {
+        if (null === $value) {
+            return true;
+        }
+        if (is_float($value) && is_nan($value)) {
+            return true;
+        }
+
+        $value = (string) $value;
+        $value = preg_replace('/[\p{Z}\s]+/u', ' ', $value) ?? $value;
+        $value = strtolower(trim($value));
+
+        return '' === $value || in_array($value, [ 'nan', 'n/a', 'na', 'null' ], true);
     }
 
 
