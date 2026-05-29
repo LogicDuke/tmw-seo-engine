@@ -11,6 +11,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
 use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
+use TMWSEO\Engine\Keywords\KeywordPoolSelectedImportService;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -24,6 +25,7 @@ class KeywordPoolsAdminPage {
     public const NONCE_ACTION = 'tmwseo_keyword_pools_dry_run';
     public const NONCE_FIELD = 'tmwseo_keyword_pools_nonce';
     public const EXPORT_ACTION = 'tmwseo_keyword_pools_export_preview';
+    public const SAVE_ACTION = 'tmwseo_keyword_pools_save_selected';
 
     /** @var array<int, string> */
     private const ALLOWED_POOLS = [ 'model', 'video', 'category' ];
@@ -43,7 +45,7 @@ class KeywordPoolsAdminPage {
     ];
 
     /**
-     * Register POST-only handlers that do not persist keyword rows.
+     * Register POST-only handlers.
      */
     public static function init(): void {
         add_action('admin_post_' . self::EXPORT_ACTION, [__CLASS__, 'handle_export']);
@@ -131,7 +133,7 @@ class KeywordPoolsAdminPage {
         } else {
             self::render_pool_tab($active_pool, (string) $state['csv_text']);
             if (is_array($state['parser_result']) && is_array($state['dry_run'])) {
-                self::render_preview($state['parser_result'], $state['dry_run']);
+                self::render_preview($active_pool, $state['parser_result'], $state['dry_run'], is_array($state['import_result']) ? $state['import_result'] : null);
             }
         }
 
@@ -197,9 +199,18 @@ class KeywordPoolsAdminPage {
             'parser_result' => null,
             'dry_run'       => null,
             'notices'       => [],
+            'import_result' => null,
         ];
 
-        if ('POST' !== (string) ($_SERVER['REQUEST_METHOD'] ?? '') || empty($_POST['tmwseo_keyword_pools_run_preview'])) {
+        if ('POST' !== (string) ($_SERVER['REQUEST_METHOD'] ?? '')) {
+            return $state;
+        }
+
+        if (!empty($_POST['tmwseo_keyword_pools_save_selected'])) {
+            return self::maybe_process_save_selected($active_pool, $state);
+        }
+
+        if (empty($_POST['tmwseo_keyword_pools_run_preview'])) {
             return $state;
         }
 
@@ -235,6 +246,59 @@ class KeywordPoolsAdminPage {
         return $state;
     }
 
+    /**
+     * @param array<string,mixed> $state
+     * @return array<string,mixed>
+     */
+    private static function maybe_process_save_selected(string &$active_pool, array $state): array {
+        check_admin_referer(self::NONCE_ACTION, self::NONCE_FIELD);
+        if (!current_user_can(self::CAPABILITY)) {
+            wp_die(esc_html(__('Unauthorized', 'tmwseo')));
+        }
+
+        $active_pool = self::sanitize_pool((string) ($_POST['tmwseo_keyword_pool'] ?? 'model'));
+        if (!in_array($active_pool, self::ALLOWED_POOLS, true)) {
+            $active_pool = 'model';
+        }
+
+        $payload = isset($_POST['tmwseo_keyword_pools_save_payload']) ? (string) wp_unslash($_POST['tmwseo_keyword_pools_save_payload']) : '';
+        $decoded = self::decode_signed_payload($payload);
+        if (!is_array($decoded) || ($decoded['pool'] ?? '') !== $active_pool) {
+            $state['notices'][] = [ 'type' => 'error', 'text' => 'Save failed because the dry-run payload was missing, expired, or did not match the selected pool.' ];
+            return $state;
+        }
+
+        $parser_result = is_array($decoded['parser_result'] ?? null) ? $decoded['parser_result'] : null;
+        if (!is_array($parser_result)) {
+            $state['notices'][] = [ 'type' => 'error', 'text' => 'Save failed because the original parsed dry-run rows were unavailable.' ];
+            return $state;
+        }
+
+        $dry_run = (new KeywordPoolDryRunService())->dry_run($parser_result, $active_pool);
+        $selected = isset($_POST['tmwseo_keyword_pool_selected_rows']) && is_array($_POST['tmwseo_keyword_pool_selected_rows']) ? array_map('intval', (array) wp_unslash($_POST['tmwseo_keyword_pool_selected_rows'])) : [];
+        $save_mode = isset($_POST['tmwseo_keyword_pool_save_mode']) ? (string) wp_unslash($_POST['tmwseo_keyword_pool_save_mode']) : 'auto';
+        $import_result = (new KeywordPoolSelectedImportService())->save_selected($dry_run, $active_pool, $selected, $save_mode);
+
+        $state['parser_result'] = $parser_result;
+        $state['dry_run'] = $dry_run;
+        $state['import_result'] = $import_result;
+        $summary = is_array($import_result['summary'] ?? null) ? $import_result['summary'] : [];
+        $state['notices'][] = [
+            'type' => empty($summary['errors']) && empty($summary['conflicts']) ? 'success' : 'warning',
+            'text' => sprintf(
+                'Save selected complete: %d selected, %d inserted, %d updated, %d skipped, %d conflicts, %d blocked, %d errors.',
+                (int) ($summary['selected'] ?? 0),
+                (int) ($summary['inserted'] ?? 0),
+                (int) ($summary['updated'] ?? 0),
+                (int) ($summary['skipped'] ?? 0),
+                (int) ($summary['conflicts'] ?? 0),
+                (int) ($summary['blocked'] ?? 0),
+                (int) ($summary['errors'] ?? 0)
+            ),
+        ];
+        return $state;
+    }
+
     private static function read_upload_path(): string {
         if (empty($_FILES['tmwseo_keyword_pools_csv_file']) || !is_array($_FILES['tmwseo_keyword_pools_csv_file'])) {
             return '';
@@ -251,8 +315,8 @@ class KeywordPoolsAdminPage {
     }
 
     private static function render_intro_notice(): void {
-        echo '<div class="notice notice-warning"><p><strong>' . esc_html(__('Dry-run preview only.', 'tmwseo')) . '</strong> ';
-        echo esc_html(__('This tool does not save keywords, does not write Rank Math fields, does not change post content, does not change Generate output, and does not change indexing/noindex.', 'tmwseo'));
+        echo '<div class="notice notice-warning"><p><strong>' . esc_html(__('Dry-run first workflow.', 'tmwseo')) . '</strong> ';
+        echo esc_html(__('Dry-run preview does not save keywords. Save Selected Keywords stores only explicitly selected safe rows in the review pool; it does not write Rank Math fields, does not change post content, does not change Generate output, and does not change indexing/noindex.', 'tmwseo'));
         echo '</p></div>';
     }
 
@@ -310,13 +374,16 @@ class KeywordPoolsAdminPage {
      * @param array<string, mixed> $parser_result Parser result.
      * @param array<string, mixed> $dry_run Dry-run result.
      */
-    private static function render_preview(array $parser_result, array $dry_run): void {
+    private static function render_preview(string $pool, array $parser_result, array $dry_run, ?array $import_result = null): void {
         echo '<hr />';
-        echo '<div class="notice notice-error inline"><p><strong>' . esc_html(__('Preview only: no keywords were saved, no Rank Math fields were written, and no content was changed.', 'tmwseo')) . '</strong></p></div>';
+        echo '<div class="notice notice-warning inline"><p><strong>' . esc_html(__('Save safety boundary:', 'tmwseo')) . '</strong> ' . esc_html(__('Saving selected keywords stores them in the review pool only. It does not write Rank Math, does not change content, does not change slugs, does not call Generate, and does not change indexing/noindex.', 'tmwseo')) . '</p></div>';
         self::render_summary_cards($parser_result, $dry_run);
         self::render_parser_messages($parser_result);
+        if (is_array($import_result)) {
+            self::render_import_result($import_result);
+        }
         self::render_export_form($dry_run);
-        self::render_preview_table($dry_run['rows'] ?? []);
+        self::render_save_selected_form($pool, $parser_result, $dry_run);
     }
 
     /**
@@ -412,25 +479,51 @@ class KeywordPoolsAdminPage {
     }
 
     /**
-     * @param array<int, mixed> $rows Rows.
+     * @param string $pool Active keyword pool.
+     * @param array<string, mixed> $parser_result Parser result used to rebuild the dry run.
+     * @param array<string, mixed> $dry_run Current dry-run result.
      */
-    private static function render_preview_table(array $rows): void {
+    private static function render_save_selected_form(string $pool, array $parser_result, array $dry_run): void {
+        $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
         echo '<h2>' . esc_html(__('Preview Rows', 'tmwseo')) . '</h2>';
         if ([] === $rows) {
             echo '<p>' . esc_html(__('No preview rows are available.', 'tmwseo')) . '</p>';
             return;
         }
 
-        echo '<div style="overflow:auto;max-width:100%;"><table class="widefat striped"><thead><tr>';
+        $payload = self::encode_signed_payload([ 'pool' => $pool, 'parser_result' => $parser_result, 'generated_at' => time() ]);
+        echo '<form method="post">';
+        echo '<input type="hidden" name="' . esc_attr(self::NONCE_FIELD) . '" value="' . esc_attr(wp_create_nonce(self::NONCE_ACTION)) . '" />';
+        echo '<input type="hidden" name="tmwseo_keyword_pool" value="' . esc_attr($pool) . '" />';
+        echo '<input type="hidden" name="tmwseo_keyword_pools_save_payload" value="' . esc_attr($payload) . '" />';
+        echo '<p><button type="button" class="button" onclick="document.querySelectorAll(\'.tmwseo-keyword-row-p1:not(:disabled)\').forEach(function(c){c.checked=true;});">' . esc_html(__('Select all P1', 'tmwseo')) . '</button> ';
+        echo '<button type="button" class="button" onclick="document.querySelectorAll(\'.tmwseo-keyword-row-golden:not(:disabled)\').forEach(function(c){c.checked=true;});">' . esc_html(__('Select all Golden', 'tmwseo')) . '</button> ';
+        echo '<button type="button" class="button" onclick="document.querySelectorAll(\'.tmwseo-keyword-row-approve:not(:disabled)\').forEach(function(c){c.checked=true;});">' . esc_html(__('Select all Approve Candidates', 'tmwseo')) . '</button> ';
+        echo '<button type="button" class="button" onclick="document.querySelectorAll(\'.tmwseo-keyword-row-select\').forEach(function(c){c.checked=false;});">' . esc_html(__('Clear selection', 'tmwseo')) . '</button></p>';
+        echo '<p><label for="tmwseo_keyword_pool_save_mode"><strong>' . esc_html(__('Save selected as:', 'tmwseo')) . '</strong></label> ';
+        echo '<select id="tmwseo_keyword_pool_save_mode" name="tmwseo_keyword_pool_save_mode">';
+        echo '<option value="auto">' . esc_html(__('Auto by recommendation', 'tmwseo')) . '</option>';
+        echo '<option value="queued_for_review">' . esc_html(__('queued_for_review', 'tmwseo')) . '</option>';
+        echo '<option value="approved">' . esc_html(__('approved', 'tmwseo')) . '</option>';
+        echo '</select></p>';
+        echo '<div style="overflow:auto;max-width:100%;"><table class="widefat striped"><thead><tr><th>' . esc_html(__('Save?', 'tmwseo')) . '</th>';
         foreach (self::preview_columns() as $header) {
             echo '<th>' . esc_html($header) . '</th>';
         }
         echo '</tr></thead><tbody>';
+        $import_service = new KeywordPoolSelectedImportService();
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
-            echo '<tr>';
+            $eligible = $import_service->is_row_eligible($row, $pool);
+            $classes = [ 'tmwseo-keyword-row-select' ];
+            if ('P1' === (string) ($row['priority_preview'] ?? '')) { $classes[] = 'tmwseo-keyword-row-p1'; }
+            if (!empty($row['is_golden_keyword'])) { $classes[] = 'tmwseo-keyword-row-golden'; }
+            if ('approve_candidate' === (string) ($row['recommended_action'] ?? '')) { $classes[] = 'tmwseo-keyword-row-approve'; }
+            echo '<tr><td>';
+            echo '<input type="checkbox" class="' . esc_attr(implode(' ', $classes)) . '" name="tmwseo_keyword_pool_selected_rows[]" value="' . esc_attr((string) (int) ($row['row_number'] ?? 0)) . '" ' . disabled(!$eligible, true, false) . ' />';
+            echo '</td>';
             foreach (self::row_to_preview_values($row) as $index => $value) {
                 if (25 === $index && '' !== $value) {
                     echo '<td><a href="' . esc_url($value) . '" target="_blank" rel="noopener noreferrer">' . esc_html($value) . '</a></td>';
@@ -441,6 +534,35 @@ class KeywordPoolsAdminPage {
             echo '</tr>';
         }
         echo '</tbody></table></div>';
+        echo '<div class="notice notice-warning inline"><p><strong>' . esc_html(__('Operational safety:', 'tmwseo')) . '</strong> ' . esc_html(__('Saving selected keywords stores them in the review pool only. It does not write Rank Math, does not change content, does not change slugs, does not call Generate, and does not change indexing/noindex.', 'tmwseo')) . '</p></div>';
+        echo '<p><button type="submit" class="button button-primary" name="tmwseo_keyword_pools_save_selected" value="1">' . esc_html(__('Save Selected Keywords', 'tmwseo')) . '</button></p>';
+        echo '</form>';
+    }
+
+    /**
+     * @param array<string,mixed> $import_result Import result.
+     */
+    private static function render_import_result(array $import_result): void {
+        $summary = is_array($import_result['summary'] ?? null) ? $import_result['summary'] : [];
+        echo '<h2>' . esc_html(__('Import Result', 'tmwseo')) . '</h2>';
+        echo '<p>' . esc_html(sprintf('Selected: %d. Inserted: %d. Updated: %d. Skipped: %d. Conflicts: %d. Blocked: %d. Errors: %d.', (int) ($summary['selected'] ?? 0), (int) ($summary['inserted'] ?? 0), (int) ($summary['updated'] ?? 0), (int) ($summary['skipped'] ?? 0), (int) ($summary['conflicts'] ?? 0), (int) ($summary['blocked'] ?? 0), (int) ($summary['errors'] ?? 0))) . '</p>';
+        $rows = is_array($import_result['rows'] ?? null) ? $import_result['rows'] : [];
+        if ([] === $rows) {
+            return;
+        }
+        $headers = [ 'Keyword', 'Pool', 'Status', 'Action', 'Reason', 'Volume', 'CPC', 'Competition', 'SEO Score', 'Traffic Value', 'Entity Type', 'Entity ID' ];
+        echo '<table class="widefat striped"><thead><tr>';
+        foreach ($headers as $header) { echo '<th>' . esc_html($header) . '</th>'; }
+        echo '</tr></thead><tbody>';
+        foreach ($rows as $row) {
+            if (!is_array($row)) { continue; }
+            echo '<tr>';
+            foreach ([ 'keyword', 'pool', 'status', 'action', 'reason', 'volume', 'cpc', 'competition', 'seo_score', 'traffic_value', 'entity_type', 'entity_id' ] as $key) {
+                echo '<td>' . esc_html(self::metric_to_string($row[$key] ?? '')) . '</td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
     }
 
     /**
@@ -490,6 +612,44 @@ class KeywordPoolsAdminPage {
     private static function row_to_export_values(array $row): array {
         $reason_codes = is_array($row['reason_codes'] ?? null) ? implode('|', array_map('strval', $row['reason_codes'])) : '';
         return array_merge(self::row_to_preview_values($row), [ $reason_codes ]);
+    }
+
+
+    /** @param array<string,mixed> $payload */
+    private static function encode_signed_payload(array $payload): string {
+        $json = (string) wp_json_encode($payload);
+        $body = base64_encode($json);
+        $signature = hash_hmac('sha256', $body, self::payload_secret());
+        return $body . '.' . $signature;
+    }
+
+    /** @return array<string,mixed>|null */
+    private static function decode_signed_payload(string $payload): ?array {
+        $parts = explode('.', $payload, 2);
+        if (2 !== count($parts)) {
+            return null;
+        }
+        [ $body, $signature ] = $parts;
+        $expected = hash_hmac('sha256', $body, self::payload_secret());
+        if (!hash_equals($expected, $signature)) {
+            return null;
+        }
+        $decoded = json_decode(base64_decode($body, true) ?: '', true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+        $generated_at = (int) ($decoded['generated_at'] ?? 0);
+        if ($generated_at > 0 && (time() - $generated_at) > HOUR_IN_SECONDS) {
+            return null;
+        }
+        return $decoded;
+    }
+
+    private static function payload_secret(): string {
+        if (function_exists('wp_salt')) {
+            return wp_salt('auth') . self::NONCE_ACTION;
+        }
+        return self::NONCE_ACTION;
     }
 
     private static function metric_to_string($value): string {
