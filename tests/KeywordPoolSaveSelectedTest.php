@@ -456,6 +456,61 @@ free video chat,1200,2.50,0.10,75
         $this->assertFalse($service->is_row_eligible($dryRun['rows'][1], 'category'));
     }
 
+
+    public function test_full_batch_updates_existing_unlinked_personal_model_keyword_row(): void {
+        $existing = [
+            'id' => 601,
+            'keyword' => 'anisyia',
+            'intent_type' => 'model',
+            'entity_type' => 'model',
+            'entity_id' => 0,
+            'status' => 'approved',
+            'volume' => 12100,
+            'sources' => '{"personal_model_keyword_csv":true,"model_keyword_owner":"anisyia","model_keyword_usage_scope":"model_bio_only","model_keyword_primary_candidate":"yes"}',
+            'notes' => '{"manual_note":"keep"}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp601_upsert_', true, null, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+", 'model');
+
+        $result = $this->serviceWithModelPosts([ $this->modelPost(4457, 'Anisyia', 'anisyia') ])->save_full_reviewed_model_batch($dryRun);
+
+        $this->assertSame(1, $result['summary']['updated']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame(4457, $wpdb->candidate_updates[0]['data']['entity_id']);
+        $this->assertSame('approved', $wpdb->candidate_updates[0]['data']['status']);
+        $this->assertStringContainsString('model_entity_resolved', $wpdb->candidate_updates[0]['data']['sources']);
+        $this->assertStringContainsString('keep', $wpdb->candidate_updates[0]['data']['notes']);
+    }
+
+    public function test_full_batch_does_not_overwrite_keyword_linked_to_different_model(): void {
+        $existing = [
+            'id' => 602,
+            'keyword' => 'anisyia',
+            'intent_type' => 'model',
+            'entity_type' => 'model',
+            'entity_id' => 9999,
+            'status' => 'approved',
+            'sources' => '{"personal_model_keyword_csv":true,"model_keyword_owner":"othermodel","model_keyword_usage_scope":"model_bio_only"}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp601_conflict_', true, null, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+", 'model');
+
+        $result = $this->serviceWithModelPosts([ $this->modelPost(4457, 'Anisyia', 'anisyia') ])->save_full_reviewed_model_batch($dryRun);
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('conflict', $result['rows'][0]['action']);
+        $this->assertStringContainsString('keyword_owner_conflict', $result['rows'][0]['reason']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
     public function test_save_selected_does_not_write_rank_math_posts_or_generate(): void {
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_safe_', true);
         $GLOBALS['wpdb'] = $wpdb;

@@ -129,6 +129,7 @@ class KeywordsTable extends \WP_List_Table {
             'tmwseo_kw_bulk_approve' => __( 'Approve', 'tmwseo' ),
             'tmwseo_kw_bulk_reject'  => __( 'Reject', 'tmwseo' ),
             'tmwseo_kw_bulk_delete'  => __( 'Delete', 'tmwseo' ),
+            'tmwseo_kw_resolve_model_entities' => __( 'Resolve selected model keyword entities', 'tmwseo' ),
         ];
     }
 
@@ -600,7 +601,7 @@ class KeywordsTable extends \WP_List_Table {
             'tmwseo_kw_bulk_reject'  => 'ignored',
         ];
 
-        if ( ! $action || ( ! isset( $action_map[ $action ] ) && $action !== 'tmwseo_kw_bulk_delete' ) ) {
+        if ( ! $action || ( ! isset( $action_map[ $action ] ) && ! in_array( $action, [ 'tmwseo_kw_bulk_delete', 'tmwseo_kw_resolve_model_entities' ], true ) ) ) {
             return;
         }
 
@@ -617,6 +618,9 @@ class KeywordsTable extends \WP_List_Table {
                 $wpdb->update( $table, [ 'status' => $action_map[ $action ] ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
             } elseif ( $action === 'tmwseo_kw_bulk_delete' ) {
                 $wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] );
+            } elseif ( $action === 'tmwseo_kw_resolve_model_entities' && class_exists( '\\TMWSEO\\Engine\\Keywords\\ModelKeywordEntityRepairService' ) ) {
+                ( new \TMWSEO\Engine\Keywords\ModelKeywordEntityRepairService() )->resolve_selected( $ids );
+                return;
             }
         }
     }

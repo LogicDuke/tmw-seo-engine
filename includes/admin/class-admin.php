@@ -3781,7 +3781,7 @@ class Admin {
             $active_filters = $keywords_table->get_active_filters();
             echo '<div class="notice notice-info inline" style="margin:0 0 12px;"><p>' . esc_html__( 'Keyword candidates are stored in wp_tmw_keyword_candidates. This page is for reviewing saved keyword candidates only. Editing here does not write Rank Math, post content, Generate output, or indexing/noindex.', 'tmwseo' ) . '</p></div>';
             if ( $unlinked_model_keyword_count > 0 ) {
-                echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>' . esc_html__( 'Unlinked model keywords:', 'tmwseo' ) . '</strong> ' . esc_html( sprintf( _n( '%d approved model keyword has Entity ID 0 and cannot be used for bio automation until linked to a model entity.', '%d approved model keywords have Entity ID 0 and cannot be used for bio automation until linked to a model entity.', $unlinked_model_keyword_count, 'tmwseo' ), $unlinked_model_keyword_count ) ) . '</p></div>';
+                echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>' . esc_html__( 'Unlinked model keywords:', 'tmwseo' ) . '</strong> ' . esc_html__( 'Approved model keywords with Entity ID 0 cannot be used for bio automation until linked.', 'tmwseo' ) . ' ' . esc_html( sprintf( _n( '%d approved row currently needs linking.', '%d approved rows currently need linking.', $unlinked_model_keyword_count, 'tmwseo' ), $unlinked_model_keyword_count ) ) . '</p></div>';
             }
 
             echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
@@ -3876,7 +3876,13 @@ class Admin {
             if ( isset( $_GET['tmwseo_notice'] ) ) {
                 $bulk_notice = sanitize_key( (string) $_GET['tmwseo_notice'] );
                 $bulk_count  = isset( $_GET['tmwseo_bulk_count'] ) ? max( 0, (int) $_GET['tmwseo_bulk_count'] ) : 0;
-                if ( in_array( $bulk_notice, [ 'kw_bulk_approved', 'kw_bulk_rejected', 'kw_bulk_deleted', 'kw_bulk_empty', 'kw_bulk_unauthorized' ], true ) ) {
+                if ( 'kw_model_entity_repair_done' === $bulk_notice ) {
+                    $selected = isset( $_GET['tmwseo_repair_selected'] ) ? max( 0, (int) $_GET['tmwseo_repair_selected'] ) : 0;
+                    $linked = isset( $_GET['tmwseo_repair_linked'] ) ? max( 0, (int) $_GET['tmwseo_repair_linked'] ) : 0;
+                    $unresolved = isset( $_GET['tmwseo_repair_unresolved'] ) ? max( 0, (int) $_GET['tmwseo_repair_unresolved'] ) : 0;
+                    $ambiguous = isset( $_GET['tmwseo_repair_ambiguous'] ) ? max( 0, (int) $_GET['tmwseo_repair_ambiguous'] ) : 0;
+                    echo '<div class="notice notice-success is-dismissible inline" style="margin:0 0 12px;"><p>' . esc_html( sprintf( __( 'Resolve selected complete: %1$d selected, %2$d linked, %3$d unresolved, %4$d ambiguous.', 'tmwseo' ), $selected, $linked, $unresolved, $ambiguous ) ) . '</p></div>';
+                } elseif ( in_array( $bulk_notice, [ 'kw_bulk_approved', 'kw_bulk_rejected', 'kw_bulk_deleted', 'kw_bulk_empty', 'kw_bulk_unauthorized' ], true ) ) {
                     $bulk_msg = match ( $bulk_notice ) {
                         'kw_bulk_approved'   => sprintf( _n( '%d keyword approved.', '%d keywords approved.', $bulk_count, 'tmwseo' ), $bulk_count ),
                         'kw_bulk_rejected'   => sprintf( _n( '%d keyword rejected (set to ignored).', '%d keywords rejected (set to ignored).', $bulk_count, 'tmwseo' ), $bulk_count ),

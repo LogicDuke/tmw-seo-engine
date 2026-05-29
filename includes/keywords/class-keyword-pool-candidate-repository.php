@@ -63,8 +63,9 @@ class KeywordPoolCandidateRepository {
         }
 
         $existing = $this->find_existing_by_keyword($keyword);
-        if (is_array($existing) && !$this->can_update_existing($existing, $intent, $entity_type, $entity_id)) {
-            return $this->result($keyword, $intent, (string) ($existing['status'] ?? $status), 'conflict', 'existing_keyword_conflicting_scope', $entity_type, $entity_id);
+        if (is_array($existing) && !$this->can_update_existing($existing, $candidate, $intent, $entity_type, $entity_id)) {
+            $conflict_reason = $this->existing_conflict_reason($existing, $candidate, $intent, $entity_type, $entity_id);
+            return $this->result($keyword, $intent, (string) ($existing['status'] ?? $status), 'conflict', $conflict_reason, $entity_type, $entity_id);
         }
 
         $now = function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s');
@@ -178,7 +179,7 @@ class KeywordPoolCandidateRepository {
     }
 
     /** @param array<string,mixed> $row */
-    private function can_update_existing(array $row, string $intent, string $entity_type, int $entity_id): bool {
+    private function can_update_existing(array $row, array $candidate, string $intent, string $entity_type, int $entity_id): bool {
         $existing_intent = (string) ($row['intent_type'] ?? '');
         $existing_entity = (string) ($row['entity_type'] ?? '');
         $existing_id = (int) ($row['entity_id'] ?? 0);
@@ -188,10 +189,71 @@ class KeywordPoolCandidateRepository {
         if ($existing_intent === $intent && ($existing_entity === '' || $existing_entity === $entity_type) && $same_entity_id) {
             return true;
         }
+        if ('model' === $intent && 'model' === $entity_type && 'model' === $existing_intent && in_array($existing_entity, [ '', 'model' ], true) && 0 === $existing_id && $entity_id > 0) {
+            return $this->existing_model_owner_matches_candidate($row, $candidate);
+        }
         if (0 === $entity_id && in_array($existing_intent, [ '', 'generic' ], true) && 0 === $existing_id && 'approved' !== $existing_status) {
             return true;
         }
         return false;
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $candidate */
+    private function existing_model_owner_matches_candidate(array $row, array $candidate): bool {
+        $candidate_provenance = is_array($candidate['provenance'] ?? null) ? $candidate['provenance'] : [];
+        $candidate_owner = $this->normalize_owner((string) ($candidate_provenance['model_keyword_owner'] ?? ''));
+        if ('' === $candidate_owner) { return false; }
+
+        $existing_owner = $this->normalize_owner($this->model_owner_from_payload($this->decode_json_field($row['sources'] ?? null)));
+        if ('' === $existing_owner) {
+            $existing_owner = $this->normalize_owner($this->model_owner_from_payload($this->decode_json_field($row['notes'] ?? null)));
+        }
+        return '' !== $existing_owner && $existing_owner === $candidate_owner;
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $candidate */
+    private function existing_conflict_reason(array $row, array $candidate, string $intent, string $entity_type, int $entity_id): string {
+        $existing_intent = (string) ($row['intent_type'] ?? '');
+        $existing_entity = (string) ($row['entity_type'] ?? '');
+        $existing_id = (int) ($row['entity_id'] ?? 0);
+        if ('model' === $intent && 'model' === $entity_type && 'model' === $existing_intent && in_array($existing_entity, [ '', 'model' ], true)) {
+            if ($existing_id > 0 && $entity_id > 0 && $existing_id !== $entity_id) {
+                return 'keyword_owner_conflict|existing_keyword_scope_conflict';
+            }
+            if (0 === $existing_id && $entity_id > 0 && !$this->existing_model_owner_matches_candidate($row, $candidate)) {
+                return 'keyword_owner_conflict|existing_keyword_scope_conflict';
+            }
+        }
+        return 'existing_keyword_conflicting_scope';
+    }
+
+    /** @param array<string,mixed> $payload */
+    private function model_owner_from_payload(array $payload): string {
+        if (isset($payload['model_keyword_owner']) && is_scalar($payload['model_keyword_owner'])) {
+            return (string) $payload['model_keyword_owner'];
+        }
+        foreach ([ 'keyword_pools_import', 'keyword_pools_import_history' ] as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) { continue; }
+            if (array_keys($nested) === range(0, count($nested) - 1)) {
+                foreach ($nested as $entry) {
+                    if (is_array($entry)) {
+                        $owner = $this->model_owner_from_payload($entry);
+                        if ('' !== $owner) { return $owner; }
+                    }
+                }
+            } else {
+                $owner = $this->model_owner_from_payload($nested);
+                if ('' !== $owner) { return $owner; }
+            }
+        }
+        return '';
+    }
+
+    private function normalize_owner(string $owner): string {
+        $owner = strtolower(trim($owner));
+        $owner = preg_replace('/[^a-z0-9]+/', ' ', $owner) ?? $owner;
+        return trim(preg_replace('/\s+/', ' ', $owner) ?? $owner);
     }
 
 
@@ -229,6 +291,7 @@ class KeywordPoolCandidateRepository {
 
         return $merged;
     }
+
 
     /**
      * @param mixed $existing Existing JSON/string/array value.
