@@ -20,7 +20,9 @@ If no row-level model context is provided, the dry-run service identifies likely
 - No category, site, platform, generic, adult, cam, video, or LiveJasmin modifiers.
 - Volume of at least `100`, or SEO/opportunity score of at least `40`.
 
-The strongest candidate by volume and score becomes the batch model context. For the Anisyia KWE export, this infers `anisyia`.
+The strongest candidate by volume, SEO/opportunity score, and traffic value becomes the batch model context. For the Anisyia KWE export, this infers `anisyia`.
+
+Real KWE exports may include summary/footer rows such as `Total Volume`. These rows are ignored before model owner inference, cannot become model-bio primary candidates, and cannot be saved as keyword candidates.
 
 ## Row-level model column precedence
 

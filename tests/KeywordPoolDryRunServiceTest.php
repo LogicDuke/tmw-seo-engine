@@ -209,6 +209,11 @@ natasha nice,1200,2.50,0.10,75
             [ 'Grand Total' ],
             [ 'Subtotal' ],
             [ 'Summary' ],
+            [ 'Average' ],
+            [ 'Avg' ],
+            [ 'Showing 1-10 of 20' ],
+            [ 'Keyword' ],
+            [ 'Volume' ],
         ];
     }
 
@@ -379,6 +384,41 @@ Total Volume,704750
         $this->assertSame('model_bio_only', $result['rows'][2]['model_keyword_usage_scope']);
         $this->assertSame('yes', $result['rows'][2]['model_keyword_primary_candidate']);
         $this->assertSame('no', $result['rows'][3]['model_keyword_primary_candidate']);
+    }
+
+
+    public function test_real_kwe_anisyia_batch_ignores_footer_for_model_context(): void {
+        $csv = "Keyword, Volume, SEO Score, Traffic Value
+anisyia,12100,68,100
+anisyia livejasmin,1900,50,40
+livejasmin anisyia,170,35,10
+Total Volume,19950,,
+";
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse($csv), 'model');
+
+        $this->assertSame('anisyia', $result['inferred_model_context']);
+        $this->assertSame('anisyia', $result['rows'][0]['model_keyword_owner']);
+        $this->assertSame('named_model_opportunity', $result['rows'][0]['model_keyword_strategy']);
+        $this->assertSame('model_bio_only', $result['rows'][0]['model_keyword_usage_scope']);
+        $this->assertSame('yes', $result['rows'][0]['model_keyword_primary_candidate']);
+        $this->assertSame('lj_named_model_opportunity', $result['rows'][1]['model_keyword_strategy']);
+        $this->assertSame('model_bio_only', $result['rows'][1]['model_keyword_usage_scope']);
+        $this->assertSame('yes', $result['rows'][1]['model_keyword_primary_candidate']);
+        $this->assertSame('lj_named_model_opportunity', $result['rows'][2]['model_keyword_strategy']);
+        $this->assertSame('model_bio_only', $result['rows'][2]['model_keyword_usage_scope']);
+        $this->assertSame('yes', $result['rows'][2]['model_keyword_primary_candidate']);
+
+        $footer = $result['rows'][3];
+        $this->assertSame('blocked', $footer['validation_state']);
+        $this->assertSame('block', $footer['decision']);
+        $this->assertContains('summary_or_footer_row', $footer['reason_codes']);
+        $this->assertSame('', $footer['model_keyword_owner']);
+        $this->assertSame('not_applicable', $footer['model_keyword_usage_scope']);
+        $this->assertSame('no', $footer['model_keyword_primary_candidate']);
+        $this->assertNotSame('total volume', $result['inferred_model_context']);
+        foreach ($result['rows'] as $row) {
+            $this->assertNotSame('total volume', $row['model_keyword_owner']);
+        }
     }
 
     public function test_explicit_model_column_wins_over_inferred_batch_context(): void {

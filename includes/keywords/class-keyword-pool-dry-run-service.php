@@ -242,6 +242,20 @@ class KeywordPoolDryRunService {
      * @return array<string, mixed>
      */
     private function append_model_keyword_strategy(array $row, string $pool): array {
+        $reason_codes = is_array($row['reason_codes'] ?? null) ? array_map('strval', $row['reason_codes']) : [];
+        if (in_array('summary_or_footer_row', $reason_codes, true)) {
+            $row['model_name'] = '';
+            $row['model_keyword_strategy'] = '';
+            $row['model_keyword_confidence'] = '';
+            $row['model_keyword_reason_codes'] = [];
+            $row['model_keyword_recommended_action'] = '';
+            $row['model_keyword_owner'] = '';
+            $row['model_keyword_usage_scope'] = 'not_applicable';
+            $row['model_keyword_primary_candidate'] = 'no';
+            $row['model_keyword_scope_reason_codes'] = [];
+            return $row;
+        }
+
         if ('model' !== $pool && 'model' !== (string) ($row['intent'] ?? '')) {
             $row['model_keyword_strategy'] = 'not_applicable';
             $row['model_keyword_confidence'] = 'none';
@@ -297,18 +311,19 @@ class KeywordPoolDryRunService {
                 continue;
             }
             $keyword = $this->normalize_keyword((string) ($row['keyword'] ?? ''));
-            if (! $this->is_standalone_model_context_candidate($keyword)) {
+            if ($this->is_summary_or_footer_keyword($keyword) || ! $this->is_standalone_model_context_candidate($keyword)) {
                 continue;
             }
 
             $volume = $this->metric_number($row['volume'] ?? null) ?? 0.0;
             $seo_score = $this->metric_number($row['seo_score'] ?? null) ?? 0.0;
             $opportunity_score = $this->metric_number($row['opportunity_score'] ?? null) ?? $this->metric_number($row['opportunity'] ?? null) ?? 0.0;
+            $traffic_value = $this->metric_number($row['traffic_value'] ?? null) ?? 0.0;
             if ($volume < 100.0 && max($seo_score, $opportunity_score) < 40.0) {
                 continue;
             }
 
-            $score = ($volume * 1000.0) + (max($seo_score, $opportunity_score) * 10.0);
+            $score = ($volume * 1000000.0) + (max($seo_score, $opportunity_score) * 1000.0) + $traffic_value;
             if ($score > $best_score) {
                 $best = $keyword;
                 $best_score = $score;
@@ -329,9 +344,12 @@ class KeywordPoolDryRunService {
         if (preg_match('/^[a-z][a-z0-9]*(?: [a-z][a-z0-9]*){0,2}$/', $keyword) !== 1) {
             return false;
         }
+        if (preg_match('/(?:^|\s)(?:livejasmin|live\s+jasmin|jasmin|lj|porn|cam|webcam|chat|live|sex|videos?|sites?|total|volume)(?:\s|$)/', $keyword) === 1) {
+            return false;
+        }
+
         return ! $this->has_any($keyword, [
-            'livejasmin', 'jasmin', 'porn', 'cam', 'webcam', 'chat', 'live', 'sex', 'video', 'videos',
-            'site', 'sites', 'category', 'categories', 'browse', 'archive', 'topic', 'platform', 'app',
+            'category', 'categories', 'browse', 'archive', 'topic', 'platform', 'app',
             'model', 'models', 'profile', 'bio', 'performer', 'talent', 'free', 'best', 'cheap', 'cheapest',
         ]);
     }
@@ -668,7 +686,7 @@ class KeywordPoolDryRunService {
             return false;
         }
 
-        if ($this->is_reporting_label($keyword)) {
+        if ($this->is_summary_or_footer_keyword($keyword)) {
             return true;
         }
 
@@ -677,6 +695,26 @@ class KeywordPoolDryRunService {
         }
 
         return false;
+    }
+
+    private function is_summary_or_footer_keyword(string $keyword): bool {
+        $keyword = $this->reporting_label_key($keyword);
+        if ('' === $keyword) {
+            return false;
+        }
+
+        if ($this->is_reporting_label($keyword)) {
+            return true;
+        }
+
+        foreach ([ 'total volume', 'grand total', 'subtotal', 'sub total', 'average', 'summary', 'showing' ] as $label) {
+            if (str_contains($keyword, $label)) {
+                return true;
+            }
+        }
+
+        return preg_match('/(?:^|\s)(?:avg|total|totals|keyword|volume)(?:\s|$)/', $keyword) === 1
+            && preg_match('/^(?:avg|average|grand total|keyword|showing|sub total|subtotal|summary|total|totals|volume)(?:\s|$)/', $keyword) === 1;
     }
 
     private function is_reporting_label(string $keyword): bool {
@@ -688,6 +726,11 @@ class KeywordPoolDryRunService {
             'subtotal',
             'sub total',
             'summary',
+            'showing',
+            'keyword',
+            'volume',
+            'average',
+            'avg',
             'all keywords total',
             'all keyword total',
             'keywords total',
