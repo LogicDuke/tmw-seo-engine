@@ -362,4 +362,63 @@ Total Volume,704750
         $this->assertStringNotContainsString('CREATE TABLE', $combined);
         $this->assertStringNotContainsString('noindex', $combined);
     }
+    public function test_real_kwe_no_model_column_infers_personal_model_context_and_scope(): void {
+        $csv = "Keyword, Volume, Trend, Trend Dir., SEO Score, Traffic Value, Competition, Ad Difficulty, Lowest CPC, Average CPC, Highest CPC, CPC Spread\nanisyia,12100,,,,,,\nanisyia livejasmin,1900,,,,,,\nlivejasmin anisyia,170,,,,,,\nanisyia cam,320,,,,,,\n";
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse($csv), 'model');
+
+        $this->assertSame('anisyia', $result['inferred_model_context']);
+        $this->assertSame('anisyia', $result['rows'][0]['model_keyword_owner']);
+        $this->assertSame('named_model_opportunity', $result['rows'][0]['model_keyword_strategy']);
+        $this->assertSame('model_bio_only', $result['rows'][0]['model_keyword_usage_scope']);
+        $this->assertSame('yes', $result['rows'][0]['model_keyword_primary_candidate']);
+        $this->assertContains('personal_model_keyword_csv', $result['rows'][0]['model_keyword_scope_reason_codes']);
+        $this->assertSame('lj_named_model_opportunity', $result['rows'][1]['model_keyword_strategy']);
+        $this->assertSame('model_bio_only', $result['rows'][1]['model_keyword_usage_scope']);
+        $this->assertSame('yes', $result['rows'][1]['model_keyword_primary_candidate']);
+        $this->assertSame('lj_named_model_opportunity', $result['rows'][2]['model_keyword_strategy']);
+        $this->assertSame('model_bio_only', $result['rows'][2]['model_keyword_usage_scope']);
+        $this->assertSame('yes', $result['rows'][2]['model_keyword_primary_candidate']);
+        $this->assertSame('no', $result['rows'][3]['model_keyword_primary_candidate']);
+    }
+
+    public function test_explicit_model_column_wins_over_inferred_batch_context(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume,model\nanisyia,12100,Other Model\nother model livejasmin,1900,Other Model\n"), 'model');
+
+        $this->assertSame('', $result['inferred_model_context']);
+        $this->assertSame('other model', $result['rows'][0]['model_keyword_owner']);
+        $this->assertSame('weak_manual_review', $result['rows'][0]['model_keyword_strategy']);
+        $this->assertSame('lj_named_model_opportunity', $result['rows'][1]['model_keyword_strategy']);
+        $this->assertSame('other model', $result['rows'][1]['model_keyword_owner']);
+    }
+
+    public function test_category_and_video_pools_do_not_infer_personal_model_scope(): void {
+        $csv = "keyword,volume\nanisyia,12100\n";
+        $category = (new KeywordPoolDryRunService())->dry_run($this->parse($csv), 'category');
+        $video = (new KeywordPoolDryRunService())->dry_run($this->parse($csv), 'video');
+
+        $this->assertSame('', $category['inferred_model_context']);
+        $this->assertSame('', $video['inferred_model_context']);
+        $this->assertSame('', $category['rows'][0]['model_keyword_owner']);
+        $this->assertSame('not_applicable', $category['rows'][0]['model_keyword_usage_scope']);
+        $this->assertSame('', $video['rows'][0]['model_keyword_owner']);
+        $this->assertSame('not_applicable', $video['rows'][0]['model_keyword_usage_scope']);
+        $this->assertNotSame('model_bio_only', $video['rows'][0]['model_keyword_usage_scope']);
+    }
+
+    public function test_not_model_intent_gets_not_model_eligible_scope(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume\nanisyia,12100\ncheapest sex cam sites,1200\nfree adult webcam,800\n"), 'model');
+
+        $this->assertSame('not_model_eligible', $result['rows'][1]['model_keyword_usage_scope']);
+        $this->assertSame('not_model_eligible', $result['rows'][2]['model_keyword_usage_scope']);
+        $this->assertSame('no', $result['rows'][1]['model_keyword_primary_candidate']);
+        $this->assertSame('no', $result['rows'][2]['model_keyword_primary_candidate']);
+    }
+
+    public function test_phase_2_performer_expansion_remains_manual_and_non_primary(): void {
+        $result = (new KeywordPoolDryRunService())->dry_run($this->parse("keyword,volume\nanisyia,12100\ndani daniels,1200\n"), 'model');
+
+        $this->assertSame('deferred_phase_2_performer_expansion', $result['rows'][1]['model_keyword_strategy']);
+        $this->assertSame('manual_review', $result['rows'][1]['model_keyword_usage_scope']);
+        $this->assertSame('no', $result['rows'][1]['model_keyword_primary_candidate']);
+    }
 }

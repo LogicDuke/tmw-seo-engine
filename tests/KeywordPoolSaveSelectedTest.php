@@ -55,6 +55,42 @@ final class KeywordPoolSaveSelectedTest extends TestCase {
         $this->assertSame([], $wpdb->candidate_inserts);
     }
 
+
+    public function test_save_selected_preserves_personal_model_keyword_scope_provenance(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp598_mod_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+anisyia livejasmin,1900,50
+", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2, 3], 'approved');
+
+        $this->assertSame(2, $result['summary']['inserted']);
+        $sources = $wpdb->candidate_inserts[0]['data']['sources'];
+        $notes = $wpdb->candidate_inserts[0]['data']['notes'];
+        $this->assertStringContainsString('"model_keyword_owner":"anisyia"', $sources);
+        $this->assertStringContainsString('"model_keyword_usage_scope":"model_bio_only"', $sources);
+        $this->assertStringContainsString('"model_keyword_primary_candidate":"yes"', $sources);
+        $this->assertStringContainsString('personal_model_keyword_csv', $sources);
+        $this->assertStringContainsString('"model_keyword_owner":"anisyia"', $notes);
+        $this->assertSame(0, $wpdb->candidate_inserts[0]['data']['entity_id']);
+    }
+
+    public function test_save_selected_blocks_not_model_eligible_model_scope(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp598_not_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume
+anisyia,12100
+cheapest sex cam sites,1200
+", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [3], 'approved');
+
+        $this->assertSame(1, $result['summary']['blocked']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+    }
+
     public function test_save_selected_valid_category_keyword(): void {
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_', true);
         $GLOBALS['wpdb'] = $wpdb;

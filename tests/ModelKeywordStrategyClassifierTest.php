@@ -94,4 +94,15 @@ final class ModelKeywordStrategyClassifierTest extends TestCase {
         $this->assertSame('not_applicable', $category['model_keyword_strategy']);
         $this->assertSame('not_applicable', $video['model_keyword_strategy']);
     }
+
+
+    public function test_lj_named_model_uses_passed_context_for_kwe_rows_without_model_column(): void {
+        $forward = $this->classifier->classify([ 'keyword' => 'anisyia livejasmin', 'volume' => 1900 ], 'anisyia', 'model');
+        $reverse = $this->classifier->classify([ 'keyword' => 'livejasmin anisyia', 'volume' => 170 ], 'anisyia', 'model');
+
+        $this->assertSame('lj_named_model_opportunity', $forward['model_keyword_strategy']);
+        $this->assertSame('approve_lj_named_model_keyword', $forward['model_keyword_recommended_action']);
+        $this->assertSame('lj_named_model_opportunity', $reverse['model_keyword_strategy']);
+        $this->assertSame('approve_lj_named_model_keyword', $reverse['model_keyword_recommended_action']);
+    }
 }

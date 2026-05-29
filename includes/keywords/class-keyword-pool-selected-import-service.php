@@ -120,10 +120,15 @@ class KeywordPoolSelectedImportService {
         if ('defer_until_lj_50_model_milestone' === (string) ($row['tmw_indexing_readiness'] ?? '')) {
             return 'defer_until_lj_50_model_milestone';
         }
-        if ('valid' !== (string) ($row['validation_state'] ?? '')) {
+        $model_scope = (string) ($row['model_keyword_usage_scope'] ?? '');
+        if ('model' === $pool && 'not_model_eligible' === $model_scope) {
+            return 'blocked_not_model_eligible';
+        }
+        $is_model_manual_review = 'model' === $pool && 'manual_review' === $model_scope;
+        if ('valid' !== (string) ($row['validation_state'] ?? '') && ! $is_model_manual_review) {
             return 'blocked_validation_state_' . (string) ($row['validation_state'] ?? 'unknown');
         }
-        if ('accept' !== (string) ($row['decision'] ?? '')) {
+        if ('accept' !== (string) ($row['decision'] ?? '') && ! $is_model_manual_review) {
             return 'blocked_decision_' . (string) ($row['decision'] ?? 'unknown');
         }
         if ('archive_do_not_use' === (string) ($row['tmw_indexing_readiness'] ?? '')) {
@@ -181,6 +186,9 @@ class KeywordPoolSelectedImportService {
 
     /** @param array<string,mixed> $row */
     private function status_for_row(array $row, string $save_mode): string {
+        if ('manual_review' === (string) ($row['model_keyword_usage_scope'] ?? '')) {
+            return 'queued_for_review';
+        }
         if ('approved' === $save_mode) {
             return 'approved';
         }
@@ -236,6 +244,11 @@ class KeywordPoolSelectedImportService {
             'model_keyword_confidence' => (string) ($row['model_keyword_confidence'] ?? ''),
             'model_keyword_reason_codes' => is_array($row['model_keyword_reason_codes'] ?? null) ? array_values($row['model_keyword_reason_codes']) : [],
             'model_keyword_recommended_action' => (string) ($row['model_keyword_recommended_action'] ?? ''),
+            'model_keyword_owner' => (string) ($row['model_keyword_owner'] ?? ''),
+            'model_keyword_usage_scope' => (string) ($row['model_keyword_usage_scope'] ?? ''),
+            'model_keyword_primary_candidate' => (string) ($row['model_keyword_primary_candidate'] ?? ''),
+            'model_keyword_scope_reason_codes' => is_array($row['model_keyword_scope_reason_codes'] ?? null) ? array_values($row['model_keyword_scope_reason_codes']) : [],
+            'personal_model_keyword_csv' => 'model' === $pool && '' !== (string) ($row['model_keyword_owner'] ?? ''),
             'reason_codes' => is_array($row['reason_codes'] ?? null) ? array_values($row['reason_codes']) : [],
             'golden_formula_summary' => (string) ($row['golden_formula_summary'] ?? ''),
             'golden_missing_reasons' => is_array($row['golden_missing_reasons'] ?? null) ? array_values($row['golden_missing_reasons']) : [],
