@@ -222,7 +222,7 @@ class KeywordPoolsAdminPage {
             return $state;
         }
 
-        if (!empty($_POST['tmwseo_keyword_pools_save_selected'])) {
+        if (!empty($_POST['tmwseo_keyword_pools_save_selected']) || !empty($_POST['tmwseo_keyword_pools_save_full_model_batch'])) {
             return self::maybe_process_save_selected($active_pool, $state);
         }
 
@@ -291,9 +291,13 @@ class KeywordPoolsAdminPage {
         }
 
         $dry_run = (new KeywordPoolDryRunService())->dry_run($parser_result, $active_pool);
+        $save_full_batch = !empty($_POST['tmwseo_keyword_pools_save_full_model_batch']) && 'model' === $active_pool;
         $selected = isset($_POST['tmwseo_keyword_pool_selected_rows']) && is_array($_POST['tmwseo_keyword_pool_selected_rows']) ? array_map('intval', (array) wp_unslash($_POST['tmwseo_keyword_pool_selected_rows'])) : [];
         $save_mode = isset($_POST['tmwseo_keyword_pool_save_mode']) ? (string) wp_unslash($_POST['tmwseo_keyword_pool_save_mode']) : 'auto';
-        $import_result = (new KeywordPoolSelectedImportService())->save_selected($dry_run, $active_pool, $selected, $save_mode);
+        $import_service = new KeywordPoolSelectedImportService();
+        $import_result = $save_full_batch
+            ? $import_service->save_full_reviewed_model_batch($dry_run)
+            : $import_service->save_selected($dry_run, $active_pool, $selected, $save_mode);
 
         $state['parser_result'] = $parser_result;
         $state['dry_run'] = $dry_run;
@@ -302,14 +306,18 @@ class KeywordPoolsAdminPage {
         $state['notices'][] = [
             'type' => empty($summary['errors']) && empty($summary['conflicts']) ? 'success' : 'warning',
             'text' => sprintf(
-                'Save selected complete: %d selected, %d inserted, %d updated, %d skipped, %d conflicts, %d blocked, %d errors.',
+                '%s complete: %d selected, %d inserted, %d updated, %d skipped, %d conflicts, %d blocked, %d errors, %d linked to model entity, %d unresolved, %d ambiguous.',
+                $save_full_batch ? 'Save full reviewed model keyword batch' : 'Save selected',
                 (int) ($summary['selected'] ?? 0),
                 (int) ($summary['inserted'] ?? 0),
                 (int) ($summary['updated'] ?? 0),
                 (int) ($summary['skipped'] ?? 0),
                 (int) ($summary['conflicts'] ?? 0),
                 (int) ($summary['blocked'] ?? 0),
-                (int) ($summary['errors'] ?? 0)
+                (int) ($summary['errors'] ?? 0),
+                (int) ($summary['linked_model_entities'] ?? 0),
+                (int) ($summary['unresolved_model_entities'] ?? 0),
+                (int) ($summary['ambiguous_model_entities'] ?? 0)
             ),
         ];
         return $state;
@@ -552,7 +560,12 @@ class KeywordPoolsAdminPage {
         }
         echo '</tbody></table></div>';
         echo '<div class="notice notice-warning inline"><p><strong>' . esc_html(__('Operational safety:', 'tmwseo')) . '</strong> ' . esc_html(__('Saving selected keywords stores them in the review pool only. It does not write Rank Math, does not change content, does not change slugs, does not call Generate, and does not change indexing/noindex.', 'tmwseo')) . '</p></div>';
-        echo '<p><button type="submit" class="button button-primary" name="tmwseo_keyword_pools_save_selected" value="1">' . esc_html(__('Save Selected Keywords', 'tmwseo')) . '</button></p>';
+        echo '<p><button type="submit" class="button button-primary" name="tmwseo_keyword_pools_save_selected" value="1">' . esc_html(__('Save Selected Keywords', 'tmwseo')) . '</button>';
+        if ('model' === $pool) {
+            echo ' <button type="submit" class="button button-secondary" name="tmwseo_keyword_pools_save_full_model_batch" value="1">' . esc_html(__('Save Full Reviewed Model Keyword Batch', 'tmwseo')) . '</button>';
+            echo ' <span class="description">' . esc_html(__('Stores all useful non-footer model rows with approved, queued, rejected, or ignored status based on the dry-run review.', 'tmwseo')) . '</span>';
+        }
+        echo '</p>';
         echo '</form>';
     }
 
@@ -562,7 +575,7 @@ class KeywordPoolsAdminPage {
     private static function render_import_result(array $import_result): void {
         $summary = is_array($import_result['summary'] ?? null) ? $import_result['summary'] : [];
         echo '<h2>' . esc_html(__('Import Result', 'tmwseo')) . '</h2>';
-        echo '<p>' . esc_html(sprintf('Selected: %d. Inserted: %d. Updated: %d. Skipped: %d. Conflicts: %d. Blocked: %d. Errors: %d.', (int) ($summary['selected'] ?? 0), (int) ($summary['inserted'] ?? 0), (int) ($summary['updated'] ?? 0), (int) ($summary['skipped'] ?? 0), (int) ($summary['conflicts'] ?? 0), (int) ($summary['blocked'] ?? 0), (int) ($summary['errors'] ?? 0))) . '</p>';
+        echo '<p>' . esc_html(sprintf('Selected: %d. Inserted: %d. Updated: %d. Skipped: %d. Conflicts: %d. Blocked: %d. Errors: %d. Linked: %d. Unresolved: %d. Ambiguous: %d.', (int) ($summary['selected'] ?? 0), (int) ($summary['inserted'] ?? 0), (int) ($summary['updated'] ?? 0), (int) ($summary['skipped'] ?? 0), (int) ($summary['conflicts'] ?? 0), (int) ($summary['blocked'] ?? 0), (int) ($summary['errors'] ?? 0), (int) ($summary['linked_model_entities'] ?? 0), (int) ($summary['unresolved_model_entities'] ?? 0), (int) ($summary['ambiguous_model_entities'] ?? 0))) . '</p>';
         $rows = is_array($import_result['rows'] ?? null) ? $import_result['rows'] : [];
         if ([] === $rows) {
             return;

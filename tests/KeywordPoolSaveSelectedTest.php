@@ -10,12 +10,14 @@ use TMWSEO\Engine\Keywords\KeywordPoolCandidateRepository;
 use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
 use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 use TMWSEO\Engine\Keywords\KeywordPoolSelectedImportService;
+use TMWSEO\Engine\Models\ModelEntityResolver;
 
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
 require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
+require_once __DIR__ . '/../includes/models/class-model-entity-resolver.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
 
 final class KeywordPoolSaveSelectedTest extends TestCase {
@@ -49,7 +51,7 @@ final class KeywordPoolSaveSelectedTest extends TestCase {
         $GLOBALS['wpdb'] = $wpdb;
         $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score\ncheapest sex cam sites,1200,2.50,0.10,75\nphoenix marie,1200,2.50,0.10,75\n", 'model');
 
-        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2, 3], 'approved');
+        $result = $this->serviceWithModelPosts([ $this->modelPost(700, 'Anisyia', 'anisyia') ])->save_selected($dryRun, 'model', [2, 3], 'approved');
 
         $this->assertSame(2, $result['summary']['blocked'] + $result['summary']['skipped']);
         $this->assertSame([], $wpdb->candidate_inserts);
@@ -64,7 +66,7 @@ anisyia,12100,68
 anisyia livejasmin,1900,50
 ", 'model');
 
-        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2, 3], 'approved');
+        $result = $this->serviceWithModelPosts([ $this->modelPost(700, 'Anisyia', 'anisyia') ])->save_selected($dryRun, 'model', [2, 3], 'approved');
 
         $this->assertSame(2, $result['summary']['inserted']);
         $sources = $wpdb->candidate_inserts[0]['data']['sources'];
@@ -74,7 +76,10 @@ anisyia livejasmin,1900,50
         $this->assertStringContainsString('"model_keyword_primary_candidate":"yes"', $sources);
         $this->assertStringContainsString('personal_model_keyword_csv', $sources);
         $this->assertStringContainsString('"model_keyword_owner":"anisyia"', $notes);
-        $this->assertSame(0, $wpdb->candidate_inserts[0]['data']['entity_id']);
+        $this->assertSame(700, $wpdb->candidate_inserts[0]['data']['entity_id']);
+        $this->assertSame('model', $wpdb->candidate_inserts[0]['data']['entity_type']);
+        $this->assertSame('approved', $wpdb->candidate_inserts[0]['data']['status']);
+        $this->assertStringContainsString('model_entity_resolved', $sources);
     }
 
     public function test_save_selected_blocks_not_model_eligible_model_scope(): void {
@@ -89,6 +94,119 @@ cheapest sex cam sites,1200
 
         $this->assertSame(1, $result['summary']['blocked']);
         $this->assertSame([], $wpdb->candidate_inserts);
+    }
+
+
+    public function test_save_selected_unresolved_personal_model_keyword_is_queued_not_approved_entity_zero(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp600_unresolved_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+", 'model');
+
+        $result = $this->serviceWithModelPosts([])->save_selected($dryRun, 'model', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertSame('queued_for_review', $wpdb->candidate_inserts[0]['data']['status']);
+        $this->assertSame(0, $wpdb->candidate_inserts[0]['data']['entity_id']);
+        $this->assertStringContainsString('model_entity_not_found', $wpdb->candidate_inserts[0]['data']['sources']);
+    }
+
+    public function test_save_selected_ambiguous_personal_model_keyword_is_queued(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp600_ambiguous_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+", 'model');
+
+        $result = $this->serviceWithModelPosts([ $this->modelPost(701, 'Anisyia', 'anisyia'), $this->modelPost(702, 'Anisyia', 'anisyia-2') ])->save_selected($dryRun, 'model', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertSame('queued_for_review', $wpdb->candidate_inserts[0]['data']['status']);
+        $this->assertStringContainsString('model_entity_ambiguous', $wpdb->candidate_inserts[0]['data']['sources']);
+    }
+
+    public function test_full_reviewed_model_batch_saves_useful_non_footer_rows_with_entity_linking(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp600_full_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+anisyia livejasmin,1900,50
+livejasmin anisyia,170,35
+anisyia cam,80,20
+anisyia chat,70,20
+anisyia com,60,20
+anisyia live,50,20
+anisyia porn,40,20
+anisyia sex,30,20
+anisyiaxxx,20,10
+cheapest sex cam sites,1200,75
+Total Volume,19950,
+", 'model');
+
+        $result = $this->serviceWithModelPosts([ $this->modelPost(703, 'Anisyia', 'anisyia') ])->save_full_reviewed_model_batch($dryRun);
+
+        $this->assertSame(11, $result['summary']['inserted']);
+        $this->assertSame(1, $result['summary']['blocked']);
+        $keywords = array_column(array_column($wpdb->candidate_inserts, 'data'), 'keyword');
+        $this->assertContains('anisyia', $keywords);
+        $this->assertNotContains('total volume', $keywords);
+        $statuses = [];
+        foreach ($wpdb->candidate_inserts as $insert) {
+            $statuses[$insert['data']['keyword']] = $insert['data']['status'];
+            $this->assertSame(703, $insert['data']['entity_id']);
+            $this->assertStringContainsString('personal_model_keyword_csv', $insert['data']['sources']);
+        }
+        $this->assertSame('approved', $statuses['anisyia']);
+        $this->assertSame('approved', $statuses['anisyia livejasmin']);
+        $this->assertSame('approved', $statuses['livejasmin anisyia']);
+        $this->assertContains('queued_for_review', $statuses);
+        $this->assertContains('rejected', $statuses);
+    }
+
+
+    public function test_full_batch_reuses_cached_owner_resolution(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp600_cache_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+anisyia livejasmin,1900,50
+livejasmin anisyia,170,35
+anisyia cam,80,20
+anisyia chat,70,20
+anisyia com,60,20
+anisyia live,50,20
+anisyia porn,40,20
+anisyia sex,30,20
+anisyiaxxx,20,10
+Total Volume,19950,
+", 'model');
+        $resolver = new KeywordPoolSaveSelectedCountingResolver([ $this->modelPost(704, 'Anisyia', 'anisyia') ]);
+
+        $result = (new KeywordPoolSelectedImportService(null, $resolver))->save_full_reviewed_model_batch($dryRun);
+
+        $this->assertSame(10, $result['summary']['inserted']);
+        $this->assertSame(1, $resolver->resolve_calls);
+        foreach ($wpdb->candidate_inserts as $insert) {
+            $this->assertSame(704, $insert['data']['entity_id']);
+        }
+    }
+
+    public function test_provided_model_entity_id_writes_resolution_provenance(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp600_provided_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,model_name,post_id
+Lexy Ness webcam model,900,3.25,0.08,Lexy Ness,77
+", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2], 'approved');
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertSame(77, $wpdb->candidate_inserts[0]['data']['entity_id']);
+        $sources = $wpdb->candidate_inserts[0]['data']['sources'];
+        $this->assertStringContainsString('model_entity_resolution', $sources);
+        $this->assertStringContainsString('provided_entity_id', $sources);
+        $this->assertStringContainsString('model_match_provided_entity_id', $sources);
     }
 
     public function test_save_selected_valid_category_keyword(): void {
@@ -352,9 +470,32 @@ free video chat,1200,2.50,0.10,75
         $this->assertStringNotContainsString('generate', strtolower($queries));
     }
 
+    private function serviceWithModelPosts(array $posts): KeywordPoolSelectedImportService {
+        return new KeywordPoolSelectedImportService(null, new ModelEntityResolver(static fn() => $posts));
+    }
+
+    private function modelPost(int $id, string $title, string $slug): object {
+        return (object) [ 'ID' => $id, 'post_title' => $title, 'post_name' => $slug, 'post_type' => 'model' ];
+    }
+
     private function dryRun(string $csv, string $pool): array {
         $parsed = (new KeywordPoolCsvParser())->parse_text($csv);
         return (new KeywordPoolDryRunService())->dry_run($parsed, $pool);
+    }
+}
+
+final class KeywordPoolSaveSelectedCountingResolver extends ModelEntityResolver {
+    public int $resolve_calls = 0;
+    private array $posts;
+
+    public function __construct(array $posts) {
+        parent::__construct(static fn() => []);
+        $this->posts = $posts;
+    }
+
+    public function resolve(string $owner): array {
+        $this->resolve_calls++;
+        return (new ModelEntityResolver(fn() => $this->posts))->resolve($owner);
     }
 }
 

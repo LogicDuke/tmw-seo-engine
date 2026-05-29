@@ -14,6 +14,7 @@ require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php'
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
 require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
+require_once __DIR__ . '/../includes/models/class-model-entity-resolver.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
 require_once __DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php';
@@ -155,6 +156,7 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString('Select all Approve Candidates', $html);
         $this->assertStringContainsString('Clear selection', $html);
         $this->assertStringContainsString('Save Selected Keywords', $html);
+        $this->assertStringContainsString('Save Full Reviewed Model Keyword Batch', $html);
         $this->assertStringContainsString('Save selected as:', $html);
         $this->assertStringContainsString('Saving selected keywords stores them in the review pool only', $html);
         $this->assertStringContainsString('name="tmwseo_keyword_pool_selected_rows[]"', $html);

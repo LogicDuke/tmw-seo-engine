@@ -75,9 +75,17 @@ class KeywordsTable extends \WP_List_Table {
         if ( $this->has_entity_type ) { $columns['entity_type'] = __('Entity Type', 'tmwseo'); }
         if ( $this->has_entity_id ) { $columns['entity_id'] = __('Entity ID', 'tmwseo'); }
         $columns['status'] = __('Status', 'tmwseo');
+        if ( $this->has_sources || $this->has_notes ) {
+            $columns['model_keyword_owner'] = __('Model Owner', 'tmwseo');
+            $columns['model_keyword_usage_scope'] = __('Usage Scope', 'tmwseo');
+            $columns['model_keyword_primary'] = __('Primary?', 'tmwseo');
+            $columns['model_keyword_strategy'] = __('Strategy', 'tmwseo');
+            $columns['model_keyword_recommended_action'] = __('Recommended Action', 'tmwseo');
+            $columns['model_keyword_provenance'] = __('Provenance', 'tmwseo');
+            $columns['model_entity_link_status'] = __('Entity Link Status', 'tmwseo');
+        }
         if ( $this->has_sources ) { $columns['sources'] = __('Sources', 'tmwseo'); }
         elseif ( $this->has_source ) { $columns['source'] = __('Source', 'tmwseo'); }
-        if ( $this->has_sources || $this->has_notes ) { $columns['model_keyword_strategy'] = __('Model Keyword Strategy', 'tmwseo'); }
         $columns[ $this->has_updated_at ? 'updated_at' : 'created_at' ] = $this->has_updated_at ? __('Updated', 'tmwseo') : __('Created', 'tmwseo');
 
         return $columns;
@@ -183,19 +191,12 @@ class KeywordsTable extends \WP_List_Table {
         if ( in_array( $column_name, [ 'difficulty', 'competition', 'opportunity', 'seo_score' ], true ) ) {
             return esc_html( rtrim( rtrim( number_format( (float) $value, 4 ), '0' ), '.' ) );
         }
-        if ( 'model_keyword_strategy' === $column_name ) {
-            $strategy = $this->model_keyword_strategy_from_item( is_array($item) ? $item : [] );
-            return '' === $strategy ? '&mdash;' : '<code>' . esc_html( $strategy ) . '</code>';
+        if ( in_array( $column_name, [ 'model_keyword_owner', 'model_keyword_usage_scope', 'model_keyword_primary', 'model_keyword_strategy', 'model_keyword_recommended_action', 'model_keyword_provenance', 'model_entity_link_status' ], true ) ) {
+            return $this->render_model_metadata_column( is_array($item) ? $item : [], $column_name );
         }
         if ( in_array( $column_name, [ 'sources', 'source' ], true ) ) {
-            $source_text = is_string( $value ) ? $value : '';
-            if ( $source_text === '' ) {
-                return '&mdash;';
-            }
-            if ( strlen( $source_text ) > 120 ) {
-                $source_text = substr( $source_text, 0, 117 ) . '...';
-            }
-            return '<code>' . esc_html( $source_text ) . '</code>';
+            $source_text = $this->source_label_from_item( is_array($item) ? $item : [], is_string( $value ) ? $value : '' );
+            return '' === $source_text ? '&mdash;' : '<code>' . esc_html( $source_text ) . '</code>';
         }
         if ($column_name === 'status') {
             $status = strtolower((string) $value);
@@ -209,6 +210,115 @@ class KeywordsTable extends \WP_List_Table {
         }
 
         return esc_html((string) $value);
+    }
+
+    /** @param array<string, mixed> $item */
+    private function render_model_metadata_column(array $item, string $column_name): string {
+        $metadata = $this->model_keyword_metadata_from_item($item);
+        if ('model_entity_link_status' === $column_name) {
+            $status = (string) ($metadata['entity_link_status'] ?? '');
+            if ('unresolved' === $status) {
+                return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:600;">' . esc_html__('Unlinked model keyword', 'tmwseo') . '</span>';
+            }
+            if ('ambiguous' === $status) {
+                return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;">' . esc_html__('Ambiguous', 'tmwseo') . '</span>';
+            }
+            if ('linked' === $status) {
+                return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;">' . esc_html__('linked', 'tmwseo') . '</span>';
+            }
+            return '&mdash;';
+        }
+
+        $map = [
+            'model_keyword_owner' => 'model_keyword_owner',
+            'model_keyword_usage_scope' => 'model_keyword_usage_scope',
+            'model_keyword_primary' => 'model_keyword_primary_candidate',
+            'model_keyword_strategy' => 'model_keyword_strategy',
+            'model_keyword_recommended_action' => 'model_keyword_recommended_action',
+            'model_keyword_provenance' => 'provenance',
+        ];
+        $key = $map[$column_name] ?? '';
+        $value = $key !== '' ? (string) ($metadata[$key] ?? '') : '';
+        return '' === $value ? '&mdash;' : '<code>' . esc_html($value) . '</code>';
+    }
+
+    /** @param array<string, mixed> $item @return array<string,string> */
+    private function model_keyword_metadata_from_item(array $item): array {
+        $metadata = [];
+        foreach ([ 'sources', 'notes' ] as $field) {
+            $payload = $this->decode_json_field($item[$field] ?? null);
+            $metadata = array_merge($metadata, $this->find_model_keyword_metadata($payload));
+        }
+        if ('' === (string) ($metadata['model_keyword_strategy'] ?? '')) {
+            $metadata['model_keyword_strategy'] = $this->model_keyword_strategy_from_item($item);
+        }
+        $intent = strtolower((string) ($item['intent_type'] ?? $item['intent'] ?? ''));
+        $status = strtolower((string) ($item['status'] ?? ''));
+        $entity_type = strtolower((string) ($item['entity_type'] ?? ''));
+        $entity_id = (int) ($item['entity_id'] ?? 0);
+        $match_type = (string) ($metadata['model_entity_match_type'] ?? '');
+        if ('ambiguous' === $match_type) {
+            $metadata['entity_link_status'] = 'ambiguous';
+        } elseif ('model' === $intent && 'model' === $entity_type && $entity_id > 0) {
+            $metadata['entity_link_status'] = 'linked';
+        } elseif ('model' === $intent && 'approved' === $status && 'model' === $entity_type && 0 === $entity_id) {
+            $metadata['entity_link_status'] = 'unresolved';
+        } elseif ('model' === $intent && 0 === $entity_id && '' !== (string) ($metadata['model_keyword_owner'] ?? '')) {
+            $metadata['entity_link_status'] = 'unresolved';
+        }
+        return $metadata;
+    }
+
+    /** @param array<string, mixed> $payload @return array<string,string> */
+    private function find_model_keyword_metadata(array $payload): array {
+        $metadata = [];
+        foreach ([ 'model_keyword_owner', 'model_keyword_usage_scope', 'model_keyword_primary_candidate', 'model_keyword_strategy', 'model_keyword_recommended_action', 'model_entity_match_type' ] as $key) {
+            if (isset($payload[$key]) && is_scalar($payload[$key]) && '' !== (string) $payload[$key]) {
+                $metadata[$key] = (string) $payload[$key];
+            }
+        }
+        if (!empty($payload['personal_model_keyword_csv'])) {
+            $metadata['provenance'] = 'personal_model_keyword_csv';
+        } elseif (isset($payload['upload_source']) && is_scalar($payload['upload_source']) && '' !== (string) $payload['upload_source']) {
+            $metadata['provenance'] = (string) $payload['upload_source'];
+        }
+        if (isset($payload['model_entity_resolution']) && is_array($payload['model_entity_resolution']) && isset($payload['model_entity_resolution']['match_type'])) {
+            $metadata['model_entity_match_type'] = (string) $payload['model_entity_resolution']['match_type'];
+        }
+        foreach ([ 'keyword_pools_import', 'keyword_pools_import_history' ] as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) { continue; }
+            if ($this->is_list_array($nested)) {
+                foreach ($nested as $entry) {
+                    if (is_array($entry)) { $metadata = array_merge($this->find_model_keyword_metadata($entry), $metadata); }
+                }
+            } else {
+                $metadata = array_merge($this->find_model_keyword_metadata($nested), $metadata);
+            }
+        }
+        return $metadata;
+    }
+
+    /** @param array<string, mixed> $item */
+    private function source_label_from_item(array $item, string $fallback): string {
+        $metadata = $this->model_keyword_metadata_from_item($item);
+        if ('' !== (string) ($metadata['provenance'] ?? '')) {
+            return (string) $metadata['provenance'];
+        }
+        foreach ([ 'sources', 'notes' ] as $field) {
+            $payload = $this->decode_json_field($item[$field] ?? null);
+            foreach ([ 'upload_source', 'parser_source_label', 'source' ] as $key) {
+                if (isset($payload[$key]) && is_scalar($payload[$key]) && '' !== (string) $payload[$key]) {
+                    return (string) $payload[$key];
+                }
+            }
+        }
+        if (strlen($fallback) > 80) { return substr($fallback, 0, 77) . '...'; }
+        return $fallback;
+    }
+
+    private function escaped_like_contains($wpdb, string $literal): string {
+        return '%' . $wpdb->esc_like($literal) . '%';
     }
 
     /** @param array<string, mixed> $item */
@@ -331,7 +441,7 @@ class KeywordsTable extends \WP_List_Table {
                 $this->active_filters[ $key ] = is_numeric( $_GET[ $key ] ) ? (float) $_GET[ $key ] : '';
             }
         }
-        foreach ( [ 'status', 'intent', 'intent_type', 'orderby', 'order', 's' ] as $key ) {
+        foreach ( [ 'status', 'intent', 'intent_type', 'orderby', 'order', 's', 'model_keyword_filter' ] as $key ) {
             if ( isset( $_GET[ $key ] ) && $_GET[ $key ] !== '' ) { $this->active_filters[ $key ] = sanitize_text_field( (string) $_GET[ $key ] ); }
         }
         foreach ( [ 'hide_zero_volume', 'has_volume', 'has_kd', 'has_cpc' ] as $key ) {
@@ -381,6 +491,27 @@ class KeywordsTable extends \WP_List_Table {
         if ( $this->has_competition && isset( $this->active_filters['max_competition'] ) ) { $conditions[] = 'CAST(competition AS DECIMAL(10,4)) <= %f'; $where_args[] = (float) $this->active_filters['max_competition']; }
         if ( $this->has_opportunity && isset( $this->active_filters['min_opportunity'] ) ) { $conditions[] = 'CAST(opportunity AS DECIMAL(10,4)) >= %f'; $where_args[] = (float) $this->active_filters['min_opportunity']; }
         if ( $this->has_seo_score && isset( $this->active_filters['min_seo_score'] ) ) { $conditions[] = 'CAST(seo_score AS DECIMAL(10,2)) >= %f'; $where_args[] = (float) $this->active_filters['min_seo_score']; }
+        if ( isset( $this->active_filters['model_keyword_filter'] ) ) {
+            $filter = (string) $this->active_filters['model_keyword_filter'];
+            if ( 'personal_model_csv' === $filter && ( $this->has_sources || $this->has_notes ) ) {
+                $personal_csv_like = $this->escaped_like_contains($wpdb, 'personal_model_keyword_csv');
+                $likes = [];
+                if ( $this->has_sources ) { $likes[] = 'sources LIKE %s'; $where_args[] = $personal_csv_like; }
+                if ( $this->has_notes ) { $likes[] = 'notes LIKE %s'; $where_args[] = $personal_csv_like; }
+                if ( $likes !== [] ) { $conditions[] = '(' . implode( ' OR ', $likes ) . ')'; }
+            } elseif ( 'primary_model_bio' === $filter && ( $this->has_sources || $this->has_notes ) ) {
+                $primary_candidate_like = $this->escaped_like_contains($wpdb, '"model_keyword_primary_candidate":"yes"');
+                $scope_like = $this->escaped_like_contains($wpdb, '"model_keyword_usage_scope":"model_bio_only"');
+                $likes = [];
+                if ( $this->has_sources ) { $likes[] = '(sources LIKE %s AND sources LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
+                if ( $this->has_notes ) { $likes[] = '(notes LIKE %s AND notes LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
+                if ( $likes !== [] ) { $conditions[] = '(' . implode( ' OR ', $likes ) . ')'; }
+            } elseif ( 'unlinked_model' === $filter && $this->has_intent_type && $this->has_entity_type && $this->has_entity_id ) {
+                $conditions[] = 'intent_type = %s AND entity_type = %s AND entity_id = 0';
+                $where_args[] = 'model';
+                $where_args[] = 'model';
+            }
+        }
 
         $where_sql = $conditions !== [] ? ' WHERE ' . implode( ' AND ', $conditions ) : '';
 
