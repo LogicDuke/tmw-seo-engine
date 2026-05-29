@@ -117,6 +117,9 @@ class KeywordPoolSelectedImportService {
         if ('' === $keyword) {
             return 'missing_keyword';
         }
+        if ($this->is_summary_or_footer_keyword($keyword)) {
+            return 'blocked_summary_or_footer_row';
+        }
         if ('defer_until_lj_50_model_milestone' === (string) ($row['tmw_indexing_readiness'] ?? '')) {
             return 'defer_until_lj_50_model_milestone';
         }
@@ -164,6 +167,41 @@ class KeywordPoolSelectedImportService {
             }
         }
         return null;
+    }
+
+    private function is_summary_or_footer_keyword(string $keyword): bool {
+        $keyword = strtolower(trim(preg_replace('/[^a-z0-9]+/', ' ', $keyword) ?? $keyword));
+        $keyword = preg_replace('/\s+/', ' ', $keyword) ?? $keyword;
+        $keyword = trim($keyword);
+        if ('' === $keyword) {
+            return false;
+        }
+
+        $labels = [
+            'total',
+            'totals',
+            'total volume',
+            'grand total',
+            'subtotal',
+            'sub total',
+            'summary',
+            'showing',
+            'keyword',
+            'volume',
+            'average',
+            'avg',
+        ];
+        if (in_array($keyword, $labels, true)) {
+            return true;
+        }
+        foreach ([ 'total volume', 'grand total', 'subtotal', 'sub total', 'average', 'summary', 'showing' ] as $label) {
+            if (str_contains($keyword, $label)) {
+                return true;
+            }
+        }
+
+        return preg_match('/(?:^|\s)(?:avg|total|totals|keyword|volume)(?:\s|$)/', $keyword) === 1
+            && preg_match('/^(?:avg|average|grand total|keyword|showing|sub total|subtotal|summary|total|totals|volume)(?:\s|$)/', $keyword) === 1;
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

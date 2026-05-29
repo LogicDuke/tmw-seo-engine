@@ -152,6 +152,23 @@ cheapest sex cam sites,1200
         $this->assertSame([], $wpdb->candidate_inserts);
     }
 
+
+    public function test_save_selected_blocks_model_pool_footer_row_even_if_selected(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp599_footer_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("Keyword, Volume, SEO Score
+anisyia,12100,68
+Total Volume,19950,
+", 'model');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [3], 'approved');
+
+        $this->assertSame(1, $result['summary']['blocked']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame('blocked_summary_or_footer_row', $result['rows'][0]['reason']);
+        $this->assertContains('summary_or_footer_row', $dryRun['rows'][1]['reason_codes']);
+    }
+
     public function test_duplicate_in_upload_is_handled_safely(): void {
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_dup_', true);
         $GLOBALS['wpdb'] = $wpdb;
