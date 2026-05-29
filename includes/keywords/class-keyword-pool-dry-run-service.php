@@ -595,11 +595,12 @@ class KeywordPoolDryRunService {
      * @return int|float|null
      */
     private function normalize_metric($value, string $metric, array &$reason_codes) {
-        $raw = trim((string) $value);
-        if ('' === $raw) {
+        $raw = (string) $value;
+        if ($this->is_blank_metric_value($raw)) {
             return null;
         }
 
+        $raw     = $this->clean_metric_value($raw);
         $numeric = str_replace([ ',', '$', '%' ], '', $raw);
         if (! is_numeric($numeric)) {
             $reason_codes[] = 'invalid_' . $metric;
@@ -611,6 +612,15 @@ class KeywordPoolDryRunService {
             return (int) round(max(0, $number));
         }
         return $number;
+    }
+
+    private function is_blank_metric_value(string $value): bool {
+        return '' === $this->clean_metric_value($value);
+    }
+
+    private function clean_metric_value(string $value): string {
+        $value = preg_replace('/[\p{Z}\s]+/u', ' ', $value) ?? $value;
+        return trim($value);
     }
 
     private function normalize_keyword(string $keyword): string {
