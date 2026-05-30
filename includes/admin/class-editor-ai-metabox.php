@@ -318,7 +318,10 @@ class Editor_AI_Metabox {
         echo '</select>';
         echo '</div>';
 
-        echo '<p style="margin:0 0 8px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        echo '<p style="margin:0 0 4px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        if ((string) $post->post_type === 'model') {
+            echo '<p class="tmwseo-mb-help" style="margin-top:0">' . esc_html__('For model pages, keep this checked to insert/update the TMW SEO block instead of replacing existing content.', 'tmwseo') . '</p>';
+        }
 
         echo '<div class="tmwseo-mb-btn-stack">';
         echo '<button '
