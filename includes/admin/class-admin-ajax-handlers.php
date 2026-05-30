@@ -23,6 +23,7 @@ use TMWSEO\Engine\Content\RankMathMapper;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 use TMWSEO\Engine\Model\Rollback;
 use TMWSEO\Engine\Keywords\KeywordPoolCandidateRepository;
+use TMWSEO\Engine\Keywords\KeywordPoolClassificationApplyService;
 use TMWSEO\Engine\Keywords\ModelFallbackKeywordPackBuilder;
 use TMWSEO\Engine\Keywords\ModelKeywordPoolClassifier;
 
@@ -725,6 +726,61 @@ class AdminAjaxHandlers {
         }
 
         wp_send_json_success($counts);
+    }
+
+
+    public static function ajax_kw_classification_dry_run(): void {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([ 'message' => __('Permission denied.', 'tmwseo') ], 403);
+        }
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash((string) $_POST['nonce'])) : '';
+        if ('' === $nonce || !wp_verify_nonce($nonce, 'tmwseo_kw_classification_audit')) {
+            wp_send_json_error([ 'message' => __('Invalid or expired nonce.', 'tmwseo') ], 403);
+        }
+
+        $allowed_filters = [ 'missing', 'all', 'unlinked', 'unsafe', 'unknown' ];
+        $offset = isset($_POST['offset']) ? max(0, absint($_POST['offset'])) : 0;
+        $batch_size = isset($_POST['batch_size']) ? min(250, max(1, absint($_POST['batch_size']))) : 50;
+        $filter = isset($_POST['filter']) ? sanitize_key((string) wp_unslash($_POST['filter'])) : 'missing';
+        if (!in_array($filter, $allowed_filters, true)) {
+            $filter = 'missing';
+        }
+
+        $service = new KeywordPoolClassificationApplyService(new KeywordPoolCandidateRepository(), new ModelKeywordPoolClassifier());
+        wp_send_json_success($service->dry_run_batch($offset, $batch_size, $filter));
+    }
+
+    public static function ajax_kw_classification_apply_batch(): void {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([ 'message' => __('Permission denied.', 'tmwseo') ], 403);
+        }
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash((string) $_POST['nonce'])) : '';
+        if ('' === $nonce || !wp_verify_nonce($nonce, 'tmwseo_kw_classification_audit')) {
+            wp_send_json_error([ 'message' => __('Invalid or expired nonce.', 'tmwseo') ], 403);
+        }
+
+        $batch_size = isset($_POST['batch_size']) ? min(250, max(1, absint($_POST['batch_size']))) : 100;
+        $service = new KeywordPoolClassificationApplyService(new KeywordPoolCandidateRepository(), new ModelKeywordPoolClassifier());
+        $auto_fetch_missing = isset($_POST['auto_fetch_missing']) && (string) wp_unslash($_POST['auto_fetch_missing']) === '1';
+
+        if ($auto_fetch_missing) {
+            $candidate_ids = $service->fetch_missing_ids($batch_size);
+        } else {
+            $raw_ids = $_POST['candidate_ids'] ?? [];
+            if (!is_array($raw_ids)) {
+                wp_send_json_error([ 'message' => __('candidate_ids[] is required.', 'tmwseo') ], 400);
+            }
+            $candidate_ids = array_values(array_unique(array_filter(array_map('absint', wp_unslash($raw_ids)))));
+            if ([] === $candidate_ids) {
+                wp_send_json_error([ 'message' => __('candidate_ids[] is required.', 'tmwseo') ], 400);
+            }
+        }
+
+        if (count($candidate_ids) > 250) {
+            wp_send_json_error([ 'message' => __('Batch size exceeds the hard cap of 250 candidate IDs.', 'tmwseo') ], 400);
+        }
+
+        wp_send_json_success($service->apply_batch($candidate_ids, 'pr603_keyword_pool_classification_audit'));
     }
 
 }
