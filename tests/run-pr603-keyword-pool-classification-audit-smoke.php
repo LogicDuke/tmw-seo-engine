@@ -113,25 +113,31 @@ $wpdb->rows = [
     6 => $base(6, 'brunette'),
     7 => $base(7, 'indian'),
     8 => $base(8, 'anisyia livejasmin', 0, 'queued_for_review', [ 'keyword_class' => 'personal_model_keyword', 'suggested_usage' => 'primary_focus_allowed', 'standalone_allowed' => true, 'model_keyword_owner' => 'Anisyia', 'model_keyword_usage_scope' => 'model_bio_only' ]),
+    9 => [ 'id' => 9, 'keyword' => 'anisyia', 'canonical' => 'anisyia', 'intent_type' => 'model', 'entity_type' => 'model', 'entity_id' => 0, 'status' => 'queued_for_review', 'sources' => null, 'updated_at' => 'before' ],
 ];
 
 $service = new KeywordPoolClassificationApplyService(new KeywordPoolCandidateRepository(), new ModelKeywordPoolClassifier());
 $summary = $service->summary();
-pr603_assert($summary['total_model_rows'] === 8, 'Summary should count all model rows.');
+pr603_assert($summary['total_model_rows'] === 9, 'Summary should count all model rows.');
 pr603_assert($summary['already_classified'] === 1, 'Summary should count already classified rows.');
-pr603_assert($summary['missing_classification'] === 7, 'Summary should count missing rows.');
-pr603_assert($summary['unlinked_entity_id_zero'] === 7, 'Summary should count unlinked rows.');
+pr603_assert($summary['missing_classification'] === 8, 'Summary should count missing rows.');
+pr603_assert($summary['unlinked_entity_id_zero'] === 8, 'Summary should count unlinked rows.');
 
 $before_updates = count($wpdb->updates);
 $dry = $service->dry_run_batch(0, 10, 'all');
 pr603_assert(count($wpdb->updates) === $before_updates, 'Dry run must not write.');
 $by_keyword = [];
-foreach ($dry['rows'] as $row) { $by_keyword[$row['keyword']] = $row; }
+$by_id = [];
+foreach ($dry['rows'] as $row) { $by_keyword[$row['keyword']] = $row; $by_id[(int) $row['id']] = $row; }
 pr603_assert($by_keyword['video']['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, 'video should be unsafe standalone.');
 pr603_assert($by_keyword['chat']['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, 'chat should be unsafe standalone.');
 pr603_assert($by_keyword['webcam model']['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM, 'webcam model should be core model term.');
 pr603_assert($by_keyword['livejasmin model']['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM, 'livejasmin model should be core model term.');
-pr603_assert($by_keyword['anisyia']['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, 'Anisyia with post context should be personal.');
+pr603_assert($by_id[4]['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, 'Anisyia with post context should be personal.');
+pr603_assert(isset($by_id[9]), 'No-context Anisyia fixture should be present in dry run.');
+pr603_assert($by_id[9]['entity_id'] === 0, 'No-context Anisyia fixture should be unlinked.');
+pr603_assert($by_id[9]['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW, 'Anisyia without context should be unknown_review.');
+pr603_assert($by_id[9]['proposed_keyword_class'] !== ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, 'Anisyia without context must not be personal.');
 
 $ids = $service->fetch_missing_ids(3);
 pr603_assert($ids === [1, 2, 3], 'fetch_missing_ids should return first missing IDs.');
@@ -155,12 +161,6 @@ pr603_assert(($sources4['model_keyword_owner'] ?? '') === 'Anisyia', 'model_keyw
 pr603_assert(($sources4['model_keyword_usage_scope'] ?? '') === 'model_bio_only', 'model_keyword_usage_scope must survive.');
 pr603_assert(($sources4['keyword_classified_by'] ?? '') === 'pr603_keyword_pool_classification_audit', 'classified_by should be PR 603 marker.');
 
-$without_context = $service->dry_run_batch(0, 20, 'all');
-foreach ($without_context['rows'] as $row) {
-    if ($row['keyword'] === 'anisyia livejasmin') {
-        pr603_assert($row['proposed_keyword_class'] === ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, 'Owner context may classify matching owner phrase.');
-    }
-}
 
 $too_many = $service->apply_batch(range(1, 251));
 pr603_assert($too_many['errors'] === 1 && $too_many['scanned'] === 0, 'More than 250 IDs should be rejected.');

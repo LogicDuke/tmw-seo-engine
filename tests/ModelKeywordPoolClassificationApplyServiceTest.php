@@ -157,6 +157,23 @@ final class ModelKeywordPoolClassificationApplyServiceTest extends TestCase {
         $this->assertSame(0, $this->wpdb->rows[2]['entity_id']);
     }
 
+
+    public function test_fetch_missing_ids_excludes_empty_keywords(): void {
+        $this->wpdb->rows[9] = [
+            'id' => 9,
+            'keyword' => '   ',
+            'canonical' => '',
+            'intent_type' => 'model',
+            'entity_type' => 'model',
+            'entity_id' => 0,
+            'status' => 'queued_for_review',
+            'sources' => '',
+            'updated_at' => 'before',
+        ];
+
+        $this->assertNotContains(9, $this->service->fetch_missing_ids(20));
+    }
+
     public function test_more_than_250_candidate_ids_is_rejected(): void {
         $result = $this->service->apply_batch(range(1, 251));
         $this->assertSame(1, $result['errors']);

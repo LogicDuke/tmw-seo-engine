@@ -84,46 +84,67 @@ class KeywordPoolClassificationApplyService {
         $batch_size = $this->clamp_batch_size($batch_size, 50);
         $filter = in_array($filter, self::ALLOWED_FILTERS, true) ? $filter : 'missing';
 
-        $matched = [];
+        $slice = [];
+        $matched_total = 0;
+        $exact_total = true;
         if ($this->repository->table_exists()) {
             foreach ($this->model_rows() as $row) {
-                if ($this->row_matches_filter($row, $filter)) {
-                    $matched[] = $row;
+                $classification = null;
+                $context_info = null;
+
+                if (in_array($filter, [ 'missing', 'all', 'unlinked' ], true)) {
+                    if (!$this->row_matches_cheap_filter($row, $filter)) {
+                        continue;
+                    }
+                } else {
+                    $exact_total = false;
+                    $context_info = $this->resolve_model_name_context($row);
+                    $classification = $this->classifier->classify((string) ($row['keyword'] ?? ''), $context_info['context']);
+                    $class = (string) ($classification['keyword_class'] ?? '');
+                    if ('unsafe' === $filter && ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE !== $class) {
+                        continue;
+                    }
+                    if ('unknown' === $filter && ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW !== $class) {
+                        continue;
+                    }
+                }
+
+                $matched_total++;
+                if ($matched_total <= $offset) {
+                    continue;
+                }
+
+                if (count($slice) < $batch_size) {
+                    $slice[] = [
+                        'row' => $row,
+                        'context_info' => $context_info,
+                        'classification' => $classification,
+                    ];
+                }
+
+                if (!$exact_total && count($slice) >= $batch_size) {
+                    $matched_total++; // Lower-bound sentinel so the UI can request another scanned page.
+                    break;
                 }
             }
         }
 
-        $slice = array_slice($matched, $offset, $batch_size);
         $preview_rows = [];
-        foreach ($slice as $row) {
-            $context_info = $this->resolve_model_name_context($row);
-            $classification = $this->classifier->classify((string) ($row['keyword'] ?? ''), $context_info['context']);
-            $reason_codes = array_values(array_map('strval', is_array($classification['reason_codes'] ?? null) ? $classification['reason_codes'] : []));
-            $sources_raw = (string) ($row['sources'] ?? '');
-            $preview_rows[] = [
-                'id' => (int) ($row['id'] ?? 0),
-                'keyword' => (string) ($row['keyword'] ?? ''),
-                'current_status' => (string) ($row['status'] ?? ''),
-                'entity_type' => (string) ($row['entity_type'] ?? ''),
-                'entity_id' => (int) ($row['entity_id'] ?? 0),
-                'current_sources_snippet' => $this->sources_snippet($sources_raw),
-                'model_name_context' => $context_info['model_name'],
-                'already_classified' => $this->is_already_classified($sources_raw),
-                'proposed_keyword_class' => (string) ($classification['keyword_class'] ?? ''),
-                'proposed_suggested_usage' => (string) ($classification['suggested_usage'] ?? ''),
-                'proposed_standalone_allowed' => (bool) ($classification['standalone_allowed'] ?? false),
-                'proposed_reason_codes' => implode(', ', $reason_codes),
-                'proposed_confidence' => (string) ($classification['confidence'] ?? ''),
-            ];
+        foreach ($slice as $entry) {
+            $row = is_array($entry['row'] ?? null) ? $entry['row'] : [];
+            $context_info = is_array($entry['context_info'] ?? null) ? $entry['context_info'] : $this->resolve_model_name_context($row);
+            $classification = is_array($entry['classification'] ?? null) ? $entry['classification'] : $this->classifier->classify((string) ($row['keyword'] ?? ''), $context_info['context']);
+            $preview_rows[] = $this->preview_row($row, $context_info, $classification);
         }
 
         return [
             'rows' => $preview_rows,
-            'total' => count($matched),
+            'total' => $matched_total,
             'offset' => $offset,
             'batch_size' => $batch_size,
             'filter' => $filter,
             'dry_run' => true,
+            'total_is_exact' => $exact_total,
         ];
     }
 
@@ -135,14 +156,14 @@ class KeywordPoolClassificationApplyService {
         }
         $ids = [];
         foreach ($this->model_rows() as $row) {
-            if (!$this->is_already_classified((string) ($row['sources'] ?? ''))) {
+            if ($this->is_apply_candidate_row($row)) {
                 $ids[] = (int) ($row['id'] ?? 0);
             }
             if (count($ids) >= $batch_size) {
                 break;
             }
         }
-        return array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
+        return $ids;
     }
 
     /** @param array<int,int|string> $candidate_ids @return array<string,int> */
@@ -189,14 +210,25 @@ class KeywordPoolClassificationApplyService {
                 $result['skipped_empty']++;
                 continue;
             }
-
-            $context_info = $this->resolve_model_name_context($row);
-            $applied = $this->repository->classify_candidate_phrase($keyword, $context_info['context'], true, (int) ($row['id'] ?? 0));
-            if (empty($applied['applied'])) {
+            if (!$this->is_apply_candidate_row($row)) {
                 $result['errors']++;
                 continue;
             }
-            if (!$this->ensure_classified_by((int) ($row['id'] ?? 0), $classified_by)) {
+
+            $context_info = $this->resolve_model_name_context($row);
+            if (!$this->start_transaction()) {
+                $result['errors']++;
+                continue;
+            }
+            $applied = $this->repository->classify_candidate_phrase($keyword, $context_info['context'], true, (int) ($row['id'] ?? 0));
+            $marked = !empty($applied['applied']) && $this->ensure_classified_by((int) ($row['id'] ?? 0), $classified_by);
+            if (!$marked) {
+                $this->rollback_transaction();
+                $result['errors']++;
+                continue;
+            }
+            if (!$this->commit_transaction()) {
+                $this->rollback_transaction();
                 $result['errors']++;
                 continue;
             }
@@ -235,29 +267,46 @@ class KeywordPoolClassificationApplyService {
     }
 
     /** @param array<string,mixed> $row */
-    private function row_matches_filter(array $row, string $filter): bool {
-        $sources_raw = (string) ($row['sources'] ?? '');
-        $already = $this->is_already_classified($sources_raw);
+    private function row_matches_cheap_filter(array $row, string $filter): bool {
         if ('all' === $filter) {
             return true;
         }
         if ('missing' === $filter) {
-            return !$already;
+            return !$this->is_already_classified((string) ($row['sources'] ?? ''));
         }
         if ('unlinked' === $filter) {
             return (int) ($row['entity_id'] ?? 0) === 0;
         }
+        return false;
+    }
 
-        $context_info = $this->resolve_model_name_context($row);
-        $classification = $this->classifier->classify((string) ($row['keyword'] ?? ''), $context_info['context']);
-        $class = (string) ($classification['keyword_class'] ?? '');
-        if ('unsafe' === $filter) {
-            return ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE === $class;
-        }
-        if ('unknown' === $filter) {
-            return ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW === $class;
-        }
-        return !$already;
+    /** @param array<string,mixed> $row */
+    private function is_apply_candidate_row(array $row): bool {
+        return (int) ($row['id'] ?? 0) > 0
+            && (string) ($row['intent_type'] ?? '') === 'model'
+            && trim((string) ($row['keyword'] ?? '')) !== ''
+            && !$this->is_already_classified((string) ($row['sources'] ?? ''));
+    }
+
+    /** @param array<string,mixed> $row @param array{context:array<string,string>,model_name:string} $context_info @param array<string,mixed> $classification @return array<string,mixed> */
+    private function preview_row(array $row, array $context_info, array $classification): array {
+        $reason_codes = array_values(array_map('strval', is_array($classification['reason_codes'] ?? null) ? $classification['reason_codes'] : []));
+        $sources_raw = (string) ($row['sources'] ?? '');
+        return [
+            'id' => (int) ($row['id'] ?? 0),
+            'keyword' => (string) ($row['keyword'] ?? ''),
+            'current_status' => (string) ($row['status'] ?? ''),
+            'entity_type' => (string) ($row['entity_type'] ?? ''),
+            'entity_id' => (int) ($row['entity_id'] ?? 0),
+            'current_sources_snippet' => $this->sources_snippet($sources_raw),
+            'model_name_context' => (string) ($context_info['model_name'] ?? ''),
+            'already_classified' => $this->is_already_classified($sources_raw),
+            'proposed_keyword_class' => (string) ($classification['keyword_class'] ?? ''),
+            'proposed_suggested_usage' => (string) ($classification['suggested_usage'] ?? ''),
+            'proposed_standalone_allowed' => (bool) ($classification['standalone_allowed'] ?? false),
+            'proposed_reason_codes' => implode(', ', $reason_codes),
+            'proposed_confidence' => (string) ($classification['confidence'] ?? ''),
+        ];
     }
 
     /** @param array<string,mixed> $row @return array{context:array<string,string>,model_name:string} */
@@ -332,4 +381,29 @@ class KeywordPoolClassificationApplyService {
         $data['updated_at'] = function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s');
         return false !== $wpdb->update($this->repository->table_name(), $data, [ 'id' => $candidate_id ]);
     }
+
+
+    private function start_transaction(): bool {
+        global $wpdb;
+        if (is_object($wpdb) && method_exists($wpdb, 'query')) {
+            return false !== $wpdb->query('START TRANSACTION');
+        }
+        return true;
+    }
+
+    private function commit_transaction(): bool {
+        global $wpdb;
+        if (is_object($wpdb) && method_exists($wpdb, 'query')) {
+            return false !== $wpdb->query('COMMIT');
+        }
+        return true;
+    }
+
+    private function rollback_transaction(): void {
+        global $wpdb;
+        if (is_object($wpdb) && method_exists($wpdb, 'query')) {
+            $wpdb->query('ROLLBACK');
+        }
+    }
+
 }

@@ -1378,21 +1378,55 @@ class Admin {
             const ajaxUrl = root.getAttribute('data-ajax-url');
             const nonce = root.getAttribute('data-nonce');
             let offset = 0;
+            let dryFilter = 'missing';
+            let dryBatchSize = 50;
             const esc = function(value) {
                 return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function(ch) {
                     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[ch];
                 });
             };
+            const showError = function(box, message) {
+                box.innerHTML = '<div class="notice notice-error inline"><p>' + esc(message || 'Request failed. Please refresh the page and try again.') + '</p></div>';
+            };
             const post = function(data) {
                 const body = new URLSearchParams(data);
                 body.set('nonce', nonce);
-                return fetch(ajaxUrl, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }, body: body.toString() }).then(function(resp){ return resp.json(); });
+                return fetch(ajaxUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: body.toString()
+                }).then(function(resp){
+                    return resp.text().then(function(text){
+                        let payload = null;
+                        try {
+                            payload = text ? JSON.parse(text) : null;
+                        } catch (error) {
+                            if (!resp.ok) {
+                                throw new Error('Request failed with HTTP ' + resp.status + '.');
+                            }
+                            throw new Error('The server returned an unreadable response. Please try again.');
+                        }
+                        if (!resp.ok) {
+                            const message = payload && payload.data && payload.data.message ? payload.data.message : 'Request failed with HTTP ' + resp.status + '.';
+                            throw new Error(message);
+                        }
+                        if (!payload || payload.success !== true) {
+                            const message = payload && payload.data && payload.data.message ? payload.data.message : 'The request did not complete successfully.';
+                            throw new Error(message);
+                        }
+                        return payload;
+                    });
+                });
             };
-            const renderDry = function(payload, append) {
+            const renderDry = function(payload) {
                 const box = document.getElementById('tmwseo-kw-classification-dry-result');
                 const data = payload && payload.data ? payload.data : null;
-                if (!payload || !payload.success || !data) { box.innerHTML = '<div class="notice notice-error inline"><p>Dry run failed.</p></div>'; return; }
+                if (!data) { showError(box, 'Dry run failed.'); return; }
                 let html = '<p><strong>' + esc(data.rows.length) + '</strong> rows shown from <strong>' + esc(data.total) + '</strong> matching rows. Offset ' + esc(data.offset) + '.</p>';
+                if (data.total_is_exact === false) {
+                    html += '<p class="description">Total is a lower-bound for this classification filter to avoid scanning the full table.</p>';
+                }
                 html += '<div class="tmwui-table-wrap"><table class="widefat striped"><thead><tr>';
                 ['ID','Keyword','Status','Entity Type','Entity ID','Model Name Context','Already Classified','Proposed KW Class','Proposed Usage','Proposed Standalone','Reason Codes','Confidence'].forEach(function(h){ html += '<th>' + esc(h) + '</th>'; });
                 html += '</tr></thead><tbody>';
@@ -1409,21 +1443,30 @@ class Admin {
                 }
                 box.innerHTML = html;
                 const next = document.getElementById('tmwseo-kw-classification-next');
-                if (next) { next.addEventListener('click', function(){ offset += parseInt(document.getElementById('tmwseo-kw-classification-dry-batch').value, 10) || 50; runDry(true); }); }
+                if (next) { next.addEventListener('click', function(){ offset += dryBatchSize; runDry(); }); }
             };
-            const runDry = function(append) {
-                const batch = parseInt(document.getElementById('tmwseo-kw-classification-dry-batch').value, 10) || 50;
-                post({ action: 'tmwseo_kw_classification_dry_run', offset: offset, batch_size: batch, filter: document.getElementById('tmwseo-kw-classification-filter').value }).then(function(payload){ renderDry(payload, append); });
+            const runDry = function() {
+                const box = document.getElementById('tmwseo-kw-classification-dry-result');
+                box.innerHTML = '<p>Loading dry-run preview…</p>';
+                post({ action: 'tmwseo_kw_classification_dry_run', offset: offset, batch_size: dryBatchSize, filter: dryFilter })
+                    .then(renderDry)
+                    .catch(function(error){ showError(box, error.message); });
             };
-            document.getElementById('tmwseo-kw-classification-dry-run').addEventListener('click', function(){ offset = 0; runDry(false); });
+            document.getElementById('tmwseo-kw-classification-dry-run').addEventListener('click', function(){
+                offset = 0;
+                dryFilter = document.getElementById('tmwseo-kw-classification-filter').value;
+                dryBatchSize = parseInt(document.getElementById('tmwseo-kw-classification-dry-batch').value, 10) || 50;
+                runDry();
+            });
             document.getElementById('tmwseo-kw-classification-apply').addEventListener('click', function(){
                 const box = document.getElementById('tmwseo-kw-classification-apply-result');
                 box.innerHTML = '<p>Applying…</p>';
-                post({ action: 'tmwseo_kw_classification_apply_batch', auto_fetch_missing: '1', batch_size: document.getElementById('tmwseo-kw-classification-apply-batch').value }).then(function(payload){
-                    if (!payload || !payload.success || !payload.data) { box.innerHTML = '<div class="notice notice-error inline"><p>Apply failed.</p></div>'; return; }
-                    const d = payload.data;
-                    box.innerHTML = '<div class="notice notice-success inline"><p>Scanned: ' + esc(d.scanned) + ' · Classified: ' + esc(d.classified) + ' · Already classified: ' + esc(d.skipped_already_classified) + ' · Not model: ' + esc(d.skipped_not_model) + ' · Empty: ' + esc(d.skipped_empty) + ' · Errors: ' + esc(d.errors) + '</p></div>';
-                });
+                post({ action: 'tmwseo_kw_classification_apply_batch', auto_fetch_missing: '1', batch_size: document.getElementById('tmwseo-kw-classification-apply-batch').value })
+                    .then(function(payload){
+                        const d = payload.data;
+                        box.innerHTML = '<div class="notice notice-success inline"><p>Scanned: ' + esc(d.scanned) + ' · Classified: ' + esc(d.classified) + ' · Already classified: ' + esc(d.skipped_already_classified) + ' · Not model: ' + esc(d.skipped_not_model) + ' · Empty: ' + esc(d.skipped_empty) + ' · Errors: ' + esc(d.errors) + '</p></div>';
+                    })
+                    .catch(function(error){ showError(box, error.message); });
             });
         })();
         </script>
