@@ -124,6 +124,23 @@ foreach ([ 'video', 'chat', 'mystery phrase' ] as $bad) { pr604_assert(!in_array
 pr604_assert(count($wpdb->queries) > $before_queries, 'Pack build should read the provider rows.');
 pr604_assert($wpdb->updates === [] && $wpdb->inserts === [], 'Provider and pack build smoke must not perform database writes.');
 
+$wpdb->rows = [
+    12 => $row(12, 'anisyia livejasmin', 6666, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
+];
+$name_context_pack = ModelKeywordPack::build(new WP_Post(6666, 'model', 'Anisyia'));
+pr604_assert($name_context_pack['primary'] === 'anisyia livejasmin', 'SEO primary may use the approved classified personal phrase.');
+pr604_assert(in_array('anisyia livejasmin', $name_context_pack['rankmath_additional'], true), 'Approved classified personal phrase should still lead Rank Math extras.');
+pr604_assert(count(array_filter($name_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'anisyia ') && !str_starts_with((string) $kw, 'anisyia livejasmin '))) >= 1, 'Generated Rank Math chips should still use Anisyia as the model-name context.');
+pr604_assert(count(array_filter($name_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'anisyia livejasmin '))) === 0, 'Generated Rank Math chips must not use the classified phrase as the name context.');
+
+$wpdb->rows = [
+    13 => $row(13, 'webcam model', 7777, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true, 'Core Only')),
+];
+$core_context_pack = ModelKeywordPack::build(new WP_Post(7777, 'model', 'Core Only'));
+pr604_assert($core_context_pack['primary'] === 'webcam model', 'SEO primary may fall back to an approved core model term.');
+pr604_assert(count(array_filter($core_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'core only '))) >= 1, 'Generated Rank Math chips should use the title when the SEO primary is a core term.');
+pr604_assert(count(array_filter($core_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'webcam model '))) === 0, 'Generated Rank Math chips must not use a core term as the model-name context.');
+
 $wpdb->rows = [ 20 => $row(20, 'only pending', 5555, 'queued_for_review', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)) ];
 $fallback_pack = ModelKeywordPack::build(new WP_Post(5555, 'model', 'Fallback Model'));
 pr604_assert($fallback_pack['primary'] === 'Fallback Model', 'Existing post-title fallback should remain when no approved classified rows exist.');
