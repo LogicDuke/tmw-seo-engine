@@ -47,6 +47,12 @@ class KeywordPoolCandidateRepository {
         $status = $this->sanitize_status((string) ($candidate['status'] ?? 'queued_for_review'));
         $entity_type = $this->sanitize_entity_type((string) ($candidate['entity_type'] ?? $intent));
         $entity_id = max(0, (int) ($candidate['entity_id'] ?? 0));
+        $canonical = array_key_exists('canonical', $candidate)
+            ? $this->normalize_keyword((string) $candidate['canonical'])
+            : $keyword;
+        if ('' === $canonical) {
+            $canonical = $keyword;
+        }
 
         if ('' === $keyword || '' === $intent) {
             return $this->result($keyword, $intent, $status, 'error', 'invalid_candidate_scope', $entity_type, $entity_id);
@@ -73,7 +79,7 @@ class KeywordPoolCandidateRepository {
         $data = [ 'keyword' => $keyword, 'intent_type' => $intent, 'entity_id' => $entity_id ];
 
         if (!empty($columns['canonical'])) {
-            $data['canonical'] = (string) ($candidate['canonical'] ?? $keyword);
+            $data['canonical'] = $canonical;
         }
         if (!empty($columns['intent'])) {
             $data['intent'] = $intent;
@@ -137,6 +143,114 @@ class KeywordPoolCandidateRepository {
             return $this->result($keyword, $intent, $status, 'error', 'database_insert_failed', $entity_type, $entity_id, $warnings);
         }
         return $this->result($keyword, $intent, $status, 'inserted', implode('|', $warnings) ?: 'keyword_inserted', $entity_type, $entity_id, $warnings, (int) $wpdb->insert_id);
+    }
+
+
+    /**
+     * Classify one keyword candidate and optionally merge safe classification metadata into sources JSON.
+     *
+     * Dry-run mode returns the proposed metadata without writing. Apply mode only writes the
+     * PR 602 classification metadata keys to sources; it does not change status, scope,
+     * entity ownership, metrics, content, or SEO fields.
+     *
+     * @return array<string,mixed>
+     */
+    public function classify_candidate_phrase(string $keyword, array $context = [], bool $apply = false, ?int $candidate_id = null): array {
+        global $wpdb;
+
+        $classifier = new ModelKeywordPoolClassifier();
+        $classification = $classifier->classify($keyword, $context);
+        $metadata = $this->classification_metadata($classification);
+        $normalized = $this->normalize_keyword($keyword);
+
+        $result = [
+            'keyword' => $normalized,
+            'classification' => $classification,
+            'metadata' => $metadata,
+            'dry_run' => !$apply,
+            'applied' => false,
+            'reason' => 'dry_run_only',
+        ];
+
+        if (!$apply) {
+            return $result;
+        }
+        if (!$this->table_exists()) {
+            $result['reason'] = 'keyword_candidate_table_unavailable';
+            return $result;
+        }
+        $columns = $this->columns();
+        if (empty($columns['sources'])) {
+            $result['reason'] = 'sources_column_unavailable';
+            return $result;
+        }
+
+        $row = null;
+        if (null !== $candidate_id && $candidate_id > 0) {
+            $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . $this->table_name() . ' WHERE id = %d LIMIT 1', $candidate_id), ARRAY_A);
+        } elseif ('' !== $normalized) {
+            $row = $this->find_existing_by_keyword($normalized);
+        }
+        if (!is_array($row) || (int) ($row['id'] ?? 0) <= 0) {
+            $result['reason'] = 'candidate_not_found';
+            return $result;
+        }
+
+        $sources = $this->decode_json_field($row['sources'] ?? null);
+        foreach ($metadata as $key => $value) {
+            $sources[$key] = $value;
+        }
+        $data = [ 'sources' => $this->encode_json($sources) ];
+        if (!empty($columns['updated_at'])) {
+            $data['updated_at'] = function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s');
+        }
+        $updated = $wpdb->update($this->table_name(), $data, [ 'id' => (int) $row['id'] ]);
+        if (false === $updated) {
+            $result['reason'] = 'database_update_failed';
+            return $result;
+        }
+        $result['applied'] = true;
+        $result['reason'] = 'classification_metadata_applied';
+        return $result;
+    }
+
+    /** @return array<string,mixed> */
+    public function classification_metadata(array $classification): array {
+        return [
+            'keyword_class' => (string) ($classification['keyword_class'] ?? ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW),
+            'suggested_usage' => (string) ($classification['suggested_usage'] ?? ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED),
+            'standalone_allowed' => (bool) ($classification['standalone_allowed'] ?? false),
+            'keyword_class_reason_codes' => array_values(array_map('strval', is_array($classification['reason_codes'] ?? null) ? $classification['reason_codes'] : [])),
+            'keyword_class_confidence' => (string) ($classification['confidence'] ?? 'low'),
+            'keyword_classified_at' => function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s'),
+            'keyword_classified_by' => 'pr602_model_keyword_pool_classifier',
+        ];
+    }
+
+    /** @return array<string,mixed>|null */
+    public function find_existing_by_canonical_and_entity(string $keyword, int $entity_id): ?array {
+        global $wpdb;
+        if (!$this->table_exists()) {
+            return null;
+        }
+        $normalized = $this->normalize_keyword($keyword);
+        if ('' === $normalized) {
+            return null;
+        }
+        $columns = $this->columns();
+        $clauses = [ 'keyword = %s' ];
+        $args = [ $normalized ];
+        if (!empty($columns['canonical'])) {
+            $clauses[] = 'canonical = %s';
+            $args[] = $normalized;
+        }
+        $entity_sql = !empty($columns['entity_id']) ? ' AND entity_id = %d' : '';
+        if ('' !== $entity_sql) {
+            $args[] = $entity_id;
+        }
+        $sql = 'SELECT * FROM ' . $this->table_name() . ' WHERE (' . implode(' OR ', $clauses) . ')' . $entity_sql . ' LIMIT 1';
+        $row = $wpdb->get_row($wpdb->prepare($sql, $args), ARRAY_A);
+        return is_array($row) ? $row : null;
     }
 
     public function normalize_keyword(string $keyword): string {

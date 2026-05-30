@@ -83,6 +83,9 @@ class KeywordsTable extends \WP_List_Table {
             $columns['model_keyword_recommended_action'] = __('Recommended Action', 'tmwseo');
             $columns['model_keyword_provenance'] = __('Provenance', 'tmwseo');
             $columns['model_entity_link_status'] = __('Entity Link Status', 'tmwseo');
+            $columns['kw_class'] = __('KW Class', 'tmwseo');
+            $columns['kw_usage'] = __('Suggested Usage', 'tmwseo');
+            $columns['kw_standalone'] = __('Standalone?', 'tmwseo');
         }
         if ( $this->has_sources ) { $columns['sources'] = __('Sources', 'tmwseo'); }
         elseif ( $this->has_source ) { $columns['source'] = __('Source', 'tmwseo'); }
@@ -195,6 +198,9 @@ class KeywordsTable extends \WP_List_Table {
         if ( in_array( $column_name, [ 'model_keyword_owner', 'model_keyword_usage_scope', 'model_keyword_primary', 'model_keyword_strategy', 'model_keyword_recommended_action', 'model_keyword_provenance', 'model_entity_link_status' ], true ) ) {
             return $this->render_model_metadata_column( is_array($item) ? $item : [], $column_name );
         }
+        if ( in_array( $column_name, [ 'kw_class', 'kw_usage', 'kw_standalone' ], true ) ) {
+            return $this->render_keyword_classification_column( is_array($item) ? $item : [], $column_name );
+        }
         if ( in_array( $column_name, [ 'sources', 'source' ], true ) ) {
             $source_text = $this->source_label_from_item( is_array($item) ? $item : [], is_string( $value ) ? $value : '' );
             return '' === $source_text ? '&mdash;' : '<code>' . esc_html( $source_text ) . '</code>';
@@ -211,6 +217,57 @@ class KeywordsTable extends \WP_List_Table {
         }
 
         return esc_html((string) $value);
+    }
+
+
+    /** @param array<string, mixed> $item */
+    private function render_keyword_classification_column(array $item, string $column_name): string {
+        $metadata = $this->keyword_classification_metadata_from_item($item);
+        $key_map = [
+            'kw_class' => 'keyword_class',
+            'kw_usage' => 'suggested_usage',
+            'kw_standalone' => 'standalone_allowed',
+        ];
+        $key = $key_map[$column_name] ?? '';
+        if ('' === $key || !array_key_exists($key, $metadata)) {
+            return '';
+        }
+        $value = $metadata[$key];
+        if ('kw_standalone' === $column_name) {
+            if (true === $value || 'true' === $value || '1' === (string) $value || 1 === $value) { return esc_html__('Yes', 'tmwseo'); }
+            if (false === $value || 'false' === $value || '0' === (string) $value || 0 === $value) { return esc_html__('No', 'tmwseo'); }
+            return '';
+        }
+        return '' === (string) $value ? '' : '<code>' . esc_html((string) $value) . '</code>';
+    }
+
+    /** @param array<string, mixed> $item @return array<string,mixed> */
+    private function keyword_classification_metadata_from_item(array $item): array {
+        $sources = $this->find_keyword_classification_metadata($this->decode_json_field($item['sources'] ?? null));
+        $notes = $this->find_keyword_classification_metadata($this->decode_json_field($item['notes'] ?? null));
+        return array_merge($notes, $sources);
+    }
+
+    /** @param array<string, mixed> $payload @return array<string,mixed> */
+    private function find_keyword_classification_metadata(array $payload): array {
+        $metadata = [];
+        foreach ([ 'keyword_class', 'suggested_usage', 'standalone_allowed' ] as $key) {
+            if (array_key_exists($key, $payload)) {
+                $metadata[$key] = $payload[$key];
+            }
+        }
+        foreach ([ 'keyword_pools_import', 'keyword_pools_import_history' ] as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) { continue; }
+            if ($this->is_list_array($nested)) {
+                foreach ($nested as $entry) {
+                    if (is_array($entry)) { $metadata = array_merge($this->find_keyword_classification_metadata($entry), $metadata); }
+                }
+            } else {
+                $metadata = array_merge($this->find_keyword_classification_metadata($nested), $metadata);
+            }
+        }
+        return $metadata;
     }
 
     /** @param array<string, mixed> $item */
@@ -383,6 +440,45 @@ class KeywordsTable extends \WP_List_Table {
         return '';
     }
 
+
+    /** @return array<int,string> */
+    private function json_like_patterns(string $key, string $value): array {
+        return [
+            '"' . $key . '":"' . $value . '"',
+            '"' . $key . '": "' . $value . '"',
+        ];
+    }
+
+    private function add_json_metadata_like_filter(array &$conditions, array &$where_args, string $key, string $value): void {
+        global $wpdb;
+        if (!$this->has_sources && !$this->has_notes) { return; }
+        $likes = [];
+        foreach ([ 'sources' => $this->has_sources, 'notes' => $this->has_notes ] as $field => $enabled) {
+            if (!$enabled) { continue; }
+            $field_likes = [];
+            foreach ($this->json_like_patterns($key, $value) as $pattern) {
+                $field_likes[] = $field . ' LIKE %s';
+                $where_args[] = $this->escaped_like_contains($wpdb, $pattern);
+            }
+            if ($field_likes !== []) { $likes[] = '(' . implode(' OR ', $field_likes) . ')'; }
+        }
+        if ($likes !== []) { $conditions[] = '(' . implode(' OR ', $likes) . ')'; }
+    }
+
+    private function add_not_standalone_filter(array &$conditions, array &$where_args): void {
+        global $wpdb;
+        if (!$this->has_sources && !$this->has_notes) { return; }
+        $likes = [];
+        foreach ([ 'sources' => $this->has_sources, 'notes' => $this->has_notes ] as $field => $enabled) {
+            if (!$enabled) { continue; }
+            foreach ([ '"standalone_allowed":false', '"standalone_allowed": false', '"standalone_allowed":"false"', '"standalone_allowed": "false"', '"standalone_allowed":0', '"standalone_allowed": 0' ] as $pattern) {
+                $likes[] = $field . ' LIKE %s';
+                $where_args[] = $this->escaped_like_contains($wpdb, $pattern);
+            }
+        }
+        if ($likes !== []) { $conditions[] = '(' . implode(' OR ', $likes) . ')'; }
+    }
+
     public function prepare_items(): void {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
@@ -511,6 +607,15 @@ class KeywordsTable extends \WP_List_Table {
                 $conditions[] = 'intent_type = %s AND entity_type = %s AND entity_id = 0';
                 $where_args[] = 'model';
                 $where_args[] = 'model';
+            }
+            elseif (in_array($filter, [ 'core_model_term', 'platform_term', 'platform_intent_term', 'intent_term', 'attribute_term', 'geo_language_term', 'feature_modifier' ], true)) {
+                $this->add_json_metadata_like_filter($conditions, $where_args, 'keyword_class', $filter);
+            } elseif ('unsafe_standalone' === $filter) {
+                $this->add_json_metadata_like_filter($conditions, $where_args, 'keyword_class', 'unsafe_standalone_modifier');
+            } elseif ('generated_fallback' === $filter) {
+                $this->add_json_metadata_like_filter($conditions, $where_args, 'keyword_class', 'generated_longtail');
+            } elseif ('not_standalone_allowed' === $filter) {
+                $this->add_not_standalone_filter($conditions, $where_args);
             }
         }
 

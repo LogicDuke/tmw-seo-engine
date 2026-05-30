@@ -52,6 +52,7 @@ class Admin {
         add_action('wp_ajax_tmwseo_generate_now', [__CLASS__, 'ajax_generate_now']);
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('wp_ajax_tmwseo_rerun_model_preview_phrases', [__CLASS__, 'ajax_rerun_model_preview_phrases']);
+        add_action('wp_ajax_tmwseo_save_model_fallback_pack', [__CLASS__, 'ajax_save_model_fallback_pack']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
@@ -2094,6 +2095,10 @@ class Admin {
         AdminAjaxHandlers::ajax_rerun_model_preview_phrases();
     }
 
+    public static function ajax_save_model_fallback_pack(): void {
+        AdminAjaxHandlers::ajax_save_model_fallback_pack();
+    }
+
 
     public static function handle_refresh_keywords_now(): void {
         AdminFormHandlers::handle_refresh_keywords_now();
@@ -3841,6 +3846,18 @@ class Admin {
                 $quick_links['Personal Model CSV Keywords'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'personal_model_csv', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Primary Model Bio Keywords']  = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'primary_model_bio', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Unlinked Model Keywords']     = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'unlinked_model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                if ( $has_sources_column ) {
+                    $quick_links['Core Model Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'core_model_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Platform Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'platform_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Platform Intent Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'platform_intent_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Intent Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'intent_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Attribute Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'attribute_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Geo / Language Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'geo_language_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Feature Modifiers'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'feature_modifier', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Unsafe Standalone Modifiers'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'unsafe_standalone', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Generated Fallback Keywords'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'generated_fallback', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Not Standalone Allowed'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'not_standalone_allowed', 'orderby' => 'volume', 'order' => 'desc' ] );
+                }
                 $quick_links['Ignored Model Keywords']      = array_merge( $filter_base, [ 'status' => 'ignored', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Queued Model Keywords']       = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
                 $quick_links['Queued Video Keywords']      = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
