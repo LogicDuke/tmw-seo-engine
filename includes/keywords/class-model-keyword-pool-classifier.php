@@ -60,17 +60,15 @@ class ModelKeywordPoolClassifier {
             return $this->result($keyword, self::CLASS_UNSAFE_STANDALONE, false, self::USAGE_MODIFIER_ONLY, [ 'unsafe_standalone_exact_match' ], 'high');
         }
 
-        if (!empty($context['is_generated']) && $this->is_multi_word($keyword)) {
-            return $this->result($keyword, self::CLASS_GENERATED_LONGTAIL, false, self::USAGE_REVIEW_REQUIRED, [ 'generated_longtail_flagged' ], 'high');
-        }
+        $is_generated = !empty($context['is_generated']);
 
-        if ($this->contains_any($keyword, self::CORE_MODEL_TERMS)) {
+        if ($this->contains_any($keyword, self::CORE_MODEL_TERMS) && (!$is_generated || in_array($keyword, self::CORE_MODEL_TERMS, true))) {
             return $this->result($keyword, self::CLASS_CORE_MODEL_TERM, true, self::USAGE_PRIMARY_FOCUS_ALLOWED, [ 'core_model_term_match' ], 'high');
         }
         if (in_array($keyword, self::PLATFORM_TERMS, true)) {
             return $this->result($keyword, self::CLASS_PLATFORM_TERM, false, self::USAGE_MODIFIER_ONLY, [ 'platform_term_exact' ], 'high');
         }
-        if ($this->contains_any($keyword, self::PLATFORM_INTENT_TERMS)) {
+        if ($this->contains_any($keyword, self::PLATFORM_INTENT_TERMS) && (!$is_generated || in_array($keyword, self::PLATFORM_INTENT_TERMS, true))) {
             return $this->result($keyword, self::CLASS_PLATFORM_INTENT_TERM, false, self::USAGE_BODY_SEMANTIC_ONLY, [ 'platform_intent_term_match' ], 'high');
         }
         if (in_array($keyword, self::INTENT_TERMS, true)) {
@@ -84,6 +82,10 @@ class ModelKeywordPoolClassifier {
         }
         if (in_array($keyword, self::FEATURE_MODIFIER_TERMS, true)) {
             return $this->result($keyword, self::CLASS_FEATURE_MODIFIER, false, self::USAGE_MODIFIER_ONLY, [ 'feature_modifier_exact' ], 'high');
+        }
+
+        if ($is_generated && $this->is_multi_word($keyword)) {
+            return $this->result($keyword, self::CLASS_GENERATED_LONGTAIL, false, self::USAGE_REVIEW_REQUIRED, [ 'generated_longtail_flagged' ], 'high');
         }
 
         return $this->result($keyword, self::CLASS_UNKNOWN_REVIEW, false, self::USAGE_REVIEW_REQUIRED, [ 'no_rule_matched' ], 'low');

@@ -69,6 +69,19 @@ final class ModelKeywordPoolClassifierTest extends TestCase {
         $this->assertSame(ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, $result['suggested_usage']);
     }
 
+
+    public function test_generated_context_preserves_exact_phrase_type_rule_order(): void {
+        $webcam = $this->classifier->classify('webcam model', [ 'is_generated' => true ]);
+        $privateChat = $this->classifier->classify('private chat', [ 'is_generated' => true ]);
+
+        $this->assertSame(ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM, $webcam['keyword_class']);
+        $this->assertTrue($webcam['standalone_allowed']);
+        $this->assertSame(ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, $webcam['suggested_usage']);
+        $this->assertSame(ModelKeywordPoolClassifier::CLASS_INTENT_TERM, $privateChat['keyword_class']);
+        $this->assertFalse($privateChat['standalone_allowed']);
+        $this->assertSame(ModelKeywordPoolClassifier::USAGE_BODY_SEMANTIC_ONLY, $privateChat['suggested_usage']);
+    }
+
     public function test_unsafe_standalone_wins_over_generated_flag(): void {
         $result = $this->classifier->classify('video', [ 'is_generated' => true ]);
         $this->assertSame(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, $result['keyword_class']);

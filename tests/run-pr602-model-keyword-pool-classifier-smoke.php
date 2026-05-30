@@ -38,6 +38,8 @@ pr602_check_class($classifier, 'anisyia', ModelKeywordPoolClassifier::CLASS_PERS
 pr602_assert($classifier->classify('anisyia')['keyword_class'] !== ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, 'Anisyia without context should not be personal.');
 pr602_check_class($classifier, 'anisyia livejasmin model', ModelKeywordPoolClassifier::CLASS_GENERATED_LONGTAIL, false, [ 'is_generated' => true ]);
 pr602_check_class($classifier, 'video', ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, false, [ 'is_generated' => true ]);
+pr602_check_class($classifier, 'webcam model', ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM, true, [ 'is_generated' => true ]);
+pr602_check_class($classifier, 'private chat', ModelKeywordPoolClassifier::CLASS_INTENT_TERM, false, [ 'is_generated' => true ]);
 
 $strong = $builder->build_preview(4457, 'Anisyia', [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia' ], [ 'webcam model', 'private chat' ]);
 pr602_assert($strong['keyword_data_strength'] === 'strong', 'Anisyia should be strong.');
