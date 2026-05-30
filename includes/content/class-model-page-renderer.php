@@ -222,7 +222,7 @@ class ModelPageRenderer {
     }
 
     private static function contains_no_extra_link_forbidden_terms(string $text): bool {
-        return (bool) preg_match('/\b(other listed profiles|other profiles|grouped profiles|fan\/support pages|fan pages|fansites?|personal sites?|video channels?|social profiles?|link hubs?|camsoda|non-live profiles|backup profiles|other sections|archive links|0 profile links found, including 1 live profile)\b/iu', $text);
+        return (bool) preg_match('/\b(other listed profiles|grouped profiles|fan\/support pages|fan pages|fansites?|personal sites?|video channels?|social profiles?|link hubs?|non-live profiles|backup profiles|archive links|0 profile links found, including 1 live profile)\b/iu', $text);
     }
 
     private static function strip_no_extra_link_forbidden_paragraphs(string $html): string {

@@ -167,7 +167,7 @@ class TemplateContent {
 
         if (!$has_extra_link_evidence) {
             $watch_para_pool = [
-                'Open the confirmed live profile below. This page currently lists the confirmed LiveJasmin profile only, so use that link as the primary access point and recheck status before joining.',
+                'Open the confirmed live profile below. ' . self::build_confirmed_live_profile_only_sentence($primary_platform_label),
                 'Use the confirmed live-room link below as the primary access point, then recheck current room status after click-through.',
             ];
         } else {
@@ -566,7 +566,7 @@ class TemplateContent {
             $comparison_lines = [
                 $has_extra_link_evidence
                     ? 'Confirm the handle and check recent room activity before choosing any destination.'
-                    : 'This page currently lists the confirmed LiveJasmin profile only. Use that link as the primary access point and recheck status before joining.',
+                    : self::build_confirmed_live_profile_only_sentence($platform_text),
             ];
         } elseif ($active_platform_count >= 2) {
             $intro_first = 'Live profiles are currently available on ' . $platform_text . '. Open one live room first, then compare the rest if needed.';
@@ -706,11 +706,12 @@ class TemplateContent {
             ? 'Start from the live profile shown on this page, then use additional verified destinations only for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.'
             : 'Start from the confirmed live profile shown on this page. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.';
         $has_stale_profile_faq = false;
-        foreach ($faq_items as $faq_item) {
+        foreach ($faq_items as $idx => $faq_item) {
             if (!is_array($faq_item)) {
                 continue;
             }
             if (trim((string) ($faq_item['q'] ?? '')) === $stale_profile_faq_question) {
+                $faq_items[$idx]['a'] = $stale_profile_faq_answer;
                 $has_stale_profile_faq = true;
                 break;
             }
@@ -720,8 +721,8 @@ class TemplateContent {
                 'q' => $stale_profile_faq_question,
                 'a' => $stale_profile_faq_answer,
             ]]);
-            $payload['faq_items'] = $faq_items;
         }
+        $payload['faq_items'] = $faq_items;
 
         $questions_paragraphs = is_array($payload['questions_section_paragraphs'] ?? null) ? $payload['questions_section_paragraphs'] : [];
         foreach ($questions_paragraphs as $line) {
@@ -1708,6 +1709,14 @@ class TemplateContent {
         return $rows;
     }
 
+    private static function build_confirmed_live_profile_only_sentence(string $platform_text): string {
+        $platform_text = trim((string) preg_replace('/\s+/', ' ', $platform_text));
+        if ($platform_text === '' || in_array(strtolower($platform_text), ['available platforms', 'verified live platforms', 'the active platform', self::NEUTRAL_PLATFORM_FALLBACK], true)) {
+            return 'This page currently lists one confirmed live profile only. Use that link as the primary access point and recheck status before joining.';
+        }
+        return 'This page currently lists the confirmed ' . $platform_text . ' profile only. Use that link as the primary access point and recheck status before joining.';
+    }
+
     /**
      * @param string[] $tags
      */
@@ -1957,7 +1966,7 @@ class TemplateContent {
             if ($active_platform_count === 1 && !$has_extra_link_evidence) {
                 return [
                     $answer_line,
-                    'This page currently lists the confirmed LiveJasmin profile only. Use that link as the primary access point and recheck status before joining.',
+                    self::build_confirmed_live_profile_only_sentence($platform_text),
                     'Confirm the username match, recent room activity, chat readability, and mobile playback stability after opening the room.',
                 ];
             }
@@ -3569,10 +3578,18 @@ class TemplateContent {
         }
 
         $platform_text = self::format_platform_list($active_platforms, $primary_platform_label !== '' ? $primary_platform_label : 'verified platforms');
+        $depth_evidence = self::build_link_evidence_summary($resolved_destinations, array_fill(0, $active_platform_count, []));
+        if (!empty($depth_evidence['has_extra_links'])) {
+            $neither_room_line = 'If neither room works well, use any additional verified destinations on this page to confirm handles and return later when status changes.';
+        } elseif ($active_platform_count > 1) {
+            $neither_room_line = 'If neither room works well, recheck the listed live profiles later and confirm handles before returning when status changes.';
+        } else {
+            $neither_room_line = 'If neither room works well, recheck the listed live profile later and confirm the handle before returning when status changes.';
+        }
 
         $compare_block = '<h2>How to Decide Where to Start</h2>'
             . '<p>Start with the platform you already trust, then test one alternate room with the same checklist: uptime signals, chat readability, playback stability, moderation flow, and login friction. A repeatable method prevents brand bias and makes it easier to pick the better room for your device and connection.</p>'
-            . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. If neither room works well, use any additional verified destinations on this page to confirm handles and return later when status changes.</p>';
+            . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. ' . $neither_room_line . '</p>';
 
         // Platform-count-agnostic blocks. These are safe on every page.
         $extra_blocks = [
