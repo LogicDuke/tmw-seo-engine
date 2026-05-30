@@ -22,6 +22,8 @@ use TMWSEO\Engine\Content\ModelCopyCleanup;
 use TMWSEO\Engine\Content\RankMathMapper;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 use TMWSEO\Engine\Model\Rollback;
+use TMWSEO\Engine\Keywords\KeywordPoolCandidateRepository;
+use TMWSEO\Engine\Keywords\ModelKeywordPoolClassifier;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -608,4 +610,110 @@ class AdminAjaxHandlers {
         \TMWSEO\Engine\Worker::run();
         wp_send_json_success( [ 'ran' => true ] );
     }
+
+    /**
+     * wp_ajax_tmwseo_save_model_fallback_pack
+     *
+     * Saves reviewed fallback phrases as queued_for_review keyword candidates only.
+     * This action never writes content, Rank Math fields, indexing state, or posts.
+     */
+    public static function ajax_save_model_fallback_pack(): void {
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash((string) $_POST['nonce'])) : '';
+        if ('' === $nonce || !wp_verify_nonce($nonce, 'tmwseo_save_model_fallback_pack')) {
+            wp_send_json_error([ 'message' => __('Invalid or expired nonce.', 'tmwseo') ], 403);
+        }
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([ 'message' => __('Permission denied.', 'tmwseo') ], 403);
+        }
+
+        $entity_id = isset($_POST['entity_id']) ? absint($_POST['entity_id']) : 0;
+        if ($entity_id <= 0) {
+            wp_send_json_error([ 'message' => __('Invalid model entity.', 'tmwseo') ], 400);
+        }
+
+        $model_name = isset($_POST['model_name']) ? ModelKeywordPoolClassifier::normalize_phrase(wp_unslash((string) $_POST['model_name'])) : '';
+        if ('' === $model_name) {
+            wp_send_json_error([ 'message' => __('Model name is required.', 'tmwseo') ], 400);
+        }
+
+        $keywords_raw = $_POST['keywords'] ?? null;
+        if (!is_array($keywords_raw)) {
+            wp_send_json_error([ 'message' => __('Keywords must be an array.', 'tmwseo') ], 400);
+        }
+
+        $classifier = new ModelKeywordPoolClassifier();
+        $repository = new KeywordPoolCandidateRepository();
+        $counts = [
+            'inserted' => 0,
+            'conflicts' => 0,
+            'skipped_empty' => 0,
+            'skipped_unsafe' => 0,
+            'errors' => 0,
+        ];
+
+        foreach ($keywords_raw as $raw_keyword) {
+            if (!is_scalar($raw_keyword)) {
+                $counts['skipped_empty']++;
+                continue;
+            }
+            $phrase = ModelKeywordPoolClassifier::normalize_phrase(wp_unslash((string) $raw_keyword));
+            if ('' === $phrase) {
+                $counts['skipped_empty']++;
+                continue;
+            }
+
+            $base_classification = $classifier->classify($phrase);
+            if (ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE === $base_classification['keyword_class']) {
+                $counts['skipped_unsafe']++;
+                continue;
+            }
+
+            $generated_classification = $classifier->classify($phrase, [ 'is_generated' => true ]);
+            if (ModelKeywordPoolClassifier::CLASS_GENERATED_LONGTAIL !== $generated_classification['keyword_class']) {
+                $generated_classification['keyword_class'] = ModelKeywordPoolClassifier::CLASS_GENERATED_LONGTAIL;
+                $generated_classification['standalone_allowed'] = false;
+                $generated_classification['suggested_usage'] = ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED;
+                $generated_classification['reason_codes'] = [ 'generated_longtail_flagged' ];
+                $generated_classification['confidence'] = 'high';
+            }
+
+            if (null !== $repository->find_existing_by_canonical_and_entity($phrase, $entity_id)) {
+                $counts['conflicts']++;
+                continue;
+            }
+
+            $result = $repository->save([
+                'keyword' => $phrase,
+                'canonical' => $phrase,
+                'intent_type' => 'model',
+                'entity_type' => 'model',
+                'entity_id' => $entity_id,
+                'status' => 'queued_for_review',
+                'provenance' => [
+                    'source' => 'generated_model_fallback',
+                    'model_keyword_owner' => $model_name,
+                    'model_keyword_usage_scope' => 'model_bio_only',
+                    'model_keyword_primary_candidate' => 'no',
+                    'keyword_class' => ModelKeywordPoolClassifier::CLASS_GENERATED_LONGTAIL,
+                    'suggested_usage' => ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED,
+                    'standalone_allowed' => false,
+                    'keyword_class_reason_codes' => array_values(array_map('strval', $generated_classification['reason_codes'] ?? [])),
+                    'keyword_class_confidence' => (string) ($generated_classification['confidence'] ?? 'high'),
+                    'generated_by' => 'pr602_model_fallback_keyword_pack_builder',
+                ],
+            ]);
+
+            $action = (string) ($result['action'] ?? '');
+            if ('inserted' === $action) {
+                $counts['inserted']++;
+            } elseif ('conflict' === $action || 'updated' === $action) {
+                $counts['conflicts']++;
+            } else {
+                $counts['errors']++;
+            }
+        }
+
+        wp_send_json_success($counts);
+    }
+
 }
