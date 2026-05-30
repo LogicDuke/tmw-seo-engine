@@ -15,8 +15,9 @@ class ModelKeywordPack {
      * @return array{primary:string, additional: string[], longtail: string[], sources: array}
      */
     public static function build(\WP_Post $post): array {
-        $name = trim((string)$post->post_title);
-        $primary = $name !== '' ? $name : 'live cam model';
+        $model_name = trim((string)$post->post_title);
+        $keyword_context_name = $model_name !== '' ? $model_name : 'live cam model';
+        $primary = $keyword_context_name;
         $allow_generic_tag_queries = self::allow_generic_tag_queries();
         $is_model_page = $post->post_type === 'model';
 
@@ -26,17 +27,27 @@ class ModelKeywordPack {
 
         $context = [
             'page_type' => ($post->post_type === 'model') ? 'model' : (string)$post->post_type,
-            'name' => $primary,
+            'name' => $keyword_context_name,
             'tags' => $safe_tags,
             'platforms' => $platform_slugs,
         ];
 
-        $seed = $primary . '-' . $post->ID;
+        $seed = $keyword_context_name . '-' . $post->ID;
+
+        $classified_fragment = $is_model_page
+            ? (new ClassifiedModelKeywordProvider())->build_for_model((int) $post->ID, $model_name)
+            : self::empty_classified_fragment();
+        if ($is_model_page && !empty($classified_fragment['primary_candidates'][0])) {
+            $primary = (string) $classified_fragment['primary_candidates'][0];
+        }
+        $classified_exclusions = $is_model_page
+            ? self::classified_exclusion_lookup($classified_fragment)
+            : [];
 
         // 1) DataForSEO suggestions (best-effort).
         $dfseo = [];
         if (DataForSEO::is_configured()) {
-            $res = DataForSEO::keyword_suggestions($primary, 80);
+            $res = DataForSEO::keyword_suggestions($keyword_context_name, 80);
             if (!empty($res['ok']) && !empty($res['items']) && is_array($res['items'])) {
                 foreach ($res['items'] as $it) {
                     if (!is_array($it)) continue;
@@ -61,7 +72,7 @@ class ModelKeywordPack {
                         $kw = (string)($it['keyword'] ?? '');
                         $kw = self::normalize_keyword($kw);
                         if ($kw === '') continue;
-                        if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $primary)) continue;
+                        if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $model_name)) continue;
                         $score = KeywordLibrary::score($kw, $context);
                         if ($score <= 0) continue;
                         $dfseo[$score . ':' . sprintf('%u', crc32($seed . '|tag|' . $tag_slug . '|' . $kw)) . ':' . $kw] = $kw;
@@ -88,8 +99,8 @@ class ModelKeywordPack {
         $lib_long = KeywordLibrary::pick_multi($categories, 'longtail', 40, $seed, [], $context);
 
         // 3) Deterministic, always-relevant fallbacks.
-        $fallback_additional = self::fallback_additional($primary, $platform_slugs, $top_tags);
-        $fallback_longtail = self::fallback_longtail($primary, $platform_slugs, $top_tags);
+        $fallback_additional = self::fallback_additional($keyword_context_name, $platform_slugs, $top_tags);
+        $fallback_longtail = self::fallback_longtail($keyword_context_name, $platform_slugs, $top_tags);
 
         // 4) Merge, score, and pick.
         $additional_pool = [];
@@ -108,7 +119,7 @@ class ModelKeywordPack {
         foreach ($lib_extra as $kw) {
             $kw = self::normalize_keyword($kw);
             if ($kw === '') continue;
-            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $primary)) continue;
+            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $model_name)) continue;
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
         foreach ($dfseo as $kw) {
@@ -117,20 +128,21 @@ class ModelKeywordPack {
             if ($wc > 6) continue;
             $kw = self::normalize_keyword($kw);
             if ($kw === '') continue;
-            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $primary)) continue;
+            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $model_name)) continue;
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
         if ($is_model_page) {
             $additional_pool = self::filter_scored_pool_for_model_page($additional_pool);
+            $additional_pool = self::filter_scored_pool_against_classified_exclusions($additional_pool, $classified_exclusions);
             $fallback_additional = PageTypeKeywordFilter::filter_for_model_page($fallback_additional);
+            $fallback_additional = self::filter_keywords_against_classified_exclusions($fallback_additional, $classified_exclusions);
         }
 
-        // Model pages always expose exactly 4 additional keywords, and every one
-        // of them must stay name-free so Rank Math chips do not repeat the exact
-        // model name or push density over the safe range later on. Filtering is
-        // applied to the pool before this point so safe replacements can refill
-        // the selected list instead of shrinking it after selection.
+        // Model pages expose exactly 4 additional keywords. Approved classified
+        // personal model keywords are allowed to lead this list; generated
+        // fallbacks stay name-free so they do not repeat the exact model name or
+        // push density over the safe range later on.
         $additional_target = $is_model_page
             ? 4
             : self::dynamic_additional_count($additional_pool, $platform_slugs, $safe_tags);
@@ -139,10 +151,16 @@ class ModelKeywordPack {
             $additional = self::pick_name_free_top(
                 $additional_pool,
                 $additional_target,
-                $primary,
+                $model_name,
                 $fallback_additional
             );
-            self::debug_assert_model_additional_keywords($additional, $primary);
+            $additional = self::merge_preferred_keywords(
+                (array) ($classified_fragment['extra_focus_candidates'] ?? []),
+                $additional,
+                $additional_target
+            );
+            $additional = self::filter_keywords_against_classified_exclusions($additional, $classified_exclusions);
+            self::debug_assert_model_additional_keywords($additional, $model_name);
         } else {
             $additional = self::pick_top($additional_pool, $additional_target, $primary, $additional_target);
         }
@@ -156,7 +174,7 @@ class ModelKeywordPack {
         foreach ($lib_long as $kw) {
             $kw = self::normalize_keyword($kw);
             if ($kw === '') continue;
-            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $primary)) continue;
+            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $model_name)) continue;
             $longtail_pool[$kw] = max($longtail_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
         foreach ($dfseo as $kw) {
@@ -164,18 +182,28 @@ class ModelKeywordPack {
             if ($kw === '') continue;
             $wc = count(array_filter(preg_split('/\s+/u', trim($kw)), 'strlen'));
             if ($wc < 4) continue;
-            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $primary)) continue;
+            if ($is_model_page && !$allow_generic_tag_queries && !self::keyword_contains_name($kw, $model_name)) continue;
             $longtail_pool[$kw] = max($longtail_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
 
         if ($is_model_page) {
             $longtail_pool = self::filter_scored_pool_for_model_page($longtail_pool);
+            $longtail_pool = self::filter_scored_pool_against_classified_exclusions($longtail_pool, $classified_exclusions);
             $fallback_longtail = PageTypeKeywordFilter::filter_for_model_page($fallback_longtail);
+            $fallback_longtail = self::filter_keywords_against_classified_exclusions($fallback_longtail, $classified_exclusions);
             $longtail = self::pick_name_free_top(
                 $longtail_pool,
                 8,
-                $primary,
+                $model_name,
                 $fallback_longtail
+            );
+            $longtail = self::merge_preferred_keywords(
+                array_merge(
+                    (array) ($classified_fragment['body_semantic_candidates'] ?? []),
+                    (array) ($classified_fragment['modifier_candidates'] ?? [])
+                ),
+                $longtail,
+                8
             );
         } else {
             $longtail = self::pick_top($longtail_pool, 8, $primary, 8);
@@ -188,8 +216,15 @@ class ModelKeywordPack {
         // Dedicated Rank Math chips: model-name-led, varied per post.
         // These replace the old name-free generic fallback as the Rank Math chip source.
         $rankmath_chips = $is_model_page
-            ? self::build_rankmath_chips($primary, $post->ID, $platform_slugs)
+            ? self::merge_preferred_keywords(
+                (array) ($classified_fragment['extra_focus_candidates'] ?? []),
+                self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
+                4
+            )
             : [];
+        if ($is_model_page) {
+            $rankmath_chips = self::filter_keywords_against_classified_exclusions($rankmath_chips, $classified_exclusions);
+        }
 
         return [
             'primary'             => $primary,
@@ -202,8 +237,88 @@ class ModelKeywordPack {
                 'tags' => $top_tags,
                 'dfseo' => DataForSEO::is_configured() ? 1 : 0,
                 'keyword_pack_dirs' => $categories,
+                'classified_model_keywords' => $classified_fragment['sources'] ?? [],
             ],
         ];
+    }
+
+
+    /** @return array{primary_candidates:array<int,string>,extra_focus_candidates:array<int,string>,body_semantic_candidates:array<int,string>,modifier_candidates:array<int,string>,excluded_candidates:array<int,string>,sources:array<string,mixed>} */
+    private static function empty_classified_fragment(): array {
+        return [
+            'primary_candidates' => [],
+            'extra_focus_candidates' => [],
+            'body_semantic_candidates' => [],
+            'modifier_candidates' => [],
+            'excluded_candidates' => [],
+            'sources' => [],
+        ];
+    }
+
+    /** @param array<string,mixed> $fragment @return array<string,bool> */
+    private static function classified_exclusion_lookup(array $fragment): array {
+        $lookup = [];
+        foreach ((array) ($fragment['excluded_candidates'] ?? []) as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean !== '') {
+                $lookup[strtolower($clean)] = true;
+            }
+        }
+        return $lookup;
+    }
+
+    /** @param string[] $preferred @param string[] $fallback @return string[] */
+    private static function merge_preferred_keywords(array $preferred, array $fallback, int $limit): array {
+        $merged = [];
+        $seen = [];
+        foreach (array_merge($preferred, $fallback) as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean === '') {
+                continue;
+            }
+            $key = strtolower($clean);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $merged[] = $clean;
+            if (count($merged) >= $limit) {
+                break;
+            }
+        }
+        return $merged;
+    }
+
+    /** @param array<string,int> $pool @param array<string,bool> $excluded @return array<string,int> */
+    private static function filter_scored_pool_against_classified_exclusions(array $pool, array $excluded): array {
+        if (empty($excluded)) {
+            return $pool;
+        }
+        $filtered = [];
+        foreach ($pool as $keyword => $score) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean === '' || isset($excluded[strtolower($clean)])) {
+                continue;
+            }
+            $filtered[$clean] = (int) $score;
+        }
+        return $filtered;
+    }
+
+    /** @param string[] $keywords @param array<string,bool> $excluded @return string[] */
+    private static function filter_keywords_against_classified_exclusions(array $keywords, array $excluded): array {
+        if (empty($excluded)) {
+            return $keywords;
+        }
+        $out = [];
+        foreach ($keywords as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean === '' || isset($excluded[strtolower($clean)])) {
+                continue;
+            }
+            $out[] = $clean;
+        }
+        return self::dedupe_keywords($out);
     }
 
     /**
