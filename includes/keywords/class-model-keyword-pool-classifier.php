@@ -94,7 +94,7 @@ class ModelKeywordPoolClassifier {
     public static function normalize_phrase(string $phrase): string {
         $phrase = function_exists('wp_strip_all_tags') ? wp_strip_all_tags($phrase) : strip_tags($phrase);
         $phrase = html_entity_decode($phrase, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $phrase = strtolower($phrase);
+        $phrase = function_exists('mb_strtolower') ? mb_strtolower($phrase, 'UTF-8') : strtolower($phrase);
         $phrase = preg_replace('/\s+/u', ' ', (string) $phrase);
         $phrase = trim((string) $phrase);
         $phrase = preg_replace('/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/u', '', (string) $phrase);

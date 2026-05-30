@@ -19,15 +19,22 @@ This PR is intentionally limited to candidate metadata and review previews. It d
 Broad words can attract ambiguous or low-intent searches when used alone. PR 602 keeps these terms from becoming standalone focus keywords:
 
 - `video`
+- `videos`
 - `chat`
-- `live`
 - `photos`
+- `pictures`
+- `search`
+- `home`
+- `live`
 - `top`
 - `new`
-- `home`
-- `search`
+- `real`
+- `information`
+- `page`
+- `bio`
+- `profile`
 
-These words may still be useful inside a longer reviewed phrase, but exact standalone matches are classified as `unsafe_standalone_modifier`.
+These words may still be useful inside a longer reviewed phrase, but exact standalone matches are classified as `unsafe_standalone_modifier`. Standalone `bio` and `profile` are unsafe standalone modifiers, while composite phrases such as `model bio`, `cam profile`, and `live cam profile` remain `intent_term`.
 
 ## 4. Keyword taxonomy
 
@@ -41,7 +48,7 @@ These words may still be useful inside a longer reviewed phrase, but exact stand
 | `attribute_term` | No | `modifier_only` | `brunette`, `blonde`, `redhead` |
 | `geo_language_term` | No | `modifier_only` | `latina`, `colombian`, `asian` |
 | `feature_modifier` | No | `modifier_only` | `cam2cam`, `c2c`, `lovense` |
-| `unsafe_standalone_modifier` | No | `modifier_only` | `video`, `chat`, `live`, `photos` |
+| `unsafe_standalone_modifier` | No | `modifier_only` | `video`, `videos`, `chat`, `photos`, `pictures`, `bio`, `profile` |
 | `generated_longtail` | No | `review_required` | `anisyia livejasmin model`, `anisyia private show` |
 | `unknown_review` | No | `review_required` | Unmatched phrases |
 

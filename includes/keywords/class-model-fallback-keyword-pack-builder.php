@@ -60,7 +60,7 @@ class ModelFallbackKeywordPackBuilder {
         $core_variables = array_values(array_filter($safe_variables, function (string $phrase): bool {
             return $this->classifier->classify($phrase)['keyword_class'] === ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM;
         }));
-        $intent_variables = array_values(array_filter($variables, function (string $phrase): bool {
+        $intent_variables = array_values(array_filter($safe_variables, function (string $phrase): bool {
             return in_array($this->classifier->classify($phrase)['keyword_class'], [ ModelKeywordPoolClassifier::CLASS_INTENT_TERM, ModelKeywordPoolClassifier::CLASS_PLATFORM_INTENT_TERM ], true);
         }));
 

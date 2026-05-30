@@ -23,6 +23,7 @@ use TMWSEO\Engine\Content\RankMathMapper;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 use TMWSEO\Engine\Model\Rollback;
 use TMWSEO\Engine\Keywords\KeywordPoolCandidateRepository;
+use TMWSEO\Engine\Keywords\ModelFallbackKeywordPackBuilder;
 use TMWSEO\Engine\Keywords\ModelKeywordPoolClassifier;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -630,6 +631,10 @@ class AdminAjaxHandlers {
         if ($entity_id <= 0) {
             wp_send_json_error([ 'message' => __('Invalid model entity.', 'tmwseo') ], 400);
         }
+        $entity_post = get_post($entity_id);
+        if (!$entity_post instanceof \WP_Post || 'model' !== $entity_post->post_type) {
+            wp_send_json_error([ 'message' => __('Invalid model entity.', 'tmwseo') ], 400);
+        }
 
         $model_name = isset($_POST['model_name']) ? ModelKeywordPoolClassifier::normalize_phrase(wp_unslash((string) $_POST['model_name'])) : '';
         if ('' === $model_name) {
@@ -642,12 +647,16 @@ class AdminAjaxHandlers {
         }
 
         $classifier = new ModelKeywordPoolClassifier();
+        $builder = new ModelFallbackKeywordPackBuilder($classifier);
+        $preview = $builder->build_preview($entity_id, $model_name, [], []);
+        $allowed_generated = array_flip(array_values(array_map('strval', is_array($preview['fallback_generated_patterns'] ?? null) ? $preview['fallback_generated_patterns'] : [])));
         $repository = new KeywordPoolCandidateRepository();
         $counts = [
             'inserted' => 0,
             'conflicts' => 0,
             'skipped_empty' => 0,
             'skipped_unsafe' => 0,
+            'skipped_not_generated' => 0,
             'errors' => 0,
         ];
 
@@ -668,13 +677,15 @@ class AdminAjaxHandlers {
                 continue;
             }
 
+            if (!isset($allowed_generated[$phrase])) {
+                $counts['skipped_not_generated']++;
+                continue;
+            }
+
             $generated_classification = $classifier->classify($phrase, [ 'is_generated' => true ]);
             if (ModelKeywordPoolClassifier::CLASS_GENERATED_LONGTAIL !== $generated_classification['keyword_class']) {
-                $generated_classification['keyword_class'] = ModelKeywordPoolClassifier::CLASS_GENERATED_LONGTAIL;
-                $generated_classification['standalone_allowed'] = false;
-                $generated_classification['suggested_usage'] = ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED;
-                $generated_classification['reason_codes'] = [ 'generated_longtail_flagged' ];
-                $generated_classification['confidence'] = 'high';
+                $counts['skipped_not_generated']++;
+                continue;
             }
 
             if (null !== $repository->find_existing_by_canonical_and_entity($phrase, $entity_id)) {

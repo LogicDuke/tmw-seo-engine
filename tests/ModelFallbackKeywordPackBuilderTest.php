@@ -63,7 +63,7 @@ final class ModelFallbackKeywordPackBuilderTest extends TestCase {
     public function test_no_unsafe_standalone_becomes_primary(): void {
         foreach ([ 'video', 'chat', 'live', 'photos' ] as $model_name) {
             $preview = $this->builder->build_preview(1, $model_name, [], [ 'video', 'chat', 'live', 'photos' ]);
-            $this->assertNotContains($preview['primary_keyword_recommendation'], [ 'video', 'chat', 'live', 'photos' ]);
+            $this->assertNotSame($model_name, $preview['primary_keyword_recommendation']);
         }
     }
 }

@@ -47,6 +47,12 @@ class KeywordPoolCandidateRepository {
         $status = $this->sanitize_status((string) ($candidate['status'] ?? 'queued_for_review'));
         $entity_type = $this->sanitize_entity_type((string) ($candidate['entity_type'] ?? $intent));
         $entity_id = max(0, (int) ($candidate['entity_id'] ?? 0));
+        $canonical = array_key_exists('canonical', $candidate)
+            ? $this->normalize_keyword((string) $candidate['canonical'])
+            : $keyword;
+        if ('' === $canonical) {
+            $canonical = $keyword;
+        }
 
         if ('' === $keyword || '' === $intent) {
             return $this->result($keyword, $intent, $status, 'error', 'invalid_candidate_scope', $entity_type, $entity_id);
@@ -73,7 +79,7 @@ class KeywordPoolCandidateRepository {
         $data = [ 'keyword' => $keyword, 'intent_type' => $intent, 'entity_id' => $entity_id ];
 
         if (!empty($columns['canonical'])) {
-            $data['canonical'] = (string) ($candidate['canonical'] ?? $keyword);
+            $data['canonical'] = $canonical;
         }
         if (!empty($columns['intent'])) {
             $data['intent'] = $intent;
