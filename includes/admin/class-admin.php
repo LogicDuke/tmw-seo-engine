@@ -13,6 +13,9 @@ use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
 use TMWSEO\Engine\Keywords\KeywordCandidateClassificationAudit;
+use TMWSEO\Engine\Keywords\KeywordPoolCandidateRepository;
+use TMWSEO\Engine\Keywords\KeywordPoolClassificationApplyService;
+use TMWSEO\Engine\Keywords\ModelKeywordPoolClassifier;
 use TMWSEO\Engine\Admin\Tables\KeywordsTable;
 use TMWSEO\Engine\Admin\Tables\ClustersTable;
 use TMWSEO\Engine\Admin\Tables\KeywordClustersTable;
@@ -53,6 +56,8 @@ class Admin {
         add_action('wp_ajax_tmwseo_kick_worker', [__CLASS__, 'ajax_kick_worker']);
         add_action('wp_ajax_tmwseo_rerun_model_preview_phrases', [__CLASS__, 'ajax_rerun_model_preview_phrases']);
         add_action('wp_ajax_tmwseo_save_model_fallback_pack', [__CLASS__, 'ajax_save_model_fallback_pack']);
+        add_action('wp_ajax_tmwseo_kw_classification_dry_run', [AdminAjaxHandlers::class, 'ajax_kw_classification_dry_run']);
+        add_action('wp_ajax_tmwseo_kw_classification_apply_batch', [AdminAjaxHandlers::class, 'ajax_kw_classification_apply_batch']);
         add_action('admin_post_tmwseo_import_keywords', [__CLASS__, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [__CLASS__, 'handle_bulk_autofix']);
         add_action('admin_post_tmwseo_reset_discovery_data', [__CLASS__, 'handle_reset_discovery_data']);
@@ -1252,11 +1257,8 @@ class Admin {
 
         if ($rows === []) {
             AdminUI::empty_state(__( 'No suspicious keyword candidate pool classifications found in the current audit sample.', 'tmwseo' ));
-            AdminUI::section_end();
-            return;
-        }
-
-        echo '<div class="tmwui-table-wrap">';
+        } else {
+            echo '<div class="tmwui-table-wrap">';
         echo '<table class="widefat striped"><thead><tr>';
         foreach ([ 'Keyword', 'Intent Type', 'Entity Type', 'Entity ID', 'Status', 'Volume', 'CPC', 'Competition', 'Opportunity', 'Sources', 'Reason Codes', 'Recommended Review Action' ] as $heading) {
             echo '<th>' . esc_html($heading) . '</th>';
@@ -1286,7 +1288,146 @@ class Admin {
         }
 
         echo '</tbody></table></div>';
+        }
+
+        self::render_keyword_pool_classification_apply_workflow();
         AdminUI::section_end();
+    }
+
+
+    /**
+     * Render the PR 602 metadata dry-run/apply workflow appended to the audit view.
+     */
+    private static function render_keyword_pool_classification_apply_workflow(): void {
+        $service = new KeywordPoolClassificationApplyService(new KeywordPoolCandidateRepository(), new ModelKeywordPoolClassifier());
+        $summary = $service->summary();
+        $nonce = wp_create_nonce('tmwseo_kw_classification_audit');
+
+        echo '<hr style="margin:24px 0;">';
+        echo '<h2>' . esc_html__( 'PR 602 Classification Metadata — Dry Run & Apply', 'tmwseo' ) . '</h2>';
+        echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>' . esc_html__( 'This tool only writes classification metadata into keyword candidate sources JSON. It does not write Rank Math fields, post content, Generate output, indexing/noindex, publish status, slugs, or model posts. Status, entity_id, entity_type, intent_type, model_keyword_owner, and model_keyword_usage_scope are never changed.', 'tmwseo' ) . '</p></div>';
+
+        $cards = [
+            __( 'Total model keyword rows', 'tmwseo' ) => (int) ($summary['total_model_rows'] ?? 0),
+            __( 'Already classified', 'tmwseo' ) => (int) ($summary['already_classified'] ?? 0),
+            __( 'Missing classification', 'tmwseo' ) => (int) ($summary['missing_classification'] ?? 0),
+            __( 'Standalone allowed: yes', 'tmwseo' ) => (int) ($summary['standalone_allowed_yes'] ?? 0),
+            __( 'Standalone allowed: no', 'tmwseo' ) => (int) ($summary['standalone_allowed_no'] ?? 0),
+            __( 'Unlinked entity_id = 0', 'tmwseo' ) => (int) ($summary['unlinked_entity_id_zero'] ?? 0),
+        ];
+        echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
+        foreach ($cards as $label => $count) {
+            echo '<div class="tmwui-kpi-card" style="min-width:150px;"><strong>' . esc_html((string) $count) . '</strong><span>' . esc_html((string) $label) . '</span></div>';
+        }
+        echo '</div>';
+
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:12px 0;">';
+        self::render_keyword_classification_distribution_table(__( 'By keyword_class', 'tmwseo' ), (array) ($summary['by_keyword_class'] ?? []));
+        self::render_keyword_classification_distribution_table(__( 'By suggested_usage', 'tmwseo' ), (array) ($summary['by_suggested_usage'] ?? []));
+        echo '</div>';
+
+        echo '<div id="tmwseo-kw-classification-workflow" data-nonce="' . esc_attr($nonce) . '" data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '">';
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start;">';
+        echo '<div class="postbox" style="padding:12px;"><h3 style="margin-top:0;">' . esc_html__( 'Dry Run Preview', 'tmwseo' ) . '</h3>';
+        echo '<label>' . esc_html__( 'Filter', 'tmwseo' ) . ' <select id="tmwseo-kw-classification-filter">';
+        foreach ([ 'missing', 'all', 'unlinked', 'unsafe', 'unknown' ] as $filter) {
+            echo '<option value="' . esc_attr($filter) . '">' . esc_html($filter) . '</option>';
+        }
+        echo '</select></label> ';
+        echo '<label>' . esc_html__( 'Batch size', 'tmwseo' ) . ' <select id="tmwseo-kw-classification-dry-batch">';
+        foreach ([ 25, 50, 100 ] as $size) {
+            echo '<option value="' . esc_attr((string) $size) . '"' . selected($size, 50, false) . '>' . esc_html((string) $size) . '</option>';
+        }
+        echo '</select></label> ';
+        echo '<button type="button" class="button button-primary" id="tmwseo-kw-classification-dry-run">' . esc_html__( 'Run Dry Run Preview', 'tmwseo' ) . '</button>';
+        echo '<div id="tmwseo-kw-classification-dry-result" style="margin-top:12px;"></div></div>';
+
+        echo '<div class="postbox" style="padding:12px;"><h3 style="margin-top:0;">' . esc_html__( 'Apply Missing Classification Metadata', 'tmwseo' ) . '</h3>';
+        echo '<p class="description">' . esc_html__( 'Apply runs against rows missing classification metadata only. Review the dry run preview first.', 'tmwseo' ) . '</p>';
+        echo '<label>' . esc_html__( 'Batch size', 'tmwseo' ) . ' <select id="tmwseo-kw-classification-apply-batch">';
+        foreach ([ 50, 100, 250 ] as $size) {
+            echo '<option value="' . esc_attr((string) $size) . '"' . selected($size, 100, false) . '>' . esc_html((string) $size) . '</option>';
+        }
+        echo '</select></label> ';
+        echo '<button type="button" class="button button-secondary" id="tmwseo-kw-classification-apply">' . esc_html__( 'Apply Next Batch (Missing Classification Only)', 'tmwseo' ) . '</button>';
+        echo '<div id="tmwseo-kw-classification-apply-result" style="margin-top:12px;"></div></div>';
+        echo '</div></div>';
+
+        self::render_keyword_classification_apply_js();
+    }
+
+    /** @param array<string,int> $rows */
+    private static function render_keyword_classification_distribution_table(string $title, array $rows): void {
+        echo '<div class="tmwui-table-wrap"><h3>' . esc_html($title) . '</h3><table class="widefat striped"><thead><tr><th>' . esc_html__( 'Value', 'tmwseo' ) . '</th><th>' . esc_html__( 'Rows', 'tmwseo' ) . '</th></tr></thead><tbody>';
+        if ([] === $rows) {
+            echo '<tr><td colspan="2">' . esc_html__( 'No items found.', 'tmwseo' ) . '</td></tr>';
+        } else {
+            foreach ($rows as $value => $count) {
+                echo '<tr><td><code>' . esc_html((string) $value) . '</code></td><td>' . esc_html((string) (int) $count) . '</td></tr>';
+            }
+        }
+        echo '</tbody></table></div>';
+    }
+
+    private static function render_keyword_classification_apply_js(): void {
+        ?>
+        <script>
+        (function(){
+            const root = document.getElementById('tmwseo-kw-classification-workflow');
+            if (!root) { return; }
+            const ajaxUrl = root.getAttribute('data-ajax-url');
+            const nonce = root.getAttribute('data-nonce');
+            let offset = 0;
+            const esc = function(value) {
+                return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function(ch) {
+                    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[ch];
+                });
+            };
+            const post = function(data) {
+                const body = new URLSearchParams(data);
+                body.set('nonce', nonce);
+                return fetch(ajaxUrl, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }, body: body.toString() }).then(function(resp){ return resp.json(); });
+            };
+            const renderDry = function(payload, append) {
+                const box = document.getElementById('tmwseo-kw-classification-dry-result');
+                const data = payload && payload.data ? payload.data : null;
+                if (!payload || !payload.success || !data) { box.innerHTML = '<div class="notice notice-error inline"><p>Dry run failed.</p></div>'; return; }
+                let html = '<p><strong>' + esc(data.rows.length) + '</strong> rows shown from <strong>' + esc(data.total) + '</strong> matching rows. Offset ' + esc(data.offset) + '.</p>';
+                html += '<div class="tmwui-table-wrap"><table class="widefat striped"><thead><tr>';
+                ['ID','Keyword','Status','Entity Type','Entity ID','Model Name Context','Already Classified','Proposed KW Class','Proposed Usage','Proposed Standalone','Reason Codes','Confidence'].forEach(function(h){ html += '<th>' + esc(h) + '</th>'; });
+                html += '</tr></thead><tbody>';
+                if (!data.rows.length) {
+                    html += '<tr><td colspan="12">No rows found.</td></tr>';
+                } else {
+                    data.rows.forEach(function(row){
+                        html += '<tr><td>' + esc(row.id) + '</td><td><strong>' + esc(row.keyword) + '</strong></td><td>' + esc(row.current_status) + '</td><td>' + esc(row.entity_type) + '</td><td>' + esc(row.entity_id) + '</td><td>' + esc(row.model_name_context) + '</td><td>' + esc(row.already_classified ? 'yes' : 'no') + '</td><td><code>' + esc(row.proposed_keyword_class) + '</code></td><td><code>' + esc(row.proposed_suggested_usage) + '</code></td><td>' + esc(row.proposed_standalone_allowed ? 'yes' : 'no') + '</td><td><code>' + esc(row.proposed_reason_codes) + '</code></td><td>' + esc(row.proposed_confidence) + '</td></tr>';
+                    });
+                }
+                html += '</tbody></table></div>';
+                if ((data.offset + data.batch_size) < data.total) {
+                    html += '<p><button type="button" class="button" id="tmwseo-kw-classification-next">Load Next Batch</button></p>';
+                }
+                box.innerHTML = html;
+                const next = document.getElementById('tmwseo-kw-classification-next');
+                if (next) { next.addEventListener('click', function(){ offset += parseInt(document.getElementById('tmwseo-kw-classification-dry-batch').value, 10) || 50; runDry(true); }); }
+            };
+            const runDry = function(append) {
+                const batch = parseInt(document.getElementById('tmwseo-kw-classification-dry-batch').value, 10) || 50;
+                post({ action: 'tmwseo_kw_classification_dry_run', offset: offset, batch_size: batch, filter: document.getElementById('tmwseo-kw-classification-filter').value }).then(function(payload){ renderDry(payload, append); });
+            };
+            document.getElementById('tmwseo-kw-classification-dry-run').addEventListener('click', function(){ offset = 0; runDry(false); });
+            document.getElementById('tmwseo-kw-classification-apply').addEventListener('click', function(){
+                const box = document.getElementById('tmwseo-kw-classification-apply-result');
+                box.innerHTML = '<p>Applying…</p>';
+                post({ action: 'tmwseo_kw_classification_apply_batch', auto_fetch_missing: '1', batch_size: document.getElementById('tmwseo-kw-classification-apply-batch').value }).then(function(payload){
+                    if (!payload || !payload.success || !payload.data) { box.innerHTML = '<div class="notice notice-error inline"><p>Apply failed.</p></div>'; return; }
+                    const d = payload.data;
+                    box.innerHTML = '<div class="notice notice-success inline"><p>Scanned: ' + esc(d.scanned) + ' · Classified: ' + esc(d.classified) + ' · Already classified: ' + esc(d.skipped_already_classified) + ' · Not model: ' + esc(d.skipped_not_model) + ' · Empty: ' + esc(d.skipped_empty) + ' · Errors: ' + esc(d.errors) + '</p></div>';
+                });
+            });
+        })();
+        </script>
+        <?php
     }
 
     public static function render_keywords_redirect(): void {
