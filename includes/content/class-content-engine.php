@@ -50,22 +50,29 @@ class ContentEngine {
      *
      * Model pages use Template as the safety fallback when the submitted
      * strategy is missing, empty, or not one of the known provider keys.
-     * Explicit valid choices (including OpenAI) are preserved.
+     * Explicit provider choices are preserved only when configured.
      */
     public static function normalize_generate_strategy(string $strategy, string $post_type, ?int $dry = null): string {
         $strategy = sanitize_key($strategy);
-        $valid = ['template', 'openai', 'claude'];
 
-        if (in_array($strategy, $valid, true)) {
-            return $strategy;
+        if ($dry !== null && (int) $dry === 1) {
+            return 'template';
+        }
+
+        if ($strategy === 'template') {
+            return 'template';
+        }
+
+        if ($strategy === 'openai' && class_exists(OpenAI::class) && OpenAI::is_configured()) {
+            return 'openai';
+        }
+
+        if ($strategy === 'claude' && class_exists(Anthropic::class) && Anthropic::is_configured()) {
+            return 'claude';
         }
 
         if ($post_type === 'model') {
             return 'template';
-        }
-
-        if ($dry !== null) {
-            return ((int) $dry === 1) ? 'template' : 'openai';
         }
 
         if (class_exists(OpenAI::class) && OpenAI::is_configured()) {

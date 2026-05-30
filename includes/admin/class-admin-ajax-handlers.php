@@ -59,9 +59,11 @@ class AdminAjaxHandlers {
         }
 
         $post_type = get_post_type( $post_id ) ?: 'post';
+        $dry       = isset( $_POST['dry'] ) ? (int) wp_unslash( $_POST['dry'] ) : null;
         $strategy  = ContentEngine::normalize_generate_strategy(
             (string) ( $_POST['strategy'] ?? '' ),
-            (string) $post_type
+            (string) $post_type,
+            $dry
         );
 
         $insert_block          = ! empty( $_POST['insert_block'] ) ? 1 : 0;

@@ -70,6 +70,7 @@ namespace {
     use TMWSEO\Engine\Admin\Editor_AI_Metabox;
     use TMWSEO\Engine\Content\ContentEngine;
     use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
+    use TMWSEO\Engine\Services\OpenAI;
 
     $render_metabox = static function (string $post_type): string {
         $post = (object) [ 'ID' => $post_type === 'model' ? 6051 : 6052, 'post_type' => $post_type, 'post_title' => 'Smoke Test', 'post_status' => 'publish' ];
@@ -96,11 +97,22 @@ namespace {
     $post_html = $render_metabox('post');
     pr605_assert((bool) preg_match('/<option value="openai"[^>]*selected="selected"[^>]*>OpenAI \(if configured\)<\/option>/', $post_html), 'Non-model post types should keep the existing OpenAI default when configured.');
 
+    $ajax_source = (string) file_get_contents(dirname(__DIR__) . '/includes/admin/class-admin-ajax-handlers.php');
+    pr605_assert(str_contains($ajax_source, 'isset( $_POST[\'dry\'] )'), 'AJAX handler should read dry context before strategy normalization.');
+    pr605_assert((bool) preg_match('/normalize_generate_strategy\(\s*\(string\) \( \$_POST\[\'strategy\'\] \?\? \'\' \),\s*\(string\) \$post_type,\s*\$dry/s', $ajax_source), 'AJAX handler should pass dry context into strategy normalization.');
+
+    pr605_assert(ContentEngine::normalize_generate_strategy('openai', 'post', 1) === 'template', 'dry=1 should force Template.');
     foreach ([ '', 'bogus', 'not-a-provider' ] as $raw_strategy) {
         pr605_assert(ContentEngine::normalize_generate_strategy($raw_strategy, 'model', 0) === 'template', 'Model invalid/missing strategy should normalize to Template.');
     }
-    pr605_assert(ContentEngine::normalize_generate_strategy('openai', 'model', 0) === 'openai', 'Model explicit valid OpenAI strategy should be preserved.');
-    pr605_assert(ContentEngine::normalize_generate_strategy('', 'post', 0) === 'openai', 'Non-model empty strategy should preserve existing configured-provider fallback.');
+    pr605_assert(ContentEngine::normalize_generate_strategy('openai', 'model', 0) === 'openai', 'Model explicit valid OpenAI strategy should be preserved when OpenAI is configured.');
+    pr605_assert(ContentEngine::normalize_generate_strategy('', 'post', 0) === 'openai', 'Non-model empty strategy should preserve existing configured-provider fallback when OpenAI is configured.');
+
+    OpenAI::$configured = false;
+    pr605_assert(ContentEngine::normalize_generate_strategy('openai', 'model', 0) === 'template', 'Model explicit OpenAI should fall back to Template when OpenAI is not configured.');
+    pr605_assert(ContentEngine::normalize_generate_strategy('openai', 'post', 0) !== 'openai', 'dry=0 should not return OpenAI when OpenAI is not configured.');
+    pr605_assert(ContentEngine::normalize_generate_strategy('', 'post', 0) !== 'openai', 'Non-model dry=0 fallback should not return OpenAI when OpenAI is not configured.');
+    OpenAI::$configured = true;
 
     pr605_assert($GLOBALS['pr605_generate_executed'] === false, 'Smoke test must not execute Generate.');
     pr605_assert($GLOBALS['pr605_db_writes'] === [], 'Smoke test must not perform database writes.');
