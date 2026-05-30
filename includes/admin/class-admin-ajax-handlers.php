@@ -58,16 +58,13 @@ class AdminAjaxHandlers {
             wp_send_json_error( [ 'message' => __( 'Invalid or expired nonce.', 'tmwseo' ) ], 403 );
         }
 
-        $strategy = sanitize_key( (string) ( $_POST['strategy'] ?? '' ) );
-        if ( ! in_array( $strategy, [ 'template', 'openai', 'claude' ], true ) ) {
-            if ( class_exists( '\TMWSEO\Engine\Services\OpenAI' ) && \TMWSEO\Engine\Services\OpenAI::is_configured() ) {
-                $strategy = 'openai';
-            } elseif ( class_exists( '\TMWSEO\Engine\Services\Anthropic' ) && \TMWSEO\Engine\Services\Anthropic::is_configured() ) {
-                $strategy = 'claude';
-            } else {
-                $strategy = 'template';
-            }
-        }
+        $post_type = get_post_type( $post_id ) ?: 'post';
+        $dry       = isset( $_POST['dry'] ) ? (int) wp_unslash( $_POST['dry'] ) : null;
+        $strategy  = ContentEngine::normalize_generate_strategy(
+            (string) ( $_POST['strategy'] ?? '' ),
+            (string) $post_type,
+            $dry
+        );
 
         $insert_block          = ! empty( $_POST['insert_block'] ) ? 1 : 0;
         $refresh_keywords_only = ! empty( $_POST['refresh_keywords_only'] ) ? 1 : 0;
@@ -79,7 +76,6 @@ class AdminAjaxHandlers {
             'refresh_keywords_only' => $refresh_keywords_only,
         ] );
 
-        $post_type = get_post_type( $post_id ) ?: 'post';
         $context   = 'video_or_post';
         if ( $post_type === 'model' ) {
             $context = 'model';

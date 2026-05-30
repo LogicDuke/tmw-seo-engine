@@ -45,6 +45,47 @@ class ContentEngine {
         'tmw_category_page',
     ];
 
+    /**
+     * Normalize Generate strategy input before generation routing.
+     *
+     * Model pages use Template as the safety fallback when the submitted
+     * strategy is missing, empty, or not one of the known provider keys.
+     * Explicit provider choices are preserved only when configured.
+     */
+    public static function normalize_generate_strategy(string $strategy, string $post_type, ?int $dry = null): string {
+        $strategy = sanitize_key($strategy);
+
+        if ($dry !== null && (int) $dry === 1) {
+            return 'template';
+        }
+
+        if ($strategy === 'template') {
+            return 'template';
+        }
+
+        if ($strategy === 'openai' && class_exists(OpenAI::class) && OpenAI::is_configured()) {
+            return 'openai';
+        }
+
+        if ($strategy === 'claude' && class_exists(Anthropic::class) && Anthropic::is_configured()) {
+            return 'claude';
+        }
+
+        if ($post_type === 'model') {
+            return 'template';
+        }
+
+        if (class_exists(OpenAI::class) && OpenAI::is_configured()) {
+            return 'openai';
+        }
+
+        if (class_exists(Anthropic::class) && Anthropic::is_configured()) {
+            return 'claude';
+        }
+
+        return 'template';
+    }
+
     private static function is_publish_autopilot_allowed(): bool {
         if (self::PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE) {
             return false;
@@ -1180,11 +1221,8 @@ class ContentEngine {
             return;
         }
 
-        // Strategy precedence: explicit payload > settings.
-        $strategy = sanitize_key((string)($payload['strategy'] ?? ''));
-        if ($strategy === '') {
-            $strategy = ((int)$dry === 1) ? 'template' : 'openai';
-        }
+        // Strategy precedence: explicit valid payload > model safety fallback > settings/providers.
+        $strategy = self::normalize_generate_strategy((string)($payload['strategy'] ?? ''), (string) $post->post_type, (int) $dry);
 
         $is_manual_model_request = self::is_manual_model_request($post, $payload);
 
