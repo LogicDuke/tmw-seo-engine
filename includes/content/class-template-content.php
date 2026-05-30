@@ -63,15 +63,15 @@ class TemplateContent {
         if ($primary_platform_label === '') {
             $primary_platform_label = self::NEUTRAL_PLATFORM_FALLBACK;
         }
+        $link_evidence_summary = self::build_link_evidence_summary($resolved_destinations, $cta_links);
+        $has_extra_link_evidence = !empty($link_evidence_summary['has_extra_links']);
 
         $tags = $pack['sources']['tags'] ?? [];
         if (!is_array($tags) || empty($tags)) {
             $tags = self::discover_model_tags($post);
         }
         $tags = array_values(array_filter(array_map('strval', $tags), 'strlen'));
-        $tags_text = !empty($tags)
-            ? implode(', ', array_slice(array_map(static fn($t) => str_replace('-', ' ', (string)$t), $tags), 0, 6))
-            : 'live webcam shows';
+        $tags_text = self::format_model_tags_for_body($tags);
 
         $extra = is_array($pack['additional'] ?? null) ? $pack['additional'] : [];
         $extra = self::filter_name_free_keywords($extra, $name);
@@ -147,7 +147,7 @@ class TemplateContent {
         $active_platform_count = count($active_platforms);
         $second_intro_pool = $active_platform_count === 1
             ? [
-                'Start with the live-room button, then use the other listed profiles for updates or backup access.',
+                'Start with the live-room button, then use additional verified destinations for updates or backup access when they are listed.',
                 'Open the active room first, then use the non-live profiles for status checks and follow-up.',
                 'Use the direct room link first, and keep backup profiles nearby in case room status changes.',
                 'Start with one live-room option, then check other profiles before you commit.',
@@ -165,13 +165,20 @@ class TemplateContent {
             $second_intro .= ' Visitors looking for ' . $secondary_visible_phrases[0] . ' can use this guide to start with the confirmed room and compare listed profiles quickly.';
         }
 
-        $watch_para_pool = [
-            'Open the confirmed live profile below. Fan, social, and link-hub profiles are listed separately.',
-            'Choose a live platform below first. Use the other profile groups for follow-up and support.',
-            'Open a live profile first, then use other listed profiles if you need backups or updates.',
-        ];
-        if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and compare the backup profile afterward.';
+        if (!$has_extra_link_evidence) {
+            $watch_para_pool = [
+                'Open the confirmed live profile below. This page currently lists the confirmed LiveJasmin profile only, so use that link as the primary access point and recheck status before joining.',
+                'Use the confirmed live-room link below as the primary access point, then recheck current room status after click-through.',
+            ];
+        } else {
+            $watch_para_pool = [
+                'Open the confirmed live profile below. Additional verified destinations are separated from live-room access.',
+                'Choose a live platform below first. Use any additional verified destinations only for follow-up checks.',
+                'Open a live profile first, then use verified non-live destinations if you need backups or updates.',
+            ];
+            if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+                $watch_para_pool[] = 'If you already prefer ' . $primary_platform_label . ', start there and review other verified destinations afterward.';
+            }
         }
         $watch_para = $watch_para_pool[self::stable_pick_index($seed . '|watch', count($watch_para_pool))];
         $keyword_coverage_html = self::render_rankmath_keyword_coverage($rankmath_keywords, $name);
@@ -210,7 +217,7 @@ class TemplateContent {
         $features_intro = $model_data_gate['is_sufficient']
             ? 'Check this section to see which platform matches your speed, trust, and mobile needs.'
             : 'Features listed here cover platform access checks only, not unverified performer-specific traits.';
-        $intro_paragraphs = self::build_seed_intro_paragraphs($name, $editor_seed, $active_platforms, $intro, $second_intro);
+        $intro_paragraphs = self::build_seed_intro_paragraphs($name, $editor_seed, $active_platforms, $intro, $second_intro, $link_evidence_summary);
 
         // ── Reviewed bio evidence layer ──────────────────────────────────────
         // Only inject when bio_review_status === 'reviewed' and bio_summary is
@@ -246,7 +253,7 @@ class TemplateContent {
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate, $editor_seed),
             'features_section_paragraphs' => [
                 $features_intro
-                . ' Focus on room freshness, handle consistency, playback quality, chat readability, and payment/privacy controls before joining.'
+                . ' Focus on room freshness, handle consistency, playback quality, chat readability, and payment/privacy controls.'
                 . (!empty($secondary_visible_phrases[1]) ? ' For ' . $secondary_visible_phrases[1] . ' comparisons, focus on chat usability and room quality on your device.' : ''),
             ],
             'features_section_html' => self::join_html_blocks([
@@ -256,10 +263,11 @@ class TemplateContent {
             'comparison_section_paragraphs' => $comparison_paragraphs,
             'faq_items' => $faq_items,
             'secondary_heading_slots' => $secondary_heading_slots,
+            'link_evidence_summary' => $link_evidence_summary,
         ]);
 
         if (!$model_data_gate['is_sufficient']) {
-            $renderer_payload = array_merge($renderer_payload, self::build_sparse_model_payload($name, $active_platforms, $model_data_gate, $rankmath_keywords, $extra));
+            $renderer_payload = array_merge($renderer_payload, self::build_sparse_model_payload($name, $active_platforms, $model_data_gate, $rankmath_keywords, $extra, $link_evidence_summary));
         }
         $renderer_payload = self::maybe_add_sparse_wordcount_support_paragraph($renderer_payload, $name, $active_platforms, !$model_data_gate['is_sufficient']);
 
@@ -414,19 +422,19 @@ class TemplateContent {
             $curated_external,
         ]);
 
+        $link_evidence_summary = self::build_link_evidence_summary($resolved_destinations, $cta_links);
+        $official_destination_paragraphs = self::build_official_destination_paragraphs($link_evidence_summary);
+        $community_destination_paragraphs = self::build_community_destination_paragraphs($link_evidence_summary);
+
         return [
             'watch_section_html' => $watch_html,
             'comparison_section_html' => self::build_platform_comparison($post, $name, $cta_links, $comparison_copy, $editor_seed),
             // Middle destination sections stay text-only so non-live outbound
             // links appear only once in the final Official Links section.
             'official_destinations_section_html' => '',
-            'official_destinations_section_paragraphs' => [
-                'CamSoda, personal sites, and fan/support pages are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.',
-            ],
+            'official_destinations_section_paragraphs' => $official_destination_paragraphs,
             'community_destinations_section_html' => '',
-            'community_destinations_section_paragraphs' => [
-                'Video channels, social profiles, and link hubs are listed below for updates, archives, and handle checks.',
-            ],
+            'community_destinations_section_paragraphs' => $community_destination_paragraphs,
             'related_models_html' => '',
             'explore_more_html' => '',
             // All visible outbound links consolidated here — Explore More is the
@@ -450,7 +458,7 @@ class TemplateContent {
                 self::build_official_links_summary($name, $cta_links, (int) $post->ID, $resolved_destinations),
                 self::build_verification_process_paragraph($resolved_destinations),
                 !empty($secondary_visible_phrases[2])
-                    ? 'When checking ' . $secondary_visible_phrases[2] . ' links, use the grouped profiles below to separate live access from fan, social, and link-hub pages.'
+                    ? self::build_secondary_link_keyword_paragraph($secondary_visible_phrases[2], $link_evidence_summary)
                     : '',
             ], 'strlen')),
             'secondary_heading_slots' => $secondary_heading_slots,
@@ -463,6 +471,7 @@ class TemplateContent {
             'editor_seed_confirmed_facts' => (array) ($editor_seed['confirmed_facts'] ?? []),
             'editor_seed_known_for_tags' => (array) ($editor_seed['known_for_tags'] ?? []),
             'resolved_destination_summary' => (array) ($resolved_destinations['source_of_truth_summary'] ?? []),
+            'link_evidence_summary' => $link_evidence_summary,
             'verified_destination_families' => [
                 'social' => (array) ($resolved_destinations['social_destinations'] ?? []),
                 'link_hubs' => (array) ($resolved_destinations['link_hub_destinations'] ?? []),
@@ -537,13 +546,14 @@ class TemplateContent {
      * @param array<string,mixed> $gate
      * @return array<string,mixed>
      */
-    public static function build_sparse_model_payload(string $name, array $active_platforms, array $gate, array $rankmath_additional = [], array $extra = []): array {
+    public static function build_sparse_model_payload(string $name, array $active_platforms, array $gate, array $rankmath_additional = [], array $extra = [], array $link_evidence_summary = []): array {
         $platform_text = self::format_platform_list($active_platforms, 'available platforms');
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_additional, $extra);
         $secondary_heading_slots = self::build_secondary_heading_slots(self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_additional, $extra));
         $reason = (string) ($gate['reason'] ?? 'insufficient_performer_data');
         $signals = is_array($gate['signals'] ?? null) ? $gate['signals'] : [];
         $active_platform_count = count($active_platforms);
+        $has_extra_link_evidence = !empty($link_evidence_summary['has_extra_links']);
         $has_meaningful_structure = ((int) ($signals['platform_links'] ?? 0) >= 1)
             && (
                 (int) ($signals['active_platforms'] ?? 0) >= 1
@@ -554,7 +564,9 @@ class TemplateContent {
         if ($active_platform_count === 1) {
             $intro_first = $platform_text . ' is the confirmed live-room option from this check. Start there for live access.';
             $comparison_lines = [
-                'Before joining, confirm the handle and check recent room activity.',
+                $has_extra_link_evidence
+                    ? 'Confirm the handle and check recent room activity before choosing any destination.'
+                    : 'This page currently lists the confirmed LiveJasmin profile only. Use that link as the primary access point and recheck status before joining.',
             ];
         } elseif ($active_platform_count >= 2) {
             $intro_first = 'Live profiles are currently available on ' . $platform_text . '. Open one live room first, then compare the rest if needed.';
@@ -564,16 +576,22 @@ class TemplateContent {
         } else {
             $intro_first = 'No live-room profile is confirmed active in this check.';
             $comparison_lines = [
-                'When live status is unclear, verify the handle and use other listed profiles for updates.',
+                $has_extra_link_evidence
+                    ? 'When live status is unclear, verify the handle on the available verified destinations.'
+                    : 'No confirmed profile links are available in this check, so this page avoids routing claims until evidence is added.',
             ];
         }
 
         if ($active_platform_count === 1) {
-            $first_link_answer = 'Open the ' . $platform_text . ' room first; use the other profiles only for updates.';
+            $first_link_answer = $has_extra_link_evidence
+                ? 'Open the ' . $platform_text . ' room first; use additional verified destinations only for updates.'
+                : 'Open the ' . $platform_text . ' room first; it is the only confirmed profile link currently listed.';
         } elseif ($active_platform_count >= 2) {
             $first_link_answer = 'Open one of the confirmed live rooms first, then compare the others if needed.';
         } else {
-            $first_link_answer = 'No live room is confirmed active right now; use the listed profiles for checks and updates.';
+            $first_link_answer = $has_extra_link_evidence
+                ? 'No live room is confirmed active right now; use verified destinations for checks and updates.'
+                : 'No confirmed profile links are available right now.';
         }
 
         $faq_items = $has_meaningful_structure
@@ -639,10 +657,10 @@ class TemplateContent {
         }
 
         return [
-            'intro_paragraphs' => [
+            'intro_paragraphs' => array_values(array_filter([
                 $intro_first,
-                'Use the other listed profiles only when you need updates or support.',
-            ],
+                $has_extra_link_evidence ? 'Use additional verified destinations only when you need updates or support.' : '',
+            ], 'strlen')),
             'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
             'features_section_paragraphs' => $sparse_features_paragraphs,
@@ -677,10 +695,16 @@ class TemplateContent {
             return $payload;
         }
 
-        $support_line = 'Before spending credits, confirm the profile handle, check for recent activity, test playback on your device, and review payment and privacy controls before starting chat. A quick check also helps you spot stale mirrors, copied profile pages, or room listings that no longer match the active platform. Keep the first click focused on the confirmed live profile.';
+        $evidence = is_array($payload['link_evidence_summary'] ?? null) ? $payload['link_evidence_summary'] : [];
+        $has_extra_link_evidence = !empty($evidence['has_extra_links']);
+        $support_line = $has_extra_link_evidence
+            ? 'Confirm the profile handle, recent activity, playback on your device, and payment/privacy controls before choosing where to chat. A quick check also helps you spot stale mirrors or copied profile pages.'
+            : 'Confirm the profile handle, recent activity, playback on your device, and payment/privacy controls before choosing where to chat. Keep the first click focused on the confirmed live profile.';
         $faq_items = is_array($payload['faq_items'] ?? null) ? $payload['faq_items'] : [];
         $stale_profile_faq_question = 'How do I avoid stale or copied profile links?';
-        $stale_profile_faq_answer = 'Start from the live profile shown on this page, then use the grouped profiles below for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.';
+        $stale_profile_faq_answer = $has_extra_link_evidence
+            ? 'Start from the live profile shown on this page, then use additional verified destinations only for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.'
+            : 'Start from the confirmed live profile shown on this page. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.';
         $has_stale_profile_faq = false;
         foreach ($faq_items as $faq_item) {
             if (!is_array($faq_item)) {
@@ -1685,19 +1709,194 @@ class TemplateContent {
     }
 
     /**
+     * @param string[] $tags
+     */
+    private static function format_model_tags_for_body(array $tags): string {
+        $clean = array_values(array_filter(array_map(static function ($tag): string {
+            return trim(str_replace('-', ' ', (string) $tag));
+        }, $tags), 'strlen'));
+        if (empty($clean)) {
+            return 'live webcam shows';
+        }
+
+        $explicit = array_values(array_filter($clean, static fn(string $tag): bool => self::is_explicit_model_tag($tag)));
+        if (count($explicit) >= 4) {
+            return 'private-chat themes, interactive show options, roleplay-style requests, and media/chat features';
+        }
+        if (!empty($explicit) && count($clean) > 3) {
+            $examples = array_slice($explicit, 0, 3);
+            return 'private-chat themes such as ' . implode(', ', $examples) . ', plus related room features';
+        }
+
+        return implode(', ', array_slice($clean, 0, 6));
+    }
+
+    private static function is_explicit_model_tag(string $tag): bool {
+        $tag = strtolower(trim(str_replace(['_', '-'], ' ', $tag)));
+        if ($tag === '') {
+            return false;
+        }
+        $needles = [
+            'butt', 'plug', 'dildo', 'fingering', 'love bead', 'vibrator', 'joi', 'jerk', 'fetish',
+            'foot fetish', 'close up', 'oil', 'striptease', 'pov', 'snapshot', 'nude', 'anal', 'cum',
+        ];
+        foreach ($needles as $needle) {
+            if (strpos($tag, $needle) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array<string,mixed> $resolved_destinations
+     * @param array<int,array<string,mixed>> $cta_links
+     * @return array<string,mixed>
+     */
+    private static function build_link_evidence_summary(array $resolved_destinations, array $cta_links): array {
+        $summary = is_array($resolved_destinations['source_of_truth_summary'] ?? null)
+            ? (array) $resolved_destinations['source_of_truth_summary']
+            : [];
+        $live_count = count($cta_links);
+        $family_counts = [
+            'cam_extra_count' => 0,
+            'camsoda_count' => 0,
+            'personal_site_count' => count((array) ($resolved_destinations['personal_site_destinations'] ?? [])),
+            'fan_platform_count' => count((array) ($resolved_destinations['fan_platform_destinations'] ?? [])),
+            'social_count' => count((array) ($resolved_destinations['social_destinations'] ?? [])),
+            'link_hub_count' => count((array) ($resolved_destinations['link_hub_destinations'] ?? [])),
+            'tube_count' => count((array) ($resolved_destinations['tube_destinations'] ?? [])),
+        ];
+
+        foreach ((array) ($resolved_destinations['all_verified_destinations'] ?? []) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $family = sanitize_key((string) ($entry['family'] ?? ''));
+            $type = sanitize_key((string) ($entry['type'] ?? $entry['platform_key'] ?? ''));
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM) {
+                if (empty($entry['is_cta_eligible'])) {
+                    $family_counts['cam_extra_count']++;
+                }
+                if ($type === 'camsoda') {
+                    $family_counts['camsoda_count']++;
+                }
+            }
+        }
+
+        $extra_count = (int) $family_counts['cam_extra_count']
+            + (int) $family_counts['personal_site_count']
+            + (int) $family_counts['fan_platform_count']
+            + (int) $family_counts['social_count']
+            + (int) $family_counts['link_hub_count']
+            + (int) $family_counts['tube_count'];
+        $verified_count = (int) ($summary['verified_count'] ?? 0);
+        if ($verified_count <= 0) {
+            $verified_count = count((array) ($resolved_destinations['all_verified_destinations'] ?? []));
+        }
+        $total_count = max($verified_count, $live_count + $extra_count);
+
+        return array_merge($family_counts, [
+            'live_count' => $live_count,
+            'extra_count' => $extra_count,
+            'total_count' => $total_count,
+            'has_live_profile' => $live_count > 0,
+            'has_extra_links' => $extra_count > 0,
+            'has_any_links' => ($live_count + $extra_count) > 0,
+        ]);
+    }
+
+    /** @param array<string,mixed> $evidence */
+    private static function build_official_destination_paragraphs(array $evidence): array {
+        $parts = [];
+        if ((int) ($evidence['camsoda_count'] ?? 0) > 0) {
+            $parts[] = 'CamSoda';
+        } elseif ((int) ($evidence['cam_extra_count'] ?? 0) > 0) {
+            $parts[] = 'additional cam platforms';
+        }
+        if ((int) ($evidence['personal_site_count'] ?? 0) > 0) {
+            $parts[] = 'personal sites';
+        }
+        if ((int) ($evidence['fan_platform_count'] ?? 0) > 0) {
+            $parts[] = 'fan/support pages';
+        }
+        if (empty($parts)) {
+            return [];
+        }
+        return [self::format_platform_list($parts, 'verified destinations') . ' are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.'];
+    }
+
+    /** @param array<string,mixed> $evidence */
+    private static function build_community_destination_paragraphs(array $evidence): array {
+        $parts = [];
+        if ((int) ($evidence['tube_count'] ?? 0) > 0) {
+            $parts[] = 'video channels';
+        }
+        if ((int) ($evidence['social_count'] ?? 0) > 0) {
+            $parts[] = 'social profiles';
+        }
+        if ((int) ($evidence['link_hub_count'] ?? 0) > 0) {
+            $parts[] = 'link hubs';
+        }
+        if (empty($parts)) {
+            return [];
+        }
+        return [self::format_platform_list($parts, 'community destinations') . ' are listed below for updates, archives, and handle checks.'];
+    }
+
+    /** @param array<string,mixed> $evidence */
+    private static function build_secondary_link_keyword_paragraph(string $phrase, array $evidence): string {
+        $phrase = trim($phrase);
+        if ($phrase === '') {
+            return '';
+        }
+        if (empty($evidence['has_extra_links'])) {
+            return 'When checking ' . $phrase . ' links, start with the confirmed live profile and avoid assuming extra destinations exist until they are verified.';
+        }
+        return 'When checking ' . $phrase . ' links, use the grouped profiles below to separate live access from the verified non-live destination types that are actually listed.';
+    }
+
+    /**
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $cta_links
      */
     private static function build_official_links_summary(string $name, array $cta_links, int $post_id, array $resolved_destinations = []): string {
-        $types = [];
-        $live_count = !empty($cta_links) ? count($cta_links) : 0;
         $resolved = !empty($resolved_destinations) ? $resolved_destinations : ModelDestinationResolver::resolve($post_id);
-        $summary = is_array($resolved['source_of_truth_summary'] ?? null) ? $resolved['source_of_truth_summary'] : [];
-        $total_count = (int) ($summary['verified_count'] ?? 0);
-        if ($total_count <= 0) {
-            $total_count = count((array) ($resolved['all_verified_destinations'] ?? []));
+        $evidence = self::build_link_evidence_summary($resolved, $cta_links);
+        $live_count = (int) ($evidence['live_count'] ?? 0);
+        $extra_count = (int) ($evidence['extra_count'] ?? 0);
+        $total_count = (int) ($evidence['total_count'] ?? 0);
+
+        if ($live_count === 0 && $extra_count === 0) {
+            return 'Latest check: no confirmed profile links found.';
         }
-        $types = ['cam platforms', 'official sites', 'fan pages', 'video channels', 'socials', 'link hubs'];
-        return 'Below are the grouped profiles found for ' . $name . ': ' . self::format_platform_list($types, 'profile groups') . '. Latest check: ' . $total_count . ' profile links found, including ' . $live_count . ' live profile' . ($live_count === 1 ? '' : 's') . '.';
+        if ($live_count === 1 && $extra_count === 0) {
+            return 'Latest check: 1 confirmed live profile found.';
+        }
+
+        $types = [];
+        if ($live_count > 0) {
+            $types[] = $live_count . ' live profile' . ($live_count === 1 ? '' : 's');
+        }
+        if ((int) ($evidence['cam_extra_count'] ?? 0) > 0) {
+            $types[] = (int) ($evidence['cam_extra_count'] ?? 0) . ' additional cam platform' . ((int) ($evidence['cam_extra_count'] ?? 0) === 1 ? '' : 's');
+        }
+        if ((int) ($evidence['personal_site_count'] ?? 0) > 0) {
+            $types[] = (int) ($evidence['personal_site_count'] ?? 0) . ' personal site' . ((int) ($evidence['personal_site_count'] ?? 0) === 1 ? '' : 's');
+        }
+        if ((int) ($evidence['fan_platform_count'] ?? 0) > 0) {
+            $types[] = (int) ($evidence['fan_platform_count'] ?? 0) . ' fan/support page' . ((int) ($evidence['fan_platform_count'] ?? 0) === 1 ? '' : 's');
+        }
+        if ((int) ($evidence['tube_count'] ?? 0) > 0) {
+            $types[] = (int) ($evidence['tube_count'] ?? 0) . ' video channel' . ((int) ($evidence['tube_count'] ?? 0) === 1 ? '' : 's');
+        }
+        if ((int) ($evidence['social_count'] ?? 0) > 0) {
+            $types[] = (int) ($evidence['social_count'] ?? 0) . ' social profile' . ((int) ($evidence['social_count'] ?? 0) === 1 ? '' : 's');
+        }
+        if ((int) ($evidence['link_hub_count'] ?? 0) > 0) {
+            $types[] = (int) ($evidence['link_hub_count'] ?? 0) . ' link hub' . ((int) ($evidence['link_hub_count'] ?? 0) === 1 ? '' : 's');
+        }
+
+        return 'Latest check: ' . $total_count . ' confirmed profile link' . ($total_count === 1 ? '' : 's') . ' found, including ' . self::format_platform_list($types, 'verified categories') . '.';
     }
 
     /**
@@ -1739,12 +1938,15 @@ class TemplateContent {
     }
 
     /** @return string[] */
-    private static function build_seed_intro_paragraphs(string $name, array $editor_seed, array $active_platforms, string $fallback_intro, string $fallback_second): array {
+    private static function build_seed_intro_paragraphs(string $name, array $editor_seed, array $active_platforms, string $fallback_intro, string $fallback_second, array $link_evidence_summary = []): array {
         $summary = trim((string) ($editor_seed['summary'] ?? ''));
         $active_platform_count = count($active_platforms);
+        $has_extra_link_evidence = !empty($link_evidence_summary['has_extra_links']);
         if ($active_platform_count === 1) {
             $platform_text = self::format_platform_list($active_platforms, 'the active platform');
-            $answer_line = $platform_text . ' is the confirmed live-room option from this check. Start there for live access, then use other listed profiles for follow-up or backup checks.';
+            $answer_line = $has_extra_link_evidence
+                ? $platform_text . ' is the confirmed live-room option from this check. Start there for live access, then use verified non-live destinations only for follow-up or backup checks.'
+                : $platform_text . ' is the confirmed live-room option from this check. Start there for live access.';
         } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
             $answer_line = 'Live profiles are available on ' . $platform_text . '. Open a live room first, then use the other sections for updates.';
@@ -1752,20 +1954,27 @@ class TemplateContent {
             $answer_line = 'No live-room profile is confirmed active in this check.';
         }
         if ($summary === '') {
-            return [
+            if ($active_platform_count === 1 && !$has_extra_link_evidence) {
+                return [
+                    $answer_line,
+                    'This page currently lists the confirmed LiveJasmin profile only. Use that link as the primary access point and recheck status before joining.',
+                    'Confirm the username match, recent room activity, chat readability, and mobile playback stability after opening the room.',
+                ];
+            }
+            return array_values(array_filter([
                 $answer_line,
                 $fallback_intro,
                 $fallback_second,
                 'Before you commit to one room, run a quick check: username match, recent room activity, chat readability, and mobile playback stability.',
-                'Use the live section for room entry, then use non-live profiles for schedule checks, backup access, and handle verification.',
-            ];
+                $has_extra_link_evidence ? 'Use the live section for room entry, then use verified non-live destinations for schedule checks, backup access, and handle verification.' : '',
+            ], 'strlen'));
         }
-        return [
+        return array_values(array_filter([
             $answer_line,
             $summary,
-            'Use the other listed profiles for follow-up, support, or backup checks.',
+            $has_extra_link_evidence ? 'Use verified non-live destinations for follow-up, support, or backup checks.' : '',
             'If activity changes, verify handle match and room quality before spending.',
-        ];
+        ], 'strlen'));
     }
 
     /** @return string[] */
@@ -3363,7 +3572,7 @@ class TemplateContent {
 
         $compare_block = '<h2>How to Decide Where to Start</h2>'
             . '<p>Start with the platform you already trust, then test one alternate room with the same checklist: uptime signals, chat readability, playback stability, moderation flow, and login friction. A repeatable method prevents brand bias and makes it easier to pick the better room for your device and connection.</p>'
-            . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. If neither room works well, use the other listed profiles on this page to confirm handles and return later when status changes.</p>';
+            . '<p>If both rooms perform similarly, keep the one with clearer moderation and fewer account hurdles. If neither room works well, use any additional verified destinations on this page to confirm handles and return later when status changes.</p>';
 
         // Platform-count-agnostic blocks. These are safe on every page.
         $extra_blocks = [
