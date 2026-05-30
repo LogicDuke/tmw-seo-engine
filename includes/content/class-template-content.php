@@ -168,7 +168,7 @@ class TemplateContent {
         if (!$has_extra_link_evidence) {
             $watch_para_pool = [
                 'Open the confirmed live profile below. ' . self::build_confirmed_live_profile_only_sentence($primary_platform_label),
-                'Use the confirmed live-room link below as the primary access point, then recheck current room status after click-through.',
+                'Use the confirmed live-room link below as the primary access point, then confirm the room status after click-through.',
             ];
         } else {
             $watch_para_pool = [
@@ -253,7 +253,7 @@ class TemplateContent {
             'fans_like_section_paragraphs' => self::build_fans_like_paragraphs($context, $name, $model_data_gate, $editor_seed),
             'features_section_paragraphs' => [
                 $features_intro
-                . ' Focus on room freshness, handle consistency, playback quality, chat readability, and payment/privacy controls.'
+                . ' Focus on room freshness, handle consistency, playback quality, and chat readability.'
                 . (!empty($secondary_visible_phrases[1]) ? ' For ' . $secondary_visible_phrases[1] . ' comparisons, focus on chat usability and room quality on your device.' : ''),
             ],
             'features_section_html' => self::join_html_blocks([
@@ -403,14 +403,13 @@ class TemplateContent {
             $wikipedia_fallback_used = true;
         }
 
-        // ── Watch section: /go/ CTAs only — NO visible external links ────────
-        // Visible external affiliate/profile links must appear ONLY in the Explore
-        // More / external_info_html end section so Rank Math detects them at the
-        // bottom rather than mid-body (requirement: links only at end of content).
+        // ── Watch section: confirmed outbound CTA + routed /go/ CTAs ─────
+        // Rank Math scans generated post_content, so include one real confirmed
+        // outbound profile anchor when verified evidence provides a URL.
         $watch_html = self::join_html_blocks( [
+            self::render_confirmed_outbound_watch_cta( $cta_links, $name ),
             self::render_primary_watch_cta( $cta_links, $name ),
             self::render_watch_cta_section( $cta_links, $name ),
-            // $guaranteed_outbound intentionally excluded here — see below.
         ] );
 
         // ── Explore More / end section: ONE consolidated outbound link block ──
@@ -1712,9 +1711,9 @@ class TemplateContent {
     private static function build_confirmed_live_profile_only_sentence(string $platform_text): string {
         $platform_text = trim((string) preg_replace('/\s+/', ' ', $platform_text));
         if ($platform_text === '' || in_array(strtolower($platform_text), ['available platforms', 'verified live platforms', 'the active platform', self::NEUTRAL_PLATFORM_FALLBACK], true)) {
-            return 'This page currently lists one confirmed live profile only. Use that link as the primary access point and recheck status before joining.';
+            return 'This page currently lists one confirmed live profile only. Use that link as the primary access point and confirm the room status before joining.';
         }
-        return 'This page currently lists the confirmed ' . $platform_text . ' profile only. Use that link as the primary access point and recheck status before joining.';
+        return 'This page currently lists the confirmed ' . $platform_text . ' profile only. Use that link as the primary access point and confirm the room status before joining.';
     }
 
     /**
@@ -2422,6 +2421,96 @@ class TemplateContent {
         }
 
         return '<p>' . esc_html($intro) . '</p><ul>' . $items . '</ul>';
+    }
+
+    /**
+     * Render one confirmed outbound profile anchor directly in generated content.
+     *
+     * Rank Math cannot see later metabox/widget rendering, and internal /go/
+     * routes do not satisfy its outbound-link check. Only use evidence-backed
+     * external URLs already attached to CTA rows; never synthesize profile URLs.
+     *
+     * @param array<int,array<string,mixed>> $links
+     */
+    private static function render_confirmed_outbound_watch_cta(array $links, string $name): string {
+        $target = self::pick_confirmed_outbound_watch_target($links);
+        if (empty($target)) {
+            return '';
+        }
+
+        $url = trim((string) ($target['url'] ?? ''));
+        $label = trim((string) ($target['label'] ?? ''));
+        if ($url === '' || $label === '') {
+            return '';
+        }
+
+        $anchor_text = 'Watch ' . $name . ' on ' . $label;
+        return '<p><a href="' . esc_url($url) . '" target="_blank" rel="nofollow sponsored noopener">' . esc_html($anchor_text) . '</a></p>';
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $links
+     * @return array{url:string,label:string}|array{}
+     */
+    private static function pick_confirmed_outbound_watch_target(array $links): array {
+        $candidates = [];
+        foreach ($links as $link) {
+            if (!is_array($link)) {
+                continue;
+            }
+
+            $label = trim((string) ($link['label'] ?? ''));
+            if ($label === '') {
+                $label = 'live cam';
+            }
+
+            foreach (['verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
+                $url = trim((string) ($link[$key] ?? ''));
+                if (!self::is_confirmed_external_http_url($url)) {
+                    continue;
+                }
+                $candidates[] = [
+                    'url' => $url,
+                    'label' => $label,
+                    'is_primary' => !empty($link['is_primary']),
+                    'source' => (string) ($link['source'] ?? ''),
+                ];
+                break;
+            }
+        }
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        usort($candidates, static function (array $a, array $b): int {
+            return (!empty($b['is_primary']) <=> !empty($a['is_primary']));
+        });
+
+        return [
+            'url' => (string) $candidates[0]['url'],
+            'label' => (string) $candidates[0]['label'],
+        ];
+    }
+
+    private static function is_confirmed_external_http_url(string $url): bool {
+        $url = trim($url);
+        if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+            return false;
+        }
+
+        $scheme = strtolower((string) wp_parse_url($url, PHP_URL_SCHEME));
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            return false;
+        }
+
+        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
+        if ($host === '') {
+            return false;
+        }
+
+        $site_host = function_exists('home_url') ? strtolower((string) wp_parse_url((string) home_url('/'), PHP_URL_HOST)) : '';
+        return $site_host === '' || $host !== $site_host;
     }
 
     private static function render_primary_watch_cta(array $links, string $name): string {
@@ -3389,7 +3478,7 @@ class TemplateContent {
     private static function render_varied_features(string $name, array $tags, string $platform, string $seed, int $active_platform_count = 0): string {
         $bullets = [
             '<li>Test playback stability and chat readability on your device.</li>',
-            '<li>Review payment, privacy, and account requirements before starting chat.</li>',
+            '<li>Review account requirements before starting chat.</li>',
         ];
 
         if ($active_platform_count > 1) {

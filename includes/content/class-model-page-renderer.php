@@ -81,14 +81,14 @@ class ModelPageRenderer {
             $sections[] = $fans_like;
         }
 
-        $features_heading = self::heading_with_focus('Features and Platform Experience', $focus_keyword, $name);
+        $features_heading = self::heading_with_focus('Live Chat Experience', $focus_keyword, $name);
         $features_heading = self::append_secondary_heading_phrase($features_heading, $secondary_heading_slots['features'][0] ?? '');
         $features = self::render_section(
             $features_heading,
             $payload['features_section_paragraphs'] ?? [],
             $name,
             $payload['features_section_html'] ?? '',
-            self::build_secondary_subheadings($secondary_heading_slots['features'] ?? [], 1, 'Feature check for')
+            self::build_secondary_subheadings($secondary_heading_slots['features'] ?? [], 1, 'Live Chat Experience for')
         );
         if ($features !== '') {
             $sections[] = $features;
@@ -128,7 +128,7 @@ class ModelPageRenderer {
         }
 
         $official_links_base_heading = (!empty($link_evidence) && empty($link_evidence['has_extra_links']))
-            ? (!empty($link_evidence['has_live_profile']) ? 'Confirmed Official Profile Link' : 'Confirmed Profile Link Status')
+            ? (!empty($link_evidence['has_live_profile']) ? 'Confirmed Live Profile' : 'Confirmed Profile Link Status')
             : 'Where Are the Official Links and Other Profiles?';
         $official_links_heading = self::append_secondary_heading_phrase($official_links_base_heading, $secondary_heading_slots['official_links'][0] ?? '');
         $links = self::render_section(
@@ -448,7 +448,7 @@ class ModelPageRenderer {
         if (count($active) >= 2) {
             $answer = 'Start with ' . $active[0] . ' if it is your usual platform, then compare ' . $active[1] . ' for chat controls, mobile playback, and moderation flow.';
         } elseif (count($active) === 1) {
-            $answer = 'Before joining, confirm the handle, check recent room activity, and review payment/privacy controls.';
+            $answer = 'Before joining, confirm the handle and check recent room activity.';
         } else {
             $answer = 'Compare confirmed platforms by room stability, chat readability, trust signals, and mobile usability before choosing a default room.';
         }
