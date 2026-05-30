@@ -18,6 +18,11 @@ class ModelPageRenderer {
 
         $sections = [];
         $secondary_heading_slots = self::normalize_secondary_heading_slots($payload['secondary_heading_slots'] ?? []);
+        $has_link_evidence_guard = array_key_exists('link_evidence_summary', $payload);
+        $link_evidence = self::normalize_link_evidence_summary($payload['link_evidence_summary'] ?? []);
+        if ($has_link_evidence_guard) {
+            $payload = self::apply_link_evidence_rendering_guards($payload, $link_evidence);
+        }
 
         // External evidence sections (v5.8.0–v5.8.6) REMOVED in v5.8.7.
         // Model Research Evidence is now applied at the generation save points
@@ -122,7 +127,10 @@ class ModelPageRenderer {
             $sections[] = $questions;
         }
 
-        $official_links_heading = self::append_secondary_heading_phrase('Where Are the Official Links and Other Profiles?', $secondary_heading_slots['official_links'][0] ?? '');
+        $official_links_base_heading = (!empty($link_evidence) && empty($link_evidence['has_extra_links']))
+            ? (!empty($link_evidence['has_live_profile']) ? 'Confirmed Official Profile Link' : 'Confirmed Profile Link Status')
+            : 'Where Are the Official Links and Other Profiles?';
+        $official_links_heading = self::append_secondary_heading_phrase($official_links_base_heading, $secondary_heading_slots['official_links'][0] ?? '');
         $links = self::render_section(
             $official_links_heading,
             $payload['official_links_section_paragraphs'] ?? [],
@@ -138,7 +146,93 @@ class ModelPageRenderer {
         }
 
         $html = implode("\n\n", $sections);
-        return self::final_cleanup($html, $name);
+        return self::final_cleanup($html, $name, $has_link_evidence_guard ? $link_evidence : []);
+    }
+
+    /** @param mixed $raw @return array<string,mixed> */
+    private static function normalize_link_evidence_summary($raw): array {
+        $evidence = is_array($raw) ? $raw : [];
+        $live = max(0, (int) ($evidence['live_count'] ?? 0));
+        $extra = max(0, (int) ($evidence['extra_count'] ?? 0));
+        $total = max(0, (int) ($evidence['total_count'] ?? ($live + $extra)));
+        return array_merge($evidence, [
+            'live_count' => $live,
+            'extra_count' => $extra,
+            'total_count' => $total,
+            'has_live_profile' => !empty($evidence['has_live_profile']) || $live > 0,
+            'has_extra_links' => !empty($evidence['has_extra_links']) || $extra > 0,
+            'has_any_links' => !empty($evidence['has_any_links']) || ($live + $extra) > 0,
+        ]);
+    }
+
+    /** @param array<string,mixed> $payload @param array<string,mixed> $evidence @return array<string,mixed> */
+    private static function apply_link_evidence_rendering_guards(array $payload, array $evidence): array {
+        if (!empty($evidence['has_extra_links'])) {
+            return $payload;
+        }
+
+        $payload['official_destinations_section_paragraphs'] = [];
+        $payload['official_destinations_section_html'] = '';
+        $payload['community_destinations_section_paragraphs'] = [];
+        $payload['community_destinations_section_html'] = '';
+
+        foreach ([
+            'intro_paragraphs',
+            'watch_section_paragraphs',
+            'features_section_paragraphs',
+            'comparison_section_paragraphs',
+            'questions_section_paragraphs',
+            'official_links_section_paragraphs',
+        ] as $key) {
+            if (isset($payload[$key]) && is_array($payload[$key])) {
+                $payload[$key] = self::filter_no_extra_link_lines($payload[$key]);
+            }
+        }
+
+        if (isset($payload['faq_items']) && is_array($payload['faq_items'])) {
+            $faq_items = [];
+            foreach ($payload['faq_items'] as $faq) {
+                if (!is_array($faq)) {
+                    continue;
+                }
+                $q = trim((string) ($faq['q'] ?? ''));
+                $a = trim((string) ($faq['a'] ?? ''));
+                if ($q === '' || $a === '' || self::contains_no_extra_link_forbidden_terms($q . ' ' . $a)) {
+                    continue;
+                }
+                $faq_items[] = $faq;
+            }
+            $payload['faq_items'] = $faq_items;
+        }
+
+        return $payload;
+    }
+
+    /** @param array<int,mixed> $lines @return array<int,string> */
+    private static function filter_no_extra_link_lines(array $lines): array {
+        $out = [];
+        foreach ($lines as $line) {
+            $line = trim((string) $line);
+            if ($line === '' || self::contains_no_extra_link_forbidden_terms($line)) {
+                continue;
+            }
+            $out[] = $line;
+        }
+        return $out;
+    }
+
+    private static function contains_no_extra_link_forbidden_terms(string $text): bool {
+        return (bool) preg_match('/\b(other listed profiles|grouped profiles|fan\/support pages|fan pages|fansites?|personal sites?|video channels?|social profiles?|link hubs?|non-live profiles|backup profiles|archive links|0 profile links found, including 1 live profile)\b/iu', $text);
+    }
+
+    private static function strip_no_extra_link_forbidden_paragraphs(string $html): string {
+        $html = preg_replace_callback('/<p\b[^>]*>.*?<\/p>/is', static function (array $m): string {
+            $plain = trim((string) wp_strip_all_tags($m[0]));
+            return self::contains_no_extra_link_forbidden_terms($plain) ? '' : $m[0];
+        }, $html) ?: $html;
+        $html = preg_replace('/<h2>Other Official Destinations<\/h2>\s*(?=<h2>|$)/iu', '', $html) ?: $html;
+        $html = preg_replace('/<h2>Social Profiles, Link Hubs, and Channels<\/h2>\s*(?=<h2>|$)/iu', '', $html) ?: $html;
+        return trim((string) preg_replace('/\n{3,}/', "\n\n", $html));
     }
 
     private static function heading_with_focus(string $base, string $focus_keyword, string $name): string {
@@ -328,9 +422,16 @@ class ModelPageRenderer {
         $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
 
         if (!empty($active)) {
-            $answer = $active[0] . ' is the confirmed live-room profile in this check. Start there for live access, then use other listed profiles only if needed.';
+            $evidence = self::normalize_link_evidence_summary($payload['link_evidence_summary'] ?? []);
+            $answer = $active[0] . ' is the confirmed live-room profile in this check. Start there for live access.';
+            if (!array_key_exists('link_evidence_summary', $payload) || !empty($evidence['has_extra_links'])) {
+                $answer .= ' Use additional verified destinations only if needed.';
+            }
         } else {
-            $answer = 'No live-room profile is confirmed active right now. Use listed profiles for handle checks and updates.';
+            $answer = 'No live-room profile is confirmed active right now.';
+            if (!array_key_exists('link_evidence_summary', $payload) || !empty(($payload['link_evidence_summary'] ?? [])['has_extra_links'])) {
+                $answer .= ' Use verified destinations for handle checks and updates.';
+            }
         }
 
         return [$answer];
@@ -363,7 +464,7 @@ class ModelPageRenderer {
         return implode(', ', $items) . ' and ' . $last;
     }
 
-    private static function final_cleanup(string $html, string $name): string {
+    private static function final_cleanup(string $html, string $name, array $link_evidence = []): string {
         $html = preg_replace('/<h2>\s*Table of Contents\s*<\/h2>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
         $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/isu', '', $html) ?: $html;
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
