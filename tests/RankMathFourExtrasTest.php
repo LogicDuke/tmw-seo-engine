@@ -171,6 +171,12 @@ namespace TMWSEO\Engine\Tests {
             $this->assertContains( 'livejasmin anisyia',      $chips, 'Chip must include "livejasmin anisyia"' );
             $this->assertContains( 'anisyia live',            $chips, 'Chip must include "anisyia live"' );
             $this->assertContains( 'anisyia livejasmin porn', $chips, 'Chip must include "anisyia livejasmin porn"' );
+            $this->assertNotContains( 'anisyia porn', $chips, 'Unknown-review porn fallback must remain excluded from Rank Math chips' );
+            $this->assertSame(
+                'Anisyia,anisyia livejasmin,livejasmin anisyia,anisyia live,anisyia livejasmin porn',
+                $saved,
+                'Rank Math CSV preview must match the approved extra order exactly'
+            );
         }
 
         // ─────────────────────────────────────────────────────────────────────
