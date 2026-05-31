@@ -233,6 +233,16 @@ class ModelKeywordPack {
             );
         }
 
+        // [TMW-SEO-RMKW] PR-615 debug logging — active only when TMWSEO_DEBUG is true.
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
+                'post_id'             => $post->ID,
+                'primary'             => $primary,
+                'rankmath_additional' => $rankmath_chips,
+                'extra_focus_from_db' => $classified_fragment['extra_focus_candidates'] ?? [],
+            ]);
+        }
+
         return [
             'primary'             => $primary,
             'additional'          => $additional,
@@ -830,6 +840,10 @@ class ModelKeywordPack {
             }
         }
 
+        // Generated fallback chips must still pass the model-page safety filter.
+        // Approved DB extras are merged/preserved separately via rankmath_additional,
+        // so explicit approved phrases such as "anisyia livejasmin porn" can survive
+        // without globally promoting synthetic porn fallback keywords for every model.
         return array_slice(PageTypeKeywordFilter::filter_for_model_page($filtered), 0, 4);
     }
 
