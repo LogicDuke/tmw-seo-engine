@@ -219,11 +219,17 @@ class ModelKeywordPack {
             ? self::merge_preferred_keywords(
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
                 self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
-                4
+                8
             )
             : [];
         if ($is_model_page) {
             $rankmath_chips = self::filter_keywords_against_classified_exclusions($rankmath_chips, $classified_exclusions);
+            $rankmath_chips = self::remove_primary_keyword_from_extras($rankmath_chips, $model_name);
+            $rankmath_chips = self::merge_preferred_keywords(
+                $rankmath_chips,
+                self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
+                4
+            );
         }
 
         return [
@@ -287,6 +293,26 @@ class ModelKeywordPack {
             }
         }
         return $merged;
+    }
+
+
+    /** @param string[] $keywords @return string[] */
+    private static function remove_primary_keyword_from_extras(array $keywords, string $primary): array {
+        $primary = self::normalize_keyword($primary);
+        $primary_lc = function_exists('mb_strtolower') ? mb_strtolower($primary, 'UTF-8') : strtolower($primary);
+        $out = [];
+        foreach ($keywords as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean === '') {
+                continue;
+            }
+            $clean_lc = function_exists('mb_strtolower') ? mb_strtolower($clean, 'UTF-8') : strtolower($clean);
+            if ($primary_lc !== '' && $clean_lc === $primary_lc) {
+                continue;
+            }
+            $out[] = $clean;
+        }
+        return self::dedupe_keywords($out);
     }
 
     /** @param array<string,int> $pool @param array<string,bool> $excluded @return array<string,int> */
@@ -680,63 +706,62 @@ class ModelKeywordPack {
      * @return string[]               Up to 4 chips.
      */
     private static function build_rankmath_chips(string $name, int $post_id, array $platform_slugs): array {
-        if ($name === '') {
+        $clean_name = self::normalize_keyword($name);
+        if ($clean_name === '') {
             return [];
         }
 
-        // Modifier pool — compact, readable, 1–4 word suffixes.
-        $modifiers = [
+        $name_lc = function_exists('mb_strtolower') ? mb_strtolower($clean_name, 'UTF-8') : strtolower($clean_name);
+        $platform_keys = array_values(array_unique(array_filter(array_map(
+            static fn($slug): string => sanitize_key((string) $slug),
+            $platform_slugs
+        ), 'strlen')));
+        $has_livejasmin = in_array('livejasmin', $platform_keys, true) || in_array('jasmin', $platform_keys, true);
+        $has_camsoda = in_array('camsoda', $platform_keys, true);
+
+        $chips = [];
+        if ($has_livejasmin) {
+            $chips[] = $name_lc . ' livejasmin';
+            $chips[] = 'livejasmin ' . $name_lc;
+            $chips[] = $name_lc . ' private live chat';
+            $chips[] = $has_camsoda ? $name_lc . ' camsoda' : $name_lc . ' live cam';
+        }
+
+        foreach ($platform_keys as $platform_key) {
+            if ($platform_key === 'livejasmin' || $platform_key === 'jasmin') {
+                continue;
+            }
+            $label = self::platform_keyword_label($platform_key);
+            if ($label === '') {
+                continue;
+            }
+            $chips[] = $name_lc . ' ' . (function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label));
+        }
+
+        foreach ([
             'webcam model',
             'live cam chat',
             'cam profile',
             'webcam chat',
             'cam model',
             'cam girl',
-        ];
-
-        // Deterministic Fisher-Yates shuffle seeded by name + post_id.
-        $pool = $modifiers;
-        $lcg  = abs((int) crc32($name . '-' . $post_id));
-        for ($i = count($pool) - 1; $i > 0; $i--) {
-            $lcg   = ($lcg * 1664525 + 1013904223) & 0xFFFFFFFF;
-            $j     = $lcg % ($i + 1);
-            $tmp   = $pool[$i];
-            $pool[$i] = $pool[$j];
-            $pool[$j] = $tmp;
+        ] as $mod) {
+            $chips[] = $name_lc . ' ' . $mod;
         }
 
-        // Build 4 name-led chips from shuffled modifiers.
-        $chips = [];
-        foreach ($pool as $mod) {
-            $chips[] = $name . ' ' . $mod;
-            if (count($chips) >= 4) {
+        $filtered = [];
+        foreach (self::dedupe_keywords($chips) as $chip) {
+            $chip_lc = function_exists('mb_strtolower') ? mb_strtolower($chip, 'UTF-8') : strtolower($chip);
+            if ($chip_lc === $name_lc) {
+                continue;
+            }
+            $filtered[] = $chip;
+            if (count($filtered) >= 4) {
                 break;
             }
         }
 
-        // Optionally replace the last chip with a platform-specific one
-        // (e.g. "Arianna LiveJasmin") when a primary platform is known.
-        $labels = array_values(array_filter(
-            array_map([self::class, 'platform_keyword_label'], $platform_slugs),
-            'strlen'
-        ));
-        if (!empty($labels)) {
-            $platform_chip   = $name . ' ' . $labels[0];
-            $platform_chip_l = strtolower($platform_chip);
-            $already         = false;
-            foreach ($chips as $c) {
-                if (strtolower($c) === $platform_chip_l) {
-                    $already = true;
-                    break;
-                }
-            }
-            if (!$already && count($chips) >= 4) {
-                array_pop($chips);
-                $chips[] = $platform_chip;
-            }
-        }
-
-        return array_slice(PageTypeKeywordFilter::filter_for_model_page(self::dedupe_keywords($chips)), 0, 4);
+        return array_slice(PageTypeKeywordFilter::filter_for_model_page($filtered), 0, 4);
     }
 
     private static function platform_keyword_label(string $platform): string {

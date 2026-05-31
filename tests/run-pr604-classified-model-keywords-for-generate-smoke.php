@@ -119,7 +119,7 @@ foreach ([ 'wrong entity anisyia', 'anisyia pending', 'video', 'chat', 'mystery 
 $before_queries = count($wpdb->queries);
 $pack = ModelKeywordPack::build(new WP_Post(4457, 'model', 'Anisyia'));
 pr604_assert(array_slice($pack['additional'], 0, 3) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia' ], 'ModelKeywordPack additional should put approved personal rows before generated fallbacks.');
-pr604_assert(array_slice($pack['rankmath_additional'], 0, 3) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia' ], 'ModelKeywordPack rankmath_additional should put approved personal rows first.');
+pr604_assert($pack['rankmath_additional'] === [ 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia private live chat', 'anisyia live cam' ], 'ModelKeywordPack rankmath_additional should expose four non-primary Rank Math chips.');
 foreach ([ 'video', 'chat', 'mystery phrase' ] as $bad) { pr604_assert(!in_array($bad, $pack['rankmath_additional'], true) && !in_array($bad, $pack['additional'], true), 'Unsafe/review terms should not appear in focus extras: ' . $bad . '.'); }
 pr604_assert(count($wpdb->queries) > $before_queries, 'Pack build should read the provider rows.');
 pr604_assert($wpdb->updates === [] && $wpdb->inserts === [], 'Provider and pack build smoke must not perform database writes.');

@@ -36,6 +36,16 @@ use PHPUnit\Framework\TestCase;
 use TMWSEO\Engine\Content\ModelPageRenderer;
 use TMWSEO\Engine\Content\TemplateContent;
 
+require_once TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-page-type-keyword-filter.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-keyword-library.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/keywords/class-model-keyword-pack.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-model-destination-resolver.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-model-page-renderer.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/affiliates/class-crakrevenue-cam-manager.php';
+
+
 /**
  * Minimal WP_Post stub so renderer can be exercised without WordPress.
  */
@@ -600,4 +610,77 @@ class ModelPageRendererTest extends TestCase {
             'Route wording variant must be deterministic for the same model name.'
         );
     }
+
+    public function test_four_secondary_keywords_selected_for_livejasmin_and_camsoda_model(): void {
+        $method = new \ReflectionMethod(\TMWSEO\Engine\Keywords\ModelKeywordPack::class, 'build_rankmath_chips');
+        $method->setAccessible(true);
+
+        $chips = $method->invoke(null, 'Anisyia', 612, ['livejasmin', 'camsoda']);
+
+        $this->assertSame([
+            'anisyia livejasmin',
+            'livejasmin anisyia',
+            'anisyia private live chat',
+            'anisyia camsoda',
+        ], $chips);
+    }
+
+    public function test_cleanup_removes_duplicate_headings_and_bad_artifacts(): void {
+        $payload = self::base_payload();
+        $payload['comparison_section_paragraphs'] = ['Before joining, compare current room status.'];
+        $payload['comparison_section_html'] = '<h2>Before You Click</h2><p>Use additional the links below only for follow-up checks.</p>';
+        $payload['official_links_section_paragraphs'] = ['Official links are listed below.'];
+        $payload['external_info_html'] = '<h3>Official Links and Profiles and LiveJasmin profile</h3><p>For anisyia livejasmin access, confirm handle consistency and recent room activity before joining.</p>';
+
+        $html = self::render($payload);
+
+        $this->assertSame(1, preg_match_all('/<h2[^>]*>\s*Before You Click\s*<\/h2>/i', $html));
+        $this->assertStringContainsString('Safety Checklist', $html);
+        $this->assertStringNotContainsString('use additional the links', $html);
+        $this->assertStringNotContainsString('Official Links and Profiles and LiveJasmin profile', $html);
+    }
+
+    public function test_live_chat_secondary_keyword_intro_is_one_natural_paragraph(): void {
+        $method = new \ReflectionMethod(TemplateContent::class, 'render_rankmath_keyword_coverage');
+        $method->setAccessible(true);
+        $html = $method->invoke(null, [
+            'anisyia livejasmin',
+            'livejasmin anisyia',
+            'anisyia private live chat',
+            'anisyia camsoda',
+        ], 'Anisyia');
+
+        $this->assertSame(1, preg_match_all('/<p\b/i', $html));
+        $this->assertStringContainsString('Fans searching for anisyia livejasmin, livejasmin anisyia, anisyia private live chat or anisyia camsoda', $html);
+        $this->assertStringNotContainsString('confirm handle consistency', $html);
+    }
+
+    public function test_cam_platform_profiles_show_primary_livejasmin_and_secondary_camsoda(): void {
+        update_option(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+            ],
+        ]);
+
+        $method = new \ReflectionMethod(TemplateContent::class, 'render_curated_verified_links_section');
+        $method->setAccessible(true);
+        $html = $method->invoke(null, 612, 'Anisyia', [
+            ['platform' => 'livejasmin', 'label' => 'LiveJasmin', 'url' => 'https://ctwmsg.com/track?performerName=anisyia'],
+            ['platform' => 'camsoda', 'label' => 'CamSoda', 'url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=anisyia'],
+        ], [
+            'all_verified_destinations' => [
+                ['type' => 'livejasmin', 'label' => 'LiveJasmin', 'url' => 'https://www.livejasmin.com/en/girls/anisyia', 'activity_level' => 'active'],
+                ['type' => 'camsoda', 'label' => 'CamSoda', 'url' => 'https://www.camsoda.com/anisyia', 'activity_level' => 'unknown'],
+            ],
+        ]);
+
+        $this->assertStringContainsString('Cam platform profiles', $html);
+        $this->assertStringContainsString('LiveJasmin — primary confirmed live profile', $html);
+        $this->assertStringContainsString('Visit Profile on CamSoda', $html);
+        $this->assertStringContainsString('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=anisyia', $html);
+    }
+
 }
