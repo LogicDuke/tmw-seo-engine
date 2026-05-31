@@ -2832,8 +2832,12 @@ class TemplateContent {
         }
 
         $links = [];
-        if ($model_slug !== '') {
-            $links[] = '<li><a href="' . esc_url(home_url('/videos/?model=' . rawurlencode($model_slug))) . '">Videos featuring ' . esc_html($model_title) . '</a></li>';
+        $video_links = self::get_real_model_video_links((int) $post->ID, $model_title, $model_slug);
+        if (!empty($video_links)) {
+            $video = $video_links[0];
+            $links[] = '<li><a href="' . esc_url($video['url']) . '">' . esc_html(self::model_video_anchor_text($model_title)) . '</a></li>';
+        } elseif ($model_slug !== '') {
+            self::log_suppressed_fake_video_archive_link((int) $post->ID, $model_title, $model_slug);
         }
         $links[] = '<li><a href="' . esc_url(home_url('/models/')) . '">Browse all models</a></li>';
         $links[] = '<li><a href="' . esc_url(home_url('/categories/')) . '">Browse categories</a></li>';
@@ -2905,6 +2909,194 @@ class TemplateContent {
         }
 
         return '<ul>' . implode('', $links) . '</ul>';
+    }
+
+
+    /**
+     * Return real published video post permalinks connected to a model.
+     *
+     * The old model-page internal-link block guessed /videos/?model={slug}; that
+     * query-string archive is not guaranteed to exist. This helper only returns
+     * links backed by published video posts related through relation signals the
+     * plugin already recognizes for video ↔ model linking.
+     *
+     * @return array<int,array{title:string,url:string,post_id:int}>
+     */
+    private static function get_real_model_video_links(int $model_post_id, string $model_name, string $model_slug, int $limit = 2): array {
+        $limit = max(1, min(5, $limit));
+        $model_slug = trim($model_slug, '-');
+        if ($model_slug === '' && $model_name !== '') {
+            $model_slug = function_exists('sanitize_title_with_dashes')
+                ? sanitize_title_with_dashes($model_name)
+                : strtolower((string) preg_replace('/[^A-Za-z0-9-]+/', '-', $model_name));
+            $model_slug = trim($model_slug, '-');
+        }
+
+        if ($model_post_id <= 0 && $model_slug === '') {
+            return [];
+        }
+
+        $post_types = self::model_video_post_types();
+        if (empty($post_types) || !function_exists('get_posts')) {
+            return [];
+        }
+
+        $candidates = [];
+        $seen_ids = [];
+        foreach (self::model_video_relation_queries($model_post_id, $model_slug, $post_types) as $query_args) {
+            $posts = get_posts($query_args);
+            if (!is_array($posts) || empty($posts)) {
+                continue;
+            }
+
+            foreach ($posts as $candidate) {
+                $candidate_id = is_object($candidate) ? (int) ($candidate->ID ?? 0) : (int) $candidate;
+                if ($candidate_id <= 0 || isset($seen_ids[$candidate_id])) {
+                    continue;
+                }
+                $seen_ids[$candidate_id] = true;
+                $candidates[] = $candidate;
+            }
+        }
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        usort($candidates, static function ($a, $b): int {
+            $a_date = is_object($a) ? strtotime((string) ($a->post_date ?? $a->post_modified ?? '')) : 0;
+            $b_date = is_object($b) ? strtotime((string) ($b->post_date ?? $b->post_modified ?? '')) : 0;
+            if ($a_date === $b_date) {
+                $a_id = is_object($a) ? (int) ($a->ID ?? 0) : (int) $a;
+                $b_id = is_object($b) ? (int) ($b->ID ?? 0) : (int) $b;
+                return $b_id <=> $a_id;
+            }
+
+            return $b_date <=> $a_date;
+        });
+
+        $links = [];
+        foreach ($candidates as $candidate) {
+            $video_id = is_object($candidate) ? (int) ($candidate->ID ?? 0) : (int) $candidate;
+            if ($video_id <= 0 || !function_exists('get_permalink')) {
+                continue;
+            }
+
+            $url = get_permalink($video_id);
+            $url = is_string($url) ? trim($url) : '';
+            if ($url === '' || strpos($url, '/videos/?model=') !== false) {
+                continue;
+            }
+
+            $title = function_exists('get_the_title') ? trim((string) get_the_title($video_id)) : '';
+            if ($title === '' && is_object($candidate)) {
+                $title = trim((string) ($candidate->post_title ?? ''));
+            }
+            if ($title === '') {
+                $title = trim($model_name) !== '' ? trim($model_name) . ' video' : 'Model video';
+            }
+
+            $links[] = [
+                'title'   => $title,
+                'url'     => $url,
+                'post_id' => $video_id,
+            ];
+
+            if (count($links) >= $limit) {
+                break;
+            }
+        }
+
+        return $links;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private static function model_video_post_types(): array {
+        $post_types = ['video', 'tmw_video', 'livejasmin_video', 'post'];
+        if (function_exists('post_type_exists')) {
+            $post_types = array_values(array_filter($post_types, static function (string $post_type): bool {
+                return post_type_exists($post_type);
+            }));
+        }
+
+        return array_values(array_unique($post_types));
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private static function model_video_relation_queries(int $model_post_id, string $model_slug, array $post_types): array {
+        $base = [
+            'post_type'           => $post_types,
+            'post_status'         => 'publish',
+            'posts_per_page'      => 5,
+            'orderby'             => 'date',
+            'order'               => 'DESC',
+            'ignore_sticky_posts' => true,
+        ];
+
+        $queries = [];
+        if ($model_slug !== '' && (!function_exists('taxonomy_exists') || taxonomy_exists('models'))) {
+            $queries[] = $base + [
+                'tax_query' => [[
+                    'taxonomy' => 'models',
+                    'field'    => 'slug',
+                    'terms'    => [$model_slug],
+                ]],
+            ];
+        }
+
+        $meta_or = ['relation' => 'OR'];
+        if ($model_post_id > 0) {
+            foreach (['_tmw_model_id', '_tmwseo_model_id', 'model_id'] as $key) {
+                $meta_or[] = [
+                    'key'     => $key,
+                    'value'   => (string) $model_post_id,
+                    'compare' => '=',
+                ];
+            }
+        }
+        if ($model_slug !== '') {
+            foreach (['_tmw_model_slug', '_tmwseo_model_slug', 'model_slug'] as $key) {
+                $meta_or[] = [
+                    'key'     => $key,
+                    'value'   => $model_slug,
+                    'compare' => '=',
+                ];
+            }
+        }
+
+        if (count($meta_or) > 1) {
+            $queries[] = $base + ['meta_query' => $meta_or];
+        }
+
+        return $queries;
+    }
+
+    private static function model_video_anchor_text(string $model_title): string {
+        $model_title = trim($model_title) !== '' ? trim($model_title) : 'this model';
+        $article = preg_match('/^[AEIOU]/i', $model_title) ? 'an' : 'a';
+        return 'Watch ' . $article . ' ' . $model_title . ' video';
+    }
+
+    private static function log_suppressed_fake_video_archive_link(int $model_post_id, string $model_title, string $model_slug): void {
+        $data = [
+            'model_id'   => $model_post_id,
+            'model_name' => $model_title,
+            'model_slug' => $model_slug,
+            'suppressed' => '/videos/?model=' . $model_slug,
+        ];
+
+        if (class_exists('\TMWSEO\Engine\Logs')) {
+            Logs::info('internal_links', '[TMW-SEO-LINKS] Suppressed fake model video archive link; no real published video permalink found.', $data);
+            return;
+        }
+
+        if (function_exists('error_log')) {
+            error_log('[TMW-SEO-LINKS] Suppressed fake model video archive link; no real published video permalink found. ' . json_encode($data));
+        }
     }
 
     /**
