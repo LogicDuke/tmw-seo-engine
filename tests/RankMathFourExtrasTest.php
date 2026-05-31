@@ -50,6 +50,7 @@ namespace {
     if ( ! function_exists( 'update_option' ) )        { function update_option( $k, $v ) { $GLOBALS['_tmw_test_options'][ $k ] = $v; return true; } }
     if ( ! function_exists( 'get_post_meta' ) )        { function get_post_meta( $id, $k, $s = true ) { return $GLOBALS['_tmw_meta'][ $id ][ $k ] ?? ''; } }
     if ( ! function_exists( 'update_post_meta' ) )     { function update_post_meta( $id, $k, $v ) { $GLOBALS['_tmw_meta'][ $id ][ $k ] = $v; return true; } }
+    if ( ! function_exists( 'delete_post_meta' ) )     { function delete_post_meta( $id, $k ) { unset( $GLOBALS['_tmw_meta'][ $id ][ $k ] ); return true; } }
     if ( ! function_exists( 'get_post_field' ) )       { function get_post_field( $f, $id ) { return $GLOBALS['_tmw_posts'][ $id ]->$f ?? ''; } }
     if ( ! function_exists( 'get_the_title' ) )        { function get_the_title( $id = 0 ) { return $GLOBALS['_tmw_titles'][ $id ] ?? ( $GLOBALS['_tmw_posts'][ $id ]->post_title ?? '' ); } }
     if ( ! function_exists( 'current_time' ) )         { function current_time( $t ) { return '2026-05-31 00:00:00'; } }

@@ -55,6 +55,8 @@ class RankMathMapper {
         $focus_csv = implode( ',', $focus_list );
         if ( ! empty( $focus_list ) ) {
             update_post_meta( $post_id, 'rank_math_focus_keyword', $focus_csv );
+        } else {
+            delete_post_meta( $post_id, 'rank_math_focus_keyword' );
         }
 
         // [TMW-SEO-RMKW] PR-615 debug logging — write behavior unchanged.

@@ -840,11 +840,11 @@ class ModelKeywordPack {
             }
         }
 
-        // PR-615: Do NOT apply PageTypeKeywordFilter here. Approved classified keywords
-        // (e.g. "anisyia livejasmin porn") are legitimate for LiveJasmin-platform pages
-        // and must not be stripped by the UNSAFE_TERMS filter. finalize_rankmath_additional_keywords
-        // handles deduplication and primary removal without running the unsafe filter.
-        return array_slice($filtered, 0, 4);
+        // Generated fallback chips must still pass the model-page safety filter.
+        // Approved DB extras are merged/preserved separately via rankmath_additional,
+        // so explicit approved phrases such as "anisyia livejasmin porn" can survive
+        // without globally promoting synthetic porn fallback keywords for every model.
+        return array_slice(PageTypeKeywordFilter::filter_for_model_page($filtered), 0, 4);
     }
 
     private static function platform_keyword_label(string $platform): string {
