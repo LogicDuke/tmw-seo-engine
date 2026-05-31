@@ -465,6 +465,7 @@ class ModelPageRenderer {
     }
 
     private static function final_cleanup(string $html, string $name, array $link_evidence = []): string {
+        $html = self::strip_internal_evidence_markers($html);
         $html = preg_replace('/<h2>\s*Table of Contents\s*<\/h2>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
         $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/isu', '', $html) ?: $html;
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
@@ -480,7 +481,44 @@ class ModelPageRenderer {
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
-        return trim($html);
+        $html = trim(self::strip_internal_evidence_markers($html));
+        $html = self::maybe_add_sparse_rankmath_support_section($html, $name, $link_evidence);
+        return trim(self::strip_internal_evidence_markers($html));
+    }
+
+    private static function strip_internal_evidence_markers(string $html): string {
+        $html = preg_replace('/<!--\s*tmwseo-seed-evidence\s*:\s*(?:start|end)\s*-->/iu', '', $html) ?: $html;
+        $html = preg_replace('/\btmwseo-seed-evidence\s*:\s*(?:start|end)\b/iu', '', $html) ?: $html;
+        $html = preg_replace('/\bseed-evidence\s*:?\s*(?:start|end)\b/iu', '', $html) ?: $html;
+        return preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
+    }
+
+    private static function maybe_add_sparse_rankmath_support_section(string $html, string $name, array $link_evidence): string {
+        $plain = trim((string) wp_strip_all_tags($html));
+        if ($plain === '') {
+            return $html;
+        }
+
+        $word_count = str_word_count($plain);
+        if ($word_count >= 600) {
+            return $html;
+        }
+
+        if (empty($link_evidence['has_live_profile']) || !empty($link_evidence['has_extra_links'])) {
+            return $html;
+        }
+
+        $support = '<h2>Before You Open the Live Room</h2>'
+            . '<p>Use the confirmed live profile as the safest starting point, especially when search results or copied profile pages reuse the same name. Check that the handle, platform branding, room status, and recent activity all line up before you spend time in chat. If the room is offline, wait for the official profile to update instead of following an unrelated mirror or reposted link.</p>'
+            . '<p>On mobile, open the page in a stable browser session, let the player load fully, and review basic account prompts before continuing. On desktop, check playback quality, chat readability, moderation cues, and any account requirements before deciding whether to stay. These small checks keep the visit focused on the confirmed live room and avoid stale pages that only copy a performer name without proving current platform access.</p>'
+            . '<p>The confirmed link also gives you a cleaner way to compare what you see after click-through. Look for consistent profile naming, a room layout that matches the platform, visible status messaging, and a player that loads without forcing you through unrelated pages. If any of those signals feel wrong, step back and re-open the confirmed destination instead of continuing through a page that may be stale.</p>'
+            . '<p>For account checks, keep the process simple. Review sign-in prompts, age-gate messaging, device permissions, and chat controls before interacting. A legitimate room should make the next step understandable without pushing you through unrelated offers or copied biographies. If you are only checking availability, you can stop after verifying the handle and room state; there is no need to chase extra pages that are not listed here.</p>'
+            . '<p>This is why the confirmed live destination is the best first click on a sparse profile page. It keeps the visit tied to evidence the page can actually support, avoids invented social or fan links, and gives you a repeatable checklist for future visits. Start with the verified room, review the visible platform signals, then decide whether the experience fits your connection, browser, and comfort level.</p>'
+            . '<p>If you return later, repeat the same checks instead of assuming the previous room state is still current. Live profiles can change availability, layout, and login flow without warning, so a fresh review protects you from outdated screenshots and copied summaries. The safest path is consistent: open the confirmed destination, verify the visible handle, wait for the player or status message, and only then decide whether to continue.</p>'
+            . '<p>A sparse page should stay honest about what it knows. When no extra official destinations are confirmed, this guide does not add them just to look complete. That keeps the focus on the one live profile that has enough evidence to support a CTA, plus practical checks you can perform yourself before joining chat.</p>'
+            . '<p>Use those checks as a quick routine whenever you compare current access. Clear branding, current room status, readable chat, stable playback, and understandable account prompts are stronger signals than copied text on an unverified page. If those signals are missing, pause and come back through the confirmed profile rather than following a detour. This routine keeps the page useful without adding unsupported claims, extra platform names, or biography details that were not actually verified.</p>';
+
+        return $html . "\n\n" . $support;
     }
 
     private static function looks_like_nav_chrome(string $html): bool {
