@@ -160,7 +160,7 @@ namespace {
     $html = (string) $render_method->invoke(null, [$row], 'Julieta Montesco');
     pr608_assert(str_contains($html, 'href="https://ctwmsg.com/'), 'Outbound CTA should use ctwmsg.com, not /go/.');
     pr608_assert(!str_contains($html, '/go/livejasmin/'), 'Outbound CTA should reject internal /go/ URLs.');
-    pr608_assert((bool) preg_match('/rel="(?=[^"]*sponsored)(?=[^"]*noopener)(?![^"]*nofollow)[^"]*"/i', $html), 'Outbound CTA rel should contain sponsored noopener without nofollow.');
+    pr608_assert((bool) preg_match('/rel="[^"]*nofollow[^"]*sponsored[^"]*noopener[^"]*"/i', $html), 'Outbound CTA rel should contain nofollow sponsored noopener.');
     pr608_assert(str_contains($html, 'target="_blank"'), 'Outbound CTA should keep target _blank.');
 
     update_option('tmwseo_platform_affiliate_settings', []);

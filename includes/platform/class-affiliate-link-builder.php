@@ -465,54 +465,9 @@ class AffiliateLinkBuilder {
             'subAffId' => (string) ($settings['subaffid'] ?? ''),
         ];
 
-        $url = self::append_query_args_with_explicit_empty_values(self::LIVEJASMIN_AFFILIATE_BASE, $params);
+        $url = add_query_arg($params, self::LIVEJASMIN_AFFILIATE_BASE);
         $url = esc_url_raw($url);
         return wp_http_validate_url($url) ? $url : '';
-    }
-
-    /**
-     * Append query arguments while preserving empty string values as key=.
-     *
-     * WordPress' add_query_arg()/esc_url_raw() combination may normalize empty
-     * values to bare keys in some environments. LiveJasmin tracking requires the
-     * generated SEO affiliate URL to keep intentionally-empty tracking slots
-     * explicit, such as prm%5Bcampaign_id%5D=&subAffId=.
-     *
-     * @param array<string,string> $params
-     */
-    private static function append_query_args_with_explicit_empty_values(string $base_url, array $params): string {
-        $parts = wp_parse_url($base_url);
-        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
-            return '';
-        }
-
-        $url = (string) $parts['scheme'] . '://' . (string) $parts['host'];
-        if (!empty($parts['port'])) {
-            $url .= ':' . (string) $parts['port'];
-        }
-        $url .= (string) ($parts['path'] ?? '/');
-
-        $pairs = [];
-        if (!empty($parts['query'])) {
-            foreach (explode('&', (string) $parts['query']) as $pair) {
-                if ($pair !== '') {
-                    $pairs[] = $pair;
-                }
-            }
-        }
-
-        foreach ($params as $key => $value) {
-            $pairs[] = rawurlencode((string) $key) . '=' . rawurlencode((string) $value);
-        }
-
-        if (!empty($pairs)) {
-            $url .= '?' . implode('&', $pairs);
-        }
-        if (!empty($parts['fragment'])) {
-            $url .= '#' . rawurlencode((string) $parts['fragment']);
-        }
-
-        return $url;
     }
 
     private static function build_from_template(string $template, string $platform, string $username, string $profile_url, array $settings): string {

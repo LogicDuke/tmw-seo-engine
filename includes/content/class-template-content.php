@@ -318,8 +318,6 @@ class TemplateContent {
         $enforcement = self::enforce_keyword_heading_placement($content, $rankmath_keywords, $name);
         $content = $enforcement['html'];
 
-        $content = self::strip_seed_evidence_markers_from_output($content);
-
         $seo_title = self::build_default_model_seo_title($name, $primary_platform_label, (int) $post->ID);
 
         $meta_description = 'Join ' . $name . "'s live chat";
@@ -333,13 +331,6 @@ class TemplateContent {
             'seo_title' => $seo_title,
             'meta_description' => $meta_description,
         ];
-    }
-
-    private static function strip_seed_evidence_markers_from_output(string $content): string {
-        $content = preg_replace('/<!--\s*tmwseo-seed-evidence\s*:\s*(?:start|end)\s*-->/iu', '', $content) ?: $content;
-        $content = preg_replace('/\btmwseo-seed-evidence\s*:\s*(?:start|end)\b/iu', '', $content) ?: $content;
-        $content = preg_replace('/\bseed-evidence\s*:?\s*(?:start|end)\b/iu', '', $content) ?: $content;
-        return preg_replace('/\n{3,}/', "\n\n", $content) ?: $content;
     }
 
     /**
@@ -414,27 +405,19 @@ class TemplateContent {
 
         // ── Watch section: confirmed outbound CTA + routed /go/ CTAs ─────
         // Rank Math scans generated post_content, so include one real confirmed
-        // outbound profile anchor when verified evidence provides a URL. When the
-        // generated-body SEO affiliate resolver can produce a direct ctwmsg.com
-        // destination, that direct external CTA is the only model-body watch link:
-        // do not duplicate it later in the guaranteed outbound block, and do not
-        // add a parallel /go/ CTA in generated post_content. The /go/ route itself
-        // remains available for frontend/click-routing contexts.
-        $has_direct_seo_affiliate_cta = ! empty( $guaranteed_targets );
-        $watch_html = $has_direct_seo_affiliate_cta
-            ? self::render_direct_seo_affiliate_watch_cta_from_targets( $guaranteed_targets, $name )
-            : self::join_html_blocks( [
-                self::render_confirmed_outbound_watch_cta( $cta_links, $name ),
-                self::render_primary_watch_cta( $cta_links, $name ),
-                self::render_watch_cta_section( $cta_links, $name ),
-            ] );
+        // outbound profile anchor when verified evidence provides a URL.
+        $watch_html = self::join_html_blocks( [
+            self::render_confirmed_outbound_watch_cta( $cta_links, $name ),
+            self::render_primary_watch_cta( $cta_links, $name ),
+            self::render_watch_cta_section( $cta_links, $name ),
+        ] );
 
         // ── Explore More / end section: ONE consolidated outbound link block ──
         // Generated SEO body content must use AffiliateLinkBuilder::build_seo_content_affiliate_url()
         // so Rank Math sees a real approved external affiliate href, not an
         // internal /go/ redirect. Do not add raw profile/registry fallbacks here.
         $ext_info_html = self::join_html_blocks([
-            $has_direct_seo_affiliate_cta ? '' : $guaranteed_outbound,
+            $guaranteed_outbound,
             $curated_external,
         ]);
 
@@ -2462,36 +2445,7 @@ class TemplateContent {
         }
 
         $anchor_text = 'Watch ' . $name . ' on ' . $label;
-        return '<p><a href="' . esc_url($url) . '" target="_blank" rel="' . self::confirmed_outbound_cta_rel($url) . '">' . esc_html($anchor_text) . '</a></p>';
-    }
-
-    /**
-     * Render the single direct external generated-body affiliate CTA.
-     *
-     * @param array<int,array{platform:string,label:string,url:string}> $targets
-     */
-    private static function render_direct_seo_affiliate_watch_cta_from_targets(array $targets, string $name): string {
-        foreach ($targets as $target) {
-            $url   = trim((string) ($target['url'] ?? ''));
-            $label = trim((string) ($target['label'] ?? ''));
-            if ($url === '' || $label === '') {
-                continue;
-            }
-
-            $anchor_text = 'Watch Live on ' . $label;
-            return '<p><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">' . esc_html($anchor_text) . '</a></p>';
-        }
-
-        return '';
-    }
-
-    private static function confirmed_outbound_cta_rel(string $url): string {
-        $host = strtolower((string) wp_parse_url($url, PHP_URL_HOST));
-        if ($host === 'ctwmsg.com' || str_ends_with($host, '.ctwmsg.com')) {
-            return 'sponsored noopener';
-        }
-
-        return 'nofollow sponsored noopener';
+        return '<p><a href="' . esc_url($url) . '" target="_blank" rel="nofollow sponsored noopener">' . esc_html($anchor_text) . '</a></p>';
     }
 
     /**
