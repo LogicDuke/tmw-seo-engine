@@ -569,6 +569,7 @@ class ModelContentGenerationFacade {
     private static function resolve_verified_link_href( array $link ): string {
         $url  = trim( (string) ( $link['url'] ?? '' ) );
         $type = sanitize_key( (string) ( $link['type'] ?? '' ) );
+        $type = in_array( $type, [ 'livejasmin', 'jasmin' ], true ) ? 'livejasmin' : $type;
 
         if ( $type === 'livejasmin' ) {
             $username = self::extract_platform_username( 'livejasmin', $url );

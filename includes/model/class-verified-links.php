@@ -1399,8 +1399,13 @@ class VerifiedLinks {
             return '';
         }
 
+        $use_affiliate     = ! empty( $link['use_affiliate'] );
+        $affiliate_network = sanitize_key( (string) ( $link['affiliate_network'] ?? '' ) );
+
         $type = sanitize_key( (string) ( $link['type'] ?? '' ) );
-        if ( $type === 'livejasmin'
+        $type = in_array( $type, [ 'livejasmin', 'jasmin' ], true ) ? 'livejasmin' : $type;
+        if ( $use_affiliate
+            && $type === 'livejasmin'
             && class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
             && class_exists( '\TMWSEO\Engine\Platform\PlatformProfiles' )
         ) {
@@ -1434,9 +1439,6 @@ class VerifiedLinks {
                 return $global_routed;
             }
         }
-
-        $use_affiliate     = ! empty( $link['use_affiliate'] );
-        $affiliate_network = sanitize_key( (string) ( $link['affiliate_network'] ?? '' ) );
 
         if ( ! $use_affiliate || $affiliate_network === '' ) {
             return $url;
@@ -1504,7 +1506,15 @@ class VerifiedLinks {
      *
      * @param array<string,mixed> $link
      */
-    private static function shortcode_rel_for_link( array $link ): string {
+    private static function shortcode_rel_for_link( array $link, string $rendered_url = '' ): string {
+        $raw_url       = trim( (string) ( $link['url'] ?? '' ) );
+        $is_commercial = ! empty( $link['use_affiliate'] )
+            || ( $raw_url !== '' && $rendered_url !== '' && $rendered_url !== $raw_url );
+
+        if ( $is_commercial ) {
+            return 'sponsored noopener';
+        }
+
         $family = VerifiedLinksFamilies::family_for( sanitize_key( (string) ( $link['type'] ?? 'other' ) ) );
         if ( in_array( $family, [ VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE ], true ) ) {
             return 'sponsored noopener';
@@ -1562,7 +1572,7 @@ class VerifiedLinks {
                 : self::type_label( $type );
 
             $items .= '<li>'
-                . '<a href="' . esc_url( $url ) . '" rel="' . esc_attr( self::shortcode_rel_for_link( $link ) ) . '" target="_blank">'
+                . '<a href="' . esc_url( $url ) . '" rel="' . esc_attr( self::shortcode_rel_for_link( $link, $url ) ) . '" target="_blank">'
                 . esc_html( $display )
                 . '</a></li>';
         }

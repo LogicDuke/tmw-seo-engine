@@ -110,7 +110,7 @@ class AffiliateLinkBuilder {
             return '';
         }
 
-        $settings = self::get_platform_affiliate_settings( $platform_slug );
+        $settings = self::with_livejasmin_seo_defaults( self::get_platform_affiliate_settings( $platform_slug ) );
         if ( ! self::has_livejasmin_seo_affiliate_config( $settings ) ) {
             return '';
         }
@@ -410,10 +410,6 @@ class AffiliateLinkBuilder {
         $platform = self::canonical_platform_slug($platform);
         $settings = $all[$platform] ?? [];
         $settings = is_array($settings) ? $settings : [];
-
-        if ($platform === 'livejasmin') {
-            return self::with_livejasmin_seo_defaults($settings);
-        }
 
         return $settings;
     }
