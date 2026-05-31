@@ -1,6 +1,7 @@
 <?php
 namespace TMWSEO\Engine\Content;
 
+use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Model\VerifiedLinks;
 use TMWSEO\Engine\Model\VerifiedLinksFamilies;
 use TMWSEO\Engine\Platform\AffiliateLinkBuilder;
@@ -21,10 +22,9 @@ class ModelDestinationResolver {
 
     /** @return array<string,mixed> */
     public static function resolve(int $post_id, ?array $platform_links = null, ?array $verified_links = null, ?array $editor_seed = null): array {
-        if ($platform_links === null) {
-            PlatformProfiles::sync_to_table($post_id);
-            $platform_links = PlatformProfiles::get_links($post_id);
-        }
+        // Generated content must not trust legacy platform-profile rows.
+        // Keep the parameter for backward compatibility/tests, but do not load or
+        // sync tmw_platform_profiles from this read-only Generate resolver.
         $platform_links = is_array($platform_links) ? $platform_links : [];
 
         if ($verified_links === null && class_exists(VerifiedLinks::class)) {
@@ -36,7 +36,7 @@ class ModelDestinationResolver {
             $editor_seed = TemplateContent::get_editor_seed_data($post_id);
         }
 
-        $platform_fallback = self::build_platform_watch_fallback_destinations($post_id, $platform_links);
+        self::log_ignored_legacy_platform_evidence($post_id, $platform_links);
 
         $families = [
             'social_destinations' => [],
@@ -102,7 +102,7 @@ class ModelDestinationResolver {
             }
         }
 
-        $watch_cta = self::build_watch_cta_destinations($post_id, $platform_fallback, (array) $families['all_verified_destinations']);
+        $watch_cta = self::build_watch_cta_destinations($post_id, (array) $families['all_verified_destinations']);
         $active_labels = array_values(array_unique(array_filter(array_map(static fn(array $r): string => trim((string)($r['label'] ?? '')), $watch_cta), 'strlen')));
 
         $verified_active = 0;
@@ -132,6 +132,13 @@ class ModelDestinationResolver {
             'seed_confirmed_facts' => array_values(array_slice(array_filter(array_map('strval', (array)($editor_seed['confirmed_facts'] ?? [])), 'strlen'), 0, 6)),
         ];
 
+        if (class_exists(Logs::class)) {
+            Logs::info('content', '[TMW-SEO-GEN] Final generated platform label list', [
+                'post_id' => $post_id,
+                'labels' => $active_labels,
+            ]);
+        }
+
         return array_merge([
             'watch_cta_destinations' => $watch_cta,
             'active_platform_labels' => $active_labels,
@@ -140,7 +147,7 @@ class ModelDestinationResolver {
     }
 
     /** @return array<int,array<string,mixed>> */
-    private static function build_watch_cta_destinations(int $post_id, array $platform_fallback, array $all_verified_destinations): array {
+    private static function build_watch_cta_destinations(int $post_id, array $all_verified_destinations): array {
         $resolved = [];
         $blocked_platforms = [];
         $primary_platform = '';
@@ -158,24 +165,10 @@ class ModelDestinationResolver {
                 continue;
             }
 
-            $username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
-            if ($username === '') {
-                $username = PlatformProfiles::extract_username_from_profile_url($platform, (string)($entry['url'] ?? ''));
-            }
+            $username = PlatformProfiles::extract_username_from_profile_url($platform, (string)($entry['url'] ?? ''));
 
-            $fallback_go = '';
-            foreach ($platform_fallback as $row) {
-                if (sanitize_key((string)($row['platform'] ?? '')) === $platform) {
-                    $fallback_go = trim((string)($row['go_url'] ?? ''));
-                    if ($username === '') {
-                        $username = trim((string)($row['username'] ?? ''));
-                    }
-                    break;
-                }
-            }
-
-            $go = $fallback_go;
-            if ($go === '' && $username !== '') {
+            $go = '';
+            if ($username !== '') {
                 $go = AffiliateLinkBuilder::go_url($platform, $username);
             }
             if ($go === '') {
@@ -195,6 +188,14 @@ class ModelDestinationResolver {
                 ? AffiliateLinkBuilder::build_seo_content_affiliate_url($platform, $username)
                 : '';
 
+            if (class_exists(Logs::class)) {
+                Logs::info('links', '[TMW-SEO-LINKS] Destination source is verified external links', [
+                    'post_id' => $post_id,
+                    'platform' => $platform,
+                    'activity_level' => (string)($entry['activity_level'] ?? ''),
+                ]);
+            }
+
             $resolved[$platform] = [
                 'platform' => $platform,
                 'label' => $label,
@@ -205,14 +206,6 @@ class ModelDestinationResolver {
                 'verified_url' => (string)($entry['url'] ?? ''),
                 'seo_affiliate_url' => $seo_affiliate_url,
             ];
-        }
-
-        foreach ($platform_fallback as $row) {
-            $platform = sanitize_key((string)($row['platform'] ?? ''));
-            if ($platform === '' || isset($resolved[$platform]) || isset($blocked_platforms[$platform])) {
-                continue;
-            }
-            $resolved[$platform] = $row;
         }
 
         $out = array_values($resolved);
@@ -227,78 +220,34 @@ class ModelDestinationResolver {
         return $out;
     }
 
-    /** @return array<int,array<string,mixed>> */
-    private static function build_platform_watch_fallback_destinations(int $post_id, array $platform_links): array {
-        $out = [];
-        $seen = [];
-
+    /** @param array<int,array<string,mixed>> $platform_links */
+    private static function log_ignored_legacy_platform_evidence(int $post_id, array $platform_links): void {
+        $ignored = [];
         foreach ($platform_links as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
             $platform = sanitize_key((string)($row['platform'] ?? ''));
-            if ($platform === '' || isset($seen[$platform])) {
-                continue;
-            }
-            $group = (string)(PlatformRegistry::get($platform)['group'] ?? '');
-            if ($group !== 'cam') {
-                continue;
-            }
-            $username = trim((string)get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
-            if ($username === '') {
-                $username = trim((string)($row['username'] ?? ''));
-            }
-            if ($username === '') {
-                continue;
-            }
-            $go = trim((string)($row['go_url'] ?? ''));
-            if ($go === '') {
-                $go = AffiliateLinkBuilder::go_url($platform, $username);
-            }
-            if ($go === '') {
-                $go = trim((string)($row['url'] ?? ''));
-            }
-            if ($go === '') {
-                continue;
-            }
-            $label = (string)(PlatformRegistry::get($platform)['name'] ?? ucfirst($platform));
-            $seo_affiliate_url = AffiliateLinkBuilder::build_seo_content_affiliate_url($platform, $username);
-            $out[] = [
-                'platform' => $platform,
-                'label' => $label,
-                'go_url' => $go,
-                'seo_affiliate_url' => $seo_affiliate_url,
-                'is_primary' => !empty($row['is_primary']),
-                'username' => $username,
-                'source' => 'platform_profiles',
-            ];
-            $seen[$platform] = true;
-        }
-
-        if (empty($out)) {
-            $meta_first = true;
-            foreach (self::KNOWN_PLATFORM_SLUGS as $platform) {
-                if (isset($seen[$platform])) { continue; }
-                $meta_username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
-                if ($meta_username === '') { continue; }
-                $group = (string)(PlatformRegistry::get($platform)['group'] ?? '');
-                if ($group !== 'cam') { continue; }
-                $go = AffiliateLinkBuilder::go_url($platform, $meta_username);
-                if ($go === '') { continue; }
-                $label = (string)(PlatformRegistry::get($platform)['name'] ?? ucfirst($platform));
-                $seo_affiliate_url = AffiliateLinkBuilder::build_seo_content_affiliate_url($platform, $meta_username);
-                $out[] = [
-                    'platform' => $platform,
-                    'label' => $label,
-                    'go_url' => $go,
-                    'seo_affiliate_url' => $seo_affiliate_url,
-                    'is_primary' => $meta_first,
-                    'username' => $meta_username,
-                    'source' => 'platform_profiles_meta',
-                ];
-                $meta_first = false;
-                $seen[$platform] = true;
+            if ($platform !== '') {
+                $ignored[$platform] = true;
             }
         }
 
-        return $out;
+        foreach (self::KNOWN_PLATFORM_SLUGS as $platform) {
+            $legacy_username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
+            $legacy_url = trim((string) get_post_meta($post_id, '_tmwseo_platform_' . $platform, true));
+            if ($legacy_username !== '' || $legacy_url !== '') {
+                $ignored[$platform] = true;
+            }
+        }
+
+        if (!empty($ignored) && class_exists(Logs::class)) {
+            Logs::info('platform', '[TMW-SEO-PLATFORM] Ignored legacy username evidence for generated content', [
+                'post_id' => $post_id,
+                'platforms' => array_values(array_keys($ignored)),
+                'trusted_source' => '_tmwseo_verified_external_links',
+            ]);
+        }
     }
 
     /** @return array<string,string> */

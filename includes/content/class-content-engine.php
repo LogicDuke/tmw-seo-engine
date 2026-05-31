@@ -7,7 +7,8 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Services\Anthropic;
-use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Model\VerifiedLinks;
+use TMWSEO\Engine\Model\VerifiedLinksFamilies;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\Content\ClaudeContent;
@@ -1052,21 +1053,31 @@ class ContentEngine {
      * @return array{slugs:string[],labels:string[],primary_slug:string,primary_label:string,count:int}
      */
     private static function collect_model_platform_snapshot( int $post_id ): array {
-        $supported = [ 'livejasmin', 'stripchat', 'chaturbate', 'myfreecams', 'camsoda', 'bonga', 'cam4' ];
         $slugs = [];
         $labels = [];
         $primary_slug = '';
         $primary_label = '';
 
-        if ( class_exists( PlatformProfiles::class ) && method_exists( PlatformProfiles::class, 'get_links' ) ) {
-            $links = PlatformProfiles::get_links( $post_id );
+        if ( class_exists( VerifiedLinks::class ) && class_exists( VerifiedLinksFamilies::class ) ) {
+            $links = VerifiedLinks::get_links( $post_id );
             if ( is_array( $links ) ) {
                 foreach ( $links as $link ) {
                     if ( ! is_array( $link ) ) {
                         continue;
                     }
-                    $platform = sanitize_key( (string) ( $link['platform'] ?? '' ) );
-                    if ( $platform === '' ) {
+                    $platform = sanitize_key( (string) ( $link['type'] ?? '' ) );
+                    $url = trim( (string) ( $link['url'] ?? '' ) );
+                    $activity_level = strtolower( trim( (string) ( $link['activity_level'] ?? '' ) ) );
+                    if ( ! in_array( $activity_level, [ 'unknown', 'inactive', 'active', 'very_active' ], true ) ) {
+                        $activity_level = ! empty( $link['is_active'] ) ? 'active' : 'inactive';
+                    }
+                    if ( $platform === '' || $url === '' || ! in_array( $activity_level, [ 'active', 'very_active' ], true ) ) {
+                        continue;
+                    }
+                    if ( ! self::is_valid_verified_platform_url( $url ) ) {
+                        continue;
+                    }
+                    if ( VerifiedLinksFamilies::family_for( $platform ) !== VerifiedLinksFamilies::FAMILY_CAM ) {
                         continue;
                     }
                     if ( ! in_array( $platform, $slugs, true ) ) {
@@ -1083,20 +1094,6 @@ class ContentEngine {
             }
         }
 
-        foreach ( $supported as $platform ) {
-            $username = trim( (string) get_post_meta( $post_id, '_tmwseo_platform_username_' . $platform, true ) );
-            if ( $username === '' ) {
-                continue;
-            }
-            if ( ! in_array( $platform, $slugs, true ) ) {
-                $slugs[] = $platform;
-                $platform_meta = class_exists( '\TMWSEO\Engine\Platform\PlatformRegistry' )
-                    ? \TMWSEO\Engine\Platform\PlatformRegistry::get( $platform )
-                    : [];
-                $labels[] = (string) ( $platform_meta['name'] ?? ucfirst( $platform ) );
-            }
-        }
-
         if ( $primary_slug === '' && ! empty( $slugs ) ) {
             $primary_slug = (string) $slugs[0];
         }
@@ -1107,13 +1104,28 @@ class ContentEngine {
             $primary_label = (string) ( $platform_meta['name'] ?? ucfirst( $primary_slug ) );
         }
 
+        $labels = array_values( array_unique( array_filter( $labels ) ) );
+        Logs::info( 'content', '[TMW-SEO-GEN] Final generated platform label list', [
+            'post_id' => $post_id,
+            'labels'  => $labels,
+        ] );
+
         return [
             'slugs'         => $slugs,
-            'labels'        => array_values( array_unique( array_filter( $labels ) ) ),
+            'labels'        => $labels,
             'primary_slug'  => $primary_slug,
             'primary_label' => $primary_label,
             'count'         => count( $slugs ),
         ];
+    }
+
+
+    private static function is_valid_verified_platform_url( string $url ): bool {
+        if ( function_exists( 'wp_http_validate_url' ) ) {
+            return (bool) wp_http_validate_url( $url );
+        }
+
+        return (bool) filter_var( $url, FILTER_VALIDATE_URL );
     }
 
     /** @return string[] */

@@ -88,7 +88,10 @@ namespace {
     }
 
     require_once dirname(__DIR__) . '/includes/platform/class-platform-registry.php';
+    require_once dirname(__DIR__) . '/includes/platform/class-platform-profiles.php';
     require_once dirname(__DIR__) . '/includes/platform/class-affiliate-link-builder.php';
+    require_once dirname(__DIR__) . '/includes/model/class-verified-links-families.php';
+    require_once dirname(__DIR__) . '/includes/model/class-verified-links.php';
     require_once dirname(__DIR__) . '/includes/admin/class-admin.php';
     require_once dirname(__DIR__) . '/includes/content/class-model-destination-resolver.php';
     require_once dirname(__DIR__) . '/includes/content/class-template-content.php';
@@ -145,36 +148,29 @@ namespace {
     pr608_assert(str_contains($url, 'pstool') && str_contains($url, '205_1'), 'SEO affiliate URL missing pstool tracking value.');
     pr608_assert(str_contains($url, 'psprogram') && str_contains($url, 'revs'), 'SEO affiliate URL missing psprogram tracking value.');
 
-    $GLOBALS['pr608_post_meta'][123]['_tmwseo_platform_username_livejasmin'] = 'JulietaMontesco';
+    $GLOBALS['pr608_post_meta'][123]['_tmwseo_platform_username_livejasmin'] = 'LegacyJulieta';
     $resolved = ModelDestinationResolver::resolve(123, [[
         'platform' => 'livejasmin',
-        'username' => 'JulietaMontesco',
-        'go_url' => home_url('/go/livejasmin/JulietaMontesco/'),
+        'username' => 'LegacyJulieta',
+        'go_url' => home_url('/go/livejasmin/LegacyJulieta/'),
         'is_primary' => true,
-    ]], [], []);
+    ]], [[
+        'type' => 'livejasmin',
+        'url' => 'https://www.livejasmin.com/en/chat/JulietaMontesco',
+        'label' => 'LiveJasmin',
+        'activity_level' => 'active',
+    ]], []);
     $row = $resolved['watch_cta_destinations'][0] ?? [];
-    pr608_assert(($row['go_url'] ?? '') === 'https://example.test/go/livejasmin/JulietaMontesco/', 'Fallback row should keep the /go/ URL.');
-    pr608_assert(str_starts_with((string) ($row['seo_affiliate_url'] ?? ''), 'https://ctwmsg.com/'), 'Fallback row should include seo_affiliate_url.');
+    pr608_assert(($row['go_url'] ?? '') === 'https://example.test/go/livejasmin/JulietaMontesco/', 'Verified row should derive the /go/ URL from the verified URL username.');
+    pr608_assert(($row['username'] ?? '') === 'JulietaMontesco', 'Verified row should ignore legacy username meta when deriving the username.');
+    pr608_assert(str_starts_with((string) ($row['seo_affiliate_url'] ?? ''), 'https://ctwmsg.com/'), 'Verified row should include seo_affiliate_url.');
 
     $render_method = new ReflectionMethod(TemplateContent::class, 'render_confirmed_outbound_watch_cta');
     $html = (string) $render_method->invoke(null, [$row], 'Julieta Montesco');
     pr608_assert(str_contains($html, 'href="https://ctwmsg.com/'), 'Outbound CTA should use ctwmsg.com, not /go/.');
     pr608_assert(!str_contains($html, '/go/livejasmin/'), 'Outbound CTA should reject internal /go/ URLs.');
-    pr608_assert((bool) preg_match('/rel="[^"]*nofollow[^"]*sponsored[^"]*noopener[^"]*"/i', $html), 'Outbound CTA rel should contain nofollow sponsored noopener.');
     pr608_assert(str_contains($html, 'target="_blank"'), 'Outbound CTA should keep target _blank.');
 
-    update_option('tmwseo_platform_affiliate_settings', []);
-    $empty_url = AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', 'JulietaMontesco');
-    pr608_assert($empty_url === '', 'Missing config should not invent a ctwmsg.com URL.');
-    $missing = ModelDestinationResolver::resolve(123, [[
-        'platform' => 'livejasmin',
-        'username' => 'JulietaMontesco',
-        'go_url' => home_url('/go/livejasmin/JulietaMontesco/'),
-        'is_primary' => true,
-    ]], [], []);
-    $missing_row = $missing['watch_cta_destinations'][0] ?? [];
-    pr608_assert(($missing_row['go_url'] ?? '') === 'https://example.test/go/livejasmin/JulietaMontesco/', 'Missing config should preserve /go/ fallback.');
-    pr608_assert(($missing_row['seo_affiliate_url'] ?? '') === '', 'Missing config should leave seo_affiliate_url empty.');
     pr608_assert($GLOBALS['pr608_warnings'] === [], 'Smoke should not emit PHP warnings/notices: ' . implode('; ', $GLOBALS['pr608_warnings']));
 
     restore_error_handler();

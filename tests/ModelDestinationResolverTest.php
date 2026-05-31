@@ -146,12 +146,13 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertSame('', \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', 'Anisyia'));
     }
 
-    public function test_resolver_separates_watch_from_social_and_link_hubs(): void {
+    public function test_resolver_uses_verified_cam_links_not_legacy_platform_rows_for_watch_ctas(): void {
         $platform_links = [
-            ['platform' => 'chaturbate', 'username' => 'alice', 'go_url' => 'https://example.test/go/chaturbate/alice', 'is_primary' => 1],
+            ['platform' => 'chaturbate', 'username' => 'legacyalice', 'go_url' => 'https://example.test/go/chaturbate/legacyalice', 'is_primary' => 1],
             ['platform' => 'fansly', 'username' => 'alicevip', 'go_url' => 'https://example.test/go/fansly/alicevip', 'is_primary' => 0],
         ];
         $verified = [
+            ['type' => 'chaturbate', 'url' => 'https://chaturbate.com/aliceofficial', 'label' => 'Chaturbate Official', 'is_active' => true],
             ['type' => 'instagram', 'url' => 'https://instagram.com/alice', 'label' => 'Instagram', 'is_active' => true],
             ['type' => 'linktree', 'url' => 'https://linktr.ee/alice', 'label' => 'Linktree', 'is_active' => true],
             ['type' => 'personal_site', 'url' => 'https://alice.example', 'label' => 'Official Site', 'is_active' => true],
@@ -162,10 +163,52 @@ class ModelDestinationResolverTest extends TestCase {
         $this->assertCount(1, $resolved['watch_cta_destinations']);
         $watchPlatforms = array_map(static fn(array $r): string => (string)($r['platform'] ?? ''), $resolved['watch_cta_destinations']);
         $this->assertSame(['chaturbate'], $watchPlatforms);
+        $this->assertSame('aliceofficial', $resolved['watch_cta_destinations'][0]['username'] ?? '');
         $this->assertSame(['Chaturbate'], $resolved['active_platform_labels']);
         $this->assertCount(1, $resolved['social_destinations']);
         $this->assertCount(1, $resolved['link_hub_destinations']);
         $this->assertCount(1, $resolved['personal_site_destinations']);
+    }
+
+
+    public function test_legacy_camsoda_platform_username_without_verified_link_is_not_watch_cta(): void {
+        $resolved = ModelDestinationResolver::resolve(620, [
+            ['platform' => 'camsoda', 'username' => 'abbymurray', 'go_url' => 'https://example.test/go/camsoda/abbymurray', 'is_primary' => 1],
+        ], [], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertSame([], $resolved['active_platform_labels']);
+    }
+
+    public function test_legacy_camsoda_platform_row_from_legacy_url_does_not_rehydrate_generate_cta(): void {
+        $resolved = ModelDestinationResolver::resolve(621, [
+            ['platform' => 'camsoda', 'profile_url' => 'https://www.camsoda.com/abbymurray', 'go_url' => '', 'is_primary' => 1],
+        ], [], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(0, $resolved['watch_cta_destinations']);
+        $this->assertSame(0, (int) ($resolved['source_of_truth_summary']['watch_cta_count'] ?? -1));
+    }
+
+    public function test_active_verified_camsoda_link_may_become_watch_cta(): void {
+        $resolved = ModelDestinationResolver::resolve(622, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/officialabby', 'label' => 'CamSoda', 'activity_level' => 'active'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(1, $resolved['watch_cta_destinations']);
+        $this->assertSame('camsoda', $resolved['watch_cta_destinations'][0]['platform'] ?? '');
+        $this->assertSame('officialabby', $resolved['watch_cta_destinations'][0]['username'] ?? '');
+    }
+
+    public function test_inactive_or_unknown_verified_camsoda_link_is_not_watch_cta(): void {
+        $inactive = ModelDestinationResolver::resolve(623, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/officialabby', 'label' => 'CamSoda', 'activity_level' => 'inactive'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+        $unknown = ModelDestinationResolver::resolve(624, [], [
+            ['type' => 'camsoda', 'url' => 'https://www.camsoda.com/officialabby', 'label' => 'CamSoda', 'activity_level' => 'unknown'],
+        ], ['summary' => '', 'platform_notes' => [], 'confirmed_facts' => []]);
+
+        $this->assertCount(0, $inactive['watch_cta_destinations']);
+        $this->assertCount(0, $unknown['watch_cta_destinations']);
     }
 
     public function test_inactive_verified_links_survive_all_verified_destinations(): void {
