@@ -907,7 +907,10 @@ class TemplateContent {
         if (preg_match('/\b(and|or|with|for|the|a|an)\b(?:\s+\1){1,}/iu', $phrase)) {
             return false;
         }
-        if (preg_match('/\b(?:free|cheap|best|top|ultimate|instant|no\s+1|guaranteed|xxx|porn|sex)\b/iu', $phrase_lower)) {
+        // PR-615: 'porn' removed from heading-safe ban list. Platform-intent phrases like
+        // "anisyia livejasmin porn" are approved SEO keywords for this adult cam directory.
+        // xxx and sex remain blocked as non-specific spam terms.
+        if (preg_match('/\b(?:free|cheap|best|top|ultimate|instant|no\s+1|guaranteed|xxx|sex)\b/iu', $phrase_lower)) {
             return false;
         }
         if ($name_lower !== '' && preg_match('/\b' . preg_quote($name_lower, '/') . '\b/u', $phrase_lower)) {
@@ -1329,7 +1332,8 @@ class TemplateContent {
             $too_short      = ($word_count_kw !== false && $word_count_kw < 2);
             $too_long       = (mb_strlen($kw, 'UTF-8') > 72);
             $has_punct      = (bool) preg_match('/[,;:|\/]/', $kw);
-            $has_banned     = (bool) preg_match('/\b(xxx|porn|sex|free|cheap|instant|guaranteed)\b/iu', $kw);
+            // PR-615: 'porn' removed — platform-intent phrases ("model livejasmin porn") are valid for this site.
+            $has_banned     = (bool) preg_match('/\b(xxx|sex|free|cheap|instant|guaranteed)\b/iu', $kw);
 
             if ($is_name_only || $is_name_bearing || $too_short || $too_long || $has_punct || $has_banned) {
                 $reason = match(true) {

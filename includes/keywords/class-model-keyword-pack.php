@@ -233,6 +233,16 @@ class ModelKeywordPack {
             );
         }
 
+        // [TMW-SEO-RMKW] PR-615 debug logging — active only when TMWSEO_DEBUG is true.
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
+                'post_id'             => $post->ID,
+                'primary'             => $primary,
+                'rankmath_additional' => $rankmath_chips,
+                'extra_focus_from_db' => $classified_fragment['extra_focus_candidates'] ?? [],
+            ]);
+        }
+
         return [
             'primary'             => $primary,
             'additional'          => $additional,
@@ -830,7 +840,11 @@ class ModelKeywordPack {
             }
         }
 
-        return array_slice(PageTypeKeywordFilter::filter_for_model_page($filtered), 0, 4);
+        // PR-615: Do NOT apply PageTypeKeywordFilter here. Approved classified keywords
+        // (e.g. "anisyia livejasmin porn") are legitimate for LiveJasmin-platform pages
+        // and must not be stripped by the UNSAFE_TERMS filter. finalize_rankmath_additional_keywords
+        // handles deduplication and primary removal without running the unsafe filter.
+        return array_slice($filtered, 0, 4);
     }
 
     private static function platform_keyword_label(string $platform): string {

@@ -75,6 +75,17 @@ class ClassifiedModelKeywordProvider {
             $standalone_allowed = $this->source_bool($sources, 'standalone_allowed');
             $reason = '';
 
+            // PR-615: status='approved' is explicit human sign-off. If keyword_class
+            // metadata is missing, default to safe values rather than sending the keyword
+            // to excluded_candidates (which would actively block it from rankmath_additional).
+            if ($keyword_class === '' && (string) ($row['status'] ?? '') === 'approved') {
+                $keyword_class   = ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD;
+                $suggested_usage = $suggested_usage !== ''
+                    ? $suggested_usage
+                    : ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED;
+                $standalone_allowed = $standalone_allowed ?? true;
+            }
+
             if ($keyword === '') {
                 $reason = 'empty_keyword';
             } elseif ($keyword_class === '') {

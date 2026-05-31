@@ -52,8 +52,19 @@ class RankMathMapper {
         // Cap: 1 primary + 4 extras = 5 total max.
         $focus_list = array_slice( $focus_list, 0, 1 + self::RANK_MATH_EXTRA_CAP );
 
+        $focus_csv = implode( ',', $focus_list );
         if ( ! empty( $focus_list ) ) {
-            update_post_meta( $post_id, 'rank_math_focus_keyword', implode( ',', $focus_list ) );
+            update_post_meta( $post_id, 'rank_math_focus_keyword', $focus_csv );
+        }
+
+        // [TMW-SEO-RMKW] PR-615 debug logging — write behavior unchanged.
+        if ( defined( 'TMWSEO_DEBUG' ) && TMWSEO_DEBUG ) {
+            \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-SEO-RMKW] RankMathMapper::sync_to_rank_math wrote', [
+                'post_id'   => $post_id,
+                'primary'   => $primary,
+                'extras'    => $extras,
+                'focus_csv' => $focus_csv,
+            ] );
         }
 
         // Always persist the engine's primary keyword separately.
@@ -111,8 +122,30 @@ class RankMathMapper {
         }
 
         $extras = array_values( array_filter( array_map( 'trim', array_map( 'strval', $additional ) ), 'strlen' ) );
-        if ( $post_id > 0 ) {
+        // PR-615: Do NOT run PageTypeKeywordFilter on rankmath_additional. Keywords in that
+        // field were curated by ModelKeywordPack from approved DB rows (human sign-off) and
+        // must not be stripped by the automated UNSAFE_TERMS filter. PageTypeKeywordFilter
+        // is applied only when falling back to the legacy 'additional' / 'secondary' fields.
+        $source = ! empty( $keyword_pack['rankmath_additional'] ) && is_array( $keyword_pack['rankmath_additional'] )
+            ? 'rankmath_additional'
+            : 'legacy';
+        if ( $post_id > 0 && $source === 'legacy' ) {
             $extras = PageTypeKeywordFilter::filter( $extras, self::page_type_for_post( $post_id ) );
+        }
+
+        // Remove the primary keyword from extras before capping, so a duplicate primary
+        // does not occupy one of the 4 extra slots.
+        $primary_lc = '';
+        if ( $post_id > 0 ) {
+            $primary_lc = function_exists( 'mb_strtolower' )
+                ? mb_strtolower( self::extract_primary( $post_id, $keyword_pack ), 'UTF-8' )
+                : strtolower( self::extract_primary( $post_id, $keyword_pack ) );
+        }
+        if ( $primary_lc !== '' ) {
+            $extras = array_values( array_filter( $extras, static function ( string $e ) use ( $primary_lc ): bool {
+                $e_lc = function_exists( 'mb_strtolower' ) ? mb_strtolower( $e, 'UTF-8' ) : strtolower( $e );
+                return $e_lc !== $primary_lc;
+            } ) );
         }
 
         return array_slice( $extras, 0, self::RANK_MATH_EXTRA_CAP );
