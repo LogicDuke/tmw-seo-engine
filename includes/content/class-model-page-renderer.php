@@ -106,28 +106,21 @@ class ModelPageRenderer {
 
         $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
-        $active_platform_count = count(array_values(array_filter(array_map('strval', (array) ($payload['active_platforms'] ?? [])), 'strlen')));
-        if ($active_platform_count >= 2) {
-            $comparison_heading = 'Live Platform Comparison';
-        } elseif ($active_platform_count === 1) {
-            $comparison_heading = 'Before You Click';
-        } else {
-            $comparison_heading = 'Platform Access Notes';
-        }
+        $comparison_heading = 'Before You Click';
         $comparison_heading = self::append_secondary_heading_phrase($comparison_heading, $secondary_heading_slots['comparison'][0] ?? '');
         $compare = self::render_section(
             $comparison_heading,
             $comparison_paragraphs,
             $name,
             $payload['comparison_section_html'] ?? '',
-            self::build_secondary_subheadings($secondary_heading_slots['comparison'] ?? [], 1, 'Before you click:')
+            self::build_secondary_subheadings($secondary_heading_slots['comparison'] ?? [], 1, 'Profile check for')
         );
         if ($compare !== '') {
             $sections[] = $compare;
         }
 
         $questions = self::render_questions(
-            'Common Questions Before You Click',
+            'Common Profile Questions',
             $payload['questions_section_paragraphs'] ?? [],
             $payload['faq_items'] ?? [],
             $name,
@@ -496,24 +489,38 @@ class ModelPageRenderer {
         $html = str_replace(['use additional the links', 'Use additional the links'], ['use the additional links', 'Use the additional links'], $html);
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
-        $html = self::dedupe_exact_heading_text($html, 'Before You Click', 'Safety Checklist');
+        $html = self::remove_duplicate_heading_text($html, 'Before You Click');
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
         return trim($html);
     }
 
-    private static function dedupe_exact_heading_text(string $content, string $heading, string $replacement): string {
-        $seen = false;
-        return preg_replace_callback(
-            '/<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>/iu',
-            static function (array $m) use (&$seen, $replacement): string {
-                if (!$seen) {
-                    $seen = true;
-                    return $m[0];
-                }
-                return '<h' . $m[1] . $m[2] . '>' . esc_html($replacement) . '</h' . $m[1] . '>';
-            },
-            $content
-        ) ?: $content;
+    private static function remove_duplicate_heading_text(string $content, string $heading): string {
+        $pattern = '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu';
+        if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
+            return $content;
+        }
+
+        $keep_index = 0;
+        foreach ($matches[1] as $index => $level_match) {
+            if ((string) $level_match[0] === '2') {
+                $keep_index = (int) $index;
+                break;
+            }
+        }
+
+        $out = '';
+        $pos = 0;
+        foreach ($matches[0] as $index => $match) {
+            $text = (string) $match[0];
+            $offset = (int) $match[1];
+            $out .= substr($content, $pos, $offset - $pos);
+            if ($index === $keep_index) {
+                $out .= $text;
+            }
+            $pos = $offset + strlen($text);
+        }
+
+        return $out . substr($content, $pos);
     }
 
     private static function looks_like_nav_chrome(string $html): bool {

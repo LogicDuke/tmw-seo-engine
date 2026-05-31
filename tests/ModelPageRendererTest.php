@@ -620,13 +620,14 @@ class ModelPageRendererTest extends TestCase {
         $this->assertSame([
             'anisyia livejasmin',
             'livejasmin anisyia',
-            'anisyia private live chat',
-            'anisyia camsoda',
+            'anisyia live',
+            'anisyia livejasmin porn',
         ], $chips);
     }
 
     public function test_cleanup_removes_duplicate_headings_and_bad_artifacts(): void {
         $payload = self::base_payload();
+        $payload['watch_section_html'] = '<h3>Before You Click</h3><p><a href="/go/livejasmin/anisyia" rel="sponsored noopener">Watch Live on LiveJasmin</a></p>';
         $payload['comparison_section_paragraphs'] = ['Before joining, compare current room status.'];
         $payload['comparison_section_html'] = '<h2>Before You Click</h2><p>Use additional the links below only for follow-up checks.</p>';
         $payload['official_links_section_paragraphs'] = ['Official links are listed below.'];
@@ -634,8 +635,10 @@ class ModelPageRendererTest extends TestCase {
 
         $html = self::render($payload);
 
+        $this->assertSame(1, preg_match_all('/Before You Click/i', $html));
         $this->assertSame(1, preg_match_all('/<h2[^>]*>\s*Before You Click\s*<\/h2>/i', $html));
-        $this->assertStringContainsString('Safety Checklist', $html);
+        $this->assertSame(0, preg_match_all('/<h3[^>]*>\s*Before You Click\s*<\/h3>/i', $html));
+        $this->assertStringNotContainsString('Safety Checklist', $html);
         $this->assertStringNotContainsString('use additional the links', $html);
         $this->assertStringNotContainsString('Official Links and Profiles and LiveJasmin profile', $html);
     }
@@ -646,13 +649,14 @@ class ModelPageRendererTest extends TestCase {
         $html = $method->invoke(null, [
             'anisyia livejasmin',
             'livejasmin anisyia',
-            'anisyia private live chat',
-            'anisyia camsoda',
+            'anisyia live',
+            'anisyia livejasmin porn',
         ], 'Anisyia');
 
         $this->assertSame(1, preg_match_all('/<p\b/i', $html));
-        $this->assertStringContainsString('Fans searching for anisyia livejasmin, livejasmin anisyia, anisyia private live chat or anisyia camsoda', $html);
+        $this->assertStringContainsString('Fans searching for anisyia livejasmin, livejasmin anisyia, anisyia live, or anisyia livejasmin porn should start with the confirmed live room for Anisyia.', $html);
         $this->assertStringNotContainsString('confirm handle consistency', $html);
+        $this->assertStringNotContainsString('anisyia private live chat', $html);
     }
 
     public function test_cam_platform_profiles_show_primary_livejasmin_and_secondary_camsoda(): void {
@@ -678,9 +682,12 @@ class ModelPageRendererTest extends TestCase {
         ]);
 
         $this->assertStringContainsString('Cam platform profiles', $html);
-        $this->assertStringContainsString('LiveJasmin — primary confirmed live profile', $html);
+        $this->assertMatchesRegularExpression('/<a[^>]+href="https:\/\/ctwmsg\.com[^"]*performerName=anisyia[^"]*"[^>]*rel="sponsored noopener external"[^>]*>Visit Profile on LiveJasmin<\/a>/i', $html);
+        $this->assertStringNotContainsString('LiveJasmin — primary confirmed live profile', $html);
         $this->assertStringContainsString('Visit Profile on CamSoda', $html);
         $this->assertStringContainsString('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=anisyia', $html);
+        $this->assertStringContainsString('ctwmsg.com', $html);
+        $this->assertStringNotContainsString('nofollow', $html);
     }
 
 }
