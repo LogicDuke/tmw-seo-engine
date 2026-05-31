@@ -46,11 +46,38 @@ namespace {
     if (!function_exists('filter_var')) { throw new RuntimeException('filter_var unavailable.'); }
     if (!function_exists('add_query_arg')) {
         function add_query_arg(array $params, string $url): string {
-            $query = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+            $fragment = '';
+            $hash_pos = strpos($url, '#');
+            if ($hash_pos !== false) {
+                $fragment = substr($url, $hash_pos);
+                $url = substr($url, 0, $hash_pos);
+            }
+
+            $base = $url;
+            $existing_query = '';
+            $query_pos = strpos($url, '?');
+            if ($query_pos !== false) {
+                $base = substr($url, 0, $query_pos);
+                $existing_query = substr($url, $query_pos + 1);
+            }
+
+            $existing_params = [];
+            if ($existing_query !== '') {
+                parse_str($existing_query, $existing_params);
+            }
+
+            $query = http_build_query(array_merge($existing_params, $params), '', '&', PHP_QUERY_RFC3986);
             $query = str_replace(['%5B', '%5D'], ['[', ']'], $query);
-            return rtrim($url, '?') . '?' . $query;
+
+            return $base . ($query !== '' ? '?' . $query : '') . $fragment;
         }
     }
+    $add_query_arg_probe = add_query_arg(['b' => '2'], 'https://example.com/path?a=1#frag');
+    pr608_assert(str_contains($add_query_arg_probe, 'a=1'), 'add_query_arg stub should preserve existing query parameters.');
+    pr608_assert(str_contains($add_query_arg_probe, 'b=2'), 'add_query_arg stub should append new query parameters.');
+    pr608_assert(str_contains($add_query_arg_probe, '#frag'), 'add_query_arg stub should preserve URL fragments.');
+    pr608_assert(substr_count($add_query_arg_probe, '?') === 1, 'add_query_arg stub should not duplicate question marks.');
+
     if (!function_exists('get_option')) { function get_option(string $name, $default = false) { return $GLOBALS['pr608_options'][$name] ?? $default; } }
     if (!function_exists('update_option')) { function update_option(string $name, $value): bool { $GLOBALS['pr608_options'][$name] = $value; return true; } }
     if (!function_exists('get_post_meta')) {
