@@ -2464,7 +2464,7 @@ class TemplateContent {
                 $label = 'live cam';
             }
 
-            foreach (['verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
+            foreach (['seo_affiliate_url', 'confirmed_affiliate_url', 'verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
                 $url = trim((string) ($link[$key] ?? ''));
                 if (!self::is_confirmed_external_http_url($url)) {
                     continue;

@@ -746,7 +746,7 @@ class Admin {
         );
 
         register_setting(
-            'tmwseo_settings_group',
+            'tmwseo_platform_affiliate_settings_group',
             'tmwseo_platform_affiliate_settings',
             [
                 'type' => 'array',
@@ -760,7 +760,7 @@ class Admin {
         // This option is what makes generic network keys like 'crack_revenue' actually
         // configurable through the admin UI without polluting the platform table.
         register_setting(
-            'tmwseo_settings_group',
+            'tmwseo_affiliate_networks_group',
             'tmwseo_affiliate_networks',
             [
                 'type'              => 'array',
@@ -770,7 +770,7 @@ class Admin {
         );
 
         register_setting(
-            'tmwseo_settings_group',
+            'tmwseo_crakrevenue_api_settings_group',
             CrakRevenueCamManager::API_SETTINGS_OPTION,
             [
                 'type'              => 'array',
@@ -898,25 +898,41 @@ class Admin {
     }
 
     public static function sanitize_platform_affiliate_settings($input): array {
-        $input = is_array($input) ? $input : [];
         $existing = get_option('tmwseo_platform_affiliate_settings', []);
         $sanitized = is_array($existing) ? $existing : [];
 
+        // options.php posts every registered option in a settings group, even when
+        // a separate form on the same admin page did not include this option. Do
+        // not treat that missing payload as an instruction to wipe affiliate
+        // settings; preserve the existing option instead.
+        if (!is_array($input)) {
+            return $sanitized;
+        }
+
         foreach (self::get_affiliate_admin_platform_rows() as $platform_key => $defaults) {
+            if (!array_key_exists($platform_key, $input)) {
+                continue;
+            }
+
             $row = is_array($input[$platform_key] ?? null) ? $input[$platform_key] : [];
+            $siteid = (string) ($row['siteid'] ?? $row['siteId'] ?? $row['site_id'] ?? (string) ($defaults['siteid'] ?? ''));
+            $categoryname = (string) ($row['categoryname'] ?? $row['categoryName'] ?? $row['category_name'] ?? (string) ($defaults['categoryname'] ?? ''));
+            $pagename = (string) ($row['pagename'] ?? $row['pageName'] ?? $row['page_name'] ?? (string) ($defaults['pagename'] ?? ''));
+            $subaffid = (string) ($row['subaffid'] ?? $row['subAffId'] ?? $row['sub_aff_id'] ?? '');
+
             $sanitized[$platform_key] = [
                 'enabled' => !empty($row['enabled']) ? 1 : 0,
                 'template' => sanitize_textarea_field((string) ($row['template'] ?? '')),
                 'campaign' => sanitize_text_field((string) ($row['campaign'] ?? '')),
                 'source' => sanitize_text_field((string) ($row['source'] ?? '')),
-                'subaffid' => sanitize_text_field((string) ($row['subaffid'] ?? '')),
+                'subaffid' => sanitize_text_field($subaffid),
                 'psid' => sanitize_text_field((string) ($row['psid'] ?? '')),
                 'pstool' => sanitize_text_field((string) ($row['pstool'] ?? '')),
                 'psprogram' => sanitize_text_field((string) ($row['psprogram'] ?? '')),
-                'campaign_id' => sanitize_text_field((string) ($row['campaign_id'] ?? '')),
-                'siteid' => sanitize_text_field((string) ($row['siteid'] ?? (string) ($defaults['siteid'] ?? ''))),
-                'categoryname' => sanitize_text_field((string) ($row['categoryname'] ?? (string) ($defaults['categoryname'] ?? ''))),
-                'pagename' => sanitize_text_field((string) ($row['pagename'] ?? (string) ($defaults['pagename'] ?? ''))),
+                'campaign_id' => sanitize_text_field((string) ($row['campaign_id'] ?? $row['campaignId'] ?? '')),
+                'siteid' => sanitize_text_field($siteid),
+                'categoryname' => sanitize_text_field($categoryname),
+                'pagename' => sanitize_text_field($pagename),
             ];
         }
 
@@ -4944,7 +4960,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
         $networks     = is_array( $networks ) ? $networks : [];
 
         echo '<form method="post" action="options.php">';
-        settings_fields( 'tmwseo_settings_group' );
+        settings_fields( 'tmwseo_affiliate_networks_group' );
 
         echo '<h2>' . esc_html__( 'Affiliate Networks (URL-level routing)', 'tmwseo' ) . '</h2>';
         echo '<p class="description">'
@@ -5045,7 +5061,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
 
         // ── Per-platform affiliate templates ──────────────────────────────────
         echo '<form method="post" action="options.php">';
-        settings_fields('tmwseo_settings_group');
+        settings_fields('tmwseo_platform_affiliate_settings_group');
         echo '<h2>' . esc_html__('Affiliate-Capable Platforms', 'tmwseo') . '</h2>';
         echo '<p class="description">' . esc_html__('Use placeholders only. Do not paste hardcoded usernames into templates.', 'tmwseo') . '</p>';
 
