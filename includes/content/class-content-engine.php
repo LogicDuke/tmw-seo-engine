@@ -1074,6 +1074,9 @@ class ContentEngine {
                     if ( $platform === '' || $url === '' || ! in_array( $activity_level, [ 'active', 'very_active' ], true ) ) {
                         continue;
                     }
+                    if ( ! self::is_valid_verified_platform_url( $url ) ) {
+                        continue;
+                    }
                     if ( VerifiedLinksFamilies::family_for( $platform ) !== VerifiedLinksFamilies::FAMILY_CAM ) {
                         continue;
                     }
@@ -1114,6 +1117,15 @@ class ContentEngine {
             'primary_label' => $primary_label,
             'count'         => count( $slugs ),
         ];
+    }
+
+
+    private static function is_valid_verified_platform_url( string $url ): bool {
+        if ( function_exists( 'wp_http_validate_url' ) ) {
+            return (bool) wp_http_validate_url( $url );
+        }
+
+        return (bool) filter_var( $url, FILTER_VALIDATE_URL );
     }
 
     /** @return string[] */

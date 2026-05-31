@@ -235,7 +235,8 @@ class ModelDestinationResolver {
 
         foreach (self::KNOWN_PLATFORM_SLUGS as $platform) {
             $legacy_username = trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
-            if ($legacy_username !== '') {
+            $legacy_url = trim((string) get_post_meta($post_id, '_tmwseo_platform_' . $platform, true));
+            if ($legacy_username !== '' || $legacy_url !== '') {
                 $ignored[$platform] = true;
             }
         }
