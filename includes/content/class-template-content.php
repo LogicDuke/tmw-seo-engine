@@ -163,8 +163,11 @@ class TemplateContent {
                 'If you are deciding where to watch, open your familiar platform first, then check the second active room.',
             ];
         $second_intro = $second_intro_pool[self::stable_pick_index($seed . '|intro2', count($second_intro_pool))];
-        if (!empty($secondary_visible_phrases[0])) {
-            $second_intro .= ' Visitors looking for ' . $secondary_visible_phrases[0] . ' can use this guide to start with the confirmed room and compare listed profiles quickly.';
+        if (!empty($secondary_visible_phrases)) {
+            $secondary_intro = self::build_secondary_keyword_intro_sentence($name, $secondary_visible_phrases);
+            if ($secondary_intro !== '') {
+                $second_intro .= ' ' . $secondary_intro;
+            }
         }
 
         if (!$has_extra_link_evidence) {
@@ -174,7 +177,7 @@ class TemplateContent {
             ];
         } else {
             $watch_para_pool = [
-                'Open the confirmed live profile below. Additional verified destinations are separated from live-room access.',
+                'Open the confirmed live profile below. The additional links below are separated from live-room access.',
                 'Choose a live platform below first. Use any additional verified destinations only for follow-up checks.',
                 'Open a live profile first, then use verified non-live destinations if you need backups or updates.',
             ];
@@ -1594,7 +1597,11 @@ class TemplateContent {
             $seen[$url_key] = true;
             $type = sanitize_key((string)($entry['type'] ?? 'other'));
             $family = VerifiedLinksFamilies::family_for($type);
-            if ($family === VerifiedLinksFamilies::FAMILY_CAM && isset($exclude_urls[$url_key])) { continue; }
+            $frontend_url = self::get_frontend_verified_link_href($entry);
+            $frontend_key = strtolower(rtrim($frontend_url, '/'));
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM && (isset($exclude_urls[$url_key]) || ($frontend_key !== '' && isset($exclude_urls[$frontend_key])))) { continue; }
+            if ($frontend_key !== '' && isset($seen['href:' . $frontend_key])) { continue; }
+            if ($frontend_key !== '') { $seen['href:' . $frontend_key] = true; }
             $label = trim((string)($entry['label'] ?? ''));
             if ($label === '') { $label = (string) ($type_labels[$type] ?? ucfirst(str_replace('_', ' ', $type))); }
             $activity_note = trim((string)($entry['activity_note'] ?? ''));
@@ -1603,7 +1610,7 @@ class TemplateContent {
             }
             $grouped[$family][] = [
                 'label' => $label,
-                'url' => self::get_frontend_verified_link_href($entry),
+                'url' => $frontend_url !== '' ? $frontend_url : $clean_url,
                 'family' => $family,
                 'activity_level' => sanitize_key((string) ($entry['activity_level'] ?? 'unknown')),
             ];
@@ -2152,7 +2159,68 @@ class TemplateContent {
             return '';
         }
 
-        return '';
+        $phrases = self::normalize_visible_secondary_keywords($keywords, $name, 4);
+        if (empty($phrases)) {
+            return '';
+        }
+
+        $sentence = self::build_secondary_keyword_intro_sentence($name, $phrases);
+        return $sentence !== '' ? '<p>' . esc_html($sentence) . '</p>' : '';
+    }
+
+    /**
+     * @param string[] $phrases
+     * @return string[]
+     */
+    private static function normalize_visible_secondary_keywords(array $phrases, string $name, int $limit = 4): array {
+        $name_lc = mb_strtolower(trim($name), 'UTF-8');
+        $out = [];
+        $seen = [];
+        foreach ($phrases as $phrase) {
+            $clean = trim((string) $phrase);
+            $clean = (string) preg_replace('/\s+/u', ' ', $clean);
+            if ($clean === '') {
+                continue;
+            }
+            $key = mb_strtolower($clean, 'UTF-8');
+            if ($key === $name_lc || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $clean;
+            if (count($out) >= $limit) {
+                break;
+            }
+        }
+        return $out;
+    }
+
+    /** @param string[] $phrases */
+    private static function build_secondary_keyword_intro_sentence(string $name, array $phrases): string {
+        $phrases = self::normalize_visible_secondary_keywords($phrases, $name, 4);
+        if (empty($phrases)) {
+            return '';
+        }
+
+        $keyword_list = self::format_human_list($phrases);
+        return 'Fans searching for ' . $keyword_list . ' should start from the confirmed live room for ' . $name . ' and then use the verified profile links below for updates, fan pages, and support channels.';
+    }
+
+    /** @param string[] $items */
+    private static function format_human_list(array $items): string {
+        $items = array_values(array_filter(array_map('trim', $items), 'strlen'));
+        $count = count($items);
+        if ($count === 0) {
+            return '';
+        }
+        if ($count === 1) {
+            return $items[0];
+        }
+        if ($count === 2) {
+            return $items[0] . ' or ' . $items[1];
+        }
+        $last = array_pop($items);
+        return implode(', ', $items) . ', or ' . $last;
     }
 
     /**
@@ -2566,6 +2634,8 @@ class TemplateContent {
     }
 
     private static function render_primary_watch_cta(array $links, string $name): string {
+        $confirmed = self::pick_confirmed_outbound_watch_target($links);
+        $confirmed_url = strtolower(rtrim((string) ($confirmed['url'] ?? ''), '/'));
         foreach ($links as $link) {
             if (empty($link['is_primary'])) {
                 continue;
@@ -2573,6 +2643,10 @@ class TemplateContent {
 
             $go_url = self::generated_watch_href($link);
             if ($go_url === '') {
+                continue;
+            }
+
+            if ($confirmed_url !== '' && strtolower(rtrim($go_url, '/')) === $confirmed_url) {
                 continue;
             }
 
@@ -2882,7 +2956,7 @@ class TemplateContent {
             return [];
         }
 
-        $priority = ['livejasmin' => 0, 'stripchat' => 1];
+        $priority = ['camsoda' => 0, 'livejasmin' => 1, 'stripchat' => 2];
         usort($links, static function (array $a, array $b) use ($priority): int {
             $ap = sanitize_key((string) ($a['platform'] ?? ''));
             $bp = sanitize_key((string) ($b['platform'] ?? ''));
@@ -2901,6 +2975,9 @@ class TemplateContent {
             $username = trim((string) ($link['username'] ?? ''));
             $label    = trim((string) ($link['label'] ?? ''));
             if ($platform === '' || $username === '' || $label === '' || isset($seen[$platform])) {
+                continue;
+            }
+            if ($platform === 'livejasmin') {
                 continue;
             }
 
@@ -2964,7 +3041,13 @@ class TemplateContent {
             if ($url === '' || $label === '') {
                 continue;
             }
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">' . esc_html($label . ' profile') . '</a></li>';
+            $platform = sanitize_key((string) ($target['platform'] ?? ''));
+            if ($platform === 'livejasmin') {
+                $anchor = $label . ' official profile';
+            } else {
+                $anchor = $label . ' profile';
+            }
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">' . esc_html($anchor) . '</a></li>';
         }
         if (empty($items)) {
             return '';
@@ -3304,7 +3387,24 @@ class TemplateContent {
 <p>" . esc_html('For quick comparison, ' . $focus_keyword . ' is listed with active profiles so you can choose a platform without guesswork.') . '</p>';
         }
 
+        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+
         return $content;
+    }
+
+    private static function dedupe_exact_heading_text(string $content, string $heading, string $replacement): string {
+        $seen = false;
+        return preg_replace_callback(
+            '/<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>/iu',
+            static function (array $m) use (&$seen, $replacement): string {
+                if (!$seen) {
+                    $seen = true;
+                    return $m[0];
+                }
+                return '<h' . $m[1] . $m[2] . '>' . esc_html($replacement) . '</h' . $m[1] . '>';
+            },
+            $content
+        ) ?: $content;
     }
 
     /** @param array<int,string> $blocks */
@@ -3679,6 +3779,7 @@ class TemplateContent {
 
     private static function cleanup_model_content(string $content, string $name): string {
         $content = str_replace(['this model', 'This model'], [$name, $name], $content);
+        $content = str_replace(['Additional the links', 'additional the links', 'use additional the links'], ['The additional links', 'the additional links', 'use the additional links'], $content);
         // Do NOT replace "live webcam" — it is valid English and the old replacement
         // ("official profile links") created nonsensical phrases in prose.
 
@@ -3722,8 +3823,11 @@ class TemplateContent {
         // Remove doubled words/phrases at word boundaries (e.g. "the the", "platform platform").
         $content = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $content) ?: $content;
 
+        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+
         return $content;
     }
+
 
     private static function ensure_minimum_useful_depth(string $content, string $name, array $active_platforms, array $resolved_destinations, string $primary_platform_label, string $seed): string {
         $plain = trim((string) wp_strip_all_tags($content));
@@ -3777,15 +3881,21 @@ class TemplateContent {
             $content .= "\n\n" . $extra_blocks[$idx];
         }
 
+        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+
         return $content;
     }
+
 
     private static function apply_lightweight_content_guardrails(string $content, string $name): string {
         $content = preg_replace('/<p>\s*Watch Live on\s+([^<]+)\.<\/p>/iu', '<p>Open the verified live room on $1.</p>', $content) ?: $content;
         $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+' . preg_quote($name, '/') . '\b/iu', $name, $content) ?: $content;
         $content = preg_replace('/(<p>\s*Use this section\b[^<]*<\/p>)(\s*<p>\s*Use this section\b[^<]*<\/p>)+/iu', '$1', $content) ?: $content;
+        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+
         return $content;
     }
+
 
     /**
      * Short status note that complements build_official_links_summary().
