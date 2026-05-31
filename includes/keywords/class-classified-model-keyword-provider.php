@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace TMWSEO\Engine\Keywords;
 
+use TMWSEO\Engine\Logs;
+
 if (!defined('ABSPATH')) { exit; }
 
 class ClassifiedModelKeywordProvider {
@@ -74,6 +76,7 @@ class ClassifiedModelKeywordProvider {
             $suggested_usage = (string) $this->source_value($sources, 'suggested_usage');
             $standalone_allowed = $this->source_bool($sources, 'standalone_allowed');
             $reason = '';
+            $admitted_live_intent_review_keyword = false;
 
             // PR-615: status='approved' is explicit human sign-off. If keyword_class
             // metadata is missing, default to safe values rather than sending the keyword
@@ -95,7 +98,11 @@ class ClassifiedModelKeywordProvider {
             } elseif (!$this->scope_is_compatible($sources)) {
                 $reason = 'incompatible_model_keyword_usage_scope';
             } elseif ($this->is_focus_excluded($keyword_class, $suggested_usage, $standalone_allowed)) {
-                $reason = 'excluded_from_focus_by_classification';
+                if ($this->is_approved_model_linked_live_intent_extra($row, $model_post_id, $keyword, $normalized_model, $keyword_class, $suggested_usage, $standalone_allowed)) {
+                    $admitted_live_intent_review_keyword = true;
+                } else {
+                    $reason = 'excluded_from_focus_by_classification';
+                }
             }
 
             if ($reason !== '') {
@@ -117,8 +124,12 @@ class ClassifiedModelKeywordProvider {
                 }
             }
 
-            if ($this->is_model_focus_extra_candidate($keyword_class, $suggested_usage)) {
+            if ($this->is_model_focus_extra_candidate($keyword_class, $suggested_usage) || $admitted_live_intent_review_keyword) {
                 $extra[] = $keyword;
+            }
+
+            if ($admitted_live_intent_review_keyword) {
+                $this->log_live_intent_review_keyword_admitted($row, $keyword, $keyword_class, $suggested_usage, $standalone_allowed);
             }
 
             if (in_array($keyword_class, [ ModelKeywordPoolClassifier::CLASS_PLATFORM_INTENT_TERM, ModelKeywordPoolClassifier::CLASS_INTENT_TERM ], true)
@@ -133,7 +144,11 @@ class ClassifiedModelKeywordProvider {
                 $modifiers[] = $keyword;
             }
 
-            $source_rows[] = $this->source_summary($row, $sources, 'included');
+            $source_rows[] = $this->source_summary(
+                $row,
+                $sources,
+                $admitted_live_intent_review_keyword ? 'included_model_live_intent_review_required' : 'included'
+            );
         }
 
         return [
@@ -170,6 +185,67 @@ class ClassifiedModelKeywordProvider {
             return !in_array($keyword_class, self::PRIMARY_CLASSES, true);
         }
         return $standalone_allowed === false && in_array($suggested_usage, [ ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED ], true);
+    }
+
+
+    /** @param array<string,mixed> $row */
+    private function is_approved_model_linked_live_intent_extra(array $row, int $model_post_id, string $keyword, string $normalized_model, string $keyword_class, string $suggested_usage, ?bool $standalone_allowed): bool {
+        if ((string) ($row['status'] ?? '') !== 'approved') {
+            return false;
+        }
+        if ((string) ($row['intent_type'] ?? '') !== 'model' || (string) ($row['entity_type'] ?? '') !== 'model') {
+            return false;
+        }
+        if ((int) ($row['entity_id'] ?? 0) !== $model_post_id || $normalized_model === '') {
+            return false;
+        }
+        if ($keyword_class !== ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW) {
+            return false;
+        }
+        if ($suggested_usage !== ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED || $standalone_allowed !== false) {
+            return false;
+        }
+        if (!self::contains_phrase($keyword, $normalized_model)) {
+            return false;
+        }
+        if ($this->contains_adult_fallback_term($keyword)) {
+            return false;
+        }
+        return $this->is_safe_model_live_intent_phrase($keyword, $normalized_model);
+    }
+
+    private function is_safe_model_live_intent_phrase(string $keyword, string $normalized_model): bool {
+        if ($normalized_model === '') {
+            return false;
+        }
+        $safe_phrases = [
+            $normalized_model . ' live',
+            $normalized_model . ' live chat',
+            $normalized_model . ' live cam',
+        ];
+        return in_array($keyword, $safe_phrases, true);
+    }
+
+    private function contains_adult_fallback_term(string $keyword): bool {
+        return preg_match('/(?:^|\s)(?:porn|porno|adult|sex|xxx|nude|nudes|naked)(?:\s|$)/u', $keyword) === 1;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function log_live_intent_review_keyword_admitted(array $row, string $keyword, string $keyword_class, string $suggested_usage, ?bool $standalone_allowed): void {
+        if (!class_exists(Logs::class) || !method_exists(Logs::class, 'info')) {
+            return;
+        }
+        Logs::info('keywords', '[TMW-SEO-KW] Approved model-linked live-intent keyword admitted despite review classification', [
+            'id' => (int) ($row['id'] ?? 0),
+            'keyword' => $keyword,
+            'intent_type' => (string) ($row['intent_type'] ?? ''),
+            'entity_type' => (string) ($row['entity_type'] ?? ''),
+            'entity_id' => (int) ($row['entity_id'] ?? 0),
+            'status' => (string) ($row['status'] ?? ''),
+            'keyword_class' => $keyword_class,
+            'suggested_usage' => $suggested_usage,
+            'standalone_allowed' => $standalone_allowed,
+        ]);
     }
 
     private function is_model_focus_extra_candidate(string $keyword_class, string $suggested_usage): bool {

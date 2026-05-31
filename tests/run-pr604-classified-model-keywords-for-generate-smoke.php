@@ -99,8 +99,9 @@ $wpdb->rows = [
     1 => $row(1, 'anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     2 => $row(2, 'anisyia livejasmin', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     3 => $row(3, 'livejasmin anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
-    12 => $row(12, 'anisyia live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, true)),
-    13 => $row(13, 'anisyia livejasmin porn', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
+    12 => $row(12, 'anisyia live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, false)),
+    13 => $row(13, 'anisyia livejasmin porn', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
+    14 => $row(14, 'anisyia porn', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, false)),
     4 => $row(4, 'video', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, false)),
     5 => $row(5, 'chat', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, false)),
     6 => $row(6, 'mystery phrase', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, false)),
@@ -113,10 +114,10 @@ $wpdb->rows = [
 
 $provider = new ClassifiedModelKeywordProvider();
 $fragment = $provider->build_for_model(4457, 'Anisyia');
-pr604_assert($fragment['primary_candidates'] === [ 'anisyia', 'anisyia livejasmin' ], 'Provider should return Anisyia approved personal primary rows in order.');
+pr604_assert($fragment['primary_candidates'] === [ 'anisyia', 'anisyia livejasmin', 'anisyia livejasmin porn' ], 'Provider should return Anisyia approved personal primary rows in order.');
 pr604_assert(array_slice($fragment['extra_focus_candidates'], 0, 5) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia live', 'anisyia livejasmin porn' ], 'Provider should return approved personal extra focus rows in order.');
-foreach ([ 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $excluded) { pr604_assert(in_array($excluded, $fragment['excluded_candidates'], true), 'Provider should exclude ' . $excluded . '.'); }
-foreach ([ 'wrong entity anisyia', 'anisyia pending', 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $bad) { pr604_assert(!in_array($bad, $fragment['primary_candidates'], true) && !in_array($bad, $fragment['extra_focus_candidates'], true), 'Provider should not include bad focus candidate ' . $bad . '.'); }
+foreach ([ 'anisyia porn', 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $excluded) { pr604_assert(in_array($excluded, $fragment['excluded_candidates'], true), 'Provider should exclude ' . $excluded . '.'); }
+foreach ([ 'wrong entity anisyia', 'anisyia pending', 'anisyia porn', 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $bad) { pr604_assert(!in_array($bad, $fragment['primary_candidates'], true) && !in_array($bad, $fragment['extra_focus_candidates'], true), 'Provider should not include bad focus candidate ' . $bad . '.'); }
 
 $before_queries = count($wpdb->queries);
 $pack = ModelKeywordPack::build(new WP_Post(4457, 'model', 'Anisyia'));
@@ -124,7 +125,8 @@ pr604_assert(array_slice($pack['additional'], 0, 3) === [ 'anisyia', 'anisyia li
 pr604_assert($pack['rankmath_additional'] === [ 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia live', 'anisyia livejasmin porn' ], 'ModelKeywordPack rankmath_additional should keep four approved non-primary Rank Math chips before fallbacks.');
 pr604_assert(count($pack['rankmath_additional']) <= 4, 'ModelKeywordPack rankmath_additional should be capped to four extras.');
 pr604_assert(!in_array('anisyia', $pack['rankmath_additional'], true), 'ModelKeywordPack rankmath_additional must not include the primary focus keyword.');
-foreach ([ 'video', 'chat', 'mystery phrase' ] as $bad) { pr604_assert(!in_array($bad, $pack['rankmath_additional'], true) && !in_array($bad, $pack['additional'], true), 'Unsafe/review terms should not appear in focus extras: ' . $bad . '.'); }
+foreach ([ 'anisyia porn', 'video', 'chat', 'mystery phrase' ] as $bad) { pr604_assert(!in_array($bad, $pack['rankmath_additional'], true) && !in_array($bad, $pack['additional'], true), 'Unsafe/review terms should not appear in focus extras: ' . $bad . '.'); }
+pr604_assert(implode(',', array_merge([ 'Anisyia' ], $pack['rankmath_additional'])) === 'Anisyia,anisyia livejasmin,livejasmin anisyia,anisyia live,anisyia livejasmin porn', 'Rank Math CSV preview should include approved live-intent review keyword and exclude unsafe porn fallback.');
 pr604_assert(count($wpdb->queries) > $before_queries, 'Pack build should read the provider rows.');
 pr604_assert($wpdb->updates === [] && $wpdb->inserts === [], 'Provider and pack build smoke must not perform database writes.');
 
