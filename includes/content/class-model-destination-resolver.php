@@ -191,6 +191,10 @@ class ModelDestinationResolver {
                 $primary_platform = $platform;
             }
 
+            $seo_affiliate_url = $username !== ''
+                ? AffiliateLinkBuilder::build_seo_content_affiliate_url($platform, $username)
+                : '';
+
             $resolved[$platform] = [
                 'platform' => $platform,
                 'label' => $label,
@@ -199,6 +203,7 @@ class ModelDestinationResolver {
                 'username' => $username,
                 'source' => 'verified_links',
                 'verified_url' => (string)($entry['url'] ?? ''),
+                'seo_affiliate_url' => $seo_affiliate_url,
             ];
         }
 
@@ -254,10 +259,12 @@ class ModelDestinationResolver {
                 continue;
             }
             $label = (string)(PlatformRegistry::get($platform)['name'] ?? ucfirst($platform));
+            $seo_affiliate_url = AffiliateLinkBuilder::build_seo_content_affiliate_url($platform, $username);
             $out[] = [
                 'platform' => $platform,
                 'label' => $label,
                 'go_url' => $go,
+                'seo_affiliate_url' => $seo_affiliate_url,
                 'is_primary' => !empty($row['is_primary']),
                 'username' => $username,
                 'source' => 'platform_profiles',
@@ -276,10 +283,12 @@ class ModelDestinationResolver {
                 $go = AffiliateLinkBuilder::go_url($platform, $meta_username);
                 if ($go === '') { continue; }
                 $label = (string)(PlatformRegistry::get($platform)['name'] ?? ucfirst($platform));
+                $seo_affiliate_url = AffiliateLinkBuilder::build_seo_content_affiliate_url($platform, $meta_username);
                 $out[] = [
                     'platform' => $platform,
                     'label' => $label,
                     'go_url' => $go,
+                    'seo_affiliate_url' => $seo_affiliate_url,
                     'is_primary' => $meta_first,
                     'username' => $meta_username,
                     'source' => 'platform_profiles_meta',
