@@ -2949,11 +2949,19 @@ class TemplateContent {
 
     /**
      * @param array<int,array{platform:string,label:string,go_url:string,is_primary:bool,username:string}> $links
-     * @return array<int,array{platform:string,label:string,url:string}>
+     * @return array<int,array{platform:string,label:string,url:string,render:bool}>
      */
     private static function build_guaranteed_external_platform_targets(array $links): array {
         if (empty($links)) {
             return [];
+        }
+
+        $has_livejasmin = false;
+        foreach ($links as $link) {
+            if (sanitize_key((string) ($link['platform'] ?? '')) === 'livejasmin') {
+                $has_livejasmin = true;
+                break;
+            }
         }
 
         $priority = ['camsoda' => 0, 'livejasmin' => 1, 'stripchat' => 2];
@@ -2970,14 +2978,12 @@ class TemplateContent {
 
         $targets = [];
         $seen  = [];
+        $renderable_count = 0;
         foreach ($links as $link) {
             $platform = sanitize_key((string) ($link['platform'] ?? ''));
             $username = trim((string) ($link['username'] ?? ''));
             $label    = trim((string) ($link['label'] ?? ''));
             if ($platform === '' || $username === '' || $label === '' || isset($seen[$platform])) {
-                continue;
-            }
-            if ($platform === 'livejasmin') {
                 continue;
             }
 
@@ -2996,13 +3002,18 @@ class TemplateContent {
                 'host' => (string) wp_parse_url($external_url, PHP_URL_HOST),
             ]);
 
+            $render_target = $platform !== 'livejasmin';
             $targets[]       = [
                 'platform' => $platform,
                 'label' => $label,
                 'url' => $external_url,
+                'render' => $render_target,
             ];
             $seen[$platform] = true;
-            if (count($targets) >= 2) {
+            if ($render_target) {
+                $renderable_count++;
+            }
+            if ($renderable_count >= 2 && (!$has_livejasmin || !empty($seen['livejasmin']))) {
                 break;
             }
         }
@@ -3027,7 +3038,7 @@ class TemplateContent {
     }
 
     /**
-     * @param array<int,array{platform:string,label:string,url:string}> $targets
+     * @param array<int,array{platform:string,label:string,url:string,render?:bool}> $targets
      */
     private static function render_guaranteed_external_platform_links_from_targets(array $targets): string {
         if (empty($targets)) {
@@ -3036,6 +3047,10 @@ class TemplateContent {
 
         $items = [];
         foreach ($targets as $target) {
+            if (array_key_exists('render', $target) && empty($target['render'])) {
+                continue;
+            }
+
             $url   = trim((string) ($target['url'] ?? ''));
             $label = trim((string) ($target['label'] ?? ''));
             if ($url === '' || $label === '') {
