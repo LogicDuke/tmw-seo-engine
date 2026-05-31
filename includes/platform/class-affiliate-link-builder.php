@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Platform;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Affiliates\CrakRevenueCamManager;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -86,22 +87,24 @@ class AffiliateLinkBuilder {
      * GLOBAL GENERATED-SEO RULE:
      * Generated SEO text/content blocks that need Rank Math outbound-link
      * scoring must call this method instead of go_url(), build_affiliate_url(),
-     * or any raw /go/ helper. This method returns only approved external
+     * or any raw /go/ helper. LiveJasmin returns only approved external
      * affiliate destinations and returns an empty string when required platform
-     * username/tracking config is unavailable.
+     * username/tracking config is unavailable. CamSoda uses CrakRevenue routing
+     * when configured and falls back to the raw CamSoda profile URL so the
+     * generated page keeps a valid official clickable destination.
      *
-     * Unlike build_affiliate_url(), this resolver never falls back to raw
-     * platform profile URLs or internal /go/ routes. Generated post content
-     * needs a real outbound href so SEO tooling can detect an external link.
+     * Unlike build_affiliate_url(), this resolver never returns internal /go/
+     * routes. Generated post content needs a real outbound href so SEO tooling
+     * can detect an external link.
      *
      * @param string $platform Platform slug or alias.
      * @param string $username Approved platform username.
-     * @return string External affiliate URL, or empty string when required
-     *                affiliate configuration is missing/invalid.
+     * @return string External affiliate/profile URL, or empty string when the
+     *                platform cannot provide a safe generated-content URL.
      */
     public static function build_seo_content_affiliate_url( string $platform, string $username ): string {
         $platform_slug = self::canonical_platform_slug( $platform );
-        if ( $platform_slug !== 'livejasmin' || ! PlatformRegistry::get( $platform_slug ) ) {
+        if ( ! PlatformRegistry::get( $platform_slug ) ) {
             return '';
         }
 
@@ -110,17 +113,55 @@ class AffiliateLinkBuilder {
             return '';
         }
 
-        $settings = self::with_livejasmin_seo_defaults( self::get_platform_affiliate_settings( $platform_slug ) );
-        if ( ! self::has_livejasmin_seo_affiliate_config( $settings ) ) {
+        if ( $platform_slug === 'livejasmin' ) {
+            $settings = self::with_livejasmin_seo_defaults( self::get_platform_affiliate_settings( $platform_slug ) );
+            if ( ! self::has_livejasmin_seo_affiliate_config( $settings ) ) {
+                return '';
+            }
+
+            $url = self::build_livejasmin_affiliate_url( $clean_username, $settings );
+            if ( $url === '' || ! self::is_external_url( $url ) ) {
+                return '';
+            }
+
+            return $url;
+        }
+
+        if ( $platform_slug === 'camsoda' ) {
+            return self::build_camsoda_seo_content_url( $clean_username );
+        }
+
+        return '';
+    }
+
+
+    /**
+     * Build the CamSoda URL used inside generated model-page content.
+     *
+     * CrakRevenue is preferred when the approved platform mapping/template is
+     * available. If the operator has not configured that mapping yet, return the
+     * raw CamSoda profile so the generated page never breaks its clickable
+     * official destination. Schema/sameAs still reads the original verified URL.
+     */
+    private static function build_camsoda_seo_content_url( string $username ): string {
+        $profile_url = self::build_profile_url( 'camsoda', $username );
+        if ( $profile_url === '' || ! self::is_external_url( $profile_url ) ) {
             return '';
         }
 
-        $url = self::build_livejasmin_affiliate_url( $clean_username, $settings );
-        if ( $url === '' || ! self::is_external_url( $url ) ) {
-            return '';
+        if ( class_exists( CrakRevenueCamManager::class ) ) {
+            $routed = CrakRevenueCamManager::maybe_route_verified_link( [
+                'type'           => 'camsoda',
+                'url'            => $profile_url,
+                'is_active'      => true,
+                'activity_level' => 'active',
+            ] );
+            if ( $routed !== '' && self::is_external_url( $routed ) ) {
+                return $routed;
+            }
         }
 
-        return $url;
+        return $profile_url;
     }
 
     /**
