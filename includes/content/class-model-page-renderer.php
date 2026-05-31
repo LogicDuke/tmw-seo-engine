@@ -504,7 +504,13 @@ class ModelPageRenderer {
             return $html;
         }
 
-        if (empty($link_evidence['has_live_profile']) || !empty($link_evidence['has_extra_links'])) {
+        $live_count = max(0, (int) ($link_evidence['live_count'] ?? 0));
+        if ($live_count <= 0 && !empty($link_evidence['live_profiles']) && is_array($link_evidence['live_profiles'])) {
+            $live_count = count($link_evidence['live_profiles']);
+        }
+        $extra_count = max(0, (int) ($link_evidence['extra_count'] ?? 0));
+
+        if ($live_count !== 1 || $extra_count !== 0 || !empty($link_evidence['has_extra_links'])) {
             return $html;
         }
 

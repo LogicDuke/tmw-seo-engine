@@ -166,6 +166,53 @@ namespace {
     pr609_assert(str_contains($html, 'Before You Open the Live Room'), 'Sparse support section should be present.');
     pr609_assert(substr_count($html, 'payment/privacy controls') <= 2, 'payment/privacy controls should not repeat more than twice.');
     pr609_assert(substr_count(strtolower($html), 'confirm room status before joining') <= 2, 'confirm room status before joining should not repeat more than twice.');
+
+    $short_sparse_html = '<h2>Official Profile Access</h2><p>Julieta Montesco has one confirmed live profile.</p>';
+    $cleanup_method = new ReflectionMethod(ModelPageRenderer::class, 'final_cleanup');
+    $cleanup_method->setAccessible(true);
+    $single_live_support = (string) $cleanup_method->invoke(null, $short_sparse_html, 'Julieta Montesco', [
+        'live_count' => 1,
+        'extra_count' => 0,
+        'has_live_profile' => true,
+        'has_extra_links' => false,
+    ]);
+    pr609_assert(str_contains($single_live_support, 'Before You Open the Live Room'), 'Sparse support should append for exactly one live profile and zero extra links.');
+
+    $two_live_support = (string) $cleanup_method->invoke(null, $short_sparse_html, 'Julieta Montesco', [
+        'live_count' => 2,
+        'extra_count' => 0,
+        'has_live_profile' => true,
+        'has_extra_links' => false,
+    ]);
+    pr609_assert(!str_contains($two_live_support, 'Before You Open the Live Room'), 'Sparse support should not append for two confirmed live profiles.');
+
+    $extra_link_support = (string) $cleanup_method->invoke(null, $short_sparse_html, 'Julieta Montesco', [
+        'live_count' => 1,
+        'extra_count' => 1,
+        'has_live_profile' => true,
+        'has_extra_links' => false,
+    ]);
+    pr609_assert(!str_contains($extra_link_support, 'Before You Open the Live Room'), 'Sparse support should not append when extra links exist.');
+
+    $live_profiles_fallback_support = (string) $cleanup_method->invoke(null, $short_sparse_html, 'Julieta Montesco', [
+        'extra_count' => 0,
+        'has_live_profile' => true,
+        'has_extra_links' => false,
+        'live_profiles' => [['platform' => 'livejasmin', 'username' => 'JulietaMontesco']],
+    ]);
+    pr609_assert(str_contains($live_profiles_fallback_support, 'Before You Open the Live Room'), 'Sparse support should use live_profiles count when live_count is absent.');
+
+    $two_live_profiles_fallback_support = (string) $cleanup_method->invoke(null, $short_sparse_html, 'Julieta Montesco', [
+        'extra_count' => 0,
+        'has_live_profile' => true,
+        'has_extra_links' => false,
+        'live_profiles' => [
+            ['platform' => 'livejasmin', 'username' => 'JulietaMontesco'],
+            ['platform' => 'stripchat', 'username' => 'JulietaMontesco'],
+        ],
+    ]);
+    pr609_assert(!str_contains($two_live_profiles_fallback_support, 'Before You Open the Live Room'), 'Sparse support fallback should not append for two live_profiles entries.');
+
     pr609_assert($GLOBALS['pr609_db_writes'] === [], 'PR609 smoke should not perform database writes.');
     pr609_assert($GLOBALS['pr609_generate_executed'] === false, 'PR609 smoke should not execute Generate.');
 
