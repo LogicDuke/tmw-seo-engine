@@ -99,6 +99,8 @@ $wpdb->rows = [
     1 => $row(1, 'anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     2 => $row(2, 'anisyia livejasmin', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     3 => $row(3, 'livejasmin anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
+    12 => $row(12, 'anisyia live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
+    13 => $row(13, 'anisyia livejasmin porn', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
     4 => $row(4, 'video', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, false)),
     5 => $row(5, 'chat', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, false)),
     6 => $row(6, 'mystery phrase', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, false)),
@@ -112,17 +114,31 @@ $wpdb->rows = [
 $provider = new ClassifiedModelKeywordProvider();
 $fragment = $provider->build_for_model(4457, 'Anisyia');
 pr604_assert($fragment['primary_candidates'] === [ 'anisyia', 'anisyia livejasmin' ], 'Provider should return Anisyia approved personal primary rows in order.');
-pr604_assert(array_slice($fragment['extra_focus_candidates'], 0, 3) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia' ], 'Provider should return approved personal extra focus rows in order.');
+pr604_assert(array_slice($fragment['extra_focus_candidates'], 0, 5) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia live', 'anisyia livejasmin porn' ], 'Provider should return approved personal extra focus rows in order.');
 foreach ([ 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $excluded) { pr604_assert(in_array($excluded, $fragment['excluded_candidates'], true), 'Provider should exclude ' . $excluded . '.'); }
 foreach ([ 'wrong entity anisyia', 'anisyia pending', 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $bad) { pr604_assert(!in_array($bad, $fragment['primary_candidates'], true) && !in_array($bad, $fragment['extra_focus_candidates'], true), 'Provider should not include bad focus candidate ' . $bad . '.'); }
 
 $before_queries = count($wpdb->queries);
 $pack = ModelKeywordPack::build(new WP_Post(4457, 'model', 'Anisyia'));
 pr604_assert(array_slice($pack['additional'], 0, 3) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia' ], 'ModelKeywordPack additional should put approved personal rows before generated fallbacks.');
-pr604_assert($pack['rankmath_additional'] === [ 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia private live chat', 'anisyia live cam' ], 'ModelKeywordPack rankmath_additional should expose four non-primary Rank Math chips.');
+pr604_assert($pack['rankmath_additional'] === [ 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia live', 'anisyia livejasmin porn' ], 'ModelKeywordPack rankmath_additional should keep four approved non-primary Rank Math chips before fallbacks.');
+pr604_assert(count($pack['rankmath_additional']) <= 4, 'ModelKeywordPack rankmath_additional should be capped to four extras.');
+pr604_assert(!in_array('anisyia', $pack['rankmath_additional'], true), 'ModelKeywordPack rankmath_additional must not include the primary focus keyword.');
 foreach ([ 'video', 'chat', 'mystery phrase' ] as $bad) { pr604_assert(!in_array($bad, $pack['rankmath_additional'], true) && !in_array($bad, $pack['additional'], true), 'Unsafe/review terms should not appear in focus extras: ' . $bad . '.'); }
 pr604_assert(count($wpdb->queries) > $before_queries, 'Pack build should read the provider rows.');
 pr604_assert($wpdb->updates === [] && $wpdb->inserts === [], 'Provider and pack build smoke must not perform database writes.');
+
+
+$wpdb->rows = [
+    21 => $row(21, 'blocked fallback', 8891, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true, 'Blocked Fallback')),
+    22 => $row(22, 'blocked fallback livejasmin', 8891, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, 'Blocked Fallback')),
+    23 => $row(23, 'livejasmin blocked fallback', 8891, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, 'Blocked Fallback')),
+    24 => $row(24, 'blocked fallback private live chat', 8891, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, false, 'Blocked Fallback')),
+];
+$blocked_fallback_pack = ModelKeywordPack::build(new WP_Post(8891, 'model', 'Blocked Fallback'));
+pr604_assert(!in_array('blocked fallback private live chat', $blocked_fallback_pack['rankmath_additional'], true), 'Final fallback merge must not re-add classified excluded fallback chips.');
+pr604_assert(count($blocked_fallback_pack['rankmath_additional']) <= 4, 'Filtered fallback pack Rank Math chips must stay capped to four extras.');
+pr604_assert(!in_array('blocked fallback', $blocked_fallback_pack['rankmath_additional'], true), 'Filtered fallback pack Rank Math chips must not include the primary focus keyword.');
 
 $wpdb->rows = [
     12 => $row(12, 'anisyia livejasmin', 6666, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),

@@ -227,9 +227,14 @@ class ModelKeywordPack {
             $rankmath_chips = self::remove_primary_keyword_from_extras($rankmath_chips, $model_name);
             $rankmath_chips = self::merge_preferred_keywords(
                 $rankmath_chips,
-                self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
+                self::filter_keywords_against_classified_exclusions(
+                    self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
+                    $classified_exclusions
+                ),
                 4
             );
+            $rankmath_chips = self::filter_keywords_against_classified_exclusions($rankmath_chips, $classified_exclusions);
+            $rankmath_chips = array_slice(self::remove_primary_keyword_from_extras($rankmath_chips, $model_name), 0, 4);
         }
 
         return [
