@@ -213,12 +213,23 @@ class PlatformProfiles {
         $out = '<div class="tmw-model-links">';
         $out .= '<ul>';
         foreach ($links as $l) {
-            $platform = (string)($l['platform'] ?? '');
-            $url = (string)($l['profile_url'] ?? '');
+            $platform = sanitize_key((string)($l['platform'] ?? ''));
+            $url = trim((string)($l['profile_url'] ?? ''));
             if ($platform === '' || $url === '') continue;
 
+            $href = $url;
+            if (in_array($platform, ['livejasmin', 'jasmin'], true)) {
+                $username = self::extract_username_from_url('livejasmin', $url);
+                if ($username !== '') {
+                    $seo_url = AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', $username);
+                    if ($seo_url !== '') {
+                        $href = $seo_url;
+                    }
+                }
+            }
+
             $label = $labels[$platform] ?? ucfirst($platform);
-            $out .= '<li><a href="' . esc_url($url) . '" rel="nofollow" target="_blank">' . esc_html($label) . '</a></li>';
+            $out .= '<li><a href="' . esc_url($href) . '" rel="sponsored noopener" target="_blank">' . esc_html($label) . '</a></li>';
         }
         $out .= '</ul></div>';
 

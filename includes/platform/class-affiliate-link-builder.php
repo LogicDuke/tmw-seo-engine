@@ -12,6 +12,26 @@ class AffiliateLinkBuilder {
     private const LIVEJASMIN_AFFILIATE_BASE = 'https://ctwmsg.com/';
 
     /**
+     * Operator-approved default AWEmpire tracking values for LiveJasmin SEO body links.
+     *
+     * These defaults keep generated model pages from falling back to internal /go/
+     * URLs when the WP Admin affiliate settings are missing or only partly saved.
+     * Saved settings still win whenever they contain a non-empty value.
+     *
+     * @var array<string,string>
+     */
+    private const LIVEJASMIN_SEO_DEFAULTS = [
+        'psid'        => 'Topmodels4u',
+        'pstool'      => '205_1',
+        'psprogram'   => 'revs',
+        'campaign_id' => '',
+        'subaffid'    => '',
+        'siteid'      => 'jasmin',
+        'categoryname' => 'girl',
+        'pagename'    => 'freechat',
+    ];
+
+    /**
      * Slug aliases that should resolve to the canonical LiveJasmin platform key.
      *
      * @var array<string,string>
@@ -90,7 +110,7 @@ class AffiliateLinkBuilder {
             return '';
         }
 
-        $settings = self::get_platform_affiliate_settings( $platform_slug );
+        $settings = self::with_livejasmin_seo_defaults( self::get_platform_affiliate_settings( $platform_slug ) );
         if ( ! self::has_livejasmin_seo_affiliate_config( $settings ) ) {
             return '';
         }
@@ -384,12 +404,31 @@ class AffiliateLinkBuilder {
     private static function get_platform_affiliate_settings(string $platform): array {
         $all = get_option('tmwseo_platform_affiliate_settings', []);
         if (!is_array($all)) {
-            return [];
+            $all = [];
         }
 
         $platform = self::canonical_platform_slug($platform);
         $settings = $all[$platform] ?? [];
-        return is_array($settings) ? $settings : [];
+        $settings = is_array($settings) ? $settings : [];
+
+        return $settings;
+    }
+
+    /**
+     * Merge code-defined LiveJasmin defaults into saved settings without
+     * overwriting any non-empty operator value.
+     *
+     * @param array<string,mixed> $settings
+     * @return array<string,mixed>
+     */
+    private static function with_livejasmin_seo_defaults(array $settings): array {
+        foreach (self::LIVEJASMIN_SEO_DEFAULTS as $key => $default) {
+            if (!array_key_exists($key, $settings) || trim((string) $settings[$key]) === '') {
+                $settings[$key] = $default;
+            }
+        }
+
+        return $settings;
     }
 
     /**
@@ -401,12 +440,12 @@ class AffiliateLinkBuilder {
     }
 
     /**
-     * Confirm LiveJasmin has enough operator-approved affiliate configuration
+     * Confirm LiveJasmin has enough approved affiliate configuration
      * to emit a monetized external link in generated SEO content.
      *
-     * The canonical endpoint is code-defined, but at least one tracking value
-     * must be stored in tmwseo_platform_affiliate_settings so generated content
-     * does not invent an untracked external URL.
+     * get_platform_affiliate_settings() merges the code-defined AWEmpire
+     * defaults first, so generated model pages can always output the official
+     * ctwmsg.com SEO link unless LiveJasmin itself is unavailable.
      *
      * @param array<string,mixed> $settings
      */

@@ -65,6 +65,16 @@ class ModelPageRenderer {
             $sections[] = $social_channels;
         }
 
+        $internal_links = self::render_section(
+            'More Pages for ' . $name,
+            $payload['internal_links_section_paragraphs'] ?? [],
+            $name,
+            $payload['internal_links_html'] ?? ''
+        );
+        if ($internal_links !== '') {
+            $sections[] = $internal_links;
+        }
+
         $about_allowed = self::should_render_editorial_section('about', $payload, $name);
         $about = $about_allowed
             ? self::render_section('About ' . $name, $payload['about_section_paragraphs'] ?? [], $name, $payload['about_section_html'] ?? '')
@@ -129,7 +139,7 @@ class ModelPageRenderer {
 
         $official_links_base_heading = (!empty($link_evidence) && empty($link_evidence['has_extra_links']))
             ? (!empty($link_evidence['has_live_profile']) ? 'Confirmed Live Profile' : 'Confirmed Profile Link Status')
-            : 'Where Are the Official Links and Other Profiles?';
+            : 'Official Links and Profiles';
         $official_links_heading = self::append_secondary_heading_phrase($official_links_base_heading, $secondary_heading_slots['official_links'][0] ?? '');
         $links = self::render_section(
             $official_links_heading,

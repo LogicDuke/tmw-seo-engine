@@ -530,8 +530,132 @@ class ModelContentGenerationFacade {
     }
 
     /**
+     * Resolve the SEO-safe outbound URL for a platform profile. Generated
+     * body copy must prefer the real external affiliate/profile URL over the
+     * internal /go/ redirect so Rank Math can see the outbound destination.
+     *
+     * @param array<string,mixed> $profile
+     */
+    private static function resolve_platform_profile_href( array $profile ): string {
+        $platform    = sanitize_key( (string) ( $profile['platform'] ?? '' ) );
+        $aff_url     = trim( (string) ( $profile['affiliate_url'] ?? '' ) );
+        $profile_url = trim( (string) ( $profile['profile_url'] ?? '' ) );
+        $go_url      = trim( (string) ( $profile['go_url'] ?? '' ) );
+
+        if ( in_array( $platform, [ 'livejasmin', 'jasmin' ], true ) ) {
+            $username = self::extract_platform_username( 'livejasmin', $profile_url );
+            if ( $username !== '' && class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' ) ) {
+                $seo_url = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url( 'livejasmin', $username );
+                if ( self::is_valid_external_href( $seo_url ) ) {
+                    return $seo_url;
+                }
+            }
+        }
+
+        foreach ( [ $aff_url, $profile_url, $go_url ] as $candidate ) {
+            if ( self::is_valid_external_href( $candidate ) || self::is_valid_href( $candidate ) ) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Resolve the SEO-safe outbound URL for a verified external link.
+     *
+     * @param array<string,mixed> $link
+     */
+    private static function resolve_verified_link_href( array $link ): string {
+        $url  = trim( (string) ( $link['url'] ?? '' ) );
+        $type = sanitize_key( (string) ( $link['type'] ?? '' ) );
+        $type = in_array( $type, [ 'livejasmin', 'jasmin' ], true ) ? 'livejasmin' : $type;
+
+        if ( $type === 'livejasmin' ) {
+            $username = self::extract_platform_username( 'livejasmin', $url );
+            if ( $username !== '' && class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' ) ) {
+                $seo_url = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url( 'livejasmin', $username );
+                if ( self::is_valid_external_href( $seo_url ) ) {
+                    return $seo_url;
+                }
+            }
+        }
+
+        return self::is_valid_href( $url ) ? $url : '';
+    }
+
+    private static function extract_platform_username( string $platform, string $url ): string {
+        if ( $url === '' ) {
+            return '';
+        }
+
+        if ( class_exists( '\TMWSEO\Engine\Platform\PlatformProfiles' ) ) {
+            $parsed = \TMWSEO\Engine\Platform\PlatformProfiles::parse_url_for_platform_structured( $platform, $url );
+            if ( is_array( $parsed ) && ! empty( $parsed['success'] ) ) {
+                $username = trim( (string) ( $parsed['username'] ?? '' ) );
+                if ( $username !== '' ) {
+                    return $username;
+                }
+            }
+        }
+
+        $path = (string) wp_parse_url( $url, PHP_URL_PATH );
+        $segments = array_values( array_filter( explode( '/', trim( $path, '/' ) ) ) );
+        $last = $segments ? (string) end( $segments ) : '';
+        return sanitize_text_field( rawurldecode( $last ) );
+    }
+
+    private static function rel_for_platform_profile( string $platform ): string {
+        $platform = sanitize_key( $platform );
+        if ( $platform !== '' ) {
+            return 'sponsored noopener';
+        }
+
+        return 'noopener external';
+    }
+
+    private static function rel_for_verified_link( string $type ): string {
+        $type = sanitize_key( $type );
+        if ( class_exists( __NAMESPACE__ . '\\VerifiedLinksFamilies' ) ) {
+            $family = VerifiedLinksFamilies::family_for( $type );
+            if ( in_array( $family, [ VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE ], true ) ) {
+                return 'sponsored noopener';
+            }
+        }
+
+        return 'noopener external';
+    }
+
+    private static function is_valid_href( string $url ): bool {
+        $url = trim( $url );
+        if ( $url === '' ) {
+            return false;
+        }
+
+        if ( function_exists( 'wp_http_validate_url' ) ) {
+            return (bool) wp_http_validate_url( $url );
+        }
+
+        return (bool) filter_var( $url, FILTER_VALIDATE_URL );
+    }
+
+    private static function is_valid_external_href( string $url ): bool {
+        if ( ! self::is_valid_href( $url ) ) {
+            return false;
+        }
+
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        if ( $host === '' ) {
+            return false;
+        }
+
+        $home_host = function_exists( 'home_url' ) ? strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) ) : '';
+        return $home_host === '' || $host !== $home_host;
+    }
+
+    /**
      * Build an HTML block of real platform profile links.
-     * Uses go_url > affiliate_url > profile_url, in that priority order.
+     * Uses an external affiliate/profile URL before internal /go/ redirects.
      */
     private static function build_platform_links_html(
         string $name,
@@ -545,22 +669,10 @@ class ModelContentGenerationFacade {
         $html = '<ul class="tmwseo-platform-links">' . "\n";
 
         foreach ( $platform_profiles as $profile ) {
-            $platform    = sanitize_key( (string) ( $profile['platform'] ?? '' ) );
-            $label       = self::$platform_labels[ $platform ] ?? ucfirst( $platform );
-            $go_url      = trim( (string) ( $profile['go_url'] ?? '' ) );
-            $aff_url     = trim( (string) ( $profile['affiliate_url'] ?? '' ) );
-            $profile_url = trim( (string) ( $profile['profile_url'] ?? '' ) );
-            $is_primary  = ! empty( $profile['is_primary'] );
-
-            // Priority: go_url > affiliate_url > profile_url
-            $href = '';
-            if ( $go_url !== '' && filter_var( $go_url, FILTER_VALIDATE_URL ) ) {
-                $href = $go_url;
-            } elseif ( $aff_url !== '' && filter_var( $aff_url, FILTER_VALIDATE_URL ) ) {
-                $href = $aff_url;
-            } elseif ( $profile_url !== '' && filter_var( $profile_url, FILTER_VALIDATE_URL ) ) {
-                $href = $profile_url;
-            }
+            $platform   = sanitize_key( (string) ( $profile['platform'] ?? '' ) );
+            $label      = self::$platform_labels[ $platform ] ?? ucfirst( $platform );
+            $is_primary = ! empty( $profile['is_primary'] );
+            $href       = self::resolve_platform_profile_href( is_array( $profile ) ? $profile : [] );
 
             if ( $href === '' ) {
                 continue;
@@ -570,7 +682,7 @@ class ModelContentGenerationFacade {
                 ? 'Watch ' . esc_html( $name ) . ' on ' . esc_html( $label ) . ' (Primary)'
                 : 'Watch ' . esc_html( $name ) . ' on ' . esc_html( $label );
 
-            $html .= '<li><a href="' . esc_url( $href ) . '" rel="nofollow noopener" target="_blank">'
+            $html .= '<li><a href="' . esc_url( $href ) . '" rel="' . esc_attr( self::rel_for_platform_profile( $platform ) ) . '" target="_blank">'
                    . $link_text
                    . '</a></li>' . "\n";
         }
@@ -596,11 +708,15 @@ class ModelContentGenerationFacade {
         $html = '<ul class="tmwseo-verified-links">' . "\n";
 
         foreach ( $verified_links as $link ) {
-            $url   = trim( (string) ( $link['url']   ?? '' ) );
+            if ( ! is_array( $link ) ) {
+                continue;
+            }
+
+            $url   = self::resolve_verified_link_href( $link );
             $label = trim( (string) ( $link['label'] ?? '' ) );
             $type  = sanitize_key( (string) ( $link['type'] ?? '' ) );
 
-            if ( $url === '' || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+            if ( $url === '' ) {
                 continue;
             }
 
@@ -608,7 +724,7 @@ class ModelContentGenerationFacade {
                 $label = $type !== '' ? ucfirst( $type ) . ' Profile' : 'External Profile';
             }
 
-            $html .= '<li><a href="' . esc_url( $url ) . '" rel="nofollow noopener" target="_blank">'
+            $html .= '<li><a href="' . esc_url( $url ) . '" rel="' . esc_attr( self::rel_for_verified_link( $type ) ) . '" target="_blank">'
                    . esc_html( $label )
                    . '</a></li>' . "\n";
         }

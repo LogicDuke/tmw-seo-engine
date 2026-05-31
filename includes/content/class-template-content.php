@@ -79,7 +79,7 @@ class TemplateContent {
             $extra,
             self::default_model_additional_keywords($primary_platform_label, $active_platforms)
         )));
-        $extra = array_slice($extra, 0, 4);
+        $extra = array_slice($extra, 0, 5);
 
         $longtail = is_array($pack['longtail'] ?? null) ? $pack['longtail'] : [];
         $longtail = self::filter_name_free_keywords($longtail, $name);
@@ -93,9 +93,11 @@ class TemplateContent {
         // coverage block. Prefer the dedicated model-name-led list when available
         // (set by ModelKeywordPack::build() for model pages); fall back to $extra
         // for non-model pages and legacy packs that do not carry the key.
+        // Rank Math supports five additional keyword chips; keep the visible
+        // secondary-keyword pool aligned with that limit.
         $rankmath_keywords = !empty($pack['rankmath_additional'])
-            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
-            : array_slice($extra, 0, 4);
+            ? array_slice((array) $pack['rankmath_additional'], 0, 5)
+            : array_slice($extra, 0, 5);
 
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
         $secondary_heading_phrases = self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra);
@@ -371,8 +373,8 @@ class TemplateContent {
         $longtail = is_array($longtail) ? $longtail : [];
         $extra = is_array($pack['additional'] ?? null) ? $pack['additional'] : [];
         $rankmath_keywords = !empty($pack['rankmath_additional']) && is_array($pack['rankmath_additional'])
-            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
-            : array_slice($extra, 0, 4);
+            ? array_slice((array) $pack['rankmath_additional'], 0, 5)
+            : array_slice($extra, 0, 5);
         $secondary_visible_phrases = isset($pack['secondary_visible_phrases']) && is_array($pack['secondary_visible_phrases'])
             ? array_values(array_filter(array_map('strval', $pack['secondary_visible_phrases']), 'strlen'))
             : self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
@@ -424,6 +426,10 @@ class TemplateContent {
         $link_evidence_summary = self::build_link_evidence_summary($resolved_destinations, $cta_links);
         $official_destination_paragraphs = self::build_official_destination_paragraphs($link_evidence_summary);
         $community_destination_paragraphs = self::build_community_destination_paragraphs($link_evidence_summary);
+        $internal_links_html = self::join_html_blocks([
+            self::render_internal_links($post),
+            self::render_related_models($post, $name, $tags, $active_platforms),
+        ]);
 
         return [
             'watch_section_html' => $watch_html,
@@ -434,7 +440,11 @@ class TemplateContent {
             'official_destinations_section_paragraphs' => $official_destination_paragraphs,
             'community_destinations_section_html' => '',
             'community_destinations_section_paragraphs' => $community_destination_paragraphs,
-            'related_models_html' => '',
+            'internal_links_section_paragraphs' => [
+                'Use these internal pages to continue from ' . $name . ' to the model video archive, model directory, and category pages on this site.',
+            ],
+            'internal_links_html' => $internal_links_html,
+            'related_models_html' => $internal_links_html,
             'explore_more_html' => '',
             // All visible outbound links consolidated here — Explore More is the
             // only place in rendered content where real external links appear.
@@ -753,6 +763,7 @@ class TemplateContent {
             'watch_section_paragraphs',
             'official_destinations_section_paragraphs',
             'community_destinations_section_paragraphs',
+            'internal_links_section_paragraphs',
             'about_section_paragraphs',
             'fans_like_section_paragraphs',
             'features_section_paragraphs',
@@ -778,7 +789,7 @@ class TemplateContent {
             $parts[] = (string) ($item['q'] ?? '');
             $parts[] = (string) ($item['a'] ?? '');
         }
-        foreach (['watch_section_html', 'official_destinations_section_html', 'community_destinations_section_html', 'external_info_html', 'explore_more_html'] as $html_key) {
+        foreach (['watch_section_html', 'official_destinations_section_html', 'community_destinations_section_html', 'internal_links_html', 'external_info_html', 'explore_more_html'] as $html_key) {
             $html = trim((string) ($payload[$html_key] ?? ''));
             if ($html !== '') {
                 $parts[] = $html;
@@ -1214,7 +1225,7 @@ class TemplateContent {
      * The method returns modified HTML and a placement report for diagnostics.
      *
      * @param  string   $html              Rendered model page HTML.
-     * @param  string[] $rankmath_keywords Up-to-4 Rank Math additional keywords.
+     * @param  string[] $rankmath_keywords Up-to-5 Rank Math additional keywords.
      * @param  string   $model_name        Model name (used for safety checks).
      * @return array{html:string, placement_report:array<int,array{keyword:string,status:string,reason:string}>}
      */
@@ -1617,7 +1628,7 @@ class TemplateContent {
                 if ($anchor_text === '') {
                     continue;
                 }
-                $items .= '<li><a href="' . esc_url((string) $row['url']) . '" target="_blank" rel="noopener external nofollow">' . esc_html($anchor_text) . '</a></li>';
+                $items .= '<li><a href="' . esc_url((string) $row['url']) . '" target="_blank" rel="' . esc_attr(self::verified_external_link_rel($row)) . '">' . esc_html($anchor_text) . '</a></li>';
             }
             if ($items === '') {
                 continue;
@@ -2208,7 +2219,7 @@ class TemplateContent {
         if (count($cta_links) === 1) {
             $single = $cta_links[0];
             $platform = trim((string) ($single['label'] ?? 'the active platform'));
-            $url = trim((string) ($single['go_url'] ?? ''));
+            $url = self::generated_watch_href($single);
             // v5.8.11-final-copy: removed the standalone intro <p> ("Before
             // joining, confirm the handle, check recent room activity, and
             // review payment/privacy controls.") because it duplicated the
@@ -2233,14 +2244,14 @@ class TemplateContent {
         foreach (array_slice($cta_links, 0, 4) as $link) {
             $label = trim((string)($link['label'] ?? ''));
             $username = trim((string)($link['username'] ?? ''));
-            $url = trim((string)($link['go_url'] ?? ''));
-            if ($label === '' || $username === '') {
+            $url = self::generated_watch_href($link);
+            if ($label === '' || $username === '' || $url === '') {
                 continue;
             }
             $rows .= '<tr>'
                 . '<td>' . esc_html($label) . '</td>'
                 . '<td>@' . esc_html($username) . '</td>'
-                . '<td><a href="' . esc_url($url) . '" target="_blank" rel="' . esc_attr(!empty($link['is_primary']) ? 'sponsored noopener' : 'sponsored nofollow noopener') . '">Watch Live</a></td>'
+                . '<td><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">Watch Live</a></td>'
                 . '</tr>';
         }
 
@@ -2329,7 +2340,7 @@ class TemplateContent {
             if ($text === '') {
                 continue;
             }
-            $items .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="noopener external nofollow">' . esc_html($text) . '</a></li>';
+            $items .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="' . esc_attr(self::verified_external_link_rel($row)) . '">' . esc_html($text) . '</a></li>';
         }
 
         if ($items === '') {
@@ -2337,6 +2348,25 @@ class TemplateContent {
         }
 
         return '<ul>' . $items . '</ul>';
+    }
+
+    /**
+     * Rel policy for generated verified external-profile links.
+     *
+     * The generated model body must not turn every outbound destination into
+     * nofollow. Verified social, personal, tube and link-hub URLs are editorial
+     * citations, while cam/fan platforms are commercial destinations. None of
+     * these should carry nofollow in the generated SEO text.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function verified_external_link_rel(array $row): string {
+        $family = sanitize_key((string) ($row['family'] ?? ''));
+        if (in_array($family, [VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE], true)) {
+            return 'sponsored noopener external';
+        }
+
+        return 'noopener external';
     }
 
     /**
@@ -2371,11 +2401,13 @@ class TemplateContent {
             }
 
             if ($username !== '') {
-                $go = AffiliateLinkBuilder::go_url('livejasmin', $username);
-                if ($go !== '') {
-                    return $go;
+                $seo_url = AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', $username);
+                if ($seo_url !== '') {
+                    return $seo_url;
                 }
             }
+
+            return $url;
         }
 
         if (!class_exists(\TMWSEO\Engine\Affiliates\CrakRevenueCamManager::class)) {
@@ -2445,7 +2477,7 @@ class TemplateContent {
         }
 
         $anchor_text = 'Watch ' . $name . ' on ' . $label;
-        return '<p><a href="' . esc_url($url) . '" target="_blank" rel="nofollow sponsored noopener">' . esc_html($anchor_text) . '</a></p>';
+        return '<p><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">' . esc_html($anchor_text) . '</a></p>';
     }
 
     /**
@@ -2513,13 +2545,33 @@ class TemplateContent {
         return $site_host === '' || $host !== $site_host;
     }
 
+    /**
+     * Pick the best href for generated model-page watch anchors.
+     *
+     * For LiveJasmin, seo_affiliate_url resolves to the official AWEmpire
+     * ctwmsg.com link. We prefer it over internal /go/ routes because Rank Math
+     * evaluates saved post content, not the final redirect target.
+     *
+     * @param array<string,mixed> $link
+     */
+    private static function generated_watch_href(array $link): string {
+        foreach (['seo_affiliate_url', 'confirmed_affiliate_url', 'verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
+            $url = trim((string) ($link[$key] ?? ''));
+            if (self::is_confirmed_external_http_url($url)) {
+                return $url;
+            }
+        }
+
+        return trim((string) ($link['go_url'] ?? ''));
+    }
+
     private static function render_primary_watch_cta(array $links, string $name): string {
         foreach ($links as $link) {
             if (empty($link['is_primary'])) {
                 continue;
             }
 
-            $go_url = (string)($link['go_url'] ?? '');
+            $go_url = self::generated_watch_href($link);
             if ($go_url === '') {
                 continue;
             }
@@ -2542,11 +2594,11 @@ class TemplateContent {
         if (count($links) < 2) return '';
         $lis = '';
         foreach ($links as $l) {
-            $url = (string)($l['go_url'] ?? '');
+            $url = self::generated_watch_href($l);
             $label = (string)($l['label'] ?? '');
             if ($url === '' || $label === '') continue;
 
-            $lis .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html($name . ' on ' . $label) . '</a></li>';
+            $lis .= '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">' . esc_html($name . ' on ' . $label) . '</a></li>';
         }
         if ($lis === '') return '';
         return '<ul>' . $lis . '</ul>';
@@ -2650,13 +2702,32 @@ class TemplateContent {
     }
 
     private static function render_internal_links(\WP_Post $post): string {
-        $links = [
-            '<li><a href="' . esc_url(home_url('/models/')) . '">Models</a></li>',
-            '<li><a href="' . esc_url(home_url('/categories/')) . '">Categories</a></li>',
-        ];
+        $model_slug = '';
+        if (function_exists('get_post_field')) {
+            $model_slug = trim((string) get_post_field('post_name', $post->ID));
+        }
+        if ($model_slug === '') {
+            $raw_slug_source = trim((string) ($post->post_name ?? $post->post_title ?? ''));
+            $model_slug = function_exists('sanitize_title_with_dashes')
+                ? sanitize_title_with_dashes($raw_slug_source)
+                : strtolower((string) preg_replace('/[^A-Za-z0-9-]+/', '-', $raw_slug_source));
+        }
+        $model_slug = trim($model_slug, '-');
+
+        $model_title = function_exists('get_the_title') ? trim((string) get_the_title($post->ID)) : '';
+        if ($model_title === '') {
+            $model_title = trim((string) ($post->post_title ?? 'this model'));
+        }
+
+        $links = [];
+        if ($model_slug !== '') {
+            $links[] = '<li><a href="' . esc_url(home_url('/videos/?model=' . rawurlencode($model_slug))) . '">Videos featuring ' . esc_html($model_title) . '</a></li>';
+        }
+        $links[] = '<li><a href="' . esc_url(home_url('/models/')) . '">Browse all models</a></li>';
+        $links[] = '<li><a href="' . esc_url(home_url('/categories/')) . '">Browse categories</a></li>';
 
         $top_terms = [];
-        $tags = get_the_terms($post, 'post_tag');
+        $tags = function_exists('get_the_terms') ? get_the_terms($post, 'post_tag') : false;
         if (is_array($tags)) {
             usort($tags, static function (\WP_Term $a, \WP_Term $b): int {
                 if ((int) $a->count === (int) $b->count) {
@@ -2667,8 +2738,8 @@ class TemplateContent {
             });
 
             foreach ($tags as $tag) {
-                $term_link = get_term_link($tag);
-                if (is_wp_error($term_link)) {
+                $term_link = function_exists('get_term_link') ? get_term_link($tag) : '';
+                if ((function_exists('is_wp_error') && is_wp_error($term_link)) || $term_link === '') {
                     continue;
                 }
 
@@ -2684,7 +2755,7 @@ class TemplateContent {
         }
 
         if (count($top_terms) < 2) {
-            $categories = get_the_terms($post, 'category');
+            $categories = function_exists('get_the_terms') ? get_the_terms($post, 'category') : false;
             if (is_array($categories)) {
                 usort($categories, static function (\WP_Term $a, \WP_Term $b): int {
                     if ((int) $a->count === (int) $b->count) {
@@ -2700,8 +2771,8 @@ class TemplateContent {
                         continue;
                     }
 
-                    $term_link = get_term_link($category);
-                    if (is_wp_error($term_link)) {
+                    $term_link = function_exists('get_term_link') ? get_term_link($category) : '';
+                    if ((function_exists('is_wp_error') && is_wp_error($term_link)) || $term_link === '') {
                         continue;
                     }
 
@@ -2741,13 +2812,13 @@ class TemplateContent {
                 continue;
             }
 
-            $url = (string)($link['go_url'] ?? '');
+            $url = self::generated_watch_href($link);
             $platform = (string)($link['label'] ?? '');
             if ($url === '' || $platform === '') {
                 continue;
             }
 
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html('Watch Live on ' . $platform) . '</a></li>';
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">' . esc_html('Watch Live on ' . $platform) . '</a></li>';
 
             if (count($items) >= 4) {
                 break;
@@ -2893,7 +2964,7 @@ class TemplateContent {
             if ($url === '' || $label === '') {
                 continue;
             }
-            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored nofollow noopener">' . esc_html($label . ' profile') . '</a></li>';
+            $items[] = '<li><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">' . esc_html($label . ' profile') . '</a></li>';
         }
         if (empty($items)) {
             return '';
