@@ -215,26 +215,18 @@ class ModelKeywordPack {
 
         // Dedicated Rank Math chips: model-name-led, varied per post.
         // These replace the old name-free generic fallback as the Rank Math chip source.
-        $rankmath_chips = $is_model_page
-            ? self::merge_preferred_keywords(
+        $rankmath_chips = [];
+        if ($is_model_page) {
+            $rankmath_chips = self::merge_preferred_keywords(
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
                 self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
-                8
-            )
-            : [];
-        if ($is_model_page) {
-            $rankmath_chips = self::filter_keywords_against_classified_exclusions($rankmath_chips, $classified_exclusions);
-            $rankmath_chips = self::remove_primary_keyword_from_extras($rankmath_chips, $model_name);
-            $rankmath_chips = self::merge_preferred_keywords(
-                $rankmath_chips,
-                self::filter_keywords_against_classified_exclusions(
-                    self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
-                    $classified_exclusions
-                ),
-                4
+                12
             );
-            $rankmath_chips = self::filter_keywords_against_classified_exclusions($rankmath_chips, $classified_exclusions);
-            $rankmath_chips = array_slice(self::remove_primary_keyword_from_extras($rankmath_chips, $model_name), 0, 4);
+            $rankmath_chips = self::finalize_rankmath_additional_keywords(
+                $rankmath_chips,
+                $classified_exclusions,
+                $model_name
+            );
         }
 
         return [
@@ -300,6 +292,13 @@ class ModelKeywordPack {
         return $merged;
     }
 
+
+    /** @param string[] $keywords @param array<string,bool> $excluded @return string[] */
+    private static function finalize_rankmath_additional_keywords(array $keywords, array $excluded, string $primary): array {
+        $keywords = self::filter_keywords_against_classified_exclusions($keywords, $excluded);
+        $keywords = self::remove_primary_keyword_from_extras($keywords, $primary);
+        return array_slice(self::dedupe_keywords($keywords), 0, 4);
+    }
 
     /** @param string[] $keywords @return string[] */
     private static function remove_primary_keyword_from_extras(array $keywords, string $primary): array {
