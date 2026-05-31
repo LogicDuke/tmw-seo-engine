@@ -1399,6 +1399,29 @@ class VerifiedLinks {
             return '';
         }
 
+        $type = sanitize_key( (string) ( $link['type'] ?? '' ) );
+        if ( $type === 'livejasmin'
+            && class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
+            && class_exists( '\TMWSEO\Engine\Platform\PlatformProfiles' )
+        ) {
+            $username = \TMWSEO\Engine\Platform\PlatformProfiles::extract_username_from_profile_url( 'livejasmin', $url );
+            if ( $username === '' ) {
+                $parts = wp_parse_url( $url );
+                $host  = strtolower( (string) ( $parts['host'] ?? '' ) );
+                if ( $host !== '' && ( str_contains( $host, '.livejasmin.com' ) || $host === 'livejasmin.com' ) ) {
+                    $path     = trim( (string) ( $parts['path'] ?? '' ), '/' );
+                    $segments = $path !== '' ? explode( '/', $path ) : [];
+                    $username = trim( (string) end( $segments ) );
+                }
+            }
+            if ( $username !== '' ) {
+                $seo_url = \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_seo_content_affiliate_url( 'livejasmin', $username );
+                if ( $seo_url !== '' ) {
+                    return $seo_url;
+                }
+            }
+        }
+
         $is_active = ! array_key_exists( 'is_active', $link ) || ! empty( $link['is_active'] );
         $activity_level = sanitize_key( (string) ( $link['activity_level'] ?? 'active' ) );
         if ( ! $is_active || ! in_array( $activity_level, [ 'active', 'very_active' ], true ) ) {
@@ -1470,6 +1493,26 @@ class VerifiedLinks {
         return array_values( array_unique( $urls ) );
     }
 
+    /**
+     * Rel policy for frontend verified links.
+     *
+     * Verified links are operator-approved destinations. Do not mark every
+     * shortcode link nofollow; that creates the same Rank Math failure as the
+     * generated model body. Commercial cam/fan destinations are disclosed with
+     * sponsored, while editorial social/personal/link-hub/tube links are normal
+     * outbound citations.
+     *
+     * @param array<string,mixed> $link
+     */
+    private static function shortcode_rel_for_link( array $link ): string {
+        $family = VerifiedLinksFamilies::family_for( sanitize_key( (string) ( $link['type'] ?? 'other' ) ) );
+        if ( in_array( $family, [ VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE ], true ) ) {
+            return 'sponsored noopener';
+        }
+
+        return 'noopener external';
+    }
+
     // ── Shortcode ─────────────────────────────────────────────────────────
 
     /**
@@ -1519,7 +1562,7 @@ class VerifiedLinks {
                 : self::type_label( $type );
 
             $items .= '<li>'
-                . '<a href="' . esc_url( $url ) . '" rel="nofollow noopener" target="_blank">'
+                . '<a href="' . esc_url( $url ) . '" rel="' . esc_attr( self::shortcode_rel_for_link( $link ) ) . '" target="_blank">'
                 . esc_html( $display )
                 . '</a></li>';
         }

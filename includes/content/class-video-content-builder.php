@@ -572,7 +572,7 @@ class VideoContentBuilder {
         $affiliate_url = self::resolve_model_affiliate_url( $post_id, $model_name );
         $affiliate_link = '';
         if ( $affiliate_url !== '' && $model_name !== '' ) {
-            $affiliate_link = '<a href="' . esc_url( $affiliate_url ) . '" target="_blank" rel="sponsored nofollow noopener">'
+            $affiliate_link = '<a href="' . esc_url( $affiliate_url ) . '" target="_blank" rel="sponsored noopener">'
                 . 'Watch ' . esc_html( $model_name ) . ' Live on LiveJasmin</a>';
         }
 
