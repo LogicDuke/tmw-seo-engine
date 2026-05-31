@@ -285,7 +285,7 @@ class ModelResearchEvidence {
 			$parts[] = $name . "'s profile presentation reads as a personable cam delivery with consistent on-camera presence and viewer interaction.";
 		}
 
-		$parts[] = 'Treat these notes as profile-based context rather than a guarantee of what every live session will include.';
+		$parts[] = 'Use these notes as profile context, then recheck the confirmed live room because availability and session details can change.';
 
 		return self::final_humanize( implode( ' ', $parts ) );
 	}
@@ -343,7 +343,7 @@ class ModelResearchEvidence {
 		$openers = [
 			'Highlighted turn-on themes include ',
 			'The notes describe ',
-			'Profile evidence highlights ',
+			'The verified notes point to ',
 		];
 		$opener = $openers[ ( strlen( $themes[0] ) ) % count( $openers ) ];
 
@@ -362,7 +362,7 @@ class ModelResearchEvidence {
 
 		if ( $explicit_count > 0 || count( $raw_items ) > 8 ) {
 			return self::final_humanize(
-				'The profile notes mention private-chat themes, interactive show requests, roleplay-style options, and media/chat features. '
+				'The verified notes point to private-chat availability, interactive requests, roleplay-style options, and media/chat features. '
 				. 'Availability can vary by session, so check the confirmed room before assuming a specific option is offered.'
 			);
 		}

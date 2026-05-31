@@ -261,6 +261,9 @@ class ModelPageRenderer {
         if (preg_match('/\b' . preg_quote($phrase, '/') . '\b/iu', $heading)) {
             return $heading;
         }
+        if (preg_match('/^Official Links and Profiles\b/iu', $heading) && preg_match('/\blivejasmin\s+profile\b/iu', $phrase)) {
+            return $heading;
+        }
         return $heading . ' and ' . $phrase;
     }
 
@@ -487,10 +490,30 @@ class ModelPageRenderer {
         $html = preg_replace('/<p>\s*(People usually open a page like this.*?|A page like this.*?|Finding the real room should not take.*?|This page keeps.*?|The room tends to work because.*?|The atmosphere is settled.*?|The practical side.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?|The room feel.*?|The tone.*?|The rhythm.*?|The energy.*?)\s*<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/<p>\s*(?:Viewers looking for|A query like|How to join .*? usually|LiveJasmin live show schedule matters).*?<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/(<h2>\s*Verified Links\s*<\/h2>.*?)(?:<p>\s*(?:In short|Overall|To wrap up|That said|Finally).*?<\/p>)+$/isu', '$1', $html) ?: $html;
+        $html = preg_replace('/<p>\s*For\s+[^<.]+?\s+access,\s*confirm handle consistency and recent room activity before joining\.\s*<\/p>/iu', '', $html) ?: $html;
+        $html = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the confirmed live room and use the verified links below for profile checks.', $html) ?: $html;
+        $html = str_replace('Official Links and Profiles and LiveJasmin profile', 'Official Links and Profiles', $html);
+        $html = str_replace(['use additional the links', 'Use additional the links'], ['use the additional links', 'Use the additional links'], $html);
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
+        $html = self::dedupe_exact_heading_text($html, 'Before You Click', 'Safety Checklist');
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
         return trim($html);
+    }
+
+    private static function dedupe_exact_heading_text(string $content, string $heading, string $replacement): string {
+        $seen = false;
+        return preg_replace_callback(
+            '/<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>/iu',
+            static function (array $m) use (&$seen, $replacement): string {
+                if (!$seen) {
+                    $seen = true;
+                    return $m[0];
+                }
+                return '<h' . $m[1] . $m[2] . '>' . esc_html($replacement) . '</h' . $m[1] . '>';
+            },
+            $content
+        ) ?: $content;
     }
 
     private static function looks_like_nav_chrome(string $html): bool {

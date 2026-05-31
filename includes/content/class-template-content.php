@@ -93,11 +93,11 @@ class TemplateContent {
         // coverage block. Prefer the dedicated model-name-led list when available
         // (set by ModelKeywordPack::build() for model pages); fall back to $extra
         // for non-model pages and legacy packs that do not carry the key.
-        // Rank Math supports five additional keyword chips; keep the visible
-        // secondary-keyword pool aligned with that limit.
+        // Rank Math receives one focus keyword plus four secondary chips.
+        // Keep the visible secondary-keyword pool aligned with that limit.
         $rankmath_keywords = !empty($pack['rankmath_additional'])
-            ? array_slice((array) $pack['rankmath_additional'], 0, 5)
-            : array_slice($extra, 0, 5);
+            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
+            : array_slice($extra, 0, 4);
 
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
         $secondary_heading_phrases = self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra);
@@ -177,7 +177,7 @@ class TemplateContent {
             ];
         } else {
             $watch_para_pool = [
-                'Open the confirmed live profile below. The additional links below are separated from live-room access.',
+                'Open the confirmed live profile below. Use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.',
                 'Choose a live platform below first. Use any additional verified destinations only for follow-up checks.',
                 'Open a live profile first, then use verified non-live destinations if you need backups or updates.',
             ];
@@ -376,8 +376,8 @@ class TemplateContent {
         $longtail = is_array($longtail) ? $longtail : [];
         $extra = is_array($pack['additional'] ?? null) ? $pack['additional'] : [];
         $rankmath_keywords = !empty($pack['rankmath_additional']) && is_array($pack['rankmath_additional'])
-            ? array_slice((array) $pack['rankmath_additional'], 0, 5)
-            : array_slice($extra, 0, 5);
+            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
+            : array_slice($extra, 0, 4);
         $secondary_visible_phrases = isset($pack['secondary_visible_phrases']) && is_array($pack['secondary_visible_phrases'])
             ? array_values(array_filter(array_map('strval', $pack['secondary_visible_phrases']), 'strlen'))
             : self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
@@ -649,7 +649,7 @@ class TemplateContent {
         //    Official Links keyword paragraph in build_model_renderer_support_payload().
         $sparse_features_paragraphs = [];
         $seen_feature_sentences = [];
-        $max_feature_sentences = 3;
+        $max_feature_sentences = 1;
         $primary_platform_label = $active_platform_count > 0 ? trim((string) ($active_platforms[0] ?? '')) : '';
         $ordered_phrases = self::order_sparse_feature_phrases($secondary_visible_phrases, $primary_platform_label);
         foreach ($ordered_phrases as $phrase) {
@@ -671,7 +671,7 @@ class TemplateContent {
         return [
             'intro_paragraphs' => array_values(array_filter([
                 $intro_first,
-                $has_extra_link_evidence ? 'Use additional verified destinations only when you need updates or support.' : '',
+                $has_extra_link_evidence ? 'Use the additional links below only for updates and profile checks.' : '',
             ], 'strlen')),
             'about_section_paragraphs' => [],
             'fans_like_section_paragraphs' => [],
@@ -715,7 +715,7 @@ class TemplateContent {
         $faq_items = is_array($payload['faq_items'] ?? null) ? $payload['faq_items'] : [];
         $stale_profile_faq_question = 'How do I avoid stale or copied profile links?';
         $stale_profile_faq_answer = $has_extra_link_evidence
-            ? 'Start from the live profile shown on this page, then use additional verified destinations only for follow-up checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.'
+            ? 'Start from the live profile shown on this page, then use the additional links below only for updates and profile checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.'
             : 'Start from the confirmed live profile shown on this page. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.';
         $has_stale_profile_faq = false;
         foreach ($faq_items as $idx => $faq_item) {
@@ -1579,14 +1579,29 @@ class TemplateContent {
         ];
 
         $exclude_urls = [];
+        $excluded_primary_cam_rows = [];
         foreach ($exclude_targets as $target) {
             $url = strtolower(rtrim(trim((string) ($target['url'] ?? '')), '/'));
             if ($url !== '') {
                 $exclude_urls[$url] = true;
             }
+            $platform = sanitize_key((string) ($target['platform'] ?? ''));
+            $label = trim((string) ($target['label'] ?? ''));
+            if (in_array($platform, ['livejasmin', 'jasmin'], true)) {
+                $excluded_primary_cam_rows['livejasmin'] = [
+                    'label' => $label !== '' ? $label : 'LiveJasmin',
+                    'url' => '',
+                    'family' => VerifiedLinksFamilies::FAMILY_CAM,
+                    'activity_level' => 'primary_confirmed',
+                    'is_static_label' => true,
+                ];
+            }
         }
 
         $grouped = [];
+        if (!empty($excluded_primary_cam_rows)) {
+            $grouped[VerifiedLinksFamilies::FAMILY_CAM] = array_values($excluded_primary_cam_rows);
+        }
         $seen = [];
         foreach ((array) ($resolved_destinations['all_verified_destinations'] ?? []) as $entry) {
             if (!is_array($entry)) { continue; }
@@ -1597,9 +1612,18 @@ class TemplateContent {
             $seen[$url_key] = true;
             $type = sanitize_key((string)($entry['type'] ?? 'other'));
             $family = VerifiedLinksFamilies::family_for($type);
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM && in_array($type, ['livejasmin', 'jasmin'], true) && isset($excluded_primary_cam_rows['livejasmin'])) {
+                continue;
+            }
             $frontend_url = self::get_frontend_verified_link_href($entry);
             $frontend_key = strtolower(rtrim($frontend_url, '/'));
-            if ($family === VerifiedLinksFamilies::FAMILY_CAM && (isset($exclude_urls[$url_key]) || ($frontend_key !== '' && isset($exclude_urls[$frontend_key])))) { continue; }
+            if ($family === VerifiedLinksFamilies::FAMILY_CAM && (isset($exclude_urls[$url_key]) || ($frontend_key !== '' && isset($exclude_urls[$frontend_key])))) {
+                if (!in_array($type, ['livejasmin', 'jasmin'], true)) {
+                    // Keep secondary cam platforms visible in the grouped cam-profile section.
+                } else {
+                    continue;
+                }
+            }
             if ($frontend_key !== '' && isset($seen['href:' . $frontend_key])) { continue; }
             if ($frontend_key !== '') { $seen['href:' . $frontend_key] = true; }
             $label = trim((string)($entry['label'] ?? ''));
@@ -1635,6 +1659,10 @@ class TemplateContent {
                 if ($anchor_text === '') {
                     continue;
                 }
+                if (!empty($row['is_static_label'])) {
+                    $items .= '<li>' . esc_html($anchor_text) . '</li>';
+                    continue;
+                }
                 $items .= '<li><a href="' . esc_url((string) $row['url']) . '" target="_blank" rel="' . esc_attr(self::verified_external_link_rel($row)) . '">' . esc_html($anchor_text) . '</a></li>';
             }
             if ($items === '') {
@@ -1665,6 +1693,9 @@ class TemplateContent {
         $activity = sanitize_key((string) ($row['activity_level'] ?? 'unknown'));
 
         if ($family === VerifiedLinksFamilies::FAMILY_CAM) {
+            if ($activity === 'primary_confirmed') {
+                return $label . ' — primary confirmed live profile';
+            }
             if (in_array($activity, ['active', 'very_active'], true)) {
                 return 'Watch Live on ' . $label;
             }
@@ -1879,7 +1910,7 @@ class TemplateContent {
         if (empty($evidence['has_extra_links'])) {
             return 'When checking ' . $phrase . ' links, start with the confirmed live profile and avoid assuming extra destinations exist until they are verified.';
         }
-        return 'When checking ' . $phrase . ' links, use the grouped profiles below to separate live access from the verified non-live destination types that are actually listed.';
+        return 'When checking ' . $phrase . ' links, use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.';
     }
 
     /**
@@ -2203,7 +2234,7 @@ class TemplateContent {
         }
 
         $keyword_list = self::format_human_list($phrases);
-        return 'Fans searching for ' . $keyword_list . ' should start from the confirmed live room for ' . $name . ' and then use the verified profile links below for updates, fan pages, and support channels.';
+        return 'Fans searching for ' . $keyword_list . ' should start with the confirmed live room for ' . $name . '. Use the verified links below to compare cam platforms, social profiles, fan pages, and support channels without opening copied or stale profile pages.';
     }
 
     /** @param string[] $items */
@@ -3686,7 +3717,7 @@ class TemplateContent {
         $fallback_lower = strtolower(self::NEUTRAL_PLATFORM_FALLBACK);
 
         if ($platform_lower !== '' && $platform_lower !== $fallback_lower && strpos($phrase_lower, $platform_lower) !== false) {
-            return 'For ' . $phrase . ' access, confirm handle consistency and recent room activity before joining.';
+            return 'For ' . $phrase . ' searches, start with the confirmed live room, then compare current status and profile details before spending credits.';
         }
         if (strpos($phrase_lower, 'webcam chat') !== false) {
             return 'For ' . $phrase . ' searches, check playback quality, mobile usability, and payment/privacy controls before spending credits.';
@@ -3794,7 +3825,9 @@ class TemplateContent {
 
     private static function cleanup_model_content(string $content, string $name): string {
         $content = str_replace(['this model', 'This model'], [$name, $name], $content);
-        $content = str_replace(['Additional the links', 'additional the links', 'use additional the links'], ['The additional links', 'the additional links', 'use the additional links'], $content);
+        $content = preg_replace('/<p>\s*For\s+[^<.]+?\s+access,\s*confirm handle consistency and recent room activity before joining\.\s*<\/p>/iu', '', $content) ?: $content;
+        $content = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the confirmed live room and use the verified links below for profile checks.', $content) ?: $content;
+        $content = str_replace(['Additional the links', 'additional the links', 'use additional the links', 'Use additional the links'], ['The additional links', 'the additional links', 'use the additional links', 'Use the additional links'], $content);
         // Do NOT replace "live webcam" — it is valid English and the old replacement
         // ("official profile links") created nonsensical phrases in prose.
 
@@ -3830,6 +3863,7 @@ class TemplateContent {
         $content = preg_replace('/\bWatch\s+' . preg_quote($name, '/') . '\b/iu', 'Open the verified live destination', $content) ?: $content;
         $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+is currently active on\b/iu', 'Current review status shows active access on', $content) ?: $content;
         $content = preg_replace('/\bthe profile\b/iu', 'this profile', $content) ?: $content;
+        $content = str_replace('Official Links and Profiles and LiveJasmin profile', 'Official Links and Profiles', $content);
         $content = str_replace('This guide covers the practical side:', 'This page focuses on the practical side:', $content);
         $content = str_replace('This guide covers exactly that need:', 'Here are the basics you need:', $content);
         $content = str_replace('The appeal extends beyond any single session.', 'There is more here than one good session.', $content);
