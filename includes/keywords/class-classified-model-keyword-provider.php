@@ -106,10 +106,7 @@ class ClassifiedModelKeywordProvider {
                 }
             }
 
-            if (in_array($keyword_class, [ ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM ], true)
-                && $standalone_allowed === true
-                && in_array($suggested_usage, [ ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED ], true)
-            ) {
+            if ($this->is_model_focus_extra_candidate($keyword_class, $suggested_usage)) {
                 $extra[] = $keyword;
             }
 
@@ -159,9 +156,18 @@ class ClassifiedModelKeywordProvider {
             return true;
         }
         if ($suggested_usage === ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED) {
-            return true;
+            return !in_array($keyword_class, self::PRIMARY_CLASSES, true);
         }
         return $standalone_allowed === false && in_array($suggested_usage, [ ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED ], true);
+    }
+
+    private function is_model_focus_extra_candidate(string $keyword_class, string $suggested_usage): bool {
+        return in_array($keyword_class, self::PRIMARY_CLASSES, true)
+            && in_array($suggested_usage, [
+                ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED,
+                ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED,
+                ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED,
+            ], true);
     }
 
     /** @param array<string,mixed> $sources */

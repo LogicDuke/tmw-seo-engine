@@ -37,8 +37,8 @@ class ModelKeywordPack {
         $classified_fragment = $is_model_page
             ? (new ClassifiedModelKeywordProvider())->build_for_model((int) $post->ID, $model_name)
             : self::empty_classified_fragment();
-        if ($is_model_page && !empty($classified_fragment['primary_candidates'][0])) {
-            $primary = (string) $classified_fragment['primary_candidates'][0];
+        if ($is_model_page && !empty($classified_fragment['primary_candidates'])) {
+            $primary = self::select_model_primary_keyword((array) $classified_fragment['primary_candidates'], $model_name, $primary);
         }
         $classified_exclusions = $is_model_page
             ? self::classified_exclusion_lookup($classified_fragment)
@@ -217,8 +217,12 @@ class ModelKeywordPack {
         // These replace the old name-free generic fallback as the Rank Math chip source.
         $rankmath_chips = [];
         if ($is_model_page) {
-            $rankmath_chips = self::merge_preferred_keywords(
+            $approved_model_keywords = self::order_model_rankmath_candidates(
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
+                $model_name
+            );
+            $rankmath_chips = self::merge_preferred_keywords(
+                $approved_model_keywords,
                 self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
                 12
             );
@@ -270,6 +274,20 @@ class ModelKeywordPack {
         return $lookup;
     }
 
+    /** @param string[] $candidates */
+    private static function select_model_primary_keyword(array $candidates, string $model_name, string $fallback): string {
+        $model = self::normalize_keyword($model_name);
+        $model_lc = function_exists('mb_strtolower') ? mb_strtolower($model, 'UTF-8') : strtolower($model);
+        foreach ($candidates as $candidate) {
+            $clean = self::normalize_keyword((string) $candidate);
+            $clean_lc = function_exists('mb_strtolower') ? mb_strtolower($clean, 'UTF-8') : strtolower($clean);
+            if ($model_lc !== '' && $clean_lc === $model_lc) {
+                return $clean;
+            }
+        }
+        return $fallback;
+    }
+
     /** @param string[] $preferred @param string[] $fallback @return string[] */
     private static function merge_preferred_keywords(array $preferred, array $fallback, int $limit): array {
         $merged = [];
@@ -298,6 +316,50 @@ class ModelKeywordPack {
         $keywords = self::filter_keywords_against_classified_exclusions($keywords, $excluded);
         $keywords = self::remove_primary_keyword_from_extras($keywords, $primary);
         return array_slice(self::dedupe_keywords($keywords), 0, 4);
+    }
+
+    /** @param string[] $keywords @return string[] */
+    private static function order_model_rankmath_candidates(array $keywords, string $model_name): array {
+        $model = self::normalize_keyword($model_name);
+        $model_lc = function_exists('mb_strtolower') ? mb_strtolower($model, 'UTF-8') : strtolower($model);
+        if ($model_lc === '') {
+            return self::dedupe_keywords($keywords);
+        }
+
+        $available = [];
+        foreach ($keywords as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean === '') {
+                continue;
+            }
+            $key = function_exists('mb_strtolower') ? mb_strtolower($clean, 'UTF-8') : strtolower($clean);
+            $available[$key] = $clean;
+        }
+
+        $preferred_keys = [
+            $model_lc . ' livejasmin',
+            'livejasmin ' . $model_lc,
+            $model_lc . ' live',
+            $model_lc . ' livejasmin porn',
+            $model_lc . ' porn',
+        ];
+
+        $ordered = [];
+        $seen = [];
+        foreach ($preferred_keys as $key) {
+            if (isset($available[$key]) && !isset($seen[$key])) {
+                $ordered[] = $available[$key];
+                $seen[$key] = true;
+            }
+        }
+        foreach ($available as $key => $keyword) {
+            if (!isset($seen[$key])) {
+                $ordered[] = $keyword;
+                $seen[$key] = true;
+            }
+        }
+
+        return $ordered;
     }
 
     /** @param string[] $keywords @return string[] */
@@ -727,6 +789,9 @@ class ModelKeywordPack {
         if ($has_livejasmin) {
             $chips[] = $name_lc . ' livejasmin';
             $chips[] = 'livejasmin ' . $name_lc;
+            $chips[] = $name_lc . ' live';
+            $chips[] = $name_lc . ' livejasmin porn';
+            $chips[] = $name_lc . ' porn';
             $chips[] = $name_lc . ' private live chat';
             $chips[] = $has_camsoda ? $name_lc . ' camsoda' : $name_lc . ' live cam';
         }

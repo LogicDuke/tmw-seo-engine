@@ -1588,12 +1588,15 @@ class TemplateContent {
             $platform = sanitize_key((string) ($target['platform'] ?? ''));
             $label = trim((string) ($target['label'] ?? ''));
             if (in_array($platform, ['livejasmin', 'jasmin'], true)) {
+                $target_url = trim((string) ($target['url'] ?? ''));
                 $excluded_primary_cam_rows['livejasmin'] = [
                     'label' => $label !== '' ? $label : 'LiveJasmin',
-                    'url' => '',
+                    'url' => self::get_frontend_verified_link_href([
+                        'type' => 'livejasmin',
+                        'url' => $target_url,
+                    ]) ?: $target_url,
                     'family' => VerifiedLinksFamilies::FAMILY_CAM,
                     'activity_level' => 'primary_confirmed',
-                    'is_static_label' => true,
                 ];
             }
         }
@@ -1694,7 +1697,7 @@ class TemplateContent {
 
         if ($family === VerifiedLinksFamilies::FAMILY_CAM) {
             if ($activity === 'primary_confirmed') {
-                return $label . ' — primary confirmed live profile';
+                return 'Visit Profile on ' . $label;
             }
             if (in_array($activity, ['active', 'very_active'], true)) {
                 return 'Watch Live on ' . $label;
@@ -3441,13 +3444,13 @@ class TemplateContent {
     private static function dedupe_exact_heading_text(string $content, string $heading, string $replacement): string {
         $seen = false;
         return preg_replace_callback(
-            '/<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>/iu',
-            static function (array $m) use (&$seen, $replacement): string {
+            '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu',
+            static function (array $m) use (&$seen): string {
                 if (!$seen) {
                     $seen = true;
                     return $m[0];
                 }
-                return '<h' . $m[1] . $m[2] . '>' . esc_html($replacement) . '</h' . $m[1] . '>';
+                return '';
             },
             $content
         ) ?: $content;

@@ -99,7 +99,7 @@ $wpdb->rows = [
     1 => $row(1, 'anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     2 => $row(2, 'anisyia livejasmin', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     3 => $row(3, 'livejasmin anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
-    12 => $row(12, 'anisyia live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
+    12 => $row(12, 'anisyia live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, true)),
     13 => $row(13, 'anisyia livejasmin porn', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
     4 => $row(4, 'video', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, false)),
     5 => $row(5, 'chat', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, false)),
@@ -144,16 +144,15 @@ $wpdb->rows = [
     12 => $row(12, 'anisyia livejasmin', 6666, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
 ];
 $name_context_pack = ModelKeywordPack::build(new WP_Post(6666, 'model', 'Anisyia'));
-pr604_assert($name_context_pack['primary'] === 'anisyia livejasmin', 'SEO primary may use the approved classified personal phrase.');
+pr604_assert($name_context_pack['primary'] === 'Anisyia', 'SEO primary should remain the model name when no approved exact-name primary row exists.');
 pr604_assert(in_array('anisyia livejasmin', $name_context_pack['rankmath_additional'], true), 'Approved classified personal phrase should still lead Rank Math extras.');
-pr604_assert(count(array_filter($name_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'anisyia ') && !str_starts_with((string) $kw, 'anisyia livejasmin '))) >= 1, 'Generated Rank Math chips should still use Anisyia as the model-name context.');
-pr604_assert(count(array_filter($name_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'anisyia livejasmin '))) === 0, 'Generated Rank Math chips must not use the classified phrase as the name context.');
+pr604_assert(count(array_filter($name_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'anisyia '))) >= 1, 'Generated Rank Math chips should still use Anisyia as the model-name context.');
 
 $wpdb->rows = [
     13 => $row(13, 'webcam model', 7777, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true, 'Core Only')),
 ];
 $core_context_pack = ModelKeywordPack::build(new WP_Post(7777, 'model', 'Core Only'));
-pr604_assert($core_context_pack['primary'] === 'webcam model', 'SEO primary may fall back to an approved core model term.');
+pr604_assert($core_context_pack['primary'] === 'Core Only', 'SEO primary should remain the model name instead of falling back to a core model term.');
 pr604_assert(count(array_filter($core_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'core only '))) >= 1, 'Generated Rank Math chips should use the title when the SEO primary is a core term.');
 pr604_assert(count(array_filter($core_context_pack['rankmath_additional'], static fn($kw): bool => str_starts_with((string) $kw, 'webcam model '))) === 0, 'Generated Rank Math chips must not use a core term as the model-name context.');
 
