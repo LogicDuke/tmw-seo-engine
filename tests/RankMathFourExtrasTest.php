@@ -115,11 +115,11 @@ namespace TMWSEO\Engine\Tests {
         // ─────────────────────────────────────────────────────────────────────
 
         /**
-         * After PR-615, build_rankmath_chips() no longer runs filter_for_model_page()
-         * on the chip list, so approved extras must not be stripped downstream.
-         * Verify the 4 approved extras all survive filter_for_model_page.
+         * The global model-page filter must still strip unsafe generated fallback phrases.
+         * Approved "porn" phrases are preserved only through approved DB/rankmath_additional,
+         * not by weakening PageTypeKeywordFilter.
          */
-        public function test_approved_extras_survive_page_type_filter(): void {
+        public function test_global_page_type_filter_strips_unsafe_porn_phrase(): void {
             $filtered = PageTypeKeywordFilter::filter_for_model_page( self::EXPECTED_EXTRAS );
 
             $this->assertContains(
@@ -137,16 +137,10 @@ namespace TMWSEO\Engine\Tests {
                 $filtered,
                 '"anisyia live" must survive filter_for_model_page'
             );
-            // Key assertion: 'anisyia livejasmin porn' must NOT be stripped.
-            // UNSAFE_TERMS matches whole-word 'porn' but this is inside a platform-intent phrase.
-            // After PR-615, build_rankmath_chips does not call this filter, so the phrase
-            // is preserved. This test also verifies the filter itself does not strip it
-            // when called with a full multi-word phrase (the model name prefix prevents
-            // the bare-word match from being a problem in context).
-            $this->assertContains(
+            $this->assertNotContains(
                 'anisyia livejasmin porn',
                 $filtered,
-                '"anisyia livejasmin porn" must not be stripped by filter_for_model_page'
+                '"anisyia livejasmin porn" must be stripped by filter_for_model_page unless it comes from approved rankmath_additional'
             );
         }
 
@@ -252,13 +246,13 @@ namespace TMWSEO\Engine\Tests {
                 );
             }
 
-            // Each phrase must appear exactly once — no duplicates.
-            foreach ( self::EXPECTED_EXTRAS as $phrase ) {
-                $count = substr_count( $sentence, $phrase );
-                $this->assertSame( 1, $count,
-                    "Phrase \"{$phrase}\" must appear exactly once in the body paragraph"
-                );
-            }
+            // Each phrase should appear as a list item, but avoid raw substring counting:
+            // "anisyia live" is also a prefix of "anisyia livejasmin".
+            $this->assertMatchesRegularExpression(
+                '/Fans searching for anisyia livejasmin, livejasmin anisyia, anisyia live, or anisyia livejasmin porn should start/u',
+                $sentence,
+                'Body paragraph must contain the expected ordered keyword list once.'
+            );
         }
 
         // ─────────────────────────────────────────────────────────────────────
