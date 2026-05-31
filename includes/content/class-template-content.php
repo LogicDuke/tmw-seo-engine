@@ -3442,18 +3442,32 @@ class TemplateContent {
     }
 
     private static function dedupe_exact_heading_text(string $content, string $heading, string $replacement): string {
-        $seen = false;
-        return preg_replace_callback(
-            '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu',
-            static function (array $m) use (&$seen): string {
-                if (!$seen) {
-                    $seen = true;
-                    return $m[0];
-                }
-                return '';
-            },
-            $content
-        ) ?: $content;
+        $pattern = '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu';
+        if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
+            return $content;
+        }
+
+        $keep_index = 0;
+        foreach ($matches[1] as $index => $level_match) {
+            if ((string) $level_match[0] === '2') {
+                $keep_index = (int) $index;
+                break;
+            }
+        }
+
+        $out = '';
+        $pos = 0;
+        foreach ($matches[0] as $index => $match) {
+            $text = (string) $match[0];
+            $offset = (int) $match[1];
+            $out .= substr($content, $pos, $offset - $pos);
+            if ($index === $keep_index) {
+                $out .= $text;
+            }
+            $pos = $offset + strlen($text);
+        }
+
+        return $out . substr($content, $pos);
     }
 
     /** @param array<int,string> $blocks */

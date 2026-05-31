@@ -1078,21 +1078,32 @@ class ModelCopyCleanup {
 	 * compare equal.
 	 */
 	private static function remove_duplicate_heading_text( string $html, string $heading ): string {
-		$seen = false;
 		$pattern = '#(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote( $heading, '#' ) . '\s*</h\1>(?:\s*<!--\s*/wp:heading\s*-->)?#iu';
-		$cleaned = preg_replace_callback(
-			$pattern,
-			static function ( array $m ) use ( &$seen ): string {
-				if ( ! $seen ) {
-					$seen = true;
-					return $m[0];
-				}
-				return '';
-			},
-			$html
-		);
+		if ( ! preg_match_all( $pattern, $html, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return $html;
+		}
 
-		return is_string( $cleaned ) ? $cleaned : $html;
+		$keep_index = 0;
+		foreach ( $matches[1] as $index => $level_match ) {
+			if ( (string) $level_match[0] === '2' ) {
+				$keep_index = (int) $index;
+				break;
+			}
+		}
+
+		$out = '';
+		$pos = 0;
+		foreach ( $matches[0] as $index => $match ) {
+			$text = (string) $match[0];
+			$offset = (int) $match[1];
+			$out .= substr( $html, $pos, $offset - $pos );
+			if ( $index === $keep_index ) {
+				$out .= $text;
+			}
+			$pos = $offset + strlen( $text );
+		}
+
+		return $out . substr( $html, $pos );
 	}
 
 	private static function normalise_heading_text_for_compare( string $inner ): string {

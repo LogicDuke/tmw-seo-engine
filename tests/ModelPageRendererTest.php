@@ -627,6 +627,7 @@ class ModelPageRendererTest extends TestCase {
 
     public function test_cleanup_removes_duplicate_headings_and_bad_artifacts(): void {
         $payload = self::base_payload();
+        $payload['watch_section_html'] = '<h3>Before You Click</h3><p><a href="/go/livejasmin/anisyia" rel="sponsored noopener">Watch Live on LiveJasmin</a></p>';
         $payload['comparison_section_paragraphs'] = ['Before joining, compare current room status.'];
         $payload['comparison_section_html'] = '<h2>Before You Click</h2><p>Use additional the links below only for follow-up checks.</p>';
         $payload['official_links_section_paragraphs'] = ['Official links are listed below.'];
@@ -635,6 +636,8 @@ class ModelPageRendererTest extends TestCase {
         $html = self::render($payload);
 
         $this->assertSame(1, preg_match_all('/Before You Click/i', $html));
+        $this->assertSame(1, preg_match_all('/<h2[^>]*>\s*Before You Click\s*<\/h2>/i', $html));
+        $this->assertSame(0, preg_match_all('/<h3[^>]*>\s*Before You Click\s*<\/h3>/i', $html));
         $this->assertStringNotContainsString('Safety Checklist', $html);
         $this->assertStringNotContainsString('use additional the links', $html);
         $this->assertStringNotContainsString('Official Links and Profiles and LiveJasmin profile', $html);
