@@ -4218,6 +4218,7 @@ class Admin {
     private static function render_csv_bulk_approve_safe_keywords_panel(): void {
         $preview = get_transient( 'tmwseo_csv_keyword_approval_preview_' . get_current_user_id() );
         $rollback = get_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
+        $has_preview_token = is_array( $preview ) && ! empty( $preview['token'] );
 
         AdminUI::section_start(
             __( 'CSV Bulk Approve Safe Keywords', 'tmwseo' ),
@@ -4238,11 +4239,11 @@ class Admin {
         echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
         wp_nonce_field( 'tmwseo_apply_csv_keyword_approvals' );
         echo '<input type="hidden" name="action" value="tmwseo_apply_csv_keyword_approvals">';
-        if ( is_array( $preview ) && ! empty( $preview['token'] ) ) {
+        if ( $has_preview_token ) {
             echo '<input type="hidden" name="preview_token" value="' . esc_attr( (string) $preview['token'] ) . '">';
         }
         echo '<label><input type="checkbox" name="confirm_apply" value="1"> ' . esc_html__( 'I understand this will approve matching queued keyword candidates only.', 'tmwseo' ) . '</label><br>';
-        submit_button( __( 'Apply CSV Keyword Approvals', 'tmwseo' ), 'primary', 'submit', false, [ 'disabled' => ! is_array( $preview ) ] );
+        submit_button( __( 'Apply CSV Keyword Approvals', 'tmwseo' ), 'primary', 'submit', false, $has_preview_token ? [] : [ 'disabled' => 'disabled' ] );
         echo '<p class="description">' . esc_html__( 'Applies at most 250 preview-approved rows per batch.', 'tmwseo' ) . '</p>';
         echo '</form>';
         echo '</div>';

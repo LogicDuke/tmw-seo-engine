@@ -1177,6 +1177,7 @@ class AdminFormHandlers {
 
         $preview = self::build_csv_keyword_approval_preview( (array) $parsed['rows'], $source_filename );
         set_transient( 'tmwseo_csv_keyword_approval_preview_' . get_current_user_id(), $preview, 30 * MINUTE_IN_SECONDS );
+        delete_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
         Logs::info( 'keywords', '[TMW-SEO-KEYWORDS] [TMW-SEO-CANDIDATES] [TMW-SEO-CSV-BULK-APPROVE] Preview CSV keyword approvals', [
             'source_filename' => $source_filename,
             'summary' => $preview['summary'],
@@ -1265,11 +1266,13 @@ class AdminFormHandlers {
             }
         }
 
-        $rollback = [
-            'token' => wp_generate_password( 20, false ),
-            'generated_at' => $timestamp,
-            'rows' => $rollback_rows,
-        ];
+        $existing_rollback = get_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
+        $rollback = self::build_cumulative_csv_keyword_approval_rollback(
+            is_array( $existing_rollback ) ? $existing_rollback : [],
+            $rollback_rows,
+            (string) ( $preview['token'] ?? '' ),
+            $timestamp
+        );
         set_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id(), $rollback, DAY_IN_SECONDS );
 
         $remaining = count( array_filter( (array) ( $preview['rows'] ?? [] ), static function ( $row ): bool {
@@ -1290,6 +1293,29 @@ class AdminFormHandlers {
             'tmwseo_remaining' => $remaining,
         ], admin_url( 'admin.php' ) ) );
         exit;
+    }
+
+    /**
+     * @param array<string,mixed> $existing_rollback Existing rollback transient payload.
+     * @param array<int,array<string,mixed>> $rollback_rows Current apply-batch rollback rows.
+     * @return array{token:string,preview_token:string,generated_at:string,rows:array<int,array<string,mixed>>}
+     */
+    public static function build_cumulative_csv_keyword_approval_rollback( array $existing_rollback, array $rollback_rows, string $preview_token, string $timestamp ): array {
+        $existing_rows = [];
+        $existing_token = '';
+        if ( $preview_token !== '' && hash_equals( $preview_token, (string) ( $existing_rollback['preview_token'] ?? '' ) ) ) {
+            $existing_rows = is_array( $existing_rollback['rows'] ?? null ) ? $existing_rollback['rows'] : [];
+            $existing_token = ! empty( $existing_rollback['token'] ) ? (string) $existing_rollback['token'] : '';
+        }
+
+        // Rollback data is cumulative across apply batches for the same user and preview token.
+        // This keeps the download complete when a large CSV is applied in multiple 250-row batches.
+        return [
+            'token' => $existing_token !== '' ? $existing_token : wp_generate_password( 20, false ),
+            'preview_token' => $preview_token,
+            'generated_at' => $timestamp,
+            'rows' => array_values( array_merge( $existing_rows, $rollback_rows ) ),
+        ];
     }
 
     public static function download_csv_keyword_approval_rollback(): void {
@@ -1512,8 +1538,8 @@ class AdminFormHandlers {
     }
 
     /** @return string[] */
-    private static function queued_keyword_candidate_statuses(): array {
-        return [ 'queued', 'new', 'pending_review', 'queued_for_review', 'pending review', 'pending' ];
+    public static function queued_keyword_candidate_statuses(): array {
+        return [ 'new', 'discovered', 'scored', 'queued_for_review' ];
     }
 
     /** @param array<string,mixed> $candidate @param string[] $columns */

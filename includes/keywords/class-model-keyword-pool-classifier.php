@@ -62,8 +62,12 @@ class ModelKeywordPoolClassifier {
             return $this->result($keyword, self::CLASS_UNSAFE_STANDALONE, false, self::USAGE_MODIFIER_ONLY, [ 'unsafe_standalone_exact_match' ], 'high');
         }
 
-        if (in_array($keyword, self::CONDITIONAL_SUPPORTING_TERMS, true)) {
-            return $this->result($keyword, self::CLASS_SUPPORTING_MODEL_TERM, true, self::USAGE_SECONDARY_FOCUS_ALLOWED, [ 'conditional_safe_supporting_keyword', 'live_webcam_model_project_context', 'not_primary_focus_keyword' ], 'medium');
+        if (self::is_conditional_supporting_keyword($keyword)) {
+            $reason_codes = [ 'conditional_safe_supporting_keyword', 'not_primary_focus_keyword' ];
+            if ('live' === $keyword) {
+                $reason_codes[] = 'live_webcam_model_project_context';
+            }
+            return $this->result($keyword, self::CLASS_SUPPORTING_MODEL_TERM, true, self::USAGE_SECONDARY_FOCUS_ALLOWED, $reason_codes, 'medium');
         }
 
         $is_generated = !empty($context['is_generated']);
@@ -95,6 +99,10 @@ class ModelKeywordPoolClassifier {
         }
 
         return $this->result($keyword, self::CLASS_UNKNOWN_REVIEW, false, self::USAGE_REVIEW_REQUIRED, [ 'no_rule_matched' ], 'low');
+    }
+
+    public static function is_conditional_supporting_keyword(string $keyword): bool {
+        return in_array(self::normalize_phrase($keyword), self::CONDITIONAL_SUPPORTING_TERMS, true);
     }
 
     public static function normalize_phrase(string $phrase): string {

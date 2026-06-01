@@ -133,7 +133,7 @@ class ModelKeywordStrategyClassifier {
             );
         }
 
-        if ($this->is_conditional_supporting_live_keyword($keyword)) {
+        if (ModelKeywordPoolClassifier::is_conditional_supporting_keyword($keyword)) {
             return $this->result(
                 self::STRATEGY_WEAK_REVIEW,
                 'medium',
@@ -246,10 +246,6 @@ class ModelKeywordStrategyClassifier {
             return false;
         }
         return $this->has_any($keyword, self::NOT_MODEL_PATTERNS);
-    }
-
-    private function is_conditional_supporting_live_keyword(string $keyword): bool {
-        return 'live' === $keyword;
     }
 
     private function has_livejasmin_modifier(string $keyword): bool {

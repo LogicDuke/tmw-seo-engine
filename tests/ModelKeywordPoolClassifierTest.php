@@ -33,7 +33,11 @@ final class ModelKeywordPoolClassifierTest extends TestCase {
         $this->assertSame(ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM, $result['keyword_class']);
         $this->assertTrue($result['standalone_allowed']);
         $this->assertSame(ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, $result['suggested_usage']);
+        $this->assertNotSame(ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, $result['suggested_usage']);
+        $this->assertTrue(ModelKeywordPoolClassifier::is_conditional_supporting_keyword(' live '));
+        $this->assertContains('conditional_safe_supporting_keyword', $result['reason_codes']);
         $this->assertContains('not_primary_focus_keyword', $result['reason_codes']);
+        $this->assertContains('live_webcam_model_project_context', $result['reason_codes']);
     }
 
     public function test_core_model_terms_are_primary_focus_allowed(): void {
