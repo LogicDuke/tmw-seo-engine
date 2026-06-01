@@ -2191,6 +2191,39 @@ class Admin {
                 echo '<div class="notice notice-info inline"><p><strong>Filters active:</strong> ' . esc_html( implode( ', ', $parts ) ) . ' <a href="' . esc_url( add_query_arg( $filter_base, admin_url( 'admin.php' ) ) ) . '">Reset Filters</a></p></div>';
             }
 
+            $operator_summary = $keywords_table->get_operator_summary();
+            $summary_cards = [
+                __( 'Total rows', 'tmwseo' ) => (int) ( $operator_summary['total_rows'] ?? 0 ),
+                __( 'Approved', 'tmwseo' ) => (int) ( $operator_summary['approved'] ?? 0 ),
+                __( 'Queued for review', 'tmwseo' ) => (int) ( $operator_summary['queued_for_review'] ?? 0 ),
+                __( 'Rejected/Ignored', 'tmwseo' ) => (int) ( $operator_summary['rejected_ignored'] ?? 0 ),
+                __( 'Blocked', 'tmwseo' ) => (int) ( $operator_summary['blocked'] ?? 0 ),
+                __( 'Linked', 'tmwseo' ) => (int) ( $operator_summary['linked'] ?? 0 ),
+                __( 'Errors', 'tmwseo' ) => (int) ( $operator_summary['errors'] ?? 0 ),
+            ];
+            echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;" data-tmw-debug="TMW-SEO-KEYWORD-SIMPLE-VIEW">';
+            foreach ( $summary_cards as $label => $count ) {
+                echo '<div class="tmwui-kpi-card" style="min-width:120px;"><strong>' . esc_html( (string) $count ) . '</strong><span>' . esc_html( (string) $label ) . '</span></div>';
+            }
+            echo '</div>';
+            $toggle_args = [];
+            foreach ( $_GET as $key => $value ) {
+                if ( ! is_scalar( $value ) ) {
+                    continue;
+                }
+                $toggle_args[ sanitize_key( (string) $key ) ] = wp_unslash( (string) $value );
+            }
+            $toggle_args['page'] = 'tmwseo-keywords';
+            $toggle_args['view'] = $view;
+            if ( $keywords_table->is_showing_technical_details() ) {
+                unset( $toggle_args['tmwseo_keyword_technical'] );
+                $toggle_label = __( 'Hide technical details', 'tmwseo' );
+            } else {
+                $toggle_args['tmwseo_keyword_technical'] = '1';
+                $toggle_label = __( 'Show technical details', 'tmwseo' );
+            }
+            echo '<p style="margin:0 0 12px;"><a class="button button-secondary" href="' . esc_url( add_query_arg( $toggle_args, admin_url( 'admin.php' ) ) ) . '">' . esc_html( $toggle_label ) . '</a> <span class="description">' . esc_html__( 'Default operator view hides technical keyword metadata visually only; no candidate data or moderation logic changes.', 'tmwseo' ) . '</span></p>';
+
             // ── Bulk-result notice ────────────────────────────────────────────
             if ( isset( $_GET['tmwseo_notice'] ) ) {
                 $bulk_notice = sanitize_key( (string) $_GET['tmwseo_notice'] );
@@ -2221,6 +2254,7 @@ class Admin {
             echo '<form method="get" style="margin-bottom:4px;">';
             echo '<input type="hidden" name="page" value="tmwseo-keywords">';
             echo '<input type="hidden" name="view" value="' . esc_attr( $view ) . '">';
+            if ( $keywords_table->is_showing_technical_details() ) { echo '<input type="hidden" name="tmwseo_keyword_technical" value="1">'; }
             foreach ( $active_filters as $k => $v ) {
                 if ( in_array( $k, [ 'page', 'view', 's' ], true ) ) { continue; }
                 echo '<input type="hidden" name="' . esc_attr( $k ) . '" value="' . esc_attr( (string) $v ) . '">';
@@ -2237,6 +2271,7 @@ class Admin {
             echo '<form method="post" id="tmwseo-kw-bulk-form">';
             echo '<input type="hidden" name="page" value="tmwseo-keywords">';
             echo '<input type="hidden" name="view" value="' . esc_attr( $view ) . '">';
+            if ( $keywords_table->is_showing_technical_details() ) { echo '<input type="hidden" name="_tmwseo_keyword_technical" value="1">'; }
             echo '<input type="hidden" name="_s" value="' . esc_attr( $search_val ) . '">';
             echo '<input type="hidden" name="_paged" value="' . esc_attr( (string) $paged_val ) . '">';
             foreach ( $active_filters as $k => $v ) {

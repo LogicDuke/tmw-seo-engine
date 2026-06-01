@@ -580,8 +580,52 @@ class KeywordPoolsAdminPage {
         if ([] === $rows) {
             return;
         }
-        $headers = [ 'Keyword', 'Pool', 'Status', 'Action', 'Reason', 'Volume', 'CPC', 'Competition', 'SEO Score', 'Traffic Value', 'Entity Type', 'Entity ID' ];
-        echo '<table class="widefat striped"><thead><tr>';
+
+        $operator_summary = self::import_operator_summary($rows, $summary);
+        echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;" data-tmw-debug="TMW-SEO-KEYWORD-SIMPLE-VIEW">';
+        foreach ($operator_summary as $label => $count) {
+            echo '<div class="tmwui-kpi-card" style="min-width:120px;"><strong>' . esc_html((string) $count) . '</strong><span>' . esc_html($label) . '</span></div>';
+        }
+        echo '</div>';
+
+        echo '<table class="widefat striped" data-tmw-debug="TMW-SEO-KEYWORD-SIMPLE-VIEW"><thead><tr>';
+        foreach ([
+            __( 'Keyword', 'tmwseo' ),
+            __( 'Volume', 'tmwseo' ),
+            __( 'Status', 'tmwseo' ),
+            __( 'Model', 'tmwseo' ),
+            __( 'Action / Result', 'tmwseo' ),
+        ] as $header) { echo '<th>' . esc_html($header) . '</th>'; }
+        echo '</tr></thead><tbody>';
+        foreach ($rows as $row) {
+            if (!is_array($row)) { continue; }
+            echo '<tr>';
+            echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
+            echo '<td>' . esc_html(self::metric_to_string($row['volume'] ?? '')) . '</td>';
+            $display_status = 'blocked' === strtolower((string) ($row['action'] ?? '')) ? 'blocked' : (string) ($row['status'] ?? '');
+            echo '<td>' . self::status_badge($display_status) . '</td>';
+            echo '<td>' . esc_html(self::import_row_model_label($row)) . '</td>';
+            echo '<td>' . esc_html(trim((string) ($row['action'] ?? '') . ('' !== (string) ($row['reason'] ?? '') ? ' — ' . (string) $row['reason'] : ''))) . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+
+        echo '<details style="margin-top:12px;"><summary class="button button-secondary" style="display:inline-block;">' . esc_html__('Show technical details', 'tmwseo') . '</summary>';
+        $headers = [
+            __( 'Keyword', 'tmwseo' ),
+            __( 'Pool', 'tmwseo' ),
+            __( 'Status', 'tmwseo' ),
+            __( 'Action', 'tmwseo' ),
+            __( 'Reason', 'tmwseo' ),
+            __( 'Volume', 'tmwseo' ),
+            __( 'CPC', 'tmwseo' ),
+            __( 'Competition', 'tmwseo' ),
+            __( 'SEO Score', 'tmwseo' ),
+            __( 'Traffic Value', 'tmwseo' ),
+            __( 'Entity Type', 'tmwseo' ),
+            __( 'Entity ID', 'tmwseo' ),
+        ];
+        echo '<table class="widefat striped" style="margin-top:12px;"><thead><tr>';
         foreach ($headers as $header) { echo '<th>' . esc_html($header) . '</th>'; }
         echo '</tr></thead><tbody>';
         foreach ($rows as $row) {
@@ -592,7 +636,53 @@ class KeywordPoolsAdminPage {
             }
             echo '</tr>';
         }
-        echo '</tbody></table>';
+        echo '</tbody></table></details>';
+    }
+
+    /** @param array<int,mixed> $rows @param array<string,mixed> $summary @return array<string,int> */
+    private static function import_operator_summary(array $rows, array $summary): array {
+        $counts = [
+            __('Total rows', 'tmwseo') => 0,
+            __('Approved', 'tmwseo') => 0,
+            __('Queued for review', 'tmwseo') => 0,
+            __('Rejected/Ignored', 'tmwseo') => 0,
+            __('Blocked', 'tmwseo') => 0,
+            __('Linked', 'tmwseo') => (int) ($summary['linked_model_entities'] ?? 0),
+            __('Errors', 'tmwseo') => 0,
+        ];
+        foreach ($rows as $row) {
+            if (!is_array($row)) { continue; }
+            $counts[__('Total rows', 'tmwseo')]++;
+            $status = strtolower((string) ($row['status'] ?? ''));
+            if ('approved' === $status) { $counts[__('Approved', 'tmwseo')]++; }
+            elseif ('queued_for_review' === $status) { $counts[__('Queued for review', 'tmwseo')]++; }
+            elseif (in_array($status, [ 'rejected', 'ignored' ], true)) { $counts[__('Rejected/Ignored', 'tmwseo')]++; }
+            if ('blocked' === strtolower((string) ($row['action'] ?? ''))) { $counts[__('Blocked', 'tmwseo')]++; }
+            if ('error' === strtolower((string) ($row['action'] ?? ''))) { $counts[__('Errors', 'tmwseo')]++; }
+        }
+        return $counts;
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function import_row_model_label(array $row): string {
+        foreach ([ 'model_name', 'model_keyword_owner', 'model', 'owner' ] as $key) {
+            $value = trim((string) ($row[$key] ?? ''));
+            if ('' !== $value) { return $value; }
+        }
+        return 'model' === (string) ($row['pool'] ?? '') ? '—' : (string) ($row['pool'] ?? '—');
+    }
+
+    private static function status_badge(string $status): string {
+        $normalized = strtolower($status);
+        $styles = [
+            'approved' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;',
+            'queued_for_review' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:600;',
+            'rejected' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;',
+            'ignored' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#6b7280;font-weight:600;',
+            'blocked' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:700;',
+        ];
+        $style = $styles[$normalized] ?? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#374151;font-weight:600;';
+        return '<span style="' . esc_attr($style) . '">' . esc_html($status) . '</span>';
     }
 
     /**

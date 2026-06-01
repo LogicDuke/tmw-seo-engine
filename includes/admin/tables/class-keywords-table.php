@@ -42,6 +42,14 @@ class KeywordsTable extends \WP_List_Table {
     private bool $has_notes = false;
     /** @var bool */
     private bool $has_updated_at = false;
+    /** @var bool */
+    private bool $show_technical_details = false;
+    /** @var bool */
+    private bool $has_problem_entity_link = false;
+    /** @var bool */
+    private bool $has_available_cpc = false;
+    /** @var array<string,int> */
+    private array $operator_summary = [];
 
     /**
      * @param string|null $status_filter  If set, WHERE status = this value.
@@ -55,9 +63,24 @@ class KeywordsTable extends \WP_List_Table {
         ]);
         $this->status_filter = $status_filter;
         $this->current_view  = $current_view;
+        $this->show_technical_details = isset( $_GET['tmwseo_keyword_technical'] ) && '1' === (string) $_GET['tmwseo_keyword_technical'];
     }
 
     public function get_columns(): array {
+        if ( ! $this->show_technical_details ) {
+            $columns = [
+                'cb'                  => '<input type="checkbox" />',
+                'keyword'             => __('Keyword', 'tmwseo'),
+                'volume'              => __('Volume', 'tmwseo'),
+            ];
+            if ( $this->has_cpc && $this->has_available_cpc ) { $columns['cpc'] = __('CPC', 'tmwseo'); }
+            $columns['status']              = __('Status', 'tmwseo');
+            $columns['model_keyword_owner'] = __('Model', 'tmwseo');
+            if ( $this->has_problem_entity_link ) { $columns['model_entity_link_status'] = __('Entity Link Status', 'tmwseo'); }
+            $columns['actions']             = __('Actions', 'tmwseo');
+            return $columns;
+        }
+
         $columns = [
             'cb'         => '<input type="checkbox" />',
             'keyword'    => __('Keyword', 'tmwseo'),
@@ -144,8 +167,24 @@ class KeywordsTable extends \WP_List_Table {
     public function column_keyword($item): string {
         $candidate_id = (int) ($item['id'] ?? 0);
         $keyword = (string) ($item['keyword'] ?? '');
+        if ( ! $this->show_technical_details ) {
+            return '<span id="tmw-candidate-' . esc_attr( (string) $candidate_id ) . '">' . esc_html( $keyword ) . '</span>';
+        }
 
+        return '<span id="tmw-candidate-' . esc_attr( (string) $candidate_id ) . '">' . esc_html( $keyword ) . '</span>' . $this->row_actions( $this->row_action_links( is_array( $item ) ? $item : [] ), false );
+    }
+
+    public function column_actions($item): string {
+        $actions = $this->row_action_links( is_array( $item ) ? $item : [] );
+        return '<div class="tmwseo-keyword-actions">' . implode( ' | ', $actions ) . '</div>';
+    }
+
+    /** @param array<string,mixed> $item @return array<string,string> */
+    private function row_action_links(array $item): array {
+        $candidate_id = (int) ($item['id'] ?? 0);
+        $keyword = (string) ($item['keyword'] ?? '');
         $view_args = $this->current_view !== '' ? [ 'view' => $this->current_view ] : [];
+        if ( $this->show_technical_details ) { $view_args['tmwseo_keyword_technical'] = '1'; }
 
         $inspect_url = add_query_arg(
             array_merge( $view_args, [
@@ -167,14 +206,12 @@ class KeywordsTable extends \WP_List_Table {
             'candidate_action' => 'reject',
         ], admin_url( 'admin-post.php' ) ), 'tmwseo_keyword_candidate_action_' . $candidate_id );
 
-        $actions = [
+        return [
             'inspect' => '<a href="' . esc_url( $inspect_url ) . '">' . esc_html__( 'Inspect', 'tmwseo' ) . '</a>',
             'approve' => '<a href="' . esc_url( $approve_url ) . '">' . esc_html__( 'Approve', 'tmwseo' ) . '</a>',
             'reject'  => '<a href="' . esc_url( $reject_url ) . '">' . esc_html__( 'Reject', 'tmwseo' ) . '</a>',
             'copy'    => '<button type="button" class="button-link" data-tmw-copy-keyword="' . esc_attr( $keyword ) . '">' . esc_html__( 'Copy', 'tmwseo' ) . '</button>',
         ];
-
-        return '<span id="tmw-candidate-' . esc_attr( (string) $candidate_id ) . '">' . esc_html( $keyword ) . '</span>' . $this->row_actions( $actions, false );
     }
 
     public function column_default($item, $column_name): string {
@@ -208,9 +245,13 @@ class KeywordsTable extends \WP_List_Table {
         if ($column_name === 'status') {
             $status = strtolower((string) $value);
             $styles = [
-                'approved' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;',
-                'ignored'  => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;',
-                'new'      => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1e40af;font-weight:600;',
+                'approved'          => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;',
+                'queued_for_review' => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:600;',
+                'pending'           => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:600;',
+                'new'               => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#374151;font-weight:600;',
+                'rejected'          => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;',
+                'ignored'           => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#6b7280;font-weight:600;',
+                'blocked'           => 'display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:700;',
             ];
             $style = $styles[$status] ?? 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#374151;font-weight:600;';
             return '<span style="' . esc_attr($style) . '">' . esc_html((string) $value) . '</span>';
@@ -509,11 +550,6 @@ class KeywordsTable extends \WP_List_Table {
 
         $this->process_bulk_action();
 
-        $columns  = $this->get_columns();
-        $hidden   = [];
-        $sortable = $this->get_sortable_columns();
-        $this->_column_headers = [ $columns, $hidden, $sortable ];
-
         $allowed_orderby = [ 'keyword', 'volume', 'difficulty', 'kd', 'intent', 'status', 'created_at', 'updated_at' ];
         if ( $this->has_cpc ) { $allowed_orderby[] = 'cpc'; }
         if ( $this->has_competition ) { $allowed_orderby[] = 'competition'; }
@@ -625,6 +661,7 @@ class KeywordsTable extends \WP_List_Table {
         $total_items = $where_args === []
             ? (int) $wpdb->get_var( $total_sql )
             : (int) $wpdb->get_var( $wpdb->prepare( $total_sql, $where_args ) );
+        $this->operator_summary = $this->load_operator_summary( $table, $where_sql, $where_args, $total_items );
 
         $per_page     = max( 1, (int) $this->get_items_per_page( 'tmw_keywords_per_page', 50 ) );
         $current_page = max( 1, isset( $_GET['paged'] ) ? (int) $_GET['paged'] : 1 );
@@ -680,13 +717,80 @@ class KeywordsTable extends \WP_List_Table {
                 'active_filters' => $this->active_filters,
             ] ) );
         }
-        error_log( 'TMW keywords fetched: ' . count( $this->items ) );
+        error_log( '[TMW-SEO-KEYWORD-SIMPLE-VIEW] TMW keywords fetched: ' . count( $this->items ) );
+        $this->has_available_cpc = $this->items_have_available_cpc();
+        $this->has_problem_entity_link = $this->items_have_problem_entity_link();
+        $columns  = $this->get_columns();
+        $hidden   = [];
+        $sortable = $this->get_sortable_columns();
+        $this->_column_headers = [ $columns, $hidden, $sortable ];
 
         $this->set_pagination_args( [
             'total_items' => $total_items,
             'per_page'    => $per_page,
             'total_pages' => (int) ceil( $total_items / $per_page ),
         ] );
+    }
+
+
+    /** @return array<string,int> */
+    public function get_operator_summary(): array { return $this->operator_summary; }
+
+    public function is_showing_technical_details(): bool { return $this->show_technical_details; }
+
+    /** @param array<int,mixed> $where_args @return array<string,int> */
+    private function load_operator_summary(string $table, string $where_sql, array $where_args, int $total_items): array {
+        global $wpdb;
+        $summary = [
+            'total_rows' => $total_items,
+            'approved' => 0,
+            'queued_for_review' => 0,
+            'rejected_ignored' => 0,
+            'blocked' => 0,
+            'linked' => 0,
+            'errors' => 0,
+        ];
+        $linked_sql = ( $this->has_entity_type && $this->has_entity_id ) ? "SUM(entity_type = 'model' AND CAST(entity_id AS UNSIGNED) > 0) AS linked," : '0 AS linked,';
+        $sql = "SELECT
+                SUM(status = 'approved') AS approved,
+                SUM(status = 'queued_for_review') AS queued_for_review,
+                SUM(status IN ('rejected', 'ignored')) AS rejected_ignored,
+                SUM(status = 'blocked') AS blocked,
+                {$linked_sql}
+                SUM(status IN ('error', 'failed', 'import_error')) AS errors
+            FROM {$table}{$where_sql}";
+        $row = $where_args === []
+            ? $wpdb->get_row( $sql, ARRAY_A )
+            : $wpdb->get_row( $wpdb->prepare( $sql, $where_args ), ARRAY_A );
+        if ( is_array( $row ) ) {
+            foreach ( [ 'approved', 'queued_for_review', 'rejected_ignored', 'blocked', 'linked', 'errors' ] as $key ) {
+                $summary[$key] = (int) ( $row[$key] ?? 0 );
+            }
+        }
+        return $summary;
+    }
+
+    private function items_have_available_cpc(): bool {
+        if ( ! $this->has_cpc ) { return false; }
+        foreach ( $this->items as $item ) {
+            if ( ! is_array( $item ) ) { continue; }
+            $value = $item['cpc'] ?? null;
+            if ( null !== $value && '' !== $value && (float) $value > 0.0 ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function items_have_problem_entity_link(): bool {
+        foreach ( $this->items as $item ) {
+            if ( ! is_array( $item ) ) { continue; }
+            $metadata = $this->model_keyword_metadata_from_item( $item );
+            if ( in_array( (string) ( $metadata['entity_link_status'] ?? '' ), [ 'unresolved', 'ambiguous' ], true ) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function get_active_filters(): array { return $this->active_filters; }
