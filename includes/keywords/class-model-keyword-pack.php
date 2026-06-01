@@ -214,9 +214,9 @@ class ModelKeywordPack {
         $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
 
         // Dedicated Rank Math extras for model pages use approved linked personal
-        // keywords first, then deterministic slices of the approved model pool that
-        // match this model's saved platforms and assigned tags, with safe formulas
-        // only filling any remaining slots.
+        // keywords first, then model-name combinations for verified saved
+        // platforms and assigned tags, with safe model-name formulas only
+        // filling any remaining slots.
         $rankmath_chips = [];
         $rankmath_rotation = self::empty_rankmath_rotation_result();
         if ($is_model_page) {
@@ -231,12 +231,15 @@ class ModelKeywordPack {
             $rankmath_chips = $rankmath_rotation['final'];
         }
 
-        if ($is_model_page && defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+        if ($is_model_page) {
             $rankmath_focus_list = array_values(array_filter(array_merge([ $model_name !== '' ? $model_name : $primary ], $rankmath_chips), 'strlen'));
-            Logs::info('keywords', '[TMW-SEO-RM-KW-ROTATE] ModelKeywordPack::build selected rotating model Rank Math keyword pack', [
+            Logs::info('keywords', '[TMW-SEO-RM-KW-ROTATE-FIX] ModelKeywordPack::build selected model-specific Rank Math keyword pack', [
                 'post_id' => (int) $post->ID,
                 'model_name' => $model_name,
                 'approved_personal_extras_used' => $rankmath_rotation['personal_used'] ?? [],
+                'skipped_raw_pool_keywords' => $rankmath_rotation['skipped_raw_pool_keywords'] ?? [],
+                'verified_platforms_used' => $rankmath_rotation['verified_platforms_used'] ?? [],
+                'verified_tags_used' => $rankmath_rotation['verified_tags_used'] ?? [],
                 'platform_extras_considered' => $rankmath_rotation['platform_considered'] ?? [],
                 'platform_extras_used' => $rankmath_rotation['platform_used'] ?? [],
                 'tag_attribute_extras_considered' => $rankmath_rotation['tag_attribute_considered'] ?? [],
@@ -831,20 +834,23 @@ class ModelKeywordPack {
      *
      * Priority order:
      * 1. approved linked personal model keywords,
-     * 2. approved platform pool keywords matching saved model platforms,
-     * 3. approved tag/attribute pool keywords matching assigned tags,
-     * 4. approved generic model-intent keywords with deterministic rotation,
-     * 5. safe deterministic model-name formulas.
+     * 2. verified saved platform keywords transformed to model-name combinations,
+     * 3. verified assigned tag/attribute keywords transformed to model-name combinations,
+     * 4. safe deterministic model-name formulas.
+     *
+     * Approved pool rows are never inserted raw for model pages; generic pool
+     * rows are logged and skipped until they can be used outside Rank Math extras.
      *
      * @param string[]          $personal_keywords
      * @param string[]          $platform_slugs
      * @param string[]          $tag_slugs
      * @param array<string,bool> $classified_exclusions
-     * @return array{final:string[],personal_used:string[],platform_considered:string[],platform_used:string[],tag_attribute_considered:string[],tag_attribute_used:string[],generic_considered:string[],generic_used:string[],fallback_used:string[]}
+     * @return array{final:string[],personal_used:string[],platform_considered:string[],platform_used:string[],tag_attribute_considered:string[],tag_attribute_used:string[],generic_considered:string[],generic_used:string[],fallback_used:string[],skipped_raw_pool_keywords:string[],verified_platforms_used:string[],verified_tags_used:string[]}
      */
     private static function select_rotating_rankmath_extras(int $post_id, string $model_name, array $personal_keywords, array $platform_slugs, array $tag_slugs, array $classified_exclusions): array {
         $result = self::empty_rankmath_rotation_result();
         $seed = $post_id . '|' . self::normalize_keyword($model_name) . '|' . implode(',', $platform_slugs) . '|' . implode(',', $tag_slugs);
+        $model_prefix = self::keyword_key($model_name);
 
         $append = function(array $keywords, string $bucket) use (&$result, $classified_exclusions, $model_name): void {
             foreach ($keywords as $keyword) {
@@ -868,15 +874,26 @@ class ModelKeywordPack {
         $personal = self::order_model_rankmath_candidates($personal_keywords, $model_name);
         $append($personal, 'personal_used');
 
-        $pool_rows = self::approved_model_pool_rows();
         $platform_candidates = [];
         $tag_candidates = [];
         $generic_candidates = [];
+
+        foreach (self::verified_rankmath_platform_keywords($platform_slugs) as $platform_keyword) {
+            $candidate = self::model_name_phrase($model_prefix, $platform_keyword);
+            if ($candidate !== '') {
+                $platform_candidates[$candidate] = max((int) ($platform_candidates[$candidate] ?? 0), 900);
+                $result['platform_considered'][] = $candidate;
+            }
+        }
+
+        $pool_rows = self::approved_model_pool_rows();
         foreach ($pool_rows as $row) {
-            $keyword = self::normalize_keyword((string) ($row['keyword'] ?? ''));
-            if (!self::is_safe_rankmath_extra($keyword, $classified_exclusions, $model_name, false)) {
+            $raw_keyword = self::normalize_keyword((string) ($row['keyword'] ?? ''));
+            if ($raw_keyword === '') {
                 continue;
             }
+            $result['skipped_raw_pool_keywords'][] = $raw_keyword;
+
             $sources = is_array($row['sources'] ?? null) ? $row['sources'] : self::decode_json_field($row['sources'] ?? null);
             if (trim((string) self::source_value($sources, 'model_keyword_owner')) !== '') {
                 continue;
@@ -884,39 +901,56 @@ class ModelKeywordPack {
             $class = (string) self::source_value($sources, 'keyword_class');
             $usage = (string) self::source_value($sources, 'suggested_usage');
             if ($class === '' || $usage === '') {
-                $classification = (new ModelKeywordPoolClassifier())->classify($keyword);
+                $classification = (new ModelKeywordPoolClassifier())->classify($raw_keyword);
                 $class = $class !== '' ? $class : (string) ($classification['keyword_class'] ?? '');
                 $usage = $usage !== '' ? $usage : (string) ($classification['suggested_usage'] ?? '');
             }
             $score = self::approved_pool_row_score($row, $sources);
 
-            if (self::keyword_matches_model_platform($keyword, $platform_slugs, $class)) {
-                $platform_candidates[$keyword] = max((int) ($platform_candidates[$keyword] ?? 0), $score);
+            $platform_keyword = self::verified_platform_keyword_from_pool_keyword($raw_keyword, $platform_slugs, $class);
+            if ($platform_keyword !== '') {
+                $candidate = self::model_name_phrase($model_prefix, $platform_keyword);
+                if ($candidate !== '') {
+                    $platform_candidates[$candidate] = max((int) ($platform_candidates[$candidate] ?? 0), $score);
+                    $result['platform_considered'][] = $candidate;
+                }
                 continue;
             }
-            if (self::keyword_matches_model_attribute($keyword, $tag_slugs, $class)) {
-                $tag_candidates[$keyword] = max((int) ($tag_candidates[$keyword] ?? 0), $score);
+
+            $attribute_phrase = self::verified_attribute_phrase_from_pool_keyword($raw_keyword, $tag_slugs, $class);
+            if ($attribute_phrase !== '') {
+                $candidate = self::model_name_phrase($model_prefix, $attribute_phrase . ' model');
+                if ($candidate !== '') {
+                    $tag_candidates[$candidate] = max((int) ($tag_candidates[$candidate] ?? 0), $score);
+                    $result['tag_attribute_considered'][] = $candidate;
+                }
                 continue;
             }
-            if (self::is_generic_model_intent_pool_keyword($keyword, $class, $usage)) {
-                $generic_candidates[$keyword] = max((int) ($generic_candidates[$keyword] ?? 0), $score);
+
+            if (self::is_generic_model_intent_pool_keyword($raw_keyword, $class, $usage)) {
+                $generic_candidates[$raw_keyword] = max((int) ($generic_candidates[$raw_keyword] ?? 0), $score);
             }
         }
 
-        $result['platform_considered'] = array_keys($platform_candidates);
-        $result['tag_attribute_considered'] = array_keys($tag_candidates);
+        $result['platform_considered'] = self::dedupe_keywords($result['platform_considered']);
+        $result['tag_attribute_considered'] = self::dedupe_keywords($result['tag_attribute_considered']);
         $result['generic_considered'] = array_keys($generic_candidates);
+        $result['skipped_raw_pool_keywords'] = self::dedupe_keywords($result['skipped_raw_pool_keywords']);
 
         $append(self::rotate_scored_keywords($platform_candidates, 4, $seed . '|platform'), 'platform_used');
         $append(self::rotate_scored_keywords($tag_candidates, 4, $seed . '|attribute'), 'tag_attribute_used');
-        $append(self::rotate_scored_keywords($generic_candidates, 4, $seed . '|generic'), 'generic_used');
+        // Generic approved pool rows are deliberately not appended to Rank Math
+        // extras for model pages; only model-name-safe formulas may fill gaps.
         $append(self::safe_rankmath_fallback_formulas($model_name, $platform_slugs), 'fallback_used');
+
+        $result['verified_platforms_used'] = self::verified_tokens_used_by_keywords($result['platform_used'], self::verified_rankmath_platform_keywords($platform_slugs));
+        $result['verified_tags_used'] = self::verified_tokens_used_by_keywords($result['tag_attribute_used'], self::verified_rankmath_attribute_phrases($tag_slugs));
 
         unset($result['_seen']);
         return $result;
     }
 
-    /** @return array{final:string[],personal_used:string[],platform_considered:string[],platform_used:string[],tag_attribute_considered:string[],tag_attribute_used:string[],generic_considered:string[],generic_used:string[],fallback_used:string[],_seen:array<string,bool>} */
+    /** @return array{final:string[],personal_used:string[],platform_considered:string[],platform_used:string[],tag_attribute_considered:string[],tag_attribute_used:string[],generic_considered:string[],generic_used:string[],fallback_used:string[],skipped_raw_pool_keywords:string[],verified_platforms_used:string[],verified_tags_used:string[],_seen:array<string,bool>} */
     private static function empty_rankmath_rotation_result(): array {
         return [
             'final' => [],
@@ -928,6 +962,9 @@ class ModelKeywordPack {
             'generic_considered' => [],
             'generic_used' => [],
             'fallback_used' => [],
+            'skipped_raw_pool_keywords' => [],
+            'verified_platforms_used' => [],
+            'verified_tags_used' => [],
             '_seen' => [],
         ];
     }
@@ -1012,15 +1049,11 @@ class ModelKeywordPack {
             return [];
         }
         $name_lc = function_exists('mb_strtolower') ? mb_strtolower($clean_name, 'UTF-8') : strtolower($clean_name);
-        $platform_keyword = self::fallback_platform_keyword($platform_slugs);
         $fallbacks = [];
-        if ($platform_keyword !== '') {
-            $fallbacks[] = $name_lc . ' ' . $platform_keyword;
-        }
         $fallbacks[] = $name_lc . ' cam';
         $fallbacks[] = $name_lc . ' webcam';
         $fallbacks[] = $name_lc . ' live cam';
-        $fallbacks[] = $name_lc . ' webcam model';
+        $fallbacks[] = $name_lc . ' model bio';
         return self::dedupe_keywords($fallbacks);
     }
 
@@ -1036,6 +1069,7 @@ class ModelKeywordPack {
                 'jasmin' => 'livejasmin',
                 'stripchat' => 'stripchat',
                 'chaturbate' => 'chaturbate',
+                'streamate' => 'streamate',
                 'bonga' => 'bongacams',
                 'bongacams' => 'bongacams',
                 'camsoda' => 'camsoda',
@@ -1073,6 +1107,98 @@ class ModelKeywordPack {
             return false;
         }
         return PageTypeKeywordFilter::filter_for_model_page([ $clean ]) !== [];
+    }
+
+    private static function model_name_phrase(string $model_prefix, string $suffix): string {
+        $suffix = self::keyword_key($suffix);
+        if ($model_prefix === '' || $suffix === '') {
+            return '';
+        }
+        return self::normalize_keyword($model_prefix . ' ' . $suffix);
+    }
+
+    /** @param string[] $platform_slugs @return string[] */
+    private static function verified_rankmath_platform_keywords(array $platform_slugs): array {
+        $allowed = [
+            'stripchat' => 'stripchat',
+            'chaturbate' => 'chaturbate',
+            'bonga' => 'bongacams',
+            'bongacams' => 'bongacams',
+            'streamate' => 'streamate',
+            'livejasmin' => 'livejasmin',
+            'jasmin' => 'livejasmin',
+        ];
+        $out = [];
+        foreach ($platform_slugs as $platform) {
+            $slug = sanitize_key((string) $platform);
+            if ($slug !== '' && isset($allowed[$slug])) {
+                $out[] = $allowed[$slug];
+            }
+        }
+        return self::dedupe_keywords($out);
+    }
+
+    /** @param string[] $platform_slugs */
+    private static function verified_platform_keyword_from_pool_keyword(string $keyword, array $platform_slugs, string $keyword_class): string {
+        if (!in_array($keyword_class, [ ModelKeywordPoolClassifier::CLASS_PLATFORM_TERM, ModelKeywordPoolClassifier::CLASS_PLATFORM_INTENT_TERM, ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM ], true)) {
+            return '';
+        }
+        $keyword_lc = self::keyword_key($keyword);
+        foreach (self::verified_rankmath_platform_keywords($platform_slugs) as $platform_keyword) {
+            $needles = [ $platform_keyword ];
+            if ($platform_keyword === 'bongacams') {
+                $needles[] = 'bonga';
+            }
+            if ($platform_keyword === 'livejasmin') {
+                $needles[] = 'jasmin';
+            }
+            foreach ($needles as $needle) {
+                $needle_lc = self::keyword_key($needle);
+                if ($needle_lc !== '' && preg_match('/(?:^|\s)' . preg_quote($needle_lc, '/') . '(?:\s|$)/u', $keyword_lc) === 1) {
+                    return $platform_keyword;
+                }
+            }
+        }
+        return '';
+    }
+
+    /** @param string[] $tag_slugs @return string[] */
+    private static function verified_rankmath_attribute_phrases(array $tag_slugs): array {
+        $out = [];
+        foreach ($tag_slugs as $tag) {
+            $phrase = self::keyword_key(str_replace('-', ' ', (string) $tag));
+            if ($phrase === '' || in_array($phrase, [ 'cam', 'webcam', 'live', 'model', 'girl', 'show', 'chat' ], true)) {
+                continue;
+            }
+            $out[] = $phrase;
+        }
+        return self::dedupe_keywords($out);
+    }
+
+    /** @param string[] $tag_slugs */
+    private static function verified_attribute_phrase_from_pool_keyword(string $keyword, array $tag_slugs, string $keyword_class): string {
+        $keyword_lc = self::keyword_key($keyword);
+        foreach (self::verified_rankmath_attribute_phrases($tag_slugs) as $attribute_phrase) {
+            if (preg_match('/(?:^|\s)' . preg_quote($attribute_phrase, '/') . '(?:\s|$)/u', $keyword_lc) === 1) {
+                return $attribute_phrase;
+            }
+        }
+        return '';
+    }
+
+    /** @param string[] $keywords @param string[] $tokens @return string[] */
+    private static function verified_tokens_used_by_keywords(array $keywords, array $tokens): array {
+        $used = [];
+        foreach ($keywords as $keyword) {
+            $keyword_lc = self::keyword_key((string) $keyword);
+            foreach ($tokens as $token) {
+                $token_lc = self::keyword_key((string) $token);
+                if ($token_lc !== '' && preg_match('/(?:^|\s)' . preg_quote($token_lc, '/') . '(?:\s|$)/u', $keyword_lc) === 1) {
+                    $used[] = $token_lc;
+                }
+            }
+        }
+        return self::dedupe_keywords($used);
     }
 
     private static function keyword_matches_model_platform(string $keyword, array $platform_slugs, string $keyword_class): bool {
