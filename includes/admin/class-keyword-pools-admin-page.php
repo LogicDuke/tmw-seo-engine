@@ -589,7 +589,13 @@ class KeywordPoolsAdminPage {
         echo '</div>';
 
         echo '<table class="widefat striped" data-tmw-debug="TMW-SEO-KEYWORD-SIMPLE-VIEW"><thead><tr>';
-        foreach ([ 'Keyword', 'Volume', 'Status', 'Model', 'Action / Result' ] as $header) { echo '<th>' . esc_html($header) . '</th>'; }
+        foreach ([
+            __( 'Keyword', 'tmwseo' ),
+            __( 'Volume', 'tmwseo' ),
+            __( 'Status', 'tmwseo' ),
+            __( 'Model', 'tmwseo' ),
+            __( 'Action / Result', 'tmwseo' ),
+        ] as $header) { echo '<th>' . esc_html($header) . '</th>'; }
         echo '</tr></thead><tbody>';
         foreach ($rows as $row) {
             if (!is_array($row)) { continue; }
@@ -605,7 +611,20 @@ class KeywordPoolsAdminPage {
         echo '</tbody></table>';
 
         echo '<details style="margin-top:12px;"><summary class="button button-secondary" style="display:inline-block;">' . esc_html__('Show technical details', 'tmwseo') . '</summary>';
-        $headers = [ 'Keyword', 'Pool', 'Status', 'Action', 'Reason', 'Volume', 'CPC', 'Competition', 'SEO Score', 'Traffic Value', 'Entity Type', 'Entity ID' ];
+        $headers = [
+            __( 'Keyword', 'tmwseo' ),
+            __( 'Pool', 'tmwseo' ),
+            __( 'Status', 'tmwseo' ),
+            __( 'Action', 'tmwseo' ),
+            __( 'Reason', 'tmwseo' ),
+            __( 'Volume', 'tmwseo' ),
+            __( 'CPC', 'tmwseo' ),
+            __( 'Competition', 'tmwseo' ),
+            __( 'SEO Score', 'tmwseo' ),
+            __( 'Traffic Value', 'tmwseo' ),
+            __( 'Entity Type', 'tmwseo' ),
+            __( 'Entity ID', 'tmwseo' ),
+        ];
         echo '<table class="widefat striped" style="margin-top:12px;"><thead><tr>';
         foreach ($headers as $header) { echo '<th>' . esc_html($header) . '</th>'; }
         echo '</tr></thead><tbody>';

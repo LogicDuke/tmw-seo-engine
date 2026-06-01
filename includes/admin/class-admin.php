@@ -4138,7 +4138,13 @@ class Admin {
                 echo '<div class="tmwui-kpi-card" style="min-width:120px;"><strong>' . esc_html( (string) $count ) . '</strong><span>' . esc_html( (string) $label ) . '</span></div>';
             }
             echo '</div>';
-            $toggle_args = $_GET;
+            $toggle_args = [];
+            foreach ( $_GET as $key => $value ) {
+                if ( ! is_scalar( $value ) ) {
+                    continue;
+                }
+                $toggle_args[ sanitize_key( (string) $key ) ] = wp_unslash( (string) $value );
+            }
             $toggle_args['page'] = 'tmwseo-keywords';
             $toggle_args['view'] = $view;
             if ( $keywords_table->is_showing_technical_details() ) {
