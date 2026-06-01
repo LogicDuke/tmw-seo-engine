@@ -9,6 +9,28 @@ if (!defined('ABSPATH')) { exit; }
 
 class Editor_AI_Metabox {
 
+    /**
+     * Resolve the default Generate strategy for the editor metabox.
+     *
+     * Model pages intentionally default to deterministic template generation,
+     * while other post types keep the existing configured-provider preference.
+     */
+    public static function default_generate_strategy(string $post_type, bool $has_openai, bool $has_claude, string $ai_primary): string {
+        if ($post_type === 'model') {
+            return 'template';
+        }
+
+        if ($has_claude && (!$has_openai || $ai_primary === 'anthropic')) {
+            return 'claude';
+        }
+
+        if ($has_openai) {
+            return 'openai';
+        }
+
+        return 'template';
+    }
+
     public static function init(): void {
         add_action('add_meta_boxes', [__CLASS__, 'register_metabox']);
         add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
@@ -294,12 +316,7 @@ class Editor_AI_Metabox {
         echo '<div class="tmwseo-mb-zone">';
         echo '<p class="tmwseo-mb-zone-title">' . esc_html__('Generate', 'tmwseo') . '</p>';
 
-        $default_strategy = 'template';
-        if ($has_claude && (!$has_openai || $ai_primary === 'anthropic')) {
-            $default_strategy = 'claude';
-        } elseif ($has_openai) {
-            $default_strategy = 'openai';
-        }
+        $default_strategy = self::default_generate_strategy((string) $post->post_type, $has_openai, $has_claude, $ai_primary);
 
         echo '<div class="tmwseo-mb-field">';
         echo '<label for="tmwseo-generate-strategy">' . esc_html__('Strategy', 'tmwseo') . '</label>';
@@ -318,7 +335,10 @@ class Editor_AI_Metabox {
         echo '</select>';
         echo '</div>';
 
-        echo '<p style="margin:0 0 8px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        echo '<p style="margin:0 0 4px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        if ((string) $post->post_type === 'model') {
+            echo '<p class="tmwseo-mb-help" style="margin-top:0">' . esc_html__('For model pages, keep this checked to insert/update the TMW SEO block instead of replacing existing content.', 'tmwseo') . '</p>';
+        }
 
         echo '<div class="tmwseo-mb-btn-stack">';
         echo '<button '

@@ -877,15 +877,28 @@ class ModelHelper {
      * for environments where the JobWorker cron is disabled.
      */
     public static function ajax_enqueue_full_audit(): void {
+        $ob_level = (int) ob_get_level();
+
         $post_id = (int) ( $_POST['post_id'] ?? 0 );
         $nonce   = sanitize_text_field( wp_unslash( (string) ( $_POST['nonce'] ?? '' ) ) );
 
-        if ( $post_id <= 0 || ! wp_verify_nonce( $nonce, 'tmwseo_full_audit_' . $post_id ) ) {
-            wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
-        }
-        if ( ! current_user_can( 'edit_post', $post_id ) ) {
-            wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
-        }
+        $raw_aliases = get_post_meta( $post_id, self::META_ALIASES, true );
+        $aliases     = is_array( $raw_aliases ) ? $raw_aliases : [];
+        $model_name  = $post_id > 0 ? (string) get_the_title( $post_id ) : '';
+
+        Logs::info( 'model_research', '[TMW-MODEL-AUDIT-AJAX] enqueue started', [
+            'post_id'    => $post_id,
+            'model_name' => $model_name,
+            'aliases'    => $aliases,
+        ] );
+
+        try {
+            if ( $post_id <= 0 || ! wp_verify_nonce( $nonce, 'tmwseo_full_audit_' . $post_id ) ) {
+                wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
+            }
+            if ( ! current_user_can( 'edit_post', $post_id ) ) {
+                wp_send_json_error( [ 'message' => 'Forbidden' ], 403 );
+            }
 
         if ( ! class_exists( '\\TMWSEO\\Engine\\JobWorker' ) ) {
             $f = TMWSEO_ENGINE_PATH . 'includes/worker/class-job-worker.php';
@@ -1094,6 +1107,14 @@ class ModelHelper {
             'probe_http'   => (int)    ( $kick['probe_http']   ?? 0 ),
         ] );
 
+        Logs::info( 'model_research', '[TMW-MODEL-AUDIT-AJAX] enqueue success', [
+            'post_id'    => $post_id,
+            'model_name' => $model_name,
+            'aliases'    => $aliases,
+            'job_id'     => $job_id,
+            'mode'       => 'background',
+        ] );
+
         wp_send_json_success( [
             'status'           => 'queued',
             'job_id'           => $job_id,
@@ -1105,6 +1126,29 @@ class ModelHelper {
             'probe_endpoint'   => (string) ( $kick['probe_endpoint'] ?? '' ),
             'message'          => 'Full Audit job enqueued — page will refresh when it finishes.',
         ] );
+        } catch ( \Throwable $e ) {
+            while ( ob_get_level() > $ob_level ) {
+                @ob_end_clean();
+            }
+            $safe_message = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $e->getMessage() ) ) );
+            if ( $safe_message === '' ) {
+                $safe_message = 'Unexpected server error while starting Full Audit.';
+            }
+            Logs::error( 'model_research', '[TMW-MODEL-AUDIT-AJAX] enqueue failed', [
+                'post_id'            => $post_id,
+                'model_name'         => $model_name,
+                'aliases'            => $aliases,
+                'exception_message'  => $e->getMessage(),
+                'exception_class'    => get_class( $e ),
+                'exception_code'     => (int) $e->getCode(),
+                'exception_file'     => $e->getFile(),
+                'exception_line'     => (int) $e->getLine(),
+            ] );
+            wp_send_json_error( [
+                'status'  => 'error',
+                'message' => 'Full Audit could not start. ' . $safe_message,
+            ], 500 );
+        }
     }
 
     /**

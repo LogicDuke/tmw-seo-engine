@@ -889,4 +889,26 @@ class CrakRevenueCamRoutingTest extends TestCase {
         $this->assertSame(403, (int) ($diag['offer_url_sync_http_status'] ?? 0));
         $this->assertStringContainsString('CrakRevenue denied landing-page sync', (string) ($diag['offer_url_sync_error'] ?? ''));
     }
+
+    public function test_generated_seo_camsoda_url_uses_crakrevenue_mapping_with_username(): void {
+        update_option(CrakRevenueCamManager::PLATFORM_MAPPINGS_OPTION, [
+            'camsoda' => [
+                'enabled' => 1,
+                'selected_offer_id' => 5170,
+                'approval_status' => 'approved',
+                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+            ],
+        ]);
+
+        $url = AffiliateLinkBuilder::build_seo_content_affiliate_url('camsoda', 'anisyia');
+
+        $this->assertSame('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=anisyia', $url);
+    }
+
+    public function test_generated_seo_camsoda_url_falls_back_to_raw_profile_without_mapping(): void {
+        $url = AffiliateLinkBuilder::build_seo_content_affiliate_url('camsoda', 'anisyia');
+
+        $this->assertSame('https://www.camsoda.com/anisyia', $url);
+    }
+
 }

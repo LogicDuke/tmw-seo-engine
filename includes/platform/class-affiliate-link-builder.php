@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Platform;
 
 use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Affiliates\CrakRevenueCamManager;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -10,6 +11,26 @@ class AffiliateLinkBuilder {
      * Canonical LiveJasmin affiliate endpoint.
      */
     private const LIVEJASMIN_AFFILIATE_BASE = 'https://ctwmsg.com/';
+
+    /**
+     * Operator-approved default AWEmpire tracking values for LiveJasmin SEO body links.
+     *
+     * These defaults keep generated model pages from falling back to internal /go/
+     * URLs when the WP Admin affiliate settings are missing or only partly saved.
+     * Saved settings still win whenever they contain a non-empty value.
+     *
+     * @var array<string,string>
+     */
+    private const LIVEJASMIN_SEO_DEFAULTS = [
+        'psid'        => 'Topmodels4u',
+        'pstool'      => '205_1',
+        'psprogram'   => 'revs',
+        'campaign_id' => '',
+        'subaffid'    => '',
+        'siteid'      => 'jasmin',
+        'categoryname' => 'girl',
+        'pagename'    => 'freechat',
+    ];
 
     /**
      * Slug aliases that should resolve to the canonical LiveJasmin platform key.
@@ -60,6 +81,98 @@ class AffiliateLinkBuilder {
         return str_replace('{username}', rawurlencode($clean_username), $pattern);
     }
 
+    /**
+     * Single global API for affiliate links inside generated SEO body content.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * Generated SEO text/content blocks that need Rank Math outbound-link
+     * scoring must call this method instead of go_url(), build_affiliate_url(),
+     * or any raw /go/ helper. LiveJasmin returns only approved external
+     * affiliate destinations and returns an empty string when required platform
+     * username/tracking config is unavailable. CamSoda uses CrakRevenue routing
+     * when configured and falls back to the raw CamSoda profile URL so the
+     * generated page keeps a valid official clickable destination.
+     *
+     * Unlike build_affiliate_url(), this resolver never returns internal /go/
+     * routes. Generated post content needs a real outbound href so SEO tooling
+     * can detect an external link.
+     *
+     * @param string $platform Platform slug or alias.
+     * @param string $username Approved platform username.
+     * @return string External affiliate/profile URL, or empty string when the
+     *                platform cannot provide a safe generated-content URL.
+     */
+    public static function build_seo_content_affiliate_url( string $platform, string $username ): string {
+        $platform_slug = self::canonical_platform_slug( $platform );
+        if ( ! PlatformRegistry::get( $platform_slug ) ) {
+            return '';
+        }
+
+        $clean_username = self::sanitize_username( $username );
+        if ( $clean_username === '' ) {
+            return '';
+        }
+
+        if ( $platform_slug === 'livejasmin' ) {
+            $settings = self::with_livejasmin_seo_defaults( self::get_platform_affiliate_settings( $platform_slug ) );
+            if ( ! self::has_livejasmin_seo_affiliate_config( $settings ) ) {
+                return '';
+            }
+
+            $url = self::build_livejasmin_affiliate_url( $clean_username, $settings );
+            if ( $url === '' || ! self::is_external_url( $url ) ) {
+                return '';
+            }
+
+            return $url;
+        }
+
+        if ( $platform_slug === 'camsoda' ) {
+            return self::build_camsoda_seo_content_url( $clean_username );
+        }
+
+        return '';
+    }
+
+
+    /**
+     * Build the CamSoda URL used inside generated model-page content.
+     *
+     * CrakRevenue is preferred when the approved platform mapping/template is
+     * available. If the operator has not configured that mapping yet, return the
+     * raw CamSoda profile so the generated page never breaks its clickable
+     * official destination. Schema/sameAs still reads the original verified URL.
+     */
+    private static function build_camsoda_seo_content_url( string $username ): string {
+        $profile_url = self::build_profile_url( 'camsoda', $username );
+        if ( $profile_url === '' || ! self::is_external_url( $profile_url ) ) {
+            return '';
+        }
+
+        if ( class_exists( CrakRevenueCamManager::class ) ) {
+            $routed = CrakRevenueCamManager::maybe_route_verified_link( [
+                'type'           => 'camsoda',
+                'url'            => $profile_url,
+                'is_active'      => true,
+                'activity_level' => 'active',
+            ] );
+            if ( $routed !== '' && self::is_external_url( $routed ) ) {
+                return $routed;
+            }
+        }
+
+        return $profile_url;
+    }
+
+    /**
+     * Build the normal affiliate/profile destination used by redirect and
+     * non-generated-body contexts.
+     *
+     * This method may fall back to profile URLs and is intentionally preserved
+     * for existing /go/ redirect behavior. Generated SEO body content must use
+     * build_seo_content_affiliate_url() instead so Rank Math sees an approved
+     * external affiliate href only when tracking config exists.
+     */
     public static function build_affiliate_url($platform, $username): string {
         $platform_slug = self::canonical_platform_slug((string) $platform);
         if (!PlatformRegistry::get($platform_slug)) {
@@ -103,6 +216,17 @@ class AffiliateLinkBuilder {
         return $profile_url;
     }
 
+    /**
+     * Build the internal cloaked redirect URL for frontend/click-tracking UI.
+     *
+     * GLOBAL GENERATED-SEO RULE:
+     * - Use go_url() for frontend buttons, cards, theme links, and other places
+     *   where internal click tracking/cloaking is intentional.
+     * - Do NOT use go_url() inside generated SEO body text that is intended to
+     *   satisfy Rank Math outbound-link detection; Rank Math sees the site host
+     *   as internal and will not count the eventual redirect target.
+     * - Generated SEO body content must use build_seo_content_affiliate_url().
+     */
     public static function go_url($platform, $username): string {
         $platform_slug = self::canonical_platform_slug((string) $platform);
         $clean_username = self::sanitize_username((string) $username);
@@ -321,12 +445,31 @@ class AffiliateLinkBuilder {
     private static function get_platform_affiliate_settings(string $platform): array {
         $all = get_option('tmwseo_platform_affiliate_settings', []);
         if (!is_array($all)) {
-            return [];
+            $all = [];
         }
 
         $platform = self::canonical_platform_slug($platform);
         $settings = $all[$platform] ?? [];
-        return is_array($settings) ? $settings : [];
+        $settings = is_array($settings) ? $settings : [];
+
+        return $settings;
+    }
+
+    /**
+     * Merge code-defined LiveJasmin defaults into saved settings without
+     * overwriting any non-empty operator value.
+     *
+     * @param array<string,mixed> $settings
+     * @return array<string,mixed>
+     */
+    private static function with_livejasmin_seo_defaults(array $settings): array {
+        foreach (self::LIVEJASMIN_SEO_DEFAULTS as $key => $default) {
+            if (!array_key_exists($key, $settings) || trim((string) $settings[$key]) === '') {
+                $settings[$key] = $default;
+            }
+        }
+
+        return $settings;
     }
 
     /**
@@ -335,6 +478,44 @@ class AffiliateLinkBuilder {
     public static function canonical_platform_slug(string $platform): string {
         $slug = sanitize_key($platform);
         return self::PLATFORM_ALIASES[$slug] ?? $slug;
+    }
+
+    /**
+     * Confirm LiveJasmin has enough approved affiliate configuration
+     * to emit a monetized external link in generated SEO content.
+     *
+     * get_platform_affiliate_settings() merges the code-defined AWEmpire
+     * defaults first, so generated model pages can always output the official
+     * ctwmsg.com SEO link unless LiveJasmin itself is unavailable.
+     *
+     * @param array<string,mixed> $settings
+     */
+    private static function has_livejasmin_seo_affiliate_config( array $settings ): bool {
+        if ( empty( $settings ) ) {
+            return false;
+        }
+
+        foreach ( [ 'psid', 'pstool', 'psprogram', 'campaign_id', 'subaffid' ] as $key ) {
+            if ( trim( (string) ( $settings[ $key ] ?? '' ) ) !== '' ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function is_external_url( string $url ): bool {
+        if ( ! wp_http_validate_url( $url ) ) {
+            return false;
+        }
+
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        if ( $host === '' ) {
+            return false;
+        }
+
+        $home_host = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+        return $home_host === '' || $host !== $home_host;
     }
 
     /**

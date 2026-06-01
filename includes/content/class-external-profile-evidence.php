@@ -436,9 +436,15 @@ class ExternalProfileEvidence {
 
 		// ── Safe default if nothing usable found ──────────────────────────────
 		if ( empty( $themes ) ) {
-			return self::final_humanize(
-				'Her turn-on notes lean toward fantasy-driven interaction, close-camera attention, and shared private-session energy.'
-			);
+			// Vary the fallback sentence deterministically by raw input so different
+			// models don't all get identical copy on the published page.
+			$fallback_pool = [
+				'Her profile notes highlight fantasy-driven interaction and close-camera attention.',
+				'The profile points to interactive energy, private-session focus, and close-camera attention.',
+				'Her highlighted themes centre on personal interaction and private-chat engagement.',
+			];
+			$fallback_index = abs( crc32( $raw ) ) % count( $fallback_pool );
+			return self::final_humanize( $fallback_pool[ $fallback_index ] );
 		}
 
 		// v5.8.6: vary attribution to avoid the repeated "Her reviewed turn-ons focus on …" robotic opener.

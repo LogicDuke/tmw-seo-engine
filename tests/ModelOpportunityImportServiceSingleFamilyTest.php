@@ -5,12 +5,19 @@ if ( ! defined( 'ARRAY_A' ) ) { define( 'ARRAY_A', 'ARRAY_A' ); }
 if ( ! function_exists( 'remove_accents' ) ) { function remove_accents( $v ) { return $v; } }
 if ( ! function_exists( 'current_time' ) ) { function current_time( $type ) { return '2026-05-22 00:00:00'; } }
 if ( ! function_exists( 'wp_json_encode' ) ) { function wp_json_encode( $v ) { return json_encode( $v ); } }
-
 $GLOBALS['tmw_test_model_posts'] = [];
 
 if ( ! function_exists( 'get_posts' ) ) {
     function get_posts( $args = [] ) {
-        return array_keys( $GLOBALS['tmw_test_model_posts'] );
+        $post_type = $args['post_type'] ?? '';
+        $ids = [];
+        foreach ( $GLOBALS['tmw_test_model_posts'] as $id => $post ) {
+            if ( $post_type !== '' && ( $post['post_type'] ?? '' ) !== $post_type ) {
+                continue;
+            }
+            $ids[] = $id;
+        }
+        return $ids;
     }
 }
 if ( ! function_exists( 'get_the_title' ) ) {
@@ -42,7 +49,7 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
 
     public function test_matches_existing_model_post_and_sets_existing_model_optimization(): void {
         $GLOBALS['tmw_test_model_posts'] = [
-            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia' ],
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
         ];
 
         $rows = [
@@ -55,6 +62,8 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
         $this->assertSame( 1, $result['created_count'] );
         $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
         $this->assertSame( 4457, (int) ( $opp['matched_post_id'] ?? 0 ) );
+        $this->assertArrayNotHasKey( 'matched_post_type', $opp );
+        $this->assertArrayNotHasKey( 'matched_source', $opp );
         $this->assertSame( 'existing_model_optimization', $opp['opportunity_type'] ?? '' );
     }
 
@@ -70,6 +79,52 @@ final class ModelOpportunityImportServiceSingleFamilyTest extends TestCase {
         $this->assertSame( 0, (int) ( $opp['matched_post_id'] ?? 0 ) );
         $this->assertSame( 'missing_model_acquisition', $opp['opportunity_type'] ?? '' );
     }
+
+    public function test_model_post_type_is_prioritized_over_model_bio_for_duplicate_lookup_key(): void {
+        $GLOBALS['tmw_test_model_posts'] = [
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
+            7788 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model_bio' ],
+        ];
+
+        $rows = [
+            [ 'keyword' => 'anisyia', 'volume' => '12100', 'traffic_value' => '100', 'seo_score' => '50', 'competition' => '10' ],
+        ];
+
+        ModelOpportunityImportService::apply_rows( 101, 'kws_single_model_family', $rows, [ 'model_entity' => 'Anisyia' ], false );
+
+        $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
+        $this->assertSame( 4457, (int) ( $opp['matched_post_id'] ?? 0 ) );
+    }
+
+    public function test_import_does_not_fail_when_match_metadata_columns_are_absent(): void {
+        $rows = [
+            [ 'keyword' => 'anisyia', 'volume' => '12100', 'traffic_value' => '100', 'seo_score' => '50', 'competition' => '10' ],
+        ];
+
+        $result = ModelOpportunityImportService::apply_rows( 103, 'kws_single_model_family', $rows, [ 'model_entity' => 'Anisyia' ], false );
+
+        $this->assertSame( 1, $result['created_count'] );
+        $opp = $GLOBALS['wpdb']->inserted_opp_rows[0] ?? [];
+        $this->assertArrayNotHasKey( 'matched_post_type', $opp );
+        $this->assertArrayNotHasKey( 'matched_source', $opp );
+    }
+
+    public function test_preview_contains_matched_model_debug_fields(): void {
+        $GLOBALS['tmw_test_model_posts'] = [
+            4457 => [ 'title' => 'Anisyia', 'slug' => 'anisyia', 'post_type' => 'model' ],
+        ];
+        $rows = [
+            [ 'keyword' => 'anisyia', 'volume' => '12100', 'traffic_value' => '100', 'seo_score' => '50', 'competition' => '10' ],
+        ];
+
+        $result = ModelOpportunityImportService::apply_rows( 102, 'kws_single_model_family', $rows, [ 'model_entity' => 'Anisyia' ], true );
+
+        $preview = $result['preview'][0] ?? [];
+        $this->assertSame( 4457, (int) ( $preview['matched_post_id'] ?? 0 ) );
+        $this->assertSame( 'model', $preview['matched_post_type'] ?? '' );
+        $this->assertSame( 'lookup:model', $preview['matched_source'] ?? '' );
+    }
+
 }
 
 final class FakeWpdb {
@@ -86,6 +141,12 @@ final class FakeWpdb {
     }
 
     public function get_var( $query ) {
+        if ( str_contains( $query, "LIKE 'matched_post_type'" ) ) {
+            return null;
+        }
+        if ( str_contains( $query, "LIKE 'matched_source'" ) ) {
+            return null;
+        }
         return null;
     }
 

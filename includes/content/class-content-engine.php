@@ -7,7 +7,8 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Services\Anthropic;
-use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Model\VerifiedLinks;
+use TMWSEO\Engine\Model\VerifiedLinksFamilies;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\Content\ClaudeContent;
@@ -44,6 +45,47 @@ class ContentEngine {
         'model',
         'tmw_category_page',
     ];
+
+    /**
+     * Normalize Generate strategy input before generation routing.
+     *
+     * Model pages use Template as the safety fallback when the submitted
+     * strategy is missing, empty, or not one of the known provider keys.
+     * Explicit provider choices are preserved only when configured.
+     */
+    public static function normalize_generate_strategy(string $strategy, string $post_type, ?int $dry = null): string {
+        $strategy = sanitize_key($strategy);
+
+        if ($dry !== null && (int) $dry === 1) {
+            return 'template';
+        }
+
+        if ($strategy === 'template') {
+            return 'template';
+        }
+
+        if ($strategy === 'openai' && class_exists(OpenAI::class) && OpenAI::is_configured()) {
+            return 'openai';
+        }
+
+        if ($strategy === 'claude' && class_exists(Anthropic::class) && Anthropic::is_configured()) {
+            return 'claude';
+        }
+
+        if ($post_type === 'model') {
+            return 'template';
+        }
+
+        if (class_exists(OpenAI::class) && OpenAI::is_configured()) {
+            return 'openai';
+        }
+
+        if (class_exists(Anthropic::class) && Anthropic::is_configured()) {
+            return 'claude';
+        }
+
+        return 'template';
+    }
 
     private static function is_publish_autopilot_allowed(): bool {
         if (self::PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE) {
@@ -708,46 +750,63 @@ class ContentEngine {
      * @return array<string,string>
      */
     private static function build_category_page_template_preview(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
-        $blog_name = (string) get_bloginfo('name');
-        $category_term = $focus_kw !== '' ? $focus_kw : (string) $post->post_title;
-        $seo_title = TitleFixer::shorten('Best ' . $category_term . ' Sites: Features, Safety & Tips', 70);
-        $meta_description = TitleFixer::shorten('Compare top ' . $category_term . ' options with safety tips, feature breakdowns, and practical guidance to choose the right live chat platform.', 160);
+        $category_term = trim($focus_kw !== '' ? $focus_kw : (string) $post->post_title);
+        if ($category_term === '') {
+            $category_term = 'Webcam Models';
+        }
+
+        $year = (string) gmdate('Y');
+        $brand = trim((string) wp_parse_url((string) home_url('/'), PHP_URL_HOST));
+        if ($brand === '') {
+            $brand = 'Top-Models.Webcam';
+        }
+
+        $seo_title = self::build_category_page_seo_title($category_term, $year);
+        $meta_description = self::build_category_page_meta_description($category_term, $brand);
 
         $related_topics = !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
-            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 4)
+            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6)
             : [];
 
-        $related_block = '';
+        $related_links_html = '';
         if (!empty($related_topics)) {
-            $items = '';
+            $related_links_html .= '<ul>';
             foreach ($related_topics as $topic) {
-                $items .= '<li>' . esc_html($topic) . '</li>';
+                $topic_safe = trim((string) $topic);
+                if ($topic_safe === '') {
+                    continue;
+                }
+                $related_links_html .= '<li>' . esc_html($topic_safe) . '</li>';
             }
-            $related_block = '<h2>Related ' . esc_html($category_term) . ' Subtopics</h2><ul>' . $items . '</ul>';
+            $related_links_html .= '</ul>';
         }
 
         $content =
-            '<h1>Best ' . esc_html($category_term) . ' Sites</h1>' .
-            '<p>This draft preview helps visitors evaluate <strong>' . esc_html($category_term) . '</strong> options quickly, with emphasis on trust, feature fit, and user intent.</p>' .
-            '<h2>What to Expect From ' . esc_html($category_term) . '</h2>' .
-            '<p>Explain the category scope, common user goals, and the kinds of experiences people usually want from this page type.</p>' .
-            '<h2>How to Choose the Right ' . esc_html($category_term) . ' Platform</h2>' .
-            '<p>Provide practical selection criteria: onboarding quality, performer variety, language support, and platform reliability.</p>' .
-            '<h2>Features That Matter for ' . esc_html($category_term) . '</h2>' .
-            '<ul><li>Search/filter depth for faster matching</li><li>Transparent pricing and token options</li><li>Mobile and desktop usability</li></ul>' .
-            '<h2>Safety, Privacy, and Billing Tips</h2>' .
-            '<p>Include concise guidance on account security, payment clarity, and personal boundaries when using live chat products.</p>' .
-            '<h2>FAQ About ' . esc_html($category_term) . '</h2>' .
-            '<h3>How do I compare options in this category?</h3><p>Use the same shortlist criteria across platforms to make a fair comparison.</p>' .
-            '<h3>What should I check before spending?</h3><p>Review billing terms, trial options, and moderation/safety settings first.</p>' .
-            $related_block .
-            '<p><em>Preview intent summary:</em> This category-page draft is structured for taxonomy intent and operator review before any manual draft apply in ' . esc_html($blog_name) . '.</p>';
+            '<p>' . esc_html($category_term) . ' is a category page designed for practical discovery across live webcam model profiles and related video archives, giving visitors a neutral way to browse a focused theme without changing any category terms or taxonomy structure.</p>' .
+            '<p>This draft keeps language safe, non-graphic, and editorially reviewable while helping users move between model pages, video pages, and supporting archives from one clear starting point.</p>' .
+            '<h2>About ' . esc_html($category_term) . '</h2>' .
+            '<p>The purpose of this category is to gather relevant model and video listings under a single archive topic so visitors can scan quickly, compare options, and continue browsing using internal site navigation. It works as a directory layer rather than a platform-specific claim, and it does not assume one network or operator unless that relationship is already verified elsewhere in site data.</p>' .
+            '<p>In SEO terms, the page improves topic clarity for search engines while keeping visitors in a predictable path: open the archive, review connected model cards or clips, and move deeper through related internal links. This supports indexing readiness without requiring category creation, renaming, or slug edits in the generation pipeline.</p>' .
+            '<h2>Browse ' . esc_html($category_term) . ' Videos and Models</h2>' .
+            '<p>Visitors can continue with two core navigation hubs that remain stable across the site:</p>' .
+            '<ul><li><a href="' . esc_url(home_url('/models/')) . '">Models Directory</a></li><li><a href="' . esc_url(home_url('/videos/')) . '">Videos Directory</a></li></ul>' .
+            '<p>From the models directory, users can open profile pages, review linked media, and pivot into adjacent categories through existing taxonomy links. From the videos directory, users can compare clip context and return to category or tag archives that align with the same browsing intent. These paths are internal, consistent, and suitable for manual SEO review workflows.</p>' .
+            '<h2>How This Category Helps Visitors</h2>' .
+            '<p>This page supports people who want a quick, organized way to explore a specific webcam topic without jumping across unrelated sections. The structure is useful for both new and returning visitors because it provides a shortlist-style archive context, then points them to model and video destinations where they can continue discovery based on preference.</p>' .
+            '<p>For operators, this draft-oriented content block is also practical: metadata and copy can be generated, reviewed, and manually applied to the linked tmw_category_page draft without auto-publish behavior. That keeps quality control in human review while preserving the existing bridge that maps approved content to the real category archive output.</p>' .
+            '<h2>Related Webcam Categories</h2>' .
+            '<p>Related category or tag archive references can be included when they are already present and contextually relevant. This avoids invented external destinations and keeps visitors inside known site sections that match the same theme.</p>' .
+            $related_links_html .
+            '<h2>Frequently Asked Questions</h2>' .
+            '<h3>What are ' . esc_html($category_term) . '?</h3><p>They are archive-style category pages that group matching webcam models and videos into one discoverable topic so visitors can browse efficiently.</p>' .
+            '<h3>How do I find related webcam videos?</h3><p>Use the Videos Directory and follow existing internal category or tag links to continue into clips that match this same browsing focus.</p>' .
+            '<h3>Can I browse by model?</h3><p>Yes. Open the Models Directory to view profile pages, then navigate to related clips and connected archives from each model page.</p>';
 
         return [
             'seo_title' => $seo_title,
             'meta_description' => $meta_description,
             'content_html' => $content,
-            'outline' => "- Best {$category_term} Sites\n- What to Expect From {$category_term}\n- How to Choose the Right {$category_term} Platform\n- Features That Matter for {$category_term}\n- Safety, Privacy, and Billing Tips\n- FAQ About {$category_term}",
+            'outline' => "- About {$category_term}\n- Browse {$category_term} Videos and Models\n- How This Category Helps Visitors\n- Related Webcam Categories\n- Frequently Asked Questions",
         ];
     }
 
@@ -994,21 +1053,31 @@ class ContentEngine {
      * @return array{slugs:string[],labels:string[],primary_slug:string,primary_label:string,count:int}
      */
     private static function collect_model_platform_snapshot( int $post_id ): array {
-        $supported = [ 'livejasmin', 'stripchat', 'chaturbate', 'myfreecams', 'camsoda', 'bonga', 'cam4' ];
         $slugs = [];
         $labels = [];
         $primary_slug = '';
         $primary_label = '';
 
-        if ( class_exists( PlatformProfiles::class ) && method_exists( PlatformProfiles::class, 'get_links' ) ) {
-            $links = PlatformProfiles::get_links( $post_id );
+        if ( class_exists( VerifiedLinks::class ) && class_exists( VerifiedLinksFamilies::class ) ) {
+            $links = VerifiedLinks::get_links( $post_id );
             if ( is_array( $links ) ) {
                 foreach ( $links as $link ) {
                     if ( ! is_array( $link ) ) {
                         continue;
                     }
-                    $platform = sanitize_key( (string) ( $link['platform'] ?? '' ) );
-                    if ( $platform === '' ) {
+                    $platform = sanitize_key( (string) ( $link['type'] ?? '' ) );
+                    $url = trim( (string) ( $link['url'] ?? '' ) );
+                    $activity_level = strtolower( trim( (string) ( $link['activity_level'] ?? '' ) ) );
+                    if ( ! in_array( $activity_level, [ 'unknown', 'inactive', 'active', 'very_active' ], true ) ) {
+                        $activity_level = ! empty( $link['is_active'] ) ? 'active' : 'inactive';
+                    }
+                    if ( $platform === '' || $url === '' || ! in_array( $activity_level, [ 'active', 'very_active' ], true ) ) {
+                        continue;
+                    }
+                    if ( ! self::is_valid_verified_platform_url( $url ) ) {
+                        continue;
+                    }
+                    if ( VerifiedLinksFamilies::family_for( $platform ) !== VerifiedLinksFamilies::FAMILY_CAM ) {
                         continue;
                     }
                     if ( ! in_array( $platform, $slugs, true ) ) {
@@ -1025,20 +1094,6 @@ class ContentEngine {
             }
         }
 
-        foreach ( $supported as $platform ) {
-            $username = trim( (string) get_post_meta( $post_id, '_tmwseo_platform_username_' . $platform, true ) );
-            if ( $username === '' ) {
-                continue;
-            }
-            if ( ! in_array( $platform, $slugs, true ) ) {
-                $slugs[] = $platform;
-                $platform_meta = class_exists( '\TMWSEO\Engine\Platform\PlatformRegistry' )
-                    ? \TMWSEO\Engine\Platform\PlatformRegistry::get( $platform )
-                    : [];
-                $labels[] = (string) ( $platform_meta['name'] ?? ucfirst( $platform ) );
-            }
-        }
-
         if ( $primary_slug === '' && ! empty( $slugs ) ) {
             $primary_slug = (string) $slugs[0];
         }
@@ -1049,13 +1104,28 @@ class ContentEngine {
             $primary_label = (string) ( $platform_meta['name'] ?? ucfirst( $primary_slug ) );
         }
 
+        $labels = array_values( array_unique( array_filter( $labels ) ) );
+        Logs::info( 'content', '[TMW-SEO-GEN] Final generated platform label list', [
+            'post_id' => $post_id,
+            'labels'  => $labels,
+        ] );
+
         return [
             'slugs'         => $slugs,
-            'labels'        => array_values( array_unique( array_filter( $labels ) ) ),
+            'labels'        => $labels,
             'primary_slug'  => $primary_slug,
             'primary_label' => $primary_label,
             'count'         => count( $slugs ),
         ];
+    }
+
+
+    private static function is_valid_verified_platform_url( string $url ): bool {
+        if ( function_exists( 'wp_http_validate_url' ) ) {
+            return (bool) wp_http_validate_url( $url );
+        }
+
+        return (bool) filter_var( $url, FILTER_VALIDATE_URL );
     }
 
     /** @return string[] */
@@ -1163,11 +1233,8 @@ class ContentEngine {
             return;
         }
 
-        // Strategy precedence: explicit payload > settings.
-        $strategy = sanitize_key((string)($payload['strategy'] ?? ''));
-        if ($strategy === '') {
-            $strategy = ((int)$dry === 1) ? 'template' : 'openai';
-        }
+        // Strategy precedence: explicit valid payload > model safety fallback > settings/providers.
+        $strategy = self::normalize_generate_strategy((string)($payload['strategy'] ?? ''), (string) $post->post_type, (int) $dry);
 
         $is_manual_model_request = self::is_manual_model_request($post, $payload);
 
@@ -1307,6 +1374,23 @@ class ContentEngine {
                 $generated_content = (string)$tpl['content'];
                 $seo_title = TitleFixer::shorten((string)$tpl['seo_title'], 70);
                 $meta_desc = TitleFixer::shorten((string)$tpl['meta_description'], 160);
+            } elseif ($post->post_type === 'tmw_category_page') {
+                // v5.8.14: use the proper category-page template builder instead of placeholder.
+                $cat_preview = self::build_template_preview_payload(
+                    $post,
+                    $keyword_pack,
+                    $focus_kw,
+                    self::PREVIEW_TEMPLATE_CATEGORY_PAGE
+                );
+                $generated_content = (string)($cat_preview['content_html'] ?? '');
+                $seo_title         = TitleFixer::shorten((string)($cat_preview['seo_title'] ?? ''), 70);
+                $meta_desc         = TitleFixer::shorten((string)($cat_preview['meta_description'] ?? ''), 160);
+                if ($generated_content === '') {
+                    // Absolute fallback — should never be reached.
+                    $seo_title = TitleFixer::shorten(TitleFixer::fix((string)$post->post_title), 70);
+                    $meta_desc = TitleFixer::shorten('Browse ' . $post->post_title . ' webcam models on ' . get_bloginfo('name') . '.', 160);
+                    $generated_content = '<h2>' . esc_html($post->post_title) . '</h2><p>Category page content is being prepared.</p>';
+                }
             } else {
                 // Generic template fallback.
                 $seo_title = TitleFixer::shorten(TitleFixer::fix((string)$post->post_title), 70);

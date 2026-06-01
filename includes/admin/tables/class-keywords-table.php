@@ -19,9 +19,29 @@ class KeywordsTable extends \WP_List_Table {
     /** @var bool */
     private bool $has_page_type = false;
     /** @var bool */
+    private bool $has_intent_type = false;
+    /** @var bool */
+    private bool $has_entity_type = false;
+    /** @var bool */
+    private bool $has_entity_id = false;
+    /** @var bool */
     private bool $has_opportunity = false;
     /** @var bool */
+    private bool $has_seo_score = false;
+    /** @var bool */
+    private bool $has_traffic_value = false;
+    /** @var bool */
     private bool $has_cpc = false;
+    /** @var bool */
+    private bool $has_competition = false;
+    /** @var bool */
+    private bool $has_source = false;
+    /** @var bool */
+    private bool $has_sources = false;
+    /** @var bool */
+    private bool $has_notes = false;
+    /** @var bool */
+    private bool $has_updated_at = false;
 
     /**
      * @param string|null $status_filter  If set, WHERE status = this value.
@@ -38,15 +58,40 @@ class KeywordsTable extends \WP_List_Table {
     }
 
     public function get_columns(): array {
-        return [
+        $columns = [
             'cb'         => '<input type="checkbox" />',
             'keyword'    => __('Keyword', 'tmwseo'),
             'volume'     => __('Volume', 'tmwseo'),
             'difficulty' => __('KD', 'tmwseo'),
-            'intent'     => __('Intent', 'tmwseo'),
-            'status'     => __('Status', 'tmwseo'),
-            'created_at' => __('Created', 'tmwseo'),
         ];
+
+        if ( $this->has_cpc ) { $columns['cpc'] = __('CPC', 'tmwseo'); }
+        if ( $this->has_competition ) { $columns['competition'] = __('Competition', 'tmwseo'); }
+        if ( $this->has_seo_score ) { $columns['seo_score'] = __('SEO Score', 'tmwseo'); }
+        if ( $this->has_opportunity ) { $columns['opportunity'] = __('Opportunity Score', 'tmwseo'); }
+        if ( $this->has_traffic_value ) { $columns['traffic_value'] = __('Traffic Value', 'tmwseo'); }
+
+        $columns[ $this->has_intent_type ? 'intent_type' : 'intent' ] = __('Intent', 'tmwseo');
+        if ( $this->has_entity_type ) { $columns['entity_type'] = __('Entity Type', 'tmwseo'); }
+        if ( $this->has_entity_id ) { $columns['entity_id'] = __('Entity ID', 'tmwseo'); }
+        $columns['status'] = __('Status', 'tmwseo');
+        if ( $this->has_sources || $this->has_notes ) {
+            $columns['model_keyword_owner'] = __('Model Owner', 'tmwseo');
+            $columns['model_keyword_usage_scope'] = __('Usage Scope', 'tmwseo');
+            $columns['model_keyword_primary'] = __('Primary?', 'tmwseo');
+            $columns['model_keyword_strategy'] = __('Strategy', 'tmwseo');
+            $columns['model_keyword_recommended_action'] = __('Recommended Action', 'tmwseo');
+            $columns['model_keyword_provenance'] = __('Provenance', 'tmwseo');
+            $columns['model_entity_link_status'] = __('Entity Link Status', 'tmwseo');
+            $columns['kw_class'] = __('KW Class', 'tmwseo');
+            $columns['kw_usage'] = __('Suggested Usage', 'tmwseo');
+            $columns['kw_standalone'] = __('Standalone?', 'tmwseo');
+        }
+        if ( $this->has_sources ) { $columns['sources'] = __('Sources', 'tmwseo'); }
+        elseif ( $this->has_source ) { $columns['source'] = __('Source', 'tmwseo'); }
+        $columns[ $this->has_updated_at ? 'updated_at' : 'created_at' ] = $this->has_updated_at ? __('Updated', 'tmwseo') : __('Created', 'tmwseo');
+
+        return $columns;
     }
 
     public function get_sortable_columns(): array {
@@ -58,11 +103,26 @@ class KeywordsTable extends \WP_List_Table {
             'status'     => ['status', false],
             'created_at' => ['created_at', false],
         ];
+        if ( $this->has_intent_type ) {
+            $columns['intent_type'] = [ 'intent_type', false ];
+        }
+        if ( $this->has_updated_at ) {
+            $columns['updated_at'] = [ 'updated_at', false ];
+        }
         if ( $this->has_cpc ) {
             $columns['cpc'] = [ 'cpc', false ];
         }
+        if ( $this->has_competition ) {
+            $columns['competition'] = [ 'competition', false ];
+        }
+        if ( $this->has_seo_score ) {
+            $columns['seo_score'] = [ 'seo_score', false ];
+        }
         if ( $this->has_opportunity ) {
             $columns['opportunity'] = [ 'opportunity', false ];
+        }
+        if ( $this->has_traffic_value ) {
+            $columns['traffic_value'] = [ 'traffic_value', false ];
         }
         return $columns;
     }
@@ -72,6 +132,7 @@ class KeywordsTable extends \WP_List_Table {
             'tmwseo_kw_bulk_approve' => __( 'Approve', 'tmwseo' ),
             'tmwseo_kw_bulk_reject'  => __( 'Reject', 'tmwseo' ),
             'tmwseo_kw_bulk_delete'  => __( 'Delete', 'tmwseo' ),
+            'tmwseo_kw_resolve_model_entities' => __( 'Resolve selected model keyword entities', 'tmwseo' ),
         ];
     }
 
@@ -125,8 +186,24 @@ class KeywordsTable extends \WP_List_Table {
                 : 'display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;color:#6b7280;font-weight:600;';
             return '<span style="' . esc_attr( $style ) . '">' . esc_html( (string) $volume ) . '</span>';
         }
-        if ( in_array( $column_name, [ 'difficulty', 'cpc' ], true ) && ( $value === null || $value === '' || (float) $value <= 0.0 ) ) {
+        if ( in_array( $column_name, [ 'difficulty', 'cpc', 'competition', 'opportunity', 'seo_score', 'traffic_value' ], true ) && ( $value === null || $value === '' || (float) $value <= 0.0 ) ) {
             return '&mdash;';
+        }
+        if ( in_array( $column_name, [ 'cpc', 'traffic_value' ], true ) ) {
+            return esc_html( number_format( (float) $value, 2 ) );
+        }
+        if ( in_array( $column_name, [ 'difficulty', 'competition', 'opportunity', 'seo_score' ], true ) ) {
+            return esc_html( rtrim( rtrim( number_format( (float) $value, 4 ), '0' ), '.' ) );
+        }
+        if ( in_array( $column_name, [ 'model_keyword_owner', 'model_keyword_usage_scope', 'model_keyword_primary', 'model_keyword_strategy', 'model_keyword_recommended_action', 'model_keyword_provenance', 'model_entity_link_status' ], true ) ) {
+            return $this->render_model_metadata_column( is_array($item) ? $item : [], $column_name );
+        }
+        if ( in_array( $column_name, [ 'kw_class', 'kw_usage', 'kw_standalone' ], true ) ) {
+            return $this->render_keyword_classification_column( is_array($item) ? $item : [], $column_name );
+        }
+        if ( in_array( $column_name, [ 'sources', 'source' ], true ) ) {
+            $source_text = $this->source_label_from_item( is_array($item) ? $item : [], is_string( $value ) ? $value : '' );
+            return '' === $source_text ? '&mdash;' : '<code>' . esc_html( $source_text ) . '</code>';
         }
         if ($column_name === 'status') {
             $status = strtolower((string) $value);
@@ -142,6 +219,266 @@ class KeywordsTable extends \WP_List_Table {
         return esc_html((string) $value);
     }
 
+
+    /** @param array<string, mixed> $item */
+    private function render_keyword_classification_column(array $item, string $column_name): string {
+        $metadata = $this->keyword_classification_metadata_from_item($item);
+        $key_map = [
+            'kw_class' => 'keyword_class',
+            'kw_usage' => 'suggested_usage',
+            'kw_standalone' => 'standalone_allowed',
+        ];
+        $key = $key_map[$column_name] ?? '';
+        if ('' === $key || !array_key_exists($key, $metadata)) {
+            return '';
+        }
+        $value = $metadata[$key];
+        if ('kw_standalone' === $column_name) {
+            if (true === $value || 'true' === $value || '1' === (string) $value || 1 === $value) { return esc_html__('Yes', 'tmwseo'); }
+            if (false === $value || 'false' === $value || '0' === (string) $value || 0 === $value) { return esc_html__('No', 'tmwseo'); }
+            return '';
+        }
+        return '' === (string) $value ? '' : '<code>' . esc_html((string) $value) . '</code>';
+    }
+
+    /** @param array<string, mixed> $item @return array<string,mixed> */
+    private function keyword_classification_metadata_from_item(array $item): array {
+        $sources = $this->find_keyword_classification_metadata($this->decode_json_field($item['sources'] ?? null));
+        $notes = $this->find_keyword_classification_metadata($this->decode_json_field($item['notes'] ?? null));
+        return array_merge($notes, $sources);
+    }
+
+    /** @param array<string, mixed> $payload @return array<string,mixed> */
+    private function find_keyword_classification_metadata(array $payload): array {
+        $metadata = [];
+        foreach ([ 'keyword_class', 'suggested_usage', 'standalone_allowed' ] as $key) {
+            if (array_key_exists($key, $payload)) {
+                $metadata[$key] = $payload[$key];
+            }
+        }
+        foreach ([ 'keyword_pools_import', 'keyword_pools_import_history' ] as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) { continue; }
+            if ($this->is_list_array($nested)) {
+                foreach ($nested as $entry) {
+                    if (is_array($entry)) { $metadata = array_merge($this->find_keyword_classification_metadata($entry), $metadata); }
+                }
+            } else {
+                $metadata = array_merge($this->find_keyword_classification_metadata($nested), $metadata);
+            }
+        }
+        return $metadata;
+    }
+
+    /** @param array<string, mixed> $item */
+    private function render_model_metadata_column(array $item, string $column_name): string {
+        $metadata = $this->model_keyword_metadata_from_item($item);
+        if ('model_entity_link_status' === $column_name) {
+            $status = (string) ($metadata['entity_link_status'] ?? '');
+            if ('unresolved' === $status) {
+                return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:600;">' . esc_html__('Unlinked model keyword', 'tmwseo') . '</span>';
+            }
+            if ('ambiguous' === $status) {
+                return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#fee2e2;color:#991b1b;font-weight:600;">' . esc_html__('Ambiguous', 'tmwseo') . '</span>';
+            }
+            if ('linked' === $status) {
+                return '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:600;">' . esc_html__('linked', 'tmwseo') . '</span>';
+            }
+            return '&mdash;';
+        }
+
+        $map = [
+            'model_keyword_owner' => 'model_keyword_owner',
+            'model_keyword_usage_scope' => 'model_keyword_usage_scope',
+            'model_keyword_primary' => 'model_keyword_primary_candidate',
+            'model_keyword_strategy' => 'model_keyword_strategy',
+            'model_keyword_recommended_action' => 'model_keyword_recommended_action',
+            'model_keyword_provenance' => 'provenance',
+        ];
+        $key = $map[$column_name] ?? '';
+        $value = $key !== '' ? (string) ($metadata[$key] ?? '') : '';
+        return '' === $value ? '&mdash;' : '<code>' . esc_html($value) . '</code>';
+    }
+
+    /** @param array<string, mixed> $item @return array<string,string> */
+    private function model_keyword_metadata_from_item(array $item): array {
+        $metadata = [];
+        foreach ([ 'sources', 'notes' ] as $field) {
+            $payload = $this->decode_json_field($item[$field] ?? null);
+            $metadata = array_merge($metadata, $this->find_model_keyword_metadata($payload));
+        }
+        if ('' === (string) ($metadata['model_keyword_strategy'] ?? '')) {
+            $metadata['model_keyword_strategy'] = $this->model_keyword_strategy_from_item($item);
+        }
+        $intent = strtolower((string) ($item['intent_type'] ?? $item['intent'] ?? ''));
+        $status = strtolower((string) ($item['status'] ?? ''));
+        $entity_type = strtolower((string) ($item['entity_type'] ?? ''));
+        $entity_id = (int) ($item['entity_id'] ?? 0);
+        $match_type = (string) ($metadata['model_entity_match_type'] ?? '');
+        if ('ambiguous' === $match_type) {
+            $metadata['entity_link_status'] = 'ambiguous';
+        } elseif ('model' === $intent && 'model' === $entity_type && $entity_id > 0) {
+            $metadata['entity_link_status'] = 'linked';
+        } elseif ('model' === $intent && 'approved' === $status && 'model' === $entity_type && 0 === $entity_id) {
+            $metadata['entity_link_status'] = 'unresolved';
+        } elseif ('model' === $intent && 0 === $entity_id && '' !== (string) ($metadata['model_keyword_owner'] ?? '')) {
+            $metadata['entity_link_status'] = 'unresolved';
+        }
+        return $metadata;
+    }
+
+    /** @param array<string, mixed> $payload @return array<string,string> */
+    private function find_model_keyword_metadata(array $payload): array {
+        $metadata = [];
+        foreach ([ 'model_keyword_owner', 'model_keyword_usage_scope', 'model_keyword_primary_candidate', 'model_keyword_strategy', 'model_keyword_recommended_action', 'model_entity_match_type' ] as $key) {
+            if (isset($payload[$key]) && is_scalar($payload[$key]) && '' !== (string) $payload[$key]) {
+                $metadata[$key] = (string) $payload[$key];
+            }
+        }
+        if (!empty($payload['personal_model_keyword_csv'])) {
+            $metadata['provenance'] = 'personal_model_keyword_csv';
+        } elseif (isset($payload['upload_source']) && is_scalar($payload['upload_source']) && '' !== (string) $payload['upload_source']) {
+            $metadata['provenance'] = (string) $payload['upload_source'];
+        }
+        if (isset($payload['model_entity_resolution']) && is_array($payload['model_entity_resolution']) && isset($payload['model_entity_resolution']['match_type'])) {
+            $metadata['model_entity_match_type'] = (string) $payload['model_entity_resolution']['match_type'];
+        }
+        foreach ([ 'keyword_pools_import', 'keyword_pools_import_history' ] as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) { continue; }
+            if ($this->is_list_array($nested)) {
+                foreach ($nested as $entry) {
+                    if (is_array($entry)) { $metadata = array_merge($this->find_model_keyword_metadata($entry), $metadata); }
+                }
+            } else {
+                $metadata = array_merge($this->find_model_keyword_metadata($nested), $metadata);
+            }
+        }
+        return $metadata;
+    }
+
+    /** @param array<string, mixed> $item */
+    private function source_label_from_item(array $item, string $fallback): string {
+        $metadata = $this->model_keyword_metadata_from_item($item);
+        if ('' !== (string) ($metadata['provenance'] ?? '')) {
+            return (string) $metadata['provenance'];
+        }
+        foreach ([ 'sources', 'notes' ] as $field) {
+            $payload = $this->decode_json_field($item[$field] ?? null);
+            foreach ([ 'upload_source', 'parser_source_label', 'source' ] as $key) {
+                if (isset($payload[$key]) && is_scalar($payload[$key]) && '' !== (string) $payload[$key]) {
+                    return (string) $payload[$key];
+                }
+            }
+        }
+        if (strlen($fallback) > 80) { return substr($fallback, 0, 77) . '...'; }
+        return $fallback;
+    }
+
+    private function escaped_like_contains($wpdb, string $literal): string {
+        return '%' . $wpdb->esc_like($literal) . '%';
+    }
+
+    /** @param array<string, mixed> $item */
+    private function model_keyword_strategy_from_item(array $item): string {
+        $intent = strtolower((string) ($item['intent_type'] ?? $item['intent'] ?? ''));
+        if ('model' !== $intent) {
+            return '';
+        }
+
+        foreach ([ 'sources', 'notes' ] as $field) {
+            $payload = $this->decode_json_field($item[$field] ?? null);
+            $strategy = $this->find_model_keyword_strategy($payload);
+            if ('' !== $strategy) {
+                return $strategy;
+            }
+        }
+
+        return '';
+    }
+
+    /** @param mixed $value @return array<string, mixed> */
+    private function decode_json_field($value): array {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || '' === trim($value)) {
+            return [];
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<mixed> $value */
+    private function is_list_array(array $value): bool {
+        return array_keys($value) === range(0, count($value) - 1);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function find_model_keyword_strategy(array $payload): string {
+        $strategy = (string) ($payload['model_keyword_strategy'] ?? '');
+        if ('' !== $strategy) {
+            return $strategy;
+        }
+        foreach ([ 'keyword_pools_import', 'keyword_pools_import_history' ] as $key) {
+            $nested = $payload[$key] ?? null;
+            if (!is_array($nested)) {
+                continue;
+            }
+            if ($this->is_list_array($nested)) {
+                foreach ($nested as $entry) {
+                    if (is_array($entry)) {
+                        $strategy = $this->find_model_keyword_strategy($entry);
+                        if ('' !== $strategy) { return $strategy; }
+                    }
+                }
+            } else {
+                $strategy = $this->find_model_keyword_strategy($nested);
+                if ('' !== $strategy) { return $strategy; }
+            }
+        }
+        return '';
+    }
+
+
+    /** @return array<int,string> */
+    private function json_like_patterns(string $key, string $value): array {
+        return [
+            '"' . $key . '":"' . $value . '"',
+            '"' . $key . '": "' . $value . '"',
+        ];
+    }
+
+    private function add_json_metadata_like_filter(array &$conditions, array &$where_args, string $key, string $value): void {
+        global $wpdb;
+        if (!$this->has_sources && !$this->has_notes) { return; }
+        $likes = [];
+        foreach ([ 'sources' => $this->has_sources, 'notes' => $this->has_notes ] as $field => $enabled) {
+            if (!$enabled) { continue; }
+            $field_likes = [];
+            foreach ($this->json_like_patterns($key, $value) as $pattern) {
+                $field_likes[] = $field . ' LIKE %s';
+                $where_args[] = $this->escaped_like_contains($wpdb, $pattern);
+            }
+            if ($field_likes !== []) { $likes[] = '(' . implode(' OR ', $field_likes) . ')'; }
+        }
+        if ($likes !== []) { $conditions[] = '(' . implode(' OR ', $likes) . ')'; }
+    }
+
+    private function add_not_standalone_filter(array &$conditions, array &$where_args): void {
+        global $wpdb;
+        if (!$this->has_sources && !$this->has_notes) { return; }
+        $likes = [];
+        foreach ([ 'sources' => $this->has_sources, 'notes' => $this->has_notes ] as $field => $enabled) {
+            if (!$enabled) { continue; }
+            foreach ([ '"standalone_allowed":false', '"standalone_allowed": false', '"standalone_allowed":"false"', '"standalone_allowed": "false"', '"standalone_allowed":0', '"standalone_allowed": 0' ] as $pattern) {
+                $likes[] = $field . ' LIKE %s';
+                $where_args[] = $this->escaped_like_contains($wpdb, $pattern);
+            }
+        }
+        if ($likes !== []) { $conditions[] = '(' . implode(' OR ', $likes) . ')'; }
+    }
+
     public function prepare_items(): void {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
@@ -149,9 +486,19 @@ class KeywordsTable extends \WP_List_Table {
         $column_names = array_map( static fn( $c ) => (string) ( $c['Field'] ?? '' ), (array) $columns_info );
         $has_created_at         = in_array( 'created_at', $column_names, true );
         $has_updated_at         = in_array( 'updated_at', $column_names, true );
-        $this->has_page_type   = in_array( 'page_type', $column_names, true );
-        $this->has_opportunity = in_array( 'opportunity', $column_names, true );
-        $this->has_cpc         = in_array( 'cpc', $column_names, true );
+        $this->has_page_type     = in_array( 'page_type', $column_names, true );
+        $this->has_intent_type   = in_array( 'intent_type', $column_names, true );
+        $this->has_entity_type   = in_array( 'entity_type', $column_names, true );
+        $this->has_entity_id     = in_array( 'entity_id', $column_names, true );
+        $this->has_opportunity   = in_array( 'opportunity', $column_names, true );
+        $this->has_seo_score     = in_array( 'seo_score', $column_names, true );
+        $this->has_traffic_value = in_array( 'traffic_value', $column_names, true );
+        $this->has_cpc           = in_array( 'cpc', $column_names, true );
+        $this->has_competition   = in_array( 'competition', $column_names, true );
+        $this->has_source        = in_array( 'source', $column_names, true );
+        $this->has_sources       = in_array( 'sources', $column_names, true );
+        $this->has_notes         = in_array( 'notes', $column_names, true );
+        $this->has_updated_at    = $has_updated_at;
 
         $date_column = 'id';
         if ( $has_created_at ) {
@@ -169,7 +516,10 @@ class KeywordsTable extends \WP_List_Table {
 
         $allowed_orderby = [ 'keyword', 'volume', 'difficulty', 'kd', 'intent', 'status', 'created_at', 'updated_at' ];
         if ( $this->has_cpc ) { $allowed_orderby[] = 'cpc'; }
+        if ( $this->has_competition ) { $allowed_orderby[] = 'competition'; }
+        if ( $this->has_seo_score ) { $allowed_orderby[] = 'seo_score'; }
         if ( $this->has_opportunity ) { $allowed_orderby[] = 'opportunity'; }
+        if ( $this->has_traffic_value ) { $allowed_orderby[] = 'traffic_value'; }
         $orderby = isset( $_GET['orderby'] ) ? sanitize_key( (string) $_GET['orderby'] ) : 'created_at';
         if ( ! in_array( $orderby, $allowed_orderby, true ) ) {
             $orderby = 'created_at';
@@ -182,13 +532,13 @@ class KeywordsTable extends \WP_List_Table {
         }
 
         $search = isset( $_REQUEST['s'] ) ? sanitize_text_field( wp_unslash( (string) $_REQUEST['s'] ) ) : '';
-        $numeric_filters = [ 'min_volume', 'max_volume', 'min_kd', 'max_kd', 'min_cpc', 'max_cpc' ];
+        $numeric_filters = [ 'min_volume', 'max_volume', 'min_kd', 'max_kd', 'min_cpc', 'max_cpc', 'max_competition', 'min_opportunity', 'min_seo_score' ];
         foreach ( $numeric_filters as $key ) {
             if ( isset( $_GET[ $key ] ) && $_GET[ $key ] !== '' ) {
                 $this->active_filters[ $key ] = is_numeric( $_GET[ $key ] ) ? (float) $_GET[ $key ] : '';
             }
         }
-        foreach ( [ 'status', 'intent', 'orderby', 'order', 's' ] as $key ) {
+        foreach ( [ 'status', 'intent', 'intent_type', 'orderby', 'order', 's', 'model_keyword_filter' ] as $key ) {
             if ( isset( $_GET[ $key ] ) && $_GET[ $key ] !== '' ) { $this->active_filters[ $key ] = sanitize_text_field( (string) $_GET[ $key ] ); }
         }
         foreach ( [ 'hide_zero_volume', 'has_volume', 'has_kd', 'has_cpc' ] as $key ) {
@@ -215,7 +565,10 @@ class KeywordsTable extends \WP_List_Table {
             $conditions[] = 'status = %s';
             $where_args[] = (string) $this->active_filters['status'];
         }
-        if ( isset( $this->active_filters['intent'] ) ) {
+        if ( $this->has_intent_type && isset( $this->active_filters['intent_type'] ) ) {
+            $conditions[] = 'intent_type = %s';
+            $where_args[] = (string) $this->active_filters['intent_type'];
+        } elseif ( isset( $this->active_filters['intent'] ) ) {
             $conditions[] = 'intent = %s';
             $where_args[] = (string) $this->active_filters['intent'];
         }
@@ -232,6 +585,39 @@ class KeywordsTable extends \WP_List_Table {
         if ( $this->has_cpc && isset( $this->active_filters['min_cpc'] ) ) { $conditions[] = 'CAST(cpc AS DECIMAL(10,4)) >= %f'; $where_args[] = (float) $this->active_filters['min_cpc']; }
         if ( $this->has_cpc && isset( $this->active_filters['max_cpc'] ) ) { $conditions[] = 'CAST(cpc AS DECIMAL(10,4)) <= %f'; $where_args[] = (float) $this->active_filters['max_cpc']; }
         if ( $this->has_cpc && isset( $this->active_filters['has_cpc'] ) ) { $conditions[] = 'cpc IS NOT NULL AND cpc <> "" AND CAST(cpc AS DECIMAL(10,4)) > 0'; }
+        if ( $this->has_competition && isset( $this->active_filters['max_competition'] ) ) { $conditions[] = 'CAST(competition AS DECIMAL(10,4)) <= %f'; $where_args[] = (float) $this->active_filters['max_competition']; }
+        if ( $this->has_opportunity && isset( $this->active_filters['min_opportunity'] ) ) { $conditions[] = 'CAST(opportunity AS DECIMAL(10,4)) >= %f'; $where_args[] = (float) $this->active_filters['min_opportunity']; }
+        if ( $this->has_seo_score && isset( $this->active_filters['min_seo_score'] ) ) { $conditions[] = 'CAST(seo_score AS DECIMAL(10,2)) >= %f'; $where_args[] = (float) $this->active_filters['min_seo_score']; }
+        if ( isset( $this->active_filters['model_keyword_filter'] ) ) {
+            $filter = (string) $this->active_filters['model_keyword_filter'];
+            if ( 'personal_model_csv' === $filter && ( $this->has_sources || $this->has_notes ) ) {
+                $personal_csv_like = $this->escaped_like_contains($wpdb, 'personal_model_keyword_csv');
+                $likes = [];
+                if ( $this->has_sources ) { $likes[] = 'sources LIKE %s'; $where_args[] = $personal_csv_like; }
+                if ( $this->has_notes ) { $likes[] = 'notes LIKE %s'; $where_args[] = $personal_csv_like; }
+                if ( $likes !== [] ) { $conditions[] = '(' . implode( ' OR ', $likes ) . ')'; }
+            } elseif ( 'primary_model_bio' === $filter && ( $this->has_sources || $this->has_notes ) ) {
+                $primary_candidate_like = $this->escaped_like_contains($wpdb, '"model_keyword_primary_candidate":"yes"');
+                $scope_like = $this->escaped_like_contains($wpdb, '"model_keyword_usage_scope":"model_bio_only"');
+                $likes = [];
+                if ( $this->has_sources ) { $likes[] = '(sources LIKE %s AND sources LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
+                if ( $this->has_notes ) { $likes[] = '(notes LIKE %s AND notes LIKE %s)'; $where_args[] = $primary_candidate_like; $where_args[] = $scope_like; }
+                if ( $likes !== [] ) { $conditions[] = '(' . implode( ' OR ', $likes ) . ')'; }
+            } elseif ( 'unlinked_model' === $filter && $this->has_intent_type && $this->has_entity_type && $this->has_entity_id ) {
+                $conditions[] = 'intent_type = %s AND entity_type = %s AND entity_id = 0';
+                $where_args[] = 'model';
+                $where_args[] = 'model';
+            }
+            elseif (in_array($filter, [ 'core_model_term', 'platform_term', 'platform_intent_term', 'intent_term', 'attribute_term', 'geo_language_term', 'feature_modifier' ], true)) {
+                $this->add_json_metadata_like_filter($conditions, $where_args, 'keyword_class', $filter);
+            } elseif ('unsafe_standalone' === $filter) {
+                $this->add_json_metadata_like_filter($conditions, $where_args, 'keyword_class', 'unsafe_standalone_modifier');
+            } elseif ('generated_fallback' === $filter) {
+                $this->add_json_metadata_like_filter($conditions, $where_args, 'keyword_class', 'generated_longtail');
+            } elseif ('not_standalone_allowed' === $filter) {
+                $this->add_not_standalone_filter($conditions, $where_args);
+            }
+        }
 
         $where_sql = $conditions !== [] ? ' WHERE ' . implode( ' AND ', $conditions ) : '';
 
@@ -247,19 +633,25 @@ class KeywordsTable extends \WP_List_Table {
         $order_sql = match ( $orderby ) {
             'volume'      => 'CAST(volume AS UNSIGNED) ' . $order . ', ' . $date_column . ' DESC',
             'difficulty'  => ( $order === 'ASC' ) ? 'CAST(difficulty AS DECIMAL(10,2)) ASC, CAST(volume AS UNSIGNED) DESC' : 'CAST(difficulty AS DECIMAL(10,2)) DESC',
-            'cpc'         => $this->has_cpc ? 'CAST(cpc AS DECIMAL(10,4)) ' . $order : $date_column . ' ' . $order,
-            'opportunity' => $this->has_opportunity ? 'CAST(opportunity AS DECIMAL(10,4)) ' . $order . ', CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC' : 'CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC',
+            'cpc'           => $this->has_cpc ? 'CAST(cpc AS DECIMAL(10,4)) ' . $order : $date_column . ' ' . $order,
+            'competition'   => $this->has_competition ? 'CAST(competition AS DECIMAL(10,4)) ' . $order . ', CAST(volume AS UNSIGNED) DESC' : $date_column . ' ' . $order,
+            'seo_score'     => $this->has_seo_score ? 'CAST(seo_score AS DECIMAL(10,2)) ' . $order . ', CAST(volume AS UNSIGNED) DESC' : $date_column . ' ' . $order,
+            'opportunity'   => $this->has_opportunity ? 'CAST(opportunity AS DECIMAL(10,4)) ' . $order . ', CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC' : 'CAST(volume AS UNSIGNED) DESC, CAST(difficulty AS DECIMAL(10,2)) ASC',
+            'traffic_value' => $this->has_traffic_value ? 'CAST(traffic_value AS DECIMAL(14,2)) ' . $order . ', CAST(volume AS UNSIGNED) DESC' : $date_column . ' ' . $order,
             'keyword'     => 'keyword ' . $order,
             'status'      => 'status ' . $order,
             'intent'      => 'intent ' . $order,
+            'intent_type' => $this->has_intent_type ? 'intent_type ' . $order : 'intent ' . $order,
             'created_at'  => $date_column . ' ' . $order,
             'updated_at'  => $has_updated_at ? 'updated_at ' . $order : $date_column . ' ' . $order,
             default       => $date_column . ' DESC',
         };
 
         $select_columns = [ 'id', 'keyword', 'volume', 'difficulty', 'intent', 'status' ];
-        if ( $this->has_cpc ) {
-            $select_columns[] = 'cpc';
+        foreach ( [ 'intent_type', 'entity_type', 'entity_id', 'cpc', 'competition', 'seo_score', 'opportunity', 'traffic_value', 'source', 'sources', 'notes' ] as $optional_column ) {
+            if ( in_array( $optional_column, $column_names, true ) ) {
+                $select_columns[] = $optional_column;
+            }
         }
         if ( $has_created_at ) {
             $select_columns[] = 'created_at';
@@ -268,8 +660,8 @@ class KeywordsTable extends \WP_List_Table {
         } else {
             $select_columns[] = 'id AS created_at';
         }
-        if ( $this->has_opportunity ) {
-            $select_columns[] = 'opportunity';
+        if ( $has_updated_at ) {
+            $select_columns[] = 'updated_at';
         }
 
         $sql          = 'SELECT ' . implode( ', ', $select_columns ) . " FROM {$table}{$where_sql} ORDER BY {$order_sql} LIMIT %d OFFSET %d";
@@ -314,7 +706,7 @@ class KeywordsTable extends \WP_List_Table {
             'tmwseo_kw_bulk_reject'  => 'ignored',
         ];
 
-        if ( ! $action || ( ! isset( $action_map[ $action ] ) && $action !== 'tmwseo_kw_bulk_delete' ) ) {
+        if ( ! $action || ( ! isset( $action_map[ $action ] ) && ! in_array( $action, [ 'tmwseo_kw_bulk_delete', 'tmwseo_kw_resolve_model_entities' ], true ) ) ) {
             return;
         }
 
@@ -331,6 +723,9 @@ class KeywordsTable extends \WP_List_Table {
                 $wpdb->update( $table, [ 'status' => $action_map[ $action ] ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
             } elseif ( $action === 'tmwseo_kw_bulk_delete' ) {
                 $wpdb->delete( $table, [ 'id' => $id ], [ '%d' ] );
+            } elseif ( $action === 'tmwseo_kw_resolve_model_entities' && class_exists( '\\TMWSEO\\Engine\\Keywords\\ModelKeywordEntityRepairService' ) ) {
+                ( new \TMWSEO\Engine\Keywords\ModelKeywordEntityRepairService() )->resolve_selected( $ids );
+                return;
             }
         }
     }

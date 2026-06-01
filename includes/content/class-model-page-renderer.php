@@ -18,6 +18,11 @@ class ModelPageRenderer {
 
         $sections = [];
         $secondary_heading_slots = self::normalize_secondary_heading_slots($payload['secondary_heading_slots'] ?? []);
+        $has_link_evidence_guard = array_key_exists('link_evidence_summary', $payload);
+        $link_evidence = self::normalize_link_evidence_summary($payload['link_evidence_summary'] ?? []);
+        if ($has_link_evidence_guard) {
+            $payload = self::apply_link_evidence_rendering_guards($payload, $link_evidence);
+        }
 
         // External evidence sections (v5.8.0–v5.8.6) REMOVED in v5.8.7.
         // Model Research Evidence is now applied at the generation save points
@@ -60,6 +65,16 @@ class ModelPageRenderer {
             $sections[] = $social_channels;
         }
 
+        $internal_links = self::render_section(
+            'More Pages for ' . $name,
+            $payload['internal_links_section_paragraphs'] ?? [],
+            $name,
+            $payload['internal_links_html'] ?? ''
+        );
+        if ($internal_links !== '') {
+            $sections[] = $internal_links;
+        }
+
         $about_allowed = self::should_render_editorial_section('about', $payload, $name);
         $about = $about_allowed
             ? self::render_section('About ' . $name, $payload['about_section_paragraphs'] ?? [], $name, $payload['about_section_html'] ?? '')
@@ -76,14 +91,14 @@ class ModelPageRenderer {
             $sections[] = $fans_like;
         }
 
-        $features_heading = self::heading_with_focus('Features and Platform Experience', $focus_keyword, $name);
+        $features_heading = self::heading_with_focus('Live Chat Experience', $focus_keyword, $name);
         $features_heading = self::append_secondary_heading_phrase($features_heading, $secondary_heading_slots['features'][0] ?? '');
         $features = self::render_section(
             $features_heading,
             $payload['features_section_paragraphs'] ?? [],
             $name,
             $payload['features_section_html'] ?? '',
-            self::build_secondary_subheadings($secondary_heading_slots['features'] ?? [], 1, 'Feature check for')
+            self::build_secondary_subheadings($secondary_heading_slots['features'] ?? [], 1, 'Live Chat Experience for')
         );
         if ($features !== '') {
             $sections[] = $features;
@@ -91,28 +106,21 @@ class ModelPageRenderer {
 
         $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
-        $active_platform_count = count(array_values(array_filter(array_map('strval', (array) ($payload['active_platforms'] ?? [])), 'strlen')));
-        if ($active_platform_count >= 2) {
-            $comparison_heading = 'Live Platform Comparison';
-        } elseif ($active_platform_count === 1) {
-            $comparison_heading = 'Before You Click';
-        } else {
-            $comparison_heading = 'Platform Access Notes';
-        }
+        $comparison_heading = 'Before You Click';
         $comparison_heading = self::append_secondary_heading_phrase($comparison_heading, $secondary_heading_slots['comparison'][0] ?? '');
         $compare = self::render_section(
             $comparison_heading,
             $comparison_paragraphs,
             $name,
             $payload['comparison_section_html'] ?? '',
-            self::build_secondary_subheadings($secondary_heading_slots['comparison'] ?? [], 1, 'Before you click:')
+            self::build_secondary_subheadings($secondary_heading_slots['comparison'] ?? [], 1, 'Profile check for')
         );
         if ($compare !== '') {
             $sections[] = $compare;
         }
 
         $questions = self::render_questions(
-            'Common Questions Before You Click',
+            'Common Profile Questions',
             $payload['questions_section_paragraphs'] ?? [],
             $payload['faq_items'] ?? [],
             $name,
@@ -122,7 +130,10 @@ class ModelPageRenderer {
             $sections[] = $questions;
         }
 
-        $official_links_heading = self::append_secondary_heading_phrase('Where Are the Official Links and Other Profiles?', $secondary_heading_slots['official_links'][0] ?? '');
+        $official_links_base_heading = (!empty($link_evidence) && empty($link_evidence['has_extra_links']))
+            ? (!empty($link_evidence['has_live_profile']) ? 'Confirmed Live Profile' : 'Confirmed Profile Link Status')
+            : 'Official Links and Profiles';
+        $official_links_heading = self::append_secondary_heading_phrase($official_links_base_heading, $secondary_heading_slots['official_links'][0] ?? '');
         $links = self::render_section(
             $official_links_heading,
             $payload['official_links_section_paragraphs'] ?? [],
@@ -138,7 +149,93 @@ class ModelPageRenderer {
         }
 
         $html = implode("\n\n", $sections);
-        return self::final_cleanup($html, $name);
+        return self::final_cleanup($html, $name, $has_link_evidence_guard ? $link_evidence : []);
+    }
+
+    /** @param mixed $raw @return array<string,mixed> */
+    private static function normalize_link_evidence_summary($raw): array {
+        $evidence = is_array($raw) ? $raw : [];
+        $live = max(0, (int) ($evidence['live_count'] ?? 0));
+        $extra = max(0, (int) ($evidence['extra_count'] ?? 0));
+        $total = max(0, (int) ($evidence['total_count'] ?? ($live + $extra)));
+        return array_merge($evidence, [
+            'live_count' => $live,
+            'extra_count' => $extra,
+            'total_count' => $total,
+            'has_live_profile' => !empty($evidence['has_live_profile']) || $live > 0,
+            'has_extra_links' => !empty($evidence['has_extra_links']) || $extra > 0,
+            'has_any_links' => !empty($evidence['has_any_links']) || ($live + $extra) > 0,
+        ]);
+    }
+
+    /** @param array<string,mixed> $payload @param array<string,mixed> $evidence @return array<string,mixed> */
+    private static function apply_link_evidence_rendering_guards(array $payload, array $evidence): array {
+        if (!empty($evidence['has_extra_links'])) {
+            return $payload;
+        }
+
+        $payload['official_destinations_section_paragraphs'] = [];
+        $payload['official_destinations_section_html'] = '';
+        $payload['community_destinations_section_paragraphs'] = [];
+        $payload['community_destinations_section_html'] = '';
+
+        foreach ([
+            'intro_paragraphs',
+            'watch_section_paragraphs',
+            'features_section_paragraphs',
+            'comparison_section_paragraphs',
+            'questions_section_paragraphs',
+            'official_links_section_paragraphs',
+        ] as $key) {
+            if (isset($payload[$key]) && is_array($payload[$key])) {
+                $payload[$key] = self::filter_no_extra_link_lines($payload[$key]);
+            }
+        }
+
+        if (isset($payload['faq_items']) && is_array($payload['faq_items'])) {
+            $faq_items = [];
+            foreach ($payload['faq_items'] as $faq) {
+                if (!is_array($faq)) {
+                    continue;
+                }
+                $q = trim((string) ($faq['q'] ?? ''));
+                $a = trim((string) ($faq['a'] ?? ''));
+                if ($q === '' || $a === '' || self::contains_no_extra_link_forbidden_terms($q . ' ' . $a)) {
+                    continue;
+                }
+                $faq_items[] = $faq;
+            }
+            $payload['faq_items'] = $faq_items;
+        }
+
+        return $payload;
+    }
+
+    /** @param array<int,mixed> $lines @return array<int,string> */
+    private static function filter_no_extra_link_lines(array $lines): array {
+        $out = [];
+        foreach ($lines as $line) {
+            $line = trim((string) $line);
+            if ($line === '' || self::contains_no_extra_link_forbidden_terms($line)) {
+                continue;
+            }
+            $out[] = $line;
+        }
+        return $out;
+    }
+
+    private static function contains_no_extra_link_forbidden_terms(string $text): bool {
+        return (bool) preg_match('/\b(other listed profiles|grouped profiles|fan\/support pages|fan pages|fansites?|personal sites?|video channels?|social profiles?|link hubs?|non-live profiles|backup profiles|archive links|0 profile links found, including 1 live profile)\b/iu', $text);
+    }
+
+    private static function strip_no_extra_link_forbidden_paragraphs(string $html): string {
+        $html = preg_replace_callback('/<p\b[^>]*>.*?<\/p>/is', static function (array $m): string {
+            $plain = trim((string) wp_strip_all_tags($m[0]));
+            return self::contains_no_extra_link_forbidden_terms($plain) ? '' : $m[0];
+        }, $html) ?: $html;
+        $html = preg_replace('/<h2>Other Official Destinations<\/h2>\s*(?=<h2>|$)/iu', '', $html) ?: $html;
+        $html = preg_replace('/<h2>Social Profiles, Link Hubs, and Channels<\/h2>\s*(?=<h2>|$)/iu', '', $html) ?: $html;
+        return trim((string) preg_replace('/\n{3,}/', "\n\n", $html));
     }
 
     private static function heading_with_focus(string $base, string $focus_keyword, string $name): string {
@@ -155,6 +252,9 @@ class ModelPageRenderer {
             return $heading;
         }
         if (preg_match('/\b' . preg_quote($phrase, '/') . '\b/iu', $heading)) {
+            return $heading;
+        }
+        if (preg_match('/^Official Links and Profiles\b/iu', $heading) && preg_match('/\blivejasmin\s+profile\b/iu', $phrase)) {
             return $heading;
         }
         return $heading . ' and ' . $phrase;
@@ -328,9 +428,16 @@ class ModelPageRenderer {
         $active = array_values(array_filter(array_map('strval', $active), 'strlen'));
 
         if (!empty($active)) {
-            $answer = $active[0] . ' is the confirmed live-room profile in this check. Start there for live access, then use other listed profiles only if needed.';
+            $evidence = self::normalize_link_evidence_summary($payload['link_evidence_summary'] ?? []);
+            $answer = $active[0] . ' is the confirmed live-room profile in this check. Start there for live access.';
+            if (!array_key_exists('link_evidence_summary', $payload) || !empty($evidence['has_extra_links'])) {
+                $answer .= ' Use additional verified destinations only if needed.';
+            }
         } else {
-            $answer = 'No live-room profile is confirmed active right now. Use listed profiles for handle checks and updates.';
+            $answer = 'No live-room profile is confirmed active right now.';
+            if (!array_key_exists('link_evidence_summary', $payload) || !empty(($payload['link_evidence_summary'] ?? [])['has_extra_links'])) {
+                $answer .= ' Use verified destinations for handle checks and updates.';
+            }
         }
 
         return [$answer];
@@ -347,7 +454,7 @@ class ModelPageRenderer {
         if (count($active) >= 2) {
             $answer = 'Start with ' . $active[0] . ' if it is your usual platform, then compare ' . $active[1] . ' for chat controls, mobile playback, and moderation flow.';
         } elseif (count($active) === 1) {
-            $answer = 'Before joining, confirm the handle, check recent room activity, and review payment/privacy controls.';
+            $answer = 'Before joining, confirm the handle and check recent room activity.';
         } else {
             $answer = 'Compare confirmed platforms by room stability, chat readability, trust signals, and mobile usability before choosing a default room.';
         }
@@ -363,7 +470,7 @@ class ModelPageRenderer {
         return implode(', ', $items) . ' and ' . $last;
     }
 
-    private static function final_cleanup(string $html, string $name): string {
+    private static function final_cleanup(string $html, string $name, array $link_evidence = []): string {
         $html = preg_replace('/<h2>\s*Table of Contents\s*<\/h2>\s*<ul>.*?<\/ul>/isu', '', $html) ?: $html;
         $html = preg_replace('/<h1\b[^>]*>.*?<\/h1>/isu', '', $html) ?: $html;
         $html = preg_replace('/\bthis model\b/iu', $name, $html) ?: $html;
@@ -376,10 +483,44 @@ class ModelPageRenderer {
         $html = preg_replace('/<p>\s*(People usually open a page like this.*?|A page like this.*?|Finding the real room should not take.*?|This page keeps.*?|The room tends to work because.*?|The atmosphere is settled.*?|The practical side.*?|The useful part of .*?|The main advantage here is .*?|What changes most .*?|One practical detail is .*?|What helps most is .*?|The biggest shift .*?|The room feel.*?|The tone.*?|The rhythm.*?|The energy.*?)\s*<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/<p>\s*(?:Viewers looking for|A query like|How to join .*? usually|LiveJasmin live show schedule matters).*?<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/(<h2>\s*Verified Links\s*<\/h2>.*?)(?:<p>\s*(?:In short|Overall|To wrap up|That said|Finally).*?<\/p>)+$/isu', '$1', $html) ?: $html;
+        $html = preg_replace('/<p>\s*For\s+[^<.]+?\s+access,\s*confirm handle consistency and recent room activity before joining\.\s*<\/p>/iu', '', $html) ?: $html;
+        $html = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the confirmed live room and use the verified links below for profile checks.', $html) ?: $html;
+        $html = str_replace('Official Links and Profiles and LiveJasmin profile', 'Official Links and Profiles', $html);
+        $html = str_replace(['use additional the links', 'Use additional the links'], ['use the additional links', 'Use the additional links'], $html);
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
+        $html = self::remove_duplicate_heading_text($html, 'Before You Click');
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
         return trim($html);
+    }
+
+    private static function remove_duplicate_heading_text(string $content, string $heading): string {
+        $pattern = '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu';
+        if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
+            return $content;
+        }
+
+        $keep_index = 0;
+        foreach ($matches[1] as $index => $level_match) {
+            if ((string) $level_match[0] === '2') {
+                $keep_index = (int) $index;
+                break;
+            }
+        }
+
+        $out = '';
+        $pos = 0;
+        foreach ($matches[0] as $index => $match) {
+            $text = (string) $match[0];
+            $offset = (int) $match[1];
+            $out .= substr($content, $pos, $offset - $pos);
+            if ($index === $keep_index) {
+                $out .= $text;
+            }
+            $pos = $offset + strlen($text);
+        }
+
+        return $out . substr($content, $pos);
     }
 
     private static function looks_like_nav_chrome(string $html): bool {

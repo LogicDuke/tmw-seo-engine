@@ -73,6 +73,8 @@ class ContentGenerationGate {
             }
         }
 
+        $reasons = self::apply_video_ownership_exception( $post, $primary_kw, $reasons );
+
         // ── Gate 3: Keyword confidence must exist ─────────────────
         $confidence_raw = get_post_meta( $post_id, '_tmwseo_keyword_confidence', true );
         $details['confidence'] = $confidence_raw;
@@ -240,6 +242,68 @@ class ContentGenerationGate {
         }
 
         return $reasons;
+    }
+
+    /**
+     * Allow video-page generation when the only blocker is model ownership and
+     * the keyword is clearly long-tail video intent (not a base model query).
+     *
+     * Keeps global ownership policy intact for models/categories.
+     */
+    private static function apply_video_ownership_exception( \WP_Post $post, string $primary_kw, array $reasons ): array {
+        if ( $post->post_type !== 'post' || ! self::is_video_like_post( $post->ID ) ) {
+            return $reasons;
+        }
+
+        if ( $primary_kw === '' || ! self::is_video_long_tail_keyword( $primary_kw ) ) {
+            return $reasons;
+        }
+
+        $blocking = array_values( array_filter( array_map( 'strval', $reasons ) ) );
+        if ( count( $blocking ) !== 1 || $blocking[0] !== 'ownership_conflict:model_page_owns_keyword' ) {
+            return $reasons;
+        }
+
+        Logs::info( 'content_gate', '[TMW-CONTENT-GATE] Video ownership exception applied', [
+            'post_id' => $post->ID,
+            'keyword' => $primary_kw,
+        ] );
+
+        return [];
+    }
+
+    private static function is_video_like_post( int $post_id ): bool {
+        if ( has_post_format( 'video', $post_id ) ) {
+            return true;
+        }
+        return (string) get_post_format( $post_id ) === 'video';
+    }
+
+    private static function is_video_long_tail_keyword( string $keyword ): bool {
+        $kw = mb_strtolower( trim( $keyword ), 'UTF-8' );
+        if ( $kw === '' ) {
+            return false;
+        }
+
+        $video_modifiers = [
+            'video',
+            'webcam video',
+            'live webcam clip',
+            'clip',
+            'cam show',
+            'video chat',
+            'webcam session',
+            'cam session',
+            'preview',
+        ];
+
+        foreach ( $video_modifiers as $modifier ) {
+            if ( strpos( $kw, $modifier ) !== false ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function check_category_prerequisites( int $post_id ): array {

@@ -20,6 +20,7 @@
  * @package TMWSEO\Engine\Model
  */
 namespace TMWSEO\Engine\Model;
+use TMWSEO\Engine\Logs;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -64,6 +65,11 @@ class Rollback {
         if ( $post instanceof \WP_Post ) {
             $saved['_wp_post_title']   = $post->post_title;
             $saved['_wp_post_excerpt'] = $post->post_excerpt;
+            $saved['_wp_post_name']    = $post->post_name;
+            $saved['_wp_thumbnail_id'] = (int) get_post_thumbnail_id( $post_id );
+            if ( (int) $saved['_wp_thumbnail_id'] > 0 ) {
+                $saved['_wp_thumbnail_alt'] = (string) get_post_meta( (int) $saved['_wp_thumbnail_id'], '_wp_attachment_image_alt', true );
+            }
         }
 
         $saved['_snapshot_at'] = current_time( 'mysql' );
@@ -111,8 +117,20 @@ class Rollback {
         if ( isset( $saved['_wp_post_excerpt'] ) ) {
             $post_update['post_excerpt'] = $saved['_wp_post_excerpt'];
         }
+        if ( isset( $saved['_wp_post_name'] ) && $saved['_wp_post_name'] !== '' ) {
+            $post_update['post_name'] = $saved['_wp_post_name'];
+            Logs::info( 'rollback', '[TMW-VIDEO-ROLLBACK] restored_slug', [ 'post_id' => $post_id, 'slug' => $saved['_wp_post_name'] ] );
+        }
         if ( count( $post_update ) > 1 ) {
             wp_update_post( $post_update );
+        }
+
+        if ( isset( $saved['_wp_thumbnail_id'] ) && (int) $saved['_wp_thumbnail_id'] > 0 && array_key_exists( '_wp_thumbnail_alt', $saved ) ) {
+            update_post_meta( (int) $saved['_wp_thumbnail_id'], '_wp_attachment_image_alt', (string) $saved['_wp_thumbnail_alt'] );
+            Logs::info( 'rollback', '[TMW-VIDEO-ROLLBACK] restored_image_alt', [
+                'post_id'  => $post_id,
+                'thumb_id' => (int) $saved['_wp_thumbnail_id'],
+            ] );
         }
 
         // Clear snapshot

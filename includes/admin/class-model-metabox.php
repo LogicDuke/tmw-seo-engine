@@ -314,12 +314,16 @@ class ModelMetabox {
         echo '  if(sTxt)sTxt.textContent="Full audit — enqueuing background job…";';
         echo '  startBarAnimation();';
         // STEP 1: enqueue the job (returns ~50ms with status:"queued").
+        echo '  var parseJsonResponse=function(txt){try{return {ok:true,json:JSON.parse(txt||"")};}catch(e){return {ok:false,error:e};}};';
+        echo '  var safeResponseSnippet=function(txt){var raw=(txt||"").toString().replace(/\s+/g," ").trim();if(!raw)return "(empty response)";return raw.substring(0,220);};';
         echo '  var ax=new XMLHttpRequest();ax.timeout=120000;';
         echo '  ax.open("POST",AJAX,true);';
         echo '  ax.setRequestHeader("Content-Type","application/x-www-form-urlencoded");';
         echo '  ax.onload=function(){';
-        echo '    try{var d=JSON.parse(ax.responseText);';
-        echo '      if(!d.success){clearInterval(barTimer);showError(d.data&&d.data.message?d.data.message:"Could not enqueue Full Audit.");return;}';
+        echo '    var parsed=parseJsonResponse(ax.responseText);';
+        echo '    if(!parsed.ok){clearInterval(barTimer);auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;var snippet=safeResponseSnippet(ax.responseText);showError("Server returned invalid response: "+snippet);console.warn("[TMW-MODEL-AUDIT-AJAX] invalid response caught by JS",{post_id:PID,response_snippet:snippet});return;}';
+        echo '    var d=parsed.json;';
+        echo '      if(!d.success){clearInterval(barTimer);auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;showError(d.data&&d.data.message?d.data.message:"Could not enqueue Full Audit.");return;}';
         // If the fallback path ran sync and returned a terminal status, just reload.
         echo '      var st=d.data&&d.data.status?d.data.status:"queued";';
         echo '      if(st==="researched"||st==="partial"||st==="error"){silentReload();return;}';
@@ -367,7 +371,6 @@ class ModelMetabox {
         echo '        };';
         echo '        p.send("action=tmwseo_research_status_poll&post_id="+PID+"&nonce="+POLL_N);';
         echo '      },4000);';
-        echo '    }catch(e){clearInterval(barTimer);showError("Server returned malformed response.");}';
         echo '  };';
         echo '  ax.ontimeout=function(){clearInterval(barTimer);showError("Enqueue request timed out — the worker may still pick it up. Refresh in 60s to check.");};';
         echo '  ax.onerror=function(){clearInterval(barTimer);showError("Network error.");auditBtn.disabled=false;auditBtn.textContent="🔍 Full Audit";delete auditBtn.dataset.running;};';

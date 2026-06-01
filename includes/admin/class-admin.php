@@ -18,6 +18,10 @@ use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Keywords\DiscoveryOrchestrator;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\CompetitorMiningService;
+use TMWSEO\Engine\Keywords\KeywordCandidateClassificationAudit;
+use TMWSEO\Engine\Keywords\KeywordPoolCandidateRepository;
+use TMWSEO\Engine\Keywords\KeywordPoolClassificationApplyService;
+use TMWSEO\Engine\Keywords\ModelKeywordPoolClassifier;
 use TMWSEO\Engine\Admin\Tables\KeywordsTable;
 use TMWSEO\Engine\Admin\Tables\ClustersTable;
 use TMWSEO\Engine\Admin\Tables\KeywordClustersTable;
@@ -59,6 +63,9 @@ class Admin {
         add_action('wp_ajax_tmwseo_generate_now', [AdminAjaxHandlers::class, 'ajax_generate_now']);
         add_action('wp_ajax_tmwseo_kick_worker', [AdminAjaxHandlers::class, 'ajax_kick_worker']);
         add_action('wp_ajax_tmwseo_rerun_model_preview_phrases', [AdminAjaxHandlers::class, 'ajax_rerun_model_preview_phrases']);
+        add_action('wp_ajax_tmwseo_save_model_fallback_pack', [AdminAjaxHandlers::class, 'ajax_save_model_fallback_pack']);
+        add_action('wp_ajax_tmwseo_kw_classification_dry_run', [AdminAjaxHandlers::class, 'ajax_kw_classification_dry_run']);
+        add_action('wp_ajax_tmwseo_kw_classification_apply_batch', [AdminAjaxHandlers::class, 'ajax_kw_classification_apply_batch']);
         add_action('admin_post_tmwseo_import_keywords', [AdminFormHandlers::class, 'import_keywords']);
         add_action('admin_post_tmwseo_bulk_autofix', [AdminFormHandlers::class, 'handle_bulk_autofix']);
         add_action('admin_post_tmwseo_reset_discovery_data', [AdminFormHandlers::class, 'handle_reset_discovery_data']);
@@ -70,10 +77,14 @@ class Admin {
         add_action('admin_post_tmwseo_run_dfseo_paid_keyword_scan', [AdminDfseoPreviewPage::class, 'handle_paid_scan']);
         add_action('admin_post_tmwseo_preview_keyword_cleanup', [AdminFormHandlers::class, 'preview_keyword_cleanup']);
         add_action('admin_post_tmwseo_apply_keyword_cleanup', [AdminFormHandlers::class, 'apply_keyword_cleanup']);
+        add_action('admin_post_tmwseo_preview_csv_keyword_approvals', [AdminFormHandlers::class, 'preview_csv_keyword_approvals']);
+        add_action('admin_post_tmwseo_apply_csv_keyword_approvals', [AdminFormHandlers::class, 'apply_csv_keyword_approvals']);
+        add_action('admin_post_tmwseo_download_csv_keyword_approval_rollback', [AdminFormHandlers::class, 'download_csv_keyword_approval_rollback']);
         add_action('admin_post_tmwseo_verify_new_keyword_metrics', [AdminFormHandlers::class, 'verify_new_keyword_metrics_now']);
         add_action('admin_post_tmwseo_force_recheck_keyword_metrics', [AdminFormHandlers::class, 'force_recheck_keyword_metrics_now']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
         \TMWSEO\Engine\Admin\KeywordMetricsCsvImporter::init();
+        \TMWSEO\Engine\Admin\KeywordPoolsAdminPage::init();
         \TMWSEO\Engine\Admin\ModelOpportunityAdminPage::init();
     }
 
@@ -112,6 +123,7 @@ class Admin {
             self::MENU_SLUG . '_page_tmwseo-competitor-domains',
             self::MENU_SLUG . '_page_tmwseo-content-gap',
             self::MENU_SLUG . '_page_tmwseo-keywords',
+            self::MENU_SLUG . '_page_tmwseo-keyword-pools',
             self::MENU_SLUG . '_page_tmwseo-opportunities',
             self::MENU_SLUG . '_page_tmwseo-traffic-forecast',
             self::MENU_SLUG . '_page_tmwseo-autopilot',
@@ -773,6 +785,290 @@ class Admin {
     }
 
 
+    private static function get_affiliate_admin_platform_rows(): array {
+        $rows = [];
+        foreach (PlatformRegistry::get_platforms() as $platform) {
+            $slug = sanitize_key((string) ($platform['slug'] ?? ''));
+            if ($slug === '') {
+                continue;
+            }
+
+            $group = sanitize_key((string) ($platform['group'] ?? ''));
+            $supported = !empty($platform['affiliate_supported']);
+            if (!$supported && in_array($group, ['social', 'linkhub'], true)) {
+                continue;
+            }
+            if (!$supported) {
+                continue;
+            }
+
+            $rows[$slug] = [
+                'label' => sanitize_text_field((string) ($platform['name'] ?? ucfirst($slug))),
+                'affiliate_link_pattern' => sanitize_text_field((string) ($platform['affiliate_link_pattern'] ?? '')),
+                'siteid' => $slug === 'livejasmin' ? 'jasmin' : '',
+                'categoryname' => $slug === 'livejasmin' ? 'girl' : '',
+                'pagename' => $slug === 'livejasmin' ? 'freechat' : '',
+            ];
+        }
+
+        return $rows;
+    }
+
+    private static function get_affiliate_platform_defaults(): array {
+        return self::get_affiliate_admin_platform_rows();
+    }
+
+    /**
+     * Render the read-only saved keyword candidate classification audit report.
+     */
+    private static function render_keyword_candidate_classification_audit(): void {
+        $report = KeywordCandidateClassificationAudit::audit_database(500);
+        $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
+        $rows = is_array($report['rows'] ?? null) ? $report['rows'] : [];
+        $display_limit = (int) ($report['display_limit'] ?? 500);
+        $suspicious_rows_returned = (int) ($report['suspicious_rows_returned'] ?? count($rows));
+
+        AdminUI::section_start(
+            __( 'Keyword Pool Classification Audit', 'tmwseo' ),
+            __( 'Audit-only report for saved wp_tmw_keyword_candidates pool classifications. This view never updates rows, changes statuses, writes Rank Math, writes post content, calls Generate, or changes indexing/noindex.', 'tmwseo' )
+        );
+
+        echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>' . esc_html__( 'Read-only:', 'tmwseo' ) . '</strong> ' . esc_html__( 'Review these rows manually before any later cleanup PR. No automatic reclassification or deletion is performed here.', 'tmwseo' ) . '</p></div>';
+
+        if ($suspicious_rows_returned >= $display_limit) {
+            echo '<p class="description" style="margin:0 0 12px;">' . esc_html(sprintf(__('Showing the first %1$d suspicious rows from a full read-only scan of %2$d saved candidates.', 'tmwseo'), $display_limit, (int) ($summary['total_scanned'] ?? 0))) . '</p>';
+        }
+
+        echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
+        $cards = [
+            __( 'Total candidates scanned', 'tmwseo' ) => (int) ($summary['total_scanned'] ?? 0),
+            __( 'Suspicious model rows', 'tmwseo' ) => (int) ($summary['suspicious_model_rows'] ?? 0),
+            __( 'Suspicious video rows', 'tmwseo' ) => (int) ($summary['suspicious_video_rows'] ?? 0),
+            __( 'Suspicious category rows', 'tmwseo' ) => (int) ($summary['suspicious_category_rows'] ?? 0),
+            __( 'Rows needing manual review', 'tmwseo' ) => (int) ($summary['rows_needing_manual_review'] ?? 0),
+        ];
+        foreach ($cards as $label => $count) {
+            echo '<div class="tmwui-kpi-card" style="min-width:150px;"><strong>' . esc_html((string) $count) . '</strong><span>' . esc_html((string) $label) . '</span></div>';
+        }
+        echo '</div>';
+
+        if ($rows === []) {
+            AdminUI::empty_state(__( 'No suspicious keyword candidate pool classifications found in the current audit sample.', 'tmwseo' ));
+        } else {
+            echo '<div class="tmwui-table-wrap">';
+        echo '<table class="widefat striped"><thead><tr>';
+        foreach ([ 'Keyword', 'Intent Type', 'Entity Type', 'Entity ID', 'Status', 'Volume', 'CPC', 'Competition', 'Opportunity', 'Sources', 'Reason Codes', 'Recommended Review Action' ] as $heading) {
+            echo '<th>' . esc_html($heading) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+
+        foreach ($rows as $row) {
+            $sources = (string) ($row['sources'] ?? '');
+            if ($sources === '') {
+                $sources = (string) ($row['source'] ?? '');
+            }
+            $reason_codes = implode(', ', (array) ($row['reason_codes'] ?? []));
+            echo '<tr>';
+            echo '<td><strong>' . esc_html((string) ($row['keyword'] ?? '')) . '</strong></td>';
+            echo '<td>' . esc_html((string) ($row['intent_type'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['entity_type'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['entity_id'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['status'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['volume'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['cpc'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['competition'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['opportunity'] ?? '')) . '</td>';
+            echo '<td><code>' . esc_html($sources) . '</code></td>';
+            echo '<td><code>' . esc_html($reason_codes) . '</code></td>';
+            echo '<td><strong>' . esc_html((string) ($row['recommended_review_action'] ?? '')) . '</strong></td>';
+            echo '</tr>';
+        }
+
+        echo '</tbody></table></div>';
+        }
+
+        self::render_keyword_pool_classification_apply_workflow();
+        AdminUI::section_end();
+    }
+
+
+    /**
+     * Render the PR 602 metadata dry-run/apply workflow appended to the audit view.
+     */
+    private static function render_keyword_pool_classification_apply_workflow(): void {
+        $service = new KeywordPoolClassificationApplyService(new KeywordPoolCandidateRepository(), new ModelKeywordPoolClassifier());
+        $summary = $service->summary();
+        $nonce = wp_create_nonce('tmwseo_kw_classification_audit');
+
+        echo '<hr style="margin:24px 0;">';
+        echo '<h2>' . esc_html__( 'PR 602 Classification Metadata — Dry Run & Apply', 'tmwseo' ) . '</h2>';
+        echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>' . esc_html__( 'This tool only writes classification metadata into keyword candidate sources JSON. It does not write Rank Math fields, post content, Generate output, indexing/noindex, publish status, slugs, or model posts. Status, entity_id, entity_type, intent_type, model_keyword_owner, and model_keyword_usage_scope are never changed.', 'tmwseo' ) . '</p></div>';
+
+        $cards = [
+            __( 'Total model keyword rows', 'tmwseo' ) => (int) ($summary['total_model_rows'] ?? 0),
+            __( 'Already classified', 'tmwseo' ) => (int) ($summary['already_classified'] ?? 0),
+            __( 'Missing classification', 'tmwseo' ) => (int) ($summary['missing_classification'] ?? 0),
+            __( 'Standalone allowed: yes', 'tmwseo' ) => (int) ($summary['standalone_allowed_yes'] ?? 0),
+            __( 'Standalone allowed: no', 'tmwseo' ) => (int) ($summary['standalone_allowed_no'] ?? 0),
+            __( 'Unlinked entity_id = 0', 'tmwseo' ) => (int) ($summary['unlinked_entity_id_zero'] ?? 0),
+        ];
+        echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
+        foreach ($cards as $label => $count) {
+            echo '<div class="tmwui-kpi-card" style="min-width:150px;"><strong>' . esc_html((string) $count) . '</strong><span>' . esc_html((string) $label) . '</span></div>';
+        }
+        echo '</div>';
+
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:12px 0;">';
+        self::render_keyword_classification_distribution_table(__( 'By keyword_class', 'tmwseo' ), (array) ($summary['by_keyword_class'] ?? []));
+        self::render_keyword_classification_distribution_table(__( 'By suggested_usage', 'tmwseo' ), (array) ($summary['by_suggested_usage'] ?? []));
+        echo '</div>';
+
+        echo '<div id="tmwseo-kw-classification-workflow" data-nonce="' . esc_attr($nonce) . '" data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '">';
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start;">';
+        echo '<div class="postbox" style="padding:12px;"><h3 style="margin-top:0;">' . esc_html__( 'Dry Run Preview', 'tmwseo' ) . '</h3>';
+        echo '<label>' . esc_html__( 'Filter', 'tmwseo' ) . ' <select id="tmwseo-kw-classification-filter">';
+        foreach ([ 'missing', 'all', 'unlinked', 'unsafe', 'unknown' ] as $filter) {
+            echo '<option value="' . esc_attr($filter) . '">' . esc_html($filter) . '</option>';
+        }
+        echo '</select></label> ';
+        echo '<label>' . esc_html__( 'Batch size', 'tmwseo' ) . ' <select id="tmwseo-kw-classification-dry-batch">';
+        foreach ([ 25, 50, 100 ] as $size) {
+            echo '<option value="' . esc_attr((string) $size) . '"' . selected($size, 50, false) . '>' . esc_html((string) $size) . '</option>';
+        }
+        echo '</select></label> ';
+        echo '<button type="button" class="button button-primary" id="tmwseo-kw-classification-dry-run">' . esc_html__( 'Run Dry Run Preview', 'tmwseo' ) . '</button>';
+        echo '<div id="tmwseo-kw-classification-dry-result" style="margin-top:12px;"></div></div>';
+
+        echo '<div class="postbox" style="padding:12px;"><h3 style="margin-top:0;">' . esc_html__( 'Apply Missing Classification Metadata', 'tmwseo' ) . '</h3>';
+        echo '<p class="description">' . esc_html__( 'Apply runs against rows missing classification metadata only. Review the dry run preview first.', 'tmwseo' ) . '</p>';
+        echo '<label>' . esc_html__( 'Batch size', 'tmwseo' ) . ' <select id="tmwseo-kw-classification-apply-batch">';
+        foreach ([ 50, 100, 250 ] as $size) {
+            echo '<option value="' . esc_attr((string) $size) . '"' . selected($size, 100, false) . '>' . esc_html((string) $size) . '</option>';
+        }
+        echo '</select></label> ';
+        echo '<button type="button" class="button button-secondary" id="tmwseo-kw-classification-apply">' . esc_html__( 'Apply Next Batch (Missing Classification Only)', 'tmwseo' ) . '</button>';
+        echo '<div id="tmwseo-kw-classification-apply-result" style="margin-top:12px;"></div></div>';
+        echo '</div></div>';
+
+        self::render_keyword_classification_apply_js();
+    }
+
+    /** @param array<string,int> $rows */
+    private static function render_keyword_classification_distribution_table(string $title, array $rows): void {
+        echo '<div class="tmwui-table-wrap"><h3>' . esc_html($title) . '</h3><table class="widefat striped"><thead><tr><th>' . esc_html__( 'Value', 'tmwseo' ) . '</th><th>' . esc_html__( 'Rows', 'tmwseo' ) . '</th></tr></thead><tbody>';
+        if ([] === $rows) {
+            echo '<tr><td colspan="2">' . esc_html__( 'No items found.', 'tmwseo' ) . '</td></tr>';
+        } else {
+            foreach ($rows as $value => $count) {
+                echo '<tr><td><code>' . esc_html((string) $value) . '</code></td><td>' . esc_html((string) (int) $count) . '</td></tr>';
+            }
+        }
+        echo '</tbody></table></div>';
+    }
+
+    private static function render_keyword_classification_apply_js(): void {
+        ?>
+        <script>
+        (function(){
+            const root = document.getElementById('tmwseo-kw-classification-workflow');
+            if (!root) { return; }
+            const ajaxUrl = root.getAttribute('data-ajax-url');
+            const nonce = root.getAttribute('data-nonce');
+            let offset = 0;
+            let dryFilter = 'missing';
+            let dryBatchSize = 50;
+            const esc = function(value) {
+                return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function(ch) {
+                    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[ch];
+                });
+            };
+            const showError = function(box, message) {
+                box.innerHTML = '<div class="notice notice-error inline"><p>' + esc(message || 'Request failed. Please refresh the page and try again.') + '</p></div>';
+            };
+            const post = function(data) {
+                const body = new URLSearchParams(data);
+                body.set('nonce', nonce);
+                return fetch(ajaxUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: body.toString()
+                }).then(function(resp){
+                    return resp.text().then(function(text){
+                        let payload = null;
+                        try {
+                            payload = text ? JSON.parse(text) : null;
+                        } catch (error) {
+                            if (!resp.ok) {
+                                throw new Error('Request failed with HTTP ' + resp.status + '.');
+                            }
+                            throw new Error('The server returned an unreadable response. Please try again.');
+                        }
+                        if (!resp.ok) {
+                            const message = payload && payload.data && payload.data.message ? payload.data.message : 'Request failed with HTTP ' + resp.status + '.';
+                            throw new Error(message);
+                        }
+                        if (!payload || payload.success !== true) {
+                            const message = payload && payload.data && payload.data.message ? payload.data.message : 'The request did not complete successfully.';
+                            throw new Error(message);
+                        }
+                        return payload;
+                    });
+                });
+            };
+            const renderDry = function(payload) {
+                const box = document.getElementById('tmwseo-kw-classification-dry-result');
+                const data = payload && payload.data ? payload.data : null;
+                if (!data) { showError(box, 'Dry run failed.'); return; }
+                let html = '<p><strong>' + esc(data.rows.length) + '</strong> rows shown from <strong>' + esc(data.total) + '</strong> matching rows. Offset ' + esc(data.offset) + '.</p>';
+                if (data.total_is_exact === false) {
+                    html += '<p class="description">Total is a lower-bound for this classification filter to avoid scanning the full table.</p>';
+                }
+                html += '<div class="tmwui-table-wrap"><table class="widefat striped"><thead><tr>';
+                ['ID','Keyword','Status','Entity Type','Entity ID','Model Name Context','Already Classified','Proposed KW Class','Proposed Usage','Proposed Standalone','Reason Codes','Confidence'].forEach(function(h){ html += '<th>' + esc(h) + '</th>'; });
+                html += '</tr></thead><tbody>';
+                if (!data.rows.length) {
+                    html += '<tr><td colspan="12">No rows found.</td></tr>';
+                } else {
+                    data.rows.forEach(function(row){
+                        html += '<tr><td>' + esc(row.id) + '</td><td><strong>' + esc(row.keyword) + '</strong></td><td>' + esc(row.current_status) + '</td><td>' + esc(row.entity_type) + '</td><td>' + esc(row.entity_id) + '</td><td>' + esc(row.model_name_context) + '</td><td>' + esc(row.already_classified ? 'yes' : 'no') + '</td><td><code>' + esc(row.proposed_keyword_class) + '</code></td><td><code>' + esc(row.proposed_suggested_usage) + '</code></td><td>' + esc(row.proposed_standalone_allowed ? 'yes' : 'no') + '</td><td><code>' + esc(row.proposed_reason_codes) + '</code></td><td>' + esc(row.proposed_confidence) + '</td></tr>';
+                    });
+                }
+                html += '</tbody></table></div>';
+                if ((data.offset + data.batch_size) < data.total) {
+                    html += '<p><button type="button" class="button" id="tmwseo-kw-classification-next">Load Next Batch</button></p>';
+                }
+                box.innerHTML = html;
+                const next = document.getElementById('tmwseo-kw-classification-next');
+                if (next) { next.addEventListener('click', function(){ offset += dryBatchSize; runDry(); }); }
+            };
+            const runDry = function() {
+                const box = document.getElementById('tmwseo-kw-classification-dry-result');
+                box.innerHTML = '<p>Loading dry-run preview…</p>';
+                post({ action: 'tmwseo_kw_classification_dry_run', offset: offset, batch_size: dryBatchSize, filter: dryFilter })
+                    .then(renderDry)
+                    .catch(function(error){ showError(box, error.message); });
+            };
+            document.getElementById('tmwseo-kw-classification-dry-run').addEventListener('click', function(){
+                offset = 0;
+                dryFilter = document.getElementById('tmwseo-kw-classification-filter').value;
+                dryBatchSize = parseInt(document.getElementById('tmwseo-kw-classification-dry-batch').value, 10) || 50;
+                runDry();
+            });
+            document.getElementById('tmwseo-kw-classification-apply').addEventListener('click', function(){
+                const box = document.getElementById('tmwseo-kw-classification-apply-result');
+                box.innerHTML = '<p>Applying…</p>';
+                post({ action: 'tmwseo_kw_classification_apply_batch', auto_fetch_missing: '1', batch_size: document.getElementById('tmwseo-kw-classification-apply-batch').value })
+                    .then(function(payload){
+                        const d = payload.data;
+                        box.innerHTML = '<div class="notice notice-success inline"><p>Scanned: ' + esc(d.scanned) + ' · Classified: ' + esc(d.classified) + ' · Already classified: ' + esc(d.skipped_already_classified) + ' · Not model: ' + esc(d.skipped_not_model) + ' · Empty: ' + esc(d.skipped_empty) + ' · Errors: ' + esc(d.errors) + '</p></div>';
+                    })
+                    .catch(function(error){ showError(box, error.message); });
+            });
+        })();
+        </script>
+        <?php
+    }
 
     // ── Ranking Probability page ───────────────────────────────────────────
 
@@ -1282,10 +1578,53 @@ class Admin {
         $ignored_count         = ( $sc['ignored'] ?? 0 ) + ( $sc['rejected'] ?? 0 );
         $queued_count          = $sc['queued_for_review'] ?? 0;
 
+        $candidate_columns = (array) $wpdb->get_results( "SHOW COLUMNS FROM {$cand_table}", ARRAY_A );
+        $candidate_column_names = array_map(
+            static fn( $col ) => (string) ( $col['Field'] ?? $col['field'] ?? '' ),
+            $candidate_columns
+        );
+        $has_intent_type_column = in_array( 'intent_type', $candidate_column_names, true );
+        $has_competition_column = in_array( 'competition', $candidate_column_names, true );
+        $has_opportunity_column = in_array( 'opportunity', $candidate_column_names, true );
+        $has_seo_score_column   = in_array( 'seo_score', $candidate_column_names, true );
+        $has_sources_column     = in_array( 'sources', $candidate_column_names, true ) || in_array( 'notes', $candidate_column_names, true );
+        $has_entity_type_column = in_array( 'entity_type', $candidate_column_names, true );
+        $has_entity_id_column   = in_array( 'entity_id', $candidate_column_names, true );
+        $unlinked_model_keyword_count = 0;
+        if ( $has_intent_type_column && $has_entity_type_column && $has_entity_id_column ) {
+            $unlinked_model_keyword_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$cand_table} WHERE intent_type='model' AND status='approved' AND entity_type='model' AND entity_id=0" );
+        }
+
+        $pool_counts = [ 'model' => 0, 'video' => 0, 'category' => 0 ];
+        $approved_pool_counts = [ 'model' => 0, 'video' => 0, 'category' => 0 ];
+        if ( $has_intent_type_column ) {
+            $pool_rows = (array) $wpdb->get_results(
+                "SELECT intent_type, COUNT(*) AS cnt FROM {$cand_table} WHERE intent_type IN ('model','video','category') GROUP BY intent_type",
+                ARRAY_A
+            );
+            foreach ( $pool_rows as $row ) {
+                $intent_type = (string) ( $row['intent_type'] ?? '' );
+                if ( array_key_exists( $intent_type, $pool_counts ) ) {
+                    $pool_counts[ $intent_type ] = (int) ( $row['cnt'] ?? 0 );
+                }
+            }
+
+            $approved_pool_rows = (array) $wpdb->get_results(
+                "SELECT intent_type, COUNT(*) AS cnt FROM {$cand_table} WHERE status='approved' AND intent_type IN ('model','video','category') GROUP BY intent_type",
+                ARRAY_A
+            );
+            foreach ( $approved_pool_rows as $row ) {
+                $intent_type = (string) ( $row['intent_type'] ?? '' );
+                if ( array_key_exists( $intent_type, $approved_pool_counts ) ) {
+                    $approved_pool_counts[ $intent_type ] = (int) ( $row['cnt'] ?? 0 );
+                }
+            }
+        }
+
         // ── Active view ───────────────────────────────────────────────────────
         $allowed_views = [
             'candidates', 'all', 'raw', 'approved', 'new',
-            'ignored', 'queued_for_review', 'clusters',
+            'ignored', 'queued_for_review', 'clusters', 'classification_audit',
         ];
         $view = isset( $_GET['view'] ) ? sanitize_key( (string) $_GET['view'] ) : 'candidates';
         // `rejected` is a legacy URL alias — keyword candidates store rejected
@@ -1377,9 +1716,28 @@ class Admin {
                 echo '<div class="notice notice-success is-dismissible"><p>' . sprintf( esc_html__( 'Safe keyword cleanup applied. %d candidate rows were marked as ignored.', 'tmwseo' ), $count ) . '</p></div>';
             } elseif ( $notice === 'keyword_cleanup_confirm_required' ) {
                 echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'Please confirm cleanup before applying changes.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_preview_ready' ) {
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'CSV keyword approval preview generated. Review the rows below before applying.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_applied' ) {
+                $count = isset( $_GET['tmwseo_bulk_count'] ) ? max( 0, (int) $_GET['tmwseo_bulk_count'] ) : 0;
+                $remaining = isset( $_GET['tmwseo_remaining'] ) ? max( 0, (int) $_GET['tmwseo_remaining'] ) : 0;
+                $message = sprintf( esc_html__( 'CSV keyword approval applied. %d queued candidate rows were approved.', 'tmwseo' ), $count );
+                if ( $remaining > 0 ) {
+                    $message .= ' ' . sprintf( esc_html__( '%d preview-approved rows remain; run Apply again to process the next batch.', 'tmwseo' ), $remaining );
+                }
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( $message ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_confirm_required' ) {
+                echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'Please confirm CSV keyword approvals before applying changes.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_missing_preview' ) {
+                echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'CSV approval preview expired or was not found. Upload the CSV and preview it again before applying.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_upload_error' ) {
+                echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'CSV upload could not be read. Please upload a valid .csv file with a supported keyword column.', 'tmwseo' ) . '</p></div>';
             }
         }
 
+
+        // ── CSV bulk approve panel ─────────────────────────────────────────
+        self::render_csv_bulk_approve_safe_keywords_panel();
 
         // ── Safe keyword cleanup panel ───────────────────────────────────────
         self::render_safe_keyword_cleanup_panel();
@@ -1396,6 +1754,7 @@ class Admin {
             'ignored'          => [ __( 'Ignored / Rejected', 'tmwseo' ), $ignored_count ],
             'raw'              => [ __( 'Raw Keywords', 'tmwseo' ),        $raw_count ],
             'clusters'         => [ __( 'Keyword Clusters', 'tmwseo' ),   $cluster_count ],
+            'classification_audit' => [ __( 'Keyword Pool Classification Audit', 'tmwseo' ), null ],
         ];
 
         // Normalise: 'all' aliases to 'candidates' in the tab bar
@@ -1418,7 +1777,10 @@ class Admin {
 
         // ── Render content by view ────────────────────────────────────────────
 
-        if ( $view === 'raw' ) {
+        if ( $view === 'classification_audit' ) {
+            self::render_keyword_candidate_classification_audit();
+
+        } elseif ( $view === 'raw' ) {
             // ── Raw Keywords view ────────────────────────────────────────────
             AdminUI::section_start(
                 __( 'Raw Keywords', 'tmwseo' ),
@@ -1724,8 +2086,53 @@ class Admin {
             $keywords_table = new KeywordsTable( $status_filter, $view );
             $keywords_table->prepare_items();
             $active_filters = $keywords_table->get_active_filters();
+            echo '<div class="notice notice-info inline" style="margin:0 0 12px;"><p>' . esc_html__( 'Keyword candidates are stored in wp_tmw_keyword_candidates. This page is for reviewing saved keyword candidates only. Editing here does not write Rank Math, post content, Generate output, or indexing/noindex.', 'tmwseo' ) . '</p></div>';
+            if ( $unlinked_model_keyword_count > 0 ) {
+                echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p><strong>' . esc_html__( 'Unlinked model keywords:', 'tmwseo' ) . '</strong> ' . esc_html__( 'Approved model keywords with Entity ID 0 cannot be used for bio automation until linked.', 'tmwseo' ) . ' ' . esc_html( sprintf( _n( '%d approved row currently needs linking.', '%d approved rows currently need linking.', $unlinked_model_keyword_count, 'tmwseo' ), $unlinked_model_keyword_count ) ) . '</p></div>';
+            }
+
+            echo '<div class="tmwui-kpi-row" style="margin:0 0 12px;">';
+            $pool_count_cards = [
+                __( 'All Candidates', 'tmwseo' )      => $cand_count,
+                __( 'Model', 'tmwseo' )               => $pool_counts['model'],
+                __( 'Video', 'tmwseo' )               => $pool_counts['video'],
+                __( 'Category', 'tmwseo' )            => $pool_counts['category'],
+                __( 'Approved Model', 'tmwseo' )      => $approved_pool_counts['model'],
+                __( 'Approved Video', 'tmwseo' )      => $approved_pool_counts['video'],
+                __( 'Approved Category', 'tmwseo' )   => $approved_pool_counts['category'],
+            ];
+            foreach ( $pool_count_cards as $label => $count ) {
+                echo '<div class="tmwui-kpi-card" style="min-width:130px;"><strong>' . esc_html( (string) $count ) . '</strong><span>' . esc_html( (string) $label ) . '</span></div>';
+            }
+            echo '</div>';
+
             echo '<div class="tmwui-table-wrap">';
             $filter_base = [ 'page' => 'tmwseo-keywords', 'view' => 'candidates' ];
+            $status_filter_args = $status_filter !== null ? [ 'status' => $status_filter ] : [];
+            $active_pool = $has_intent_type_column && isset( $_GET['intent_type'] ) ? sanitize_key( (string) $_GET['intent_type'] ) : '';
+            if ( ! in_array( $active_pool, [ 'model', 'video', 'category' ], true ) ) {
+                $active_pool = '';
+            }
+            $pool_tabs = [
+                ''         => [ __( 'All Pools', 'tmwseo' ), $cand_count ],
+                'model'    => [ __( 'Model Keywords', 'tmwseo' ), $pool_counts['model'] ],
+                'video'    => [ __( 'Video Keywords', 'tmwseo' ), $pool_counts['video'] ],
+                'category' => [ __( 'Category Keywords', 'tmwseo' ), $pool_counts['category'] ],
+            ];
+            echo '<nav class="nav-tab-wrapper tmwseo-pool-tabs" style="margin:0 0 12px;">';
+            foreach ( $pool_tabs as $pool => [ $label, $count ] ) {
+                $args = array_merge( $filter_base, $status_filter_args );
+                if ( $pool !== '' && $has_intent_type_column ) {
+                    $args['intent_type'] = $pool;
+                }
+                $class = 'nav-tab' . ( $pool === $active_pool ? ' nav-tab-active' : '' );
+                echo '<a class="' . esc_attr( $class ) . '" href="' . esc_url( add_query_arg( $args, admin_url( 'admin.php' ) ) ) . '">' . esc_html( $label ) . ' <span class="tmwui-tab-badge">' . esc_html( (string) $count ) . '</span></a>';
+            }
+            echo '</nav>';
+            if ( ! $has_intent_type_column ) {
+                echo '<p class="description" style="margin:0 0 12px;">' . esc_html__( 'Pool filters are hidden because intent_type is not available on the keyword candidates table.', 'tmwseo' ) . '</p>';
+            }
+
             $quick_links = [
                 'Volume High → Low'      => array_merge( $filter_base, [ 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
                 'Scored With Volume'     => array_merge( $filter_base, [ 'status' => 'scored', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
@@ -1734,9 +2141,41 @@ class Admin {
                 'High Volume + Low KD'   => array_merge( $filter_base, [ 'min_volume' => 1, 'max_kd' => 40, 'orderby' => 'volume', 'order' => 'desc' ] ),
                 'Commercial Intent'      => array_merge( $filter_base, [ 'intent' => 'commercial', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] ),
             ];
-            global $wpdb;
-            $cand_table = $wpdb->prefix . 'tmw_keyword_candidates';
-            $page_type_exists = (bool) $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$cand_table} LIKE %s", 'page_type' ) );
+            if ( $has_intent_type_column ) {
+                $quick_links['Approved Category Keywords'] = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'category', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Approved Video Keywords']    = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Approved Model Keywords']    = array_merge( $filter_base, [ 'status' => 'approved', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Personal Model CSV Keywords'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'personal_model_csv', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Primary Model Bio Keywords']  = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'primary_model_bio', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Unlinked Model Keywords']     = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'unlinked_model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                if ( $has_sources_column ) {
+                    $quick_links['Core Model Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'core_model_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Platform Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'platform_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Platform Intent Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'platform_intent_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Intent Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'intent_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Attribute Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'attribute_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Geo / Language Terms'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'geo_language_term', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Feature Modifiers'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'feature_modifier', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Unsafe Standalone Modifiers'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'unsafe_standalone', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Generated Fallback Keywords'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'generated_fallback', 'orderby' => 'volume', 'order' => 'desc' ] );
+                    $quick_links['Not Standalone Allowed'] = array_merge( $filter_base, [ 'intent_type' => 'model', 'model_keyword_filter' => 'not_standalone_allowed', 'orderby' => 'volume', 'order' => 'desc' ] );
+                }
+                $quick_links['Ignored Model Keywords']      = array_merge( $filter_base, [ 'status' => 'ignored', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Queued Model Keywords']       = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'model', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Queued Video Keywords']      = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'video', 'orderby' => 'volume', 'order' => 'desc' ] );
+                $quick_links['Queued Category Keywords']   = array_merge( $filter_base, [ 'status' => 'queued_for_review', 'intent_type' => 'category', 'orderby' => 'volume', 'order' => 'desc' ] );
+            }
+            if ( $has_competition_column ) {
+                $quick_links['High Volume + Low Competition'] = array_merge( $filter_base, [ 'min_volume' => 1, 'max_competition' => 0.35, 'orderby' => 'volume', 'order' => 'desc' ] );
+            }
+            if ( $has_opportunity_column ) {
+                $quick_links['Golden / KWE Opportunity'] = array_merge( $filter_base, [ 'min_volume' => 1, 'min_opportunity' => 0.7, 'orderby' => 'opportunity', 'order' => 'desc' ] );
+            } elseif ( $has_seo_score_column ) {
+                $quick_links['Golden / KWE Opportunity'] = array_merge( $filter_base, [ 'min_volume' => 1, 'min_seo_score' => 70, 'orderby' => 'seo_score', 'order' => 'desc' ] );
+            } elseif ( $has_sources_column ) {
+                $quick_links['Golden / KWE Opportunity'] = array_merge( $filter_base, [ 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] );
+            }
+            $page_type_exists = in_array( 'page_type', $candidate_column_names, true );
             if ( $page_type_exists ) {
                 $quick_links['Category Candidates'] = array_merge( $filter_base, [ 'page_type' => 'category', 'min_volume' => 1, 'orderby' => 'volume', 'order' => 'desc' ] );
             }
@@ -1756,7 +2195,13 @@ class Admin {
             if ( isset( $_GET['tmwseo_notice'] ) ) {
                 $bulk_notice = sanitize_key( (string) $_GET['tmwseo_notice'] );
                 $bulk_count  = isset( $_GET['tmwseo_bulk_count'] ) ? max( 0, (int) $_GET['tmwseo_bulk_count'] ) : 0;
-                if ( in_array( $bulk_notice, [ 'kw_bulk_approved', 'kw_bulk_rejected', 'kw_bulk_deleted', 'kw_bulk_empty', 'kw_bulk_unauthorized' ], true ) ) {
+                if ( 'kw_model_entity_repair_done' === $bulk_notice ) {
+                    $selected = isset( $_GET['tmwseo_repair_selected'] ) ? max( 0, (int) $_GET['tmwseo_repair_selected'] ) : 0;
+                    $linked = isset( $_GET['tmwseo_repair_linked'] ) ? max( 0, (int) $_GET['tmwseo_repair_linked'] ) : 0;
+                    $unresolved = isset( $_GET['tmwseo_repair_unresolved'] ) ? max( 0, (int) $_GET['tmwseo_repair_unresolved'] ) : 0;
+                    $ambiguous = isset( $_GET['tmwseo_repair_ambiguous'] ) ? max( 0, (int) $_GET['tmwseo_repair_ambiguous'] ) : 0;
+                    echo '<div class="notice notice-success is-dismissible inline" style="margin:0 0 12px;"><p>' . esc_html( sprintf( __( 'Resolve selected complete: %1$d selected, %2$d linked, %3$d unresolved, %4$d ambiguous.', 'tmwseo' ), $selected, $linked, $unresolved, $ambiguous ) ) . '</p></div>';
+                } elseif ( in_array( $bulk_notice, [ 'kw_bulk_approved', 'kw_bulk_rejected', 'kw_bulk_deleted', 'kw_bulk_empty', 'kw_bulk_unauthorized' ], true ) ) {
                     $bulk_msg = match ( $bulk_notice ) {
                         'kw_bulk_approved'   => sprintf( _n( '%d keyword approved.', '%d keywords approved.', $bulk_count, 'tmwseo' ), $bulk_count ),
                         'kw_bulk_rejected'   => sprintf( _n( '%d keyword rejected (set to ignored).', '%d keywords rejected (set to ignored).', $bulk_count, 'tmwseo' ), $bulk_count ),
@@ -1836,6 +2281,96 @@ class Admin {
         self::footer();
     }
 
+
+
+    private static function render_csv_bulk_approve_safe_keywords_panel(): void {
+        $preview = get_transient( 'tmwseo_csv_keyword_approval_preview_' . get_current_user_id() );
+        $rollback = get_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
+        $has_preview_token = is_array( $preview ) && ! empty( $preview['token'] );
+
+        AdminUI::section_start(
+            __( 'CSV Bulk Approve Safe Keywords', 'tmwseo' ),
+            __( 'Upload a reviewed CSV and approve only matching queued model keyword candidates.', 'tmwseo' )
+        );
+        echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>' . esc_html__( 'This tool only approves existing keyword candidates from a reviewed CSV. It does not create keywords, update Rank Math, change post content, or modify indexing settings.', 'tmwseo' ) . '</p></div>';
+        echo '<p class="description">' . esc_html__( 'Recommended first CSV: tmwseo-priority-safe-model-keywords-volume-100-plus-2026-05-31.csv', 'tmwseo' ) . '</p>';
+
+        echo '<div class="tmwui-cta-row" style="align-items:flex-start;">';
+        echo '<form method="post" enctype="multipart/form-data" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_preview_csv_keyword_approvals' );
+        echo '<input type="hidden" name="action" value="tmwseo_preview_csv_keyword_approvals">';
+        echo '<label for="tmwseo_csv_keyword_approvals"><strong>' . esc_html__( 'Reviewed safe keyword CSV', 'tmwseo' ) . '</strong></label><br>';
+        echo '<input type="file" id="tmwseo_csv_keyword_approvals" name="tmwseo_csv_keyword_approvals" accept=".csv,text/csv" required> ';
+        submit_button( __( 'Preview CSV Keyword Approvals', 'tmwseo' ), 'secondary', 'submit', false );
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_apply_csv_keyword_approvals' );
+        echo '<input type="hidden" name="action" value="tmwseo_apply_csv_keyword_approvals">';
+        if ( $has_preview_token ) {
+            echo '<input type="hidden" name="preview_token" value="' . esc_attr( (string) $preview['token'] ) . '">';
+        }
+        echo '<label><input type="checkbox" name="confirm_apply" value="1"> ' . esc_html__( 'I understand this will approve matching queued keyword candidates only.', 'tmwseo' ) . '</label><br>';
+        submit_button( __( 'Apply CSV Keyword Approvals', 'tmwseo' ), 'primary', 'submit', false, $has_preview_token ? [] : [ 'disabled' => 'disabled' ] );
+        echo '<p class="description">' . esc_html__( 'Applies at most 250 preview-approved rows per batch.', 'tmwseo' ) . '</p>';
+        echo '</form>';
+        echo '</div>';
+
+        if ( is_array( $rollback ) && ! empty( $rollback['token'] ) ) {
+            $download_url = wp_nonce_url(
+                add_query_arg( [ 'action' => 'tmwseo_download_csv_keyword_approval_rollback', 'token' => (string) $rollback['token'] ], admin_url( 'admin-post.php' ) ),
+                'tmwseo_download_csv_keyword_approval_rollback'
+            );
+            echo '<p><a class="button" href="' . esc_url( $download_url ) . '">' . esc_html__( 'Download latest rollback CSV', 'tmwseo' ) . '</a></p>';
+        }
+
+        if ( is_array( $preview ) ) {
+            $summary = is_array( $preview['summary'] ?? null ) ? $preview['summary'] : [];
+            echo '<p><strong>' . esc_html__( 'Preview Summary', 'tmwseo' ) . '</strong></p>';
+            echo '<ul>';
+            $labels = [
+                'total_csv_rows' => __( 'Total CSV rows', 'tmwseo' ),
+                'matched_candidates' => __( 'Matched candidates', 'tmwseo' ),
+                'ready_to_approve' => __( 'Safe queued candidates ready to approve', 'tmwseo' ),
+                'already_approved_skipped' => __( 'Already approved skipped', 'tmwseo' ),
+                'ignored_rejected_skipped' => __( 'Ignored/rejected skipped', 'tmwseo' ),
+                'no_match_skipped' => __( 'No match skipped', 'tmwseo' ),
+                'duplicate_matches' => __( 'Duplicate matches', 'tmwseo' ),
+                'ambiguous_matches' => __( 'Ambiguous matches', 'tmwseo' ),
+                'invalid_rows' => __( 'Invalid rows', 'tmwseo' ),
+            ];
+            foreach ( $labels as $key => $label ) {
+                echo '<li>' . esc_html( $label ) . ': ' . (int) ( $summary[ $key ] ?? 0 ) . '</li>';
+            }
+            echo '</ul>';
+
+            $rows = is_array( $preview['rows'] ?? null ) ? $preview['rows'] : [];
+            if ( ! empty( $rows ) ) {
+                echo '<div class="tmwui-table-wrap"><table class="widefat striped"><thead><tr>';
+                foreach ( [ 'CSV Row', 'CSV Keyword', 'Matched Candidate ID', 'Current Candidate Keyword', 'Current Status', 'Type / Classification', 'Volume', 'KD', 'Action', 'Reason' ] as $heading ) {
+                    echo '<th>' . esc_html( $heading ) . '</th>';
+                }
+                echo '</tr></thead><tbody>';
+                foreach ( $rows as $row ) {
+                    echo '<tr>';
+                    echo '<td>' . (int) ( $row['row_number'] ?? 0 ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['csv_keyword'] ?? '' ) ) . '</td>';
+                    echo '<td>' . (int) ( $row['candidate_id'] ?? 0 ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['candidate_keyword'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['status'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['type'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['volume'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['kd'] ?? '' ) ) . '</td>';
+                    echo '<td><strong>' . esc_html( (string) ( $row['action'] ?? '' ) ) . '</strong></td>';
+                    echo '<td>' . esc_html( (string) ( $row['reason'] ?? '' ) ) . '</td>';
+                    echo '</tr>';
+                }
+                echo '</tbody></table></div>';
+            }
+        }
+
+        AdminUI::section_end();
+    }
 
 
     private static function render_safe_keyword_cleanup_panel(): void {
@@ -2617,7 +3152,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
         $networks     = is_array( $networks ) ? $networks : [];
 
         echo '<form method="post" action="options.php">';
-        settings_fields( 'tmwseo_settings_group' );
+        settings_fields( 'tmwseo_affiliate_networks_group' );
 
         echo '<h2>' . esc_html__( 'Affiliate Networks (URL-level routing)', 'tmwseo' ) . '</h2>';
         echo '<p class="description">'
@@ -2718,7 +3253,7 @@ talk to strangers")) . '</textarea><p class="description">' . esc_html__('One bl
 
         // ── Per-platform affiliate templates ──────────────────────────────────
         echo '<form method="post" action="options.php">';
-        settings_fields('tmwseo_settings_group');
+        settings_fields('tmwseo_platform_affiliate_settings_group');
         echo '<h2>' . esc_html__('Affiliate-Capable Platforms', 'tmwseo') . '</h2>';
         echo '<p class="description">' . esc_html__('Use placeholders only. Do not paste hardcoded usernames into templates.', 'tmwseo') . '</p>';
 

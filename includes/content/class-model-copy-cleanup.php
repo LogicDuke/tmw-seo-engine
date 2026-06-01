@@ -284,6 +284,7 @@ class ModelCopyCleanup {
 		// rewrites so e.g. <h2>Before You Click</h2><h3>Before You Click</h3>
 		// (produced by the rewrite pass) collapses into one heading.
 		$body = self::remove_duplicate_adjacent_headings( $body );
+		$body = self::remove_duplicate_heading_text( $body, 'Before You Click' );
 
 		// Part E + Part F + Part B2/B4: paragraph dedup across the body.
 		$body = self::remove_duplicate_paragraphs( $body );
@@ -1076,6 +1077,35 @@ class ModelCopyCleanup {
 	 * strips trailing punctuation so "Before You Click" and "Before you click:"
 	 * compare equal.
 	 */
+	private static function remove_duplicate_heading_text( string $html, string $heading ): string {
+		$pattern = '#(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote( $heading, '#' ) . '\s*</h\1>(?:\s*<!--\s*/wp:heading\s*-->)?#iu';
+		if ( ! preg_match_all( $pattern, $html, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return $html;
+		}
+
+		$keep_index = 0;
+		foreach ( $matches[1] as $index => $level_match ) {
+			if ( (string) $level_match[0] === '2' ) {
+				$keep_index = (int) $index;
+				break;
+			}
+		}
+
+		$out = '';
+		$pos = 0;
+		foreach ( $matches[0] as $index => $match ) {
+			$text = (string) $match[0];
+			$offset = (int) $match[1];
+			$out .= substr( $html, $pos, $offset - $pos );
+			if ( $index === $keep_index ) {
+				$out .= $text;
+			}
+			$pos = $offset + strlen( $text );
+		}
+
+		return $out . substr( $html, $pos );
+	}
+
 	private static function normalise_heading_text_for_compare( string $inner ): string {
 		$text = wp_strip_tags_safe( $inner );
 		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );

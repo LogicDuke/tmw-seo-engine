@@ -22,7 +22,7 @@ class PlatformProfiles {
     public static function register_metabox(): void {
         add_meta_box(
             'tmwseo_platform_profiles',
-            'TMW Platform Profiles',
+            'TMW Platform Profiles (Deprecated)',
             [__CLASS__, 'render_metabox'],
             'model',
             'side',
@@ -33,15 +33,17 @@ class PlatformProfiles {
     public static function render_metabox(\WP_Post $post): void {
         wp_nonce_field('tmwseo_platform_profiles_save', 'tmwseo_platform_profiles_nonce');
 
-        echo "<p style=\"margin-top:0\">Add your model usernames on other platforms. Used for multi-platform linking.</p>";
+        echo '<p style="margin-top:0;color:#7a3b00"><strong>' . esc_html__('Deprecated:', 'tmw-seo-engine') . '</strong> ' . esc_html__('Verified External Links are the trusted source for generated platform links and live-room mentions. These legacy username fields are kept only for backward compatibility.', 'tmw-seo-engine') . '</p>';
+        echo '<details><summary style="cursor:pointer;font-weight:600">' . esc_html__('Show legacy platform username fields', 'tmw-seo-engine') . '</summary>';
 
         foreach (self::get_platform_labels() as $key => $label) {
-            $val = self::get_username_with_migration($post->ID, $key);
+            $val = self::get_username($post->ID, $key);
             echo '<p><label style="font-weight:600">' . esc_html($label) . '</label><br>';
-            echo '<input type="text" style="width:100%" name="tmwseo_platform_username[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="username" /></p>';
+            echo '<input type="text" style="width:100%" name="tmwseo_platform_username[' . esc_attr($key) . ']" value="' . esc_attr($val) . '" placeholder="legacy username" /></p>';
         }
 
-        echo '<p><em>' . esc_html__("Tip: Enter only the username, not the full URL.", 'tmw-seo-engine') . '</em></p>';
+        echo '<p><em>' . esc_html__("Use Verified External Links for generated content. Empty legacy fields are treated as intentional deletions and are not restored from legacy URLs during normal saves.", 'tmw-seo-engine') . '</em></p>';
+        echo '</details>';
 
         $primary = (string) get_post_meta($post->ID, '_tmwseo_platform_primary', true);
         echo '<p><label style="font-weight:600">Primary platform</label><br>';
@@ -66,10 +68,6 @@ class PlatformProfiles {
         foreach (self::get_platform_labels() as $key => $label) {
             $val = isset($platform_usernames[$key]) ? sanitize_text_field(trim((string) wp_unslash($platform_usernames[$key]))) : '';
             update_post_meta($post_id, '_tmwseo_platform_username_' . $key, $val);
-
-            if ($val === '') {
-                self::migrate_username_from_legacy_url($post_id, $key);
-            }
         }
 
         $primary = isset($_POST['tmwseo_platform_primary']) ? sanitize_text_field((string)$_POST['tmwseo_platform_primary']) : '';
@@ -127,10 +125,6 @@ class PlatformProfiles {
         foreach (self::get_platform_labels() as $key => $label) {
             $val = isset($usernames[$key]) ? sanitize_text_field(trim((string) $usernames[$key])) : '';
             update_post_meta($post_id, '_tmwseo_platform_username_' . $key, $val);
-
-            if ($val === '') {
-                self::migrate_username_from_legacy_url($post_id, $key);
-            }
         }
 
         $primary = isset($_POST['primary']) ? sanitize_text_field((string) wp_unslash($_POST['primary'])) : '';
@@ -151,7 +145,7 @@ class PlatformProfiles {
         $primary = (string) get_post_meta($model_id, '_tmwseo_platform_primary', true);
 
         foreach (self::get_platform_labels() as $key => $label) {
-            $username = self::get_username_with_migration($model_id, $key);
+            $username = self::get_username($model_id, $key);
             if ($username === '') continue;
 
             $url = self::build_profile_url($key, $username);
@@ -183,7 +177,7 @@ class PlatformProfiles {
                 continue;
             }
 
-            $username = self::get_username_with_migration($model_id, $platform);
+            $username = self::get_username($model_id, $platform);
             $affiliate_url = $username !== '' ? AffiliateLinkBuilder::build_affiliate_url($platform, $username) : '';
 
             $enriched[] = [
@@ -213,21 +207,35 @@ class PlatformProfiles {
         $out = '<div class="tmw-model-links">';
         $out .= '<ul>';
         foreach ($links as $l) {
-            $platform = (string)($l['platform'] ?? '');
-            $url = (string)($l['profile_url'] ?? '');
+            $platform = sanitize_key((string)($l['platform'] ?? ''));
+            $url = trim((string)($l['profile_url'] ?? ''));
             if ($platform === '' || $url === '') continue;
 
+            $href = $url;
+            if (in_array($platform, ['livejasmin', 'jasmin'], true)) {
+                $username = self::extract_username_from_url('livejasmin', $url);
+                if ($username !== '') {
+                    $seo_url = AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', $username);
+                    if ($seo_url !== '') {
+                        $href = $seo_url;
+                    }
+                }
+            }
+
             $label = $labels[$platform] ?? ucfirst($platform);
-            $out .= '<li><a href="' . esc_url($url) . '" rel="nofollow" target="_blank">' . esc_html($label) . '</a></li>';
+            $out .= '<li><a href="' . esc_url($href) . '" rel="sponsored noopener" target="_blank">' . esc_html($label) . '</a></li>';
         }
         $out .= '</ul></div>';
 
         return $out;
     }
 
-    private static function get_username_with_migration(int $post_id, string $platform): string {
-        $username = (string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true);
-        $username = trim($username);
+    public static function get_username(int $post_id, string $platform): string {
+        return trim((string) get_post_meta($post_id, '_tmwseo_platform_username_' . $platform, true));
+    }
+
+    public static function get_username_with_migration(int $post_id, string $platform): string {
+        $username = self::get_username($post_id, $platform);
         if ($username !== '') {
             return $username;
         }
@@ -235,7 +243,7 @@ class PlatformProfiles {
         return self::migrate_username_from_legacy_url($post_id, $platform);
     }
 
-    private static function migrate_username_from_legacy_url(int $post_id, string $platform): string {
+    public static function migrate_username_from_legacy_url(int $post_id, string $platform): string {
         $legacy_url = (string) get_post_meta($post_id, '_tmwseo_platform_' . $platform, true);
         $legacy_url = trim($legacy_url);
         if ($legacy_url === '') {

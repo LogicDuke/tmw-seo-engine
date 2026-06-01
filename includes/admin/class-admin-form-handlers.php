@@ -25,6 +25,7 @@ use TMWSEO\Engine\Services\Capabilities;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\NicheSerpMiningService;
 use TMWSEO\Engine\Keywords\KeywordCleanupClassifier;
+use TMWSEO\Engine\Keywords\ModelKeywordEntityRepairService;
 use TMWSEO\Engine\KeywordIntelligence\ModelDiscoveryTrigger;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -1105,7 +1106,7 @@ class AdminFormHandlers {
             $raw_action = sanitize_key( (string) wp_unslash( $_POST['action2'] ) );
         }
 
-        $allowed_actions = [ 'tmwseo_kw_bulk_approve', 'tmwseo_kw_bulk_reject', 'tmwseo_kw_bulk_delete' ];
+        $allowed_actions = [ 'tmwseo_kw_bulk_approve', 'tmwseo_kw_bulk_reject', 'tmwseo_kw_bulk_delete', 'tmwseo_kw_resolve_model_entities' ];
         if ( ! in_array( $raw_action, $allowed_actions, true ) ) {
             // Not a bulk action (e.g. search submit with action=-1) — let render proceed.
             return;
@@ -1135,6 +1136,24 @@ class AdminFormHandlers {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
         $count = 0;
+
+        if ( $raw_action === 'tmwseo_kw_resolve_model_entities' ) {
+            $repair_summary = ( new ModelKeywordEntityRepairService() )->resolve_selected( $ids );
+            wp_safe_redirect( add_query_arg( array_filter( [
+                'page'                  => 'tmwseo-keywords',
+                'view'                  => $view,
+                's'                     => $s,
+                'paged'                 => $paged > 1 ? $paged : null,
+                'intent_type'           => 'model',
+                'model_keyword_filter'  => 'unlinked_model',
+                'tmwseo_notice'         => 'kw_model_entity_repair_done',
+                'tmwseo_repair_selected'=> (int) ( $repair_summary['selected'] ?? 0 ),
+                'tmwseo_repair_linked'  => (int) ( $repair_summary['linked'] ?? 0 ),
+                'tmwseo_repair_unresolved' => (int) ( $repair_summary['unresolved'] ?? 0 ),
+                'tmwseo_repair_ambiguous'  => (int) ( $repair_summary['ambiguous'] ?? 0 ),
+            ] ), admin_url( 'admin.php' ) ) );
+            exit;
+        }
 
         foreach ( $ids as $id ) {
             if ( $raw_action === 'tmwseo_kw_bulk_approve' ) {
@@ -1177,6 +1196,401 @@ class AdminFormHandlers {
             'tmwseo_bulk_count'     => $count,
         ] ), admin_url( 'admin.php' ) ) );
         exit;
+    }
+
+
+    public static function preview_csv_keyword_approvals(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( __( 'Insufficient permissions', 'tmwseo' ) ); }
+        check_admin_referer( 'tmwseo_preview_csv_keyword_approvals' );
+
+        $upload = $_FILES['tmwseo_csv_keyword_approvals'] ?? null;
+        if ( ! is_array( $upload ) || ! self::is_valid_csv_upload( $upload ) ) {
+            wp_safe_redirect( add_query_arg( [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'csv_keyword_approval_upload_error' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        $source_filename = sanitize_file_name( (string) ( $upload['name'] ?? 'uploaded-keywords.csv' ) );
+        $parsed = self::parse_keyword_approval_csv( (string) $upload['tmp_name'] );
+        if ( empty( $parsed['ok'] ) ) {
+            wp_safe_redirect( add_query_arg( [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'csv_keyword_approval_upload_error' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        $preview = self::build_csv_keyword_approval_preview( (array) $parsed['rows'], $source_filename );
+        set_transient( 'tmwseo_csv_keyword_approval_preview_' . get_current_user_id(), $preview, 30 * MINUTE_IN_SECONDS );
+        delete_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
+        Logs::info( 'keywords', '[TMW-SEO-KEYWORDS] [TMW-SEO-CANDIDATES] [TMW-SEO-CSV-BULK-APPROVE] Preview CSV keyword approvals', [
+            'source_filename' => $source_filename,
+            'summary' => $preview['summary'],
+        ] );
+
+        wp_safe_redirect( add_query_arg( [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'csv_keyword_approval_preview_ready' ], admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    public static function apply_csv_keyword_approvals(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( __( 'Insufficient permissions', 'tmwseo' ) ); }
+        check_admin_referer( 'tmwseo_apply_csv_keyword_approvals' );
+        if ( ! isset( $_POST['confirm_apply'] ) ) {
+            wp_safe_redirect( add_query_arg( [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'csv_keyword_approval_confirm_required' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        $preview = get_transient( 'tmwseo_csv_keyword_approval_preview_' . get_current_user_id() );
+        $posted_token = isset( $_POST['preview_token'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['preview_token'] ) ) : '';
+        if ( ! is_array( $preview ) || $posted_token === '' || ! hash_equals( (string) ( $preview['token'] ?? '' ), $posted_token ) ) {
+            wp_safe_redirect( add_query_arg( [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'csv_keyword_approval_missing_preview' ], admin_url( 'admin.php' ) ) );
+            exit;
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $columns = self::get_table_columns( $table );
+        $has_updated_at = in_array( 'updated_at', $columns, true );
+        $ready_rows = array_values( array_filter( (array) ( $preview['rows'] ?? [] ), static function ( $row ): bool {
+            return is_array( $row ) && (string) ( $row['action'] ?? '' ) === 'approve' && empty( $row['applied'] );
+        } ) );
+        $batch = array_slice( $ready_rows, 0, 250 );
+        $timestamp = current_time( 'mysql' );
+        $admin_user_id = get_current_user_id();
+        $rollback_rows = [];
+        $updated = 0;
+
+        foreach ( $batch as $row ) {
+            $candidate_id = (int) ( $row['candidate_id'] ?? 0 );
+            if ( $candidate_id <= 0 ) { continue; }
+            $current = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $candidate_id ), ARRAY_A );
+            if ( ! is_array( $current ) ) { continue; }
+            $old_status = (string) ( $current['status'] ?? '' );
+            $current_keyword_normalized = self::normalize_keyword_text( (string) ( $current['keyword'] ?? '' ) );
+            if ( $current_keyword_normalized === '' || $current_keyword_normalized !== self::normalize_keyword_text( (string) ( $row['csv_keyword'] ?? '' ) ) ) { continue; }
+            if ( ! self::is_csv_keyword_approval_candidate_safe( $current, $columns ) ) { continue; }
+
+            $rollback_row = [
+                'candidate_id' => $candidate_id,
+                'keyword' => (string) ( $current['keyword'] ?? '' ),
+                'old_status' => $old_status,
+                'new_status' => 'approved',
+                'timestamp' => $timestamp,
+                'admin_user_id' => $admin_user_id,
+                'source_csv_filename' => (string) ( $preview['source_filename'] ?? '' ),
+                'source_row_number' => (int) ( $row['row_number'] ?? 0 ),
+            ];
+            Logs::info( 'keywords', '[TMW-SEO-KEYWORDS] [TMW-SEO-CANDIDATES] [TMW-SEO-CSV-BULK-APPROVE] Prepared rollback row before CSV keyword approval', $rollback_row );
+
+            $set_sql = $has_updated_at ? 'status = %s, updated_at = %s' : 'status = %s';
+            $sql_args = $has_updated_at
+                ? array_merge( [ 'approved', $timestamp, $candidate_id ], self::queued_keyword_candidate_statuses() )
+                : array_merge( [ 'approved', $candidate_id ], self::queued_keyword_candidate_statuses() );
+            $status_placeholders = implode( ', ', array_fill( 0, count( self::queued_keyword_candidate_statuses() ), '%s' ) );
+            $updated_result = $wpdb->query( $wpdb->prepare( "UPDATE {$table} SET {$set_sql} WHERE id = %d AND status IN ({$status_placeholders})", ...$sql_args ) );
+            if ( $updated_result ) {
+                $updated++;
+                $rollback_rows[] = $rollback_row;
+                Logs::info( 'keywords', '[TMW-SEO-KEYWORDS] [TMW-SEO-CANDIDATES] [TMW-SEO-CSV-BULK-APPROVE] Applied CSV keyword approval row', [
+                    'candidate_id' => $candidate_id,
+                    'keyword' => (string) ( $current['keyword'] ?? '' ),
+                    'old_status' => $old_status,
+                    'new_status' => 'approved',
+                    'source_row_number' => (int) ( $row['row_number'] ?? 0 ),
+                    'source_filename' => (string) ( $preview['source_filename'] ?? '' ),
+                ] );
+                foreach ( $preview['rows'] as &$preview_row ) {
+                    if ( is_array( $preview_row ) && (int) ( $preview_row['candidate_id'] ?? 0 ) === $candidate_id && (int) ( $preview_row['row_number'] ?? 0 ) === (int) ( $row['row_number'] ?? 0 ) ) {
+                        $preview_row['applied'] = true;
+                        $preview_row['action'] = 'skip';
+                        $preview_row['reason'] = 'Applied in a previous batch.';
+                        break;
+                    }
+                }
+                unset( $preview_row );
+            }
+        }
+
+        $existing_rollback = get_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
+        $rollback = self::build_cumulative_csv_keyword_approval_rollback(
+            is_array( $existing_rollback ) ? $existing_rollback : [],
+            $rollback_rows,
+            (string) ( $preview['token'] ?? '' ),
+            $timestamp
+        );
+        set_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id(), $rollback, DAY_IN_SECONDS );
+
+        $remaining = count( array_filter( (array) ( $preview['rows'] ?? [] ), static function ( $row ): bool {
+            return is_array( $row ) && (string) ( $row['action'] ?? '' ) === 'approve' && empty( $row['applied'] );
+        } ) );
+        set_transient( 'tmwseo_csv_keyword_approval_preview_' . get_current_user_id(), $preview, 30 * MINUTE_IN_SECONDS );
+
+        Logs::info( 'keywords', '[TMW-SEO-KEYWORDS] [TMW-SEO-CANDIDATES] [TMW-SEO-CSV-BULK-APPROVE] Applied CSV keyword approval batch', [
+            'updated' => $updated,
+            'remaining' => $remaining,
+            'source_filename' => (string) ( $preview['source_filename'] ?? '' ),
+        ] );
+
+        wp_safe_redirect( add_query_arg( [
+            'page' => 'tmwseo-keywords',
+            'tmwseo_notice' => 'csv_keyword_approval_applied',
+            'tmwseo_bulk_count' => $updated,
+            'tmwseo_remaining' => $remaining,
+        ], admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    /**
+     * @param array<string,mixed> $existing_rollback Existing rollback transient payload.
+     * @param array<int,array<string,mixed>> $rollback_rows Current apply-batch rollback rows.
+     * @return array{token:string,preview_token:string,generated_at:string,rows:array<int,array<string,mixed>>}
+     */
+    public static function build_cumulative_csv_keyword_approval_rollback( array $existing_rollback, array $rollback_rows, string $preview_token, string $timestamp ): array {
+        $existing_rows = [];
+        $existing_token = '';
+        if ( $preview_token !== '' && hash_equals( $preview_token, (string) ( $existing_rollback['preview_token'] ?? '' ) ) ) {
+            $existing_rows = is_array( $existing_rollback['rows'] ?? null ) ? $existing_rollback['rows'] : [];
+            $existing_token = ! empty( $existing_rollback['token'] ) ? (string) $existing_rollback['token'] : '';
+        }
+
+        // Rollback data is cumulative across apply batches for the same user and preview token.
+        // This keeps the download complete when a large CSV is applied in multiple 250-row batches.
+        return [
+            'token' => $existing_token !== '' ? $existing_token : wp_generate_password( 20, false ),
+            'preview_token' => $preview_token,
+            'generated_at' => $timestamp,
+            'rows' => array_values( array_merge( $existing_rows, $rollback_rows ) ),
+        ];
+    }
+
+    public static function download_csv_keyword_approval_rollback(): void {
+        if ( ! current_user_can( 'manage_options' ) ) { wp_die( __( 'Insufficient permissions', 'tmwseo' ) ); }
+        check_admin_referer( 'tmwseo_download_csv_keyword_approval_rollback' );
+        $rollback = get_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
+        $token = isset( $_GET['token'] ) ? sanitize_text_field( wp_unslash( (string) $_GET['token'] ) ) : '';
+        if ( ! is_array( $rollback ) || $token === '' || ! hash_equals( (string) ( $rollback['token'] ?? '' ), $token ) ) {
+            wp_die( esc_html__( 'Rollback CSV expired or unavailable.', 'tmwseo' ) );
+        }
+
+        nocache_headers();
+        header( 'Content-Type: text/csv; charset=utf-8' );
+        header( 'Content-Disposition: attachment; filename="tmwseo-csv-keyword-approval-rollback-' . gmdate( 'Ymd-His' ) . '.csv"' );
+        $out = fopen( 'php://output', 'w' );
+        fputcsv( $out, [ 'candidate_id', 'keyword', 'old_status', 'new_status', 'timestamp', 'admin_user_id', 'source_csv_filename', 'source_row_number' ] );
+        foreach ( (array) ( $rollback['rows'] ?? [] ) as $row ) {
+            fputcsv( $out, [
+                (int) ( $row['candidate_id'] ?? 0 ),
+                (string) ( $row['keyword'] ?? '' ),
+                (string) ( $row['old_status'] ?? '' ),
+                (string) ( $row['new_status'] ?? '' ),
+                (string) ( $row['timestamp'] ?? '' ),
+                (int) ( $row['admin_user_id'] ?? 0 ),
+                (string) ( $row['source_csv_filename'] ?? '' ),
+                (int) ( $row['source_row_number'] ?? 0 ),
+            ] );
+        }
+        fclose( $out );
+        exit;
+    }
+
+    private static function is_valid_csv_upload( array $upload ): bool {
+        if ( (int) ( $upload['error'] ?? UPLOAD_ERR_NO_FILE ) !== UPLOAD_ERR_OK ) { return false; }
+        $name = (string) ( $upload['name'] ?? '' );
+        $tmp = (string) ( $upload['tmp_name'] ?? '' );
+        if ( $name === '' || $tmp === '' || ! is_uploaded_file( $tmp ) ) { return false; }
+        $ext = strtolower( pathinfo( $name, PATHINFO_EXTENSION ) );
+        if ( $ext !== 'csv' ) { return false; }
+        $type = (string) ( $upload['type'] ?? '' );
+        return $type === '' || in_array( strtolower( $type ), [ 'text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel', 'application/octet-stream' ], true );
+    }
+
+    /** @return array{ok:bool,rows?:array<int,array<string,mixed>>} */
+    private static function parse_keyword_approval_csv( string $path ): array {
+        $handle = fopen( $path, 'r' );
+        if ( ! $handle ) { return [ 'ok' => false ]; }
+        $headers = fgetcsv( $handle );
+        if ( ! is_array( $headers ) ) { fclose( $handle ); return [ 'ok' => false ]; }
+        $headers = array_map( static fn( $header ): string => trim( (string) $header ), $headers );
+        $normalized_headers = array_map( [ __CLASS__, 'normalize_csv_header' ], $headers );
+        $keyword_names = array_map( [ __CLASS__, 'normalize_csv_header' ], [ 'keyword', 'Keyword', 'candidate', 'Candidate', 'phrase', 'Phrase', 'search_term', 'Search Term' ] );
+        $id_names = array_map( [ __CLASS__, 'normalize_csv_header' ], [ 'id', 'ID', 'candidate_id', 'Candidate ID', 'keyword_candidate_id' ] );
+        $keyword_index = self::first_header_index( $normalized_headers, $keyword_names );
+        if ( $keyword_index === null ) { fclose( $handle ); return [ 'ok' => false ]; }
+        $id_index = self::first_header_index( $normalized_headers, $id_names );
+
+        $rows = [];
+        $row_number = 1;
+        while ( ( $data = fgetcsv( $handle ) ) !== false ) {
+            $row_number++;
+            if ( ! is_array( $data ) ) { continue; }
+            $keyword = sanitize_text_field( (string) ( $data[ $keyword_index ] ?? '' ) );
+            $candidate_id = $id_index === null ? 0 : absint( $data[ $id_index ] ?? 0 );
+            $rows[] = [
+                'row_number' => $row_number,
+                'keyword' => $keyword,
+                'candidate_id' => $candidate_id,
+            ];
+        }
+        fclose( $handle );
+        return [ 'ok' => true, 'rows' => $rows ];
+    }
+
+    private static function normalize_csv_header( string $header ): string {
+        return strtolower( preg_replace( '/[^a-z0-9]+/', '_', trim( $header ) ) ?? '' );
+    }
+
+    /** @param string[] $headers @param string[] $names */
+    private static function first_header_index( array $headers, array $names ): ?int {
+        foreach ( $headers as $index => $header ) {
+            if ( in_array( $header, $names, true ) ) { return (int) $index; }
+        }
+        return null;
+    }
+
+    /** @param array<int,array<string,mixed>> $csv_rows @return array<string,mixed> */
+    private static function build_csv_keyword_approval_preview( array $csv_rows, string $source_filename ): array {
+        global $wpdb;
+        $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $columns = self::get_table_columns( $table );
+        $select_columns = array_values( array_intersect( [ 'id', 'keyword', 'status', 'intent_type', 'intent', 'page_type', 'entity_type', 'keyword_class', 'volume', 'difficulty', 'kd', 'competition' ], $columns ) );
+        if ( empty( $select_columns ) ) { $select_columns = [ 'id', 'keyword', 'status' ]; }
+        $quoted_columns = implode( ', ', array_map( static fn( string $column ): string => '`' . esc_sql( $column ) . '`', $select_columns ) );
+        $candidate_rows = (array) $wpdb->get_results( "SELECT {$quoted_columns} FROM {$table}", ARRAY_A );
+        $by_id = [];
+        $by_keyword = [];
+        foreach ( $candidate_rows as $candidate ) {
+            $id = (int) ( $candidate['id'] ?? 0 );
+            $normalized = self::normalize_keyword_text( (string) ( $candidate['keyword'] ?? '' ) );
+            if ( $id > 0 ) { $by_id[ $id ] = $candidate; }
+            if ( $normalized !== '' ) { $by_keyword[ $normalized ][] = $candidate; }
+        }
+
+        $summary = [
+            'total_csv_rows' => count( $csv_rows ),
+            'matched_candidates' => 0,
+            'ready_to_approve' => 0,
+            'already_approved_skipped' => 0,
+            'ignored_rejected_skipped' => 0,
+            'no_match_skipped' => 0,
+            'duplicate_matches' => 0,
+            'ambiguous_matches' => 0,
+            'invalid_rows' => 0,
+        ];
+        $rows = [];
+        $seen_candidate_ids = [];
+
+        foreach ( $csv_rows as $csv_row ) {
+            $keyword = sanitize_text_field( (string) ( $csv_row['keyword'] ?? '' ) );
+            $normalized = self::normalize_keyword_text( $keyword );
+            $candidate_id = (int) ( $csv_row['candidate_id'] ?? 0 );
+            $candidate = null;
+            $action = 'skip';
+            $reason = '';
+
+            if ( $normalized === '' ) {
+                $summary['invalid_rows']++;
+                $reason = 'Missing keyword value.';
+            } elseif ( $candidate_id > 0 ) {
+                $candidate = $by_id[ $candidate_id ] ?? null;
+                if ( ! is_array( $candidate ) ) {
+                    $summary['no_match_skipped']++;
+                    $reason = 'Candidate ID not found.';
+                } elseif ( self::normalize_keyword_text( (string) ( $candidate['keyword'] ?? '' ) ) !== $normalized ) {
+                    $summary['ambiguous_matches']++;
+                    $action = 'warning';
+                    $reason = 'Candidate ID exists, but keyword does not match the CSV keyword.';
+                }
+            } else {
+                $matches = $by_keyword[ $normalized ] ?? [];
+                if ( count( $matches ) === 1 ) {
+                    $candidate = $matches[0];
+                } elseif ( count( $matches ) > 1 ) {
+                    $summary['ambiguous_matches']++;
+                    $action = 'warning';
+                    $reason = 'Multiple candidates match this normalized keyword.';
+                } else {
+                    $summary['no_match_skipped']++;
+                    $reason = 'No saved keyword candidate matches this normalized keyword.';
+                }
+            }
+
+            if ( is_array( $candidate ) ) {
+                $summary['matched_candidates']++;
+                $candidate_id = (int) ( $candidate['id'] ?? 0 );
+                if ( $action !== 'warning' ) {
+                    if ( isset( $seen_candidate_ids[ $candidate_id ] ) ) {
+                        $summary['duplicate_matches']++;
+                        $action = 'warning';
+                        $reason = 'Duplicate CSV row targets the same candidate; duplicates are not auto-approved.';
+                    } elseif ( (string) ( $candidate['status'] ?? '' ) === 'approved' ) {
+                        $summary['already_approved_skipped']++;
+                        $reason = 'Candidate is already approved.';
+                    } elseif ( in_array( (string) ( $candidate['status'] ?? '' ), [ 'ignored', 'rejected', 'deleted', 'trash' ], true ) ) {
+                        $summary['ignored_rejected_skipped']++;
+                        $reason = 'Candidate is ignored, rejected, or deleted.';
+                    } elseif ( ! self::is_csv_keyword_approval_candidate_safe( $candidate, $columns ) ) {
+                        $action = 'warning';
+                        $reason = 'Candidate is not a queued/new/pending model keyword candidate.';
+                    } else {
+                        $action = 'approve';
+                        $reason = 'Queued model keyword candidate matches reviewed CSV row.';
+                        $summary['ready_to_approve']++;
+                        $seen_candidate_ids[ $candidate_id ] = true;
+                    }
+                }
+            }
+
+            $rows[] = [
+                'row_number' => (int) ( $csv_row['row_number'] ?? 0 ),
+                'csv_keyword' => $keyword,
+                'candidate_id' => is_array( $candidate ) ? (int) ( $candidate['id'] ?? 0 ) : $candidate_id,
+                'candidate_keyword' => is_array( $candidate ) ? (string) ( $candidate['keyword'] ?? '' ) : '',
+                'status' => is_array( $candidate ) ? (string) ( $candidate['status'] ?? '' ) : '',
+                'type' => is_array( $candidate ) ? self::candidate_type_label( $candidate, $columns ) : '',
+                'volume' => is_array( $candidate ) ? (string) ( $candidate['volume'] ?? '' ) : '',
+                'kd' => is_array( $candidate ) ? (string) ( $candidate['difficulty'] ?? $candidate['kd'] ?? $candidate['competition'] ?? '' ) : '',
+                'action' => $action,
+                'reason' => $reason,
+            ];
+        }
+
+        return [
+            'token' => wp_generate_password( 20, false ),
+            'source_filename' => $source_filename,
+            'generated_at' => current_time( 'mysql' ),
+            'summary' => $summary,
+            'rows' => $rows,
+        ];
+    }
+
+    /** @return string[] */
+    private static function get_table_columns( string $table ): array {
+        global $wpdb;
+        $safe_table = esc_sql( $table );
+        $columns = (array) $wpdb->get_results( "SHOW COLUMNS FROM {$safe_table}", ARRAY_A );
+        return array_values( array_map( static fn( $column ): string => (string) ( $column['Field'] ?? $column['field'] ?? '' ), $columns ) );
+    }
+
+    private static function normalize_keyword_text( string $keyword ): string {
+        return strtolower( trim( preg_replace( '/\s+/', ' ', $keyword ) ?? '' ) );
+    }
+
+    /** @param array<string,mixed> $candidate @param string[] $columns */
+    private static function is_csv_keyword_approval_candidate_safe( array $candidate, array $columns ): bool {
+        if ( ! in_array( (string) ( $candidate['status'] ?? '' ), self::queued_keyword_candidate_statuses(), true ) ) { return false; }
+        $type = self::candidate_type_label( $candidate, $columns );
+        return $type === '' || strtolower( $type ) === 'model';
+    }
+
+    /** @return string[] */
+    public static function queued_keyword_candidate_statuses(): array {
+        return [ 'new', 'discovered', 'scored', 'queued_for_review' ];
+    }
+
+    /** @param array<string,mixed> $candidate @param string[] $columns */
+    private static function candidate_type_label( array $candidate, array $columns ): string {
+        foreach ( [ 'intent_type', 'intent', 'page_type', 'entity_type', 'keyword_class' ] as $column ) {
+            if ( in_array( $column, $columns, true ) && isset( $candidate[ $column ] ) && (string) $candidate[ $column ] !== '' ) {
+                return (string) $candidate[ $column ];
+            }
+        }
+        return '';
     }
 
     public static function preview_keyword_cleanup(): void {

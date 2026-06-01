@@ -36,6 +36,7 @@ class Loader {
         self::load_content();
         self::load_models();
         self::load_platform();
+        self::load_categories();
         self::load_integrations();
         self::load_seo_engine();
         self::load_cluster_and_lighthouse();
@@ -107,7 +108,22 @@ class Loader {
     private static function load_keywords(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/keywords/';
         tmwseo_safe_require( $p . 'class-keyword-validator.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-csv-parser.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-metrics-scorer.php' );
+        tmwseo_safe_require( $p . 'class-model-keyword-strategy-classifier.php' );
+        tmwseo_safe_require( $p . 'class-model-keyword-pool-classifier.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-candidate-repository.php' );
+        tmwseo_safe_require( $p . 'class-classified-model-keyword-provider.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-classification-apply-service.php' );
+        tmwseo_safe_require( $p . 'class-model-fallback-keyword-pack-builder.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/models/class-model-entity-resolver.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-selected-import-service.php' );
+        tmwseo_safe_require( $p . 'class-model-keyword-entity-repair-service.php' );
+        tmwseo_safe_require( $p . 'class-page-type-keyword-filter.php' );
+        tmwseo_safe_require( $p . 'class-category-page-keyword-generator.php' );
         tmwseo_safe_require( $p . 'class-keyword-cleanup-classifier.php' );
+        tmwseo_safe_require( $p . 'class-keyword-candidate-classification-audit.php' );
         tmwseo_safe_require( $p . 'class-keyword-cluster-reconciler.php' ); // canonical identity + admin-triggered merge
         tmwseo_safe_require( $p . 'class-kd-filter.php' );
         tmwseo_safe_require( $p . 'class-keyword-usage.php' );
@@ -132,6 +148,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-dirty-queue.php' );
         tmwseo_safe_require( $p . 'class-content-keyword-miner.php' );
         tmwseo_safe_require( $p . 'class-competitor-mining-service.php' );
+        tmwseo_safe_require( $p . 'class-video-keyword-candidate-repository.php' );
         tmwseo_safe_require( $p . 'class-niche-serp-mining-service.php' );
         tmwseo_safe_require( $p . 'class-discovery-orchestrator.php' );
         tmwseo_safe_require( $p . 'class-keyword-idea-provider-interface.php' );
@@ -180,6 +197,8 @@ class Loader {
         tmwseo_safe_require( $p . 'class-index-readiness-gate.php' );
         tmwseo_safe_require( $p . 'class-video-title-rewriter.php' );
         tmwseo_safe_require( $p . 'class-video-content-architecture.php' );
+        tmwseo_safe_require( $p . 'class-video-generate-policy.php' );
+        tmwseo_safe_require( $p . 'class-video-content-builder.php' );
         tmwseo_safe_require( $p . 'class-audit-trail.php' );
         tmwseo_safe_require( $p . 'class-rank-math-mapper.php' );
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );
@@ -210,6 +229,9 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-research-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-model-context-aware-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-rollback.php' );
+        tmwseo_safe_require( $p . 'class-model-draft-context-builder.php' );
+        tmwseo_safe_require( $p . 'class-model-content-generation-facade.php' ); // 5.9.0 — preview adapter (must load before draft service)
+        tmwseo_safe_require( $p . 'class-model-content-draft-service.php' );
         tmwseo_safe_require( $p . 'class-model-optimizer.php' );
         tmwseo_safe_require( $p . 'class-model-discovery-worker.php' );
         tmwseo_safe_require( $p . 'class-model-intelligence.php' );
@@ -229,6 +251,14 @@ class Loader {
         tmwseo_safe_require( $p . 'class-platform-profiles.php' );
         tmwseo_safe_require( $p . 'class-affiliate-link-builder.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/affiliates/class-crakrevenue-cam-manager.php' );
+    }
+
+    // ── Categories ───────────────────────────────────────────────────────────
+
+    private static function load_categories(): void {
+        $p = TMWSEO_ENGINE_PATH . 'includes/categories/';
+        tmwseo_safe_require( $p . 'class-category-registry.php' );
+        tmwseo_safe_require( $p . 'class-category-keyword-classifier.php' );
     }
 
     // ── Integrations ──────────────────────────────────────────────────────────
@@ -401,6 +431,8 @@ class Loader {
         tmwseo_safe_require( $p . 'class-discovery-control-admin-page.php' );
         tmwseo_safe_require( $p . 'class-keyword-graph-admin-page.php' );
         tmwseo_safe_require( $p . 'class-csv-manager-admin-page.php' );
+        tmwseo_safe_require( $p . 'class-category-keyword-csv-dry-run-admin-page.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pools-admin-page.php' );
         tmwseo_safe_require( $p . 'class-keyword-metrics-csv-importer.php' ); // 5.9.0
         tmwseo_safe_require( $p . 'class-ai-content-brief-generator-admin.php' );
         tmwseo_safe_require( $p . 'class-autopilot-admin-page.php' );

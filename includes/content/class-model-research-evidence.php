@@ -285,7 +285,7 @@ class ModelResearchEvidence {
 			$parts[] = $name . "'s profile presentation reads as a personable cam delivery with consistent on-camera presence and viewer interaction.";
 		}
 
-		$parts[] = 'Treat these notes as profile-based context rather than a guarantee of what every live session will include.';
+		$parts[] = 'Use these notes as profile context, then recheck the confirmed live room because availability and session details can change.';
 
 		return self::final_humanize( implode( ' ', $parts ) );
 	}
@@ -343,7 +343,7 @@ class ModelResearchEvidence {
 		$openers = [
 			'Highlighted turn-on themes include ',
 			'The notes describe ',
-			'Profile evidence highlights ',
+			'The verified notes point to ',
 		];
 		$opener = $openers[ ( strlen( $themes[0] ) ) % count( $openers ) ];
 
@@ -352,12 +352,27 @@ class ModelResearchEvidence {
 
 	public static function humanize_private_chat( string $raw ): string {
 		$items = self::filter_private_chat_items( $raw );
+		$raw_items = self::extract_list_items( self::prepare_raw( $raw ) );
+		$explicit_count = 0;
+		foreach ( $raw_items as $raw_item ) {
+			if ( self::is_explicit_chat_item( self::clean_token( $raw_item ) ) ) {
+				$explicit_count++;
+			}
+		}
+
+		if ( $explicit_count > 0 || count( $raw_items ) > 8 ) {
+			return self::final_humanize(
+				'The verified notes point to private-chat availability, interactive requests, roleplay-style options, and media/chat features. '
+				. 'Availability can vary by session, so check the confirmed room before assuming a specific option is offered.'
+			);
+		}
+
 		if ( empty( $items ) ) {
 			return '';
 		}
 		return self::final_humanize(
-			'Private chat options listed in the evidence include ' . self::natural_list( $items ) . '. '
-			. 'Availability can vary by session, so check the official room before assuming a specific option is offered.'
+			'Private chat options listed in the evidence include ' . self::natural_list( array_slice( $items, 0, 3 ) ) . '. '
+			. 'Availability can vary by session, so check the confirmed room before assuming a specific option is offered.'
 		);
 	}
 
@@ -576,7 +591,8 @@ class ModelResearchEvidence {
 			'squirt', 'squirting', 'gangbang', 'fisting', 'rimming',
 			'cameltoe', 'pussy', 'tit fuck', 'titty fuck',
 			'blowjob', 'handjob', 'facial', 'piss', 'pee', 'scat',
-			'bbc', 'bukkake',
+			'bbc', 'bukkake', 'butt plug', 'butt plugs', 'dildo', 'fingering',
+			'love bead', 'love beads', 'vibrator', 'joi', 'pov', 'foot fetish',
 		];
 		$lc = strtolower( $item );
 		foreach ( $blocked as $bad ) {
