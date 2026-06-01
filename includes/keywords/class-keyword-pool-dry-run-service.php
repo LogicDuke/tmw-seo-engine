@@ -593,6 +593,10 @@ class KeywordPoolDryRunService {
             $score += 15;
         }
 
+        if ($this->is_conditional_supporting_live_keyword($keyword)) {
+            $score = min($score, 10);
+        }
+
         return max(0, min(100, $score));
     }
 
@@ -609,6 +613,10 @@ class KeywordPoolDryRunService {
         $keyword = (string) ($row['normalized_keyword'] ?? '');
         $volume  = is_int($row['volume'] ?? null) ? (int) $row['volume'] : null;
         $cpc     = is_numeric($row['cpc'] ?? null) ? (float) $row['cpc'] : null;
+
+        if ($this->is_conditional_supporting_live_keyword($keyword)) {
+            return 'P3';
+        }
 
         if (null !== $volume && $volume >= 1000) {
             return 'P1';
@@ -647,6 +655,10 @@ class KeywordPoolDryRunService {
             return 'approve_candidate';
         }
         return 'queue_for_review';
+    }
+
+    private function is_conditional_supporting_live_keyword(string $keyword): bool {
+        return 'live' === $keyword;
     }
 
     private function has_strong_commercial_webcam_intent(string $keyword): bool {

@@ -133,6 +133,15 @@ class ModelKeywordStrategyClassifier {
             );
         }
 
+        if ($this->is_conditional_supporting_live_keyword($keyword)) {
+            return $this->result(
+                self::STRATEGY_WEAK_REVIEW,
+                'medium',
+                [ 'conditional_safe_supporting_live_keyword', 'not_primary_focus_keyword', 'manual_review_required' ],
+                'queue_for_manual_review'
+            );
+        }
+
         if ($has_model_match && ($has_lj_modifier || $has_source_lj) && ! $this->has_disqualifying_named_intent($keyword)) {
             return $this->result(
                 self::STRATEGY_LJ_NAMED_MODEL,
@@ -237,6 +246,10 @@ class ModelKeywordStrategyClassifier {
             return false;
         }
         return $this->has_any($keyword, self::NOT_MODEL_PATTERNS);
+    }
+
+    private function is_conditional_supporting_live_keyword(string $keyword): bool {
+        return 'live' === $keyword;
     }
 
     private function has_livejasmin_modifier(string $keyword): bool {

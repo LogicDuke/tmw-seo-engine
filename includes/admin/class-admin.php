@@ -69,6 +69,9 @@ class Admin {
         add_action('admin_post_tmwseo_run_dfseo_paid_keyword_scan', [__CLASS__, 'handle_dfseo_paid_keyword_scan']);
         add_action('admin_post_tmwseo_preview_keyword_cleanup', [__CLASS__, 'preview_keyword_cleanup']);
         add_action('admin_post_tmwseo_apply_keyword_cleanup', [__CLASS__, 'apply_keyword_cleanup']);
+        add_action('admin_post_tmwseo_preview_csv_keyword_approvals', [__CLASS__, 'preview_csv_keyword_approvals']);
+        add_action('admin_post_tmwseo_apply_csv_keyword_approvals', [__CLASS__, 'apply_csv_keyword_approvals']);
+        add_action('admin_post_tmwseo_download_csv_keyword_approval_rollback', [__CLASS__, 'download_csv_keyword_approval_rollback']);
         add_action('admin_post_tmwseo_verify_new_keyword_metrics', [__CLASS__, 'verify_new_keyword_metrics_now']);
         add_action('admin_post_tmwseo_force_recheck_keyword_metrics', [__CLASS__, 'force_recheck_keyword_metrics_now']);
         add_action('tmw_manual_cycle_event', ['\TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService', 'run_cycle'], 10, 1);
@@ -2261,6 +2264,18 @@ class Admin {
         AdminFormHandlers::apply_keyword_cleanup();
     }
 
+    public static function preview_csv_keyword_approvals(): void {
+        AdminFormHandlers::preview_csv_keyword_approvals();
+    }
+
+    public static function apply_csv_keyword_approvals(): void {
+        AdminFormHandlers::apply_csv_keyword_approvals();
+    }
+
+    public static function download_csv_keyword_approval_rollback(): void {
+        AdminFormHandlers::download_csv_keyword_approval_rollback();
+    }
+
     /**
      * Fires on load-tmwseo-engine_page_tmwseo-keywords — before admin-header.php,
      * so wp_safe_redirect() is safe. Delegates to AdminFormHandlers for bulk
@@ -3633,9 +3648,28 @@ class Admin {
                 echo '<div class="notice notice-success is-dismissible"><p>' . sprintf( esc_html__( 'Safe keyword cleanup applied. %d candidate rows were marked as ignored.', 'tmwseo' ), $count ) . '</p></div>';
             } elseif ( $notice === 'keyword_cleanup_confirm_required' ) {
                 echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'Please confirm cleanup before applying changes.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_preview_ready' ) {
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'CSV keyword approval preview generated. Review the rows below before applying.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_applied' ) {
+                $count = isset( $_GET['tmwseo_bulk_count'] ) ? max( 0, (int) $_GET['tmwseo_bulk_count'] ) : 0;
+                $remaining = isset( $_GET['tmwseo_remaining'] ) ? max( 0, (int) $_GET['tmwseo_remaining'] ) : 0;
+                $message = sprintf( esc_html__( 'CSV keyword approval applied. %d queued candidate rows were approved.', 'tmwseo' ), $count );
+                if ( $remaining > 0 ) {
+                    $message .= ' ' . sprintf( esc_html__( '%d preview-approved rows remain; run Apply again to process the next batch.', 'tmwseo' ), $remaining );
+                }
+                echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( $message ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_confirm_required' ) {
+                echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'Please confirm CSV keyword approvals before applying changes.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_missing_preview' ) {
+                echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html__( 'CSV approval preview expired or was not found. Upload the CSV and preview it again before applying.', 'tmwseo' ) . '</p></div>';
+            } elseif ( $notice === 'csv_keyword_approval_upload_error' ) {
+                echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'CSV upload could not be read. Please upload a valid .csv file with a supported keyword column.', 'tmwseo' ) . '</p></div>';
             }
         }
 
+
+        // ── CSV bulk approve panel ─────────────────────────────────────────
+        self::render_csv_bulk_approve_safe_keywords_panel();
 
         // ── Safe keyword cleanup panel ───────────────────────────────────────
         self::render_safe_keyword_cleanup_panel();
@@ -4179,6 +4213,95 @@ class Admin {
         self::footer();
     }
 
+
+
+    private static function render_csv_bulk_approve_safe_keywords_panel(): void {
+        $preview = get_transient( 'tmwseo_csv_keyword_approval_preview_' . get_current_user_id() );
+        $rollback = get_transient( 'tmwseo_csv_keyword_approval_rollback_' . get_current_user_id() );
+
+        AdminUI::section_start(
+            __( 'CSV Bulk Approve Safe Keywords', 'tmwseo' ),
+            __( 'Upload a reviewed CSV and approve only matching queued model keyword candidates.', 'tmwseo' )
+        );
+        echo '<div class="notice notice-warning inline" style="margin:0 0 12px;"><p>' . esc_html__( 'This tool only approves existing keyword candidates from a reviewed CSV. It does not create keywords, update Rank Math, change post content, or modify indexing settings.', 'tmwseo' ) . '</p></div>';
+        echo '<p class="description">' . esc_html__( 'Recommended first CSV: tmwseo-priority-safe-model-keywords-volume-100-plus-2026-05-31.csv', 'tmwseo' ) . '</p>';
+
+        echo '<div class="tmwui-cta-row" style="align-items:flex-start;">';
+        echo '<form method="post" enctype="multipart/form-data" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_preview_csv_keyword_approvals' );
+        echo '<input type="hidden" name="action" value="tmwseo_preview_csv_keyword_approvals">';
+        echo '<label for="tmwseo_csv_keyword_approvals"><strong>' . esc_html__( 'Reviewed safe keyword CSV', 'tmwseo' ) . '</strong></label><br>';
+        echo '<input type="file" id="tmwseo_csv_keyword_approvals" name="tmwseo_csv_keyword_approvals" accept=".csv,text/csv" required> ';
+        submit_button( __( 'Preview CSV Keyword Approvals', 'tmwseo' ), 'secondary', 'submit', false );
+        echo '</form>';
+
+        echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+        wp_nonce_field( 'tmwseo_apply_csv_keyword_approvals' );
+        echo '<input type="hidden" name="action" value="tmwseo_apply_csv_keyword_approvals">';
+        if ( is_array( $preview ) && ! empty( $preview['token'] ) ) {
+            echo '<input type="hidden" name="preview_token" value="' . esc_attr( (string) $preview['token'] ) . '">';
+        }
+        echo '<label><input type="checkbox" name="confirm_apply" value="1"> ' . esc_html__( 'I understand this will approve matching queued keyword candidates only.', 'tmwseo' ) . '</label><br>';
+        submit_button( __( 'Apply CSV Keyword Approvals', 'tmwseo' ), 'primary', 'submit', false, [ 'disabled' => ! is_array( $preview ) ] );
+        echo '<p class="description">' . esc_html__( 'Applies at most 250 preview-approved rows per batch.', 'tmwseo' ) . '</p>';
+        echo '</form>';
+        echo '</div>';
+
+        if ( is_array( $rollback ) && ! empty( $rollback['token'] ) ) {
+            $download_url = wp_nonce_url(
+                add_query_arg( [ 'action' => 'tmwseo_download_csv_keyword_approval_rollback', 'token' => (string) $rollback['token'] ], admin_url( 'admin-post.php' ) ),
+                'tmwseo_download_csv_keyword_approval_rollback'
+            );
+            echo '<p><a class="button" href="' . esc_url( $download_url ) . '">' . esc_html__( 'Download latest rollback CSV', 'tmwseo' ) . '</a></p>';
+        }
+
+        if ( is_array( $preview ) ) {
+            $summary = is_array( $preview['summary'] ?? null ) ? $preview['summary'] : [];
+            echo '<p><strong>' . esc_html__( 'Preview Summary', 'tmwseo' ) . '</strong></p>';
+            echo '<ul>';
+            $labels = [
+                'total_csv_rows' => __( 'Total CSV rows', 'tmwseo' ),
+                'matched_candidates' => __( 'Matched candidates', 'tmwseo' ),
+                'ready_to_approve' => __( 'Safe queued candidates ready to approve', 'tmwseo' ),
+                'already_approved_skipped' => __( 'Already approved skipped', 'tmwseo' ),
+                'ignored_rejected_skipped' => __( 'Ignored/rejected skipped', 'tmwseo' ),
+                'no_match_skipped' => __( 'No match skipped', 'tmwseo' ),
+                'duplicate_matches' => __( 'Duplicate matches', 'tmwseo' ),
+                'ambiguous_matches' => __( 'Ambiguous matches', 'tmwseo' ),
+                'invalid_rows' => __( 'Invalid rows', 'tmwseo' ),
+            ];
+            foreach ( $labels as $key => $label ) {
+                echo '<li>' . esc_html( $label ) . ': ' . (int) ( $summary[ $key ] ?? 0 ) . '</li>';
+            }
+            echo '</ul>';
+
+            $rows = is_array( $preview['rows'] ?? null ) ? $preview['rows'] : [];
+            if ( ! empty( $rows ) ) {
+                echo '<div class="tmwui-table-wrap"><table class="widefat striped"><thead><tr>';
+                foreach ( [ 'CSV Row', 'CSV Keyword', 'Matched Candidate ID', 'Current Candidate Keyword', 'Current Status', 'Type / Classification', 'Volume', 'KD', 'Action', 'Reason' ] as $heading ) {
+                    echo '<th>' . esc_html( $heading ) . '</th>';
+                }
+                echo '</tr></thead><tbody>';
+                foreach ( $rows as $row ) {
+                    echo '<tr>';
+                    echo '<td>' . (int) ( $row['row_number'] ?? 0 ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['csv_keyword'] ?? '' ) ) . '</td>';
+                    echo '<td>' . (int) ( $row['candidate_id'] ?? 0 ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['candidate_keyword'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['status'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['type'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['volume'] ?? '' ) ) . '</td>';
+                    echo '<td>' . esc_html( (string) ( $row['kd'] ?? '' ) ) . '</td>';
+                    echo '<td><strong>' . esc_html( (string) ( $row['action'] ?? '' ) ) . '</strong></td>';
+                    echo '<td>' . esc_html( (string) ( $row['reason'] ?? '' ) ) . '</td>';
+                    echo '</tr>';
+                }
+                echo '</tbody></table></div>';
+            }
+        }
+
+        AdminUI::section_end();
+    }
 
 
     private static function render_safe_keyword_cleanup_panel(): void {

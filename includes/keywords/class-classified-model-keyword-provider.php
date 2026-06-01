@@ -23,6 +23,11 @@ class ClassifiedModelKeywordProvider {
         ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM,
     ];
 
+    /** @var array<int,string> */
+    private const SUPPORTING_CLASSES = [
+        ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM,
+    ];
+
     /** @return array{primary_candidates:array<int,string>,extra_focus_candidates:array<int,string>,body_semantic_candidates:array<int,string>,modifier_candidates:array<int,string>,excluded_candidates:array<int,string>,sources:array<string,mixed>} */
     public function build_for_model(int $model_post_id, string $model_name): array {
         $empty = $this->empty_fragment();
@@ -60,6 +65,7 @@ class ClassifiedModelKeywordProvider {
         $primary_personal = [];
         $primary_fallback = [];
         $extra = [];
+        $supporting_extra = [];
         $body = [];
         $modifiers = [];
         $excluded = [];
@@ -125,7 +131,11 @@ class ClassifiedModelKeywordProvider {
             }
 
             if ($this->is_model_focus_extra_candidate($keyword_class, $suggested_usage) || $admitted_live_intent_review_keyword) {
-                $extra[] = $keyword;
+                if (in_array($keyword_class, self::SUPPORTING_CLASSES, true)) {
+                    $supporting_extra[] = $keyword;
+                } else {
+                    $extra[] = $keyword;
+                }
             }
 
             if ($admitted_live_intent_review_keyword) {
@@ -153,7 +163,7 @@ class ClassifiedModelKeywordProvider {
 
         return [
             'primary_candidates'       => self::dedupe(array_merge($primary_personal, $primary_fallback)),
-            'extra_focus_candidates'   => self::dedupe($extra),
+            'extra_focus_candidates'   => self::dedupe(array_merge($extra, $supporting_extra)),
             'body_semantic_candidates' => self::dedupe($body),
             'modifier_candidates'      => self::dedupe($modifiers),
             'excluded_candidates'      => self::dedupe($excluded),
@@ -249,6 +259,10 @@ class ClassifiedModelKeywordProvider {
     }
 
     private function is_model_focus_extra_candidate(string $keyword_class, string $suggested_usage): bool {
+        if (in_array($keyword_class, self::SUPPORTING_CLASSES, true)) {
+            return ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED === $suggested_usage;
+        }
+
         return in_array($keyword_class, self::PRIMARY_CLASSES, true)
             && in_array($suggested_usage, [
                 ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED,
