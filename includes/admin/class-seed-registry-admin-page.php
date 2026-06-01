@@ -14,6 +14,7 @@
 
 namespace TMWSEO\Engine\Admin;
 
+use TMWSEO\Engine\Services\Capabilities;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\ExpansionCandidateRepository;
 use TMWSEO\Engine\Keywords\BuilderCandidateService;
@@ -1280,7 +1281,7 @@ function tmwseoPurgeConfirm() {
     // -------------------------------------------------------------------------
 
     public static function handle_trusted_seeds_export(): void {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
         check_admin_referer( 'tmwseo_trusted_seeds_export' );
 
         $filters = [
@@ -1298,7 +1299,7 @@ function tmwseoPurgeConfirm() {
     }
 
     public static function handle_candidates_export(): void {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
         check_admin_referer( 'tmwseo_candidates_export' );
 
         $filters = [
@@ -1314,7 +1315,7 @@ function tmwseoPurgeConfirm() {
     }
 
     public static function handle_trusted_seed_delete(): void {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
         $seed_id = (int) ( $_GET['seed_id'] ?? 0 );
         if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( (string) wp_unslash( $_GET['_wpnonce'] ), 'tmwseo_trusted_seed_delete_' . $seed_id ) ) {
             wp_die( __( 'Invalid nonce', 'tmwseo' ) );

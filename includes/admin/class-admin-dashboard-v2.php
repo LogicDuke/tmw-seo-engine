@@ -24,6 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\Services\Capabilities;
 use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\AI\AIRouter;
 use TMWSEO\Engine\Integrations\GSCApi;
@@ -91,7 +92,7 @@ class AdminDashboardV2 {
     // ── Overview Dashboard ────────────────────────────────────────────────
 
     public static function page_overview(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
 
         global $wpdb;
         $tracked = [ 'post', 'page', 'model', 'tmw_category_page' ];
@@ -270,7 +271,7 @@ class AdminDashboardV2 {
     // ── Keywords Page ─────────────────────────────────────────────────────
 
     public static function page_keywords(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
         global $wpdb;
 
         $tab = sanitize_key( $_GET['tab'] ?? 'pipeline' );
@@ -442,7 +443,7 @@ class AdminDashboardV2 {
     // ── Content Pipeline ─────────────────────────────────────────────────
 
     public static function page_content(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
         global $wpdb;
 
         $tab = sanitize_key( $_GET['tab'] ?? 'drafts' );
@@ -548,7 +549,7 @@ class AdminDashboardV2 {
     // ── Competitors ───────────────────────────────────────────────────────
 
     public static function page_competitors(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
 
         $comp_data    = (array) get_option( CompetitorMonitor::OPTION_RESULTS, [] );
         $authority    = (array) get_option( CompetitorMonitor::OPTION_AUTHORITY, [] );
@@ -695,7 +696,7 @@ class AdminDashboardV2 {
     // ── Reports ───────────────────────────────────────────────────────────
 
     public static function page_reports(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
         global $wpdb;
 
         $tab = sanitize_key( $_GET['tab'] ?? 'health' );
@@ -959,7 +960,7 @@ class AdminDashboardV2 {
     // ── Connections ───────────────────────────────────────────────────────
 
     public static function page_connections(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
 
         // Handle GSC OAuth disconnect
         if ( isset( $_POST['tmwseo_gsc_disconnect'] ) && check_admin_referer( 'tmwseo_gsc_disconnect' ) ) {
@@ -1098,7 +1099,7 @@ class AdminDashboardV2 {
     // ── Settings ──────────────────────────────────────────────────────────
 
     public static function page_settings(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
 
         $stab = sanitize_key( $_GET['stab'] ?? 'ai' );
         $opts = get_option( 'tmwseo_engine_settings', [] );
@@ -1203,7 +1204,7 @@ class AdminDashboardV2 {
     // ── Diagnostics ───────────────────────────────────────────────────────
 
     public static function page_diagnostics(): void {
-        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
 
         $tab = sanitize_key( $_GET['tab'] ?? 'logs' );
 

@@ -178,12 +178,29 @@ class AdminAjaxHandlers {
         ] );
 
         // Non-blocking kick — starts the worker within ~1 s without blocking the response.
-        wp_remote_post( admin_url( 'admin-ajax.php?action=tmwseo_kick_worker' ), [
-            'timeout'   => 0.01,
-            'blocking'  => false,
-            'cookies'   => $_COOKIE,
-            'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
-        ] );
+        //
+        // We deliberately do NOT forward $_COOKIE to the loopback URL. The
+        // standard wp-cron pattern does forward the cookie jar (including
+        // the admin's auth cookie), which means a hostile network observer
+        // between this PHP process and admin-ajax.php — misconfigured
+        // Docker, hostile shared host, intercepting reverse proxy — can
+        // capture the admin session. Instead, the receiver authenticates
+        // the kick via a short-lived HMAC token in the URL. Token material
+        // is keyed on AUTH_KEY (with wp_salt fallback) and TTL-bounded to
+        // 60 s; the kick is idempotent so the 60 s replay window only
+        // costs an extra worker tick.
+        $kick_args = self::build_kick_token();
+        wp_remote_post(
+            add_query_arg(
+                array_merge( [ 'action' => 'tmwseo_kick_worker' ], $kick_args ),
+                admin_url( 'admin-ajax.php' )
+            ),
+            [
+                'timeout'   => 0.01,
+                'blocking'  => false,
+                'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
+            ]
+        );
 
         wp_send_json_success( [
             'queued'  => true,
@@ -250,11 +267,104 @@ class AdminAjaxHandlers {
      * Called by the non-blocking fire-and-forget in ajax_generate_now().
      */
     public static function ajax_kick_worker(): void {
-        if ( ! current_user_can( 'edit_posts' ) ) {
+        // Two acceptable authentication paths:
+        //   1. HMAC kick token in the URL (the internal-kick path — used
+        //      by ajax_generate_now above to avoid forwarding the admin's
+        //      cookie jar to the loopback URL).
+        //   2. Standard user-capability check (covers any operator who
+        //      hits this URL directly from their browser, plus
+        //      back-compat for anything that still posts with cookies).
+        //
+        // Either passes. Both failing = denied + logged to the security
+        // context (so the kick endpoint is observable in forensics if it
+        // ever gets probed).
+        if ( ! self::verify_kick_token() && ! current_user_can( 'edit_posts' ) ) {
+            Logs::warn( 'security', 'Kick worker denied', [
+                'has_token'   => isset( $_GET['kick_token'] ),
+                'token_age_s' => isset( $_GET['kick_ts'] ) ? ( time() - (int) $_GET['kick_ts'] ) : null,
+                'logged_in'   => is_user_logged_in(),
+                'ip'          => isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '',
+            ] );
             wp_send_json_error( [ 'message' => __( 'Permission denied.', 'tmwseo' ) ], 403 );
         }
 
         \TMWSEO\Engine\Worker::run();
         wp_send_json_success( [ 'ran' => true ] );
+    }
+
+    /**
+     * Build the URL-arg triple (ts, nonce, token) for an internal kick.
+     * HMAC-SHA256 keyed on AUTH_KEY so the receiver can verify without
+     * needing the admin's session cookie. Timestamp + nonce give the
+     * receiver a TTL window and a non-replayable token shape.
+     */
+    private static function build_kick_token(): array {
+        $ts    = time();
+        $nonce = bin2hex( random_bytes( 8 ) );
+        $key   = self::kick_signing_key();
+        return [
+            'kick_ts'    => $ts,
+            'kick_nonce' => $nonce,
+            'kick_token' => hash_hmac( 'sha256', $ts . '|' . $nonce . '|kick', $key ),
+        ];
+    }
+
+    /**
+     * Verify the HMAC kick token. Returns true if the URL carries a
+     * well-formed, fresh, signature-matching token; false otherwise.
+     *
+     * Constant-time comparison (hash_equals) so brute-forcing the
+     * signature is not made cheaper by short-circuit string compare.
+     * 60-second TTL bounds the replay window — the kick is idempotent so
+     * a single replay only costs one extra worker tick.
+     */
+    private static function verify_kick_token(): bool {
+        if ( empty( $_GET['kick_ts'] ) || empty( $_GET['kick_nonce'] ) || empty( $_GET['kick_token'] ) ) {
+            return false;
+        }
+        $ts    = (int) $_GET['kick_ts'];
+        $nonce = (string) $_GET['kick_nonce'];
+        $token = (string) $_GET['kick_token'];
+
+        // Reject ancient or future-dated timestamps — both indicate either
+        // a replay attack or a clock-skewed client. 60 s tolerates normal
+        // loopback latency; tighter windows might trip on slow PHP-FPM.
+        $age = time() - $ts;
+        if ( $ts <= 0 || $age < -10 || $age > 60 ) {
+            return false;
+        }
+
+        // Nonce shape sanity — random_bytes(8) → bin2hex → 16 hex chars.
+        // Defends against an attacker injecting a noise-suppressing
+        // pathological value into the HMAC input.
+        if ( ! preg_match( '/^[0-9a-f]{16}$/', $nonce ) ) {
+            return false;
+        }
+
+        $expected = hash_hmac( 'sha256', $ts . '|' . $nonce . '|kick', self::kick_signing_key() );
+        return hash_equals( $expected, $token );
+    }
+
+    /**
+     * Key material for the kick-token HMAC. Prefers AUTH_KEY (the
+     * canonical install secret); falls back to wp_salt('auth') so a
+     * misconfigured wp-config without AUTH_KEY doesn't disable the kick
+     * entirely. If neither is available, the empty-string key would
+     * make every token valid for the same input — so we refuse to
+     * issue/verify tokens in that pathological state by returning a
+     * sentinel that won't match any legitimate signed input.
+     */
+    private static function kick_signing_key(): string {
+        if ( defined( 'AUTH_KEY' ) && AUTH_KEY !== '' ) {
+            return (string) AUTH_KEY;
+        }
+        if ( function_exists( 'wp_salt' ) ) {
+            $salt = (string) wp_salt( 'auth' );
+            if ( $salt !== '' ) {
+                return $salt;
+            }
+        }
+        // Pathological fallback — never matches a legitimate token.
+        return 'tmwseo_kick_signing_key_unavailable_' . random_bytes( 16 );
     }
 }

@@ -2,6 +2,7 @@
 namespace TMWSEO\Engine\Affiliates;
 
 use TMWSEO\Engine\Platform\AffiliateLinkBuilder;
+use TMWSEO\Engine\Services\Crypto;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -98,8 +99,17 @@ class CrakRevenueCamManager {
         if ( $network_id === '' ) {
             $network_id = 'crakrevenue';
         }
+        // Encrypt the API key at rest. Crypto::encrypt is idempotent —
+        // already-encrypted values (passed through from read-modify-write
+        // paths that read via read_api_settings() and then write back)
+        // are returned unchanged. New form input goes through one round
+        // of encryption; existing encrypted values pass through.
+        $api_key = sanitize_text_field( (string) ( $input['api_key'] ?? '' ) );
+        if ( $api_key !== '' && class_exists( Crypto::class ) ) {
+            $api_key = Crypto::encrypt( $api_key );
+        }
         return [
-            'api_key' => sanitize_text_field( (string) ( $input['api_key'] ?? '' ) ),
+            'api_key' => $api_key,
             'network_id' => $network_id,
             'affiliate_id' => sanitize_text_field( (string) ( $input['affiliate_id'] ?? '' ) ),
             'auto_map_after_sync' => ! empty( $input['auto_map_after_sync'] ) ? 1 : 0,
@@ -108,6 +118,25 @@ class CrakRevenueCamManager {
             'last_sync_message' => sanitize_text_field( (string) ( $input['last_sync_message'] ?? '' ) ),
             'last_sync_diagnostics' => $diag,
         ];
+    }
+
+    /**
+     * Read the CrakRevenue API settings with the api_key decrypted. All
+     * callers that need the plaintext key (sync_offers, admin form
+     * rendering, read-modify-write handlers) should use this rather than
+     * get_option() directly. The read-modify-write paths benefit too —
+     * when the decrypted-then-written value passes through
+     * sanitize_api_settings() on save, the idempotency check in
+     * Crypto::encrypt skips re-encrypting if the value happens to already
+     * be ciphertext.
+     */
+    private static function read_api_settings(): array {
+        $raw = \get_option( self::API_SETTINGS_OPTION, [] );
+        $settings = is_array( $raw ) ? $raw : [];
+        if ( isset( $settings['api_key'] ) && is_string( $settings['api_key'] ) && $settings['api_key'] !== '' && class_exists( Crypto::class ) ) {
+            $settings['api_key'] = Crypto::decrypt( $settings['api_key'] );
+        }
+        return $settings;
     }
 
     /**
@@ -169,7 +198,7 @@ class CrakRevenueCamManager {
      * @return array{ok:bool,message:string,offers:int,cam_offers:int}
      */
     public static function sync_offers(): array {
-        $settings = get_option( self::API_SETTINGS_OPTION, [] );
+        $settings = self::read_api_settings();
         $settings = is_array( $settings ) ? $settings : [];
         $api_key = sanitize_text_field( (string) ( $settings['api_key'] ?? '' ) );
         $network_id = sanitize_key( strtolower( (string) ( $settings['network_id'] ?? 'crakrevenue' ) ) );
@@ -904,7 +933,7 @@ class CrakRevenueCamManager {
      * @return void
      */
     public static function render_admin_section(): void {
-        $settings = get_option( self::API_SETTINGS_OPTION, [] );
+        $settings = self::read_api_settings();
         $settings = is_array( $settings ) ? $settings : [];
         $diag = is_array( $settings['last_sync_diagnostics'] ?? null ) ? $settings['last_sync_diagnostics'] : [];
         $offers = self::get_cached_offers();
@@ -1145,7 +1174,7 @@ class CrakRevenueCamManager {
      */
     public static function handle_save_and_sync(): void {
         check_admin_referer( 'tmwseo_cr_sync' );
-        $settings = get_option( self::API_SETTINGS_OPTION, [] );
+        $settings = self::read_api_settings();
         $settings = is_array( $settings ) ? $settings : [];
         $settings['api_key'] = sanitize_text_field( (string) ( $_POST['api_key'] ?? '' ) );
         $settings['network_id'] = sanitize_key( strtolower( (string) ( $_POST['network_id'] ?? 'crakrevenue' ) ) );
@@ -1155,7 +1184,7 @@ class CrakRevenueCamManager {
         $result = self::sync_offers();
         if ( ! empty( $result['ok'] ) && ! empty( $settings['auto_map_after_sync'] ) ) {
             $auto_diag = self::auto_map_best_offers( false );
-            $settings = get_option( self::API_SETTINGS_OPTION, [] );
+            $settings = self::read_api_settings();
             $settings = is_array( $settings ) ? $settings : [];
             $settings['last_sync_diagnostics'] = array_merge(
                 is_array( $settings['last_sync_diagnostics'] ?? null ) ? $settings['last_sync_diagnostics'] : [],
@@ -1200,7 +1229,7 @@ class CrakRevenueCamManager {
             update_option( self::PLATFORM_MAPPINGS_OPTION, $mappings );
         } elseif ( $action === 'auto_map' ) {
             $auto_diag = self::auto_map_best_offers( false );
-            $settings = get_option( self::API_SETTINGS_OPTION, [] );
+            $settings = self::read_api_settings();
             $settings = is_array( $settings ) ? $settings : [];
             $settings['last_sync_diagnostics'] = array_merge(
                 is_array( $settings['last_sync_diagnostics'] ?? null ) ? $settings['last_sync_diagnostics'] : [],
@@ -1251,7 +1280,7 @@ class CrakRevenueCamManager {
      * @return array{ok:bool,message:string,offers:int,cam_offers:int}
      */
     private static function mark_sync( bool $ok, string $message, array $offers, array $diag ): array {
-        $settings = get_option( self::API_SETTINGS_OPTION, [] );
+        $settings = self::read_api_settings();
         $settings = is_array( $settings ) ? $settings : [];
         $settings['last_sync_at'] = gmdate( 'c' );
         $settings['last_sync_status'] = $ok ? 'success' : 'error';

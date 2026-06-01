@@ -465,7 +465,8 @@ class Schema {
             data LONGTEXT NULL,
             PRIMARY KEY (id),
             KEY level_time (level, time),
-            KEY context_time (context, time)
+            KEY context_time (context, time),
+            KEY time_idx (time)
         ) $charset_collate;";
 
         $sql_platform = "CREATE TABLE $platform (

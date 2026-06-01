@@ -6,6 +6,8 @@
 namespace TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Admin\TMWSEORoutes;
+use TMWSEO\Engine\Services\CsvUpload;
+use TMWSEO\Engine\Services\Capabilities;
 if (!defined('ABSPATH')) { exit; }
 
 class CSVManagerAdminPage {
@@ -29,7 +31,7 @@ class CSVManagerAdminPage {
     }
 
     public static function render_page(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         $tab = sanitize_key((string)($_GET['tmw_csv_tab'] ?? 'packs'));
         echo '<div class="wrap">';
         echo '<h1>' . esc_html__('CSV Manager / Explorer', 'tmwseo') . '</h1>';
@@ -510,7 +512,7 @@ class CSVManagerAdminPage {
 
     // ── New action handlers ───────────────────────────────────────────────────
     public static function handle_linked_seeds_export(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         check_admin_referer('tmw_linked_seeds_export');
         $batch_id     = sanitize_text_field(rawurldecode((string)($_GET['batch_id']     ?? '')));
         $source_label = sanitize_text_field(rawurldecode((string)($_GET['source_label'] ?? '')));
@@ -522,7 +524,7 @@ class CSVManagerAdminPage {
     }
 
     public static function handle_linked_seeds_delete_all(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         if (!isset($_GET['_wpnonce']) || !wp_verify_nonce((string)wp_unslash($_GET['_wpnonce']), 'tmw_linked_seeds_delete_all')) { wp_die('Invalid nonce'); }
         $batch_id     = sanitize_text_field(rawurldecode((string)($_GET['batch_id']     ?? '')));
         $source_label = sanitize_text_field(rawurldecode((string)($_GET['source_label'] ?? '')));
@@ -546,7 +548,7 @@ class CSVManagerAdminPage {
 
     // ── Existing action handlers (preserved from v5.2) ────────────────────────
     public static function handle_delete_pack(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         if (!isset($_GET['_wpnonce']) || !wp_verify_nonce((string)wp_unslash($_GET['_wpnonce']), 'tmw_delete_pack')) { wp_die('Invalid nonce'); }
         $target = self::get_validated_file_path();
         $raw = (string)($_GET['pack_batches'] ?? '');
@@ -597,7 +599,7 @@ class CSVManagerAdminPage {
     }
 
     public static function handle_delete_seeds(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         if (!isset($_GET['_wpnonce']) || !wp_verify_nonce((string)wp_unslash($_GET['_wpnonce']), 'tmw_delete_seeds')) { wp_die('Invalid nonce'); }
         global $wpdb;
         $table = KeywordDataRepository::seeds_table();
@@ -616,7 +618,7 @@ class CSVManagerAdminPage {
     }
 
     public static function handle_delete(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         if (!isset($_GET['_wpnonce']) || !wp_verify_nonce((string)wp_unslash($_GET['_wpnonce']), 'tmw_delete_csv')) { wp_die('Invalid nonce'); }
         $target = self::get_validated_file_path();
         if ($target && is_file($target)) { @unlink($target); }
@@ -625,7 +627,7 @@ class CSVManagerAdminPage {
     }
 
     public static function handle_download(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         check_admin_referer('tmw_download_csv');
         $target = self::get_validated_file_path();
         if (!$target || !is_file($target)) { wp_die('CSV file not found.'); }
@@ -639,7 +641,7 @@ class CSVManagerAdminPage {
     }
 
     public static function handle_reimport(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         check_admin_referer('tmw_reimport_csv');
         $target = self::get_validated_file_path();
         if (!$target || !is_file($target)) { wp_die('CSV file not found.'); }
@@ -653,15 +655,20 @@ class CSVManagerAdminPage {
     }
 
     public static function handle_seed_upload_preview(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         check_admin_referer('tmw_csv_seed_upload_preview');
-        if (empty($_FILES['keywords_csv']['tmp_name'])) { wp_die('No CSV uploaded'); }
-        $file = $_FILES['keywords_csv'];
-        $filename = sanitize_file_name((string)($file['name'] ?? 'seed-import.csv'));
-        if (strtolower((string)pathinfo($filename, PATHINFO_EXTENSION)) !== 'csv') { wp_die('CSV only'); }
+        // Content-sniff via shared validator. Previously only checked
+        // pathinfo(..., PATHINFO_EXTENSION) — admin could upload anything
+        // named "*.csv" with no inspection of actual bytes. Explicit 8 MB
+        // cap for seed-pack CSVs (these are typically <1 MB curated lists).
+        $check = CsvUpload::validate($_FILES['keywords_csv'] ?? null, 8 * 1024 * 1024);
+        if (!($check['ok'] ?? false)) {
+            wp_die('Upload rejected: file did not validate as a CSV.');
+        }
+        $filename = (string) $check['name'];
+        $tmp      = (string) $check['tmp'];
         $target = trailingslashit(self::get_csv_dir()) . wp_unique_filename(self::get_csv_dir(), $filename);
-        $tmp = (string)$file['tmp_name'];
-        $moved = is_uploaded_file($tmp) ? move_uploaded_file($tmp, $target) : @rename($tmp, $target);
+        $moved = move_uploaded_file($tmp, $target);
         if (!$moved) { wp_die('Upload move failed'); }
         \TMWSEO\Engine\Logs::info('import', '[TMW-CSV-IMPORT] preview_start', ['file' => basename($target)]);
         $preview = self::build_seed_preview($target);
@@ -676,7 +683,7 @@ class CSVManagerAdminPage {
     }
 
     public static function handle_seed_import_confirm(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         check_admin_referer('tmw_csv_seed_import_confirm');
         $preview = get_transient('tmw_csv_seed_preview_' . get_current_user_id());
         if (!is_array($preview) || empty($preview['file_path']) || empty($preview['has_seed_keyword'])) { wp_die('No valid preview found'); }

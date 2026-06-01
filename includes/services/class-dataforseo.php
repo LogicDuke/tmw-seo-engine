@@ -57,7 +57,20 @@ class DataForSEO {
         // Safe Mode is intended to prevent auto-actions (publishing/indexing), not analysis.
         if (!self::is_configured()) return ['ok' => false, 'error' => 'dataforseo_credentials_missing'];
 
-        if (self::is_over_budget()) {
+        // Atomic budget reservation. Replaces the previous read-then-act
+        // pattern (is_over_budget() → API call → record_request_cost()),
+        // which had a race: two concurrent callers could both read the
+        // same spend value, both pass the cap check, and both fire the
+        // API call before either recorded its cost. Real-money concern
+        // because DataForSEO charges per request.
+        //
+        // try_reserve_budget() commits the estimated cost in a single
+        // conditional SQL UPDATE — only one of N concurrent callers can
+        // win the increment, the rest get the budget-exceeded path.
+        // record_request_cost() at the end of this method then applies
+        // an (actual - estimate) delta so the bookkeeping ends up accurate
+        // even when the API reports a different cost than our estimate.
+        if (!self::try_reserve_budget($path)) {
             $stats = self::get_monthly_budget_stats();
             Logs::warn('dataforseo', 'Monthly API budget exceeded — request blocked', [
                 'path' => $path,
@@ -101,6 +114,13 @@ class DataForSEO {
         // re-sending identical credentials provides no recovery and wastes one API credit.
 
         if (is_wp_error($resp)) {
+            // Network-level failure — the call didn't reach DataForSEO,
+            // so the reservation made above didn't actually cost anything.
+            // Refund it so the budget reflects reality and a transient
+            // network blip doesn't permanently consume cap headroom.
+            // Non-2xx HTTP responses and empty-tasks responses are kept
+            // because the provider may have charged for them.
+            self::refund_reservation($path);
             DebugLogger::log_errors([
                 'path' => $path,
                 'error' => $resp->get_error_message(),
@@ -181,30 +201,110 @@ class DataForSEO {
         return ['ok' => true, 'data' => $json];
     }
 
+    /**
+     * Atomic budget reservation. Returns true if the estimated cost was
+     * committed against the monthly cap, false if it would exceed the cap.
+     *
+     * Race-free because it's a single conditional UPDATE: of N concurrent
+     * callers, exactly one's UPDATE succeeds when the budget is tight —
+     * the others see 0 affected rows and get the budget-exceeded path.
+     * MySQL serialises the WHERE-clause evaluation + row update per row,
+     * so there is no read-then-act window the way get_option +
+     * update_option had.
+     */
+    private static function try_reserve_budget(string $path): bool {
+        global $wpdb;
+
+        $budget = (float) Settings::get('tmwseo_dataforseo_budget_usd', 20.0);
+        if ($budget <= 0) {
+            // Budget = 0 means unlimited (matches is_over_budget semantics).
+            return true;
+        }
+
+        $month     = gmdate('Y_m');
+        $spend_key = 'tmwseo_dataforseo_spend_' . $month;
+        $estimate  = self::FALLBACK_COST_PER_REQUEST[$path] ?? 0.01;
+
+        // Ensure the spend row exists before the conditional UPDATE.
+        // Idempotent — INSERT IGNORE skips if the row is already there.
+        $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload)
+             VALUES (%s, '0', 'no')",
+            $spend_key
+        ));
+
+        // Atomic conditional reservation. The WHERE clause's arithmetic
+        // gate means MySQL only commits the increment if the new total
+        // stays within budget. Affected rows: 1 = reserved, 0 = would
+        // overflow (or row already at this value, but the INSERT IGNORE
+        // above guarantees the row exists with a numeric value).
+        $affected = $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->options}
+             SET option_value = CAST(option_value AS DECIMAL(20,6)) + %f
+             WHERE option_name = %s
+               AND CAST(option_value AS DECIMAL(20,6)) + %f <= %f",
+            $estimate, $spend_key, $estimate, $budget
+        ));
+
+        return (int) $affected === 1;
+    }
+
+    /**
+     * Refund a previously-reserved estimate. Used when the API call
+     * fails at the network layer (is_wp_error from wp_remote_post) —
+     * the call didn't reach DataForSEO, so the reservation should be
+     * released. Non-2xx HTTP responses and empty-tasks responses keep
+     * the reservation because DataForSEO may have billed for them.
+     *
+     * Uses GREATEST(0, …) so a refund after a manual spend-counter
+     * reset can't drive the value negative.
+     */
+    private static function refund_reservation(string $path): void {
+        global $wpdb;
+
+        $month     = gmdate('Y_m');
+        $spend_key = 'tmwseo_dataforseo_spend_' . $month;
+        $estimate  = self::FALLBACK_COST_PER_REQUEST[$path] ?? 0.01;
+
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->options}
+             SET option_value = GREATEST(0, CAST(option_value AS DECIMAL(20,6)) - %f)
+             WHERE option_name = %s",
+            $estimate, $spend_key
+        ));
+    }
+
     private static function record_request_cost(string $path, array $json): void {
         global $wpdb;
 
-        $month = gmdate('Y_m');
+        $month     = gmdate('Y_m');
         $spend_key = 'tmwseo_dataforseo_spend_' . $month;
         $calls_key = 'tmwseo_dataforseo_calls_' . $month;
 
-        $cost = self::extract_response_cost($json);
-        if ($cost <= 0) {
-            $cost = self::FALLBACK_COST_PER_REQUEST[$path] ?? 0.01;
+        $actual = self::extract_response_cost($json);
+        if ($actual <= 0) {
+            $actual = self::FALLBACK_COST_PER_REQUEST[$path] ?? 0.01;
+        }
+        $estimate = self::FALLBACK_COST_PER_REQUEST[$path] ?? 0.01;
+        $delta    = $actual - $estimate;
+
+        // The estimated cost was already committed at reservation time by
+        // try_reserve_budget(). Here we apply only the delta so the final
+        // recorded spend matches what DataForSEO actually charged. If the
+        // estimate matched, $delta is 0 and this UPDATE is a no-op
+        // (one round trip but no row mutation — acceptable for clarity).
+        if (abs($delta) > 0.000001) {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->options}
+                 SET option_value = GREATEST(0, CAST(option_value AS DECIMAL(20,6)) + %f)
+                 WHERE option_name = %s",
+                $delta, $spend_key
+            ));
         }
 
-        // FIX BUG-02: Use atomic SQL INSERT ... ON DUPLICATE KEY UPDATE instead of
-        // get_option/update_option. The old pattern had a race condition under concurrent
-        // requests: two processes could both read the same spend value, both add cost,
-        // and one write would be silently discarded — causing spend to be under-reported
-        // and the budget cap to not fire correctly.
-        $wpdb->query($wpdb->prepare(
-            "INSERT INTO {$wpdb->options} (option_name, option_value, autoload)
-             VALUES (%s, %f, 'no')
-             ON DUPLICATE KEY UPDATE option_value = option_value + %f",
-            $spend_key, $cost, $cost
-        ));
-
+        // Calls counter: atomic INSERT … ON DUPLICATE KEY UPDATE
+        // (FIX BUG-02 from the previous race fix — two writers can't
+        // each read 7, write 8, and lose a count).
         $wpdb->query($wpdb->prepare(
             "INSERT INTO {$wpdb->options} (option_name, option_value, autoload)
              VALUES (%s, 1, 'no')

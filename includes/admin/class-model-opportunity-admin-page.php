@@ -1,6 +1,7 @@
 <?php
 namespace TMWSEO\Engine\Admin;
 
+use TMWSEO\Engine\Services\Capabilities;
 use TMWSEO\Engine\Opportunities\ModelOpportunityImportService;
 use TMWSEO\Engine\Opportunities\ModelOpportunityNormalizer;
 use TMWSEO\Engine\Opportunities\ModelOpportunityRankMathPreview;
@@ -31,7 +32,7 @@ class ModelOpportunityAdminPage {
     }
 
     public static function render_page(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         $tab = self::sanitize_tab((string) ($_GET['tab'] ?? 'import'));
 
         echo '<div class="wrap"><h1>Model Opportunities</h1>';
@@ -229,7 +230,7 @@ class ModelOpportunityAdminPage {
     }
 
     public static function handle_row_action(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         $id = absint((int) ($_GET['id'] ?? 0));
         check_admin_referer(self::ACTION . '_' . $id);
         global $wpdb;
@@ -255,7 +256,7 @@ class ModelOpportunityAdminPage {
 
 
     public static function handle_delete_import(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         $id = absint((int) ($_GET['id'] ?? 0));
         if ($id <= 0) {
             wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tab=import&notice=invalid_import_id'));
@@ -290,7 +291,7 @@ class ModelOpportunityAdminPage {
     }
 
     public static function handle_apply_rank_math(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         $id = absint((int) ($_POST['id'] ?? 0));
         if ($id <= 0) { self::redirect_detail($id, 'invalid_opportunity'); }
         check_admin_referer('tmw_model_opp_apply_rank_math_' . $id);
@@ -380,7 +381,7 @@ class ModelOpportunityAdminPage {
     }
 
     public static function handle_import(): void {
-        if (!current_user_can('manage_options')) { wp_die('Unauthorized'); }
+        Capabilities::ensure('manage_options', 'Unauthorized');
         check_admin_referer('tmw_model_opp_import','tmw_model_opp_nonce');
         global $wpdb;
         $mode = sanitize_key((string)($_POST['import_mode'] ?? ''));

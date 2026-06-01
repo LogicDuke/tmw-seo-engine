@@ -171,7 +171,16 @@ if ( ! class_exists( 'WP_Error' ) ) {
 function is_wp_error( $thing ): bool { return $thing instanceof WP_Error; }
 
 // ── Plugin path constants ──────────────────────────────────────────────────────
-define( 'TMWSEO_ENGINE_VERSION', '5.0.1' );
+// Parse the live Version: header from the main plugin file so this stub
+// stays in lockstep with the runtime automatically. Previously hardcoded
+// as '5.0.1', which silently drifted to '5.8.11-final-copy' on the
+// runtime side — the version-assertion test was "passing" against a
+// stub-defined value that no longer matched anything we ship.
+$tmwseo_plugin_file     = dirname( dirname( __DIR__ ) ) . '/tmw-seo-engine.php';
+$tmwseo_plugin_contents = is_readable( $tmwseo_plugin_file ) ? (string) file_get_contents( $tmwseo_plugin_file ) : '';
+preg_match( '/^[ \t]*\*[ \t]*Version:[ \t]*(\S+)/m', $tmwseo_plugin_contents, $tmwseo_version_match );
+define( 'TMWSEO_ENGINE_VERSION', $tmwseo_version_match[1] ?? '0.0.0-unknown' );
+unset( $tmwseo_plugin_file, $tmwseo_plugin_contents, $tmwseo_version_match );
 // __DIR__ = tests/bootstrap  →  dirname(__DIR__) = tests  →  dirname(dirname(__DIR__)) = plugin root
 define( 'TMWSEO_ENGINE_PATH', dirname( dirname( __DIR__ ) ) . '/' );
 define( 'TMWSEO_ENGINE_URL', 'http://example.com/wp-content/plugins/tmw-seo-engine/' );

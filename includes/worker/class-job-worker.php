@@ -96,22 +96,48 @@ class JobWorker {
         return $job_id;
     }
 
+    /**
+     * MySQL named-lock key used to serialise job pickup across cron ticks
+     * and admin-triggered pumps. Replaces the previous transient-based
+     * "soft lock" pattern (documented internally as BUG-10).
+     */
+    private const PICKUP_LOCK_NAME = 'tmwseo_job_worker';
+
     public static function process_next_job(): void {
         global $wpdb;
         $table = $wpdb->prefix . 'tmwseo_jobs';
 
-        // BUG-10 NOTE: This transient lock has a 55-second TTL. Jobs that call
-        // DataForSEO (30s HTTP timeout) or OpenAI (60s timeout) can consume most
-        // of that window. If a job times out without reaching the `finally` block,
-        // the lock stays held for up to 55 seconds, stalling the next job pickup.
-        // This is acceptable for now — the `finally` block below deletes the lock
-        // on all clean exit paths. A future improvement would be a DB-backed lock
-        // with an explicit release on watchdog heartbeat.
-        if (get_transient('tmwseo_job_worker_lock')) {
+        // Replaces the previous transient-based pickup lock (BUG-10).
+        // Problems with the old pattern:
+        //   1. Race window — `if (get_transient(...)) return; set_transient(...);`
+        //      is the textbook check-then-act race. Two cron processes that
+        //      reached this block in lock-step could both pass the check and
+        //      both call set_transient before either claimed a job.
+        //   2. Stale lock — the 55s transient TTL outlives any DataForSEO /
+        //      OpenAI HTTP timeout. A worker that crashed mid-job without
+        //      hitting the cleanup left the lock held for up to 55 seconds,
+        //      stalling all pickup during that window.
+        //
+        // GET_LOCK is the MySQL-native primitive for this:
+        //   - Atomic acquire at the SQL level — no check-then-act gap.
+        //   - Session-scoped — auto-releases when the MySQL connection
+        //     drops (e.g. PHP worker crash), so a crashed worker can't
+        //     stall pickup. No TTL bound to tune.
+        //   - Returns 1 on acquire, 0 if held elsewhere, NULL on error.
+        //   - Timeout 0 = non-blocking: if another worker is already
+        //     pumping, we return immediately rather than waiting.
+        //
+        // Defence-in-depth: the conditional UPDATE further down
+        // (`WHERE id = X AND status = 'pending'`) remains as a second
+        // atomicity gate; even if the named-lock semantics were ever
+        // violated by replication topology, a race-induced double-grab
+        // would still be caught there.
+        $acquired = $wpdb->get_var(
+            $wpdb->prepare("SELECT GET_LOCK(%s, 0)", self::PICKUP_LOCK_NAME)
+        );
+        if ((int) $acquired !== 1) {
             return;
         }
-
-        set_transient('tmwseo_job_worker_lock', 1, 55);
 
         try {
             $job = $wpdb->get_row("SELECT * FROM {$table} WHERE status = 'pending' ORDER BY id ASC LIMIT 1", ARRAY_A);
@@ -189,7 +215,14 @@ class JobWorker {
                 ]);
             }
         } finally {
-            delete_transient('tmwseo_job_worker_lock');
+            // Release the pickup lock so the next cron tick can claim a
+            // job. RELEASE_LOCK is a no-op if our session no longer holds
+            // it (e.g. the MySQL connection was dropped mid-job and the
+            // lock was auto-released), so this is safe to call
+            // unconditionally inside finally.
+            $wpdb->query(
+                $wpdb->prepare("SELECT RELEASE_LOCK(%s)", self::PICKUP_LOCK_NAME)
+            );
         }
     }
 

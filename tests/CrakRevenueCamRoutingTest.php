@@ -601,7 +601,7 @@ class CrakRevenueCamRoutingTest extends TestCase {
                 'selected_offer_name' => 'Camsoda Revshare',
                 'approval_status' => 'approved',
                 'selected_offer_is_expired' => 0,
-                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
             ],
         ]);
 
@@ -763,19 +763,19 @@ class CrakRevenueCamRoutingTest extends TestCase {
     public function test_manual_template_save_preserves_camsoda_model_username_placeholder(): void {
         $saved = CrakRevenueCamManager::save_mapping_templates(
             ['camsoda' => ['platform_slug' => 'camsoda', 'template_url' => '']],
-            ['camsoda' => ['template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}']],
+            ['camsoda' => ['template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}']],
             'camsoda'
         );
-        $this->assertSame('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}', (string) ($saved['camsoda']['template_url'] ?? ''));
+        $this->assertSame('https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}', (string) ($saved['camsoda']['template_url'] ?? ''));
     }
 
     public function test_template_validation_accepts_model_username_placeholder(): void {
-        $ok = CrakRevenueCamManager::validate_template('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}');
+        $ok = CrakRevenueCamManager::validate_template('https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}');
         $this->assertTrue($ok['safe']);
     }
 
     public function test_template_validation_rejects_hardcoded_model_value(): void {
-        $bad = CrakRevenueCamManager::validate_template('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=Anisyia');
+        $bad = CrakRevenueCamManager::validate_template('https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model=Anisyia');
         $this->assertFalse($bad['safe']);
     }
 

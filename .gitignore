@@ -1,1 +1,66 @@
-**/.DS_Store
+# Secrets — never commit even if accidentally dropped into the package folder.
+.env
+.env.*
+!.env.example
+wp-config.php
+wp-config-*.php
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+.htpasswd
+
+# Logs and runtime debris.
+*.log
+debug.log
+error_log
+
+# OS metadata.
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Editor / IDE metadata.
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+.history/
+nbproject/
+.project
+.buildpath
+.settings/
+
+# Editor scratch / backup files.
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+*.tmp
+*.rej
+
+# Composer — vendor/ is not committed. composer.lock is
+# intentionally NOT listed here
+vendor/
+composer.phar
+
+# PHPUnit — generated caches and coverage output, not source.
+.phpunit.result.cache
+.phpunit.cache/
+coverage/
+clover.xml
+coverage.xml
+
+# Local-only customisation that shouldn't ship with the plugin.
+local-config.php
+local.php

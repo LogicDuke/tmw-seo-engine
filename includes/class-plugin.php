@@ -254,6 +254,11 @@ class Plugin {
         Schema::ensure_intelligence_schema();
         Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
+        // Install engine-internal FOREIGN KEY constraints. Idempotent —
+        // runs once per install, stamped by an option. Must follow the
+        // schema-reconciliation calls above so the parent + child tables
+        // already exist before the ALTER TABLE ADD CONSTRAINT runs.
+        Migration::maybe_add_foreign_keys();
 
         // Phase 1 / Phase A: analysis-only, so we do NOT auto-hook ContentEngine.
         // Legacy publish-trigger autopilot is additionally hard-fenced inside ContentEngine.

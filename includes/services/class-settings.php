@@ -130,9 +130,38 @@ class Settings {
         ];
     }
 
+    /**
+     * Keys whose stored values are third-party credentials and should be
+     * encrypted at rest via Crypto. Used by both Settings::all() (decrypt
+     * on read) and Admin::sanitize_settings (encrypt on write) so the two
+     * sides stay in sync.
+     */
+    public static function secret_keys(): array {
+        return [
+            'openai_api_key',
+            'tmwseo_anthropic_api_key',
+            'dataforseo_password',
+            'gsc_client_secret',
+            'google_indexing_service_account_json',
+            'google_pagespeed_api_key',
+            'serper_api_key',
+            'google_ads_developer_token',
+            'google_ads_client_secret',
+            'google_ads_refresh_token',
+        ];
+    }
+
     public static function all(): array {
         $opts = get_option('tmwseo_engine_settings', []);
         if (!is_array($opts)) $opts = [];
+        // Transparently decrypt secret credentials so callers (Settings::get,
+        // Services\OpenAI, RankTracker, DataForSEO, IntelligenceRunner…) keep
+        // seeing plaintext. Crypto::decrypt is back-compat for legacy plain-
+        // text rows: values without a sentinel prefix pass through unchanged,
+        // so tests and pre-encryption installs keep working.
+        if (class_exists(Crypto::class)) {
+            $opts = Crypto::decrypt_in($opts, self::secret_keys());
+        }
         return array_merge(self::defaults(), $opts);
     }
 

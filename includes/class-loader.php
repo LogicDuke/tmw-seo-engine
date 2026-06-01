@@ -71,6 +71,25 @@ class Loader {
         $p = TMWSEO_ENGINE_PATH . 'includes/services/';
         tmwseo_safe_require( $p . 'class-settings.php' );
         tmwseo_safe_require( $p . 'class-trust-policy.php' );
+        // Crypto must load before any consumer that calls it on plugin
+        // bootstrap (e.g. Settings::all() now decrypts secret keys).
+        tmwseo_safe_require( $p . 'class-crypto.php' );
+        // Db wraps START TRANSACTION / COMMIT / ROLLBACK; load before any
+        // consumer that needs transactional batch writes (materializer,
+        // CSV importer, architecture reset).
+        tmwseo_safe_require( $p . 'class-db.php' );
+        // CsvUpload validates uploaded files via wp_check_filetype_and_ext.
+        // Pure helper, no side effects on load.
+        tmwseo_safe_require( $p . 'class-csv-upload.php' );
+        // Capabilities wraps current_user_can + denial logging + wp_die.
+        // Pure helper, no side effects on load.
+        tmwseo_safe_require( $p . 'class-capabilities.php' );
+        // SecurityEvents registers WP hooks at file-load time, so it must
+        // load before the first hook it cares about could fire (i.e. before
+        // anything that could trigger wp_login / wp_login_failed / cookie
+        // checks). Sits after Logs (db/class-logs.php in load_db) which is
+        // the destination it writes to.
+        tmwseo_safe_require( $p . 'class-security-events.php' );
         tmwseo_safe_require( $p . 'class-openai.php' );
         tmwseo_safe_require( $p . 'class-anthropic.php' );
         tmwseo_safe_require( $p . 'class-dataforseo.php' );
@@ -350,6 +369,24 @@ class Loader {
         // Handler classes (extracted from god class — v5.1.1)
         tmwseo_safe_require( $p . 'class-admin-ajax-handlers.php' );
         tmwseo_safe_require( $p . 'class-admin-form-handlers.php' );
+        // Settings API registration + sanitizers — extracted from Admin
+        // to start chipping at the 4,700-line god class. Must load before
+        // class-admin.php because Admin::init() now delegates the
+        // admin_init hook to AdminSettingsSanitizer::register().
+        tmwseo_safe_require( $p . 'class-admin-settings-sanitizer.php' );
+        // Admin notices — `admin_notices` hook target + pipeline-health
+        // renderers. Must load before class-admin.php for the same reason.
+        tmwseo_safe_require( $p . 'class-admin-notices.php' );
+        // Admin menu — `admin_menu` registration + submenu reorder. Owns
+        // ~30 add_submenu_page calls + 7 legacy-slug redirect handlers.
+        tmwseo_safe_require( $p . 'class-admin-menu.php' );
+        // Tools page — `tmwseo-tools` submenu renderer + helper-readiness
+        // panel. Must load before class-admin-menu.php registers the
+        // submenu page that targets it.
+        tmwseo_safe_require( $p . 'class-admin-tools-page.php' );
+        // DataForSEO Keyword Strategy Preview page — dry-run planning UI
+        // + the paid-scan admin_post handler + scan-summary renderers.
+        tmwseo_safe_require( $p . 'class-admin-dfseo-preview-page.php' );
 
         // Core admin + page classes
         tmwseo_safe_require( $p . 'class-admin.php' );
@@ -377,6 +414,13 @@ class Loader {
         tmwseo_safe_require( $p . 'class-content-review-page.php' );
         tmwseo_safe_require( $p . 'class-video-seo-metabox.php' );
         tmwseo_safe_require( $p . 'class-model-helper.php' );
+        // Model Metabox — extracted from class-model-helper.php. Owns the
+        // "Model Research" metabox renderer (audit's biggest single named
+        // target at 945 lines), the save_post hook, the AJAX research-save
+        // handler, and editor asset enqueueing. Must load after
+        // class-model-helper.php because it references ModelHelper::META_*
+        // and the public utility helpers (status_label, field_text, etc.).
+        tmwseo_safe_require( $p . 'class-model-metabox.php' );
         tmwseo_safe_require( $p . 'class-admin-dashboard-v2.php' );
         tmwseo_safe_require( $p . 'class-model-opportunity-admin-page.php' );
         tmwseo_safe_require( $p . 'class-cluster-admin-page.php' );

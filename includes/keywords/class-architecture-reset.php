@@ -23,6 +23,7 @@ namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Content\ContentGenerationGate;
+use TMWSEO\Engine\Services\Db;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -125,26 +126,44 @@ class ArchitectureReset {
         ] );
 
         if ( is_array( $model_ids ) ) {
-            foreach ( $model_ids as $model_id ) {
-                $model_name = trim( (string) get_the_title( (int) $model_id ) );
-                if ( $model_name === '' ) {
-                    continue;
-                }
+            // Wrap the model-root restoration loop in one transaction.
+            // Without this, a mid-loop failure (PHP timeout, DB error) leaves
+            // a partially-populated seeds table that admins have to clean up
+            // by hand. Throwing inside the closure triggers ROLLBACK +
+            // re-throw; the catch logs and lets the existing $result flow
+            // continue with success=false set.
+            try {
+                $result['model_roots_restored'] = Db::transactional( function () use ( $model_ids, $timestamp ) {
+                    $count = 0;
+                    foreach ( $model_ids as $model_id ) {
+                        $model_name = trim( (string) get_the_title( (int) $model_id ) );
+                        if ( $model_name === '' ) {
+                            continue;
+                        }
 
-                $ok = SeedRegistry::register_trusted_seed(
-                    $model_name,
-                    'model_root',
-                    'model',
-                    (int) $model_id,
-                    'model_root',
-                    1,
-                    'model_root_restore_' . $timestamp,
-                    'Architecture Reset: model root restore'
-                );
+                        $ok = SeedRegistry::register_trusted_seed(
+                            $model_name,
+                            'model_root',
+                            'model',
+                            (int) $model_id,
+                            'model_root',
+                            1,
+                            'model_root_restore_' . $timestamp,
+                            'Architecture Reset: model root restore'
+                        );
 
-                if ( $ok ) {
-                    $result['model_roots_restored']++;
-                }
+                        if ( $ok ) {
+                            $count++;
+                        }
+                    }
+                    return $count;
+                } );
+            } catch ( \Throwable $e ) {
+                $result['errors'][] = 'model_root_restore_rolled_back:' . $e->getMessage();
+                $result['success']  = false;
+                Logs::error( 'reset', '[TMW-RESET] Model root restore rolled back', [
+                    'error' => $e->getMessage(),
+                ] );
             }
         }
 
@@ -183,21 +202,36 @@ class ArchitectureReset {
         }
 
         if ( is_array( $proven_manual ) ) {
-            foreach ( $proven_manual as $row ) {
-                $ok = SeedRegistry::register_trusted_seed(
-                    (string) $row['seed'],
-                    'manual',
-                    (string) ( $row['entity_type'] ?? 'system' ),
-                    (int) ( $row['entity_id'] ?? 0 ),
-                    (string) ( $row['seed_type'] ?? 'general' ),
-                    (int) ( $row['priority'] ?? 1 ),
-                    'manual_restore_' . $timestamp,
-                    'Architecture Reset: proven manual seed restore'
-                );
+            // Wrap the proven-manual-seeds restoration loop in one transaction.
+            // Same rationale as the model-root loop above: a mid-loop failure
+            // shouldn't leave a partially-restored seeds table.
+            try {
+                $result['manual_seeds_restored'] = Db::transactional( function () use ( $proven_manual, $timestamp ) {
+                    $count = 0;
+                    foreach ( $proven_manual as $row ) {
+                        $ok = SeedRegistry::register_trusted_seed(
+                            (string) $row['seed'],
+                            'manual',
+                            (string) ( $row['entity_type'] ?? 'system' ),
+                            (int) ( $row['entity_id'] ?? 0 ),
+                            (string) ( $row['seed_type'] ?? 'general' ),
+                            (int) ( $row['priority'] ?? 1 ),
+                            'manual_restore_' . $timestamp,
+                            'Architecture Reset: proven manual seed restore'
+                        );
 
-                if ( $ok ) {
-                    $result['manual_seeds_restored']++;
-                }
+                        if ( $ok ) {
+                            $count++;
+                        }
+                    }
+                    return $count;
+                } );
+            } catch ( \Throwable $e ) {
+                $result['errors'][] = 'manual_seed_restore_rolled_back:' . $e->getMessage();
+                $result['success']  = false;
+                Logs::error( 'reset', '[TMW-RESET] Manual seed restore rolled back', [
+                    'error' => $e->getMessage(),
+                ] );
             }
         }
 
@@ -208,28 +242,40 @@ class ArchitectureReset {
         // ── Step 5: Install versioned starter pack ────────────────
         $already_installed = get_option( 'tmwseo_starter_pack_version', '' );
         if ( $already_installed !== self::STARTER_PACK_VERSION ) {
-            $starter = SeedRegistry::get_starter_pack();
-            $registered = SeedRegistry::register_many(
-                $starter,
-                'static_curated',
-                'system',
-                0,
-                'starter_pack',
-                2
-            );
+            // Wrap register_many + provenance tagging + version stamp in
+            // one transaction so a mid-step failure doesn't leave the
+            // version option claiming "installed" while the seeds row set
+            // is partial. On rollback the next reset attempt sees the
+            // unchanged version and retries cleanly.
+            try {
+                $result['starter_pack_registered'] = Db::transactional( function () {
+                    $starter    = SeedRegistry::get_starter_pack();
+                    $registered = SeedRegistry::register_many(
+                        $starter,
+                        'static_curated',
+                        'system',
+                        0,
+                        'starter_pack',
+                        2
+                    );
 
-            $result['starter_pack_registered'] = (int) ( $registered['registered'] ?? 0 );
+                    SeedRegistry::tag_starter_pack_provenance( $starter );
+                    update_option( 'tmwseo_starter_pack_version', self::STARTER_PACK_VERSION );
 
-            // Tag provenance
-            SeedRegistry::tag_starter_pack_provenance( $starter );
+                    return (int) ( $registered['registered'] ?? 0 );
+                } );
 
-            // Record version so it never runs again
-            update_option( 'tmwseo_starter_pack_version', self::STARTER_PACK_VERSION );
-
-            Logs::info( 'reset', '[TMW-RESET] Starter pack installed', [
-                'version'    => self::STARTER_PACK_VERSION,
-                'registered' => $result['starter_pack_registered'],
-            ] );
+                Logs::info( 'reset', '[TMW-RESET] Starter pack installed', [
+                    'version'    => self::STARTER_PACK_VERSION,
+                    'registered' => $result['starter_pack_registered'],
+                ] );
+            } catch ( \Throwable $e ) {
+                $result['errors'][] = 'starter_pack_install_rolled_back:' . $e->getMessage();
+                $result['success']  = false;
+                Logs::error( 'reset', '[TMW-RESET] Starter pack install rolled back', [
+                    'error' => $e->getMessage(),
+                ] );
+            }
         }
 
         // ── Step 6: Block static seed re-registration ─────────────

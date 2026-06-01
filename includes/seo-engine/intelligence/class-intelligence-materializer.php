@@ -1,6 +1,8 @@
 <?php
 namespace TMWSEO\Engine\Intelligence;
 
+use TMWSEO\Engine\Services\Db;
+
 if (!defined('ABSPATH')) { exit; }
 
 class IntelligenceMaterializer {
@@ -52,39 +54,49 @@ class IntelligenceMaterializer {
             ARRAY_A
         );
 
-        $wpdb->query("TRUNCATE TABLE {$target_table}");
+        // DELETE FROM (not TRUNCATE) so the empty-then-refill sequence runs
+        // inside one transaction. TRUNCATE issues an implicit commit and
+        // would defeat the rollback, leaving the materialized table empty
+        // if any insert later failed — exactly the failure mode the audit
+        // flags.
+        return Db::transactional(function () use ($wpdb, $target_table, $rows) {
+            $wpdb->query("DELETE FROM {$target_table}");
 
-        $inserted = 0;
-        foreach ((array) $rows as $row) {
-            $volume = (int) ($row['volume'] ?? 0);
-            $difficulty = (float) ($row['difficulty'] ?? 0);
-            $serp_weakness = (float) ($row['serp_weakness'] ?? 0);
-            $base_opportunity = isset($row['opportunity']) ? (float) $row['opportunity'] : 0.0;
+            $inserted = 0;
+            foreach ((array) $rows as $row) {
+                $volume = (int) ($row['volume'] ?? 0);
+                $difficulty = (float) ($row['difficulty'] ?? 0);
+                $serp_weakness = (float) ($row['serp_weakness'] ?? 0);
+                $base_opportunity = isset($row['opportunity']) ? (float) $row['opportunity'] : 0.0;
 
-            $opportunity_score = ($base_opportunity > 0)
-                ? $base_opportunity
-                : round(($volume * max($serp_weakness, 0.0)) / max($difficulty, 1.0), 4);
+                $opportunity_score = ($base_opportunity > 0)
+                    ? $base_opportunity
+                    : round(($volume * max($serp_weakness, 0.0)) / max($difficulty, 1.0), 4);
 
-            $ok = $wpdb->insert(
-                $target_table,
-                [
-                    'keyword' => (string) ($row['keyword'] ?? ''),
-                    'search_volume' => $volume,
-                    'difficulty' => $difficulty,
-                    'serp_weakness' => $serp_weakness,
-                    'cluster_id' => (string) ($row['graph_cluster_id'] ?? ''),
-                    'opportunity_score' => $opportunity_score,
-                    'materialized_at' => current_time('mysql'),
-                ],
-                ['%s', '%d', '%f', '%f', '%s', '%f', '%s']
-            );
+                $ok = $wpdb->insert(
+                    $target_table,
+                    [
+                        'keyword' => (string) ($row['keyword'] ?? ''),
+                        'search_volume' => $volume,
+                        'difficulty' => $difficulty,
+                        'serp_weakness' => $serp_weakness,
+                        'cluster_id' => (string) ($row['graph_cluster_id'] ?? ''),
+                        'opportunity_score' => $opportunity_score,
+                        'materialized_at' => current_time('mysql'),
+                    ],
+                    ['%s', '%d', '%f', '%f', '%s', '%f', '%s']
+                );
 
-            if ($ok) {
-                $inserted++;
+                if ($ok === false) {
+                    throw new \RuntimeException('top_opportunities insert failed: ' . $wpdb->last_error);
+                }
+                if ($ok) {
+                    $inserted++;
+                }
             }
-        }
 
-        return $inserted;
+            return $inserted;
+        });
     }
 
     private static function materialize_cluster_summary(): int {
@@ -106,28 +118,33 @@ class IntelligenceMaterializer {
             ARRAY_A
         );
 
-        $wpdb->query("TRUNCATE TABLE {$target_table}");
+        return Db::transactional(function () use ($wpdb, $target_table, $rows) {
+            $wpdb->query("DELETE FROM {$target_table}");
 
-        $inserted = 0;
-        foreach ((array) $rows as $row) {
-            $ok = $wpdb->insert(
-                $target_table,
-                [
-                    'cluster_id' => (string) ($row['cluster_id'] ?? ''),
-                    'cluster_size' => (int) ($row['cluster_size'] ?? 0),
-                    'avg_volume' => round((float) ($row['avg_volume'] ?? 0), 2),
-                    'avg_difficulty' => round((float) ($row['avg_difficulty'] ?? 0), 2),
-                    'materialized_at' => current_time('mysql'),
-                ],
-                ['%s', '%d', '%f', '%f', '%s']
-            );
+            $inserted = 0;
+            foreach ((array) $rows as $row) {
+                $ok = $wpdb->insert(
+                    $target_table,
+                    [
+                        'cluster_id' => (string) ($row['cluster_id'] ?? ''),
+                        'cluster_size' => (int) ($row['cluster_size'] ?? 0),
+                        'avg_volume' => round((float) ($row['avg_volume'] ?? 0), 2),
+                        'avg_difficulty' => round((float) ($row['avg_difficulty'] ?? 0), 2),
+                        'materialized_at' => current_time('mysql'),
+                    ],
+                    ['%s', '%d', '%f', '%f', '%s']
+                );
 
-            if ($ok) {
-                $inserted++;
+                if ($ok === false) {
+                    throw new \RuntimeException('cluster_summary insert failed: ' . $wpdb->last_error);
+                }
+                if ($ok) {
+                    $inserted++;
+                }
             }
-        }
 
-        return $inserted;
+            return $inserted;
+        });
     }
 
     private static function materialize_entity_keyword_map(): int {
@@ -145,32 +162,37 @@ class IntelligenceMaterializer {
             ARRAY_A
         );
 
-        $wpdb->query("TRUNCATE TABLE {$target_table}");
+        return Db::transactional(function () use ($wpdb, $target_table, $rows) {
+            $wpdb->query("DELETE FROM {$target_table}");
 
-        $inserted = 0;
-        foreach ((array) $rows as $row) {
-            $entity_type = (string) ($row['entity_type'] ?? '');
-            if ($entity_type === 'post_tag') {
-                $entity_type = 'tag';
+            $inserted = 0;
+            foreach ((array) $rows as $row) {
+                $entity_type = (string) ($row['entity_type'] ?? '');
+                if ($entity_type === 'post_tag') {
+                    $entity_type = 'tag';
+                }
+
+                $ok = $wpdb->insert(
+                    $target_table,
+                    [
+                        'keyword' => (string) ($row['keyword'] ?? ''),
+                        'entity_type' => $entity_type,
+                        'entity_id' => (int) ($row['entity_id'] ?? 0),
+                        'materialized_at' => current_time('mysql'),
+                    ],
+                    ['%s', '%s', '%d', '%s']
+                );
+
+                if ($ok === false) {
+                    throw new \RuntimeException('entity_keyword_map insert failed: ' . $wpdb->last_error);
+                }
+                if ($ok) {
+                    $inserted++;
+                }
             }
 
-            $ok = $wpdb->insert(
-                $target_table,
-                [
-                    'keyword' => (string) ($row['keyword'] ?? ''),
-                    'entity_type' => $entity_type,
-                    'entity_id' => (int) ($row['entity_id'] ?? 0),
-                    'materialized_at' => current_time('mysql'),
-                ],
-                ['%s', '%s', '%d', '%s']
-            );
-
-            if ($ok) {
-                $inserted++;
-            }
-        }
-
-        return $inserted;
+            return $inserted;
+        });
     }
 
     private static function materialize_keyword_trends(): int {
@@ -186,8 +208,9 @@ class IntelligenceMaterializer {
             ARRAY_A
         );
 
-        $wpdb->query("TRUNCATE TABLE {$target_table}");
-
+        // Compute the latest/previous projection in PHP first — pure
+        // computation, no DB writes — then run the DELETE + insert loop
+        // inside one transaction.
         $latest = [];
         $previous = [];
 
@@ -207,36 +230,43 @@ class IntelligenceMaterializer {
             }
         }
 
-        $inserted = 0;
-        foreach ($latest as $keyword => $current_row) {
-            $current_position = (int) ($current_row['position'] ?? 0);
-            if ($current_position <= 0) {
-                continue;
+        return Db::transactional(function () use ($wpdb, $target_table, $latest, $previous) {
+            $wpdb->query("DELETE FROM {$target_table}");
+
+            $inserted = 0;
+            foreach ($latest as $keyword => $current_row) {
+                $current_position = (int) ($current_row['position'] ?? 0);
+                if ($current_position <= 0) {
+                    continue;
+                }
+
+                $previous_position = isset($previous[$keyword]) ? (int) ($previous[$keyword]['position'] ?? 0) : 0;
+                $rank_change = ($previous_position > 0) ? ($previous_position - $current_position) : 0;
+                $trend_score = round(($rank_change * 5) + max(0, (50 - $current_position)), 2);
+
+                $ok = $wpdb->insert(
+                    $target_table,
+                    [
+                        'keyword' => $keyword,
+                        'current_position' => $current_position,
+                        'previous_position' => $previous_position,
+                        'rank_change' => $rank_change,
+                        'trend_score' => $trend_score,
+                        'snapshot_week' => gmdate('o-\\WW'),
+                        'materialized_at' => current_time('mysql'),
+                    ],
+                    ['%s', '%d', '%d', '%d', '%f', '%s', '%s']
+                );
+
+                if ($ok === false) {
+                    throw new \RuntimeException('keyword_trends insert failed: ' . $wpdb->last_error);
+                }
+                if ($ok) {
+                    $inserted++;
+                }
             }
 
-            $previous_position = isset($previous[$keyword]) ? (int) ($previous[$keyword]['position'] ?? 0) : 0;
-            $rank_change = ($previous_position > 0) ? ($previous_position - $current_position) : 0;
-            $trend_score = round(($rank_change * 5) + max(0, (50 - $current_position)), 2);
-
-            $ok = $wpdb->insert(
-                $target_table,
-                [
-                    'keyword' => $keyword,
-                    'current_position' => $current_position,
-                    'previous_position' => $previous_position,
-                    'rank_change' => $rank_change,
-                    'trend_score' => $trend_score,
-                    'snapshot_week' => gmdate('o-\\WW'),
-                    'materialized_at' => current_time('mysql'),
-                ],
-                ['%s', '%d', '%d', '%d', '%f', '%s', '%s']
-            );
-
-            if ($ok) {
-                $inserted++;
-            }
-        }
-
-        return $inserted;
+            return $inserted;
+        });
     }
 }

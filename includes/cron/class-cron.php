@@ -130,6 +130,15 @@ class Cron {
         Jobs::enqueue('keyword_cycle', 'system', null, ['trigger' => 'daily']);
         JobWorker::enqueue_job('competitor_mining', ['trigger' => 'daily_cron_competitor_mining', 'seed_limit' => 25]);
         CSVExporter::cleanup_temp_csv_files();
+
+        // Prune old log rows so wp_tmw_logs doesn't grow unbounded.
+        // Retention default 30 days, filterable via tmwseo_logs_retention_days.
+        // Only emits its own log row when something was actually deleted
+        // — otherwise this would itself contribute a daily noise entry.
+        $log_rows_deleted = Logs::prune();
+        if ($log_rows_deleted > 0) {
+            Logs::info('cron', '[TMW-LOGS] Daily prune', ['rows_deleted' => $log_rows_deleted]);
+        }
     }
 
     public static function weekly(): void {

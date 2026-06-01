@@ -23,6 +23,9 @@
 
 namespace TMWSEO\Engine\Admin;
 
+use TMWSEO\Engine\Services\CsvUpload;
+use TMWSEO\Engine\Services\Capabilities;
+
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
@@ -183,29 +186,34 @@ class KeywordMetricsCsvImporter {
     // ── Handle upload + build preview ────────────────────────────────────────
 
     public static function handle_upload_preview(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( 'Unauthorized' );
-        }
+        Capabilities::ensure( 'manage_options', 'Unauthorized' );
         check_admin_referer( 'tmwseo_kw_metrics_upload', 'tmwseo_kw_metrics_nonce' );
 
-        // Validate file
-        $file = isset( $_FILES['kw_metrics_csv'] ) ? $_FILES['kw_metrics_csv'] : null; // phpcs:ignore
-        if ( ! $file || empty( $file['tmp_name'] ) || (int) ( $file['error'] ?? UPLOAD_ERR_NO_FILE ) !== UPLOAD_ERR_OK ) {
-            wp_safe_redirect( add_query_arg( 'tmwseo_notice', 'kw_metrics_no_file', admin_url( 'admin.php?page=' . self::PAGE_SLUG ) ) );
+        // Validate via shared CsvUpload — content-sniffs the bytes via
+        // wp_check_filetype_and_ext instead of trusting the filename
+        // extension. Existing redirect notices preserved by mapping the
+        // validator's error codes to the page's notice keys.
+        $check = CsvUpload::validate( $_FILES['kw_metrics_csv'] ?? null, self::MAX_FILE_BYTES ); // phpcs:ignore
+        if ( ! ( $check['ok'] ?? false ) ) {
+            $error_to_notice = [
+                'no_file'      => 'kw_metrics_no_file',
+                'upload_error' => 'kw_metrics_no_file',
+                'not_uploaded' => 'kw_metrics_no_file',
+                'too_large'    => 'kw_metrics_file_too_large',
+                'bad_filetype' => 'kw_metrics_bad_ext',
+            ];
+            $notice = $error_to_notice[ (string) ( $check['error'] ?? '' ) ] ?? 'kw_metrics_bad_ext';
+            wp_safe_redirect( add_query_arg( 'tmwseo_notice', $notice, admin_url( 'admin.php?page=' . self::PAGE_SLUG ) ) );
             exit;
         }
-
-        $size = (int) ( $file['size'] ?? 0 );
-        if ( $size > self::MAX_FILE_BYTES ) {
-            wp_safe_redirect( add_query_arg( 'tmwseo_notice', 'kw_metrics_file_too_large', admin_url( 'admin.php?page=' . self::PAGE_SLUG ) ) );
-            exit;
-        }
-
-        $ext = strtolower( (string) pathinfo( sanitize_file_name( (string) ( $file['name'] ?? '' ) ), PATHINFO_EXTENSION ) );
-        if ( $ext !== 'csv' ) {
-            wp_safe_redirect( add_query_arg( 'tmwseo_notice', 'kw_metrics_bad_ext', admin_url( 'admin.php?page=' . self::PAGE_SLUG ) ) );
-            exit;
-        }
+        // Rebuild a $file-shaped view so the rest of this method keeps reading
+        // from the same variable name without a wider refactor.
+        $file = [
+            'name'     => $check['name'],
+            'tmp_name' => $check['tmp'],
+            'size'     => $check['bytes'] ?? 0,
+            'error'    => UPLOAD_ERR_OK,
+        ];
 
         $source = sanitize_key( (string) ( $_POST['kw_metrics_source'] ?? 'csv_import' ) ); // phpcs:ignore
         $opts   = self::collect_options( $_POST ); // phpcs:ignore

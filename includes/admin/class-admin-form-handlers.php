@@ -19,6 +19,9 @@ use TMWSEO\Engine\Jobs;
 use TMWSEO\Engine\Worker;
 use TMWSEO\Engine\JobWorker;
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Services\Db;
+use TMWSEO\Engine\Services\CsvUpload;
+use TMWSEO\Engine\Services\Capabilities;
 use TMWSEO\Engine\Keywords\SeedRegistry;
 use TMWSEO\Engine\Keywords\NicheSerpMiningService;
 use TMWSEO\Engine\Keywords\KeywordCleanupClassifier;
@@ -587,28 +590,35 @@ class AdminFormHandlers {
     // ─── CSV Import ──────────────────────────────────────────────────────
 
     public static function import_keywords(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
-        }
+        Capabilities::ensure( 'manage_options', __( 'Insufficient permissions', 'tmwseo' ) );
         check_admin_referer( 'tmwseo_import_keywords' );
 
         if ( empty( $_FILES['keywords_csv'] ) || ! isset( $_FILES['keywords_csv']['tmp_name'] ) ) {
             wp_die( __( 'No file uploaded', 'tmwseo' ) );
         }
 
-        $file = $_FILES['keywords_csv'];
-        if ( ! empty( $file['error'] ) ) {
-            wp_die( __( 'Upload error', 'tmwseo' ) );
+        // Content-sniff via the shared CsvUpload validator. Previously this
+        // block did `pathinfo(..., PATHINFO_EXTENSION) !== 'csv'` and on
+        // mismatch *silently renamed* the file to .csv — actively
+        // laundering a non-CSV upload into an accepted CSV. wp_check_filetype_and_ext
+        // inspects the actual bytes via finfo and rejects anything that
+        // doesn't look like text. The explicit 16 MB cap is generous for
+        // keyword CSVs (a 50k-row keyword export is ~3 MB) but defends
+        // against the "5 concurrent admins × 200 MB" memory-exhaustion
+        // path the audit flagged.
+        $check = CsvUpload::validate( $_FILES['keywords_csv'], 16 * 1024 * 1024 );
+        if ( ! ( $check['ok'] ?? false ) ) {
+            Logs::warn( 'import', '[TMW-CSV-IMPORT] upload_rejected', [
+                'reason' => (string) ( $check['error'] ?? 'unknown' ),
+            ] );
+            wp_die( __( 'Upload rejected: file did not validate as a CSV.', 'tmwseo' ) );
         }
 
         $source   = sanitize_text_field( (string) ( $_POST['import_source'] ?? 'manual' ) );
         $run_kd   = ! empty( $_POST['run_kd'] );
 
-        $tmp      = (string) $file['tmp_name'];
-        $filename = isset( $file['name'] ) ? sanitize_file_name( (string) $file['name'] ) : 'import.csv';
-        if ( $filename === '' || strtolower( (string) pathinfo( $filename, PATHINFO_EXTENSION ) ) !== 'csv' ) {
-            $filename = 'import-' . gmdate( 'Ymd-His' ) . '.csv';
-        }
+        $tmp      = (string) $check['tmp'];
+        $filename = (string) $check['name'];
 
         $csv_dir = function_exists( 'tmw_get_csv_directory' )
             ? tmw_get_csv_directory()
@@ -860,37 +870,68 @@ class AdminFormHandlers {
         }
     }
 
-    // Bulk insert seeds (100 rows per query to avoid max_allowed_packet issues)
-    if ( ! empty( $seed_rows ) ) {
-        foreach ( array_chunk( $seed_rows, 100 ) as $chunk ) {
-            $wpdb->query(
-                "INSERT IGNORE INTO {$seeds_table}
-                 (seed, source, seed_type, priority, entity_type, entity_id, created_at, hash, import_batch_id, import_source_label)
-                 VALUES " . implode( ',', $chunk ) // phpcs:ignore
-            );
-        }
-    }
+    // Wrap the three bulk-insert phases (seeds → raw → candidates) in a
+    // single transaction. Without this, a chunk that fails mid-import (DB
+    // error, PHP timeout, server restart) leaves the destination tables
+    // in a half-written state that admins have to clean up by hand. Any
+    // chunk's $wpdb->query returning false throws inside the closure;
+    // Db::transactional rolls back and re-throws so the caller sees the
+    // failure rather than silently importing a partial batch.
+    try {
+        Db::transactional(function () use (
+            $wpdb, $seed_rows, $raw_rows, $cand_rows,
+            $seeds_table, $raw_table, $cand_table
+        ) {
+            // Bulk insert seeds (100 rows per query to avoid max_allowed_packet issues)
+            if ( ! empty( $seed_rows ) ) {
+                foreach ( array_chunk( $seed_rows, 100 ) as $chunk ) {
+                    $ok = $wpdb->query(
+                        "INSERT IGNORE INTO {$seeds_table}
+                         (seed, source, seed_type, priority, entity_type, entity_id, created_at, hash, import_batch_id, import_source_label)
+                         VALUES " . implode( ',', $chunk ) // phpcs:ignore
+                    );
+                    if ( $ok === false ) {
+                        throw new \RuntimeException( 'seeds insert failed: ' . $wpdb->last_error );
+                    }
+                }
+            }
 
-    // Bulk insert raw keywords
-    if ( ! empty( $raw_rows ) ) {
-        foreach ( array_chunk( $raw_rows, 100 ) as $chunk ) {
-            $wpdb->query(
-                "INSERT IGNORE INTO {$raw_table}
-                 (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
-                 VALUES " . implode( ',', $chunk ) // phpcs:ignore
-            );
-        }
-    }
+            // Bulk insert raw keywords
+            if ( ! empty( $raw_rows ) ) {
+                foreach ( array_chunk( $raw_rows, 100 ) as $chunk ) {
+                    $ok = $wpdb->query(
+                        "INSERT IGNORE INTO {$raw_table}
+                         (keyword, source, source_ref, volume, cpc, competition, raw, discovered_at)
+                         VALUES " . implode( ',', $chunk ) // phpcs:ignore
+                    );
+                    if ( $ok === false ) {
+                        throw new \RuntimeException( 'raw insert failed: ' . $wpdb->last_error );
+                    }
+                }
+            }
 
-    // Bulk insert candidates
-    if ( ! empty( $cand_rows ) ) {
-        foreach ( array_chunk( $cand_rows, 100 ) as $chunk ) {
-            $wpdb->query(
-            "INSERT IGNORE INTO {$cand_table}
-                 (keyword, canonical, status, intent, volume, sources, updated_at)
-                 VALUES " . implode( ',', $chunk ) // phpcs:ignore
-            );
-        }
+            // Bulk insert candidates
+            if ( ! empty( $cand_rows ) ) {
+                foreach ( array_chunk( $cand_rows, 100 ) as $chunk ) {
+                    $ok = $wpdb->query(
+                        "INSERT IGNORE INTO {$cand_table}
+                         (keyword, canonical, status, intent, volume, sources, updated_at)
+                         VALUES " . implode( ',', $chunk ) // phpcs:ignore
+                    );
+                    if ( $ok === false ) {
+                        throw new \RuntimeException( 'candidates insert failed: ' . $wpdb->last_error );
+                    }
+                }
+            }
+            return true;
+        });
+    } catch ( \Throwable $e ) {
+        Logs::error( 'import', '[TMW-CSV-IMPORT] transaction_rolled_back', [
+            'file'   => basename( $file_path ),
+            'source' => $source,
+            'error'  => $e->getMessage(),
+        ] );
+        throw $e;
     }
 
     // ── STEP 5: Flush stats ONCE at end (not per-row) ───────────────────────
@@ -1139,7 +1180,7 @@ class AdminFormHandlers {
     }
 
     public static function preview_keyword_cleanup(): void {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( __( 'Insufficient permissions', 'tmwseo' ) ); }
+        Capabilities::ensure( 'manage_options', __( 'Insufficient permissions', 'tmwseo' ) );
         check_admin_referer( 'tmwseo_preview_keyword_cleanup' );
         $include_ignored = isset( $_POST['include_ignored'] );
         $include_clusters = isset( $_POST['include_clusters'] );
@@ -1156,7 +1197,7 @@ class AdminFormHandlers {
     }
 
     public static function apply_keyword_cleanup(): void {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( __( 'Insufficient permissions', 'tmwseo' ) ); }
+        Capabilities::ensure( 'manage_options', __( 'Insufficient permissions', 'tmwseo' ) );
         check_admin_referer( 'tmwseo_apply_keyword_cleanup' );
         if ( ! isset( $_POST['confirm_apply'] ) ) {
             wp_safe_redirect( add_query_arg( [ 'page' => 'tmwseo-keywords', 'tmwseo_notice' => 'keyword_cleanup_confirm_required' ], admin_url( 'admin.php' ) ) );
@@ -1207,5 +1248,80 @@ class AdminFormHandlers {
             'already_ignored' => $already_ignored,
             'matches' => $matches,
         ];
+    }
+
+    /**
+     * admin_post_tmwseo_verify_new_keyword_metrics handler.
+     *
+     * Relocated from Admin during the god-class decomposition. Runs the
+     * keyword-metrics enrichment pipeline on candidate rows and bounces
+     * back to the keywords page with the diagnostic counts in the query
+     * string for the notice renderer to display.
+     */
+    public static function verify_new_keyword_metrics_now(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
+        }
+        check_admin_referer( 'tmwseo_verify_new_keyword_metrics' );
+        $result = \TMWSEO\Engine\Keywords\KeywordEngine::enrich_new_candidates_metrics( 50 );
+        wp_safe_redirect( add_query_arg( [
+            'page' => 'tmwseo-keywords',
+            'tmwseo_notice' => 'kw_metrics_enrichment_completed',
+            'tmwseo_kw_checked' => (int) ( $result['checked'] ?? 0 ),
+            'tmwseo_kw_updated' => (int) ( $result['updated'] ?? 0 ),
+            'tmwseo_kw_skipped' => (int) ( $result['skipped'] ?? 0 ),
+            'tmwseo_kw_dfseo_reason' => rawurlencode( (string) ( $result['dataforseo_reason'] ?? '' ) ),
+            'tmwseo_kw_dfseo_called' => (int) ( $result['dfseo_called'] ?? 0 ),
+            'tmwseo_kw_dfseo_exact_called' => (int) ( $result['dfseo_exact_called'] ?? 0 ),
+            'tmwseo_kw_dfseo_volume_count' => (int) ( $result['dfseo_volume_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_cpc_count' => (int) ( $result['dfseo_cpc_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_usable_kd' => (int) ( $result['dfseo_usable_kd_count'] ?? 0 ),
+            'tmwseo_kw_dfseo_empty_map' => (int) ( $result['dfseo_empty_map'] ?? 0 ),
+            'tmwseo_kw_gkp_called' => (int) ( $result['gkp_called'] ?? 0 ),
+            'tmwseo_kw_gkp_usable_volume' => (int) ( $result['gkp_usable_volume_count'] ?? 0 ),
+            'tmwseo_kw_skip_reasons' => rawurlencode( wp_json_encode( (array) ( $result['skip_reasons'] ?? [] ) ) ),
+        ], admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    /**
+     * admin_post_tmwseo_force_recheck_keyword_metrics handler.
+     *
+     * Relocated from Admin during the god-class decomposition.
+     * Bypasses the 14-day metrics_updated_at skip window and purges
+     * stale transients so rows stamped by earlier broken-parser or
+     * no-data runs are re-checked.
+     *
+     * Safe: does not approve, publish, generate content, or update RankMath.
+     */
+    public static function force_recheck_keyword_metrics_now(): void {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'Insufficient permissions', 'tmwseo' ) );
+        }
+        check_admin_referer( 'tmwseo_force_recheck_keyword_metrics' );
+        $result = \TMWSEO\Engine\Keywords\KeywordEngine::enrich_new_candidates_metrics( 50, true );
+        wp_safe_redirect( add_query_arg( [
+            'page'                         => 'tmwseo-keywords',
+            'tmwseo_notice'                => 'kw_force_recheck_completed',
+            'tmwseo_kw_checked'            => (int)   ( $result['checked']                  ?? 0 ),
+            'tmwseo_kw_updated'            => (int)   ( $result['updated']                  ?? 0 ),
+            'tmwseo_kw_skipped'            => (int)   ( $result['skipped']                  ?? 0 ),
+            'tmwseo_kw_dfseo_reason'       => rawurlencode( (string) ( $result['dataforseo_reason']         ?? '' ) ),
+            'tmwseo_kw_dfseo_called'       => (int)   ( $result['dfseo_called']              ?? 0 ),
+            'tmwseo_kw_dfseo_exact_called' => (int)   ( $result['dfseo_exact_called']        ?? 0 ),
+            'tmwseo_kw_dfseo_volume_count' => (int)   ( $result['dfseo_volume_count']        ?? 0 ),
+            'tmwseo_kw_dfseo_cpc_count'    => (int)   ( $result['dfseo_cpc_count']           ?? 0 ),
+            'tmwseo_kw_dfseo_usable_kd'    => (int)   ( $result['dfseo_usable_kd_count']     ?? 0 ),
+            'tmwseo_kw_dfseo_empty_map'    => (int)   ( $result['dfseo_empty_map']           ?? 0 ),
+            'tmwseo_kw_dfseo_task_status'  => (int)   ( $result['dfseo_task_status_code']    ?? 0 ),
+            'tmwseo_kw_dfseo_task_msg'     => rawurlencode( (string) ( $result['dfseo_task_status_message'] ?? '' ) ),
+            'tmwseo_kw_dfseo_result_count' => (int)   ( $result['dfseo_task_result_count']   ?? 0 ),
+            'tmwseo_kw_dfseo_parser_path'  => rawurlencode( (string) ( $result['dfseo_parser_path']         ?? '' ) ),
+            'tmwseo_kw_dfseo_cache_hit'    => (int)   ( $result['dfseo_cache_hit']           ?? 0 ),
+            'tmwseo_kw_gkp_called'         => (int)   ( $result['gkp_called']                ?? 0 ),
+            'tmwseo_kw_gkp_usable_volume'  => (int)   ( $result['gkp_usable_volume_count']   ?? 0 ),
+            'tmwseo_kw_skip_reasons'       => rawurlencode( wp_json_encode( (array) ( $result['skip_reasons'] ?? [] ) ) ),
+        ], admin_url( 'admin.php' ) ) );
+        exit;
     }
 }

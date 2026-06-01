@@ -357,7 +357,7 @@ class ModelDestinationResolverTest extends TestCase {
                 'enabled' => 1,
                 'selected_offer_id' => 5170,
                 'approval_status' => 'approved',
-                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
             ],
         ]);
 
@@ -375,7 +375,7 @@ class ModelDestinationResolverTest extends TestCase {
         ]);
 
         $official = (string) ($payload['official_destinations_section_html'] ?? '');
-        $this->assertStringContainsString('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&amp;model=anisyia', $official);
+        $this->assertStringContainsString('https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&amp;model=anisyia', $official);
     }
 
     public function test_schema_sameas_stays_clean_even_when_frontend_verified_link_is_routed(): void {
@@ -384,7 +384,7 @@ class ModelDestinationResolverTest extends TestCase {
                 'enabled' => 1,
                 'selected_offer_id' => 5170,
                 'approval_status' => 'approved',
-                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
             ],
         ]);
         update_post_meta(505, \TMWSEO\Engine\Model\VerifiedLinks::META_KEY, [
@@ -393,7 +393,7 @@ class ModelDestinationResolverTest extends TestCase {
 
         $same_as = \TMWSEO\Engine\Model\VerifiedLinks::get_schema_urls(505);
         $this->assertContains('https://www.camsoda.com/anisyia', $same_as);
-        $this->assertNotContains('https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=anisyia', $same_as);
+        $this->assertNotContains('https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model=anisyia', $same_as);
     }
 
     public function test_frontend_verified_link_falls_back_to_clean_url_when_mapping_disabled_or_template_unsafe(): void {
@@ -405,7 +405,7 @@ class ModelDestinationResolverTest extends TestCase {
                 'enabled' => 0,
                 'selected_offer_id' => 5170,
                 'approval_status' => 'approved',
-                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
             ],
         ]);
         $resolved_disabled = ModelDestinationResolver::resolve(506, [], [
@@ -424,7 +424,7 @@ class ModelDestinationResolverTest extends TestCase {
                 'enabled' => 1,
                 'selected_offer_id' => 5170,
                 'approval_status' => 'approved',
-                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model=Anisyia',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model=Anisyia',
             ],
         ]);
         $resolved_unsafe = ModelDestinationResolver::resolve(506, [], [
@@ -445,7 +445,7 @@ class ModelDestinationResolverTest extends TestCase {
                 'enabled' => 1,
                 'selected_offer_id' => 5170,
                 'approval_status' => 'approved',
-                'template_url' => 'https://t.acrsmartcam.com/383520/5170/12311?aff_sub5=SF_006OG000004lmDN&model={username}',
+                'template_url' => 'https://t.acrsmartcam.com/999999/5170/12311?aff_sub5=SF_FIXTUREONLY0000&model={username}',
             ],
         ]);
 

@@ -426,7 +426,19 @@ class GSCApi {
 
         $nonce      = substr( $decoded, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
         $box        = substr( $decoded, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
-        $key        = self::derive_key();
+        try {
+            $key = self::derive_key();
+        } catch ( \RuntimeException $e ) {
+            // AUTH_KEY undefined — we genuinely cannot decrypt here. Returning
+            // the ciphertext unchanged is the least-bad option: it surfaces
+            // to the caller as a non-decrypted value (which downstream
+            // validation will reject) rather than crashing the request,
+            // which would brick GSC entirely on every page load.
+            Logs::error( 'gsc', 'GSC token decryption skipped — AUTH_KEY undefined', [
+                'reason' => $e->getMessage(),
+            ] );
+            return $ciphertext;
+        }
         $plaintext  = sodium_crypto_secretbox_open( $box, $nonce, $key );
 
         return $plaintext === false ? '' : $plaintext;
@@ -434,11 +446,34 @@ class GSCApi {
 
     /**
      * Derive a 32-byte encryption key from WordPress's salt + AUTH_KEY.
-     * This ties the key to the WordPress installation without storing it separately.
+     * This ties the key to the WordPress installation without storing it
+     * separately.
+     *
+     * Throws when AUTH_KEY is undefined or empty rather than silently
+     * substituting a hardcoded fallback string. The fallback —
+     * 'tmwseo_fallback_key_no_auth_key_defined' — was identical across
+     * every install of this plugin and would have given attackers with
+     * source-code access a known component of any key derived without
+     * AUTH_KEY. wp_salt('auth') still provides install-specific entropy
+     * in that situation, but composing a deterministic-source key with
+     * a known string is a footgun that's better caught loudly here than
+     * silently weakened.
+     *
+     * Encrypt-path callers (encrypt_field, GSC token save) let the
+     * exception bubble — failure to save credentials is a clearer signal
+     * than silently writing weakly-encrypted ones. Decrypt-path callers
+     * catch and treat the value as undecryptable.
      */
     private static function derive_key(): string {
+        $auth = defined( 'AUTH_KEY' ) ? AUTH_KEY : '';
+        if ( $auth === '' ) {
+            throw new \RuntimeException(
+                'GSC encryption refuses to derive a key: AUTH_KEY is not defined in wp-config.php. ' .
+                'Define it (and re-authenticate GSC, since the existing tokens cannot be decrypted ' .
+                'with a different key) before continuing.'
+            );
+        }
         $salt = wp_salt( 'auth' );
-        $auth = defined( 'AUTH_KEY' ) ? AUTH_KEY : 'tmwseo_fallback_key_no_auth_key_defined';
         return substr( hash( 'sha256', $salt . $auth . 'tmwseo_gsc_v1', true ), 0, SODIUM_CRYPTO_SECRETBOX_KEYBYTES );
     }
 

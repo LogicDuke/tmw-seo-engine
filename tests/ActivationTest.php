@@ -16,13 +16,34 @@ class ActivationTest extends TestCase {
         $this->assertTrue( defined( 'TMWSEO_ENGINE_VERSION' ) );
     }
 
-    public function test_version_is_4_6_4(): void {
-        $this->assertSame( '5.0.1', TMWSEO_ENGINE_VERSION );
-    }
-
-    public function test_plugin_header_version_matches_constant(): void {
+    /**
+     * The test that lives here was historically named
+     * `test_version_is_4_6_4` and asserted `'5.0.1'`. Two stale strings,
+     * one stale method name, one drifted runtime — none of which matched
+     * each other or the version we actually shipped. Rewritten to assert
+     * the actual contract (constant matches plugin header) without
+     * hardcoding any specific version string, so future bumps can't
+     * silently re-introduce the same drift.
+     */
+    public function test_version_constant_matches_plugin_header(): void {
         $contents = (string) file_get_contents( TMWSEO_ENGINE_PATH . 'tmw-seo-engine.php' );
-        $this->assertStringContainsString( 'Version: 5.0.1', $contents );
+        $this->assertMatchesRegularExpression(
+            '/^[ \t]*\*[ \t]*Version:[ \t]*\S+/m',
+            $contents,
+            'Plugin header must declare a Version: line'
+        );
+        preg_match( '/^[ \t]*\*[ \t]*Version:[ \t]*(\S+)/m', $contents, $m );
+        $header_version = isset( $m[1] ) ? (string) $m[1] : '';
+        $this->assertNotSame(
+            '',
+            $header_version,
+            'Version: header value parsed empty'
+        );
+        $this->assertSame(
+            $header_version,
+            TMWSEO_ENGINE_VERSION,
+            'TMWSEO_ENGINE_VERSION must equal the Version: header in tmw-seo-engine.php'
+        );
     }
 
     public function test_path_constant_is_real_directory(): void {
