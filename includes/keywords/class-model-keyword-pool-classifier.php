@@ -20,6 +20,7 @@ class ModelKeywordPoolClassifier {
     public const CLASS_ATTRIBUTE_TERM = 'attribute_term';
     public const CLASS_GEO_LANGUAGE_TERM = 'geo_language_term';
     public const CLASS_FEATURE_MODIFIER = 'feature_modifier';
+    public const CLASS_SUPPORTING_MODEL_TERM = 'supporting_model_term';
     public const CLASS_UNSAFE_STANDALONE = 'unsafe_standalone_modifier';
     public const CLASS_GENERATED_LONGTAIL = 'generated_longtail';
     public const CLASS_UNKNOWN_REVIEW = 'unknown_review';
@@ -30,7 +31,8 @@ class ModelKeywordPoolClassifier {
     public const USAGE_MODIFIER_ONLY = 'modifier_only';
     public const USAGE_REVIEW_REQUIRED = 'review_required';
 
-    private const UNSAFE_STANDALONE_TERMS = [ 'video', 'videos', 'chat', 'photos', 'pictures', 'search', 'home', 'live', 'top', 'new', 'real', 'information', 'page', 'bio', 'profile' ];
+    private const UNSAFE_STANDALONE_TERMS = [ 'video', 'videos', 'chat', 'photos', 'pictures', 'search', 'home', 'top', 'new', 'real', 'information', 'page', 'bio', 'profile' ];
+    private const CONDITIONAL_SUPPORTING_TERMS = [ 'live' ];
     private const PLATFORM_TERMS = [ 'livejasmin', 'jasmin', 'chaturbate', 'camsoda', 'cam4', 'bongacams', 'myfreecams', 'flirt4free', 'imlive', 'jerkmate', 'stripchat' ];
     private const CORE_MODEL_TERMS = [ 'webcam model', 'cam model', 'adult video chat model', 'live cam model', 'live webcam model', 'livejasmin model', 'jasmin model', 'cam girl', 'webcam girl', 'webcam performer', 'cam performer' ];
     private const PLATFORM_INTENT_TERMS = [ 'adult video chat', 'jasmin video chat', 'livejasmin video chat', 'jasmin live', 'livejasmin live' ];
@@ -58,6 +60,14 @@ class ModelKeywordPoolClassifier {
 
         if (in_array($keyword, self::UNSAFE_STANDALONE_TERMS, true)) {
             return $this->result($keyword, self::CLASS_UNSAFE_STANDALONE, false, self::USAGE_MODIFIER_ONLY, [ 'unsafe_standalone_exact_match' ], 'high');
+        }
+
+        if (self::is_conditional_supporting_keyword($keyword)) {
+            $reason_codes = [ 'conditional_safe_supporting_keyword', 'not_primary_focus_keyword' ];
+            if ('live' === $keyword) {
+                $reason_codes[] = 'live_webcam_model_project_context';
+            }
+            return $this->result($keyword, self::CLASS_SUPPORTING_MODEL_TERM, true, self::USAGE_SECONDARY_FOCUS_ALLOWED, $reason_codes, 'medium');
         }
 
         $is_generated = !empty($context['is_generated']);
@@ -89,6 +99,10 @@ class ModelKeywordPoolClassifier {
         }
 
         return $this->result($keyword, self::CLASS_UNKNOWN_REVIEW, false, self::USAGE_REVIEW_REQUIRED, [ 'no_rule_matched' ], 'low');
+    }
+
+    public static function is_conditional_supporting_keyword(string $keyword): bool {
+        return in_array(self::normalize_phrase($keyword), self::CONDITIONAL_SUPPORTING_TERMS, true);
     }
 
     public static function normalize_phrase(string $phrase): string {

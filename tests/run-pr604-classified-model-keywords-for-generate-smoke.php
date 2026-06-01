@@ -96,6 +96,7 @@ $row = static function (int $id, string $keyword, int $entity_id, string $status
 $wpdb = new Pr604SmokeWpdb();
 $GLOBALS['wpdb'] = $wpdb;
 $wpdb->rows = [
+    0 => $row(0, 'live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
     1 => $row(1, 'anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     2 => $row(2, 'anisyia livejasmin', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
     3 => $row(3, 'livejasmin anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
@@ -115,7 +116,9 @@ $wpdb->rows = [
 $provider = new ClassifiedModelKeywordProvider();
 $fragment = $provider->build_for_model(4457, 'Anisyia');
 pr604_assert($fragment['primary_candidates'] === [ 'anisyia', 'anisyia livejasmin', 'anisyia livejasmin porn' ], 'Provider should return Anisyia approved personal primary rows in order.');
-pr604_assert(array_slice($fragment['extra_focus_candidates'], 0, 5) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia live', 'anisyia livejasmin porn' ], 'Provider should return approved personal extra focus rows in order.');
+pr604_assert(array_slice($fragment['extra_focus_candidates'], 0, 5) === [ 'anisyia', 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia live', 'anisyia livejasmin porn' ], 'Provider should return approved personal extra focus rows before conditional supporting terms.');
+pr604_assert(in_array('live', $fragment['extra_focus_candidates'], true), 'Provider should allow approved standalone live as a supporting extra.');
+pr604_assert(array_search('live', $fragment['extra_focus_candidates'], true) > array_search('anisyia livejasmin porn', $fragment['extra_focus_candidates'], true), 'Standalone live should stay behind stronger model-profile keywords.');
 foreach ([ 'anisyia porn', 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $excluded) { pr604_assert(in_array($excluded, $fragment['excluded_candidates'], true), 'Provider should exclude ' . $excluded . '.'); }
 foreach ([ 'wrong entity anisyia', 'anisyia pending', 'anisyia porn', 'video', 'chat', 'mystery phrase', 'othermodel livejasmin' ] as $bad) { pr604_assert(!in_array($bad, $fragment['primary_candidates'], true) && !in_array($bad, $fragment['extra_focus_candidates'], true), 'Provider should not include bad focus candidate ' . $bad . '.'); }
 

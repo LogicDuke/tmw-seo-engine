@@ -19,12 +19,25 @@ final class ModelKeywordPoolClassifierTest extends TestCase {
     }
 
     public function test_unsafe_standalone_exact_words_are_not_standalone_allowed(): void {
-        foreach ([ 'video', 'videos', 'chat', 'photos', 'pictures', 'search', 'home', 'live', 'top', 'new', 'real', 'information', 'page', 'bio', 'profile' ] as $word) {
+        foreach ([ 'video', 'videos', 'chat', 'photos', 'pictures', 'search', 'home', 'top', 'new', 'real', 'information', 'page', 'bio', 'profile' ] as $word) {
             $result = $this->classifier->classify($word);
             $this->assertSame(ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, $result['keyword_class']);
             $this->assertFalse($result['standalone_allowed']);
             $this->assertSame(ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, $result['suggested_usage']);
         }
+    }
+
+    public function test_live_is_conditional_safe_supporting_keyword(): void {
+        $result = $this->classifier->classify('live');
+
+        $this->assertSame(ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM, $result['keyword_class']);
+        $this->assertTrue($result['standalone_allowed']);
+        $this->assertSame(ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, $result['suggested_usage']);
+        $this->assertNotSame(ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, $result['suggested_usage']);
+        $this->assertTrue(ModelKeywordPoolClassifier::is_conditional_supporting_keyword(' live '));
+        $this->assertContains('conditional_safe_supporting_keyword', $result['reason_codes']);
+        $this->assertContains('not_primary_focus_keyword', $result['reason_codes']);
+        $this->assertContains('live_webcam_model_project_context', $result['reason_codes']);
     }
 
     public function test_core_model_terms_are_primary_focus_allowed(): void {

@@ -593,6 +593,10 @@ class KeywordPoolDryRunService {
             $score += 15;
         }
 
+        if (ModelKeywordPoolClassifier::is_conditional_supporting_keyword($keyword)) {
+            $score = min($score, 10);
+        }
+
         return max(0, min(100, $score));
     }
 
@@ -609,6 +613,10 @@ class KeywordPoolDryRunService {
         $keyword = (string) ($row['normalized_keyword'] ?? '');
         $volume  = is_int($row['volume'] ?? null) ? (int) $row['volume'] : null;
         $cpc     = is_numeric($row['cpc'] ?? null) ? (float) $row['cpc'] : null;
+
+        if (ModelKeywordPoolClassifier::is_conditional_supporting_keyword($keyword)) {
+            return 'P3';
+        }
 
         if (null !== $volume && $volume >= 1000) {
             return 'P1';
