@@ -237,7 +237,7 @@ class ClassifiedModelKeywordProvider {
     }
 
     private function contains_adult_fallback_term(string $keyword): bool {
-        return preg_match('/(?:^|\s)(?:porn|porno|adult|sex|xxx|nude|nudes|naked)(?:\s|$)/u', $keyword) === 1;
+        return preg_match('/(?:^|\s)(?:porn|porno|adult|sex|xxx|nude|nudes|naked|leak|leaked|onlyfans)(?:\s|$)/u', $keyword) === 1;
     }
 
     /** @param array<string,mixed> $row */
