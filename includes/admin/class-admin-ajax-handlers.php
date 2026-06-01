@@ -265,63 +265,166 @@ class AdminAjaxHandlers {
             ] );
         }
 
-        // ── Category page: inline generation (v5.8.14) ──────────────────────
-        // Previously fell through to queue-only which silently produced placeholder
-        // content. Category pages now run inline just like model and video pages.
+        // ── Category page: inline generation ────────────────────────────────
+        // Reuse the same direct ContentEngine path as model Generate so the
+        // Gutenberg sidebar gets completion feedback and can reload automatically.
         if ( $post_type === 'tmw_category_page' && ! $refresh_keywords_only ) {
-            $cat_post = get_post( $post_id );
-            if ( $cat_post instanceof \WP_Post ) {
-                ob_start();
-                $cat_threw = false;
-                try {
-                    $cat_result = ContentEngine::build_preview_only_content_assist( $cat_post, [
-                        'strategy' => 'template',
-                        'context'  => 'category_page',
-                    ] );
-                } catch ( \Throwable $e ) {
-                    $cat_threw = true;
-                    ob_end_clean();
-                    Logs::error( 'admin', '[TMW-CATEGORY-GENERATE] Inline category generation failed', [
+            $run_id = 'cat_' . $post_id . '_' . wp_generate_uuid4();
+            update_post_meta( $post_id, '_tmwseo_category_generation_run_id', $run_id );
+            update_post_meta( $post_id, '_tmwseo_category_generation_status', 'queued' );
+            delete_post_meta( $post_id, '_tmwseo_category_generation_error' );
+
+            Logs::info( 'admin', '[TMW-CAT-GEN] queued', [
+                'post_id'              => $post_id,
+                'run_id'               => $run_id,
+                'strategy'             => $strategy,
+                'insert_content_block' => (bool) $insert_block,
+            ] );
+
+            $before_content = (string) get_post_field( 'post_content', $post_id );
+            $before_preview = (string) get_post_meta( $post_id, '_tmwseo_ai_preview_content', true );
+            $before_status  = (string) get_post_status( $post_id );
+            $before_ready   = (string) get_post_meta( $post_id, '_tmwseo_ready_to_index', true );
+
+            $job_payload['manual_category_generate']   = 1;
+            $job_payload['explicit_category_generate'] = 1;
+            $job_payload['run_id']                     = $run_id;
+
+            ob_start();
+            try {
+                update_post_meta( $post_id, '_tmwseo_category_generation_status', 'running' );
+                Logs::info( 'admin', '[TMW-CAT-GEN] running', [
+                    'post_id'              => $post_id,
+                    'run_id'               => $run_id,
+                    'strategy'             => $strategy,
+                    'insert_content_block' => (bool) $insert_block,
+                ] );
+
+                ContentEngine::run_optimize_job( [
+                    'entity_id' => $post_id,
+                    'payload'   => $job_payload,
+                ] );
+            } catch ( \Throwable $e ) {
+                $leaked = (string) ob_get_clean();
+                update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
+                update_post_meta( $post_id, '_tmwseo_category_generation_error', $e->getMessage() );
+                if ( $leaked !== '' ) {
+                    Logs::warning( 'admin', '[TMW-CAT-GEN] PHP output leaked during category generation', [
                         'post_id' => $post_id,
-                        'error'   => $e->getMessage(),
+                        'run_id'  => $run_id,
+                        'snippet' => substr( $leaked, 0, 500 ),
                     ] );
-                    wp_send_json_error( [ 'message' => __( 'Category generation failed. Check logs.', 'tmwseo' ) ], 500 );
                 }
-                if ( ! $cat_threw ) {
-                    ob_end_clean();
-                }
+                Logs::error( 'admin', '[TMW-CAT-GEN] error', [
+                    'post_id'              => $post_id,
+                    'run_id'               => $run_id,
+                    'strategy'             => $strategy,
+                    'insert_content_block' => (bool) $insert_block,
+                    'error'                => $e->getMessage(),
+                ] );
+                wp_send_json_error( [
+                    'success' => false,
+                    'run_id'  => $run_id,
+                    'status'  => 'error',
+                    'message' => __( 'Category generation failed. Check logs.', 'tmwseo' ),
+                    'error'   => $e->getMessage(),
+                ], 500 );
+            }
 
-                if ( ! empty( $cat_result['content_html'] ) && empty( $cat_result['blocked'] ) ) {
-                    $cat_html        = (string) $cat_result['content_html'];
-                    $current_content = (string) get_post_field( 'post_content', $post_id );
-                    $next_content    = self::upsert_managed_ai_block( $current_content, $cat_html );
-                    wp_update_post( [ 'ID' => $post_id, 'post_content' => $next_content ] );
+            $leaked_output = (string) ob_get_clean();
+            if ( $leaked_output !== '' ) {
+                Logs::warning( 'admin', '[TMW-CAT-GEN] PHP output leaked during category generation', [
+                    'post_id' => $post_id,
+                    'run_id'  => $run_id,
+                    'snippet' => substr( $leaked_output, 0, 500 ),
+                ] );
+            }
 
-                    // Write Rank Math meta.
-                    $seo_title = trim( (string) ( $cat_result['seo_title'] ?? '' ) );
-                    $meta_desc = trim( (string) ( $cat_result['meta_description'] ?? '' ) );
-                    $focus_kw  = trim( (string) ( $cat_result['focus_keyword'] ?? '' ) );
-                    if ( $seo_title !== '' ) update_post_meta( $post_id, 'rank_math_title', $seo_title );
-                    if ( $meta_desc !== '' ) update_post_meta( $post_id, 'rank_math_description', $meta_desc );
-                    if ( $focus_kw !== '' ) {
-                        update_post_meta( $post_id, 'rank_math_focus_keyword', $focus_kw );
-                        update_post_meta( $post_id, '_tmwseo_keyword', $focus_kw );
-                    }
-                    update_post_meta( $post_id, '_tmwseo_optimize_done', 'category_inline' );
-                    clean_post_cache( $post_id );
+            clean_post_cache( $post_id );
+            $after_content = (string) get_post_field( 'post_content', $post_id );
+            $after_preview = (string) get_post_meta( $post_id, '_tmwseo_ai_preview_content', true );
+            $after_done    = (string) get_post_meta( $post_id, '_tmwseo_optimize_done', true );
+            $after_status  = (string) get_post_status( $post_id );
+            $after_ready   = (string) get_post_meta( $post_id, '_tmwseo_ready_to_index', true );
 
-                    Logs::info( 'admin', '[TMW-CATEGORY-GENERATE] Inline category content generated', [
-                        'post_id'   => $post_id,
-                        'focus_kw'  => $focus_kw,
-                    ] );
-                    wp_send_json_success( [
-                        'generated_now' => true,
-                        'reload'        => true,
-                        'message'       => __( 'Category content generated. Reloading editor.', 'tmwseo' ),
-                    ] );
+            if ( $after_status !== $before_status ) {
+                wp_update_post( [ 'ID' => $post_id, 'post_status' => $before_status ] );
+            }
+            if ( $after_ready !== $before_ready ) {
+                if ( $before_ready === '' ) {
+                    delete_post_meta( $post_id, '_tmwseo_ready_to_index' );
+                } else {
+                    update_post_meta( $post_id, '_tmwseo_ready_to_index', $before_ready );
                 }
             }
-            // Fall through to queue if inline attempt produced no content.
+
+            $content_changed = $insert_block && trim( $after_content ) !== '' && trim( $after_content ) !== trim( $before_content );
+            $preview_changed = ! $insert_block && trim( $after_preview ) !== '' && trim( $after_preview ) !== trim( $before_preview );
+
+            if ( $after_done === 'blocked_content_gate' ) {
+                update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
+                $gate_raw     = (string) get_post_meta( $post_id, ContentGenerationGate::META_GATE_RESULT, true );
+                $gate_result  = json_decode( $gate_raw, true );
+                $gate_reasons = is_array( $gate_result ) && ! empty( $gate_result['reasons'] ) && is_array( $gate_result['reasons'] )
+                    ? array_values( array_map( 'strval', $gate_result['reasons'] ) )
+                    : [];
+                $message = __( 'Category generation blocked by content prerequisites.', 'tmwseo' );
+                if ( ! empty( $gate_reasons ) ) {
+                    $message .= ' ' . implode( ', ', $gate_reasons );
+                }
+                update_post_meta( $post_id, '_tmwseo_category_generation_error', $message );
+                Logs::error( 'admin', '[TMW-CAT-GEN] error', [
+                    'post_id' => $post_id,
+                    'run_id'  => $run_id,
+                    'error'   => $message,
+                ] );
+                wp_send_json_error( [
+                    'success' => false,
+                    'run_id'  => $run_id,
+                    'status'  => 'error',
+                    'message' => $message,
+                    'reasons' => $gate_reasons,
+                ], 409 );
+            }
+
+            if ( ! $content_changed && ! $preview_changed ) {
+                update_post_meta( $post_id, '_tmwseo_category_generation_status', 'error' );
+                update_post_meta( $post_id, '_tmwseo_category_generation_error', 'empty_generated_content' );
+                Logs::error( 'admin', '[TMW-CAT-GEN] error', [
+                    'post_id'              => $post_id,
+                    'run_id'               => $run_id,
+                    'strategy'             => $strategy,
+                    'insert_content_block' => (bool) $insert_block,
+                    'error'                => 'empty_generated_content',
+                ] );
+                wp_send_json_error( [
+                    'success' => false,
+                    'run_id'  => $run_id,
+                    'status'  => 'error',
+                    'message' => __( 'Category generation finished but no content was written. Check logs.', 'tmwseo' ),
+                ], 500 );
+            }
+
+            update_post_meta( $post_id, '_tmwseo_category_generation_status', 'complete' );
+            Logs::info( 'admin', '[TMW-CAT-GEN] complete', [
+                'post_id'              => $post_id,
+                'run_id'               => $run_id,
+                'strategy'             => $strategy,
+                'insert_content_block' => (bool) $insert_block,
+                'provider'             => $strategy === 'template' ? 'template' : $strategy,
+            ] );
+
+            wp_send_json_success( [
+                'success'       => true,
+                'generated_now' => true,
+                'reload'        => true,
+                'run_id'        => $run_id,
+                'job_id'        => $run_id,
+                'status'        => 'complete',
+                'message'       => $insert_block
+                    ? __( 'Category content generated. Reloading editor.', 'tmwseo' )
+                    : __( 'Category content generated into the preview buffer. Reloading editor.', 'tmwseo' ),
+            ] );
         }
 
         Jobs::enqueue( 'optimize_post', (string) $post_type, $post_id, $job_payload );

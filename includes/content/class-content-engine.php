@@ -786,7 +786,7 @@ class ContentEngine {
             '<p>This draft keeps language safe, non-graphic, and editorially reviewable while helping users move between model pages, video pages, and supporting archives from one clear starting point.</p>' .
             '<h2>About ' . esc_html($category_term) . '</h2>' .
             '<p>The purpose of this category is to gather relevant model and video listings under a single archive topic so visitors can scan quickly, compare options, and continue browsing using internal site navigation. It works as a directory layer rather than a platform-specific claim, and it does not assume one network or operator unless that relationship is already verified elsewhere in site data.</p>' .
-            '<p>In SEO terms, the page improves topic clarity for search engines while keeping visitors in a predictable path: open the archive, review connected model cards or clips, and move deeper through related internal links. This supports indexing readiness without requiring category creation, renaming, or slug edits in the generation pipeline.</p>' .
+            '<p>In SEO terms, the page improves topic clarity for search engines while keeping visitors in a predictable path: open the archive, review connected model cards or clips, and move deeper through related internal links. This supports indexing readiness without requiring category creation, renaming, or slug edits in the generation pipeline, and it gives editors a concise place to add verified internal links during manual review.</p>' .
             '<h2>Browse ' . esc_html($category_term) . ' Videos and Models</h2>' .
             '<p>Visitors can continue with two core navigation hubs that remain stable across the site:</p>' .
             '<ul><li><a href="' . esc_url(home_url('/models/')) . '">Models Directory</a></li><li><a href="' . esc_url(home_url('/videos/')) . '">Videos Directory</a></li></ul>' .
@@ -808,6 +808,20 @@ class ContentEngine {
             'content_html' => $content,
             'outline' => "- About {$category_term}\n- Browse {$category_term} Videos and Models\n- How This Category Helps Visitors\n- Related Webcam Categories\n- Frequently Asked Questions",
         ];
+    }
+
+    private static function build_category_page_seo_title(string $category_term, string $year): string {
+        $category_term = trim($category_term) !== '' ? trim($category_term) : 'Webcam Models';
+        $year = trim($year) !== '' ? trim($year) : (string) gmdate('Y');
+
+        return TitleFixer::shorten($category_term . ': Best Webcam Category Guide ' . $year, 70);
+    }
+
+    private static function build_category_page_meta_description(string $category_term, string $brand): string {
+        $category_term = trim($category_term) !== '' ? trim($category_term) : 'Webcam Models';
+        $brand = trim($brand) !== '' ? trim($brand) : 'Top-Models.Webcam';
+
+        return TitleFixer::shorten($category_term . ' category guide with neutral browsing context, model and video navigation, and internal links for manual review on ' . $brand . '.', 160);
     }
 
     /** @return array<string,string> */
@@ -1226,17 +1240,18 @@ class ContentEngine {
         $insert_block = (int)($payload['insert_block'] ?? 1) === 1;
         $keywords_only = (int)($payload['keywords_only'] ?? 0) === 1 || (int)($payload['refresh_keywords_only'] ?? 0) === 1;
 
-        if (!$keywords_only && Settings::is_safe_mode()) {
-            Logs::info('content', 'Safe mode enabled; skipping AI generation', ['post_id' => $post_id]);
+        // Strategy precedence: explicit valid payload > model safety fallback > settings/providers.
+        $strategy = self::normalize_generate_strategy((string)($payload['strategy'] ?? ''), (string) $post->post_type, (int) $dry);
+
+        if (!$keywords_only && Settings::is_safe_mode() && $strategy !== 'template') {
+            Logs::info('content', 'Safe mode enabled; skipping external AI generation', ['post_id' => $post_id, 'strategy' => $strategy]);
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', 'skipped_safe_mode');
             return;
         }
 
-        // Strategy precedence: explicit valid payload > model safety fallback > settings/providers.
-        $strategy = self::normalize_generate_strategy((string)($payload['strategy'] ?? ''), (string) $post->post_type, (int) $dry);
-
         $is_manual_model_request = self::is_manual_model_request($post, $payload);
+        $is_manual_category_request = self::is_manual_category_request($post, $payload);
 
         // Build keyword pack for models first so manual bootstrap can satisfy
         // obvious prerequisites before the content gate blocks generation.
@@ -1250,6 +1265,8 @@ class ContentEngine {
                 $keyword_pack = self::bootstrap_manual_model_generate($post, $keyword_pack);
             }
             AssistedDraftEnrichmentService::enrich_rank_math_keywords($post, $keyword_pack);
+        } elseif ($post->post_type === 'tmw_category_page' && $is_manual_category_request) {
+            $keyword_pack = self::bootstrap_manual_category_generate($post, $payload);
         }
 
         if ($keywords_only) {
@@ -1401,10 +1418,19 @@ class ContentEngine {
             $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
             AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
 
-            wp_update_post([
-                'ID'           => $post_id,
-                'post_content' => $final_content,
-            ]);
+            if ($insert_block) {
+                wp_update_post([
+                    'ID'           => $post_id,
+                    'post_content' => $final_content,
+                ]);
+            } else {
+                update_post_meta($post_id, '_tmwseo_ai_preview_content', $generated_content);
+                update_post_meta($post_id, '_tmwseo_ai_preview_generated_at', current_time('mysql'));
+                update_post_meta($post_id, '_tmwseo_preview_content_html', $generated_content);
+                update_post_meta($post_id, '_tmwseo_preview_generated_at', current_time('mysql'));
+                if ($seo_title !== '') update_post_meta($post_id, '_tmwseo_preview_seo_title', $seo_title);
+                if ($meta_desc !== '') update_post_meta($post_id, '_tmwseo_preview_meta_description', $meta_desc);
+            }
 
             // Evidence inclusion diagnostic REMOVED in v5.8.7 — Model Research
             // Evidence is applied through ModelResearchEvidence::prepend_sections()
@@ -1422,8 +1448,10 @@ class ContentEngine {
                 AssistedDraftEnrichmentService::update_model_secondary_keywords_for_post($post, $focus_kw);
             }
 
-            // Don't automatically remove noindex unless explicitly enabled.
-            self::maybe_clear_rank_math_noindex($post);
+            // Don't automatically remove noindex for category-page generation; manual index review remains required.
+            if ($post->post_type !== 'tmw_category_page') {
+                self::maybe_clear_rank_math_noindex($post);
+            }
 
             delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
             update_post_meta($post_id, '_tmwseo_optimize_done', ($strategy === 'template') ? 'template' : 'template_fallback');
@@ -1674,7 +1702,9 @@ class ContentEngine {
         delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
         update_post_meta($post_id, '_tmwseo_optimize_done', current_time('mysql'));
 
-        self::maybe_clear_rank_math_noindex($post);
+        if ($post->post_type !== 'tmw_category_page') {
+            self::maybe_clear_rank_math_noindex($post);
+        }
 
         Logs::info('content', 'Optimized', ['post_id' => $post_id, 'context' => $context, 'model' => $model]);
     }
@@ -1689,6 +1719,167 @@ class ContentEngine {
         $explicit = !empty($payload['explicit_generate']);
 
         return $trigger === 'manual' || $explicit;
+    }
+
+    private static function is_manual_category_request(\WP_Post $post, array $payload): bool {
+        if ($post->post_type !== 'tmw_category_page') {
+            return false;
+        }
+
+        $trigger = sanitize_key((string)($payload['trigger'] ?? ''));
+        $explicit = !empty($payload['explicit_category_generate']);
+
+        return $trigger === 'manual' || $explicit;
+    }
+
+    /**
+     * Bootstrap category-page generation with safe keyword metadata so the shared
+     * ContentGenerationGate can run without requiring a separate category queue.
+     *
+     * @param array<string,mixed> $payload
+     * @return array{primary:string,additional:string[],longtail:string[],sources:array<string,mixed>}
+     */
+    private static function bootstrap_manual_category_generate(\WP_Post $post, array $payload = []): array {
+        $pack = self::build_category_keyword_pack($post, $payload);
+        $post_id = (int) $post->ID;
+
+        if ($pack['primary'] !== '') {
+            update_post_meta($post_id, '_tmwseo_keyword', $pack['primary']);
+        }
+
+        $confidence_raw = get_post_meta($post_id, '_tmwseo_keyword_confidence', true);
+        if ($confidence_raw === '' || $confidence_raw === false || (float) $confidence_raw < 10.0) {
+            update_post_meta($post_id, '_tmwseo_keyword_confidence', 80);
+        }
+
+        if ($pack['primary'] !== '' && trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true)) === '') {
+            update_post_meta($post_id, 'rank_math_focus_keyword', $pack['primary']);
+        }
+
+        if (!empty($pack['additional']) && trim((string) get_post_meta($post_id, 'rank_math_additional_keywords', true)) === '') {
+            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', array_slice($pack['additional'], 0, 8)));
+        }
+
+        update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($pack));
+
+        return $pack;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @return array{primary:string,additional:string[],longtail:string[],sources:array<string,mixed>}
+     */
+    private static function build_category_keyword_pack(\WP_Post $post, array $payload = []): array {
+        $post_id = (int) $post->ID;
+        $sources = [];
+
+        $primary = trim((string) $post->post_title);
+        if ($primary !== '') {
+            $sources['primary'] = 'post_title';
+        }
+
+        $candidates = [];
+        foreach (['rank_math_focus_keyword', '_tmwseo_keyword'] as $meta_key) {
+            $raw = trim((string) get_post_meta($post_id, $meta_key, true));
+            if ($raw === '') {
+                continue;
+            }
+            $parts = array_values(array_filter(array_map('trim', explode(',', $raw)), 'strlen'));
+            if ($primary === '' && !empty($parts)) {
+                $primary = (string) $parts[0];
+                $sources['primary'] = $meta_key;
+            }
+            $candidates = array_merge($candidates, $parts);
+        }
+
+        foreach (['_tmwseo_approved_keywords', '_tmwseo_category_keywords', '_tmwseo_page_keywords', '_tmwseo_keyword_cluster'] as $meta_key) {
+            $raw = get_post_meta($post_id, $meta_key, true);
+            $values = self::normalize_keyword_meta_values($raw);
+            if ($primary === '' && !empty($values)) {
+                $primary = (string) $values[0];
+                $sources['primary'] = $meta_key;
+            }
+            $candidates = array_merge($candidates, $values);
+        }
+
+        $stored_pack_raw = get_post_meta($post_id, '_tmwseo_keyword_pack', true);
+        $stored_pack = is_string($stored_pack_raw) && $stored_pack_raw !== '' ? json_decode($stored_pack_raw, true) : [];
+        if (is_array($stored_pack)) {
+            foreach (['primary', 'additional', 'longtail', 'rankmath_additional'] as $key) {
+                $values = self::normalize_keyword_meta_values($stored_pack[$key] ?? []);
+                if ($primary === '' && !empty($values)) {
+                    $primary = (string) $values[0];
+                    $sources['primary'] = '_tmwseo_keyword_pack.' . $key;
+                }
+                $candidates = array_merge($candidates, $values);
+            }
+        }
+
+        $payload_keyword = trim((string)($payload['keyword'] ?? ''));
+        if ($primary === '' && $payload_keyword !== '') {
+            $primary = $payload_keyword;
+            $sources['primary'] = 'payload';
+        }
+        if ($primary === '') {
+            $primary = 'Webcam Category';
+            $sources['primary'] = 'fallback';
+        }
+
+        $primary = class_exists(AssistedDraftEnrichmentService::class)
+            ? AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $primary)
+            : $primary;
+        $candidates[] = $primary;
+        $candidates = array_values(array_unique(array_filter(array_map(static function ($value): string {
+            return trim((string) $value);
+        }, $candidates), 'strlen')));
+
+        $additional = array_values(array_filter($candidates, static fn(string $kw): bool => strcasecmp($kw, $primary) !== 0));
+        $longtail = array_slice($additional, 0, 8);
+
+        return [
+            'primary' => $primary,
+            'additional' => array_slice($additional, 0, 8),
+            'longtail' => $longtail,
+            'sources' => $sources,
+        ];
+    }
+
+    /**
+     * @param mixed $raw
+     * @return string[]
+     */
+    private static function normalize_keyword_meta_values($raw): array {
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $raw = $decoded;
+            } else {
+                return array_values(array_filter(array_map('trim', preg_split('/[,;\n]+/', $raw) ?: []), 'strlen'));
+            }
+        }
+
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $values = [];
+        $keyword_keys = ['keyword', 'term', 'label', 'name'];
+        $has_named_keyword_key = !empty(array_intersect($keyword_keys, array_filter(array_keys($raw), 'is_string')));
+        foreach ($raw as $key => $value) {
+            if (is_array($value)) {
+                $values = array_merge($values, self::normalize_keyword_meta_values($value));
+                continue;
+            }
+            if (is_string($key) && in_array($key, $keyword_keys, true) && is_scalar($value)) {
+                $values[] = (string) $value;
+                continue;
+            }
+            if (!$has_named_keyword_key && is_scalar($value)) {
+                $values[] = (string) $value;
+            }
+        }
+
+        return array_values(array_filter(array_map('trim', $values), 'strlen'));
     }
 
     /**

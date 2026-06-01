@@ -90,5 +90,34 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringNotContainsString('porn', $content);
             $this->assertStringContainsString('neutral', $content);
         }
+
+        public function test_category_keyword_pack_falls_back_to_title_without_ai_credentials(): void {
+            $post = new \WP_Post(['ID' => 21, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $payload = $this->invoke('build_category_keyword_pack', [$post, ['strategy' => 'template']]);
+
+            $this->assertSame('Big Boob Cam', $payload['primary']);
+            $this->assertSame('post_title', $payload['sources']['primary']);
+        }
+
+        public function test_category_template_generation_creates_non_empty_content_for_template_strategy(): void {
+            $post = new \WP_Post(['ID' => 22, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $keywordPack = $this->invoke('build_category_keyword_pack', [$post, ['strategy' => 'template']]);
+            $payload = $this->invoke('build_template_preview_payload', [$post, $keywordPack, $keywordPack['primary'], 'category_page']);
+
+            $this->assertNotSame('', trim((string) $payload['content_html']));
+            $this->assertStringContainsString('<h2>About Big Boob Cam</h2>', (string) $payload['content_html']);
+        }
+
+        public function test_category_bootstrap_does_not_set_ready_to_index(): void {
+            $post = new \WP_Post(['ID' => 23, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][23] = [];
+
+            $payload = $this->invoke('bootstrap_manual_category_generate', [$post, ['strategy' => 'template']]);
+
+            $this->assertSame('Big Boob Cam', $payload['primary']);
+            $this->assertSame('', get_post_meta(23, '_tmwseo_ready_to_index', true));
+            $this->assertSame('Big Boob Cam', get_post_meta(23, '_tmwseo_keyword', true));
+            $this->assertSame(80, get_post_meta(23, '_tmwseo_keyword_confidence', true));
+        }
     }
 }
