@@ -88,6 +88,14 @@ class AdminMenu {
         // ── Intelligence ───────────────────────────────────────────────────
         // Store the hook so we can register the early bulk-action handler below.
         $kw_page_hook = add_submenu_page($slug, __('Keywords', 'tmwseo'), __('Keywords', 'tmwseo'), 'manage_options', 'tmwseo-keywords', [Admin::class, 'render_keywords']);
+        add_submenu_page(
+            $slug,
+            __( 'Keyword Pools', 'tmwseo' ),
+            __( 'Keyword Pools', 'tmwseo' ),
+            'manage_options',
+            'tmwseo-keyword-pools',
+            [ '\\TMWSEO\\Engine\\Admin\\KeywordPoolsAdminPage', 'render_page' ]
+        );
         add_submenu_page($slug, __('Model Opportunities', 'tmwseo'), __('Model Opportunities', 'tmwseo'), 'manage_options', 'tmwseo-model-opportunities', ['\\TMWSEO\\Engine\\Admin\\ModelOpportunityAdminPage', 'render_page']);
         // Early handler fires before admin-header.php so wp_safe_redirect() is safe.
         add_action( 'load-' . $kw_page_hook, [ AdminFormHandlers::class, 'handle_keyword_candidates_bulk' ] );
@@ -182,6 +190,7 @@ class AdminMenu {
             'tmwseo-suggestions',
             'tmwseo-content-briefs',
             'tmwseo-keywords',
+            'tmwseo-keyword-pools',
             'tmwseo-model-opportunities',
             'tmwseo-autopilot',
             'tmwseo-seed-registry',
