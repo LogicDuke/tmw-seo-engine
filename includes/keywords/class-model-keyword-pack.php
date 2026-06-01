@@ -213,34 +213,37 @@ class ModelKeywordPack {
         // Confidence = how well the final selected additional keywords scored.
         $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
 
-        // Dedicated Rank Math chips: model-name-led, varied per post.
-        // These replace the old name-free generic fallback as the Rank Math chip source.
+        // Dedicated Rank Math extras for model pages use approved linked personal
+        // keywords first, then deterministic slices of the approved model pool that
+        // match this model's saved platforms and assigned tags, with safe formulas
+        // only filling any remaining slots.
         $rankmath_chips = [];
+        $rankmath_rotation = self::empty_rankmath_rotation_result();
         if ($is_model_page) {
-            $approved_model_keywords = self::order_model_rankmath_candidates(
+            $rankmath_rotation = self::select_rotating_rankmath_extras(
+                (int) $post->ID,
+                $model_name,
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
-                $model_name
+                $platform_slugs,
+                self::rankmath_attribute_slugs_for_post($post),
+                $classified_exclusions
             );
-            $rankmath_fallback_candidates = self::build_rankmath_chips($model_name, $post->ID, $platform_slugs);
-            $rankmath_chips = self::merge_preferred_keywords(
-                $approved_model_keywords,
-                $rankmath_fallback_candidates,
-                20
-            );
-            $rankmath_chips = self::finalize_rankmath_additional_keywords(
-                $rankmath_chips,
-                $classified_exclusions,
-                $model_name
-            );
+            $rankmath_chips = $rankmath_rotation['final'];
         }
 
         if ($is_model_page && defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
             $rankmath_focus_list = array_values(array_filter(array_merge([ $model_name !== '' ? $model_name : $primary ], $rankmath_chips), 'strlen'));
-            Logs::info('keywords', '[TMW-SEO-RM-KW-PACK] ModelKeywordPack::build rebuilt model Rank Math keyword pack', [
+            Logs::info('keywords', '[TMW-SEO-RM-KW-ROTATE] ModelKeywordPack::build selected rotating model Rank Math keyword pack', [
                 'post_id' => (int) $post->ID,
                 'model_name' => $model_name,
-                'approved_linked_extras_found' => $approved_model_keywords ?? [],
-                'generated_fallback_candidates_before_filtering' => $rankmath_fallback_candidates ?? [],
+                'approved_personal_extras_used' => $rankmath_rotation['personal_used'] ?? [],
+                'platform_extras_considered' => $rankmath_rotation['platform_considered'] ?? [],
+                'platform_extras_used' => $rankmath_rotation['platform_used'] ?? [],
+                'tag_attribute_extras_considered' => $rankmath_rotation['tag_attribute_considered'] ?? [],
+                'tag_attribute_extras_used' => $rankmath_rotation['tag_attribute_used'] ?? [],
+                'generic_pool_extras_considered' => $rankmath_rotation['generic_considered'] ?? [],
+                'generic_pool_extras_used' => $rankmath_rotation['generic_used'] ?? [],
+                'fallback_extras_used' => $rankmath_rotation['fallback_used'] ?? [],
                 'final_rank_math_csv' => implode(',', array_slice($rankmath_focus_list, 0, 5)),
                 'stored_pack_bypassed_or_rebuilt' => true,
             ]);
@@ -251,8 +254,9 @@ class ModelKeywordPack {
             'additional'          => $additional,
             'longtail'            => $longtail,
             'rankmath_additional' => $rankmath_chips,
-            'rankmath_approved_linked_extras' => $is_model_page ? ($approved_model_keywords ?? []) : [],
-            'rankmath_fallback_candidates' => $is_model_page ? ($rankmath_fallback_candidates ?? []) : [],
+            'rankmath_approved_linked_extras' => $is_model_page ? ($rankmath_rotation['personal_used'] ?? []) : [],
+            'rankmath_fallback_candidates' => $is_model_page ? ($rankmath_rotation['fallback_used'] ?? []) : [],
+            'rankmath_rotation' => $is_model_page ? $rankmath_rotation : [],
             'confidence'          => $confidence,
             'sources' => [
                 'platforms' => $platform_slugs,
@@ -365,6 +369,9 @@ class ModelKeywordPack {
             'jasmin',
             'live cam',
             'live webcam',
+            'online cam',
+            'adult webcam',
+            'cam show',
         ], true);
     }
 
@@ -635,6 +642,34 @@ class ModelKeywordPack {
     }
 
     /** @return string[] */
+    private static function rankmath_attribute_slugs_for_post(\WP_Post $post): array {
+        $out = [];
+        $taxes = get_object_taxonomies($post->post_type);
+        foreach ((array) $taxes as $tax) {
+            $terms = get_the_terms($post, $tax);
+            if (!is_array($terms)) {
+                continue;
+            }
+            foreach ($terms as $term) {
+                if (!($term instanceof \WP_Term)) {
+                    continue;
+                }
+                foreach ([ (string) $term->slug, (string) $term->name ] as $raw) {
+                    $slug = sanitize_key($raw);
+                    if ($slug === '' || in_array($slug, [ 'uncategorized' ], true)) {
+                        continue;
+                    }
+                    if (preg_match('/\b(teen|underage|school)\b/i', $slug)) {
+                        continue;
+                    }
+                    $out[] = $slug;
+                }
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /** @return string[] */
     private static function fallback_additional(string $name, array $platforms, array $tags): array {
         $labels = array_values(array_filter(array_map([self::class, 'platform_keyword_label'], $platforms), 'strlen'));
         $primary_platform = $labels[0] ?? '';
@@ -792,31 +827,346 @@ class ModelKeywordPack {
     }
 
     /**
-     * Build Rank Math-specific keyword chips for a model page.
+     * Select up to four Rank Math extras for a model page from approved sources.
      *
-     * Chips are always model-name-led (e.g. "Arianna webcam"),
-     * varied deterministically per post ID, and safe for Rank Math.
-     * Replaces the old name-free generic fallback as the Rank Math chip source.
+     * Priority order:
+     * 1. approved linked personal model keywords,
+     * 2. approved platform pool keywords matching saved model platforms,
+     * 3. approved tag/attribute pool keywords matching assigned tags,
+     * 4. approved generic model-intent keywords with deterministic rotation,
+     * 5. safe deterministic model-name formulas.
      *
-     * @param string   $name          Exact model name.
-     * @param int      $post_id       Post ID used as deterministic seed.
-     * @param string[] $platform_slugs Active platform slugs for optional platform chip.
-     * @return string[]               Up to 4 chips.
+     * @param string[]          $personal_keywords
+     * @param string[]          $platform_slugs
+     * @param string[]          $tag_slugs
+     * @param array<string,bool> $classified_exclusions
+     * @return array{final:string[],personal_used:string[],platform_considered:string[],platform_used:string[],tag_attribute_considered:string[],tag_attribute_used:string[],generic_considered:string[],generic_used:string[],fallback_used:string[]}
      */
-    private static function build_rankmath_chips(string $name, int $post_id, array $platform_slugs): array {
+    private static function select_rotating_rankmath_extras(int $post_id, string $model_name, array $personal_keywords, array $platform_slugs, array $tag_slugs, array $classified_exclusions): array {
+        $result = self::empty_rankmath_rotation_result();
+        $seed = $post_id . '|' . self::normalize_keyword($model_name) . '|' . implode(',', $platform_slugs) . '|' . implode(',', $tag_slugs);
+
+        $append = function(array $keywords, string $bucket) use (&$result, $classified_exclusions, $model_name): void {
+            foreach ($keywords as $keyword) {
+                if (count($result['final']) >= 4) {
+                    break;
+                }
+                $clean = self::normalize_keyword((string) $keyword);
+                if (!self::is_safe_rankmath_extra($clean, $classified_exclusions, $model_name)) {
+                    continue;
+                }
+                $key = self::keyword_key($clean);
+                if (isset($result['_seen'][$key])) {
+                    continue;
+                }
+                $result['_seen'][$key] = true;
+                $result['final'][] = $clean;
+                $result[$bucket][] = $clean;
+            }
+        };
+
+        $personal = self::order_model_rankmath_candidates($personal_keywords, $model_name);
+        $append($personal, 'personal_used');
+
+        $pool_rows = self::approved_model_pool_rows();
+        $platform_candidates = [];
+        $tag_candidates = [];
+        $generic_candidates = [];
+        foreach ($pool_rows as $row) {
+            $keyword = self::normalize_keyword((string) ($row['keyword'] ?? ''));
+            if (!self::is_safe_rankmath_extra($keyword, $classified_exclusions, $model_name, false)) {
+                continue;
+            }
+            $sources = is_array($row['sources'] ?? null) ? $row['sources'] : self::decode_json_field($row['sources'] ?? null);
+            if (trim((string) self::source_value($sources, 'model_keyword_owner')) !== '') {
+                continue;
+            }
+            $class = (string) self::source_value($sources, 'keyword_class');
+            $usage = (string) self::source_value($sources, 'suggested_usage');
+            if ($class === '' || $usage === '') {
+                $classification = (new ModelKeywordPoolClassifier())->classify($keyword);
+                $class = $class !== '' ? $class : (string) ($classification['keyword_class'] ?? '');
+                $usage = $usage !== '' ? $usage : (string) ($classification['suggested_usage'] ?? '');
+            }
+            $score = self::approved_pool_row_score($row, $sources);
+
+            if (self::keyword_matches_model_platform($keyword, $platform_slugs, $class)) {
+                $platform_candidates[$keyword] = max((int) ($platform_candidates[$keyword] ?? 0), $score);
+                continue;
+            }
+            if (self::keyword_matches_model_attribute($keyword, $tag_slugs, $class)) {
+                $tag_candidates[$keyword] = max((int) ($tag_candidates[$keyword] ?? 0), $score);
+                continue;
+            }
+            if (self::is_generic_model_intent_pool_keyword($keyword, $class, $usage)) {
+                $generic_candidates[$keyword] = max((int) ($generic_candidates[$keyword] ?? 0), $score);
+            }
+        }
+
+        $result['platform_considered'] = array_keys($platform_candidates);
+        $result['tag_attribute_considered'] = array_keys($tag_candidates);
+        $result['generic_considered'] = array_keys($generic_candidates);
+
+        $append(self::rotate_scored_keywords($platform_candidates, 4, $seed . '|platform'), 'platform_used');
+        $append(self::rotate_scored_keywords($tag_candidates, 4, $seed . '|attribute'), 'tag_attribute_used');
+        $append(self::rotate_scored_keywords($generic_candidates, 4, $seed . '|generic'), 'generic_used');
+        $append(self::safe_rankmath_fallback_formulas($model_name, $platform_slugs), 'fallback_used');
+
+        unset($result['_seen']);
+        return $result;
+    }
+
+    /** @return array{final:string[],personal_used:string[],platform_considered:string[],platform_used:string[],tag_attribute_considered:string[],tag_attribute_used:string[],generic_considered:string[],generic_used:string[],fallback_used:string[],_seen:array<string,bool>} */
+    private static function empty_rankmath_rotation_result(): array {
+        return [
+            'final' => [],
+            'personal_used' => [],
+            'platform_considered' => [],
+            'platform_used' => [],
+            'tag_attribute_considered' => [],
+            'tag_attribute_used' => [],
+            'generic_considered' => [],
+            'generic_used' => [],
+            'fallback_used' => [],
+            '_seen' => [],
+        ];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private static function approved_model_pool_rows(): array {
+        global $wpdb;
+        if (!is_object($wpdb) || !isset($wpdb->prefix) || !method_exists($wpdb, 'get_results') || !method_exists($wpdb, 'prepare')) {
+            return [];
+        }
+        $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        if (method_exists($wpdb, 'get_var') && method_exists($wpdb, 'esc_like')) {
+            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+            if (!is_string($found) || strtolower($found) !== strtolower($table)) {
+                return [];
+            }
+        }
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                'SELECT id, keyword, intent_type, entity_type, entity_id, status, volume, opportunity, trend_score, sources FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND entity_id = %d ORDER BY id ASC',
+                'model',
+                'approved',
+                0
+            ),
+            defined('ARRAY_A') ? ARRAY_A : 'ARRAY_A'
+        );
+        return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $sources */
+    private static function approved_pool_row_score(array $row, array $sources): int {
+        $score = 1000;
+        $tmw_score = self::source_value($sources, 'tmw_score');
+        if (is_numeric($tmw_score)) {
+            $score += (int) $tmw_score;
+        }
+        if (is_numeric($row['opportunity'] ?? null)) {
+            $score += (int) round(((float) $row['opportunity']) * 10);
+        }
+        if (is_numeric($row['volume'] ?? null)) {
+            $score += min(250, (int) round(((float) $row['volume']) / 10));
+        }
+        if (is_numeric($row['trend_score'] ?? null)) {
+            $score += (int) round((float) $row['trend_score']);
+        }
+        return $score;
+    }
+
+    /** @param array<string,int> $keywords @return string[] */
+    private static function rotate_scored_keywords(array $keywords, int $limit, string $seed): array {
+        $items = [];
+        foreach ($keywords as $keyword => $score) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean === '') {
+                continue;
+            }
+            $items[] = [
+                'keyword' => $clean,
+                'score' => (int) $score,
+                'slot' => sprintf('%u', crc32($seed . '|' . self::keyword_key($clean))),
+            ];
+        }
+        usort($items, function($a, $b) {
+            $sa = (int) ($a['score'] ?? 0);
+            $sb = (int) ($b['score'] ?? 0);
+            if ($sa !== $sb) {
+                return ($sa > $sb) ? -1 : 1;
+            }
+            return strcmp((string) ($a['slot'] ?? ''), (string) ($b['slot'] ?? ''));
+        });
+        $top = array_slice($items, 0, max($limit * 3, $limit));
+        usort($top, function($a, $b) {
+            return strcmp((string) ($a['slot'] ?? ''), (string) ($b['slot'] ?? ''));
+        });
+        return array_values(array_map(static function($item) { return (string) ($item['keyword'] ?? ''); }, array_slice($top, 0, $limit)));
+    }
+
+    /** @param string[] $platform_slugs @return string[] */
+    private static function safe_rankmath_fallback_formulas(string $name, array $platform_slugs): array {
         $clean_name = self::normalize_keyword($name);
         if ($clean_name === '') {
             return [];
         }
-
         $name_lc = function_exists('mb_strtolower') ? mb_strtolower($clean_name, 'UTF-8') : strtolower($clean_name);
+        $platform_keyword = self::fallback_platform_keyword($platform_slugs);
+        $fallbacks = [];
+        if ($platform_keyword !== '') {
+            $fallbacks[] = $name_lc . ' ' . $platform_keyword;
+        }
+        $fallbacks[] = $name_lc . ' cam';
+        $fallbacks[] = $name_lc . ' webcam';
+        $fallbacks[] = $name_lc . ' live cam';
+        $fallbacks[] = $name_lc . ' webcam model';
+        return self::dedupe_keywords($fallbacks);
+    }
 
-        return self::dedupe_keywords([
-            $name_lc . ' livejasmin',
-            'livejasmin ' . $name_lc,
-            $name_lc . ' live',
-            $name_lc . ' cam',
-        ]);
+    /** @param string[] $platform_slugs */
+    private static function fallback_platform_keyword(array $platform_slugs): string {
+        foreach ($platform_slugs as $platform) {
+            $slug = sanitize_key((string) $platform);
+            if ($slug === '') {
+                continue;
+            }
+            $map = [
+                'livejasmin' => 'livejasmin',
+                'jasmin' => 'livejasmin',
+                'stripchat' => 'stripchat',
+                'chaturbate' => 'chaturbate',
+                'bonga' => 'bongacams',
+                'bongacams' => 'bongacams',
+                'camsoda' => 'camsoda',
+                'cam4' => 'cam4',
+                'myfreecams' => 'myfreecams',
+                'flirt4free' => 'flirt4free',
+                'imlive' => 'imlive',
+                'jerkmate' => 'jerkmate',
+            ];
+            if (isset($map[$slug])) {
+                return $map[$slug];
+            }
+            $keyword = self::keyword_key(str_replace('-', ' ', $slug));
+            if ($keyword !== '') {
+                return $keyword;
+            }
+        }
+        return '';
+    }
+
+    /** @param array<string,bool> $excluded */
+    private static function is_safe_rankmath_extra(string $keyword, array $excluded, string $primary, bool $allow_name_match = true): bool {
+        $clean = self::normalize_keyword($keyword);
+        if ($clean === '') {
+            return false;
+        }
+        $key = self::keyword_key($clean);
+        if (isset($excluded[$key])) {
+            return false;
+        }
+        if (self::keyword_key($primary) !== '' && $key === self::keyword_key($primary)) {
+            return false;
+        }
+        if (self::is_broad_standalone_rankmath_extra($clean) || PageTypeKeywordFilter::is_unsafe($clean)) {
+            return false;
+        }
+        return PageTypeKeywordFilter::filter_for_model_page([ $clean ]) !== [];
+    }
+
+    private static function keyword_matches_model_platform(string $keyword, array $platform_slugs, string $keyword_class): bool {
+        if (empty($platform_slugs)) {
+            return false;
+        }
+        $keyword_lc = self::keyword_key($keyword);
+        foreach ($platform_slugs as $platform) {
+            $slug = sanitize_key((string) $platform);
+            if ($slug === '') {
+                continue;
+            }
+            $needles = array_filter(array_unique([
+                str_replace('-', ' ', $slug),
+                self::platform_keyword_label($slug),
+                $slug === 'bonga' ? 'bongacams' : '',
+            ]));
+            foreach ($needles as $needle) {
+                $needle_lc = self::keyword_key((string) $needle);
+                if ($needle_lc !== '' && preg_match('/(?:^|\\s)' . preg_quote($needle_lc, '/') . '(?:\\s|$)/u', $keyword_lc) === 1) {
+                    return true;
+                }
+            }
+        }
+        return in_array($keyword_class, [ ModelKeywordPoolClassifier::CLASS_PLATFORM_TERM, ModelKeywordPoolClassifier::CLASS_PLATFORM_INTENT_TERM ], true)
+            && self::keyword_mentions_any_platform($keyword, $platform_slugs);
+    }
+
+    private static function keyword_mentions_any_platform(string $keyword, array $platform_slugs): bool {
+        foreach ($platform_slugs as $platform) {
+            if (self::keyword_matches_model_platform($keyword, [ (string) $platform ], '')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function keyword_matches_model_attribute(string $keyword, array $tag_slugs, string $keyword_class): bool {
+        if (empty($tag_slugs)) {
+            return false;
+        }
+        $keyword_lc = self::keyword_key($keyword);
+        foreach ($tag_slugs as $tag) {
+            $tag_phrase = self::keyword_key(str_replace('-', ' ', (string) $tag));
+            if ($tag_phrase !== '' && preg_match('/(?:^|\s)' . preg_quote($tag_phrase, '/') . '(?:\s|$)/u', $keyword_lc) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function is_generic_model_intent_pool_keyword(string $keyword, string $keyword_class, string $suggested_usage): bool {
+        if ($keyword === '' || self::keyword_mentions_any_platform($keyword, [ 'livejasmin', 'jasmin', 'stripchat', 'chaturbate', 'camsoda', 'cam4', 'bonga', 'bongacams', 'myfreecams', 'flirt4free', 'imlive', 'jerkmate' ])) {
+            return false;
+        }
+        if (in_array($keyword_class, [ ModelKeywordPoolClassifier::CLASS_CORE_MODEL_TERM, ModelKeywordPoolClassifier::CLASS_INTENT_TERM, ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM ], true)) {
+            return true;
+        }
+        return in_array($suggested_usage, [ ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, ModelKeywordPoolClassifier::USAGE_BODY_SEMANTIC_ONLY ], true)
+            && preg_match('/(?:^|\s)model(?:\s|$)/u', self::keyword_key($keyword)) === 1;
+    }
+
+    private static function keyword_key(string $keyword): string {
+        $clean = self::normalize_keyword($keyword);
+        return function_exists('mb_strtolower') ? mb_strtolower($clean, 'UTF-8') : strtolower($clean);
+    }
+
+    /** @return array<string,mixed> */
+    private static function decode_json_field($value): array {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (null === $value || trim((string) $value) === '') {
+            return [];
+        }
+        $decoded = json_decode((string) $value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string,mixed> $sources */
+    private static function source_value(array $sources, string $key) {
+        if (array_key_exists($key, $sources) && is_scalar($sources[$key])) {
+            return $sources[$key];
+        }
+        foreach ($sources as $value) {
+            if (!is_array($value)) {
+                continue;
+            }
+            $found = self::source_value($value, $key);
+            if ($found !== null && $found !== '') {
+                return $found;
+            }
+        }
+        return null;
     }
 
     private static function platform_keyword_label(string $platform): string {
