@@ -910,7 +910,7 @@ class ModelKeywordPack {
         $append(self::rotate_scored_keywords($platform_candidates, 4, $seed . '|platform'), 'platform_used');
         $append(self::rotate_scored_keywords($tag_candidates, 4, $seed . '|attribute'), 'tag_attribute_used');
         $append(self::rotate_scored_keywords($generic_candidates, 4, $seed . '|generic'), 'generic_used');
-        $append(self::safe_rankmath_fallback_formulas($model_name), 'fallback_used');
+        $append(self::safe_rankmath_fallback_formulas($model_name, $platform_slugs), 'fallback_used');
 
         unset($result['_seen']);
         return $result;
@@ -1005,19 +1005,55 @@ class ModelKeywordPack {
         return array_values(array_map(static function($item) { return (string) ($item['keyword'] ?? ''); }, array_slice($top, 0, $limit)));
     }
 
-    /** @return string[] */
-    private static function safe_rankmath_fallback_formulas(string $name): array {
+    /** @param string[] $platform_slugs @return string[] */
+    private static function safe_rankmath_fallback_formulas(string $name, array $platform_slugs): array {
         $clean_name = self::normalize_keyword($name);
         if ($clean_name === '') {
             return [];
         }
         $name_lc = function_exists('mb_strtolower') ? mb_strtolower($clean_name, 'UTF-8') : strtolower($clean_name);
-        return self::dedupe_keywords([
-            $name_lc . ' livejasmin',
-            $name_lc . ' cam',
-            $name_lc . ' webcam',
-            $name_lc . ' live cam',
-        ]);
+        $platform_keyword = self::fallback_platform_keyword($platform_slugs);
+        $fallbacks = [];
+        if ($platform_keyword !== '') {
+            $fallbacks[] = $name_lc . ' ' . $platform_keyword;
+        }
+        $fallbacks[] = $name_lc . ' cam';
+        $fallbacks[] = $name_lc . ' webcam';
+        $fallbacks[] = $name_lc . ' live cam';
+        $fallbacks[] = $name_lc . ' webcam model';
+        return self::dedupe_keywords($fallbacks);
+    }
+
+    /** @param string[] $platform_slugs */
+    private static function fallback_platform_keyword(array $platform_slugs): string {
+        foreach ($platform_slugs as $platform) {
+            $slug = sanitize_key((string) $platform);
+            if ($slug === '') {
+                continue;
+            }
+            $map = [
+                'livejasmin' => 'livejasmin',
+                'jasmin' => 'livejasmin',
+                'stripchat' => 'stripchat',
+                'chaturbate' => 'chaturbate',
+                'bonga' => 'bongacams',
+                'bongacams' => 'bongacams',
+                'camsoda' => 'camsoda',
+                'cam4' => 'cam4',
+                'myfreecams' => 'myfreecams',
+                'flirt4free' => 'flirt4free',
+                'imlive' => 'imlive',
+                'jerkmate' => 'jerkmate',
+            ];
+            if (isset($map[$slug])) {
+                return $map[$slug];
+            }
+            $keyword = self::keyword_key(str_replace('-', ' ', $slug));
+            if ($keyword !== '') {
+                return $keyword;
+            }
+        }
+        return '';
     }
 
     /** @param array<string,bool> $excluded */
@@ -1085,7 +1121,7 @@ class ModelKeywordPack {
                 return true;
             }
         }
-        return false && in_array($keyword_class, [ ModelKeywordPoolClassifier::CLASS_ATTRIBUTE_TERM, ModelKeywordPoolClassifier::CLASS_GEO_LANGUAGE_TERM, ModelKeywordPoolClassifier::CLASS_FEATURE_MODIFIER ], true);
+        return false;
     }
 
     private static function is_generic_model_intent_pool_keyword(string $keyword, string $keyword_class, string $suggested_usage): bool {
