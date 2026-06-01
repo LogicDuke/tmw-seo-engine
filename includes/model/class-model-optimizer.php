@@ -372,16 +372,24 @@ class ModelOptimizer {
             if ($rankmath_title !== '') update_post_meta($post_id, 'rank_math_title', $rankmath_title);
             if ($rm_desc !== '') update_post_meta($post_id, 'rank_math_description', $rm_desc);
             if ($rm_kw !== '') {
-                // Patch 2: use RankMathMapper for centralized focus + 4 extras cap.
-                $model_pack = \TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService::get_pack_with_legacy_fallback($post_id);
+                // Rebuild fresh so Rank Math never reuses a stale stored keyword pack
+                // after approved linked Model Pool rows have changed.
+                $model_pack = [];
+                if (class_exists('\\TMWSEO\\Engine\\Keywords\\ModelKeywordPack')) {
+                    $post_for_pack = get_post($post_id);
+                    if ($post_for_pack instanceof \WP_Post) {
+                        $model_pack = \TMWSEO\Engine\Keywords\ModelKeywordPack::build($post_for_pack);
+                    }
+                }
                 if (empty($model_pack) || empty($model_pack['primary'])) {
+                    $rm_kw_lc = function_exists('mb_strtolower') ? mb_strtolower($rm_kw, 'UTF-8') : strtolower($rm_kw);
                     $model_pack = [
                         'primary' => $rm_kw,
-                        'additional' => [
-                            $rm_kw . ' webcam',
-                            $rm_kw . ' live',
-                            $rm_kw . ' cam',
-                            $rm_kw . ' stream',
+                        'rankmath_additional' => [
+                            $rm_kw_lc . ' livejasmin',
+                            'livejasmin ' . $rm_kw_lc,
+                            $rm_kw_lc . ' live',
+                            $rm_kw_lc . ' cam',
                         ],
                     ];
                 }

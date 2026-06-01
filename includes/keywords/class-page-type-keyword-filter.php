@@ -18,11 +18,17 @@ class PageTypeKeywordFilter {
     private const UNSAFE_TERMS = [
         'cam porn',
         'porn',
-        'xxx',
+        'porno',
+        'adult',
         'sex',
-        'fuck',
+        'xxx',
         'nude',
+        'nudes',
         'naked',
+        'leak',
+        'leaked',
+        'onlyfans',
+        'fuck',
     ];
 
     /** @var string[] */

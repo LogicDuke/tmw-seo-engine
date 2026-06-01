@@ -19,6 +19,7 @@
  */
 namespace TMWSEO\Engine\Content;
 
+use TMWSEO\Engine\Keywords\ModelKeywordPack;
 use TMWSEO\Engine\Keywords\PageTypeKeywordFilter;
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
@@ -42,6 +43,15 @@ class RankMathMapper {
      * @param bool  $persist_audit Also call AuditTrail::persist_keyword_pack(). Default true.
      */
     public static function sync_to_rank_math( int $post_id, array $keyword_pack, bool $persist_audit = true ): void {
+        $rebuilt_model_pack = false;
+        if ( self::page_type_for_post( $post_id ) === 'model' && class_exists( ModelKeywordPack::class ) ) {
+            $post = get_post( $post_id );
+            if ( $post instanceof \WP_Post ) {
+                $keyword_pack       = ModelKeywordPack::build( $post );
+                $rebuilt_model_pack = true;
+            }
+        }
+
         $primary = self::extract_primary( $post_id, $keyword_pack );
         $extras  = self::extract_extras( $keyword_pack, $post_id );
 
@@ -59,13 +69,14 @@ class RankMathMapper {
             delete_post_meta( $post_id, 'rank_math_focus_keyword' );
         }
 
-        // [TMW-SEO-RMKW] PR-615 debug logging — write behavior unchanged.
         if ( defined( 'TMWSEO_DEBUG' ) && TMWSEO_DEBUG ) {
-            \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-SEO-RMKW] RankMathMapper::sync_to_rank_math wrote', [
-                'post_id'   => $post_id,
-                'primary'   => $primary,
-                'extras'    => $extras,
-                'focus_csv' => $focus_csv,
+            \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-SEO-RM-KW-PACK] RankMathMapper::sync_to_rank_math wrote Rank Math keyword CSV', [
+                'post_id' => $post_id,
+                'model_name' => self::page_type_for_post( $post_id ) === 'model' ? trim( (string) get_the_title( $post_id ) ) : '',
+                'approved_linked_extras_found' => $keyword_pack['rankmath_approved_linked_extras'] ?? [],
+                'generated_fallback_candidates_before_filtering' => $keyword_pack['rankmath_fallback_candidates'] ?? [],
+                'final_rank_math_csv' => $focus_csv,
+                'stored_pack_bypassed_or_rebuilt' => $rebuilt_model_pack,
             ] );
         }
 
