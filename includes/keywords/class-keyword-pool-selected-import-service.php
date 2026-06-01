@@ -415,6 +415,8 @@ class KeywordPoolSelectedImportService {
         return [
             'keyword' => (string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''),
             'pool' => $pool,
+            'model_name' => (string) ($row['model_name'] ?? $row['model_keyword_owner'] ?? ''),
+            'model_keyword_owner' => (string) ($row['model_keyword_owner'] ?? ''),
             'status' => $status,
             'action' => '',
             'reason' => '',
