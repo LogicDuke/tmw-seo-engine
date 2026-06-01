@@ -59,7 +59,7 @@ class ModelMetabox {
         add_meta_box(
             'tmwseo_model_research',
             __( 'Model Research', 'tmwseo' ),
-            [ self::class, 'render_metabox' ],
+            [ self::class, 'render' ],
             'model',
             'normal',
             'high'
@@ -67,6 +67,10 @@ class ModelMetabox {
     }
 
     // ── Metabox: render ───────────────────────────────────────────────────
+
+    public static function render_metabox( \WP_Post $post ): void {
+        self::render( $post );
+    }
 
     public static function render( \WP_Post $post ): void {
         if ( ! current_user_can( 'edit_post', $post->ID ) ) {
