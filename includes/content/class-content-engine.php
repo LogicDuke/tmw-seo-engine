@@ -27,10 +27,10 @@ class ContentEngine {
      */
     private const PHASE_A_PUBLISH_AUTOPILOT_HARD_FENCE = true;
 
-    // Model page floor for AI retry loop. Keep low enough to allow concise
-    // factual pages when performer-specific data is limited.
-    private const MODEL_MIN_WORDS = 260;
-    private const MODEL_MIN_KEYWORD_DENSITY = 1.0;
+    // Model page floor for AI retry loop. When usable evidence/platform data
+    // exists, generated model copy must clear Rank Math's 600-word threshold.
+    private const MODEL_MIN_WORDS = 600;
+    private const MODEL_MIN_KEYWORD_DENSITY = 0.3;
     private const MODEL_MAX_KEYWORD_DENSITY = 2.0;
 
     private const PREVIEW_TEMPLATE_CATEGORY_PAGE = 'category_page';
@@ -448,7 +448,7 @@ class ContentEngine {
                 'generated_at' => current_time('mysql'),
             ];
         }
-        $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '1200-1501 words' : '150-350 words');
+        $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '750-850 words when evidence/platform data is available' : '150-350 words');
 
         $system = [
             'role' => 'system',
@@ -511,7 +511,10 @@ class ContentEngine {
                 "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
                 "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n" .
                 "- If evidence is weak, say less instead of adding generic filler.\n" .
-                "- Use secondary keywords naturally; do not force every secondary keyword into every section.\n"
+                "- Use secondary keywords naturally; do not force every secondary keyword into every section.\n" .
+                "- Do not invent age, country, ethnicity, relationship status, measurements, real identity, or personal claims unless those details are present in supplied verified evidence.\n" .
+                "- Do not copy unsafe, awkward, offensive, or raw operator/evidence wording verbatim; rewrite safe facts as original editorial copy.\n" .
+                "- Avoid these robotic phrases exactly: 'The verified notes ' . 'point to', 'personable cam ' . 'delivery', 'do you ' . 'accept', and 'Use these notes ' . 'as profile context'.\n"
         ];
 
         $resolved_destinations = ($is_model_page && class_exists(ModelDestinationResolver::class))
@@ -569,23 +572,29 @@ class ContentEngine {
             "4) Provide section paragraph arrays and faq_items (3-5 Q&As).\n";
 
         if ($is_model_page) {
+            $primary_keyword = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw !== '' ? $focus_kw : (string)$post->post_title);
             $user_content .= "\nMODEL PAGE TEMPLATE (required):\n" .
                 "- Return ONLY structured JSON fields — no HTML headings, no raw HTML in values:\n" .
                 "  intro_paragraphs (2-3 items), watch_section_paragraphs (1-2 items), about_section_paragraphs (2-3 items),\n" .
                 "  fans_like_section_paragraphs (2-3 items), features_section_paragraphs (2-3 items),\n" .
                 "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
-                "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
-                "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Preferred target: concise, high-signal copy; do not pad sections to hit arbitrary length.\n" .
-                "- If performer-specific facts are thin, keep about/fans-like short or empty instead of inventing detail.\n" .
+                "- Primary keyword = model name / Rank Math focus keyword: {$primary_keyword}. Start intro_paragraphs[0] naturally with this model name or primary keyword.\n" .
+                "- After the first few mentions, use pronouns or 'the model' where the reference is clear; avoid repeating the model name too often.\n" .
+                "- Use 2-4 secondary keywords naturally, each at most once where possible; do not force every keyword into headings or dump them as a list.\n" .
+                "- Keep primary keyword density natural and below " . self::MODEL_MAX_KEYWORD_DENSITY . "%; never repeat the exact focus keyword more than twice in one paragraph.\n" .
+                "- Hard minimum word count across all prose sections when evidence/platform data is available: " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Preferred target when evidence/platform data is available: 750-850 useful words across all prose sections.\n" .
+                "- Expand cleaned ModelResearchEvidence/operator evidence into natural editorial copy: bio evidence becomes profile context, turn-ons become a paragraph, and private-chat evidence mentions only safe supported items naturally.\n" .
+                "- If private-chat or turn-ons evidence is missing, do not create fake preferences, services, or interests.\n" .
+                "- Mention an availability disclaimer at most once, use 'confirmed live room' sparingly, and avoid overusing verified/confirmed/profile notes/session availability.\n" .
+                "- If performer-specific facts are thin, write lighter general copy using only safe known data: model name, approved tags, verified platforms, and official access context.\n" .
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
-                "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
                 "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
-                "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
                 "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
+                "- Structure section copy so the renderer's H2/H3-ready areas read like: profile introduction, style/personality/on-camera presentation, turn-ons/interests when supported, private chat options when supported, where to watch live, similar/internal-link context, and FAQ.\n" .
                 "- Open each section with the practical decision the visitor needs to make right now.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
-                "- faq_items: write natural questions real viewers would ask; keep answers concise unless extra detail is necessary.\n";
+                "- faq_items: write natural questions real viewers would ask; keep answers concise unless evidence supports more detail.\n";
             $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
             $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";
@@ -621,8 +630,8 @@ class ContentEngine {
             $system,
             ['role' => 'user', 'content' => $user_content],
         ], $model, [
-            'temperature' => 0.6,
-            'max_tokens' => $is_model_page ? 4096 : 2200,
+            'temperature' => $is_model_page ? 0.5 : 0.6,
+            'max_tokens' => $is_model_page ? 1200 : 2200,
         ]);
 
         if (!$res['ok']) {
@@ -1488,7 +1497,7 @@ class ContentEngine {
 
         $model = Settings::openai_model_for_quality();
 
-        $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '1200-1501 words' : '150-350 words');
+        $length_hint = ($context === 'keyword_page' || $context === 'category_page') ? '500-800 words' : ($context === 'model' ? '750-850 words when evidence/platform data is available' : '150-350 words');
 
         $system = [
             'role' => 'system',
@@ -1539,7 +1548,10 @@ class ContentEngine {
                 "- Reject generic filler that could fit any profile (atmosphere/energy/rhythm/tone prose) unless tied to a concrete fact in the provided context.\n" .
                 "- Write with user constraints in mind: speed, trust, platform familiarity, mobile use, and fake-profile avoidance.\n" .
                 "- If evidence is weak, say less instead of adding generic filler.\n" .
-                "- Use secondary keywords naturally; do not force every secondary keyword into every section.\n"
+                "- Use secondary keywords naturally; do not force every secondary keyword into every section.\n" .
+                "- Do not invent age, country, ethnicity, relationship status, measurements, real identity, or personal claims unless those details are present in supplied verified evidence.\n" .
+                "- Do not copy unsafe, awkward, offensive, or raw operator/evidence wording verbatim; rewrite safe facts as original editorial copy.\n" .
+                "- Avoid these robotic phrases exactly: 'The verified notes ' . 'point to', 'personable cam ' . 'delivery', 'do you ' . 'accept', and 'Use these notes ' . 'as profile context'.\n"
         ];
 
         $user_content =
@@ -1584,18 +1596,23 @@ class ContentEngine {
                 "  intro_paragraphs (2-3 items), watch_section_paragraphs (1-2 items), about_section_paragraphs (2-3 items),\n" .
                 "  fans_like_section_paragraphs (2-3 items), features_section_paragraphs (2-3 items),\n" .
                 "  comparison_section_paragraphs (1-2 items), faq_items (4-5 objects with q and a keys).\n" .
-                "- Ensure the primary keyword appears naturally in intro_paragraphs[0] and at least two other sections.\n" .
-                "- Hard minimum word count across all prose sections: " . self::MODEL_MIN_WORDS . " words.\n" .
-                "- Preferred target: concise, high-signal copy; do not pad sections to hit arbitrary length.\n" .
-                "- If performer-specific facts are thin, keep about/fans-like short or empty instead of inventing detail.\n" .
+                "- Primary keyword = model name / Rank Math focus keyword: {$primary_keyword}. Start intro_paragraphs[0] naturally with this model name or primary keyword.\n" .
+                "- After the first few mentions, use pronouns or 'the model' where the reference is clear; avoid repeating the model name too often.\n" .
+                "- Use 2-4 secondary keywords naturally, each at most once where possible; do not force every keyword into headings or dump them as a list.\n" .
+                "- Keep primary keyword density natural and below " . self::MODEL_MAX_KEYWORD_DENSITY . "%; never repeat the exact focus keyword more than twice in one paragraph.\n" .
+                "- Hard minimum word count across all prose sections when evidence/platform data is available: " . self::MODEL_MIN_WORDS . " words.\n" .
+                "- Preferred target when evidence/platform data is available: 750-850 useful words across all prose sections.\n" .
+                "- Expand cleaned ModelResearchEvidence/operator evidence into natural editorial copy: bio evidence becomes profile context, turn-ons become a paragraph, and private-chat evidence mentions only safe supported items naturally.\n" .
+                "- If private-chat or turn-ons evidence is missing, do not create fake preferences, services, or interests.\n" .
+                "- Mention an availability disclaimer at most once, use 'confirmed live room' sparingly, and avoid overusing verified/confirmed/profile notes/session availability.\n" .
+                "- If performer-specific facts are thin, write lighter general copy using only safe known data: model name, approved tags, verified platforms, and official access context.\n" .
                 "- Use varied paragraph openers — never start two consecutive paragraphs the same way.\n" .
-                "- Keep exact focus-keyword density between " . self::MODEL_MIN_KEYWORD_DENSITY . "% and " . self::MODEL_MAX_KEYWORD_DENSITY . "%.\n" .
                 "- fans_like_section_paragraphs: include only evidence-backed reasons from provided tags/platform signals; otherwise keep it minimal.\n" .
-                "- Weave the four secondary keywords lightly and naturally; do not dump them as a list or repeat them mechanically.\n" .
                 "- Use concrete utility-focused statements about access, platform differences, scheduling, privacy, and links instead of generic filler.\n" .
+                "- Structure section copy so the renderer's H2/H3-ready areas read like: profile introduction, style/personality/on-camera presentation, turn-ons/interests when supported, private chat options when supported, where to watch live, similar/internal-link context, and FAQ.\n" .
                 "- Open each section with the practical decision the visitor needs to make right now.\n" .
                 "- Keep wording specific to this model page and avoid generic directory filler that could fit any profile.\n" .
-                "- faq_items: write natural questions real viewers would ask; keep answers concise unless extra detail is necessary.\n";
+                "- faq_items: write natural questions real viewers would ask; keep answers concise unless evidence supports more detail.\n";
             $user_content .= "- FAQ answers must start with a direct answer sentence, then add short supporting context.\n";
             $user_content .= "- comparison_section_paragraphs must be platform-balanced. If 2+ active platforms exist, mention each platform fairly.\n";
             $user_content .= "- comparison_section_paragraphs[0] must name the active platforms and state how a visitor should choose between them.\n";
@@ -1616,9 +1633,9 @@ class ContentEngine {
 
         $debug = (bool) Settings::get('debug_mode', false);
         if ($debug) { error_log('TMW run_optimize_job GENERATING CONTENT'); }
-        $max_tokens = $is_model_page ? 4096 : 2200;
+        $max_tokens = $is_model_page ? 1200 : 2200;
         $res = OpenAI::chat_json([$system, $user], $model, [
-            'temperature' => 0.6,
+            'temperature' => $is_model_page ? 0.5 : 0.6,
             'max_tokens' => $max_tokens,
         ]);
 
@@ -1981,7 +1998,7 @@ class ContentEngine {
         $focus_kw = trim($focus_kw);
         $attempts = 0;
 
-        while ($attempts < 2) {
+        while ($attempts < 1) {
             $word_count = self::count_words($html);
             $density = self::keyword_density_percent($html, $focus_kw);
 

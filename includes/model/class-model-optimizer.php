@@ -561,7 +561,7 @@ class ModelOptimizer {
         // If OpenAI configured and dry-run off, try to generate.
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
         if ($dry === 0 && OpenAI::is_configured() && !Settings::is_safe_mode()) {
-            $res = self::generate_with_openai($name, $top_tags, $platforms);
+            $res = self::generate_with_openai($name, $top_tags, $platforms, (int) $post->ID);
             if (($res['ok'] ?? false) && isset($res['suggestions']) && is_array($res['suggestions'])) {
                 $s = $res['suggestions'];
                 $s['seo_title'] = self::build_model_seo_title($name);
@@ -749,11 +749,18 @@ class ModelOptimizer {
         return trim($intro) . ' Explore more models: ' . implode(', ', $parts) . '.';
     }
 
-    private static function generate_with_openai(string $name, array $tags, array $platforms): array {
+    private static function generate_with_openai(string $name, array $tags, array $platforms, int $post_id = 0): array {
         $model = Settings::openai_model_for_quality();
 
         $tag_list = implode(', ', array_values(array_filter(array_map('strval', $tags))));
         $platform_list = implode(', ', array_values(array_filter(array_map('strval', $platforms))));
+        $evidence_block = '';
+        if ($post_id > 0 && class_exists('\TMWSEO\Engine\Content\ModelResearchEvidence')) {
+            $evidence_block = \TMWSEO\Engine\Content\ModelResearchEvidence::build_prompt_block($post_id);
+        }
+        $evidence_instructions = $evidence_block !== ''
+            ? "\nCleaned ModelResearchEvidence is available below. Use it as trusted context, expand safe facts into natural editorial copy, and target 750-850 useful words with a hard minimum of 600 words.\n"
+            : "\nNo cleaned model evidence is available. Write lighter copy using only the model name, approved tags, and platform data; do not invent biography, preferences, or private-chat details.\n";
 
         $system = [
             'role' => 'system',
@@ -762,12 +769,27 @@ class ModelOptimizer {
 
         $user = [
             'role' => 'user',
-            'content' => "Create SEO suggestions for a cam model profile page.\n\nModel name: {$name}\nAllowed tags (use only if relevant): {$tag_list}\nPlatforms (optional mention): {$platform_list}\n\nRequirements:\n- Output JSON object with keys: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.\n- Intro must be 150-250 words, non-graphic, no explicit act descriptions.\n- Meta title ~60 chars, meta description ~155 chars.\n- Focus keyword must be exactly the model name: {$name}.\n- Extra keywords should be relevant tag variations only (no appended intent words).\n",
+            'content' => "Create SEO suggestions for the existing cam model profile workflow.\n\nModel name / primary keyword: {$name}\nAllowed tags (use only if relevant): {$tag_list}\nPlatforms (optional mention): {$platform_list}\n" .
+                $evidence_instructions .
+                ($evidence_block !== '' ? "\n{$evidence_block}\n" : '') .
+                "\nRequirements:\n" .
+                "- Output JSON object with the existing keys only: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.\n" .
+                "- Start the intro naturally with the model name / primary keyword in the first paragraph.\n" .
+                "- Use cleaned evidence when present: bio evidence becomes profile context, turn-ons become a natural paragraph, and private-chat evidence mentions only safe supported items naturally.\n" .
+                "- Do not copy unsafe, awkward, offensive, or raw evidence wording verbatim.\n" .
+                "- Do not invent facts, including age, country, ethnicity, relationship status, measurements, real identity, or personal claims unless present in supplied evidence.\n" .
+                "- Avoid these robotic phrases exactly: 'The verified notes ' . 'point to', 'personable cam ' . 'delivery', 'do you ' . 'accept', and 'Use these notes ' . 'as profile context'.\n" .
+                "- Keep primary keyword density natural and below 2%; after the first few mentions, use pronouns or 'the model' where clear.\n" .
+                "- Use 2-4 secondary keywords naturally, each at most once where possible; do not force every keyword into headings.\n" .
+                "- Intro should be non-graphic, H2/H3-ready editorial body copy covering profile introduction, style/personality, interests/turn-ons if evidenced, private chat options if evidenced, official access, similar/internal-link context, and FAQ-style questions if useful.\n" .
+                "- Meta title ~60 chars, meta description ~155 chars.\n" .
+                "- Focus keyword must be exactly the model name: {$name}.\n" .
+                "- Extra keywords should be relevant tag variations only (no appended intent words).\n",
         ];
 
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.5,
-            'max_tokens' => 700,
+            'max_tokens' => 1200,
         ]);
 
         if (!($res['ok'] ?? false)) {
