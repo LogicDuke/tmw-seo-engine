@@ -51,6 +51,27 @@ class KeywordPoolSelectedImportService {
      * @return array<string,mixed>
      */
     public function save_full_reviewed_model_batch(array $dry_run): array {
+        return $this->save_matching_rows($dry_run, 'model', $this->all_dry_run_row_lookup($dry_run), 'auto', true);
+    }
+
+    /**
+     * Save every normally eligible category row from a reviewed Category Pool dry run.
+     *
+     * @param array<string,mixed> $dry_run
+     * @return array<string,mixed>
+     */
+    public function save_full_reviewed_category_batch(array $dry_run): array {
+        $selected_lookup = $this->all_dry_run_row_lookup($dry_run);
+        return $this->save_matching_rows($dry_run, 'category', $selected_lookup, 'auto', false);
+    }
+
+    /** @param array<string,mixed> $row */
+    public function is_row_eligible(array $row, string $pool): bool {
+        return null === $this->eligibility_reason($row, $this->sanitize_pool($pool), [], false);
+    }
+
+    /** @param array<string,mixed> $dry_run @return array<string,bool> */
+    private function all_dry_run_row_lookup(array $dry_run): array {
         $selected_lookup = [];
         $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
         foreach ($rows as $row) {
@@ -58,12 +79,7 @@ class KeywordPoolSelectedImportService {
                 $selected_lookup[(string) (int) ($row['row_number'] ?? 0)] = true;
             }
         }
-        return $this->save_matching_rows($dry_run, 'model', $selected_lookup, 'auto', true);
-    }
-
-    /** @param array<string,mixed> $row */
-    public function is_row_eligible(array $row, string $pool): bool {
-        return null === $this->eligibility_reason($row, $this->sanitize_pool($pool), [], false);
+        return $selected_lookup;
     }
 
     /** @param array<string,mixed> $dry_run @param array<string,bool> $selected_lookup @return array<string,mixed> */

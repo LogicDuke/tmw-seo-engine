@@ -15,6 +15,7 @@ use TMWSEO\Engine\Models\ModelEntityResolver;
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
 require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php';
+require_once __DIR__ . '/../includes/keywords/class-model-keyword-pool-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
 require_once __DIR__ . '/../includes/models/class-model-entity-resolver.php';
@@ -221,6 +222,59 @@ Lexy Ness webcam model,900,3.25,0.08,Lexy Ness,77
         $this->assertSame('approved', $wpdb->candidate_inserts[0]['data']['status']);
         $this->assertSame('category', $wpdb->candidate_inserts[0]['data']['entity_type']);
         $this->assertStringContainsString('imported_from_keyword_pools', $wpdb->candidate_inserts[0]['data']['sources']);
+    }
+
+
+    public function test_full_category_batch_saves_valid_accept_category_rows_and_blocks_footer(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_batch_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score
+asian cam models,18100,5.99,0.02,91
+Total Volume,18100,,
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_full_reviewed_category_batch($dryRun);
+
+        $this->assertSame(2, $result['summary']['selected']);
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertSame(1, $result['summary']['blocked']);
+        $this->assertSame('category', $wpdb->candidate_inserts[0]['data']['intent_type']);
+        $this->assertSame('approved', $wpdb->candidate_inserts[0]['data']['status']);
+        $this->assertSame('blocked_summary_or_footer_row', $result['rows'][1]['reason']);
+    }
+
+    public function test_full_category_batch_does_not_auto_approve_review_required_rows(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_review_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score
+big boob cam,1200,2.50,0.10,75
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_full_reviewed_category_batch($dryRun);
+
+        $this->assertSame(1, $result['summary']['blocked']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertStringContainsString('blocked_validation_state_review_required', $result['rows'][0]['reason']);
+    }
+
+    public function test_full_category_batch_only_writes_keyword_candidates_not_seo_content_or_indexing(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_safe_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score
+asian cam models,18100,5.99,0.02,91
+", 'category');
+
+        (new KeywordPoolSelectedImportService())->save_full_reviewed_category_batch($dryRun);
+        $queries = implode("
+", $wpdb->queries);
+
+        $this->assertStringContainsString($wpdb->prefix . 'tmw_keyword_candidates', $queries);
+        $this->assertStringNotContainsString('postmeta', $queries);
+        $this->assertStringNotContainsString('rank_math', $queries);
+        $this->assertStringNotContainsString('post_content', $queries);
+        $this->assertStringNotContainsString('slug', strtolower($queries));
+        $this->assertStringNotContainsString('noindex', strtolower($queries));
+        $this->assertStringNotContainsString('generate', strtolower($queries));
     }
 
     public function test_save_selected_video_keyword_uses_video_intent(): void {
