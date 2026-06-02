@@ -319,6 +319,13 @@ class TemplateContent {
         }
         // ── End Final-pass deterministic copy cleanup ───────────────────────
 
+        // ── Active Generate safeguards (right-sidebar Template path) ───────────
+        // These final TemplateContent guards run after evidence/copy cleanup but
+        // before keyword heading placement. They preserve the operator evidence
+        // block verbatim by only appending neutral support copy when needed.
+        $content = self::expand_model_content_word_count($content, $active_platforms, $link_evidence_summary, $seed);
+        $content = self::guard_model_focus_keyword_density($content, $name, $seed);
+
         // ── Keyword heading enforcement (all modes share this post-render step) ─
         $enforcement = self::enforce_keyword_heading_placement($content, $rankmath_keywords, $name);
         $content = $enforcement['html'];
@@ -4146,6 +4153,138 @@ class TemplateContent {
         $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
 
         return $content;
+    }
+
+
+    private static function expand_model_content_word_count(string $content, array $active_platforms, array $link_evidence_summary, string $seed, int $minimum_words = 600): string {
+        $word_count = self::count_visible_words($content);
+        if ($word_count >= $minimum_words) {
+            return $content;
+        }
+
+        $platform_text = self::format_platform_list($active_platforms, 'verified live rooms');
+        if ($platform_text === '') {
+            $platform_text = 'verified live rooms';
+        }
+
+        $has_extra_links = !empty($link_evidence_summary['has_extra_links']);
+        $extra_destination_sentence = $has_extra_links
+            ? 'When additional verified destinations are listed, treat them as support routes for profile checks, updates, follow actions, and backup navigation rather than automatic room-entry links.'
+            : 'When no additional verified destinations are listed, avoid random mirrors and return to the confirmed live-room area for status checks.';
+
+        $blocks = [
+            '<h2>Practical Viewing Checklist</h2>'
+            . '<p>Before joining any room, check the basics in a consistent order: page ownership, current room status, playback stability, chat readability, account prompts, and privacy controls. A steady checklist keeps the page useful without relying on hype or repeated keyword phrasing.</p>'
+            . '<p>Use the visible profile information as a starting point, then confirm that the destination still matches the expected handle and platform cues after click-through. If the room is offline, wait for a clearer status signal instead of chasing copied profiles.</p>',
+
+            '<h2>Profile Verification Notes</h2>'
+            . '<p>Verified links are most useful when they separate live-room access from supporting profile evidence. Start with the live section for room entry, then use supporting destinations only when they help confirm identity, activity, or a recent update.</p>'
+            . '<p>' . $extra_destination_sentence . '</p>',
+
+            '<h2>How to Compare Access Options</h2>'
+            . '<p>If more than one live option appears, compare them with practical signals rather than brand preference alone. Look at loading speed, chat moderation, account requirements, payment prompts, and how clearly the room communicates availability.</p>'
+            . '<p>The safest choice is usually the destination that combines a verified profile, readable room state, and predictable navigation. Keep ' . esc_html($platform_text) . ' in mind, but let the current room experience decide where to stay.</p>',
+
+            '<h2>Safer Navigation Reminders</h2>'
+            . '<p>Keep browsing decisions deliberate. Avoid copied pages, shortened links from unknown sources, and off-page claims that are not reflected by the verified profile details shown here. If something looks inconsistent, pause and recheck the official destination list.</p>'
+            . '<p>This measured approach supports better search quality too: clear sections, useful context, and fewer repeated names make the page easier to read while preserving the important evidence and link blocks already generated above.</p>',
+        ];
+
+        $selected = [];
+        for ($i = 0; $word_count < $minimum_words && $i < count($blocks); $i++) {
+            $idx = self::stable_pick_index($seed . '|word-expansion|' . $i, count($blocks));
+            while (in_array($idx, $selected, true)) {
+                $idx = ($idx + 1) % count($blocks);
+            }
+            $selected[] = $idx;
+            $content .= "\n\n" . $blocks[$idx];
+            $word_count = self::count_visible_words($content);
+        }
+
+        return $content;
+    }
+
+
+    private static function guard_model_focus_keyword_density(string $content, string $focus_keyword, string $seed, float $maximum_density = 2.0): string {
+        $focus_keyword = trim($focus_keyword);
+        if ($focus_keyword === '') {
+            return $content;
+        }
+
+        $word_count = self::count_visible_words($content);
+        $focus_hits = self::count_exact_visible_phrase_hits($content, $focus_keyword);
+        if ($word_count <= 0 || $focus_hits <= 0) {
+            return $content;
+        }
+
+        // Leave a small margin below the public 2.0% ceiling so later heading
+        // placement cannot accidentally push borderline content over the cap.
+        $target_density = min($maximum_density, 1.85);
+        if (($focus_hits / $word_count) * 100 <= $target_density) {
+            return $content;
+        }
+
+        $blocks = [
+            '<h2>Reader-Friendly Summary</h2>'
+            . '<p>The strongest model pages balance concise access details with enough practical context for a real reader. Neutral supporting copy helps explain how to use the links, how to compare platform signals, and when to wait for a clearer live-room status.</p>'
+            . '<p>That balance also prevents overuse of the focus phrase. The goal is a readable guide with verified destinations, useful safety notes, and natural headings rather than a page that repeats the same name in every paragraph.</p>',
+
+            '<h2>Quality and Safety Context</h2>'
+            . '<p>Use room quality, identity consistency, and navigation safety as the main decision points. Confirm the destination, scan the visible profile cues, and avoid any page that asks for unnecessary redirects before showing a stable room or profile state.</p>'
+            . '<p>When the current status is unclear, returning later is better than following unverified mirrors. A careful route protects the reader and keeps the generated page focused on evidence-backed information.</p>',
+
+            '<h2>What to Check After Opening a Link</h2>'
+            . '<p>After opening a destination, check that the platform label, handle cues, room status, and account prompts match expectations. If the profile appears inactive, use the rest of the verified context for follow-up checks instead of assuming every destination is live.</p>'
+            . '<p>These checks make the content more useful without adding repeated focus-keyword mentions, which keeps density under control while preserving the evidence block and verified-link sections.</p>',
+        ];
+
+        $selected = [];
+        for ($i = 0; $i < count($blocks); $i++) {
+            $idx = self::stable_pick_index($seed . '|density-guard|' . $i, count($blocks));
+            while (in_array($idx, $selected, true)) {
+                $idx = ($idx + 1) % count($blocks);
+            }
+            $selected[] = $idx;
+            $content .= "\n\n" . $blocks[$idx];
+            $word_count = self::count_visible_words($content);
+            if ($word_count > 0 && (($focus_hits / $word_count) * 100) <= $target_density) {
+                break;
+            }
+        }
+
+        $neutral_fillers = [
+            'Keep the evaluation simple: confirm the link source, compare the live status, review account prompts, and leave the page if the destination does not match the expected platform cues.',
+            'Reliable pages should explain access, verification, and safety in plain language, with enough context for a reader to make a careful decision without repeated focus-keyword stuffing.',
+            'If a room or profile appears stale, wait for a better status signal and use only verified destinations for follow-up checks.',
+        ];
+        for ($i = 0; $word_count > 0 && (($focus_hits / $word_count) * 100) > $target_density && $i < 12; $i++) {
+            $content .= "\n\n<p>" . $neutral_fillers[$i % count($neutral_fillers)] . '</p>';
+            $word_count = self::count_visible_words($content);
+        }
+
+        return $content;
+    }
+
+
+    private static function count_visible_words(string $html): int {
+        $plain = trim((string) wp_strip_all_tags($html));
+        if ($plain === '') {
+            return 0;
+        }
+
+        return str_word_count($plain);
+    }
+
+
+    private static function count_exact_visible_phrase_hits(string $html, string $phrase): int {
+        $plain = (string) wp_strip_all_tags($html);
+        if ($plain === '' || $phrase === '') {
+            return 0;
+        }
+
+        $hits = preg_match_all('/(?<![\p{L}\p{N}_-])' . preg_quote($phrase, '/') . '(?![\p{L}\p{N}_-])/iu', $plain, $matches);
+
+        return is_int($hits) ? $hits : 0;
     }
 
 
