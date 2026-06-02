@@ -561,7 +561,7 @@ class ModelOptimizer {
         // If OpenAI configured and dry-run off, try to generate.
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
         if ($dry === 0 && OpenAI::is_configured() && !Settings::is_safe_mode()) {
-            $res = self::generate_with_openai($name, $top_tags, $platforms);
+            $res = self::generate_with_openai((int) $post->ID, $name, $top_tags, $platforms);
             if (($res['ok'] ?? false) && isset($res['suggestions']) && is_array($res['suggestions'])) {
                 $s = $res['suggestions'];
                 $s['seo_title'] = self::build_model_seo_title($name);
@@ -749,11 +749,30 @@ class ModelOptimizer {
         return trim($intro) . ' Explore more models: ' . implode(', ', $parts) . '.';
     }
 
-    private static function generate_with_openai(string $name, array $tags, array $platforms): array {
+    private static function generate_with_openai(int $post_id, string $name, array $tags, array $platforms): array {
         $model = Settings::openai_model_for_quality();
 
         $tag_list = implode(', ', array_values(array_filter(array_map('strval', $tags))));
         $platform_list = implode(', ', array_values(array_filter(array_map('strval', $platforms))));
+
+        $evidence_block = '';
+        if ($post_id > 0 && class_exists('\\TMWSEO\\Engine\\Content\\ModelResearchEvidence')) {
+            $evidence_block = trim(\TMWSEO\Engine\Content\ModelResearchEvidence::build_prompt_block($post_id));
+        }
+
+        $evidence_section = '';
+        if ($evidence_block !== '') {
+            $evidence_section = "
+Cleaned ModelResearchEvidence context for the intro only:
+{$evidence_block}
+
+Evidence rules for the intro:
+- Use this as trusted context only when writing the intro; keep titles, metadata, and keywords aligned to the normal fields above.
+- Expand safe facts naturally in original wording, but do not copy raw or unsafe wording verbatim.
+- Do not invent facts, personal claims, private-chat options, or platform details that are not supported by the tags, platforms, or evidence.
+- Keep the intro compact, excerpt-safe, and non-graphic even when evidence is available.
+";
+        }
 
         $system = [
             'role' => 'system',
@@ -762,12 +781,27 @@ class ModelOptimizer {
 
         $user = [
             'role' => 'user',
-            'content' => "Create SEO suggestions for a cam model profile page.\n\nModel name: {$name}\nAllowed tags (use only if relevant): {$tag_list}\nPlatforms (optional mention): {$platform_list}\n\nRequirements:\n- Output JSON object with keys: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.\n- Intro must be 150-250 words, non-graphic, no explicit act descriptions.\n- Meta title ~60 chars, meta description ~155 chars.\n- Focus keyword must be exactly the model name: {$name}.\n- Extra keywords should be relevant tag variations only (no appended intent words).\n",
+            'content' => "Create SEO suggestions for a cam model profile page.
+
+Model name: {$name}
+Allowed tags (use only if relevant): {$tag_list}
+Platforms (optional mention): {$platform_list}
+{$evidence_section}
+Requirements:
+- Output compact JSON only with keys: seo_title, meta_title, meta_description, focus_keyword, extra_keywords (array of 4), intro.
+- Do not add required JSON keys and do not include body copy outside the intro field.
+- Intro must be 150-250 words, non-graphic, excerpt-safe, suitable for the metabox short-intro field, and safe for possible post_excerpt storage.
+- Intro should read naturally for adults without explicit act descriptions or unsupported personal claims.
+- Avoid robotic phrases such as: The verified notes point to, personable cam delivery, do you accept, Use these notes as profile context.
+- Meta title ~60 chars, meta description ~155 chars.
+- Focus keyword must be exactly the model name: {$name}.
+- Extra keywords should be relevant tag variations only (no appended intent words).
+",
         ];
 
         $res = OpenAI::chat_json([$system, $user], $model, [
             'temperature' => 0.5,
-            'max_tokens' => 700,
+            'max_tokens' => 950,
         ]);
 
         if (!($res['ok'] ?? false)) {
