@@ -382,14 +382,13 @@ class ModelOptimizer {
                     }
                 }
                 if (empty($model_pack) || empty($model_pack['primary'])) {
-                    $rm_kw_lc = function_exists('mb_strtolower') ? mb_strtolower($rm_kw, 'UTF-8') : strtolower($rm_kw);
                     $model_pack = [
                         'primary' => $rm_kw,
                         'rankmath_additional' => [
-                            $rm_kw_lc . ' livejasmin',
-                            'livejasmin ' . $rm_kw_lc,
-                            $rm_kw_lc . ' live',
-                            $rm_kw_lc . ' cam',
+                            $rm_kw . ' LiveJasmin',
+                            $rm_kw . ' live cam',
+                            $rm_kw . ' live webcam',
+                            $rm_kw . ' private live chat',
                         ],
                     ];
                 }

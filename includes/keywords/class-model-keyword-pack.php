@@ -999,7 +999,7 @@ class ModelKeywordPack {
     private static function select_rotating_rankmath_extras(int $post_id, string $model_name, array $personal_keywords, array $platform_slugs, array $tag_slugs, array $classified_exclusions): array {
         $result = self::empty_rankmath_rotation_result();
         $seed = $post_id . '|' . self::normalize_keyword($model_name) . '|' . implode(',', $platform_slugs) . '|' . implode(',', $tag_slugs);
-        $model_prefix = self::keyword_key($model_name);
+        $model_prefix = self::normalize_keyword($model_name);
 
         $append = function(array $keywords, string $bucket) use (&$result, $classified_exclusions, $model_name, $post_id): void {
             foreach ($keywords as $keyword) {
@@ -1089,7 +1089,10 @@ class ModelKeywordPack {
             }
 
             if (self::is_generic_model_intent_pool_keyword($raw_keyword, $class, $usage)) {
-                $generic_candidates[$raw_keyword] = max((int) ($generic_candidates[$raw_keyword] ?? 0), $score);
+                $candidate = self::model_name_phrase($model_prefix, $raw_keyword);
+                if ($candidate !== '') {
+                    $generic_candidates[$candidate] = max((int) ($generic_candidates[$candidate] ?? 0), $score);
+                }
             }
         }
 
@@ -1100,8 +1103,7 @@ class ModelKeywordPack {
 
         $append(self::rankmath_ordered_platform_candidates($platform_keyword_plan, $platform_candidates, $seed), 'platform_used');
         $append(self::rotate_scored_keywords($tag_candidates, 4, $seed . '|attribute'), 'tag_attribute_used');
-        // Generic approved pool rows are deliberately not appended to Rank Math
-        // extras for model pages; only model-name-safe formulas may fill gaps.
+        $append(self::rotate_scored_keywords($generic_candidates, 4, $seed . '|generic-intent'), 'generic_used');
         $append(self::safe_rankmath_fallback_formulas($model_name, $platform_slugs), 'fallback_used');
 
         $result['verified_platforms_used'] = self::verified_tokens_used_by_keywords($result['platform_used'], self::verified_rankmath_platform_keywords($platform_slugs));
@@ -1211,11 +1213,20 @@ class ModelKeywordPack {
         if ($clean_name === '') {
             return [];
         }
-        $name_lc = function_exists('mb_strtolower') ? mb_strtolower($clean_name, 'UTF-8') : strtolower($clean_name);
         $fallbacks = [];
-        $fallbacks[] = $name_lc . ' cam';
-        $fallbacks[] = $name_lc . ' webcam';
-        $fallbacks[] = $name_lc . ' live cam';
+        foreach ($platform_slugs as $platform) {
+            $platform_label = self::platform_keyword_label((string) $platform);
+            if ($platform_label !== '') {
+                $fallbacks[] = $clean_name . ' ' . $platform_label;
+            }
+        }
+        $fallbacks[] = $clean_name . ' live cam';
+        $fallbacks[] = $clean_name . ' live webcam';
+        $fallbacks[] = $clean_name . ' cam model';
+        $fallbacks[] = $clean_name . ' private live chat';
+        $fallbacks[] = $clean_name . ' HD live stream';
+        $fallbacks[] = $clean_name . ' live chat';
+        $fallbacks[] = $clean_name . ' webcam chat';
         return self::dedupe_keywords($fallbacks);
     }
 
@@ -1272,11 +1283,35 @@ class ModelKeywordPack {
     }
 
     private static function model_name_phrase(string $model_prefix, string $suffix): string {
-        $suffix = self::keyword_key($suffix);
+        $model_prefix = self::normalize_keyword($model_prefix);
+        $suffix = self::rankmath_suffix_label($suffix);
         if ($model_prefix === '' || $suffix === '') {
             return '';
         }
         return self::normalize_keyword($model_prefix . ' ' . $suffix);
+    }
+
+    private static function rankmath_suffix_label(string $suffix): string {
+        $suffix_key = self::keyword_key($suffix);
+        if ($suffix_key === '') {
+            return '';
+        }
+        foreach (array_unique(array_values(self::RANKMATH_CAM_PLATFORM_ALLOWLIST)) as $platform) {
+            if ($suffix_key === self::keyword_key($platform)) {
+                return self::platform_keyword_label($platform);
+            }
+        }
+        $known_phrases = [
+            'hd live stream' => 'HD live stream',
+            'live cam' => 'live cam',
+            'live webcam' => 'live webcam',
+            'cam model' => 'cam model',
+            'private live chat' => 'private live chat',
+            'live chat' => 'live chat',
+            'webcam chat' => 'webcam chat',
+            'lingerie' => 'lingerie',
+        ];
+        return $known_phrases[$suffix_key] ?? $suffix_key;
     }
 
     /**
@@ -1319,7 +1354,6 @@ class ModelKeywordPack {
         $main_keywords = [];
         $debug_records = [];
         $used_platforms = [];
-        $model_key = self::keyword_key($model_name);
         foreach ($records as $record) {
             $platform = sanitize_key((string) ($record['platform'] ?? ''));
             if ($platform === '' || !isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$platform]) || isset($used_platforms[$platform])) {
@@ -1329,8 +1363,8 @@ class ModelKeywordPack {
             $profile_slug = (string) ($record['profile_slug'] ?? '');
             $slug_norm = self::normalize_alias_for_platform_compare($profile_slug);
             $matched_alias = ($slug_norm !== '' && isset($alias_lookup[$slug_norm])) ? (string) $alias_lookup[$slug_norm] : '';
-            $alias_candidate = $matched_alias !== '' ? self::model_name_phrase(self::keyword_key($matched_alias), $platform) : '';
-            $main_candidate = self::model_name_phrase($model_key, $platform);
+            $alias_candidate = $matched_alias !== '' ? self::model_name_phrase($matched_alias, $platform) : '';
+            $main_candidate = self::model_name_phrase($model_name, $platform);
 
             if ($alias_candidate !== '') {
                 $alias_keywords[] = $alias_candidate;
@@ -1485,7 +1519,6 @@ class ModelKeywordPack {
             return [];
         }
         $records = [];
-        $model_key = self::keyword_key($model_name);
         foreach (VerifiedLinks::get_links($post_id) as $link) {
             if (!is_array($link)) {
                 continue;
@@ -1512,8 +1545,8 @@ class ModelKeywordPack {
                 'profile_slug' => $profile_slug,
                 'alias_match' => $matched_alias !== '',
                 'matched_alias' => $matched_alias,
-                'alias_candidate' => $matched_alias !== '' ? self::model_name_phrase(self::keyword_key($matched_alias), $platform) : '',
-                'main_candidate' => self::model_name_phrase($model_key, $platform),
+                'alias_candidate' => $matched_alias !== '' ? self::model_name_phrase($matched_alias, $platform) : '',
+                'main_candidate' => self::model_name_phrase($model_name, $platform),
             ];
         }
         return $records;
