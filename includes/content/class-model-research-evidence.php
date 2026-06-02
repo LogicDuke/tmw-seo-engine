@@ -600,7 +600,7 @@ class ModelResearchEvidence {
 			'cameltoe', 'pussy', 'tit fuck', 'titty fuck',
 			'blowjob', 'handjob', 'facial', 'piss', 'pee', 'scat',
 			'bbc', 'bukkake', 'butt plug', 'butt plugs', 'dildo', 'fingering',
-			'love bead', 'love beads', 'love ball', 'love balls', 'bead', 'beads', 'vibrator', 'joi', 'pov',
+			'love bead', 'love beads', 'love ball', 'love balls', 'bead', 'beads', 'vibrator', 'joi', 'pov', 'snapshot',
 		];
 		$lc = strtolower( $item );
 		foreach ( $blocked as $bad ) {
@@ -660,7 +660,6 @@ class ModelResearchEvidence {
 			'foot fetish' => 'Foot Fetish',
 			'oil'         => 'Oil',
 			'twerk'       => 'Twerk',
-			'snapshot'    => 'Snapshot',
 			'high heels'  => 'High Heels',
 			'stockings'   => 'Stockings',
 		];
