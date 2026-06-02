@@ -39,10 +39,10 @@ function tmw_evidence_assert_forbidden_clean(string $text, string $label): void 
 }
 
 
-$noise_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept?');
-tmw_evidence_assert($noise_turn_ons === '', 'Noise-only turn-ons should return an empty string.');
-tmw_evidence_assert(ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept:') === '', 'Colon-only acceptance prompt should return an empty string.');
-tmw_evidence_assert(ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept -') === '', 'Dash-only acceptance prompt should return an empty string.');
+foreach (['?', ':', ' -', ' –', ' —'] as $noise_suffix) {
+    $noise_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept' . $noise_suffix);
+    tmw_evidence_assert($noise_turn_ons === '', 'Noise-only turn-ons should return an empty string for suffix: ' . $noise_suffix);
+}
 
 $punctuated_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept: Roleplay, Cosplay');
 tmw_evidence_assert_forbidden_clean($punctuated_turn_ons, 'Punctuated turn-ons');
@@ -50,9 +50,11 @@ tmw_evidence_assert(str_contains($punctuated_turn_ons, 'Roleplay'), 'Punctuated 
 tmw_evidence_assert(str_contains($punctuated_turn_ons, 'Cosplay'), 'Punctuated turn-ons should keep Cosplay after cleanup.');
 tmw_evidence_assert(stripos($punctuated_turn_ons, 'Do you ' . 'accept') === false, 'Punctuated turn-ons should remove acceptance prompt wording.');
 tmw_evidence_assert(!preg_match('/^\s*[:\-–—]/u', $punctuated_turn_ons), 'Punctuated turn-ons should not start with punctuation artifacts.');
-foreach (['Do you ' . 'accept:', 'Do you ' . 'accept -', 'Do you ' . 'accept –', 'Do you ' . 'accept —'] as $noise_variant) {
-    tmw_evidence_assert(ModelResearchEvidence::humanize_turn_ons($noise_variant) === '', 'Noise-only punctuation variant should return empty output: ' . $noise_variant);
-}
+
+$stacked_punctuation_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept: - Roleplay, Cosplay');
+tmw_evidence_assert(str_contains($stacked_punctuation_turn_ons, 'Roleplay'), 'Stacked punctuation cleanup should keep Roleplay.');
+tmw_evidence_assert(str_contains($stacked_punctuation_turn_ons, 'Cosplay'), 'Stacked punctuation cleanup should keep Cosplay.');
+tmw_evidence_assert(!preg_match('/^\s*[:\-–—]/u', $stacked_punctuation_turn_ons), 'Stacked punctuation cleanup should not leave leading artifacts.');
 
 $abby_bio = 'I am ready for you, join me and do not miss this amazing time. My profile says friendly dancing cosplay private chat with me.';
 $abby_turn_ons = 'Do you ' . 'accept?';
