@@ -38,6 +38,19 @@ function tmw_evidence_assert_forbidden_clean(string $text, string $label): void 
     }
 }
 
+
+$noise_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept?');
+tmw_evidence_assert($noise_turn_ons === '', 'Noise-only turn-ons should return an empty string.');
+
+$punctuated_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept: Roleplay, Cosplay');
+tmw_evidence_assert_forbidden_clean($punctuated_turn_ons, 'Punctuated turn-ons');
+tmw_evidence_assert(str_contains($punctuated_turn_ons, 'Roleplay'), 'Punctuated turn-ons should keep Roleplay after cleanup.');
+tmw_evidence_assert(str_contains($punctuated_turn_ons, 'Cosplay'), 'Punctuated turn-ons should keep Cosplay after cleanup.');
+tmw_evidence_assert(!preg_match('/(?:^|\s)[:\-–—]/u', $punctuated_turn_ons), 'Punctuated turn-ons should not leave leading punctuation artifacts.');
+foreach (['Do you ' . 'accept:', 'Do you ' . 'accept -', 'Do you ' . 'accept –', 'Do you ' . 'accept —'] as $noise_variant) {
+    tmw_evidence_assert(ModelResearchEvidence::humanize_turn_ons($noise_variant) === '', 'Noise-only punctuation variant should return empty output: ' . $noise_variant);
+}
+
 $abby_bio = 'I am ready for you, join me and do not miss this amazing time. My profile says friendly dancing cosplay private chat with me.';
 $abby_turn_ons = 'Do you ' . 'accept?';
 $abby_private = 'In Private Chat, I\'m willing to perform: Roleplay, Anal, Striptease, Dancing, Cosplay, Deepthroat, Close up, ASMR, Dildo, Oil, Twerk, Snapshot, High Heels, Stockings';

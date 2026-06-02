@@ -313,27 +313,34 @@ class ModelResearchEvidence {
 			$raw = (string) preg_replace( $p, '', $raw );
 		}
 		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
-		$raw = trim( (string) preg_replace( '#\\bdo\\s+you\\s+accept\\??#i', '', $raw ) );
+		$raw = trim( (string) preg_replace( '#\\bdo\\s+you\\s+accept\\s*(?:[?:\\-–—]\\s*)?#iu', '', $raw ) );
+		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
+		if ( $raw === '' ) {
+			return '';
+		}
 
-		$themes = self::extract_turn_on_themes( $raw );
-
-		// Fallback: list-style input — clean each list item.
-		if ( empty( $themes ) ) {
-			foreach ( self::extract_list_items( $raw ) as $item ) {
-				$c = self::clean_token( $item );
-				if ( preg_match( '#\\bdo\\s+you\\s+accept\\??#i', $c ) ) {
-					continue;
-				}
-				if ( self::is_explicit_chat_item( $c ) ) {
-					continue;
-				}
-				if ( $c !== '' && str_word_count( $c ) <= 4 ) {
-					$themes[] = $c;
-				}
-				if ( count( $themes ) >= 4 ) {
-					break;
-				}
+		$list_themes = [];
+		foreach ( self::extract_list_items( $raw ) as $item ) {
+			$c = self::clean_token( $item );
+			if ( preg_match( '#\bdo\s+you\s+accept\s*(?:[?:\-–—]\s*)?#iu', $c ) ) {
+				continue;
 			}
+			if ( self::is_explicit_chat_item( $c ) ) {
+				continue;
+			}
+			if ( $c !== '' && str_word_count( $c ) <= 4 ) {
+				$list_themes[] = self::format_chat_item_label( self::canonicalise_chat_item( $c ) );
+			}
+			if ( count( $list_themes ) >= 4 ) {
+				break;
+			}
+		}
+
+		$themes = count( $list_themes ) > 1 ? $list_themes : self::extract_turn_on_themes( $raw );
+
+		// Fallback: list-style input — keep a single safe short item if that is all the field provides.
+		if ( empty( $themes ) && ! empty( $list_themes ) ) {
+			$themes = $list_themes;
 		}
 
 		if ( empty( $themes ) ) {
