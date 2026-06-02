@@ -3,11 +3,22 @@ namespace TMWSEO\Engine\Keywords;
 
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Services\DataForSEO;
+use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Model\VerifiedLinks;
+use TMWSEO\Engine\Model\VerifiedLinksFamilies;
 
 if (!defined('ABSPATH')) { exit; }
 
 class ModelKeywordPack {
+
+    private const RANKMATH_CAM_PLATFORM_ALLOWLIST = [
+        'livejasmin' => 'livejasmin',
+        'stripchat' => 'stripchat',
+        'chaturbate' => 'chaturbate',
+    ];
+
+    private const RANKMATH_SEO_ACTIVITY_LEVELS = [ 'active', 'very_active' ];
 
     /**
      * Build a keyword pack for a given post.
@@ -604,16 +615,104 @@ class ModelKeywordPack {
 
     /** @return string[] */
     private static function active_platform_slugs(int $model_id): array {
-        $rows = PlatformProfiles::get_links($model_id);
-        $slugs = [];
-        foreach ($rows as $r) {
-            $p = isset($r['platform']) ? sanitize_key((string)$r['platform']) : '';
-            if ($p !== '') $slugs[] = $p;
+        $verified = self::verified_cam_platform_records($model_id);
+        if (!empty($verified)) {
+            return self::dedupe_platform_slugs(array_map(static function(array $record): string {
+                return (string) ($record['platform'] ?? '');
+            }, $verified));
         }
-        // If primary is set but there is no row yet, keep it.
+
+        return self::legacy_rankmath_cam_platform_slugs($model_id);
+    }
+
+    /** @return string[] */
+    private static function dedupe_platform_slugs(array $slugs): array {
+        $out = [];
+        foreach ($slugs as $slug) {
+            $slug = sanitize_key((string) $slug);
+            if ($slug !== '' && isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$slug])) {
+                $out[] = self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$slug];
+            }
+        }
+        return array_values(array_unique(array_filter($out, 'strlen')));
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private static function verified_cam_platform_records(int $model_id): array {
+        if (!class_exists(VerifiedLinks::class)) {
+            return [];
+        }
+
+        $records = [];
+        foreach (VerifiedLinks::get_links($model_id) as $link) {
+            if (!is_array($link)) {
+                continue;
+            }
+            $type = sanitize_key((string) ($link['type'] ?? ''));
+            if ($type === 'jasmin') {
+                $type = 'livejasmin';
+            }
+            if (!isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type])) {
+                continue;
+            }
+            if (class_exists(VerifiedLinksFamilies::class) && VerifiedLinksFamilies::family_for($type) !== VerifiedLinksFamilies::FAMILY_CAM) {
+                continue;
+            }
+            if (!self::verified_link_is_active_enough_for_rankmath($link)) {
+                continue;
+            }
+            $records[] = [
+                'platform' => self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type],
+                'activity_level' => sanitize_key((string) ($link['activity_level'] ?? '')),
+                'is_active' => !array_key_exists('is_active', $link) || !empty($link['is_active']),
+                'profile_slug' => self::extract_verified_link_profile_slug((string) ($link['url'] ?? ''), $type),
+            ];
+        }
+
+        $seen = [];
+        $out = [];
+        foreach ($records as $record) {
+            $platform = (string) ($record['platform'] ?? '');
+            if ($platform === '' || isset($seen[$platform])) {
+                continue;
+            }
+            $seen[$platform] = true;
+            $out[] = $record;
+        }
+        return $out;
+    }
+
+    /**
+     * Rank Math platform extras require both the operator Active checkbox and
+     * an explicit SEO-safe activity state. A checked Active box alone does not
+     * override an Inactive activity state; that keeps stale cam rooms out of
+     * focus-keyword extras while preserving the link for admin/frontend review.
+     *
+     * @param array<string,mixed> $link
+     */
+    private static function verified_link_is_active_enough_for_rankmath(array $link): bool {
+        $is_active = !array_key_exists('is_active', $link) || !empty($link['is_active']);
+        if (!$is_active) {
+            return false;
+        }
+        $activity = sanitize_key((string) ($link['activity_level'] ?? ''));
+        return in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
+    }
+
+    /** @return string[] */
+    private static function legacy_rankmath_cam_platform_slugs(int $model_id): array {
+        $slugs = [];
+        if (class_exists(PlatformProfiles::class)) {
+            $rows = PlatformProfiles::get_links($model_id);
+            foreach ($rows as $r) {
+                $p = isset($r['platform']) ? sanitize_key((string)$r['platform']) : '';
+                if ($p !== '') $slugs[] = $p;
+            }
+        }
+        // If primary is set but there is no row yet, keep it as cam-only fallback evidence.
         $primary = sanitize_key((string)get_post_meta($model_id, '_tmwseo_platform_primary', true));
         if ($primary !== '') $slugs[] = $primary;
-        return array_values(array_unique(array_filter($slugs, 'strlen')));
+        return self::dedupe_platform_slugs($slugs);
     }
 
     /** @return string[] */
@@ -878,8 +977,16 @@ class ModelKeywordPack {
         $tag_candidates = [];
         $generic_candidates = [];
 
-        foreach (self::verified_rankmath_platform_keywords($platform_slugs) as $platform_keyword) {
-            $candidate = self::model_name_phrase($model_prefix, $platform_keyword);
+        $platform_keyword_plan = self::verified_rankmath_platform_keyword_plan($post_id, $model_name, $platform_slugs);
+        foreach ((array) ($platform_keyword_plan['alias_keywords'] ?? []) as $candidate) {
+            $candidate = self::normalize_keyword((string) $candidate);
+            if ($candidate !== '') {
+                $platform_candidates[$candidate] = max((int) ($platform_candidates[$candidate] ?? 0), 950);
+                $result['platform_considered'][] = $candidate;
+            }
+        }
+        foreach ((array) ($platform_keyword_plan['main_keywords'] ?? []) as $candidate) {
+            $candidate = self::normalize_keyword((string) $candidate);
             if ($candidate !== '') {
                 $platform_candidates[$candidate] = max((int) ($platform_candidates[$candidate] ?? 0), 900);
                 $result['platform_considered'][] = $candidate;
@@ -937,7 +1044,7 @@ class ModelKeywordPack {
         $result['generic_considered'] = array_keys($generic_candidates);
         $result['skipped_raw_pool_keywords'] = self::dedupe_keywords($result['skipped_raw_pool_keywords']);
 
-        $append(self::rotate_scored_keywords($platform_candidates, 4, $seed . '|platform'), 'platform_used');
+        $append(self::rankmath_ordered_platform_candidates($platform_keyword_plan, $platform_candidates, $seed), 'platform_used');
         $append(self::rotate_scored_keywords($tag_candidates, 4, $seed . '|attribute'), 'tag_attribute_used');
         // Generic approved pool rows are deliberately not appended to Rank Math
         // extras for model pages; only model-name-safe formulas may fill gaps.
@@ -945,6 +1052,7 @@ class ModelKeywordPack {
 
         $result['verified_platforms_used'] = self::verified_tokens_used_by_keywords($result['platform_used'], self::verified_rankmath_platform_keywords($platform_slugs));
         $result['verified_tags_used'] = self::verified_tokens_used_by_keywords($result['tag_attribute_used'], self::verified_rankmath_attribute_phrases($tag_slugs));
+        self::debug_rankmath_platform_keywords($post_id, $model_name, $platform_keyword_plan, $result);
 
         unset($result['_seen']);
         return $result;
@@ -1115,6 +1223,230 @@ class ModelKeywordPack {
             return '';
         }
         return self::normalize_keyword($model_prefix . ' ' . $suffix);
+    }
+
+    /**
+     * @param string[] $platform_slugs
+     * @return array{alias_keywords:string[],main_keywords:string[],saved_aliases:string[],verified_cam_links:array<int,array<string,mixed>>,excluded_verified_link_types:string[],legacy_platform_slugs:string[],source:string}
+     */
+    private static function verified_rankmath_platform_keyword_plan(int $post_id, string $model_name, array $platform_slugs): array {
+        $saved_aliases = self::saved_model_aliases($post_id, $model_name);
+        $alias_lookup = [];
+        foreach ($saved_aliases as $alias) {
+            $norm = self::normalize_alias_for_platform_compare($alias);
+            if ($norm !== '') {
+                $alias_lookup[$norm] = $alias;
+            }
+        }
+
+        $verified_records = self::verified_cam_platform_records($post_id);
+        $all_cam_link_debug = self::all_verified_cam_platform_debug_records($post_id, $alias_lookup, $model_name);
+        $excluded_types = self::excluded_verified_link_types_for_rankmath($post_id);
+        $legacy_slugs = self::legacy_rankmath_cam_platform_slugs($post_id);
+        $source = !empty($verified_records) ? 'verified_links' : 'legacy_platform_profiles';
+        $records = $verified_records;
+        if (empty($records)) {
+            foreach ($platform_slugs as $slug) {
+                $slug = sanitize_key((string) $slug);
+                if ($slug !== '' && isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$slug])) {
+                    $records[] = [
+                        'platform' => self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$slug],
+                        'activity_level' => '',
+                        'is_active' => null,
+                        'profile_slug' => '',
+                    ];
+                }
+            }
+        }
+
+        $alias_keywords = [];
+        $main_keywords = [];
+        $debug_records = [];
+        $used_platforms = [];
+        $model_key = self::keyword_key($model_name);
+        foreach ($records as $record) {
+            $platform = sanitize_key((string) ($record['platform'] ?? ''));
+            if ($platform === '' || !isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$platform]) || isset($used_platforms[$platform])) {
+                continue;
+            }
+            $used_platforms[$platform] = true;
+            $profile_slug = (string) ($record['profile_slug'] ?? '');
+            $slug_norm = self::normalize_alias_for_platform_compare($profile_slug);
+            $matched_alias = ($slug_norm !== '' && isset($alias_lookup[$slug_norm])) ? (string) $alias_lookup[$slug_norm] : '';
+            $alias_candidate = $matched_alias !== '' ? self::model_name_phrase(self::keyword_key($matched_alias), $platform) : '';
+            $main_candidate = self::model_name_phrase($model_key, $platform);
+
+            if ($alias_candidate !== '') {
+                $alias_keywords[] = $alias_candidate;
+            } elseif ($main_candidate !== '') {
+                // Use one Rank Math extra per platform. Main-name platform extras
+                // fill platforms that do not have a verified saved-alias match.
+                $main_keywords[] = $main_candidate;
+            }
+
+            $debug_records[] = [
+                'platform' => $platform,
+                'activity_level' => (string) ($record['activity_level'] ?? ''),
+                'is_active' => $record['is_active'] ?? null,
+                'profile_slug' => $profile_slug,
+                'alias_match' => $matched_alias !== '',
+                'matched_alias' => $matched_alias,
+                'alias_candidate' => $alias_candidate,
+                'main_candidate' => $main_candidate,
+            ];
+        }
+
+        return [
+            'alias_keywords' => self::dedupe_keywords($alias_keywords),
+            'main_keywords' => self::dedupe_keywords($main_keywords),
+            'saved_aliases' => $saved_aliases,
+            'verified_cam_links' => !empty($all_cam_link_debug) ? $all_cam_link_debug : $debug_records,
+            'excluded_verified_link_types' => $excluded_types,
+            'legacy_platform_slugs' => $legacy_slugs,
+            'source' => $source,
+        ];
+    }
+
+    /** @param array<string,int> $platform_candidates @param array<string,mixed> $plan @return string[] */
+    private static function rankmath_ordered_platform_candidates(array $plan, array $platform_candidates, string $seed): array {
+        $ordered = [];
+        foreach (array_merge((array) ($plan['alias_keywords'] ?? []), (array) ($plan['main_keywords'] ?? [])) as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean !== '' && array_key_exists($clean, $platform_candidates)) {
+                $ordered[] = $clean;
+            }
+        }
+        foreach (self::rotate_scored_keywords($platform_candidates, 4, $seed . '|platform-pool') as $keyword) {
+            $ordered[] = $keyword;
+        }
+        return self::dedupe_keywords($ordered);
+    }
+
+    /** @return string[] */
+    private static function saved_model_aliases(int $post_id, string $model_name): array {
+        $raw = get_post_meta($post_id, '_tmwseo_research_aliases', true);
+        $values = is_array($raw) ? $raw : preg_split('/\s*,\s*/u', (string) $raw);
+        $aliases = [];
+        $model_norm = self::normalize_alias_for_platform_compare($model_name);
+        foreach ((array) $values as $alias) {
+            $alias = trim((string) $alias, " \t\n\r\0\x0B,;@/\\()[]{}<>\"'");
+            if ($alias === '') {
+                continue;
+            }
+            if (self::normalize_alias_for_platform_compare($alias) === $model_norm) {
+                continue;
+            }
+            $aliases[] = $alias;
+        }
+        return array_values(array_unique($aliases));
+    }
+
+    private static function normalize_alias_for_platform_compare(string $value): string {
+        $value = trim($value, " \t\n\r\0\x0B,;@/\\()[]{}<>\"'");
+        $value = preg_replace('/[?#].*$/', '', $value);
+        $value = preg_replace('/[^a-z0-9]+/i', '', (string) $value);
+        return strtolower((string) $value);
+    }
+
+    private static function extract_verified_link_profile_slug(string $url, string $platform): string {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        $parts = function_exists('wp_parse_url') ? wp_parse_url($url) : parse_url($url);
+        if (!is_array($parts)) {
+            return '';
+        }
+        $path = trim((string) ($parts['path'] ?? ''), '/');
+        if ($path === '') {
+            return '';
+        }
+        $segments = array_values(array_filter(explode('/', $path), 'strlen'));
+        if (empty($segments)) {
+            return '';
+        }
+        return rawurldecode((string) end($segments));
+    }
+
+    /** @param array<string,string> $alias_lookup @return array<int,array<string,mixed>> */
+    private static function all_verified_cam_platform_debug_records(int $post_id, array $alias_lookup, string $model_name): array {
+        if (!class_exists(VerifiedLinks::class)) {
+            return [];
+        }
+        $records = [];
+        $model_key = self::keyword_key($model_name);
+        foreach (VerifiedLinks::get_links($post_id) as $link) {
+            if (!is_array($link)) {
+                continue;
+            }
+            $type = sanitize_key((string) ($link['type'] ?? ''));
+            if ($type === 'jasmin') {
+                $type = 'livejasmin';
+            }
+            if (!isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type])) {
+                continue;
+            }
+            $platform = self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type];
+            $profile_slug = self::extract_verified_link_profile_slug((string) ($link['url'] ?? ''), $platform);
+            $slug_norm = self::normalize_alias_for_platform_compare($profile_slug);
+            $matched_alias = ($slug_norm !== '' && isset($alias_lookup[$slug_norm])) ? (string) $alias_lookup[$slug_norm] : '';
+            $records[] = [
+                'platform' => $platform,
+                'activity_level' => sanitize_key((string) ($link['activity_level'] ?? '')),
+                'is_active' => !array_key_exists('is_active', $link) || !empty($link['is_active']),
+                'eligible_for_rankmath' => self::verified_link_is_active_enough_for_rankmath($link),
+                'profile_slug' => $profile_slug,
+                'alias_match' => $matched_alias !== '',
+                'matched_alias' => $matched_alias,
+                'alias_candidate' => $matched_alias !== '' ? self::model_name_phrase(self::keyword_key($matched_alias), $platform) : '',
+                'main_candidate' => self::model_name_phrase($model_key, $platform),
+            ];
+        }
+        return $records;
+    }
+
+    /** @return string[] */
+    private static function excluded_verified_link_types_for_rankmath(int $post_id): array {
+        if (!class_exists(VerifiedLinks::class)) {
+            return [];
+        }
+        $excluded = [];
+        foreach (VerifiedLinks::get_links($post_id) as $link) {
+            if (!is_array($link)) {
+                continue;
+            }
+            $type = sanitize_key((string) ($link['type'] ?? ''));
+            if ($type === '') {
+                continue;
+            }
+            $normalized = $type === 'jasmin' ? 'livejasmin' : $type;
+            if (!isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$normalized])) {
+                $excluded[] = $type;
+            }
+        }
+        return array_values(array_unique($excluded));
+    }
+
+    /** @param array<string,mixed> $plan @param array<string,mixed> $result */
+    private static function debug_rankmath_platform_keywords(int $post_id, string $model_name, array $plan, array $result): void {
+        if (!class_exists(Settings::class) || !(bool) Settings::get('debug_mode', false)) {
+            return;
+        }
+        Logs::debug('keywords', '[TMW-SEO-PLATFORM-KW] Rank Math model platform keyword candidates', [
+            'post_id' => $post_id,
+            'model_title' => $model_name,
+            'saved_aliases_found' => (array) ($plan['saved_aliases'] ?? []),
+            'verified_cam_platform_links_found' => (array) ($plan['verified_cam_links'] ?? []),
+            'excluded_verified_link_types' => (array) ($plan['excluded_verified_link_types'] ?? []),
+            'legacy_platform_slugs_found' => (array) ($plan['legacy_platform_slugs'] ?? []),
+            'platform_source' => (string) ($plan['source'] ?? ''),
+            'alias_based_platform_keyword_candidates' => (array) ($plan['alias_keywords'] ?? []),
+            'main_name_platform_keyword_candidates' => (array) ($plan['main_keywords'] ?? []),
+            'final_platform_keywords_used' => (array) ($result['platform_used'] ?? []),
+            'fallback_keywords_considered' => self::safe_rankmath_fallback_formulas($model_name, []),
+            'fallback_keywords_used' => (array) ($result['fallback_used'] ?? []),
+            'final_rank_math_extras' => (array) ($result['final'] ?? []),
+        ]);
     }
 
     /** @param string[] $platform_slugs @return string[] */
