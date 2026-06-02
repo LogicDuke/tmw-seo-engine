@@ -72,7 +72,7 @@ namespace TMWSEO\Engine\Tests {
             $extras = $this->selectExtras( 'Aisha Dupont' );
 
             $this->assertContains( 'Aisha Dupont LiveJasmin', $extras );
-            $this->assertContains( 'OhhAisha Stripchat', $extras );
+            $this->assertContains( 'Aisha Dupont Stripchat', $extras );
             $this->assertLessThanOrEqual( 4, count( $extras ) );
         }
 
@@ -96,7 +96,7 @@ namespace TMWSEO\Engine\Tests {
 
             $extras = $this->selectExtras( 'Aisha Dupont' );
 
-            $this->assertContains( 'OhhAisha Chaturbate', $extras );
+            $this->assertContains( 'Aisha Dupont Chaturbate', $extras );
         }
 
         public function test_social_and_bio_links_are_excluded_from_platform_extras(): void {
@@ -193,6 +193,34 @@ namespace TMWSEO\Engine\Tests {
             );
             $this->assertNoDuplicateChips( $extras );
             $this->assertLessThanOrEqual( 4, count( $extras ) );
+            foreach ( $extras as $extra ) {
+                $this->assertStringNotContainsString( 'anisyia', $extra );
+            }
+        }
+
+
+        public function test_camsoda_model_replaces_old_mismatched_personal_chips(): void {
+            $this->setAliases( '' );
+            $this->setVerifiedLinks( [
+                [ 'type' => 'camsoda', 'url' => 'https://www.camsoda.com/Anisyia', 'is_active' => true, 'activity_level' => 'active' ],
+            ] );
+
+            $extras = $this->selectExtras( 'Anisyia', [
+                'anisyia livejasmin',
+                'anisyia live',
+                'livejasmin anisyia',
+                'Anisyia CamSoda',
+            ] );
+
+            $this->assertSame( [
+                'Anisyia CamSoda',
+                'Anisyia live cam',
+                'Anisyia live webcam',
+                'Anisyia private live chat',
+            ], $extras );
+            $this->assertNotContains( 'anisyia livejasmin', $extras );
+            $this->assertNotContains( 'livejasmin anisyia', $extras );
+            $this->assertNotContains( 'Anisyia LiveJasmin', $extras );
             foreach ( $extras as $extra ) {
                 $this->assertStringNotContainsString( 'anisyia', $extra );
             }
