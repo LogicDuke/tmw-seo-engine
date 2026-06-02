@@ -630,96 +630,214 @@ class ModelOptimizer {
             if ($tg === '') continue;
             $extras[] = strtolower($tg);
         }
+        $extras = array_slice(array_values(array_unique($extras)), 0, 4);
 
         $intro = self::build_intro($name, $tags, $platforms);
+        $intro = self::weave_template_secondary_keywords($intro, $extras);
+        $intro = self::expand_template_model_body_if_short($intro, $name, $tags, $platforms);
+        $intro = self::reduce_template_focus_keyword_density($intro, $name);
+        $intro = self::ensure_internal_links($intro);
 
         return [
             'seo_title' => $seo_title,
             'meta_title' => $meta_title,
             'meta_description' => $meta_description,
             'focus_keyword' => $focus,
-            'extra_keywords' => array_slice(array_values(array_unique($extras)), 0, 4),
+            'extra_keywords' => $extras,
             'intro' => $intro,
         ];
     }
 
     private static function build_intro(string $name, array $tags, array $platforms): string {
-        $tag_bits = array_slice(array_values(array_filter($tags, static fn($x) => trim((string)$x) !== '')), 0, 6);
+        $tag_bits = self::template_safe_tag_bits($tags, 6);
+        $platform_labels = self::template_platform_labels($platforms);
+        $primary_platform = $platform_labels[0] ?? '';
 
-        $p_sentence = '';
-        if (!empty($platforms)) {
-            // Convert keys to labels if possible.
-            $labels = [];
-            $map = [
-                'livejasmin' => 'LiveJasmin',
-                'stripchat' => 'Stripchat',
-                'chaturbate' => 'Chaturbate',
-                'myfreecams' => 'MyFreeCams',
-                'camsoda' => 'CamSoda',
-                'bonga' => 'BongaCams',
-                'cam4' => 'Cam4',
-            ];
-            foreach ($platforms as $p) {
-                $p = (string)$p;
-                $labels[] = $map[$p] ?? ucfirst($p);
-            }
-            $labels = array_values(array_unique(array_filter($labels)));
-            if (!empty($labels)) {
-                $p_sentence = 'You can also find ' . $name . ' on ' . implode(', ', array_slice($labels, 0, 3)) . '.';
-            }
-        }
-
-        $sentences = [];
-
-        $sentences[] = 'Meet ' . $name . ', a live cam model available for private webcam chat and real-time shows.';
+        $parts = [];
+        $parts[] = '<p>Meet ' . esc_html($name) . ', a live cam model profile built to help adults compare official access points, live-room availability, tags, and related browsing paths in one place. This verified profile keeps the copy non-graphic and evidence-led, so visitors can use the page as a practical starting point rather than a promise that every option is available in every session.</p>';
 
         if (!empty($tag_bits)) {
-            $sentences[] = 'Popular tags for ' . $name . ' include ' . implode(', ', $tag_bits) . '.';
+            $parts[] = '<p>The strongest page signals currently include ' . esc_html(self::template_human_list($tag_bits)) . '. Read those tags as browsing context: they help explain the categories and search paths connected with the profile, but they should not be treated as permanent personal facts or guaranteed show details.</p>';
+        } else {
+            $parts[] = '<p>The page keeps the profile summary broad because there are not enough approved tags to support a more specific style description. Instead of filling space with guesses, it focuses on safe navigation, official access, and ways to compare live-room destinations before visiting.</p>';
         }
 
-        $sentences[] = 'Browse the latest videos, explore related categories, and use the tags on this page to find the exact vibe you like.';
-
-        if ($p_sentence !== '') {
-            $sentences[] = $p_sentence;
+        $parts[] = '<h2>Style and Session Context</h2>';
+        $parts[] = '<p>Use this model page as a structured snapshot of what is known from approved site data. Tags, platform references, and internal links are organized so visitors can understand the profile quickly without relying on unsupported claims about age, location, relationship status, measurements, or other personal details.</p>';
+        if (!empty($tag_bits)) {
+            $parts[] = '<p>When a tag appears on the page, it is best read as a category signal that can guide browsing and comparison. The model may have different room themes, schedules, or request options depending on the live session, so the current room page remains the best place to confirm what is available right now.</p>';
         }
 
-        $sentences[] = 'Explore more models: <a href="/models/">Browse All Models</a>, check fresh clips in <a href="/videos/">Videos</a>, discover galleries in <a href="/photos/">Photos</a>, and read updates on our <a href="/blog/">Blog</a>.';
+        $parts[] = '<h2>Official Profile Access</h2>';
+        if (!empty($platform_labels)) {
+            $parts[] = '<p>Official profile access is centered on the verified platform data available for this listing. ' . esc_html(self::template_human_list(array_slice($platform_labels, 0, 3))) . ' can be used as the main destination' . (count($platform_labels) > 1 ? 's' : '') . ' to check live status, profile updates, and current room details before joining.</p>';
+        } else {
+            $parts[] = '<p>Official profile access should always be checked through the verified links shown on the page when they are available. If a live-room link is not currently listed, use the internal model directory and related pages to continue browsing without assuming an off-site destination is valid.</p>';
+        }
+        $parts[] = '<p>Because live-cam profiles can change over time, this section is written as access guidance rather than a fixed biography. Confirm names, platform status, and room availability on the destination page before expecting a specific experience.</p>';
 
-        $sentences[] = 'This page is for adults only (18+).';
+        $parts[] = '<h2>Where to Watch Live</h2>';
+        if ($primary_platform !== '') {
+            $parts[] = '<p>Start with the confirmed ' . esc_html($primary_platform) . ' live-room page when it is listed for this profile. A live room is the most reliable place to check whether the model is online, whether private chat is open, and which interaction options are active for the current session.</p>';
+        } else {
+            $parts[] = '<p>When no platform label is available in the current data, treat the page as a safe directory entry and check any verified live-room link that appears near the profile. Availability can change quickly, so live status should be confirmed at the moment you visit.</p>';
+        }
+        $parts[] = '<p>Private chat options should be read as session-dependent. Safe interactive requests, when supported by approved evidence or live-room controls, can vary by platform and by session; visitors should confirm the current room status before expecting a specific request.</p>';
 
-        $text = implode(' ', $sentences);
+        $parts[] = '<h2>More Pages and Internal Links</h2>';
+        $parts[] = '<p>Continue browsing through <a href="/models/">Browse All Models</a> for similar profiles, use <a href="/videos/">Videos</a> for fresh clips, explore <a href="/photos/">Photos</a> for galleries, and check the <a href="/blog/">Blog</a> for updates and guides. These internal links make it easier to compare profiles without overloading this page with repeated keyword phrases.</p>';
 
-        $fillers = [
-            'Use the navigation and tag filters to discover more performers and clips that match your preferences.',
-            'If you are new here, start with the most popular tags and then explore deeper combinations for long‑tail discoveries.',
-            'For best results, look at both live sessions and recent uploads — this helps you find fresh content faster.',
-            'Bookmark this model page and come back later for updates, new videos, and featured highlights.',
-            'We keep descriptions non‑graphic and focused on categories so the page stays clear, useful, and SEO‑friendly.',
+        $parts[] = '<h2>Similar Models and Comparison Context</h2>';
+        $parts[] = '<p>Comparison is most useful when it is based on visible site signals: shared tags, platform availability, current live-room access, and recent internal content. If this profile is not online, similar model pages can help visitors keep browsing while staying inside verified directory paths.</p>';
+        $parts[] = '<p>The page intentionally avoids inventing private facts. Its purpose is to gather safe context, point to official destinations, and give adults a readable overview that can be updated as platform and tag data changes.</p>';
+
+        $parts[] = '<h2>FAQ</h2>';
+        $parts[] = '<h3>How should I use this verified profile?</h3><p>Use it to compare official access points, approved tags, internal pages, and live-room context before visiting an external destination. The copy is designed to stay practical and non-graphic.</p>';
+        $parts[] = '<h3>Is live availability guaranteed?</h3><p>No. Live status, private chat access, and session options can change throughout the day. Always check the live-room page for the current status.</p>';
+        $parts[] = '<h3>Why are some details not listed?</h3><p>Unsupported personal facts are left out on purpose. The template uses only safe directory context, approved tags, platform data, verified links when present, and existing internal browsing paths.</p>';
+
+        return trim(implode("\n", $parts));
+    }
+
+    private static function template_safe_tag_bits(array $tags, int $limit): array {
+        $bits = [];
+        foreach ($tags as $tag) {
+            $tag = self::normalize_tag((string)$tag);
+            if ($tag === '') continue;
+            $bits[] = $tag;
+        }
+        return array_slice(array_values(array_unique($bits)), 0, $limit);
+    }
+
+    private static function template_platform_labels(array $platforms): array {
+        $labels = [];
+        $map = [
+            'livejasmin' => 'LiveJasmin',
+            'stripchat' => 'Stripchat',
+            'chaturbate' => 'Chaturbate',
+            'myfreecams' => 'MyFreeCams',
+            'camsoda' => 'CamSoda',
+            'bonga' => 'BongaCams',
+            'cam4' => 'Cam4',
         ];
+        foreach ($platforms as $platform) {
+            $key = strtolower(trim((string)$platform));
+            if ($key === '') continue;
+            $labels[] = $map[$key] ?? ucfirst($key);
+        }
+        return array_values(array_unique(array_filter($labels)));
+    }
 
-        $words = preg_split('/\s+/', trim(strip_tags($text)));
-        $count = is_array($words) ? count(array_filter($words)) : 0;
+    private static function template_human_list(array $items): string {
+        $items = array_values(array_filter(array_map(static fn($x) => trim((string)$x), $items), static fn($x) => $x !== ''));
+        $count = count($items);
+        if ($count === 0) return '';
+        if ($count === 1) return $items[0];
+        if ($count === 2) return $items[0] . ' and ' . $items[1];
+        return implode(', ', array_slice($items, 0, -1)) . ', and ' . $items[$count - 1];
+    }
 
-        $i = 0;
-        while ($count < 150 && $i < count($fillers)) {
-            $text .= ' ' . $fillers[$i];
-            $i++;
-            $words = preg_split('/\s+/', trim(strip_tags($text)));
-            $count = is_array($words) ? count(array_filter($words)) : 0;
+    private static function template_word_count(string $html): int {
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES, 'UTF-8');
+        $words = preg_split('/\s+/u', trim($text));
+        return is_array($words) ? count(array_filter($words, static fn($word) => trim((string)$word) !== '')) : 0;
+    }
+
+    private static function expand_template_model_body_if_short(string $html, string $name, array $tags, array $platforms): string {
+        $minimum = (!empty($tags) || !empty($platforms)) ? 600 : 500;
+        if (self::template_word_count($html) >= $minimum) {
+            return trim($html);
         }
 
-        // If still too short (very rare), add a final safe filler paragraph.
-        if ($count < 150) {
-            $text .= ' Explore similar tags to compare styles, and check the model’s profile links for alternate platforms if available.';
+        $tag_bits = self::template_safe_tag_bits($tags, 5);
+        $platform_labels = self::template_platform_labels($platforms);
+        $extras = [];
+
+        if (!empty($tag_bits)) {
+            $extras[] = '<p>For SEO and browsing, the approved tags on this page work best when they are used as gentle context instead of repeated keyword copy. Visitors can compare ' . esc_html(self::template_human_list(array_slice($tag_bits, 0, 3))) . ' with nearby categories, then move to the live-room page to confirm the current session details.</p>';
         }
 
-        // Hard cap to ~250 words.
-        $words = preg_split('/\s+/', trim(strip_tags($text)));
-        if (is_array($words) && count($words) > 250) {
-            $text = implode(' ', array_slice($words, 0, 240)) . '…';
+        if (!empty($platform_labels)) {
+            $extras[] = '<p>Platform data also helps reduce confusion between directory pages and official destinations. If ' . esc_html(self::template_human_list(array_slice($platform_labels, 0, 3))) . ' is listed, use that destination to verify the room status, profile name, and available chat modes before making assumptions from older snippets or cached search results.</p>';
         }
 
-        return self::ensure_internal_links(trim($text));
+        $extras[] = '<p>Internal browsing paths are included so the page remains useful even when the model is offline. The directory, video, photo, and blog links give visitors additional ways to keep exploring while keeping the profile copy grounded in known site structure.</p>';
+        $extras[] = '<p>Evidence-based sections should be read as notes from the latest available profile context, not as permanent promises. If a detail is not supported by approved tags, verified platform data, live-room links, or existing internal pages, the template leaves it out rather than inventing a personal claim.</p>';
+
+        foreach ($extras as $paragraph) {
+            if (self::template_word_count($html) >= $minimum) {
+                break;
+            }
+            $html .= "\n" . $paragraph;
+        }
+
+        return trim($html);
+    }
+
+    private static function weave_template_secondary_keywords(string $html, array $keywords): string {
+        $keywords = array_values(array_unique(array_filter(array_map([__CLASS__, 'normalize_tag'], $keywords))));
+        $keywords = array_slice($keywords, 0, 3);
+        if (empty($keywords)) {
+            return trim($html);
+        }
+
+        $unused = [];
+        foreach ($keywords as $keyword) {
+            if ($keyword === '') continue;
+            if (preg_match('/\b' . preg_quote($keyword, '/') . '\b/i', strip_tags($html))) continue;
+            $unused[] = $keyword;
+        }
+        if (empty($unused)) {
+            return trim($html);
+        }
+
+        $sentence = ' Related browsing signals such as ' . esc_html(self::template_human_list($unused)) . ' may also appear in internal search paths when those terms are supported by approved tags.';
+        $pos = stripos($html, '</p>');
+        if ($pos === false) {
+            return trim($html . $sentence);
+        }
+
+        return trim(substr($html, 0, $pos) . $sentence . substr($html, $pos));
+    }
+
+    private static function reduce_template_focus_keyword_density(string $html, string $focus_keyword): string {
+        $focus_keyword = trim($focus_keyword);
+        if ($focus_keyword === '') {
+            return trim($html);
+        }
+
+        $word_count = max(1, self::template_word_count($html));
+        $allowed = max(3, (int) floor(($word_count * 0.018) / max(1, self::template_word_count($focus_keyword))));
+        $seen = 0;
+
+        $parts = preg_split('/(<[^>]+>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!is_array($parts)) {
+            return trim($html);
+        }
+
+        foreach ($parts as $idx => $part) {
+            if ($part === '' || $part[0] === '<') {
+                continue;
+            }
+
+            $previous = $parts[$idx - 1] ?? '';
+            $in_heading = is_string($previous) && preg_match('/^<h[1-6]\b/i', $previous) === 1;
+
+            $parts[$idx] = preg_replace_callback(
+                '/\b' . preg_quote($focus_keyword, '/') . '\b/u',
+                static function (array $matches) use (&$seen, $allowed, $in_heading): string {
+                    $seen++;
+                    if ($in_heading || $seen <= $allowed) {
+                        return $matches[0];
+                    }
+                    $replacements = ['the model', 'the profile', 'this verified profile', 'the live-room page'];
+                    return $replacements[($seen - $allowed - 1) % count($replacements)];
+                },
+                $part
+            );
+        }
+
+        return trim(implode('', $parts));
     }
 
     private static function ensure_internal_links(string $intro): string {
