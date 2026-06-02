@@ -275,17 +275,17 @@ class ModelResearchEvidence {
 			$parts[] = ( ! empty( $style_phrases ) ? 'The notes also highlight ' : 'The notes highlight ' ) . $acts . '.';
 		}
 
-		// Fallback: no signals matched — produce a safe minimal sentence
-		// that still rewrites (does not copy) the raw evidence.
+		// Fallback: no signals matched — produce a safe minimal editorial
+		// rewrite instead of copying messy first-person or sales wording.
 		if ( empty( $parts ) ) {
 			$word_count = str_word_count( $raw );
 			if ( $word_count < 3 ) {
 				return '';
 			}
-			$parts[] = $name . "'s profile presentation reads as a personable cam delivery with consistent on-camera presence and viewer interaction.";
+			$parts[] = $name . "'s profile notes describe a polished live-cam presence focused on session pacing and viewer engagement.";
 		}
 
-		$parts[] = 'Use these notes as profile context, then recheck the confirmed live room because availability and session details can change.';
+		$parts[] = 'Profile details and live-room availability can change, so recheck the confirmed room before relying on specific session notes.';
 
 		return self::final_humanize( implode( ' ', $parts ) );
 	}
@@ -312,38 +312,53 @@ class ModelResearchEvidence {
 		foreach ( $drop as $p ) {
 			$raw = (string) preg_replace( $p, '', $raw );
 		}
+		$accept_prompt_pattern = '#\\bdo\\s+you\\s+accept\\b\\s*(?:[?:\\-–—]\\s*)*#iu';
+		$raw                   = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
+		$raw                   = (string) preg_replace( $accept_prompt_pattern, '', $raw, -1, $accept_prompt_removed );
+		if ( $accept_prompt_removed > 0 ) {
+			$raw = (string) preg_replace( '#^\\s*[:\\-–—]+\\s*#u', '', $raw );
+		}
 		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
+		if ( $raw === '' ) {
+			return '';
+		}
 
-		$themes = self::extract_turn_on_themes( $raw );
-
-		// Fallback: list-style input — clean each list item.
-		if ( empty( $themes ) ) {
-			foreach ( self::extract_list_items( $raw ) as $item ) {
-				$c = self::clean_token( $item );
-				if ( $c !== '' && str_word_count( $c ) <= 4 ) {
-					$themes[] = $c;
-				}
-				if ( count( $themes ) >= 4 ) {
-					break;
-				}
+		$list_themes = [];
+		foreach ( self::extract_list_items( $raw ) as $item ) {
+			$c = self::clean_token( $item );
+			if ( preg_match( $accept_prompt_pattern, $c ) ) {
+				continue;
 			}
+			if ( self::is_explicit_chat_item( $c ) ) {
+				continue;
+			}
+			if ( $c !== '' && str_word_count( $c ) <= 4 ) {
+				$list_themes[] = self::format_chat_item_label( self::canonicalise_chat_item( $c ) );
+			}
+			if ( count( $list_themes ) >= 4 ) {
+				break;
+			}
+		}
+
+		$themes = count( $list_themes ) > 1 ? $list_themes : self::extract_turn_on_themes( $raw );
+
+		// Fallback: list-style input — keep a single safe short item if that is all the field provides.
+		if ( empty( $themes ) && ! empty( $list_themes ) ) {
+			$themes = $list_themes;
 		}
 
 		if ( empty( $themes ) ) {
 			return self::final_humanize(
-				'Highlighted turn-on themes include fantasy-driven interaction and close-camera attention.'
+				'Her profile notes highlight an interactive approach to viewer engagement and session participation.'
 			);
 		}
 
 		$themes  = array_values( array_slice( array_unique( $themes ), 0, 4 ) );
 
-		// Choose a self-sufficient opener that does NOT need a trailing
-		// "as core turn-on themes" tag (the old phrasing produced
-		// "Highlighted turn-on themes include ... as core turn-on themes.").
 		$openers = [
-			'Highlighted turn-on themes include ',
-			'The notes describe ',
-			'The verified notes point to ',
+			'Her listed interests emphasize ',
+			'The profile describes an interest in ',
+			'Her turn-on notes highlight ',
 		];
 		$opener = $openers[ ( strlen( $themes[0] ) ) % count( $openers ) ];
 
@@ -352,26 +367,14 @@ class ModelResearchEvidence {
 
 	public static function humanize_private_chat( string $raw ): string {
 		$items = self::filter_private_chat_items( $raw );
-		$raw_items = self::extract_list_items( self::prepare_raw( $raw ) );
-		$explicit_count = 0;
-		foreach ( $raw_items as $raw_item ) {
-			if ( self::is_explicit_chat_item( self::clean_token( $raw_item ) ) ) {
-				$explicit_count++;
-			}
-		}
-
-		if ( $explicit_count > 0 || count( $raw_items ) > 8 ) {
-			return self::final_humanize(
-				'The verified notes point to private-chat availability, interactive requests, roleplay-style options, and media/chat features. '
-				. 'Availability can vary by session, so check the confirmed room before assuming a specific option is offered.'
-			);
-		}
-
 		if ( empty( $items ) ) {
 			return '';
 		}
+
+		$items = array_map( [ self::class, 'format_chat_item_label' ], array_slice( $items, 0, 8 ) );
+
 		return self::final_humanize(
-			'Private chat options listed in the evidence include ' . self::natural_list( array_slice( $items, 0, 3 ) ) . '. '
+			'Private chat notes list ' . self::natural_list( $items ) . ' as available request areas. '
 			. 'Availability can vary by session, so check the confirmed room before assuming a specific option is offered.'
 		);
 	}
@@ -540,7 +543,7 @@ class ModelResearchEvidence {
 	 */
 	private static function extract_list_items( string $text ): array {
 		$text = (string) preg_replace( '#[•·●◦▪‣]#u', ',', $text );
-		$parts = preg_split( '#[,;\\n\\r]+#', $text ) ?: [];
+		$parts = preg_split( '#[,;/\\n\\r]+#', $text ) ?: [];
 		$out = [];
 		foreach ( $parts as $p ) {
 			$p = trim( (string) $p );
@@ -592,7 +595,7 @@ class ModelResearchEvidence {
 			'cameltoe', 'pussy', 'tit fuck', 'titty fuck',
 			'blowjob', 'handjob', 'facial', 'piss', 'pee', 'scat',
 			'bbc', 'bukkake', 'butt plug', 'butt plugs', 'dildo', 'fingering',
-			'love bead', 'love beads', 'vibrator', 'joi', 'pov', 'foot fetish',
+			'love bead', 'love beads', 'vibrator', 'joi', 'pov',
 		];
 		$lc = strtolower( $item );
 		foreach ( $blocked as $bad ) {
@@ -617,6 +620,30 @@ class ModelResearchEvidence {
 			$item = (string) preg_replace( $pattern, $replacement, $item );
 		}
 		return $item;
+	}
+
+
+	private static function format_chat_item_label( string $item ): string {
+		$labels = [
+			'asmr'        => 'ASMR',
+			'c2c'         => 'C2C',
+			'roleplay'    => 'Roleplay',
+			'cosplay'     => 'Cosplay',
+			'striptease'  => 'Striptease',
+			'dancing'     => 'Dancing',
+			'close up'    => 'Close up',
+			'foot fetish' => 'Foot Fetish',
+			'oil'         => 'Oil',
+			'twerk'       => 'Twerk',
+			'snapshot'    => 'Snapshot',
+			'high heels'  => 'High Heels',
+			'stockings'   => 'Stockings',
+		];
+		$key = strtolower( trim( $item ) );
+		if ( isset( $labels[ $key ] ) ) {
+			return $labels[ $key ];
+		}
+		return ucwords( $key );
 	}
 
 	private static function natural_list( array $items ): string {

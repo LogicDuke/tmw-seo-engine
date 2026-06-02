@@ -56,6 +56,7 @@ namespace {
     if (!function_exists('home_url')) { function home_url(string $path = ''): string { return 'https://example.test/' . ltrim($path, '/'); } }
     if (!function_exists('get_bloginfo')) { function get_bloginfo(string $show = ''): string { return 'Smoke Site'; } }
     if (!function_exists('get_post_meta')) { function get_post_meta(int $post_id, string $key = '', bool $single = false) { return ''; } }
+    if (!function_exists('get_posts')) { function get_posts(array $args = []): array { return []; } }
     if (!function_exists('update_post_meta')) { function update_post_meta(...$args) { $GLOBALS['pr607_db_writes'][] = ['update_post_meta', $args]; return true; } }
     if (!function_exists('wp_update_post')) { function wp_update_post(...$args) { $GLOBALS['pr607_db_writes'][] = ['wp_update_post', $args]; return 1; } }
     if (!class_exists('WP_Post')) { class WP_Post { public int $ID = 607; public string $post_title = 'Julieta Montesco'; } }
@@ -142,13 +143,18 @@ namespace {
 
     $explicit_raw = 'butt plugs, close up, dancing, dildo, fingering, love beads, oil, roleplay, striptease, vibrator, POV, foot fetish, snapshot, and JOI.';
     $private_text = ModelResearchEvidence::humanize_private_chat($explicit_raw);
+    pr607_assert($private_text !== '', 'Private-chat evidence should render non-empty output when safe filtered evidence exists.');
     pr607_assert(!str_contains($private_text, $explicit_raw), 'Private-chat evidence should not dump the full raw explicit list.');
-    pr607_assert(str_contains($private_text, 'private-chat themes') && str_contains($private_text, 'interactive show requests'), 'Private-chat evidence should use grouped humanized wording.');
-    $explicit_mentions = 0;
-    foreach (['butt plugs', 'dildo', 'fingering', 'vibrator', 'JOI', 'POV', 'foot fetish'] as $explicit) {
-        if (stripos($private_text, $explicit) !== false) { $explicit_mentions++; }
+    foreach (['Close up', 'Dancing', 'Oil', 'Roleplay', 'Striptease', 'Foot Fetish', 'Snapshot'] as $safe_item) {
+        pr607_assert(str_contains($private_text, $safe_item), 'Private-chat evidence should preserve safe item: ' . $safe_item);
     }
-    pr607_assert($explicit_mentions <= 3, 'Humanized private-chat wording should not show more than three explicit examples.');
+    foreach (['butt plugs', 'dildo', 'fingering', 'love beads', 'vibrator', 'JOI', 'POV'] as $explicit) {
+        pr607_assert(stripos($private_text, $explicit) === false, 'Private-chat evidence should filter unsafe item: ' . $explicit);
+    }
+    foreach (['The verified notes' . ' point to', 'personable cam ' . 'delivery', 'do you ' . 'accept', 'Use these notes as profile ' . 'context'] as $forbidden) {
+        pr607_assert(stripos($private_text, $forbidden) === false, 'Private-chat evidence should not include forbidden wording: ' . $forbidden);
+    }
+    pr607_assert(!str_contains($private_text, 'private-chat availability, interactive requests, roleplay-style options, and media/chat features'), 'Private-chat evidence should not use the old generic collapse sentence.');
 
     pr607_assert(!str_contains($html, 'Feature check for how to join live cam chat'), 'Robotic feature heading should be removed.');
     pr607_assert(!str_contains($html, 'Confirmed Official Profile Link and live webcam chat tips'), 'Robotic official-link heading should be removed.');
