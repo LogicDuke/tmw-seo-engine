@@ -690,4 +690,48 @@ class ModelPageRendererTest extends TestCase {
         $this->assertStringNotContainsString('nofollow', $html);
     }
 
+
+    public function test_aisha_platform_rankmath_candidates_dedupe_alias_wins(): void {
+        $method = new \ReflectionMethod(\TMWSEO\Engine\Keywords\ModelKeywordPack::class, 'rankmath_ordered_platform_candidates');
+        $method->setAccessible(true);
+
+        $ordered = $method->invoke(null, [
+            'alias_keywords' => ['ohhaisha stripchat'],
+            'main_keywords'  => ['aisha dupont livejasmin', 'aisha dupont stripchat'],
+        ], [
+            'ohhaisha stripchat'       => 950,
+            'aisha dupont livejasmin'  => 900,
+            'aisha dupont stripchat'   => 1200,
+        ], '4420|Aisha Dupont|livejasmin,stripchat');
+
+        $this->assertContains('ohhaisha stripchat', $ordered);
+        $this->assertContains('aisha dupont livejasmin', $ordered);
+        $this->assertNotContains('aisha dupont stripchat', $ordered);
+        $this->assertNotContains('ohhaisha chaturbate', $ordered);
+        $this->assertLessThanOrEqual(4, count($ordered));
+    }
+
+    public function test_instructional_phrase_guard_blocks_rankmath_extra_candidates(): void {
+        $this->assertTrue(\TMWSEO\Engine\Keywords\PageTypeKeywordFilter::is_unsafe_model_seo_phrase('how to join a live session'));
+        $this->assertEmpty(\TMWSEO\Engine\Keywords\PageTypeKeywordFilter::filter_for_model_page(['how to join a live session']));
+    }
+
+    public function test_instructional_phrase_guard_blocks_model_content_heading(): void {
+        $payload = self::base_payload('Aisha Dupont');
+        $payload['focus_keyword'] = 'how to join a live session';
+        $payload['secondary_heading_slots']['features'] = ['how to join a live session'];
+
+        $html = self::render($payload, 'Aisha Dupont');
+
+        $this->assertStringNotContainsString('Live Chat Experience for how to join a live session', $html);
+        $this->assertStringContainsString('Live Chat Experience for Aisha Dupont', $html);
+    }
+
+    public function test_safe_livejasmin_model_phrases_are_not_blocked(): void {
+        $this->assertFalse(\TMWSEO\Engine\Keywords\PageTypeKeywordFilter::is_unsafe_model_seo_phrase('aisha dupont livejasmin'));
+        $this->assertFalse(\TMWSEO\Engine\Keywords\PageTypeKeywordFilter::is_unsafe_model_seo_phrase('livejasmin anisyia'));
+        $this->assertSame(['aisha dupont livejasmin', 'livejasmin anisyia'], \TMWSEO\Engine\Keywords\PageTypeKeywordFilter::filter_for_model_page(['aisha dupont livejasmin', 'livejasmin anisyia']));
+    }
+
+
 }

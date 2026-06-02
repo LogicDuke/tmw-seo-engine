@@ -1001,12 +1001,16 @@ class ModelKeywordPack {
         $seed = $post_id . '|' . self::normalize_keyword($model_name) . '|' . implode(',', $platform_slugs) . '|' . implode(',', $tag_slugs);
         $model_prefix = self::keyword_key($model_name);
 
-        $append = function(array $keywords, string $bucket) use (&$result, $classified_exclusions, $model_name): void {
+        $append = function(array $keywords, string $bucket) use (&$result, $classified_exclusions, $model_name, $post_id): void {
             foreach ($keywords as $keyword) {
                 if (count($result['final']) >= 4) {
                     break;
                 }
                 $clean = self::normalize_keyword((string) $keyword);
+                if (PageTypeKeywordFilter::is_unsafe_model_seo_phrase($clean)) {
+                    self::debug_model_seo_copy_guard($post_id, $model_name, $clean, 'instructional_model_seo_phrase', $bucket, $model_name, $result['final']);
+                    continue;
+                }
                 if (!self::is_safe_rankmath_extra($clean, $classified_exclusions, $model_name)) {
                     continue;
                 }
@@ -1103,6 +1107,7 @@ class ModelKeywordPack {
         $result['verified_platforms_used'] = self::verified_tokens_used_by_keywords($result['platform_used'], self::verified_rankmath_platform_keywords($platform_slugs));
         $result['verified_tags_used'] = self::verified_tokens_used_by_keywords($result['tag_attribute_used'], self::verified_rankmath_attribute_phrases($tag_slugs));
         self::debug_rankmath_platform_keywords($post_id, $model_name, $platform_keyword_plan, $result);
+        self::debug_model_seo_copy_guard($post_id, $model_name, '', 'final_selection', 'rankmath extras', $model_name, $result['final']);
 
         unset($result['_seen']);
         return $result;
@@ -1260,7 +1265,7 @@ class ModelKeywordPack {
         if (self::keyword_key($primary) !== '' && $key === self::keyword_key($primary)) {
             return false;
         }
-        if (self::is_broad_standalone_rankmath_extra($clean) || PageTypeKeywordFilter::is_unsafe($clean)) {
+        if (self::is_broad_standalone_rankmath_extra($clean) || PageTypeKeywordFilter::is_unsafe($clean) || PageTypeKeywordFilter::is_unsafe_model_seo_phrase($clean)) {
             return false;
         }
         return PageTypeKeywordFilter::filter_for_model_page([ $clean ]) !== [];
@@ -1364,16 +1369,43 @@ class ModelKeywordPack {
     /** @param array<string,int> $platform_candidates @param array<string,mixed> $plan @return string[] */
     private static function rankmath_ordered_platform_candidates(array $plan, array $platform_candidates, string $seed): array {
         $ordered = [];
-        foreach (array_merge((array) ($plan['alias_keywords'] ?? []), (array) ($plan['main_keywords'] ?? [])) as $keyword) {
-            $clean = self::normalize_keyword((string) $keyword);
-            if ($clean !== '' && array_key_exists($clean, $platform_candidates)) {
-                $ordered[] = $clean;
+        $selected_platforms = [];
+        $append = function(string $keyword) use (&$ordered, &$selected_platforms, $platform_candidates): void {
+            $clean = self::normalize_keyword($keyword);
+            if ($clean === '' || !array_key_exists($clean, $platform_candidates)) {
+                return;
             }
+            $platform = self::rankmath_platform_from_keyword($clean);
+            if ($platform !== '' && isset($selected_platforms[$platform])) {
+                return;
+            }
+            if ($platform !== '') {
+                $selected_platforms[$platform] = true;
+            }
+            $ordered[] = $clean;
+        };
+
+        foreach (array_merge((array) ($plan['alias_keywords'] ?? []), (array) ($plan['main_keywords'] ?? [])) as $keyword) {
+            $append((string) $keyword);
         }
         foreach (self::rotate_scored_keywords($platform_candidates, 4, $seed . '|platform-pool') as $keyword) {
-            $ordered[] = $keyword;
+            $append((string) $keyword);
         }
         return self::dedupe_keywords($ordered);
+    }
+
+    private static function rankmath_platform_from_keyword(string $keyword): string {
+        $key = self::keyword_key($keyword);
+        if ($key === '') {
+            return '';
+        }
+        foreach (self::RANKMATH_CAM_PLATFORM_ALLOWLIST as $platform) {
+            $platform_key = self::keyword_key($platform);
+            if ($platform_key !== '' && preg_match('/(^|\s)' . preg_quote($platform_key, '/') . '(\s|$)/u', $key) === 1) {
+                return $platform;
+            }
+        }
+        return '';
     }
 
     /** @return string[] */
@@ -1507,6 +1539,22 @@ class ModelKeywordPack {
             }
         }
         return array_values(array_unique($excluded));
+    }
+
+    /** @param string[] $final_extras */
+    private static function debug_model_seo_copy_guard(int $post_id, string $model_title, string $phrase, string $reason, string $source_bucket, string $final_heading_keyword, array $final_extras): void {
+        if (!class_exists(Settings::class) || !(bool) Settings::get('debug_mode', false)) {
+            return;
+        }
+        Logs::debug('keywords', '[TMW-SEO-COPY-GUARD] Model SEO keyword guard', [
+            'post_id' => $post_id,
+            'model_title' => $model_title,
+            'rejected_keyword_phrase' => $phrase,
+            'rejection_reason' => $reason,
+            'source_bucket' => $source_bucket,
+            'final_selected_heading_keyword' => $final_heading_keyword,
+            'final_rank_math_extras' => $final_extras,
+        ]);
     }
 
     /** @param array<string,mixed> $plan @param array<string,mixed> $result */
