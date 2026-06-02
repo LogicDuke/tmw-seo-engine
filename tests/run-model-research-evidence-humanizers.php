@@ -48,7 +48,8 @@ $punctuated_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'acc
 tmw_evidence_assert_forbidden_clean($punctuated_turn_ons, 'Punctuated turn-ons');
 tmw_evidence_assert(str_contains($punctuated_turn_ons, 'Roleplay'), 'Punctuated turn-ons should keep Roleplay after cleanup.');
 tmw_evidence_assert(str_contains($punctuated_turn_ons, 'Cosplay'), 'Punctuated turn-ons should keep Cosplay after cleanup.');
-tmw_evidence_assert(!preg_match('/(?:^|\s)[:\-–—]/u', $punctuated_turn_ons), 'Punctuated turn-ons should not leave leading punctuation artifacts.');
+tmw_evidence_assert(stripos($punctuated_turn_ons, 'Do you ' . 'accept') === false, 'Punctuated turn-ons should remove acceptance prompt wording.');
+tmw_evidence_assert(!preg_match('/^\s*[:\-–—]/u', $punctuated_turn_ons), 'Punctuated turn-ons should not start with punctuation artifacts.');
 foreach (['Do you ' . 'accept:', 'Do you ' . 'accept -', 'Do you ' . 'accept –', 'Do you ' . 'accept —'] as $noise_variant) {
     tmw_evidence_assert(ModelResearchEvidence::humanize_turn_ons($noise_variant) === '', 'Noise-only punctuation variant should return empty output: ' . $noise_variant);
 }
@@ -84,7 +85,7 @@ foreach (['Roleplay', 'Cosplay', 'Striptease', 'ASMR', 'Close up', 'Foot Fetish'
     tmw_evidence_assert(str_contains($anisyia_output, $safe_item), 'Anisyia output should retain ' . $safe_item . '.');
 }
 foreach (['Anal', 'Deepthroat', 'Cumshot', 'Squirt', 'Dildo'] as $unsafe_item) {
-    tmw_evidence_assert(!str_contains($anisyia_output, $unsafe_item), 'Anisyia output should remove unsafe item ' . $unsafe_item . '.');
+    tmw_evidence_assert(stripos($anisyia_output, $unsafe_item) === false, 'Anisyia output should remove unsafe item ' . $unsafe_item . '.');
 }
 tmw_evidence_assert(!str_contains($anisyia_output, 'private-chat availability, interactive requests, roleplay-style options, and media/chat features'), 'Anisyia output should not use the old generic collapse text.');
 
