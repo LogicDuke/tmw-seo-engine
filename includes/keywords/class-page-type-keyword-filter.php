@@ -32,6 +32,21 @@ class PageTypeKeywordFilter {
     ];
 
     /** @var string[] */
+    private const MODEL_INSTRUCTIONAL_BLOCKED_PATTERNS = [
+        'how to',
+        'join a live session',
+        'live session',
+        'live show schedule',
+        'schedule',
+        'pricing',
+        'earnings',
+        'requirements',
+        'account setup',
+        'payment method',
+        'free credits',
+        'customer support',
+    ];
+
     private const MODEL_BLOCKED_PATTERNS = [
         'webcam video',
         'live webcam clip',
@@ -104,6 +119,10 @@ class PageTypeKeywordFilter {
         return self::contains_any_pattern( $keyword, self::UNSAFE_TERMS );
     }
 
+    public static function is_unsafe_model_seo_phrase( string $keyword ): bool {
+        return self::contains_any_pattern( $keyword, self::MODEL_INSTRUCTIONAL_BLOCKED_PATTERNS );
+    }
+
     /**
      * Model pages keep entity/profile intent and drop video/session/show intent.
      *
@@ -111,7 +130,7 @@ class PageTypeKeywordFilter {
      * @return string[]
      */
     public static function filter_for_model_page( array $keywords ): array {
-        return self::filter_keywords( $keywords, self::MODEL_BLOCKED_PATTERNS, true );
+        return self::filter_keywords( $keywords, array_merge( self::MODEL_BLOCKED_PATTERNS, self::MODEL_INSTRUCTIONAL_BLOCKED_PATTERNS ), true );
     }
 
     /**

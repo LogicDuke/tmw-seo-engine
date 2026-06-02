@@ -1,6 +1,10 @@
 <?php
 namespace TMWSEO\Engine\Content;
 
+use TMWSEO\Engine\Keywords\PageTypeKeywordFilter;
+use TMWSEO\Engine\Logs;
+use TMWSEO\Engine\Services\Settings;
+
 if (!defined('ABSPATH')) { exit; }
 
 class ModelPageRenderer {
@@ -15,9 +19,14 @@ class ModelPageRenderer {
         if ($focus_keyword === '') {
             $focus_keyword = $name;
         }
+        $post_id = max(0, (int) ($payload['post_id'] ?? $payload['model_post_id'] ?? 0));
+        if (self::is_unsafe_model_seo_phrase($focus_keyword)) {
+            self::debug_copy_guard($post_id, $name, $focus_keyword, 'instructional_model_seo_phrase', 'content heading', $name, []);
+            $focus_keyword = $name;
+        }
 
         $sections = [];
-        $secondary_heading_slots = self::normalize_secondary_heading_slots($payload['secondary_heading_slots'] ?? []);
+        $secondary_heading_slots = self::normalize_secondary_heading_slots($payload['secondary_heading_slots'] ?? [], $name, $post_id);
         $has_link_evidence_guard = array_key_exists('link_evidence_summary', $payload);
         $link_evidence = self::normalize_link_evidence_summary($payload['link_evidence_summary'] ?? []);
         if ($has_link_evidence_guard) {
@@ -238,6 +247,38 @@ class ModelPageRenderer {
         return trim((string) preg_replace('/\n{3,}/', "\n\n", $html));
     }
 
+    public static function is_unsafe_model_seo_phrase(string $phrase): bool {
+        if (class_exists(PageTypeKeywordFilter::class)) {
+            return PageTypeKeywordFilter::is_unsafe_model_seo_phrase($phrase);
+        }
+        $normalized = strtolower(wp_strip_all_tags($phrase));
+        $normalized = preg_replace('/[\-_\/\.]+/u', ' ', $normalized);
+        $normalized = preg_replace('/[^a-z0-9\s]+/u', ' ', (string) $normalized);
+        $normalized = trim((string) preg_replace('/\s+/u', ' ', (string) $normalized));
+        foreach (['how to', 'join a live session', 'live session', 'live show schedule', 'schedule', 'pricing', 'earnings', 'requirements', 'account setup', 'payment method', 'free credits', 'customer support'] as $needle) {
+            if (preg_match('/(^|\s)' . preg_quote($needle, '/') . '(\s|$)/u', $normalized) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param string[] $final_extras */
+    private static function debug_copy_guard(int $post_id, string $model_title, string $phrase, string $reason, string $source_bucket, string $final_heading_keyword, array $final_extras): void {
+        if (!class_exists(Settings::class) || !(bool) Settings::get('debug_mode', false)) {
+            return;
+        }
+        Logs::debug('keywords', '[TMW-SEO-COPY-GUARD] Rejected model SEO copy keyword phrase', [
+            'post_id' => $post_id,
+            'model_title' => $model_title,
+            'rejected_keyword_phrase' => $phrase,
+            'rejection_reason' => $reason,
+            'source_bucket' => $source_bucket,
+            'final_selected_heading_keyword' => $final_heading_keyword,
+            'final_rank_math_extras' => $final_extras,
+        ]);
+    }
+
     private static function heading_with_focus(string $base, string $focus_keyword, string $name): string {
         $focus_keyword = trim($focus_keyword);
         if ($focus_keyword === '' || mb_strtolower($focus_keyword, 'UTF-8') === mb_strtolower($name, 'UTF-8')) {
@@ -248,7 +289,7 @@ class ModelPageRenderer {
 
     private static function append_secondary_heading_phrase(string $heading, string $phrase): string {
         $phrase = trim($phrase);
-        if ($phrase === '') {
+        if ($phrase === '' || self::is_unsafe_model_seo_phrase($phrase)) {
             return $heading;
         }
         if (preg_match('/\b' . preg_quote($phrase, '/') . '\b/iu', $heading)) {
@@ -264,7 +305,7 @@ class ModelPageRenderer {
      * @param mixed $raw
      * @return array<string,array<int,string>>
      */
-    private static function normalize_secondary_heading_slots($raw): array {
+    private static function normalize_secondary_heading_slots($raw, string $name = '', int $post_id = 0): array {
         if (!is_array($raw)) {
             return [];
         }
@@ -280,7 +321,18 @@ class ModelPageRenderer {
             if (!is_array($phrases)) {
                 continue;
             }
-            $clean = array_values(array_filter(array_map(static fn($phrase): string => trim((string) $phrase), $phrases), 'strlen'));
+            $clean = [];
+            foreach ($phrases as $phrase) {
+                $phrase = trim((string) $phrase);
+                if ($phrase === '') {
+                    continue;
+                }
+                if (self::is_unsafe_model_seo_phrase($phrase)) {
+                    self::debug_copy_guard($post_id, $name, $phrase, 'instructional_model_seo_phrase', 'content heading', $name, []);
+                    continue;
+                }
+                $clean[] = $phrase;
+            }
             if (!empty($clean)) {
                 $out[$slot] = array_values(array_unique($clean));
             }
@@ -296,6 +348,9 @@ class ModelPageRenderer {
     private static function build_secondary_subheadings(array $phrases, int $offset, string $prefix): array {
         $out = [];
         foreach (array_slice($phrases, $offset) as $phrase) {
+            if (self::is_unsafe_model_seo_phrase((string) $phrase)) {
+                continue;
+            }
             $out[] = trim($prefix . ' ' . $phrase);
         }
         return $out;
@@ -486,7 +541,7 @@ class ModelPageRenderer {
         $html = preg_replace('/<p>\s*For\s+[^<.]+?\s+access,\s*confirm handle consistency and recent room activity before joining\.\s*<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the confirmed live room and use the verified links below for profile checks.', $html) ?: $html;
         $html = str_replace('Official Links and Profiles and LiveJasmin profile', 'Official Links and Profiles', $html);
-        $html = str_replace(['use additional the links', 'Use additional the links'], ['use the additional links', 'Use the additional links'], $html);
+        $html = str_replace(['use additional the links', 'Use additional the links', 'Use the the links below below', 'use the the links below below'], ['use the additional links', 'Use the additional links', 'Use the links below', 'use the links below'], $html);
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
         $html = self::remove_duplicate_heading_text($html, 'Before You Click');
