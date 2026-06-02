@@ -39,7 +39,7 @@ function tmw_evidence_assert_forbidden_clean(string $text, string $label): void 
 }
 
 
-foreach (['?', ':', ' -', ' –', ' —'] as $noise_suffix) {
+foreach (['', '?', ':', ' -', ' –', ' —'] as $noise_suffix) {
     $noise_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept' . $noise_suffix);
     tmw_evidence_assert($noise_turn_ons === '', 'Noise-only turn-ons should return an empty string for suffix: ' . $noise_suffix);
 }

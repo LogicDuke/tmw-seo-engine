@@ -312,7 +312,7 @@ class ModelResearchEvidence {
 		foreach ( $drop as $p ) {
 			$raw = (string) preg_replace( $p, '', $raw );
 		}
-		$accept_prompt_pattern = '#\\bdo\\s+you\\s+accept\\s*(?:[?:\\-–—]\\s*)*#iu';
+		$accept_prompt_pattern = '#\\bdo\\s+you\\s+accept\\b\\s*(?:[?:\\-–—]\\s*)*#iu';
 		$raw                   = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
 		$raw                   = (string) preg_replace( $accept_prompt_pattern, '', $raw, -1, $accept_prompt_removed );
 		if ( $accept_prompt_removed > 0 ) {
