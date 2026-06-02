@@ -676,7 +676,7 @@ class ModelKeywordPack {
                 'is_active' => $is_active,
                 'eligible_for_rankmath' => true,
                 'profile_slug' => self::extract_verified_link_profile_slug((string) ($link['url'] ?? ''), $platform),
-                'url_log' => self::safe_verified_link_url_for_log((string) ($link['url'] ?? '')),
+                'url_log' => self::safe_debug_url((string) ($link['url'] ?? '')),
             ];
         }
 
@@ -729,18 +729,22 @@ class ModelKeywordPack {
     }
 
     private static function normalize_verified_link_activity($value, bool $is_active): string {
-        $raw = trim((string) $value);
+        $raw = strtolower(trim((string) $value));
         if ($raw === '') {
             return $is_active ? 'active' : 'inactive';
         }
-        $normalized = strtolower($raw);
-        $normalized = preg_replace('/[^a-z0-9]+/i', '_', (string) $normalized);
+
+        $normalized = str_replace([ '-', ' ' ], '_', $raw);
+        $normalized = preg_replace('/[^a-z0-9_]+/i', '_', (string) $normalized);
         $normalized = trim((string) $normalized, '_');
         if ($normalized === 'inactive') {
             return 'inactive';
         }
-        if (in_array($normalized, [ 'very_active', 'active' ], true)) {
-            return $normalized;
+        if ($normalized === 'very_active') {
+            return 'very_active';
+        }
+        if ($normalized === 'active') {
+            return 'active';
         }
         return $is_active ? 'active' : 'inactive';
     }
@@ -1426,7 +1430,7 @@ class ModelKeywordPack {
     }
 
 
-    private static function safe_verified_link_url_for_log(string $url): string {
+    private static function safe_debug_url(string $url): string {
         $url = trim($url);
         if ($url === '') {
             return '';
@@ -1472,7 +1476,7 @@ class ModelKeywordPack {
                 'activity_level' => $activity,
                 'is_active' => $is_active,
                 'eligible_for_rankmath' => $eligible,
-                'url_log' => self::safe_verified_link_url_for_log((string) ($link['url'] ?? '')),
+                'url_log' => self::safe_debug_url((string) ($link['url'] ?? '')),
                 'profile_slug' => $profile_slug,
                 'alias_match' => $matched_alias !== '',
                 'matched_alias' => $matched_alias,
