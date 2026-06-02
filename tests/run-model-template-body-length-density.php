@@ -12,15 +12,15 @@ namespace TMWSEO\Engine\Model {
                 [
                     'type' => 'livejasmin',
                     'label' => 'LiveJasmin',
-                    'url' => 'https://www.livejasmin.com/en/chat/abby-murray',
+                    'url' => 'https://www.livejasmin.com/en/chat/anisyia',
                     'is_primary' => true,
                     'is_active' => true,
                     'activity_level' => 'active',
                 ],
                 [
-                    'type' => 'stripchat',
-                    'label' => 'Stripchat',
-                    'url' => 'https://stripchat.com/AbbyMurray',
+                    'type' => 'fansly',
+                    'label' => 'Fansly',
+                    'url' => 'https://fansly.com/Anisyia',
                     'is_primary' => false,
                     'is_active' => true,
                     'activity_level' => 'active',
@@ -28,7 +28,7 @@ namespace TMWSEO\Engine\Model {
                 [
                     'type' => 'twitter',
                     'label' => 'Twitter / X',
-                    'url' => 'https://x.com/AbbyMurray',
+                    'url' => 'https://x.com/Anisyia',
                     'is_primary' => false,
                     'is_active' => true,
                     'activity_level' => 'active',
@@ -49,12 +49,12 @@ namespace TMWSEO\Engine\Platform {
         public static function canonical_platform_slug(string $platform): string { return strtolower($platform); }
     }
     class PlatformRegistry {
-        public static function get(string $platform): array { return ['name' => $platform === 'livejasmin' ? 'LiveJasmin' : ucfirst($platform), 'group' => 'cam']; }
+        public static function get(string $platform): array { return ['name' => $platform === 'livejasmin' ? 'LiveJasmin' : ucfirst($platform), 'group' => $platform === 'livejasmin' ? 'cam' : 'social']; }
     }
     class PlatformProfiles {
         public static function sync_to_table(int $post_id): void {}
         public static function get_links(int $post_id): array { return []; }
-        public static function extract_username_from_profile_url(string $platform, string $url): string { return 'abby-murray'; }
+        public static function extract_username_from_profile_url(string $platform, string $url): string { return 'anisyia'; }
     }
 }
 
@@ -95,10 +95,10 @@ namespace {
     if (!function_exists('get_bloginfo')) { function get_bloginfo(string $show = ''): string { return 'Smoke Site'; } }
     if (!function_exists('get_transient')) { function get_transient(string $key) { return false; } }
     if (!function_exists('set_transient')) { function set_transient(string $key, $value, int $expiration = 0): bool { return true; } }
-    if (!function_exists('get_posts')) { function get_posts(array $args = []): array { return []; } }
-    if (!function_exists('get_the_title')) { function get_the_title($post = 0): string { return 'Abby Murray'; } }
-    if (!function_exists('get_permalink')) { function get_permalink($post = 0): string { return 'https://example.test/models/abby-murray/'; } }
-    if (!function_exists('get_post_field')) { function get_post_field(string $field, int $post_id): string { return $field === 'post_name' ? 'abby-murray' : ''; } }
+    if (!function_exists('get_posts')) { function get_posts(array $args = []): array { $p = new stdClass(); $p->ID = 971; $p->post_title = 'Anisyia live video'; $p->post_date = '2026-01-01 00:00:00'; return [$p]; } }
+    if (!function_exists('get_the_title')) { function get_the_title($post = 0): string { return (int) $post === 971 ? 'Anisyia live video' : 'Anisyia'; } }
+    if (!function_exists('get_permalink')) { function get_permalink($post = 0): string { return (int) $post === 971 ? 'https://example.test/videos/anisyia-live-video/' : 'https://example.test/models/anisyia/'; } }
+    if (!function_exists('get_post_field')) { function get_post_field(string $field, int $post_id): string { return $field === 'post_name' ? 'anisyia' : ''; } }
     if (!function_exists('get_the_terms')) { function get_the_terms($post, string $taxonomy) { return false; } }
     if (!function_exists('is_wp_error')) { function is_wp_error($thing): bool { return false; } }
     if (!function_exists('sanitize_title_with_dashes')) { function sanitize_title_with_dashes(string $title): string { return trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($title)), '-'); } }
@@ -106,13 +106,12 @@ namespace {
     if (!function_exists('get_post_meta')) {
         function get_post_meta(int $post_id, string $key = '', bool $single = false) {
             $meta = [
-                '_tmwseo_seed_external_bio' => 'Abby Murray is described by operator notes as friendly, fashion-focused, and consistent with dancing and close-up profile themes.',
+                '_tmwseo_seed_external_bio' => 'Anisyia is described by operator notes as friendly, fashion-focused, and consistent with dancing and close-up profile themes.',
                 '_tmwseo_seed_external_turn_ons' => 'Dancing, close up, roleplay, oil, twerk, striptease, and fashion looks.',
-                '_tmwseo_seed_external_private_chat' => 'Striptease, Dancing, Close up, Roleplay, Oil, Twerk, snapshot, private chat sessions.',
+                '_tmwseo_seed_external_private_chat' => 'Love Beads, Beads, Striptease, Dancing, Strap-on, Foot Fetish, Close up, Roleplay, Oil, Snapshot.',
                 '_tmwseo_editor_seed_tags' => 'Striptease, Dancing, Close up, Roleplay, Oil, Twerk',
-                '_tmwseo_editor_seed_summary' => 'Operator seed notes confirm Abby Murray profile context and safe private-chat themes.',
-                '_tmwseo_platform_username_livejasmin' => 'abby-murray',
-                '_tmwseo_platform_username_stripchat' => 'AbbyMurray',
+                '_tmwseo_editor_seed_summary' => 'Operator seed notes confirm Anisyia profile context and safe private-chat themes.',
+                '_tmwseo_platform_username_livejasmin' => 'anisyia',
             ];
 
             return $meta[$key] ?? '';
@@ -121,8 +120,8 @@ namespace {
     if (!class_exists('WP_Post')) {
         class WP_Post {
             public int $ID = 636;
-            public string $post_title = 'Abby Murray';
-            public string $post_name = 'abby-murray';
+            public string $post_title = 'Anisyia';
+            public string $post_name = 'anisyia';
             public string $post_type = 'model';
             public string $post_status = 'draft';
         }
@@ -138,22 +137,22 @@ namespace {
 
     $post = new WP_Post();
     $result = \TMWSEO\Engine\Content\TemplateContent::build_model($post, [
-        'primary' => 'Abby Murray',
+        'primary' => 'Anisyia',
         'additional' => [
-            'Abby Murray LiveJasmin',
-            'Abby Murray private chat',
-            'Abby Murray live cam',
-            'Abby Murray webcam chat',
+            'anisyia livejasmin',
+            'anisyia live',
+            'livejasmin anisyia',
+            'anisyia camsoda',
         ],
         'rankmath_additional' => [
-            'Abby Murray LiveJasmin',
-            'Abby Murray private chat',
-            'Abby Murray live cam',
-            'Abby Murray webcam chat',
+            'anisyia livejasmin',
+            'anisyia live',
+            'livejasmin anisyia',
+            'anisyia camsoda',
         ],
         'longtail' => [
-            'how to watch Abby Murray live webcam shows',
-            'Abby Murray official profile access',
+            'how to watch Anisyia live webcam shows',
+            'Anisyia official profile access',
         ],
         'sources' => [
             'tags' => ['Striptease', 'Dancing', 'Close up', 'Roleplay', 'Oil', 'Twerk'],
@@ -165,16 +164,70 @@ namespace {
     $words = preg_split('/\s+/', $plain);
     $word_count = is_array($words) ? count(array_filter($words)) : 0;
 
-    $focus_hits = preg_match_all('/(?<![\w-])Abby Murray(?![\w-])/i', $plain, $matches);
+    $focus_hits = preg_match_all('/(?<![\w-])Anisyia(?![\w-])/i', $plain, $matches);
     $density = $word_count > 0 ? (($focus_hits ?: 0) / $word_count) * 100 : 0.0;
 
     tmw_template_assert($word_count >= 600, 'TemplateContent::build_model() post_content should be at least 600 words; got ' . $word_count . '.');
     tmw_template_assert($density <= 2.0, 'Focus keyword density should be at or below 2%; got ' . number_format($density, 2) . '%.');
     tmw_template_assert(str_contains($body, '<a href="https://example.test/models/">Browse all models</a>'), 'Internal model link should be preserved.');
+    tmw_template_assert(str_contains($body, 'https://example.test/videos/anisyia-live-video/'), 'Internal video link should be preserved.');
+    tmw_template_assert(str_contains($body, 'https://example.test/categories/'), 'Internal category link should be preserved.');
     tmw_template_assert(str_contains($body, '<h2>Official Profile Access</h2>'), 'Official Profile Access section should exist.');
     tmw_template_assert(str_contains($body, '<h2>Where to Watch Live</h2>'), 'Where to Watch Live section should exist.');
     tmw_template_assert(str_contains($body, 'tmwseo-seed-evidence:start'), 'Evidence block should remain visible.');
     tmw_template_assert(stripos($plain, 'private-chat') !== false, 'Evidence/private-chat block should remain visible.');
+
+    foreach (['the the', 'below below', 'links below below'] as $duplicate) {
+        tmw_template_assert(stripos($body, $duplicate) === false, 'Duplicate copy should be absent: ' . $duplicate);
+    }
+
+    $cleanup_ref = new ReflectionMethod(\TMWSEO\Engine\Content\TemplateContent::class, 'final_template_copy_cleanup');
+    $cleanup_ref->setAccessible(true);
+    $dirty = '<p>Use the the links below below now!! Keep <a href="https://example.test/path/the/the?below=below">the the anchor</a>.</p>';
+    $clean = (string) $cleanup_ref->invoke(null, $dirty);
+    tmw_template_assert(str_contains($clean, 'Use the links below now!'), 'Final cleanup should remove duplicate body copy and punctuation.');
+    tmw_template_assert(str_contains($clean, 'href="https://example.test/path/the/the?below=below"'), 'Final cleanup should preserve URLs inside HTML tags.');
+    tmw_template_assert(str_contains($clean, '>the the anchor</a>'), 'Final cleanup should preserve anchor text.');
+
+    $private_heading_pos = stripos($body, '<h2>Private Chat Options</h2>');
+    $private_section = $private_heading_pos === false ? '' : substr($body, $private_heading_pos, 600);
+    tmw_template_assert($private_heading_pos !== false, 'Private Chat Options heading should exist.');
+    tmw_template_assert(stripos($private_section, 'Snapshot') === false, 'Snapshot should not appear in Private Chat Options.');
+
+    $full_bundle = 'Fans searching for anisyia livejasmin, anisyia live, livejasmin anisyia, or anisyia camsoda';
+    tmw_template_assert(substr_count(strtolower($plain), strtolower($full_bundle)) <= 1, 'Full keyword-bundle sentence should not repeat.');
+
+    tmw_template_assert(str_contains($body, '<h2>Official Links and Profiles</h2>'), 'Verified link sections should still render.');
+    foreach (['<table', '<th>Platform</th>', '<th>Profile</th>', '<th>Link</th>'] as $table_fragment) {
+        tmw_template_assert(stripos($body, $table_fragment) === false, 'Generated body should not contain comparison table markup: ' . $table_fragment);
+    }
+    tmw_template_assert(str_contains($plain, 'Use the confirmed live-room button first.'), 'Single-platform comparison guidance paragraph should render.');
+
+    $comparison_ref = new ReflectionMethod(\TMWSEO\Engine\Content\TemplateContent::class, 'build_platform_comparison');
+    $comparison_ref->setAccessible(true);
+    $single_comparison = (string) $comparison_ref->invoke(null, $post, 'Anisyia', [[
+        'platform' => 'camsoda',
+        'label' => 'CamSoda',
+        'username' => 'anisyia',
+        'url' => 'https://www.camsoda.com/anisyia',
+    ]], '', []);
+    $multi_comparison = (string) $comparison_ref->invoke(null, $post, 'Aisha Dupont', [[
+        'platform' => 'stripchat',
+        'label' => 'Stripchat',
+        'username' => 'OhhAisha',
+        'url' => 'https://stripchat.com/OhhAisha',
+    ], [
+        'platform' => 'chaturbate',
+        'label' => 'Chaturbate',
+        'username' => 'ohhaisha',
+        'url' => 'https://chaturbate.com/ohhaisha',
+    ]], '', []);
+    $comparison_html = $single_comparison . $multi_comparison;
+    foreach (['<table', '<th>Platform</th>', '<th>Profile</th>', '<th>Link</th>', '<td>CamSoda</td>', '<td>@anisyia</td>', '<td>Stripchat</td>', '<td>@OhhAisha</td>', '<td>Chaturbate</td>', '<td>@ohhaisha</td>', 'Watch Live'] as $table_fragment) {
+        tmw_template_assert(stripos($comparison_html, $table_fragment) === false, 'Platform comparison helper should not emit table fragments or row content: ' . $table_fragment);
+    }
+    tmw_template_assert(str_contains(wp_strip_all_tags($single_comparison), 'Use the confirmed live-room button first.'), 'Single-platform helper should emit paragraph guidance.');
+    tmw_template_assert(str_contains(wp_strip_all_tags($multi_comparison), 'When more than one live platform is available'), 'Multi-platform helper should emit paragraph guidance.');
 
     $safe_items = ['Striptease', 'Dancing', 'Close up', 'Roleplay', 'Oil', 'Twerk'];
     $visible = 0;
@@ -183,7 +236,7 @@ namespace {
             $visible++;
         }
     }
-    tmw_template_assert($visible >= 4, 'At least 4 Abby-style safe items should remain visible; got ' . $visible . '.');
+    tmw_template_assert($visible >= 4, 'At least 4 Anisyia-style safe items should remain visible; got ' . $visible . '.');
 
     tmw_template_assert(strpos($body, 'Private chat options should be read as session-dependent') === false, 'Template body should not rely on the old generic-only private-chat fallback.');
 
@@ -192,6 +245,8 @@ namespace {
         'personable cam delivery',
         'do you accept',
         'Use these notes as profile context',
+        'Private chat notes list',
+        'available request areas',
     ] as $forbidden) {
         tmw_template_assert(stripos($body, $forbidden) === false, 'Forbidden phrase should be absent: ' . $forbidden);
     }

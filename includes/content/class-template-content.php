@@ -329,6 +329,7 @@ class TemplateContent {
         // ── Keyword heading enforcement (all modes share this post-render step) ─
         $enforcement = self::enforce_keyword_heading_placement($content, $rankmath_keywords, $name);
         $content = $enforcement['html'];
+        $content = self::final_template_copy_cleanup($content);
 
         $seo_title = self::build_default_model_seo_title($name, $primary_platform_label, (int) $post->ID);
 
@@ -2209,8 +2210,7 @@ class TemplateContent {
             return '';
         }
 
-        $sentence = self::build_secondary_keyword_intro_sentence($name, $phrases);
-        return $sentence !== '' ? '<p>' . esc_html($sentence) . '</p>' : '';
+        return '<p>Start with the confirmed live-room link first, then use the additional verified profiles below for platform checks, updates, fan pages, and support channels.</p>';
     }
 
     /**
@@ -2248,7 +2248,7 @@ class TemplateContent {
         }
 
         $keyword_list = self::format_human_list($phrases);
-        return 'Fans searching for ' . $keyword_list . ' should start with the confirmed live room for ' . $name . '. Use the verified links below to compare cam platforms, social profiles, fan pages, and support channels without opening copied or stale profile pages.';
+        return 'Fans searching for ' . $keyword_list . ' should start with the confirmed live room for ' . $name . '. Start with the confirmed live-room link first, then use the additional verified profiles below for platform checks, updates, fan pages, and support channels.';
     }
 
     /** @param string[] $items */
@@ -2329,51 +2329,20 @@ class TemplateContent {
             return $alt_username_note . '<p>' . esc_html($comparison_copy !== '' ? $comparison_copy : $fallback) . '</p>';
         }
 
-        if (count($cta_links) === 1) {
-            $single = $cta_links[0];
-            $platform = trim((string) ($single['label'] ?? 'the active platform'));
-            $url = self::generated_watch_href($single);
-            // v5.8.11-final-copy: removed the standalone intro <p> ("Before
-            // joining, confirm the handle, check recent room activity, and
-            // review payment/privacy controls.") because it duplicated the
-            // sparse comparison_section_paragraphs intro that always renders
-            // immediately above this block. Trimmed checklist to two bullets
-            // that do not restate "check recent room activity" — that is
-            // already covered by the section's intro paragraph.
-            $checklist = '<ul>'
-                . '<li>Confirm the username shown on the platform matches the listed profile.</li>'
-                . '<li>Review payment and privacy controls before starting chat.</li>'
-                . '</ul>';
-            $cta = '';
-            if ($url !== '') {
-                $cta = '<p><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">Open ' . esc_html($platform) . ' profile</a></p>';
+        $usable_live_platforms = 0;
+        foreach ($cta_links as $link) {
+            $label = trim((string) ($link['label'] ?? ''));
+            $username = trim((string) ($link['username'] ?? ''));
+            if ($label !== '' && $username !== '') {
+                $usable_live_platforms++;
             }
-            return $alt_username_note
-                . $checklist
-                . $cta;
         }
 
-        $rows = '';
-        foreach (array_slice($cta_links, 0, 4) as $link) {
-            $label = trim((string)($link['label'] ?? ''));
-            $username = trim((string)($link['username'] ?? ''));
-            $url = self::generated_watch_href($link);
-            if ($label === '' || $username === '' || $url === '') {
-                continue;
-            }
-            $rows .= '<tr>'
-                . '<td>' . esc_html($label) . '</td>'
-                . '<td>@' . esc_html($username) . '</td>'
-                . '<td><a href="' . esc_url($url) . '" target="_blank" rel="sponsored noopener">Watch Live</a></td>'
-                . '</tr>';
-        }
+        $guidance = $usable_live_platforms > 1
+            ? 'When more than one live platform is available, compare them with the same checklist: room freshness, handle consistency, mobile playback, chat readability, and login friction.'
+            : 'Use the confirmed live-room button first. Additional verified profiles can help with profile checks, updates, fan pages, and support channels, but they should not be treated as separate live-room entries unless the current status confirms it.';
 
-        $table = '';
-        if ($rows !== '') {
-            $table = '<table><thead><tr><th>Platform</th><th>Profile</th><th>Link</th></tr></thead><tbody>' . $rows . '</tbody></table>';
-        }
-
-        return $alt_username_note . $table;
+        return $alt_username_note . '<p>' . esc_html($guidance) . '</p>';
     }
 
     /**
@@ -4331,6 +4300,49 @@ class TemplateContent {
         // destinations: still tell the visitor what the section represents,
         // but without the "latest grouped link check" wording.
         return 'Status reflects this page\'s most recent automated review; activity may shift after platform updates.';
+    }
+
+
+    private static function final_template_copy_cleanup(string $html): string {
+        if (trim($html) === '') {
+            return $html;
+        }
+
+        $parts = preg_split('/(<[^>]+>)/u', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!is_array($parts)) {
+            return $html;
+        }
+
+        $inside_anchor = false;
+        foreach ($parts as $idx => $part) {
+            if ($part === '') {
+                continue;
+            }
+            if ($part[0] === '<') {
+                if (preg_match('/^<\s*a\b/iu', $part)) {
+                    $inside_anchor = true;
+                } elseif (preg_match('/^<\s*\/\s*a\s*>/iu', $part)) {
+                    $inside_anchor = false;
+                }
+                continue;
+            }
+            if ($inside_anchor) {
+                continue;
+            }
+            $parts[$idx] = self::cleanup_template_text_node($part);
+        }
+
+        return implode('', $parts);
+    }
+
+    private static function cleanup_template_text_node(string $text): string {
+        $text = preg_replace('/\b(links\s+below)(?:\s+below)+\b/iu', '$1', $text) ?: $text;
+        $text = preg_replace('/\b(the|below)(?:\s+\1)+\b/iu', '$1', $text) ?: $text;
+        $text = preg_replace('/([!?]){2,}/u', '$1', $text) ?: $text;
+        $text = preg_replace('/\.{4,}/u', '...', $text) ?: $text;
+        $text = preg_replace('/[ \t]{2,}/u', ' ', $text) ?: $text;
+        $text = preg_replace('/\s+([,.;:!?])/u', '$1', $text) ?: $text;
+        return $text;
     }
 
     private static function stable_fallback_variant(string $seed): string {
