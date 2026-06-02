@@ -12,6 +12,8 @@ namespace {
 
     $GLOBALS['_tmw_rm_alias_meta'] = [];
 
+    require_once __DIR__ . '/bootstrap/wp-post-stub.php';
+
     if ( ! function_exists( 'sanitize_key' ) ) { function sanitize_key( $s ) { return strtolower( preg_replace( '/[^a-z0-9_\-]/', '', (string) $s ) ); } }
     if ( ! function_exists( 'wp_strip_all_tags' ) ) { function wp_strip_all_tags( $s ) { return strip_tags( (string) $s ); } }
     if ( ! function_exists( 'sanitize_text_field' ) ) { function sanitize_text_field( $s ) { return trim( strip_tags( (string) $s ) ); } }
@@ -20,14 +22,24 @@ namespace {
     if ( ! function_exists( 'wp_upload_dir' ) ) { function wp_upload_dir( $time = null, $create_dir = true, $refresh_cache = false ) { return [ 'basedir' => sys_get_temp_dir() ]; } }
     if ( ! function_exists( 'current_time' ) ) { function current_time( $type ) { return '2026-06-02 00:00:00'; } }
     if ( ! function_exists( 'apply_filters' ) ) { function apply_filters( $tag, $value ) { return $value; } }
+    if ( ! function_exists( 'get_option' ) ) { function get_option( $key, $default = false ) { return $default; } }
+    if ( ! function_exists( 'get_object_taxonomies' ) ) { function get_object_taxonomies( $post_type ) { return []; } }
+    if ( ! function_exists( 'get_the_terms' ) ) { function get_the_terms( $post, $taxonomy ) { return []; } }
 
     if ( ! class_exists( 'TMWSEO\\Engine\\Logs' ) ) {
         eval( 'namespace TMWSEO\\Engine; class Logs { public static function info($c,$m,$d=[]){} public static function warn($c,$m,$d=[]){} public static function error($c,$m,$d=[]){} public static function debug($c,$m,$d=[]){} }' );
+    }
+    if ( ! class_exists( 'TMWSEO\\Engine\\Services\\DataForSEO' ) ) {
+        eval( 'namespace TMWSEO\\Engine\\Services; class DataForSEO { public static function is_configured(){ return false; } public static function keyword_suggestions($seed,$limit=80){ return ["ok"=>false,"items"=>[]]; } }' );
+    }
+    if ( ! class_exists( 'TMWSEO\\Engine\\Services\\Settings' ) ) {
+        eval( 'namespace TMWSEO\\Engine\\Services; class Settings { public static function get($key,$default=null){ return $default; } }' );
     }
 
     require_once dirname( __DIR__ ) . '/includes/keywords/class-keyword-library.php';
     require_once dirname( __DIR__ ) . '/includes/keywords/class-page-type-keyword-filter.php';
     require_once dirname( __DIR__ ) . '/includes/keywords/class-model-keyword-pool-classifier.php';
+    require_once dirname( __DIR__ ) . '/includes/keywords/class-classified-model-keyword-provider.php';
     require_once dirname( __DIR__ ) . '/includes/model/class-verified-links-families.php';
     require_once dirname( __DIR__ ) . '/includes/model/class-verified-links.php';
     require_once dirname( __DIR__ ) . '/includes/keywords/class-model-keyword-pack.php';
@@ -45,6 +57,8 @@ namespace TMWSEO\Engine\Tests {
 
         protected function setUp(): void {
             $GLOBALS['_tmw_rm_alias_meta'] = [];
+
+    require_once __DIR__ . '/bootstrap/wp-post-stub.php';
             $GLOBALS['wpdb'] = null;
         }
 
@@ -57,8 +71,8 @@ namespace TMWSEO\Engine\Tests {
 
             $extras = $this->selectExtras( 'Aisha Dupont' );
 
-            $this->assertContains( 'aisha dupont livejasmin', $extras );
-            $this->assertContains( 'ohhaisha stripchat', $extras );
+            $this->assertContains( 'Aisha Dupont LiveJasmin', $extras );
+            $this->assertContains( 'OhhAisha Stripchat', $extras );
             $this->assertLessThanOrEqual( 4, count( $extras ) );
         }
 
@@ -70,8 +84,8 @@ namespace TMWSEO\Engine\Tests {
 
             $extras = $this->selectExtras( 'Aisha Dupont' );
 
-            $this->assertNotContains( 'ohhaisha chaturbate', $extras );
-            $this->assertNotContains( 'aisha dupont chaturbate', $extras );
+            $this->assertNotContains( 'OhhAisha Chaturbate', $extras );
+            $this->assertNotContains( 'Aisha Dupont Chaturbate', $extras );
         }
 
         public function test_active_chaturbate_can_use_matching_saved_alias(): void {
@@ -82,7 +96,7 @@ namespace TMWSEO\Engine\Tests {
 
             $extras = $this->selectExtras( 'Aisha Dupont' );
 
-            $this->assertContains( 'ohhaisha chaturbate', $extras );
+            $this->assertContains( 'OhhAisha Chaturbate', $extras );
         }
 
         public function test_social_and_bio_links_are_excluded_from_platform_extras(): void {
@@ -111,7 +125,7 @@ namespace TMWSEO\Engine\Tests {
             $extras = $this->selectExtras( 'Aisha Dupont', [ 'Aisha Dupont official bio' ] );
 
             $this->assertSame( 'Aisha Dupont official bio', $extras[0] );
-            $this->assertContains( 'ohhaisha stripchat', $extras );
+            $this->assertContains( 'OhhAisha Stripchat', $extras );
             $this->assertLessThanOrEqual( 4, count( $extras ) );
         }
 
@@ -123,8 +137,8 @@ namespace TMWSEO\Engine\Tests {
 
             $extras = $this->selectExtras( 'Aisha Dupont' );
 
-            $this->assertNotContains( 'ohhaisha stripchat', $extras );
-            $this->assertContains( 'aisha dupont stripchat', $extras );
+            $this->assertNotContains( 'OhhAisha Stripchat', $extras );
+            $this->assertContains( 'Aisha Dupont Stripchat', $extras );
         }
 
         public function test_legacy_platform_primary_is_only_fallback_when_no_eligible_verified_cam_exists(): void {
@@ -133,14 +147,89 @@ namespace TMWSEO\Engine\Tests {
             $GLOBALS['_tmw_rm_alias_meta'][ self::POST_ID ]['_tmwseo_platform_primary'] = 'livejasmin';
 
             $extras = $this->selectExtras( 'Aisha Dupont' );
-            $this->assertContains( 'aisha dupont livejasmin', $extras );
+            $this->assertContains( 'Aisha Dupont LiveJasmin', $extras );
 
             $this->setVerifiedLinks( [
                 [ 'type' => 'stripchat', 'url' => 'https://nl.stripchat.com/OhhAisha', 'is_active' => true, 'activity_level' => 'active' ],
             ] );
             $extras = $this->selectExtras( 'Aisha Dupont' );
-            $this->assertContains( 'aisha dupont stripchat', $extras );
-            $this->assertNotContains( 'aisha dupont livejasmin', $extras );
+            $this->assertContains( 'Aisha Dupont Stripchat', $extras );
+            $this->assertNotContains( 'Aisha Dupont LiveJasmin', $extras );
+        }
+
+
+        public function test_single_platform_livejasmin_model_uses_cased_platform_and_live_cam_intent(): void {
+            $this->setAliases( '' );
+            $this->setVerifiedLinks( [
+                [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/free/chat/AbbyMurray', 'is_active' => true, 'activity_level' => 'active' ],
+            ] );
+
+            $extras = $this->selectExtras( 'Abby Murray' );
+
+            $this->assertContains( 'Abby Murray LiveJasmin', $extras );
+            $this->assertContains( 'Abby Murray live cam', $extras );
+            $this->assertNoDuplicateChips( $extras );
+            $this->assertLessThanOrEqual( 4, count( $extras ) );
+            foreach ( $extras as $extra ) {
+                $this->assertStringNotContainsString( 'abby murray', $extra );
+            }
+        }
+
+        public function test_single_platform_camsoda_model_uses_cased_platform_and_intent_mix(): void {
+            $this->setAliases( '' );
+            $this->setVerifiedLinks( [
+                [ 'type' => 'camsoda', 'url' => 'https://www.camsoda.com/Anisyia', 'is_active' => true, 'activity_level' => 'active' ],
+            ] );
+
+            $extras = $this->selectExtras( 'Anisyia' );
+
+            $this->assertContains( 'Anisyia CamSoda', $extras );
+            $this->assertTrue(
+                in_array( 'Anisyia live cam', $extras, true )
+                || in_array( 'Anisyia live webcam', $extras, true )
+                || in_array( 'Anisyia private live chat', $extras, true )
+                || in_array( 'Anisyia HD live stream', $extras, true ),
+                'Single-platform CamSoda extras should include a useful live-cam/tag-intent keyword.'
+            );
+            $this->assertNoDuplicateChips( $extras );
+            $this->assertLessThanOrEqual( 4, count( $extras ) );
+            foreach ( $extras as $extra ) {
+                $this->assertStringNotContainsString( 'anisyia', $extra );
+            }
+        }
+
+        public function test_multi_platform_model_preserves_platform_and_model_casing(): void {
+            $this->setAliases( '' );
+            $this->setVerifiedLinks( [
+                [ 'type' => 'stripchat', 'url' => 'https://stripchat.com/AishaDupont', 'is_active' => true, 'activity_level' => 'active' ],
+                [ 'type' => 'chaturbate', 'url' => 'https://chaturbate.com/AishaDupont/', 'is_active' => true, 'activity_level' => 'active' ],
+            ] );
+
+            $extras = $this->selectExtras( 'Aisha Dupont' );
+
+            $this->assertContains( 'Aisha Dupont Stripchat', $extras );
+            $this->assertContains( 'Aisha Dupont Chaturbate', $extras );
+            $this->assertNoDuplicateChips( $extras );
+            $this->assertLessThanOrEqual( 4, count( $extras ) );
+            foreach ( $extras as $extra ) {
+                $this->assertStringNotContainsString( 'aisha dupont', $extra );
+            }
+        }
+
+
+        public function test_build_keeps_focus_keyword_clean_and_caps_rankmath_extras(): void {
+            $this->setAliases( '' );
+            $this->setVerifiedLinks( [
+                [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/free/chat/AbbyMurray', 'is_active' => true, 'activity_level' => 'active' ],
+            ] );
+            $post = new \WP_Post( [ 'ID' => self::POST_ID, 'post_title' => 'Abby Murray', 'post_type' => 'model' ] );
+
+            $pack = ModelKeywordPack::build( $post );
+
+            $this->assertSame( 'Abby Murray', $pack['primary'] );
+            $this->assertContains( 'Abby Murray LiveJasmin', $pack['rankmath_additional'] );
+            $this->assertLessThanOrEqual( 4, count( $pack['rankmath_additional'] ) );
+            $this->assertNoDuplicateChips( $pack['rankmath_additional'] );
         }
 
         /** @param array<int,array<string,mixed>> $links */
@@ -150,6 +239,13 @@ namespace TMWSEO\Engine\Tests {
 
         private function setAliases( string $aliases ): void {
             $GLOBALS['_tmw_rm_alias_meta'][ self::POST_ID ]['_tmwseo_research_aliases'] = $aliases;
+        }
+
+
+        /** @param string[] $extras */
+        private function assertNoDuplicateChips( array $extras ): void {
+            $keys = array_map( static fn( string $keyword ): string => strtolower( trim( $keyword ) ), $extras );
+            $this->assertSame( count( $keys ), count( array_unique( $keys ) ), 'Rank Math extras must not contain duplicate chips.' );
         }
 
         /** @param string[] $personal */
