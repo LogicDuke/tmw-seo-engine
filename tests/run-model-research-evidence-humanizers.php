@@ -41,6 +41,8 @@ function tmw_evidence_assert_forbidden_clean(string $text, string $label): void 
 
 $noise_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept?');
 tmw_evidence_assert($noise_turn_ons === '', 'Noise-only turn-ons should return an empty string.');
+tmw_evidence_assert(ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept:') === '', 'Colon-only acceptance prompt should return an empty string.');
+tmw_evidence_assert(ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept -') === '', 'Dash-only acceptance prompt should return an empty string.');
 
 $punctuated_turn_ons = ModelResearchEvidence::humanize_turn_ons('Do you ' . 'accept: Roleplay, Cosplay');
 tmw_evidence_assert_forbidden_clean($punctuated_turn_ons, 'Punctuated turn-ons');
@@ -75,14 +77,15 @@ tmw_evidence_assert(
 );
 tmw_evidence_assert(!str_contains(strtolower($aisha_output), 'robotic'), 'Aisha Dupont output should not use robotic evidence wording.');
 
-$anisyia_private = 'Private chat options: Roleplay, Cosplay, Striptease, ASMR, Close up, Anal, Deepthroat, Cumshot, Squirt, Dildo';
+$anisyia_private = 'Private chat options: Roleplay, Cosplay, Striptease, ASMR, Close up, Foot Fetish, Anal, Deepthroat, Cumshot, Squirt, Dildo';
 $anisyia_output = ModelResearchEvidence::humanize_private_chat($anisyia_private);
 tmw_evidence_assert_forbidden_clean($anisyia_output, 'Anisyia');
-foreach (['Roleplay', 'Cosplay', 'Striptease', 'ASMR', 'Close up'] as $safe_item) {
+foreach (['Roleplay', 'Cosplay', 'Striptease', 'ASMR', 'Close up', 'Foot Fetish'] as $safe_item) {
     tmw_evidence_assert(str_contains($anisyia_output, $safe_item), 'Anisyia output should retain ' . $safe_item . '.');
 }
 foreach (['Anal', 'Deepthroat', 'Cumshot', 'Squirt', 'Dildo'] as $unsafe_item) {
     tmw_evidence_assert(!str_contains($anisyia_output, $unsafe_item), 'Anisyia output should remove unsafe item ' . $unsafe_item . '.');
 }
+tmw_evidence_assert(!str_contains($anisyia_output, 'private-chat availability, interactive requests, roleplay-style options, and media/chat features'), 'Anisyia output should not use the old generic collapse text.');
 
 echo "✓ Model research evidence humanizer regressions passed\n";

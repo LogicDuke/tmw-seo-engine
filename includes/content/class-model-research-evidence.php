@@ -312,9 +312,10 @@ class ModelResearchEvidence {
 		foreach ( $drop as $p ) {
 			$raw = (string) preg_replace( $p, '', $raw );
 		}
-		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
-		$raw = trim( (string) preg_replace( '#\\bdo\\s+you\\s+accept\\s*(?:[?:\\-–—]\\s*)?#iu', '', $raw ) );
-		$raw = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
+		$accept_prompt_pattern = '#\\bdo\\s+you\\s+accept\\s*(?:[?:\\-–—]\\s*)?#iu';
+		$raw                   = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
+		$raw                   = trim( (string) preg_replace( $accept_prompt_pattern, '', $raw ) );
+		$raw                   = trim( (string) preg_replace( '#\\s{2,}#', ' ', $raw ) );
 		if ( $raw === '' ) {
 			return '';
 		}
@@ -322,7 +323,7 @@ class ModelResearchEvidence {
 		$list_themes = [];
 		foreach ( self::extract_list_items( $raw ) as $item ) {
 			$c = self::clean_token( $item );
-			if ( preg_match( '#\bdo\s+you\s+accept\s*(?:[?:\-–—]\s*)?#iu', $c ) ) {
+			if ( preg_match( $accept_prompt_pattern, $c ) ) {
 				continue;
 			}
 			if ( self::is_explicit_chat_item( $c ) ) {
