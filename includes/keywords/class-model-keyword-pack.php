@@ -31,6 +31,59 @@ class ModelKeywordPack {
     private const RANKMATH_SEO_ACTIVITY_LEVELS = [ 'active', 'very_active' ];
 
     /**
+     * Body-type, ethnicity, and demographic terms that must NEVER appear as suffixes
+     * in model Rank Math keyword chips, regardless of taxonomy tags or pool-row source.
+     *
+     * These terms are global category descriptors, not profile-specific verified facts.
+     * A model having a taxonomy tag 'bbw' does not mean the chip "{Name} bbw cam model"
+     * is safe or accurate for that individual model's Rank Math focus keyword set.
+     *
+     * Platform terms are handled separately via RANKMATH_CAM_PLATFORM_ALLOWLIST and
+     * verified_cam_platform_records(), so they are not repeated here.
+     *
+     * @var string[]
+     */
+    private const RANKMATH_CHIP_SUFFIX_DENYLIST = [
+        // Body type
+        'bbw',
+        'big boobs',
+        'big boob',
+        'busty',
+        'curvy',
+        'chubby',
+        'slim',
+        'petite',
+        'thick',
+        'big ass',
+        'big butt',
+        'big tits',
+        // Ethnicity / demographic
+        'ebony',
+        'asian',
+        'latina',
+        'latin',
+        'milf',
+        'mature',
+        'teen',
+        'teens',
+        'blonde',
+        'brunette',
+        'redhead',
+        'ginger',
+        'white',
+        'black',
+        'mixed',
+        'arab',
+        // Unverified / stale platforms (not in ALLOWLIST, but may appear in old rows)
+        'streamate',
+        'streammate',
+        'liveprivates',
+        'live privates',
+        'sexier',
+        'ifriends',
+    ];
+
+    /**
      * Build a keyword pack for a given post.
      *
      * @return array{primary:string, additional: string[], longtail: string[], sources: array}
@@ -384,7 +437,7 @@ class ModelKeywordPack {
     private static function is_broad_standalone_rankmath_extra(string $keyword): bool {
         $normalized = self::normalize_keyword($keyword);
         $normalized = function_exists('mb_strtolower') ? mb_strtolower($normalized, 'UTF-8') : strtolower($normalized);
-        return in_array($normalized, [
+        if ( in_array($normalized, [
             'webcam',
             'cam',
             'bio',
@@ -396,7 +449,32 @@ class ModelKeywordPack {
             'online cam',
             'adult webcam',
             'cam show',
-        ], true);
+        ], true) ) {
+            return true;
+        }
+        // Also block bare denylist suffix terms used as standalone chips.
+        return self::chip_suffix_contains_denylist_term( $normalized );
+    }
+
+    /**
+     * Returns true if any token in $text exactly matches a denylist term.
+     *
+     * Used to block body-type/ethnicity/demographic terms from appearing as
+     * (part of) a Rank Math keyword chip suffix, regardless of input source.
+     */
+    private static function chip_suffix_contains_denylist_term( string $text ): bool {
+        $text_lc = function_exists('mb_strtolower') ? mb_strtolower( self::normalize_keyword($text), 'UTF-8' ) : strtolower( self::normalize_keyword($text) );
+        if ( $text_lc === '' ) {
+            return false;
+        }
+        foreach ( self::RANKMATH_CHIP_SUFFIX_DENYLIST as $term ) {
+            $term_lc = function_exists('mb_strtolower') ? mb_strtolower( $term, 'UTF-8' ) : strtolower( $term );
+            // Match as whole word(s) anywhere in the text.
+            if ( preg_match( '/(?:^|\s)' . preg_quote( $term_lc, '/' ) . '(?:\s|$)/u', $text_lc ) === 1 ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param string[] $keywords @return string[] */
@@ -1241,6 +1319,13 @@ class ModelKeywordPack {
             return '';
         }
 
+        // Reject any keyword whose full text contains a denylist term.
+        // This catches stale personal rows like "abby murray bbw cam model"
+        // before suffix extraction, so they never reach model_name_phrase().
+        if ( self::chip_suffix_contains_denylist_term( $clean ) ) {
+            return '';
+        }
+
         $eligible_platforms = self::dedupe_platform_slugs($platform_slugs);
         $mentioned_platforms = self::rankmath_platforms_mentioned_by_keyword($clean);
         if (!empty($mentioned_platforms)) {
@@ -1257,7 +1342,12 @@ class ModelKeywordPack {
         if ($suffix === '') {
             return '';
         }
+        // Block trivially generic single-word suffixes.
         if (in_array(self::keyword_key($suffix), [ 'live', 'online', 'show', 'chat' ], true)) {
+            return '';
+        }
+        // Block suffixes containing any denylist term (body-type / ethnicity / stale platform).
+        if ( self::chip_suffix_contains_denylist_term( $suffix ) ) {
             return '';
         }
         return self::model_name_phrase($model, $suffix);
@@ -1736,6 +1826,13 @@ class ModelKeywordPack {
         foreach ($tag_slugs as $tag) {
             $phrase = self::keyword_key(str_replace('-', ' ', (string) $tag));
             if ($phrase === '' || in_array($phrase, [ 'cam', 'webcam', 'live', 'model', 'girl', 'show', 'chat' ], true)) {
+                continue;
+            }
+            // Block body-type / ethnicity / demographic terms from becoming
+            // tag-attribute chips. A taxonomy tag of 'bbw' or 'ebony' is a
+            // site-wide category label, not a profile-specific verified fact
+            // that belongs in a model's Rank Math focus keyword set.
+            if ( self::chip_suffix_contains_denylist_term( $phrase ) ) {
                 continue;
             }
             $out[] = $phrase;
