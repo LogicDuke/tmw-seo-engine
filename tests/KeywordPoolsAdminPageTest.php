@@ -13,6 +13,7 @@ use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-csv-parser.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-metrics-scorer.php';
 require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-classifier.php';
+require_once __DIR__ . '/../includes/keywords/class-model-keyword-pool-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 require_once __DIR__ . '/../includes/models/class-model-entity-resolver.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
@@ -27,6 +28,20 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $_FILES = [];
         $_SERVER['REQUEST_METHOD'] = 'GET';
         parent::tearDown();
+    }
+
+    private function renderPreviewForPool(string $pool, string $csv): string {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'tmwseo_keyword_pools_run_preview' => '1',
+            'tmwseo_keyword_pool' => $pool,
+            'tmwseo_keyword_pools_nonce' => 'test_nonce',
+            'tmwseo_keyword_pools_csv_text' => $csv,
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        return (string) ob_get_clean();
     }
 
     public function test_class_slug_and_capability_are_available(): void {
@@ -156,11 +171,42 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString('Select all Approve Candidates', $html);
         $this->assertStringContainsString('Clear selection', $html);
         $this->assertStringContainsString('Save Selected Keywords', $html);
-        $this->assertStringContainsString('Save Full Reviewed Model Keyword Batch', $html);
+        $this->assertStringContainsString('Save Full Reviewed Category Keyword Batch', $html);
+        $this->assertStringContainsString('Stores all useful reviewed category rows in the keyword candidate pool only', $html);
+        $this->assertStringNotContainsString('Save Full Reviewed Model Keyword Batch', $html);
         $this->assertStringContainsString('Save selected as:', $html);
         $this->assertStringContainsString('Saving selected keywords stores them in the review pool only', $html);
         $this->assertStringContainsString('name="tmwseo_keyword_pool_selected_rows[]"', $html);
         $this->assertStringContainsString('disabled', $html);
+    }
+
+
+    public function test_model_pool_preview_renders_only_model_full_batch_button(): void {
+        $html = $this->renderPreviewForPool('model', "keyword,volume,cpc,competition,SEO Score
+anisyia,12100,3.25,0.08,68
+");
+
+        $this->assertStringContainsString('Save Full Reviewed Model Keyword Batch', $html);
+        $this->assertStringNotContainsString('Save Full Reviewed Category Keyword Batch', $html);
+        $this->assertStringNotContainsString('tmwseo_keyword_pools_save_full_category_batch', $html);
+    }
+
+    public function test_video_pool_preview_renders_no_full_batch_buttons(): void {
+        $html = $this->renderPreviewForPool('video', "keyword,volume,cpc,competition,model_name
+Lexy Ness webcam video,1200,2.50,0.1,Lexy Ness
+");
+
+        $this->assertStringNotContainsString('Save Full Reviewed Model Keyword Batch', $html);
+        $this->assertStringNotContainsString('Save Full Reviewed Category Keyword Batch', $html);
+    }
+
+    public function test_category_full_batch_post_field_routes_to_category_batch_save(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
+        $this->assertIsString($source);
+
+        $this->assertStringContainsString("tmwseo_keyword_pools_save_full_category_batch", $source);
+        $this->assertStringContainsString("save_full_reviewed_category_batch(\$dry_run)", $source);
+        $this->assertStringContainsString("\$save_full_category_batch = !empty(\$_POST['tmwseo_keyword_pools_save_full_category_batch']) && 'category' === \$active_pool;", $source);
     }
 
 
