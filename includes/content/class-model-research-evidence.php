@@ -362,7 +362,10 @@ class ModelResearchEvidence {
 		];
 		$opener = $openers[ ( strlen( $themes[0] ) ) % count( $openers ) ];
 
-		return self::final_humanize( $opener . self::natural_list( $themes ) . '.' );
+		return self::final_humanize(
+			$opener . self::natural_list( $themes )
+			. ', but these notes should be treated as session context rather than fixed personal facts.'
+		);
 	}
 
 	public static function humanize_private_chat( string $raw ): string {
@@ -374,15 +377,17 @@ class ModelResearchEvidence {
 		$items = array_map( [ self::class, 'format_chat_item_label' ], array_slice( $items, 0, 8 ) );
 
 		return self::final_humanize(
-			'Private chat notes list ' . self::natural_list( $items ) . ' as available request areas. '
-			. 'Availability can vary by session, so check the confirmed room before assuming a specific option is offered.'
+			'Private chat options can include safe interactive requests such as '
+			. self::natural_list( $items )
+			. ' when those options are available in the live room. '
+			. 'Availability can change by session, so visitors should confirm the current room status before expecting a specific request.'
 		);
 	}
 
 	/**
 	 * Return a clean, deduped, denylist-filtered list of private-chat items.
 	 *
-	 * Capped at 14 items. Acronyms (JOI, POV, ASMR, C2C, etc.) preserved uppercase.
+	 * Capped at 14 items. Safe acronyms (ASMR, C2C, etc.) are preserved uppercase.
 	 */
 	public static function filter_private_chat_items( string $raw ): array {
 		$raw = self::prepare_raw( $raw );
@@ -410,7 +415,7 @@ class ModelResearchEvidence {
 			$c = self::canonicalise_chat_item( $c );
 			$out[] = $c;
 		}
-		$out = array_values( array_unique( $out ) );
+		$out = self::dedupe_private_chat_items( $out );
 		if ( count( $out ) > 14 ) {
 			$out = array_slice( $out, 0, 14 );
 		}
@@ -595,7 +600,7 @@ class ModelResearchEvidence {
 			'cameltoe', 'pussy', 'tit fuck', 'titty fuck',
 			'blowjob', 'handjob', 'facial', 'piss', 'pee', 'scat',
 			'bbc', 'bukkake', 'butt plug', 'butt plugs', 'dildo', 'fingering',
-			'love bead', 'love beads', 'vibrator', 'joi', 'pov',
+			'love bead', 'love beads', 'love ball', 'love balls', 'bead', 'beads', 'vibrator', 'joi', 'pov',
 		];
 		$lc = strtolower( $item );
 		foreach ( $blocked as $bad ) {
@@ -611,6 +616,7 @@ class ModelResearchEvidence {
 			'#^love\\s+balls?(?:\\s*/\\s*beads?)?$#i' => 'love beads',
 			'#^strap\\s*on$#i'                         => 'strap-on',
 			'#^role\\s+play$#i'                        => 'roleplay',
+			'#^close[-\\s]+up$#i'                      => 'close up',
 			'#^foot\\s+fetish$#i'                      => 'foot fetish',
 			'#^long\\s+nails?$#i'                      => 'long nails',
 			'#^high\\s+heels?$#i'                      => 'high heels',
@@ -622,6 +628,25 @@ class ModelResearchEvidence {
 		return $item;
 	}
 
+
+	private static function dedupe_private_chat_items( array $items ): array {
+		$out  = [];
+		$seen = [];
+
+		foreach ( $items as $item ) {
+			$key = strtolower( trim( (string) $item ) );
+			$key = (string) preg_replace( '#[-\s]+#', ' ', $key );
+
+			if ( $key === '' || isset( $seen[ $key ] ) ) {
+				continue;
+			}
+
+			$seen[ $key ] = true;
+			$out[]        = $item;
+		}
+
+		return $out;
+	}
 
 	private static function format_chat_item_label( string $item ): string {
 		$labels = [
