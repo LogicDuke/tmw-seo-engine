@@ -1001,13 +1001,16 @@ class ModelKeywordPack {
         $seed = $post_id . '|' . self::normalize_keyword($model_name) . '|' . implode(',', $platform_slugs) . '|' . implode(',', $tag_slugs);
         $model_prefix = self::normalize_keyword($model_name);
 
-        $append = function(array $keywords, string $bucket) use (&$result, $classified_exclusions, $model_name, $post_id): void {
+        $append = function(array $keywords, string $bucket) use (&$result, $classified_exclusions, $model_name, $platform_slugs, $post_id): void {
             foreach ($keywords as $keyword) {
                 if (count($result['final']) >= 4) {
                     break;
                 }
-                $clean = self::normalize_keyword((string) $keyword);
-                if (PageTypeKeywordFilter::is_unsafe_model_seo_phrase($clean)) {
+                $clean = self::normalize_model_rankmath_extra((string) $keyword, $model_name, $platform_slugs);
+                if ($clean === '') {
+                    continue;
+                }
+                if (self::is_unsafe_model_seo_phrase($clean)) {
                     self::debug_model_seo_copy_guard($post_id, $model_name, $clean, 'instructional_model_seo_phrase', $bucket, $model_name, $result['final']);
                     continue;
                 }
@@ -1217,17 +1220,85 @@ class ModelKeywordPack {
         foreach ($platform_slugs as $platform) {
             $platform_label = self::platform_keyword_label((string) $platform);
             if ($platform_label !== '') {
-                $fallbacks[] = $clean_name . ' ' . $platform_label;
+                $fallbacks[] = self::model_name_phrase($clean_name, $platform_label);
             }
         }
         $fallbacks[] = $clean_name . ' live cam';
         $fallbacks[] = $clean_name . ' live webcam';
-        $fallbacks[] = $clean_name . ' cam model';
         $fallbacks[] = $clean_name . ' private live chat';
+        $fallbacks[] = $clean_name . ' cam model';
         $fallbacks[] = $clean_name . ' HD live stream';
         $fallbacks[] = $clean_name . ' live chat';
         $fallbacks[] = $clean_name . ' webcam chat';
         return self::dedupe_keywords($fallbacks);
+    }
+
+    /** @param string[] $platform_slugs */
+    private static function normalize_model_rankmath_extra(string $keyword, string $model_name, array $platform_slugs): string {
+        $clean = self::normalize_keyword($keyword);
+        $model = self::normalize_keyword($model_name);
+        if ($clean === '' || $model === '') {
+            return '';
+        }
+
+        $eligible_platforms = self::dedupe_platform_slugs($platform_slugs);
+        $mentioned_platforms = self::rankmath_platforms_mentioned_by_keyword($clean);
+        if (!empty($mentioned_platforms)) {
+            foreach ($mentioned_platforms as $platform) {
+                if (!in_array($platform, $eligible_platforms, true)) {
+                    return '';
+                }
+            }
+            $platform = $mentioned_platforms[0] ?? '';
+            return $platform !== '' ? self::model_name_phrase($model, $platform) : '';
+        }
+
+        $suffix = self::model_keyword_suffix($clean, $model);
+        if ($suffix === '') {
+            return '';
+        }
+        if (in_array(self::keyword_key($suffix), [ 'live', 'online', 'show', 'chat' ], true)) {
+            return '';
+        }
+        return self::model_name_phrase($model, $suffix);
+    }
+
+    private static function model_keyword_suffix(string $keyword, string $model_name): string {
+        $key = self::keyword_key($keyword);
+        $model_key = self::keyword_key($model_name);
+        if ($key === '' || $model_key === '') {
+            return '';
+        }
+        if ($key === $model_key) {
+            return '';
+        }
+        if (preg_match('/^' . preg_quote($model_key, '/') . '\s+(.+)$/u', $key, $matches) === 1) {
+            return self::normalize_keyword((string) $matches[1]);
+        }
+        return '';
+    }
+
+    /** @return string[] */
+    private static function rankmath_platforms_mentioned_by_keyword(string $keyword): array {
+        $key = self::keyword_key($keyword);
+        if ($key === '') {
+            return [];
+        }
+        $platforms = [];
+        foreach (array_unique(array_values(self::RANKMATH_CAM_PLATFORM_ALLOWLIST)) as $platform) {
+            $needles = array_filter(array_unique([
+                self::keyword_key($platform),
+                self::keyword_key(self::platform_keyword_label($platform)),
+                $platform === 'bongacams' ? 'bonga' : '',
+            ]));
+            foreach ($needles as $needle) {
+                if ($needle !== '' && preg_match('/(?:^|\s)' . preg_quote($needle, '/') . '(?:\s|$)/u', $key) === 1) {
+                    $platforms[] = $platform;
+                    break;
+                }
+            }
+        }
+        return array_values(array_unique($platforms));
     }
 
     /** @param string[] $platform_slugs */
@@ -1276,10 +1347,18 @@ class ModelKeywordPack {
         if (self::keyword_key($primary) !== '' && $key === self::keyword_key($primary)) {
             return false;
         }
-        if (self::is_broad_standalone_rankmath_extra($clean) || PageTypeKeywordFilter::is_unsafe($clean) || PageTypeKeywordFilter::is_unsafe_model_seo_phrase($clean)) {
+        if (self::is_broad_standalone_rankmath_extra($clean) || self::is_unsafe_page_type_keyword($clean) || self::is_unsafe_model_seo_phrase($clean)) {
             return false;
         }
         return PageTypeKeywordFilter::filter_for_model_page([ $clean ]) !== [];
+    }
+
+    private static function is_unsafe_page_type_keyword(string $keyword): bool {
+        return method_exists(PageTypeKeywordFilter::class, 'is_unsafe') && PageTypeKeywordFilter::is_unsafe($keyword);
+    }
+
+    private static function is_unsafe_model_seo_phrase(string $keyword): bool {
+        return method_exists(PageTypeKeywordFilter::class, 'is_unsafe_model_seo_phrase') && PageTypeKeywordFilter::is_unsafe_model_seo_phrase($keyword);
     }
 
     private static function model_name_phrase(string $model_prefix, string $suffix): string {
@@ -1793,7 +1872,9 @@ class ModelKeywordPack {
             'camsoda' => 'CamSoda',
             'cam4' => 'CAM4',
             'chaturbate' => 'Chaturbate',
-            'bonga' => 'Bonga',
+            'bonga' => 'BongaCams',
+            'bongacams' => 'BongaCams',
+            'flirt4free' => 'Flirt4Free',
         ];
         if (isset($map[$platform])) {
             return $map[$platform];

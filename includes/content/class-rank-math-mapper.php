@@ -52,6 +52,10 @@ class RankMathMapper {
             }
         }
 
+        if ( $rebuilt_model_pack ) {
+            self::persist_model_keyword_pack_sources( $post_id, $keyword_pack );
+        }
+
         $primary = self::extract_primary( $post_id, $keyword_pack );
         $extras  = self::extract_extras( $keyword_pack, $post_id );
 
@@ -88,6 +92,16 @@ class RankMathMapper {
         // Persist full internal pack for auditability.
         if ( $persist_audit && class_exists( '\\TMWSEO\\Engine\\Content\\AuditTrail' ) ) {
             AuditTrail::persist_keyword_pack( $post_id, $keyword_pack );
+        }
+    }
+
+    /** @param array<string,mixed> $keyword_pack */
+    private static function persist_model_keyword_pack_sources( int $post_id, array $keyword_pack ): void {
+        update_post_meta( $post_id, 'tmw_keyword_pack', $keyword_pack );
+        if ( function_exists( 'wp_json_encode' ) ) {
+            update_post_meta( $post_id, '_tmwseo_keyword_pack', wp_json_encode( $keyword_pack ) );
+        } else {
+            update_post_meta( $post_id, '_tmwseo_keyword_pack', json_encode( $keyword_pack ) );
         }
     }
 
@@ -171,6 +185,12 @@ class RankMathMapper {
      * @return string
      */
     public static function preview_rank_math_csv( int $post_id, array $keyword_pack ): string {
+        if ( self::page_type_for_post( $post_id ) === 'model' && class_exists( ModelKeywordPack::class ) ) {
+            $post = get_post( $post_id );
+            if ( $post instanceof \WP_Post ) {
+                $keyword_pack = ModelKeywordPack::build( $post );
+            }
+        }
         $primary = self::extract_primary( $post_id, $keyword_pack );
         $extras  = self::extract_extras( $keyword_pack, $post_id );
         $list    = array_merge( [ $primary ], $extras );

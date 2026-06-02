@@ -74,6 +74,19 @@
                     : (options.successText || 'Queued. Refresh in a few seconds.');
 
                 if (window.wp && wp.data) {
+                    const rankMathCsv = data && data.data && data.data.rank_math_focus_keyword
+                        ? data.data.rank_math_focus_keyword
+                        : '';
+                    if (rankMathCsv) {
+                        try {
+                            const rankMathStore = wp.data.dispatch('rank-math');
+                            if (rankMathStore && typeof rankMathStore.updateKeywords === 'function') {
+                                rankMathStore.updateKeywords(rankMathCsv);
+                            }
+                        } catch (rankMathError) {
+                            // Rank Math's editor store is optional and absent on some screens.
+                        }
+                    }
                     wp.data.dispatch('core/notices').createNotice('success', successMessage, {
                         type: 'snackbar',
                         isDismissible: true,
