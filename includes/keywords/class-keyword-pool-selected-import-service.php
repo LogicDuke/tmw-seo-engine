@@ -316,7 +316,7 @@ class KeywordPoolSelectedImportService {
             'entity_type' => $this->entity_type_for_pool($pool),
             'entity_id' => $this->entity_id_for_pool($row, $pool),
             'status' => $status ?: $this->status_for_row($row, $save_mode, false),
-            'status_change_explicit' => in_array($save_mode, [ 'approved' ], true),
+            'status_change_explicit' => 'auto' !== $save_mode,
             'provenance' => $this->provenance_for_row($row, $pool, $context),
         ];
         foreach ([ 'target_type', 'target_id', 'target_name', 'target_slug', 'source_batch', 'source_file', 'import_batch_id', 'imported_at' ] as $context_field) {

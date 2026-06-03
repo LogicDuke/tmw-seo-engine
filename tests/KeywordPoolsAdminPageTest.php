@@ -134,6 +134,16 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString('Source Label', $html);
     }
 
+    public function test_target_provider_uses_uncapped_post_query_for_v1(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pool-target-provider.php');
+        $this->assertIsString($source);
+
+        $this->assertStringContainsString("'posts_per_page' => -1", $source);
+        $this->assertStringContainsString('TODO: Replace full-list loading with AJAX/search pagination', $source);
+        $this->assertStringNotContainsString("'posts_per_page' => 500", $source);
+    }
+
+
     public function test_preview_without_category_target_warns_but_renders_preview(): void {
         $html = $this->renderPreviewForPool('category', "keyword,volume\nasian cam models,100\n");
 

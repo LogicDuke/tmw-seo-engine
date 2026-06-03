@@ -746,6 +746,104 @@ anisyia,12100,68
     }
 
 
+    public function test_missing_incoming_target_does_not_update_existing_targeted_row(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 58,
+            'keyword' => 'already targeted cam models',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'target_type' => 'category_page',
+            'target_id' => 555,
+            'target_name' => 'Already Targeted',
+            'target_slug' => 'already-targeted',
+            'status' => 'queued_for_review',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_missing_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume
+already targeted cam models,100
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'auto');
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('existing_keyword_has_different_target', $result['rows'][0]['reason']);
+        $this->assertSame('Already Targeted', $result['rows'][0]['existing_target_name']);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_target_match_does_not_bypass_intent_entity_compatibility(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 59,
+            'keyword' => 'same target cam models',
+            'intent_type' => 'video',
+            'entity_type' => 'post',
+            'entity_id' => 99,
+            'target_type' => 'category_page',
+            'target_id' => 666,
+            'target_name' => 'Same Target Wrong Entity',
+            'target_slug' => 'same-target-wrong-entity',
+            'status' => 'queued_for_review',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_scope_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume
+same target cam models,100
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'auto', [
+            'target_type' => 'category_page',
+            'target_id' => 666,
+            'target_name' => 'Same Target Wrong Entity',
+            'target_slug' => 'same-target-wrong-entity',
+        ]);
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('existing_keyword_conflicting_scope', $result['rows'][0]['reason']);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_queued_for_review_save_mode_is_explicit_status_change(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 60,
+            'keyword' => 'queued explicit cam models',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'target_type' => 'category_page',
+            'target_id' => 777,
+            'target_name' => 'Queued Explicit',
+            'target_slug' => 'queued-explicit',
+            'status' => 'rejected',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_queued_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume
+queued explicit cam models,100
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'queued_for_review', [
+            'target_type' => 'category_page',
+            'target_id' => 777,
+            'target_name' => 'Queued Explicit',
+            'target_slug' => 'queued-explicit',
+        ]);
+
+        $this->assertSame(1, $result['summary']['updated']);
+        $this->assertSame('queued_for_review', $wpdb->candidate_updates[0]['data']['status']);
+    }
+
+
     private function keywordCandidateColumnsWithTargetOwnership(): array {
         return [
             'id', 'keyword', 'canonical', 'status', 'intent', 'intent_type', 'entity_type', 'entity_id',

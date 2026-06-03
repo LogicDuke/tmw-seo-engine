@@ -59,7 +59,8 @@ class KeywordPoolTargetProvider {
         $posts = get_posts([
             'post_type'      => $post_type,
             'post_status'    => self::SAFE_STATUSES,
-            'posts_per_page' => 500,
+            // TODO: Replace full-list loading with AJAX/search pagination if target counts require it.
+            'posts_per_page' => -1,
             'orderby'        => 'title',
             'order'          => 'ASC',
             'fields'         => 'all',
