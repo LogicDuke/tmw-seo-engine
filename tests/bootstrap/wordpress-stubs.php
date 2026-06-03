@@ -250,7 +250,24 @@ if (!function_exists('get_post_meta'))        { function get_post_meta(int $id, 
 } }
 if (!function_exists('update_post_meta'))     { function update_post_meta(int $id, string $k, $v, $p = ''): bool { $GLOBALS['_tmw_test_post_meta'][$id][$k] = $v; return true; } }
 if (!function_exists('delete_post_meta'))     { function delete_post_meta(int $id, string $k, $v = ''): bool { unset($GLOBALS['_tmw_test_post_meta'][$id][$k]); return true; } }
-if (!function_exists('get_posts'))            { function get_posts(array $args = []): array { return []; } }
+if (!function_exists('get_posts'))            { function get_posts(array $args = []): array {
+    $posts = array_values($GLOBALS['_tmw_test_posts'] ?? []);
+    if (isset($args['post_type'])) {
+        $types = (array) $args['post_type'];
+        $posts = array_values(array_filter($posts, static fn($p) => is_object($p) && in_array((string) ($p->post_type ?? ''), $types, true)));
+    }
+    if (isset($args['post_status'])) {
+        $statuses = (array) $args['post_status'];
+        $posts = array_values(array_filter($posts, static fn($p) => is_object($p) && in_array((string) ($p->post_status ?? ''), $statuses, true)));
+    }
+    if (($args['orderby'] ?? '') === 'title') {
+        usort($posts, static fn($a, $b) => strcmp((string) ($a->post_title ?? ''), (string) ($b->post_title ?? '')));
+    }
+    if (($args['order'] ?? 'ASC') === 'DESC') {
+        $posts = array_reverse($posts);
+    }
+    return $posts;
+} }
 if (!function_exists('get_terms'))            { function get_terms(array $args = []) { return []; } }
 if (!function_exists('get_permalink'))        { function get_permalink($post = 0) { return false; } }
 if (!function_exists('wp_insert_post'))       { function wp_insert_post(array $p, bool $e = false): int { $id = (int)($p['ID'] ?? (count($GLOBALS['_tmw_test_posts']) + 1)); $GLOBALS['_tmw_test_posts'][$id] = new WP_Post(array_merge(['ID' => $id], $p)); return $id; } }

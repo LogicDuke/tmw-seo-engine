@@ -18,6 +18,7 @@ require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service
 require_once __DIR__ . '/../includes/models/class-model-entity-resolver.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
+require_once __DIR__ . '/../includes/admin/class-keyword-pool-target-provider.php';
 require_once __DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php';
 
 class KeywordPoolsAdminPageTest extends TestCase {
@@ -38,6 +39,9 @@ class KeywordPoolsAdminPageTest extends TestCase {
             'tmwseo_keyword_pools_nonce' => 'test_nonce',
             'tmwseo_keyword_pools_csv_text' => $csv,
         ];
+        if (isset($GLOBALS['_tmw_test_posts'])) {
+            $GLOBALS['_tmw_test_posts'] = [];
+        }
 
         ob_start();
         KeywordPoolsAdminPage::render_page();
@@ -95,6 +99,127 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertSame([ 'model', 'video', 'category' ], KeywordPoolsAdminPage::allowed_pools());
     }
 
+
+    public function test_category_pool_upload_form_shows_target_category_selector_and_source_label(): void {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET = [ 'pool' => 'category' ];
+        $GLOBALS['_tmw_test_posts'] = [
+            301 => (object) [ 'ID' => 301, 'post_type' => 'tmw_category_page', 'post_status' => 'publish', 'post_title' => 'Big Boob Cam', 'post_name' => 'big-boob-cam' ],
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Target Category', $html);
+        $this->assertStringContainsString('tmwseo_keyword_pools_target_id', $html);
+        $this->assertStringContainsString('Big Boob Cam (ID 301, slug: big-boob-cam)', $html);
+        $this->assertStringContainsString('Source Label', $html);
+    }
+
+    public function test_model_pool_upload_form_shows_target_model_selector_and_source_label(): void {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET = [ 'pool' => 'model' ];
+        $GLOBALS['_tmw_test_posts'] = [
+            902 => (object) [ 'ID' => 902, 'post_type' => 'model', 'post_status' => 'draft', 'post_title' => 'Gabriela Hadid', 'post_name' => 'gabriela-hadid' ],
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Target Model', $html);
+        $this->assertStringContainsString('tmwseo_keyword_pools_target_id', $html);
+        $this->assertStringContainsString('Gabriela Hadid (ID 902, slug: gabriela-hadid)', $html);
+        $this->assertStringContainsString('Source Label', $html);
+    }
+
+    public function test_preview_without_category_target_warns_but_renders_preview(): void {
+        $html = $this->renderPreviewForPool('category', "keyword,volume\nasian cam models,100\n");
+
+        $this->assertStringContainsString('Target Category is required before saving category keywords.', $html);
+        $this->assertStringContainsString('Preview Rows', $html);
+    }
+
+    public function test_preview_without_model_target_warns_but_renders_preview(): void {
+        $html = $this->renderPreviewForPool('model', "keyword,volume\nabigail murray cam model,100\n");
+
+        $this->assertStringContainsString('Target Model is required before saving model keywords.', $html);
+        $this->assertStringContainsString('Preview Rows', $html);
+    }
+
+    public function test_schema_declares_keyword_candidate_target_source_columns_and_indexes(): void {
+        $source = file_get_contents(__DIR__ . '/../includes/db/class-schema.php');
+        $this->assertIsString($source);
+
+        foreach ([
+            'target_type VARCHAR(50) NULL',
+            'target_id BIGINT(20) UNSIGNED NULL',
+            'target_name VARCHAR(255) NULL',
+            'target_slug VARCHAR(191) NULL',
+            'source_batch VARCHAR(255) NULL',
+            'source_file VARCHAR(255) NULL',
+            'import_batch_id VARCHAR(64) NULL',
+            'imported_at DATETIME NULL',
+            'KEY target_pool (intent_type, target_type, target_id)',
+            'KEY source_batch (source_batch)',
+            'KEY import_batch_id (import_batch_id)',
+        ] as $needle) {
+            $this->assertStringContainsString($needle, $source);
+        }
+    }
+
+
+
+    public function test_category_save_without_target_is_blocked(): void {
+        $parser = new KeywordPoolCsvParser();
+        $parserResult = $parser->parse_text("keyword,volume\nasian cam models,100\n");
+        $payload = $this->signedSavePayload('category', $parserResult);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'tmwseo_keyword_pools_save_selected' => '1',
+            'tmwseo_keyword_pool' => 'category',
+            'tmwseo_keyword_pools_nonce' => 'test_nonce',
+            'tmwseo_keyword_pools_save_payload' => $payload,
+            'tmwseo_keyword_pool_selected_rows' => [ '2' ],
+            'tmwseo_keyword_pool_save_mode' => 'approved',
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Target Category is required before saving category keywords.', $html);
+        $this->assertStringNotContainsString('Import Result', $html);
+    }
+
+    public function test_model_save_without_target_is_blocked(): void {
+        $parser = new KeywordPoolCsvParser();
+        $parserResult = $parser->parse_text("keyword,volume\nabigail murray cam model,100\n");
+        $payload = $this->signedSavePayload('model', $parserResult);
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'tmwseo_keyword_pools_save_selected' => '1',
+            'tmwseo_keyword_pool' => 'model',
+            'tmwseo_keyword_pools_nonce' => 'test_nonce',
+            'tmwseo_keyword_pools_save_payload' => $payload,
+            'tmwseo_keyword_pool_selected_rows' => [ '2' ],
+            'tmwseo_keyword_pool_save_mode' => 'approved',
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Target Model is required before saving model keywords.', $html);
+        $this->assertStringNotContainsString('Import Result', $html);
+    }
+
+    private function signedSavePayload(string $pool, array $parserResult): string {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'encode_signed_payload');
+        $method->setAccessible(true);
+        return (string) $method->invoke(null, [ 'pool' => $pool, 'parser_result' => $parserResult, 'generated_at' => time() ]);
+    }
 
     public function test_preview_and_export_include_model_keyword_scope_columns(): void {
         $headers = KeywordPoolsAdminPage::preview_columns();

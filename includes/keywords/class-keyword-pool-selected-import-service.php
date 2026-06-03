@@ -36,12 +36,12 @@ class KeywordPoolSelectedImportService {
      * @param array<int|string> $selected_rows Row numbers selected by the operator.
      * @return array<string,mixed>
      */
-    public function save_selected(array $dry_run, string $pool, array $selected_rows, string $save_mode = 'auto'): array {
+    public function save_selected(array $dry_run, string $pool, array $selected_rows, string $save_mode = 'auto', array $context = []): array {
         $selected_lookup = [];
         foreach ($selected_rows as $row_number) {
             $selected_lookup[(string) (int) $row_number] = true;
         }
-        return $this->save_matching_rows($dry_run, $pool, $selected_lookup, $save_mode, false);
+        return $this->save_matching_rows($dry_run, $pool, $selected_lookup, $save_mode, false, $context);
     }
 
     /**
@@ -50,8 +50,8 @@ class KeywordPoolSelectedImportService {
      * @param array<string,mixed> $dry_run
      * @return array<string,mixed>
      */
-    public function save_full_reviewed_model_batch(array $dry_run): array {
-        return $this->save_matching_rows($dry_run, 'model', $this->all_dry_run_row_lookup($dry_run), 'auto', true);
+    public function save_full_reviewed_model_batch(array $dry_run, array $context = []): array {
+        return $this->save_matching_rows($dry_run, 'model', $this->all_dry_run_row_lookup($dry_run), 'auto', true, $context);
     }
 
     /**
@@ -60,9 +60,9 @@ class KeywordPoolSelectedImportService {
      * @param array<string,mixed> $dry_run
      * @return array<string,mixed>
      */
-    public function save_full_reviewed_category_batch(array $dry_run): array {
+    public function save_full_reviewed_category_batch(array $dry_run, array $context = []): array {
         $selected_lookup = $this->all_dry_run_row_lookup($dry_run);
-        return $this->save_matching_rows($dry_run, 'category', $selected_lookup, 'auto', false);
+        return $this->save_matching_rows($dry_run, 'category', $selected_lookup, 'auto', false, $context);
     }
 
     /** @param array<string,mixed> $row */
@@ -83,9 +83,10 @@ class KeywordPoolSelectedImportService {
     }
 
     /** @param array<string,mixed> $dry_run @param array<string,bool> $selected_lookup @return array<string,mixed> */
-    private function save_matching_rows(array $dry_run, string $pool, array $selected_lookup, string $save_mode, bool $full_batch): array {
+    private function save_matching_rows(array $dry_run, string $pool, array $selected_lookup, string $save_mode, bool $full_batch, array $context = []): array {
         $pool = $this->sanitize_pool($pool);
         $save_mode = in_array($save_mode, self::SAVE_MODES, true) ? $save_mode : 'auto';
+        $context = $this->normalize_context($context);
         $this->model_entity_resolution_cache = [];
 
         $summary = [
@@ -132,7 +133,7 @@ class KeywordPoolSelectedImportService {
             }
 
             $seen_keywords[$keyword] = true;
-            $saved = $this->repository->save($this->candidate_from_row($row, $pool, $save_mode, $status));
+            $saved = $this->repository->save($this->candidate_from_row($row, $pool, $save_mode, $status, $context));
             $result = array_merge($result_base, $saved, [
                 'volume' => $row['volume'] ?? null,
                 'cpc' => $row['cpc'] ?? null,
@@ -308,15 +309,21 @@ class KeywordPoolSelectedImportService {
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */
-    private function candidate_from_row(array $row, string $pool, string $save_mode, ?string $status = null): array {
+    private function candidate_from_row(array $row, string $pool, string $save_mode, ?string $status = null, array $context = []): array {
         $candidate = [
             'keyword' => (string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''),
             'intent_type' => $pool,
             'entity_type' => $this->entity_type_for_pool($pool),
             'entity_id' => $this->entity_id_for_pool($row, $pool),
             'status' => $status ?: $this->status_for_row($row, $save_mode, false),
-            'provenance' => $this->provenance_for_row($row, $pool),
+            'status_change_explicit' => in_array($save_mode, [ 'approved' ], true),
+            'provenance' => $this->provenance_for_row($row, $pool, $context),
         ];
+        foreach ([ 'target_type', 'target_id', 'target_name', 'target_slug', 'source_batch', 'source_file', 'import_batch_id', 'imported_at' ] as $context_field) {
+            if (array_key_exists($context_field, $context)) {
+                $candidate[$context_field] = $context[$context_field];
+            }
+        }
         foreach (self::METRIC_FIELDS as $metric) {
             if (array_key_exists($metric, $row)) {
                 $candidate[$metric] = $row[$metric];
@@ -381,7 +388,7 @@ class KeywordPoolSelectedImportService {
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */
-    private function provenance_for_row(array $row, string $pool): array {
+    private function provenance_for_row(array $row, string $pool, array $context = []): array {
         $model_resolution = is_array($row['model_entity_resolution'] ?? null) ? $row['model_entity_resolution'] : [];
         return [
             'pool' => $pool,
@@ -412,8 +419,26 @@ class KeywordPoolSelectedImportService {
             'golden_formula_summary' => (string) ($row['golden_formula_summary'] ?? ''),
             'golden_missing_reasons' => is_array($row['golden_missing_reasons'] ?? null) ? array_values($row['golden_missing_reasons']) : [],
             'imported_from_keyword_pools' => true,
-            'imported_at' => function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s'),
+            'target_type' => (string) ($context['target_type'] ?? ''),
+            'target_id' => (int) ($context['target_id'] ?? 0),
+            'target_name' => (string) ($context['target_name'] ?? ''),
+            'target_slug' => (string) ($context['target_slug'] ?? ''),
+            'source_batch' => (string) ($context['source_batch'] ?? ''),
+            'source_file' => (string) ($context['source_file'] ?? ''),
+            'import_batch_id' => (string) ($context['import_batch_id'] ?? ''),
+            'imported_at' => (string) ($context['imported_at'] ?? (function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s'))),
         ];
+    }
+
+    /** @param array<string,mixed> $context @return array<string,mixed> */
+    private function normalize_context(array $context): array {
+        if (empty($context['import_batch_id'])) {
+            $context['import_batch_id'] = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : bin2hex(random_bytes(16));
+        }
+        if (empty($context['imported_at'])) {
+            $context['imported_at'] = function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s');
+        }
+        return $context;
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

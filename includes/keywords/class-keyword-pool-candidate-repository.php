@@ -47,6 +47,14 @@ class KeywordPoolCandidateRepository {
         $status = $this->sanitize_status((string) ($candidate['status'] ?? 'queued_for_review'));
         $entity_type = $this->sanitize_entity_type((string) ($candidate['entity_type'] ?? $intent));
         $entity_id = max(0, (int) ($candidate['entity_id'] ?? 0));
+        $target_type = $this->sanitize_optional_key((string) ($candidate['target_type'] ?? ''));
+        $target_id = array_key_exists('target_id', $candidate) && null !== $candidate['target_id'] ? max(0, (int) $candidate['target_id']) : null;
+        $target_name = $this->sanitize_optional_text((string) ($candidate['target_name'] ?? ''), 255);
+        $target_slug = $this->sanitize_optional_text((string) ($candidate['target_slug'] ?? ''), 191);
+        $source_batch = $this->sanitize_optional_text((string) ($candidate['source_batch'] ?? ''), 255);
+        $source_file = $this->sanitize_optional_text((string) ($candidate['source_file'] ?? ''), 255);
+        $import_batch_id = $this->sanitize_optional_text((string) ($candidate['import_batch_id'] ?? ''), 64);
+        $imported_at = $this->sanitize_optional_text((string) ($candidate['imported_at'] ?? ''), 32);
         $canonical = array_key_exists('canonical', $candidate)
             ? $this->normalize_keyword((string) $candidate['canonical'])
             : $keyword;
@@ -69,6 +77,9 @@ class KeywordPoolCandidateRepository {
         }
 
         $existing = $this->find_existing_by_keyword($keyword);
+        if (is_array($existing) && !$this->target_scope_matches_existing($existing, $target_type, $target_id)) {
+            return $this->result($keyword, $intent, (string) ($existing['status'] ?? $status), 'conflict', 'existing_keyword_has_different_target', $entity_type, $entity_id, [], 0, $this->existing_target_context($existing));
+        }
         if (is_array($existing) && !$this->can_update_existing($existing, $candidate, $intent, $entity_type, $entity_id)) {
             $conflict_reason = $this->existing_conflict_reason($existing, $candidate, $intent, $entity_type, $entity_id);
             return $this->result($keyword, $intent, (string) ($existing['status'] ?? $status), 'conflict', $conflict_reason, $entity_type, $entity_id);
@@ -88,13 +99,35 @@ class KeywordPoolCandidateRepository {
             $data['entity_type'] = $entity_type;
         }
         if (!empty($columns['status'])) {
-            $data['status'] = $status;
+            $existing_status = is_array($existing) ? (string) ($existing['status'] ?? '') : '';
+            $explicit_status_change = !empty($candidate['status_change_explicit']);
+            $data['status'] = is_array($existing) && !$explicit_status_change && '' !== $existing_status ? $existing_status : $status;
         }
         if (!empty($columns['updated_at'])) {
             $data['updated_at'] = $now;
         }
         if (!is_array($existing) && !empty($columns['created_at'])) {
             $data['created_at'] = $now;
+        }
+        $target_source_fields = [
+            'target_type' => '' !== $target_type ? $target_type : null,
+            'target_id' => null !== $target_id && $target_id > 0 ? $target_id : null,
+            'target_name' => '' !== $target_name ? $target_name : null,
+            'target_slug' => '' !== $target_slug ? $target_slug : null,
+            'source_batch' => '' !== $source_batch ? $source_batch : null,
+            'source_file' => '' !== $source_file ? $source_file : null,
+            'import_batch_id' => '' !== $import_batch_id ? $import_batch_id : null,
+        ];
+        foreach ($target_source_fields as $field => $value) {
+            if (!empty($columns[$field]) && (null !== $value || !is_array($existing))) {
+                $data[$field] = $value;
+            }
+        }
+        if (!empty($columns['imported_at'])) {
+            $existing_imported_at = is_array($existing) ? trim((string) ($existing['imported_at'] ?? '')) : '';
+            if (!is_array($existing) || '' === $existing_imported_at) {
+                $data['imported_at'] = '' !== $imported_at ? $imported_at : $now;
+            }
         }
 
         $unsupported_metrics = [];
@@ -126,23 +159,24 @@ class KeywordPoolCandidateRepository {
             $data['notes'] = $this->encode_json($this->merge_notes($existing_notes, $provenance, $warnings));
         }
 
+        $result_status = (string) ($data['status'] ?? $status);
         if (is_array($existing)) {
             $id = (int) ($existing['id'] ?? 0);
             if ($id <= 0) {
-                return $this->result($keyword, $intent, $status, 'conflict', 'existing_keyword_missing_id', $entity_type, $entity_id, $warnings);
+                return $this->result($keyword, $intent, $result_status, 'conflict', 'existing_keyword_missing_id', $entity_type, $entity_id, $warnings);
             }
             $updated = $wpdb->update($this->table_name(), $data, [ 'id' => $id ]);
             if (false === $updated) {
-                return $this->result($keyword, $intent, $status, 'error', 'database_update_failed', $entity_type, $entity_id, $warnings);
+                return $this->result($keyword, $intent, $result_status, 'error', 'database_update_failed', $entity_type, $entity_id, $warnings);
             }
-            return $this->result($keyword, $intent, $status, 'updated', implode('|', $warnings) ?: 'same_scope_keyword_updated', $entity_type, $entity_id, $warnings, $id);
+            return $this->result($keyword, $intent, $result_status, 'updated', implode('|', $warnings) ?: 'same_scope_keyword_updated', $entity_type, $entity_id, $warnings, $id);
         }
 
         $inserted = $wpdb->insert($this->table_name(), $data);
         if (false === $inserted) {
-            return $this->result($keyword, $intent, $status, 'error', 'database_insert_failed', $entity_type, $entity_id, $warnings);
+            return $this->result($keyword, $intent, $result_status, 'error', 'database_insert_failed', $entity_type, $entity_id, $warnings);
         }
-        return $this->result($keyword, $intent, $status, 'inserted', implode('|', $warnings) ?: 'keyword_inserted', $entity_type, $entity_id, $warnings, (int) $wpdb->insert_id);
+        return $this->result($keyword, $intent, $result_status, 'inserted', implode('|', $warnings) ?: 'keyword_inserted', $entity_type, $entity_id, $warnings, (int) $wpdb->insert_id);
     }
 
 
@@ -292,8 +326,39 @@ class KeywordPoolCandidateRepository {
         return is_array($row) ? $row : null;
     }
 
+
+    /** @param array<string,mixed> $row */
+    private function target_scope_matches_existing(array $row, string $target_type, ?int $target_id): bool {
+        if ('' === $target_type && (null === $target_id || $target_id <= 0)) {
+            return true;
+        }
+        $existing_type = $this->sanitize_optional_key((string) ($row['target_type'] ?? ''));
+        $existing_id_raw = $row['target_id'] ?? null;
+        $existing_id = null === $existing_id_raw || '' === (string) $existing_id_raw ? null : max(0, (int) $existing_id_raw);
+        if ('' === $existing_type && (null === $existing_id || $existing_id <= 0)) {
+            return true;
+        }
+        return $existing_type === $target_type && $existing_id === $target_id;
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function existing_target_context(array $row): array {
+        return [
+            'existing_target_type' => (string) ($row['target_type'] ?? ''),
+            'existing_target_id' => (int) ($row['target_id'] ?? 0),
+            'existing_target_name' => (string) ($row['target_name'] ?? ''),
+            'existing_target_slug' => (string) ($row['target_slug'] ?? ''),
+        ];
+    }
+
     /** @param array<string,mixed> $row */
     private function can_update_existing(array $row, array $candidate, string $intent, string $entity_type, int $entity_id): bool {
+        $candidate_target_type = $this->sanitize_optional_key((string) ($candidate['target_type'] ?? ''));
+        $candidate_target_id = array_key_exists('target_id', $candidate) && null !== $candidate['target_id'] ? max(0, (int) $candidate['target_id']) : null;
+        if ('' !== $candidate_target_type && null !== $candidate_target_id && $candidate_target_id > 0 && $this->target_scope_matches_existing($row, $candidate_target_type, $candidate_target_id)) {
+            return true;
+        }
+
         $existing_intent = (string) ($row['intent_type'] ?? '');
         $existing_entity = (string) ($row['entity_type'] ?? '');
         $existing_id = (int) ($row['entity_id'] ?? 0);
@@ -485,14 +550,32 @@ class KeywordPoolCandidateRepository {
         return '' !== $entity_type ? $entity_type : 'keyword_pool';
     }
 
+    private function sanitize_optional_key(string $value): string {
+        $value = function_exists('sanitize_key') ? sanitize_key($value) : strtolower(preg_replace('/[^a-z0-9_-]/', '', $value));
+        return (string) $value;
+    }
+
+    private function sanitize_optional_text(string $value, int $max_length): string {
+        $value = trim($value);
+        if (function_exists('sanitize_text_field')) {
+            $value = sanitize_text_field($value);
+        } else {
+            $value = trim(strip_tags($value));
+        }
+        if (function_exists('mb_substr')) {
+            return mb_substr($value, 0, $max_length);
+        }
+        return substr($value, 0, $max_length);
+    }
+
     private function encode_json($value): string {
         $encoded = function_exists('wp_json_encode') ? wp_json_encode($value) : json_encode($value);
         return is_string($encoded) ? $encoded : '';
     }
 
     /** @return array<string,mixed> */
-    private function result(string $keyword, string $pool, string $status, string $action, string $reason, string $entity_type, int $entity_id, array $warnings = [], int $id = 0): array {
-        return [
+    private function result(string $keyword, string $pool, string $status, string $action, string $reason, string $entity_type, int $entity_id, array $warnings = [], int $id = 0, array $extra = []): array {
+        return array_merge([
             'id' => $id,
             'keyword' => $keyword,
             'pool' => $pool,
@@ -502,6 +585,6 @@ class KeywordPoolCandidateRepository {
             'entity_type' => $entity_type,
             'entity_id' => $entity_id,
             'warnings' => $warnings,
-        ];
+        ], $extra);
     }
 }
