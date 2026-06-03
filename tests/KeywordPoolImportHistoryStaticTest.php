@@ -26,6 +26,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString("tmw_keyword_import_batches", $this->schema);
         $this->assertStringContainsString("tmw_keyword_import_rows", $this->schema);
         $this->assertStringContainsString('rejected INT UNSIGNED NOT NULL DEFAULT 0', $this->schema);
+        $this->assertStringContainsString('PRIMARY KEY  (id)', $this->schema);
         foreach ([
             'UNIQUE KEY import_batch_id (import_batch_id)',
             'KEY pool_target (pool, target_type, target_id)',
@@ -49,8 +50,11 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('tmw_keyword_import_history_schema_version', $this->schema);
         $this->assertStringContainsString('SHOW TABLES LIKE %s', $this->schema);
         $this->assertStringContainsString('$wpdb->esc_like($table_name)', $this->schema);
+        $this->assertStringContainsString('private static function missing_tables(array $tables): array', $this->schema);
+        $this->assertStringContainsString('private static function clear_table_exists_cache(array $tables): void', $this->schema);
         $this->assertStringContainsString('private static function reconcile_keyword_import_history_tables(): void', $this->schema);
         $this->assertStringContainsString('self::reconcile_keyword_import_history_tables();', $this->schema);
+        $this->assertStringContainsString('self::clear_table_exists_cache($tables);', $this->schema);
         $this->assertStringContainsString('dbDelta($sql_keyword_import_batches);', $this->schema);
         $this->assertStringContainsString('dbDelta($sql_keyword_import_rows);', $this->schema);
         $this->assertStringContainsString('update_option($version_option, $target_version, false)', $this->schema);
@@ -60,7 +64,9 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertIsInt($ensureEnd);
         $ensureMethod = substr($this->schema, $ensureStart, $ensureEnd - $ensureStart);
         $this->assertStringNotContainsString('self::create_or_update_tables();', $ensureMethod);
+        $this->assertStringNotContainsString('Fast exit: version option already satisfied', $ensureMethod);
         $this->assertStringContainsString("[TMW-KW-IMPORT] Import history tables verified/created.", $this->schema);
+        $this->assertStringContainsString("[TMW-KW-IMPORT] Import rows table creation failed or missing after dbDelta: ", $this->schema);
 
         $this->assertStringContainsString('Schema::ensure_keyword_import_history_schema();', $this->plugin);
         $this->assertStringContainsString("add_action('admin_init', [Schema::class, 'ensure_keyword_import_history_schema'])", $this->plugin);
@@ -71,6 +77,13 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('private static function table_exists(string $table_name): bool', $this->schema);
         $this->assertStringContainsString('is_string($exists) && strtolower($exists) === strtolower($table_name)', $this->schema);
         $this->assertStringContainsString('if (!self::table_exists($table_name))', $this->schema);
+    }
+
+    public function test_missing_import_history_table_notice_lists_exact_table(): void {
+        $this->assertStringContainsString('public function missing_tables(): array', $this->repository);
+        $this->assertStringContainsString("return 'Import history schema missing table: ' . $missing[0];", $this->repository);
+        $this->assertStringNotContainsString('Import history tables do not exist after schema ensure.', $this->repository);
+        $this->assertStringNotContainsString('Import history tables do not exist.', $this->repository);
     }
 
     public function test_import_persistence_self_heals_missing_history_tables_before_returning_zero(): void {
