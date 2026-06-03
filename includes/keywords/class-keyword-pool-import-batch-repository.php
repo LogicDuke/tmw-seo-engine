@@ -55,34 +55,40 @@ class KeywordPoolImportBatchRepository {
 
     /** @param array<string,mixed> $context @param array<int,array<string,mixed>> $rows */
     public function persist_import(string $pool, array $context, array $summary, array $rows): int {
-        $this->clear_last_error();
-        if (!$this->tables_exist()) {
-            if (class_exists('TMWSEO\\Engine\\Schema') && method_exists('TMWSEO\\Engine\\Schema', 'ensure_keyword_import_history_schema')) {
-                \TMWSEO\Engine\Schema::ensure_keyword_import_history_schema();
-            }
+        try {
+            $this->clear_last_error();
             if (!$this->tables_exist()) {
-                $this->record_failure('Import history tables do not exist after schema ensure.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
+                if (class_exists('TMWSEO\\Engine\\Schema') && method_exists('TMWSEO\\Engine\\Schema', 'ensure_keyword_import_history_schema')) {
+                    \TMWSEO\Engine\Schema::ensure_keyword_import_history_schema();
+                }
+                if (!$this->tables_exist()) {
+                    $this->record_failure('Import history tables do not exist after schema ensure.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
+                    return 0;
+                }
+            }
+
+            if ('' === $this->sanitize_text((string) ($context['import_batch_id'] ?? ''), 64)) {
+                $context['import_batch_id'] = $this->generate_import_batch_id();
+            }
+
+            $batch_id = $this->create_or_update_batch($pool, $context, $summary, count($rows));
+            if ($batch_id <= 0) {
                 return 0;
             }
-        }
 
-        if ('' === $this->sanitize_text((string) ($context['import_batch_id'] ?? ''), 64)) {
-            $context['import_batch_id'] = $this->generate_import_batch_id();
-        }
-
-        $batch_id = $this->create_or_update_batch($pool, $context, $summary, count($rows));
-        if ($batch_id <= 0) {
+            foreach ($rows as $index => $row) {
+                if (!is_array($row)) { continue; }
+                if ($this->persist_row($batch_id, $pool, $context, $row, $index + 1) <= 0) {
+                    $this->row_failure_count++;
+                }
+            }
+            $this->recalculate_batch_counts($batch_id);
+            return $batch_id;
+        } catch (\Throwable $e) {
+            $this->last_error = 'Import history persistence exception: ' . substr($e->getMessage(), 0, 200);
+            error_log('[TMW-KW-IMPORT] persist_import exception: ' . $e->getMessage());
             return 0;
         }
-
-        foreach ($rows as $index => $row) {
-            if (!is_array($row)) { continue; }
-            if ($this->persist_row($batch_id, $pool, $context, $row, $index + 1) <= 0) {
-                $this->row_failure_count++;
-            }
-        }
-        $this->recalculate_batch_counts($batch_id);
-        return $batch_id;
     }
 
     /** @param array<string,mixed> $context */

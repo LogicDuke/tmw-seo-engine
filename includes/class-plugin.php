@@ -252,7 +252,10 @@ class Plugin {
 
         Migration::maybe_migrate_legacy();
         Schema::ensure_intelligence_schema();
-        Schema::ensure_keyword_import_history_schema();
+        // Import-history schema ensure is admin-only.
+        // ensure_intelligence_schema() above already calls it when tables are
+        // missing. On the frontend we must not run dbDelta or SHOW TABLES for
+        // these supplementary tables.
         if (is_admin()) {
             add_action('admin_init', [Schema::class, 'ensure_keyword_import_history_schema']);
         }

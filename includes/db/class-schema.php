@@ -5,6 +5,9 @@ if (!defined('ABSPATH')) { exit; }
 
 class Schema {
 
+    /** @var array<string,bool> */
+    private static array $table_exists_cache = [];
+
     /**
      * Required intelligence tables that must exist regardless of stored DB versions.
      *
@@ -272,10 +275,17 @@ class Schema {
      * Case-insensitive table existence check for MySQL table-name casing differences.
      */
     private static function table_exists(string $table_name): bool {
-        global $wpdb;
+        if (isset(self::$table_exists_cache[$table_name])) {
+            return self::$table_exists_cache[$table_name];
+        }
 
-        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name)));
-        return is_string($exists) && strtolower($exists) === strtolower($table_name);
+        global $wpdb;
+        $exists = $wpdb->get_var(
+            $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name))
+        );
+        $result = is_string($exists) && strtolower($exists) === strtolower($table_name);
+        self::$table_exists_cache[$table_name] = $result;
+        return $result;
     }
 
     /**
@@ -286,10 +296,15 @@ class Schema {
      * create/update them additively when they are missing. Safe to run repeatedly.
      */
     public static function ensure_keyword_import_history_schema(): bool {
-        global $wpdb;
-
         $target_version = 1;
         $version_option = 'tmw_keyword_import_history_schema_version';
+
+        // Fast exit: version option already satisfied — skip all DB checks.
+        if ((int) get_option($version_option, 0) >= $target_version) {
+            return true;
+        }
+
+        global $wpdb;
         $tables = [
             $wpdb->prefix . 'tmw_keyword_import_batches',
             $wpdb->prefix . 'tmw_keyword_import_rows',
