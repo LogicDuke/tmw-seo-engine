@@ -429,7 +429,7 @@ class KeywordPoolsAdminPage {
         }
         $save_full_model_batch = !empty($_POST['tmwseo_keyword_pools_save_full_model_batch']) && 'model' === $active_pool;
         $save_full_category_batch = !empty($_POST['tmwseo_keyword_pools_save_full_category_batch']) && 'category' === $active_pool;
-        $selected = isset($_POST['tmwseo_keyword_pool_selected_rows']) && is_array($_POST['tmwseo_keyword_pool_selected_rows']) ? array_map('intval', (array) wp_unslash($_POST['tmwseo_keyword_pool_selected_rows'])) : [];
+        $selected = isset($_POST['tmwseo_keyword_pool_selected_rows']) && is_array($_POST['tmwseo_keyword_pool_selected_rows']) ? array_map(static fn($value): string => trim((string) $value), (array) wp_unslash($_POST['tmwseo_keyword_pool_selected_rows'])) : [];
         $save_mode = isset($_POST['tmwseo_keyword_pool_save_mode']) ? (string) wp_unslash($_POST['tmwseo_keyword_pool_save_mode']) : 'auto';
         $import_service = new KeywordPoolSelectedImportService();
         if ($save_full_model_batch) {
@@ -474,6 +474,28 @@ class KeywordPoolsAdminPage {
         ];
         $created_batch_id = (int) ($import_result['batch_id'] ?? 0);
         $persistence_error = trim((string) ($import_result['persistence_error'] ?? ''));
+        $attempted_row_total = (int) ($summary['inserted'] ?? 0)
+            + (int) ($summary['updated'] ?? 0)
+            + (int) ($summary['skipped'] ?? 0)
+            + (int) ($summary['blocked'] ?? 0)
+            + (int) ($summary['errors'] ?? 0)
+            + (int) ($summary['conflicts'] ?? 0);
+        // Model-specific row-persistence warning
+        if ('model' === $active_pool && $created_batch_id > 0) {
+            $row_failures = (int) ($import_result['row_persistence_failures'] ?? 0);
+            $total_rows   = (int) ($import_result['summary']['selected'] ?? 0);
+            if ($row_failures > 0 || ($total_rows > 0 && 0 === $attempted_row_total)) {
+                $state['notices'][] = [
+                    'type' => 'warning',
+                    'text' => sprintf(
+                        '[TMW-KW-IMPORT] Model import rows were not persisted or all rows were dropped: %s',
+                        '' !== $persistence_error
+                            ? $persistence_error
+                            : 'row_number key collision or empty() guard — check plugin version and redeploy.'
+                    ),
+                ];
+            }
+        }
         if ($created_batch_id > 0) {
             if ('' !== $persistence_error) {
                 $state['notices'][] = [
@@ -488,7 +510,7 @@ class KeywordPoolsAdminPage {
                         $created_batch_id,
                         (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
                         (int) ($import_context['target_id'] ?? 0),
-                        (int) ($summary['selected'] ?? 0)
+                        $attempted_row_total
                     ),
                 ];
             }
@@ -1007,6 +1029,12 @@ class KeywordPoolsAdminPage {
         echo '</form>';
     }
 
+    /** @param array<string,mixed> $row */
+    private static function dry_run_row_lookup_key(array $row, int $array_index): string {
+        $row_num = (int) ($row['row_number'] ?? 0);
+        return $row_num > 0 ? 'n:' . $row_num : 'i:' . $array_index;
+    }
+
     /**
      * @param string $pool Active keyword pool.
      * @param array<string, mixed> $parser_result Parser result used to rebuild the dry run.
@@ -1045,7 +1073,7 @@ class KeywordPoolsAdminPage {
         echo '</tr></thead><tbody>';
         $import_service = new KeywordPoolSelectedImportService();
         $url_column_index = (int) array_search('URL', self::preview_columns(), true);
-        foreach ($rows as $row) {
+        foreach ($rows as $row_index => $row) {
             if (!is_array($row)) {
                 continue;
             }
@@ -1054,8 +1082,9 @@ class KeywordPoolsAdminPage {
             if ($eligible && 'TMW-P1' === (string) ($row['tmw_priority'] ?? '')) { $classes[] = 'tmwseo-keyword-row-p1'; }
             if ($eligible && !empty($row['is_golden_keyword']) && !in_array((string) ($row['tmw_indexing_readiness'] ?? ''), [ 'defer_until_lj_50_model_milestone', 'archive_do_not_use' ], true)) { $classes[] = 'tmwseo-keyword-row-golden'; }
             if ($eligible && 'approve_for_phase_1' === (string) ($row['tmw_recommended_action'] ?? '')) { $classes[] = 'tmwseo-keyword-row-approve'; }
+            $row_token = self::dry_run_row_lookup_key($row, (int) $row_index);
             echo '<tr><td>';
-            echo '<input type="checkbox" class="' . esc_attr(implode(' ', $classes)) . '" name="tmwseo_keyword_pool_selected_rows[]" value="' . esc_attr((string) (int) ($row['row_number'] ?? 0)) . '" ' . disabled(!$eligible, true, false) . ' />';
+            echo '<input type="checkbox" class="' . esc_attr(implode(' ', $classes)) . '" name="tmwseo_keyword_pool_selected_rows[]" value="' . esc_attr($row_token) . '" ' . disabled(!$eligible, true, false) . ' />';
             echo '</td>';
             foreach (self::row_to_preview_values($row) as $index => $value) {
                 if ($url_column_index === $index && '' !== $value) {

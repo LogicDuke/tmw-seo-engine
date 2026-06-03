@@ -35,14 +35,41 @@ class KeywordPoolSelectedImportService {
 
     /**
      * @param array<string,mixed> $dry_run
-     * @param array<int|string> $selected_rows Row numbers selected by the operator.
+     * @param array<int|string> $selected_rows Stable row tokens selected by the operator, or legacy row numbers.
      * @return array<string,mixed>
      */
     public function save_selected(array $dry_run, string $pool, array $selected_rows, string $save_mode = 'auto', array $context = []): array {
         $selected_lookup = [];
-        foreach ($selected_rows as $row_number) {
-            $selected_lookup[(string) (int) $row_number] = true;
+        $legacy_zero_selected = false;
+        foreach ($selected_rows as $selected_row) {
+            $token = trim((string) $selected_row);
+            if (preg_match('/^[ni]:\d+$/', $token)) {
+                $selected_lookup[$token] = true;
+                continue;
+            }
+            if (!preg_match('/^-?\d+$/', $token)) {
+                continue;
+            }
+            $legacy_row_number = (int) $token;
+            if ($legacy_row_number > 0) {
+                $selected_lookup['n:' . $legacy_row_number] = true;
+            } else {
+                $legacy_zero_selected = true;
+            }
         }
+
+        if ($legacy_zero_selected) {
+            $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
+            foreach ($rows as $array_index => $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                if ((int) ($row['row_number'] ?? 0) <= 0) {
+                    $selected_lookup[$this->dry_run_row_lookup_key($row, (int) $array_index)] = true;
+                }
+            }
+        }
+
         return $this->save_matching_rows($dry_run, $pool, $selected_lookup, $save_mode, false, $context);
     }
 
@@ -76,12 +103,20 @@ class KeywordPoolSelectedImportService {
     private function all_dry_run_row_lookup(array $dry_run): array {
         $selected_lookup = [];
         $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
-        foreach ($rows as $row) {
+        foreach ($rows as $index => $row) {
             if (is_array($row)) {
-                $selected_lookup[(string) (int) ($row['row_number'] ?? 0)] = true;
+                $selected_lookup[$this->dry_run_row_lookup_key($row, (int) $index)] = true;
             }
         }
         return $selected_lookup;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function dry_run_row_lookup_key(array $row, int $array_index): string {
+        // Use row_number when available and > 0; fall back to the array index.
+        // Prefix with "n:"/"i:" to keep keys collision-safe and non-empty.
+        $row_num = (int) ($row['row_number'] ?? 0);
+        return $row_num > 0 ? 'n:' . $row_num : 'i:' . $array_index;
     }
 
     /** @param array<string,mixed> $dry_run @param array<string,bool> $selected_lookup @return array<string,mixed> */
@@ -108,12 +143,12 @@ class KeywordPoolSelectedImportService {
         $seen_keywords = [];
 
         $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
-        foreach ($rows as $row) {
+        foreach ($rows as $row_array_index => $row) {
             if (!is_array($row)) {
                 continue;
             }
-            $row_number = (string) (int) ($row['row_number'] ?? 0);
-            if (empty($selected_lookup[$row_number])) {
+            $lookup_key = $this->dry_run_row_lookup_key($row, (int) $row_array_index);
+            if (!isset($selected_lookup[$lookup_key])) {
                 continue;
             }
 

@@ -18,6 +18,7 @@ require_once __DIR__ . '/../includes/keywords/class-model-keyword-strategy-class
 require_once __DIR__ . '/../includes/keywords/class-model-keyword-pool-classifier.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-dry-run-service.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-candidate-repository.php';
+require_once __DIR__ . '/../includes/keywords/class-keyword-pool-import-batch-repository.php';
 require_once __DIR__ . '/../includes/models/class-model-entity-resolver.php';
 require_once __DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php';
 
@@ -224,6 +225,110 @@ Lexy Ness webcam model,900,3.25,0.08,Lexy Ness,77
         $this->assertStringContainsString('imported_from_keyword_pools', $wpdb->candidate_inserts[0]['data']['sources']);
     }
 
+
+    public function test_save_selected_model_row_number_zero_token_selects_specific_row(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_selected_zero_specific_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dry_run = [
+            'rows' => [
+                [
+                    'keyword' => 'anisyia cam',
+                    'normalized_keyword' => 'anisyia cam',
+                    'row_number' => 0,
+                    'validation_state' => 'valid',
+                    'decision' => 'accept',
+                    'tmw_score' => 80,
+                    'tmw_priority' => 'TMW-P1',
+                    'tmw_recommended_action' => 'approve_for_phase_1',
+                    'pool' => 'model',
+                ],
+                [
+                    'keyword' => 'anisyia live',
+                    'normalized_keyword' => 'anisyia live',
+                    'row_number' => 0,
+                    'validation_state' => 'valid',
+                    'decision' => 'accept',
+                    'tmw_score' => 82,
+                    'tmw_priority' => 'TMW-P1',
+                    'tmw_recommended_action' => 'approve_for_phase_1',
+                    'pool' => 'model',
+                ],
+            ],
+        ];
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dry_run, 'model', [ 'i:1' ], 'auto');
+
+        $this->assertSame(1, $result['summary']['selected']);
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertCount(1, $wpdb->candidate_inserts);
+        $this->assertSame('anisyia live', $wpdb->candidate_inserts[0]['data']['keyword']);
+    }
+
+    public function test_save_selected_model_row_number_zero_uses_array_index_lookup(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_selected_zero_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dry_run = [
+            'rows' => [
+                [
+                    'keyword' => 'anisyia cam',
+                    'normalized_keyword' => 'anisyia cam',
+                    'row_number' => 0,
+                    'validation_state' => 'valid',
+                    'decision' => 'accept',
+                    'tmw_score' => 80,
+                    'tmw_priority' => 'TMW-P1',
+                    'tmw_recommended_action' => 'approve_for_phase_1',
+                    'pool' => 'model',
+                ],
+            ],
+        ];
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dry_run, 'model', [0], 'auto');
+        $summary = $result['summary'];
+
+        $this->assertGreaterThan(
+            0,
+            ($summary['inserted'] ?? 0) + ($summary['updated'] ?? 0) + ($summary['skipped'] ?? 0) + ($summary['blocked'] ?? 0),
+            'Manual save_selected must not ignore model rows selected with row_number=0'
+        );
+    }
+
+    public function test_model_full_reviewed_batch_persists_rows_with_row_number_zero(): void {
+        // Rows with row_number=0 must NOT be silently dropped
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_zero_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dry_run = [
+            'rows' => [
+                [
+                    'keyword' => 'anisyia cam',
+                    'normalized_keyword' => 'anisyia cam',
+                    'row_number' => 0, // <-- the problematic case
+                    'validation_state' => 'valid',
+                    'decision' => 'accept',
+                    'tmw_score' => 80,
+                    'tmw_priority' => 'TMW-P1',
+                    'tmw_recommended_action' => 'approve_for_phase_1',
+                    'pool' => 'model',
+                ],
+            ],
+        ];
+        $context = [
+            'target_type' => 'model',
+            'target_id' => 4457,
+            'target_name' => 'Anisyia',
+            'source_batch' => 'Anisyia',
+            'source_file' => 'Anisyia.csv',
+        ];
+
+        $result = (new KeywordPoolSelectedImportService())->save_full_reviewed_model_batch($dry_run, $context);
+        $summary = $result['summary'];
+
+        $this->assertGreaterThan(
+            0,
+            ($summary['inserted'] ?? 0) + ($summary['updated'] ?? 0) + ($summary['skipped'] ?? 0) + ($summary['blocked'] ?? 0),
+            'Model rows with row_number=0 must not be silently skipped'
+        );
+    }
 
     public function test_full_category_batch_saves_valid_accept_category_rows_and_blocks_footer(): void {
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_cat_batch_', true);

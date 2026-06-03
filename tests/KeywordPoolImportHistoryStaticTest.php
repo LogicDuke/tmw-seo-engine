@@ -24,6 +24,77 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->readme = (string) file_get_contents(__DIR__ . '/../README.md');
     }
 
+    public function test_service_uses_isset_not_empty_for_lookup_key(): void {
+        // empty($selected_lookup[$row_number]) silently skips rows with row_number=0
+        $this->assertStringNotContainsString(
+            'empty($selected_lookup[',
+            $this->service,
+            'save_matching_rows must use isset(), not empty(), for the lookup key check'
+        );
+    }
+
+    public function test_service_all_dry_run_row_lookup_uses_prefixed_keys(): void {
+        // The lookup must use a prefix to avoid PHP empty("0") false positive
+        $this->assertStringContainsString(
+            "'n:'",
+            $this->service,
+            'all_dry_run_row_lookup must use prefixed keys like n: to avoid empty("0") bug'
+        );
+    }
+
+    public function test_service_lookup_paths_use_shared_helper(): void {
+        $this->assertStringContainsString(
+            'private function dry_run_row_lookup_key(array $row, int $array_index): string',
+            $this->service
+        );
+        $this->assertStringContainsString(
+            '$selected_lookup[$this->dry_run_row_lookup_key($row, (int) $index)] = true;',
+            $this->service,
+            'all_dry_run_row_lookup must use the shared lookup helper'
+        );
+        $this->assertStringContainsString(
+            '$lookup_key = $this->dry_run_row_lookup_key($row, (int) $row_array_index);',
+            $this->service,
+            'save_matching_rows must use the shared lookup helper'
+        );
+    }
+
+    public function test_admin_save_selected_uses_stable_row_tokens(): void {
+        $this->assertStringContainsString(
+            '$row_token = self::dry_run_row_lookup_key($row, (int) $row_index);',
+            $this->admin
+        );
+        $this->assertStringContainsString(
+            'esc_attr($row_token)',
+            $this->admin,
+            'Preview checkboxes must post stable n:/i: tokens, not raw row_number values'
+        );
+        $this->assertStringNotContainsString(
+            "esc_attr((string) (int) (\$row['row_number'] ?? 0))",
+            $this->admin,
+            'Preview checkboxes must not post ambiguous raw row_number values'
+        );
+    }
+
+    public function test_admin_attempted_row_total_includes_conflicts(): void {
+        $this->assertStringContainsString("\$attempted_row_total = (int) (\$summary['inserted'] ?? 0)", $this->admin);
+        $this->assertStringContainsString("+ (int) (\$summary['conflicts'] ?? 0);", $this->admin);
+        $this->assertStringContainsString('0 === $attempted_row_total', $this->admin);
+        $this->assertStringContainsString('$attempted_row_total', $this->admin);
+    }
+
+    public function test_service_model_batch_persists_rows_for_pool_model(): void {
+        // save_full_reviewed_model_batch must call persist_import with pool=model
+        $this->assertStringContainsString(
+            'save_full_reviewed_model_batch',
+            $this->service
+        );
+        $this->assertStringContainsString(
+            "'model', \$this->all_dry_run_row_lookup",
+            $this->service
+        );
+    }
+
     public function test_schema_defines_import_batch_and_row_tables_with_required_indexes(): void {
         $this->assertStringContainsString("tmw_keyword_import_batches", $this->schema);
         $this->assertStringContainsString("tmw_keyword_import_rows", $this->schema);
