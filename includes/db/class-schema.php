@@ -399,8 +399,8 @@ class Schema {
         $sql_keyword_import_rows = "CREATE TABLE $keyword_import_rows (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             batch_id BIGINT UNSIGNED NOT NULL,
-            import_batch_id VARCHAR(64) NOT NULL,
-            row_number INT UNSIGNED NOT NULL DEFAULT 0,
+                import_batch_id VARCHAR(64) NOT NULL,
+                row_number INT UNSIGNED NOT NULL DEFAULT 0,
             keyword VARCHAR(255) NOT NULL,
             normalized_keyword VARCHAR(255) NULL,
             volume INT NULL,
@@ -858,8 +858,8 @@ class Schema {
         $sql_keyword_import_rows = "CREATE TABLE $keyword_import_rows (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             batch_id BIGINT UNSIGNED NOT NULL,
-            import_batch_id VARCHAR(64) NOT NULL,
-            row_number INT UNSIGNED NOT NULL DEFAULT 0,
+                import_batch_id VARCHAR(64) NOT NULL,
+                row_number INT UNSIGNED NOT NULL DEFAULT 0,
             keyword VARCHAR(255) NOT NULL,
             normalized_keyword VARCHAR(255) NULL,
             volume INT NULL,
