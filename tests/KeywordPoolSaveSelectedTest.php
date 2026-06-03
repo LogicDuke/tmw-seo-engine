@@ -579,6 +579,280 @@ anisyia,12100,68
         $this->assertStringNotContainsString('generate', strtolower($queries));
     }
 
+
+    public function test_category_save_with_valid_target_context_persists_ownership_and_source_fields(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_cat_', true, $columns);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score\nbig boob cam,18100,5.99,0.02,91\n", 'category');
+
+        $context = [
+            'target_type' => 'category_page',
+            'target_id' => 301,
+            'target_name' => 'Big Boob Cam',
+            'target_slug' => 'big-boob-cam',
+            'source_batch' => 'Big Boob Cam priority upload',
+            'source_file' => 'Big_Boob_Cam_35_priority_keywords.csv',
+        ];
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'approved', $context);
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $data = $wpdb->candidate_inserts[0]['data'];
+        $this->assertSame('category_page', $data['target_type']);
+        $this->assertSame(301, $data['target_id']);
+        $this->assertSame('Big Boob Cam', $data['target_name']);
+        $this->assertSame('big-boob-cam', $data['target_slug']);
+        $this->assertSame('Big Boob Cam priority upload', $data['source_batch']);
+        $this->assertSame('Big_Boob_Cam_35_priority_keywords.csv', $data['source_file']);
+        $this->assertNotEmpty($data['import_batch_id']);
+        $this->assertNotEmpty($data['imported_at']);
+    }
+
+    public function test_model_save_with_valid_target_context_persists_ownership_and_source_fields(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_model_', true, $columns);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,model_name\ngabriela hadid cam model,900,3.25,0.08,Gabriela Hadid\n", 'model');
+
+        $context = [
+            'target_type' => 'model',
+            'target_id' => 902,
+            'target_name' => 'Gabriela Hadid',
+            'target_slug' => 'gabriela-hadid',
+            'source_batch' => 'Gabriela manual batch',
+            'source_file' => 'gabriela.csv',
+        ];
+        $result = (new KeywordPoolSelectedImportService(null, new ModelEntityResolver(static fn() => [])))->save_selected($dryRun, 'model', [2], 'approved', $context);
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $data = $wpdb->candidate_inserts[0]['data'];
+        $this->assertSame('model', $data['target_type']);
+        $this->assertSame(902, $data['target_id']);
+        $this->assertSame('Gabriela Hadid', $data['target_name']);
+        $this->assertSame('gabriela-hadid', $data['target_slug']);
+        $this->assertSame('Gabriela manual batch', $data['source_batch']);
+        $this->assertSame('gabriela.csv', $data['source_file']);
+        $this->assertNotEmpty($data['import_batch_id']);
+        $this->assertNotEmpty($data['imported_at']);
+    }
+
+    public function test_duplicate_keyword_with_different_target_does_not_overwrite_ownership(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 55,
+            'keyword' => 'latina cam models',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'target_type' => 'category_page',
+            'target_id' => 111,
+            'target_name' => 'Latina Cam Models',
+            'target_slug' => 'latina-cam-models',
+            'status' => 'approved',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_conflict_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume\nlatina cam models,100\n", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'approved', [
+            'target_type' => 'category_page',
+            'target_id' => 222,
+            'target_name' => 'Different Category',
+            'target_slug' => 'different-category',
+        ]);
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame([], $wpdb->candidate_updates);
+        $this->assertSame('existing_keyword_has_different_target', $result['rows'][0]['reason']);
+        $this->assertSame('Latina Cam Models', $result['rows'][0]['existing_target_name']);
+        $this->assertSame('approved', $result['rows'][0]['status']);
+    }
+
+    public function test_existing_rows_with_null_target_fields_attach_selected_target_and_preserve_status_on_auto(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 56,
+            'keyword' => 'unassigned category keyword',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'target_type' => null,
+            'target_id' => null,
+            'status' => 'queued_for_review',
+            'sources' => '{"legacy":"source"}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_null_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume\nunassigned category keyword,100\n", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'auto', [
+            'target_type' => 'category_page',
+            'target_id' => 333,
+            'target_name' => 'New Owner',
+            'target_slug' => 'new-owner',
+            'source_batch' => 'new owner batch',
+            'source_file' => 'new-owner.csv',
+            'import_batch_id' => 'batch-333',
+            'imported_at' => '2026-06-02 00:00:00',
+        ]);
+
+        $this->assertSame(1, $result['summary']['updated']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $data = $wpdb->candidate_updates[0]['data'];
+        $this->assertSame('category_page', $data['target_type']);
+        $this->assertSame(333, $data['target_id']);
+        $this->assertSame('New Owner', $data['target_name']);
+        $this->assertSame('new-owner', $data['target_slug']);
+        $this->assertSame('queued_for_review', $data['status']);
+        $this->assertSame('new owner batch', $data['source_batch']);
+        $this->assertSame('new-owner.csv', $data['source_file']);
+        $this->assertSame('batch-333', $data['import_batch_id']);
+        $this->assertStringContainsString('keyword_pools_import_history', $data['sources']);
+        $this->assertStringContainsString('new owner batch', $data['sources']);
+    }
+
+    public function test_existing_same_target_refresh_preserves_existing_rejected_status_on_auto(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 57,
+            'keyword' => 'same target keyword',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'target_type' => 'category_page',
+            'target_id' => 444,
+            'target_name' => 'Same Target',
+            'target_slug' => 'same-target',
+            'status' => 'rejected',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_same_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume\nsame target keyword,100\n", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'auto', [
+            'target_type' => 'category_page',
+            'target_id' => 444,
+            'target_name' => 'Same Target',
+            'target_slug' => 'same-target',
+        ]);
+
+        $this->assertSame(1, $result['summary']['updated']);
+        $this->assertSame('rejected', $wpdb->candidate_updates[0]['data']['status']);
+    }
+
+
+    public function test_missing_incoming_target_does_not_update_existing_targeted_row(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 58,
+            'keyword' => 'already targeted cam models',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'target_type' => 'category_page',
+            'target_id' => 555,
+            'target_name' => 'Already Targeted',
+            'target_slug' => 'already-targeted',
+            'status' => 'queued_for_review',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_missing_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume
+already targeted cam models,100
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'auto');
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('existing_keyword_has_different_target', $result['rows'][0]['reason']);
+        $this->assertSame('Already Targeted', $result['rows'][0]['existing_target_name']);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_target_match_does_not_bypass_intent_entity_compatibility(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 59,
+            'keyword' => 'same target cam models',
+            'intent_type' => 'video',
+            'entity_type' => 'post',
+            'entity_id' => 99,
+            'target_type' => 'category_page',
+            'target_id' => 666,
+            'target_name' => 'Same Target Wrong Entity',
+            'target_slug' => 'same-target-wrong-entity',
+            'status' => 'queued_for_review',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_scope_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume
+same target cam models,100
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'auto', [
+            'target_type' => 'category_page',
+            'target_id' => 666,
+            'target_name' => 'Same Target Wrong Entity',
+            'target_slug' => 'same-target-wrong-entity',
+        ]);
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('existing_keyword_conflicting_scope', $result['rows'][0]['reason']);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_queued_for_review_save_mode_is_explicit_status_change(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $existing = [
+            'id' => 60,
+            'keyword' => 'queued explicit cam models',
+            'intent_type' => 'category',
+            'entity_type' => 'category',
+            'entity_id' => 0,
+            'target_type' => 'category_page',
+            'target_id' => 777,
+            'target_name' => 'Queued Explicit',
+            'target_slug' => 'queued-explicit',
+            'status' => 'rejected',
+            'sources' => '{}',
+            'notes' => '{}',
+        ];
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_target_queued_', true, $columns, $existing);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume
+queued explicit cam models,100
+", 'category');
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'category', [2], 'queued_for_review', [
+            'target_type' => 'category_page',
+            'target_id' => 777,
+            'target_name' => 'Queued Explicit',
+            'target_slug' => 'queued-explicit',
+        ]);
+
+        $this->assertSame(1, $result['summary']['updated']);
+        $this->assertSame('queued_for_review', $wpdb->candidate_updates[0]['data']['status']);
+    }
+
+
+    private function keywordCandidateColumnsWithTargetOwnership(): array {
+        return [
+            'id', 'keyword', 'canonical', 'status', 'intent', 'intent_type', 'entity_type', 'entity_id',
+            'target_type', 'target_id', 'target_name', 'target_slug', 'source_batch', 'source_file', 'import_batch_id', 'imported_at',
+            'volume', 'cpc', 'difficulty', 'competition', 'opportunity', 'seo_score', 'traffic_value',
+            'trend', 'ad_difficulty', 'difficulty_proxy', 'sources', 'notes', 'created_at', 'updated_at',
+        ];
+    }
+
     private function serviceWithModelPosts(array $posts): KeywordPoolSelectedImportService {
         return new KeywordPoolSelectedImportService(null, new ModelEntityResolver(static fn() => $posts));
     }
