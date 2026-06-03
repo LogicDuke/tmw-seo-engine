@@ -144,6 +144,7 @@ class KeywordPoolsAdminPage {
         echo '<h1>' . esc_html(__('Keyword Pools', 'tmwseo')) . '</h1>';
         self::render_intro_notice();
         self::render_notices($state['notices']);
+        self::render_get_notice();
         self::render_tabs($active_pool);
         $view_batch_id = isset($_GET['tmwseo_keyword_batch_id']) ? absint($_GET['tmwseo_keyword_batch_id']) : 0;
 
@@ -471,6 +472,24 @@ class KeywordPoolsAdminPage {
                 (int) ($summary['ambiguous_model_entities'] ?? 0)
             ),
         ];
+        $created_batch_id = (int) ($import_result['batch_id'] ?? 0);
+        if ($created_batch_id > 0) {
+            $state['notices'][] = [
+                'type' => 'success',
+                'text' => sprintf(
+                    '[TMW-KW-IMPORT] Created import batch %d for target %s:%d with %d rows',
+                    $created_batch_id,
+                    (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
+                    (int) ($import_context['target_id'] ?? 0),
+                    (int) ($summary['selected'] ?? 0)
+                ),
+            ];
+        } else {
+            $state['notices'][] = [
+                'type' => 'warning',
+                'text' => '[TMW-KW-IMPORT] Import batch was not persisted (batch_id=0). Verify that tmw_keyword_import_batches and tmw_keyword_import_rows tables exist and the schema migration has run.',
+            ];
+        }
         return $state;
     }
 
@@ -546,6 +565,20 @@ class KeywordPoolsAdminPage {
         return in_array($pool, [ 'category', 'model' ], true);
     }
 
+    /**
+     * Returns the canonical target_type string for a pool,
+     * matching what KeywordPoolTargetProvider stores in every batch record.
+     */
+    private static function target_type_for_pool(string $pool): string {
+        if ('category' === $pool) {
+            return 'category_page';
+        }
+        if ('model' === $pool) {
+            return 'model';
+        }
+        return '';
+    }
+
     private static function target_required_message(string $pool): string {
         return 'category' === $pool
             ? __('Target Category is required before saving category keywords.', 'tmwseo')
@@ -607,6 +640,33 @@ class KeywordPoolsAdminPage {
         }
     }
 
+    /**
+     * Renders a one-time admin notice from the ?tmwseo_notice= GET param.
+     * Used by handle_import_row_action() redirects.
+     */
+    private static function render_get_notice(): void {
+        if (empty($_GET['tmwseo_notice'])) {
+            return;
+        }
+        $slug = sanitize_key((string) wp_unslash($_GET['tmwseo_notice']));
+        $map  = [
+            'import_row_approve'      => [ 'success', __('Import row approved and candidate saved.', 'tmwseo') ],
+            'import_row_reject'       => [ 'success', __('Import row rejected.', 'tmwseo') ],
+            'import_row_unauthorized' => [ 'error',   __('Unauthorized action.', 'tmwseo') ],
+            'import_row_invalid'      => [ 'error',   __('Invalid import row action.', 'tmwseo') ],
+            'import_row_missing'      => [ 'error',   __('Import row not found.', 'tmwseo') ],
+            'import_batch_missing'    => [ 'error',   __('Import batch not found.', 'tmwseo') ],
+        ];
+        if (!isset($map[$slug])) {
+            return;
+        }
+        [$type, $message] = $map[$slug];
+        $css = 'success' === $type ? 'notice-success' : 'notice-error';
+        echo '<div class="notice ' . esc_attr($css) . ' is-dismissible"><p>'
+            . esc_html($message)
+            . '</p></div>';
+    }
+
     private static function render_tabs(string $active_pool): void {
         echo '<h2 class="nav-tab-wrapper">';
         foreach (self::POOL_LABELS as $pool => $label) {
@@ -650,7 +710,16 @@ class KeywordPoolsAdminPage {
             return;
         }
         $repository = new KeywordPoolImportBatchRepository();
-        $batches = $repository->query_batches($pool, (string) ($context['target_type'] ?? $pool), $target_id, 10);
+        $query_target_type = (string) ($context['target_type'] ?? '');
+        if ('' === $query_target_type) {
+            $query_target_type = self::target_type_for_pool($pool);
+        }
+        $batches = $repository->query_batches(
+            $pool,
+            '' !== $query_target_type ? $query_target_type : null,
+            $target_id,
+            10
+        );
         if ([] === $batches) {
             echo '<p class="description">' . esc_html__('No saved import batches found for this target yet.', 'tmwseo') . '</p>';
             echo '</td></tr>';
