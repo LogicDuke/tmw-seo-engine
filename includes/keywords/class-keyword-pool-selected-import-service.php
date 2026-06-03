@@ -22,12 +22,14 @@ class KeywordPoolSelectedImportService {
     private const METRIC_FIELDS = [ 'volume', 'difficulty', 'cpc', 'competition', 'opportunity', 'seo_score', 'traffic_value', 'trend', 'trend_direction', 'ad_difficulty', 'difficulty_proxy', 'opportunity_score', 'lowest_cpc', 'average_cpc', 'highest_cpc', 'cpc_spread', 'tmw_score', 'tmw_priority', 'tmw_difficulty_band', 'tmw_commercial_band', 'tmw_indexing_readiness', 'tmw_recommended_action' ];
 
     private KeywordPoolCandidateRepository $repository;
+    private KeywordPoolImportBatchRepository $batch_repository;
     private ModelEntityResolver $model_entity_resolver;
     /** @var array<string,array<string,mixed>> */
     private array $model_entity_resolution_cache = [];
 
-    public function __construct(?KeywordPoolCandidateRepository $repository = null, ?ModelEntityResolver $model_entity_resolver = null) {
+    public function __construct(?KeywordPoolCandidateRepository $repository = null, ?ModelEntityResolver $model_entity_resolver = null, ?KeywordPoolImportBatchRepository $batch_repository = null) {
         $this->repository = $repository ?: new KeywordPoolCandidateRepository();
+        $this->batch_repository = $batch_repository ?: new KeywordPoolImportBatchRepository();
         $this->model_entity_resolver = $model_entity_resolver ?: new ModelEntityResolver();
     }
 
@@ -102,6 +104,7 @@ class KeywordPoolSelectedImportService {
             'ambiguous_model_entities' => 0,
         ];
         $results = [];
+        $history_rows = [];
         $seen_keywords = [];
 
         $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
@@ -124,17 +127,22 @@ class KeywordPoolSelectedImportService {
             if (null !== $eligibility) {
                 $action = str_starts_with($eligibility, 'blocked_') ? 'blocked' : 'skipped';
                 $summary[$action === 'blocked' ? 'blocked' : 'skipped']++;
-                $results[] = array_merge($result_base, [
+                $blocked_result = array_merge($result_base, [
                     'keyword' => $keyword,
                     'action' => $action,
                     'reason' => $eligibility,
+                    '_dry_run_row' => $row,
                 ]);
+                $results[] = $blocked_result;
+                $history_rows[] = $blocked_result;
                 continue;
             }
 
             $seen_keywords[$keyword] = true;
             $saved = $this->repository->save($this->candidate_from_row($row, $pool, $save_mode, $status, $context));
             $result = array_merge($result_base, $saved, [
+                'candidate_id' => (int) ($saved['id'] ?? 0),
+                '_dry_run_row' => $row,
                 'volume' => $row['volume'] ?? null,
                 'cpc' => $row['cpc'] ?? null,
                 'competition' => $row['competition'] ?? null,
@@ -165,9 +173,62 @@ class KeywordPoolSelectedImportService {
                 $summary['skipped']++;
             }
             $results[] = $result;
+            $history_rows[] = $result;
         }
 
-        return [ 'summary' => $summary, 'rows' => $results ];
+        $summary['queued'] = count(array_filter($results, static fn($row): bool => is_array($row) && 'queued_for_review' === (string) ($row['status'] ?? '')));
+        $summary['approved'] = count(array_filter($results, static fn($row): bool => is_array($row) && 'approved' === (string) ($row['status'] ?? '')));
+        $summary['review_required'] = count(array_filter($results, static fn($row): bool => is_array($row) && 'blocked' === (string) ($row['action'] ?? '') && str_contains((string) ($row['reason'] ?? ''), 'review_required')));
+        $batch_id = $this->batch_repository->persist_import($pool, $context, $summary, $history_rows);
+
+        return [ 'summary' => $summary, 'rows' => $results, 'batch_id' => $batch_id, 'import_batch_id' => (string) ($context['import_batch_id'] ?? '') ];
+    }
+
+
+    /**
+     * Explicit operator override path for a single durable import row.
+     * This does not change full-batch eligibility or auto-approval behavior.
+     *
+     * @param array<string,mixed> $import_row
+     * @param array<string,mixed> $batch
+     */
+    public function approve_import_row_as_candidate(array $import_row, array $batch): int {
+        $pool = $this->sanitize_pool((string) ($batch['pool'] ?? 'model'));
+        $payload = json_decode((string) ($import_row['row_payload'] ?? ''), true);
+        $row = is_array($payload) ? $payload : [];
+        $keyword = (string) ($import_row['normalized_keyword'] ?? $import_row['keyword'] ?? '');
+        if ('' === trim($keyword)) {
+            $keyword = (string) ($row['normalized_keyword'] ?? $row['keyword'] ?? '');
+        }
+        $row['keyword'] = $row['keyword'] ?? $keyword;
+        $row['normalized_keyword'] = $row['normalized_keyword'] ?? $keyword;
+        if (!empty($import_row['volume'])) { $row['volume'] = $import_row['volume']; }
+        if (!empty($import_row['cpc'])) { $row['cpc'] = $import_row['cpc']; }
+        if (!empty($import_row['competition'])) { $row['competition'] = $import_row['competition']; }
+
+        $context = [
+            'target_type' => (string) ($batch['target_type'] ?? $import_row['target_type'] ?? ''),
+            'target_id' => (int) ($batch['target_id'] ?? $import_row['target_id'] ?? 0),
+            'target_name' => (string) ($batch['target_name'] ?? $import_row['target_name'] ?? ''),
+            'target_slug' => (string) ($batch['target_slug'] ?? ''),
+            'source_batch' => (string) ($batch['source_batch'] ?? ''),
+            'source_file' => (string) ($batch['source_file'] ?? ''),
+            'import_batch_id' => (string) ($batch['import_batch_id'] ?? $import_row['import_batch_id'] ?? ''),
+            'imported_at' => (string) ($batch['imported_at'] ?? ''),
+        ];
+
+        if ('category' === $pool && (int) $context['target_id'] > 0) {
+            $row['entity_id'] = (int) $context['target_id'];
+        } elseif ('model' === $pool && (int) $context['target_id'] > 0) {
+            $row['post_id'] = (int) $context['target_id'];
+            $row['entity_id'] = (int) $context['target_id'];
+        }
+
+        $row = $this->ensure_tmw_scored_row($row, $pool);
+        $candidate = $this->candidate_from_row($row, $pool, 'approved', 'approved', $context);
+        $candidate['status_change_explicit'] = true;
+        $saved = $this->repository->save($candidate);
+        return in_array((string) ($saved['action'] ?? ''), [ 'inserted', 'updated' ], true) ? (int) ($saved['id'] ?? 0) : 0;
     }
 
     /** @param array<string,mixed> $row */

@@ -285,8 +285,14 @@ class Schema {
         $missing_tables = self::get_missing_required_intelligence_tables();
         $expansion_candidates = $wpdb->prefix . 'tmw_seed_expansion_candidates';
         $has_expansion_candidates = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $expansion_candidates)) === $expansion_candidates);
+        $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
+        $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
+        $has_keyword_import_history = (
+            $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keyword_import_batches)) === $keyword_import_batches
+            && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keyword_import_rows)) === $keyword_import_rows
+        );
 
-        if ($stored_version >= $target_version && empty($missing_tables) && $has_expansion_candidates) {
+        if ($stored_version >= $target_version && empty($missing_tables) && $has_expansion_candidates && $has_keyword_import_history) {
             return;
         }
 
@@ -332,6 +338,8 @@ class Schema {
         // Keyword intelligence (alpha.8)
         $keyword_raw = $wpdb->prefix . 'tmw_keyword_raw';
         $keyword_candidates = $wpdb->prefix . 'tmw_keyword_candidates';
+        $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
+        $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
         $keyword_blacklist = $wpdb->prefix . 'tmw_keyword_blacklist';
         $serp_domains = $wpdb->prefix . 'tmwseo_serp_domains';
         $competitor_keywords = $wpdb->prefix . 'tmwseo_competitor_keywords';
@@ -620,6 +628,70 @@ class Schema {
             KEY graph_cluster (graph_cluster_id, graph_cluster_size),
             KEY node_degree (node_degree),
             KEY trend_score (trend_score)
+        ) $charset_collate;";
+
+        $sql_keyword_import_batches = "CREATE TABLE $keyword_import_batches (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            import_batch_id VARCHAR(64) NOT NULL,
+            pool VARCHAR(30) NOT NULL,
+            target_type VARCHAR(50) NULL,
+            target_id BIGINT UNSIGNED NULL,
+            target_name VARCHAR(255) NULL,
+            target_slug VARCHAR(191) NULL,
+            source_batch VARCHAR(255) NULL,
+            source_file VARCHAR(255) NULL,
+            imported_at DATETIME NOT NULL,
+            created_by BIGINT UNSIGNED NULL,
+            total_rows INT UNSIGNED NOT NULL DEFAULT 0,
+            inserted INT UNSIGNED NOT NULL DEFAULT 0,
+            updated INT UNSIGNED NOT NULL DEFAULT 0,
+            queued INT UNSIGNED NOT NULL DEFAULT 0,
+            review_required INT UNSIGNED NOT NULL DEFAULT 0,
+            approved INT UNSIGNED NOT NULL DEFAULT 0,
+            skipped INT UNSIGNED NOT NULL DEFAULT 0,
+            blocked INT UNSIGNED NOT NULL DEFAULT 0,
+            errors INT UNSIGNED NOT NULL DEFAULT 0,
+            status VARCHAR(30) NOT NULL DEFAULT 'open',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY import_batch_id (import_batch_id),
+            KEY pool_target (pool, target_type, target_id),
+            KEY imported_at (imported_at),
+            KEY source_batch (source_batch)
+        ) $charset_collate;";
+
+        $sql_keyword_import_rows = "CREATE TABLE $keyword_import_rows (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            batch_id BIGINT UNSIGNED NOT NULL,
+            import_batch_id VARCHAR(64) NOT NULL,
+            row_number INT UNSIGNED NOT NULL DEFAULT 0,
+            keyword VARCHAR(255) NOT NULL,
+            normalized_keyword VARCHAR(255) NULL,
+            volume INT NULL,
+            cpc DECIMAL(10,2) NULL,
+            competition DECIMAL(6,4) NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'review_required',
+            result_action VARCHAR(30) NULL,
+            result_reason VARCHAR(255) NULL,
+            validation_state VARCHAR(60) NULL,
+            decision VARCHAR(60) NULL,
+            target_type VARCHAR(50) NULL,
+            target_id BIGINT UNSIGNED NULL,
+            target_name VARCHAR(255) NULL,
+            candidate_id BIGINT UNSIGNED NULL,
+            row_payload LONGTEXT NULL,
+            reviewed_by BIGINT UNSIGNED NULL,
+            reviewed_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY batch_row (batch_id, row_number),
+            KEY import_batch_id (import_batch_id),
+            KEY batch_status (batch_id, status),
+            KEY pool_target_status (target_type, target_id, status),
+            KEY candidate_id (candidate_id),
+            KEY keyword (keyword)
         ) $charset_collate;";
 
         $sql_keyword_blacklist = "CREATE TABLE $keyword_blacklist (
@@ -1232,6 +1304,8 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_aff_clicks);
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
+        dbDelta($sql_keyword_import_batches);
+        dbDelta($sql_keyword_import_rows);
         dbDelta($sql_keyword_blacklist);
         dbDelta($sql_serp_domains);
         dbDelta($sql_competitor_keywords);

@@ -11,6 +11,7 @@ namespace TMWSEO\Engine\Admin;
 
 use TMWSEO\Engine\Keywords\KeywordPoolCsvParser;
 use TMWSEO\Engine\Keywords\KeywordPoolDryRunService;
+use TMWSEO\Engine\Keywords\KeywordPoolImportBatchRepository;
 use TMWSEO\Engine\Keywords\KeywordPoolSelectedImportService;
 
 if (!defined('ABSPATH')) { exit; }
@@ -49,6 +50,7 @@ class KeywordPoolsAdminPage {
      */
     public static function init(): void {
         add_action('admin_post_' . self::EXPORT_ACTION, [__CLASS__, 'handle_export']);
+        add_action('admin_post_tmwseo_keyword_import_row_action', [__CLASS__, 'handle_import_row_action']);
     }
 
     public static function slug(): string {
@@ -143,6 +145,11 @@ class KeywordPoolsAdminPage {
         self::render_intro_notice();
         self::render_notices($state['notices']);
         self::render_tabs($active_pool);
+        $view_batch_id = isset($_GET['tmwseo_keyword_batch_id']) ? absint($_GET['tmwseo_keyword_batch_id']) : 0;
+
+        if ($view_batch_id > 0 && 'metrics' !== $active_pool) {
+            self::render_saved_batch_view($view_batch_id);
+        }
 
         if ('metrics' === $active_pool) {
             self::render_metrics_tab();
@@ -153,6 +160,7 @@ class KeywordPoolsAdminPage {
             }
         }
 
+        self::render_copy_keyword_script();
         echo '</div>';
     }
 
@@ -172,6 +180,76 @@ class KeywordPoolsAdminPage {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="tmwseo-keyword-pools-dry-run-preview.csv"');
         echo self::build_export_csv($rows);
+        exit;
+    }
+
+
+    public static function handle_import_row_action(): void {
+        if (!current_user_can(self::CAPABILITY)) {
+            wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmwseo_notice=import_row_unauthorized'));
+            exit;
+        }
+
+        $row_id = isset($_POST['import_row_id']) ? absint($_POST['import_row_id']) : 0;
+        $requested_action = isset($_POST['import_row_action']) ? sanitize_key((string) wp_unslash($_POST['import_row_action'])) : '';
+        if ($row_id <= 0 || !in_array($requested_action, [ 'approve', 'reject' ], true)) {
+            wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmwseo_notice=import_row_invalid'));
+            exit;
+        }
+        check_admin_referer('tmwseo_keyword_import_row_action_' . $row_id, self::NONCE_FIELD);
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $row = $repository->get_row($row_id);
+        if (!is_array($row)) {
+            wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmwseo_notice=import_row_missing'));
+            exit;
+        }
+        $batch_id = (int) ($row['batch_id'] ?? 0);
+        $batch = $repository->get_batch($batch_id);
+        if (!is_array($batch)) {
+            wp_safe_redirect(admin_url('admin.php?page=' . self::PAGE_SLUG . '&tmwseo_notice=import_batch_missing'));
+            exit;
+        }
+
+        $candidate_id = (int) ($row['candidate_id'] ?? 0);
+        $now = current_time('mysql');
+        if ('approve' === $requested_action) {
+            if ($candidate_id > 0) {
+                $repository->update_candidate_status($candidate_id, 'approved');
+            } else {
+                $candidate_id = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate($row, $batch);
+            }
+            if ($candidate_id > 0) {
+                $repository->update_import_row($row_id, [
+                    'status' => 'approved',
+                    'result_action' => 'approved',
+                    'result_reason' => 'manually_approved',
+                    'candidate_id' => $candidate_id,
+                    'reviewed_by' => get_current_user_id(),
+                    'reviewed_at' => $now,
+                ]);
+            }
+        } else {
+            if ($candidate_id > 0) {
+                $repository->update_candidate_status($candidate_id, 'ignored');
+            }
+            $repository->update_import_row($row_id, [
+                'status' => 'rejected',
+                'result_action' => 'rejected',
+                'result_reason' => 'manually_rejected',
+                'reviewed_by' => get_current_user_id(),
+                'reviewed_at' => $now,
+            ]);
+        }
+        $repository->recalculate_batch_counts($batch_id);
+
+        wp_safe_redirect(add_query_arg([
+            'page' => self::PAGE_SLUG,
+            'pool' => (string) ($batch['pool'] ?? 'model'),
+            'tmwseo_keyword_batch_id' => $batch_id,
+            'tmwseo_keyword_pools_target_id' => (int) ($batch['target_id'] ?? 0),
+            'tmwseo_notice' => 'import_row_' . $requested_action,
+        ], admin_url('admin.php')));
         exit;
     }
 
@@ -220,6 +298,13 @@ class KeywordPoolsAdminPage {
         ];
 
         if ('POST' !== (string) ($_SERVER['REQUEST_METHOD'] ?? '')) {
+            $target_id = isset($_GET['tmwseo_keyword_pools_target_id']) ? absint($_GET['tmwseo_keyword_pools_target_id']) : 0;
+            if ($target_id > 0 && self::pool_requires_target($active_pool)) {
+                $target = (new KeywordPoolTargetProvider())->validate_target($active_pool, $target_id);
+                if (is_array($target)) {
+                    $state['import_context'] = $target;
+                }
+            }
             return $state;
         }
 
@@ -474,6 +559,11 @@ class KeywordPoolsAdminPage {
         return $tmp;
     }
 
+
+    private static function render_copy_keyword_script(): void {
+        echo '<script>(function(){if(window.tmwCandidateCopyBound){return;}window.tmwCandidateCopyBound=true;document.addEventListener("click",function(event){var button=event.target&&event.target.closest("[data-tmw-copy-keyword]");if(!button){return;}var keyword=(button.getAttribute("data-tmw-copy-keyword")||"").trim();if(keyword===""){return;}var previous=button.textContent;var showResult=function(text){button.textContent=text;window.setTimeout(function(){button.textContent=previous;},1200);};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(keyword).then(function(){showResult("Copied");}).catch(function(){showResult("Copy keyword manually");});return;}var helper=document.createElement("textarea");helper.value=keyword;helper.setAttribute("readonly","");helper.style.position="absolute";helper.style.left="-9999px";document.body.appendChild(helper);helper.select();try{document.execCommand("copy");showResult("Copied");}catch(error){showResult("Copy keyword manually");}document.body.removeChild(helper);});})();</script>';
+    }
+
     private static function render_intro_notice(): void {
         echo '<div class="notice notice-warning"><p><strong>' . esc_html(__('Dry-run first workflow.', 'tmwseo')) . '</strong> ';
         echo esc_html(__('Dry-run preview does not save keywords. Save Selected Keywords stores only explicitly selected safe rows in the review pool; it does not write Rank Math fields, does not change post content, does not change Generate output, and does not change indexing/noindex.', 'tmwseo'));
@@ -519,11 +609,153 @@ class KeywordPoolsAdminPage {
         echo '<input type="hidden" name="tmwseo_keyword_pool" value="' . esc_attr($pool) . '" />';
         echo '<table class="form-table" role="presentation"><tbody>';
         self::render_target_source_fields($pool, $context, false);
+        self::render_import_history_row($pool, $context);
         echo '<tr><th scope="row"><label for="tmwseo_keyword_pools_csv_file">' . esc_html(__('CSV Upload', 'tmwseo')) . '</label></th><td><input id="tmwseo_keyword_pools_csv_file" type="file" name="tmwseo_keyword_pools_csv_file" accept=".csv,text/csv" /><p class="description">' . esc_html(__('If upload and pasted CSV are both supplied, the uploaded file wins.', 'tmwseo')) . '</p></td></tr>';
         echo '<tr><th scope="row"><label for="tmwseo_keyword_pools_csv_text">' . esc_html(__('Paste CSV', 'tmwseo')) . '</label></th><td><textarea id="tmwseo_keyword_pools_csv_text" name="tmwseo_keyword_pools_csv_text" rows="12" class="large-text code" placeholder="keyword,volume,difficulty,cpc,competition,intent,source,model_name,category,post_id,url,slug,title,status">' . self::esc_textarea($csv_text) . '</textarea></td></tr>';
         echo '</tbody></table>';
         echo '<p><button type="submit" class="button button-primary" name="tmwseo_keyword_pools_run_preview" value="1">' . esc_html(__('Run Dry Run Preview', 'tmwseo')) . '</button></p>';
         echo '</form>';
+    }
+
+
+    /** @param array<string,mixed> $context */
+    private static function render_import_history_row(string $pool, array $context): void {
+        if (!in_array($pool, [ 'category', 'model' ], true)) {
+            return;
+        }
+        $target_id = (int) ($context['target_id'] ?? 0);
+        echo '<tr><th scope="row">' . esc_html__('Import History', 'tmwseo') . '</th><td>';
+        if ($target_id <= 0) {
+            echo '<p class="description">' . esc_html__('Select a target to see durable import history for that category or model.', 'tmwseo') . '</p>';
+            echo '</td></tr>';
+            return;
+        }
+        $repository = new KeywordPoolImportBatchRepository();
+        $batches = $repository->query_batches($pool, (string) ($context['target_type'] ?? $pool), $target_id, 10);
+        if ([] === $batches) {
+            echo '<p class="description">' . esc_html__('No saved import batches found for this target yet.', 'tmwseo') . '</p>';
+            echo '</td></tr>';
+            return;
+        }
+        self::render_import_history_table($batches);
+        echo '</td></tr>';
+    }
+
+    /** @param array<int,array<string,mixed>> $batches */
+    private static function render_import_history_table(array $batches): void {
+        echo '<table class="widefat striped" style="max-width:1100px;"><thead><tr>';
+        foreach ([ 'Source', 'Target', 'Imported', 'Rows', 'Approved', 'Queued/Review', 'Blocked', 'Skipped', 'Errors', 'Status', 'Actions' ] as $header) {
+            echo '<th>' . esc_html($header) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($batches as $batch) {
+            $batch_id = (int) ($batch['id'] ?? 0);
+            $pool = (string) ($batch['pool'] ?? 'model');
+            $target_id = (int) ($batch['target_id'] ?? 0);
+            $source = (string) ($batch['source_file'] ?? '') !== '' ? (string) $batch['source_file'] : (string) ($batch['source_batch'] ?? '');
+            $view_url = add_query_arg([ 'page' => self::PAGE_SLUG, 'pool' => $pool, 'tmwseo_keyword_pools_target_id' => $target_id, 'tmwseo_keyword_batch_id' => $batch_id ], admin_url('admin.php'));
+            echo '<tr>';
+            echo '<td>' . esc_html($source) . '</td>';
+            echo '<td>' . esc_html((string) ($batch['target_name'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($batch['imported_at'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) (int) ($batch['total_rows'] ?? 0)) . '</td>';
+            echo '<td>' . esc_html((string) (int) ($batch['approved'] ?? 0)) . '</td>';
+            echo '<td>' . esc_html((string) ((int) ($batch['queued'] ?? 0) + (int) ($batch['review_required'] ?? 0))) . '</td>';
+            echo '<td>' . esc_html((string) (int) ($batch['blocked'] ?? 0)) . '</td>';
+            echo '<td>' . esc_html((string) (int) ($batch['skipped'] ?? 0)) . '</td>';
+            echo '<td>' . esc_html((string) (int) ($batch['errors'] ?? 0)) . '</td>';
+            echo '<td>' . esc_html((string) ($batch['status'] ?? 'open')) . '</td>';
+            echo '<td><a class="button button-small" href="' . esc_url($view_url) . '">' . esc_html__('View Batch', 'tmwseo') . '</a> ';
+            echo '<a class="button button-small" href="' . esc_url($view_url) . '">' . esc_html__('Continue Review', 'tmwseo') . '</a> ';
+            echo '<span class="button button-small disabled" aria-disabled="true">' . esc_html__('Export coming soon', 'tmwseo') . '</span></td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+    }
+
+    private static function render_saved_batch_view(int $batch_id): void {
+        $repository = new KeywordPoolImportBatchRepository();
+        $batch = $repository->get_batch($batch_id);
+        if (!is_array($batch)) {
+            echo '<div class="notice notice-warning inline"><p>' . esc_html__('Import batch was not found.', 'tmwseo') . '</p></div>';
+            return;
+        }
+        $rows = $repository->query_rows($batch_id);
+        echo '<hr /><h2>' . esc_html__('Import Batch', 'tmwseo') . ': ' . esc_html((string) ($batch['source_file'] ?: $batch['source_batch'] ?: $batch['import_batch_id'])) . '</h2>';
+        echo '<p>' . esc_html(sprintf('Target: %s. Imported: %s. Rows: %d.', (string) ($batch['target_name'] ?? ''), (string) ($batch['imported_at'] ?? ''), count($rows))) . '</p>';
+        $inspect_id = isset($_GET['tmwseo_import_row_inspect']) ? absint($_GET['tmwseo_import_row_inspect']) : 0;
+        echo '<table class="widefat striped"><thead><tr>';
+        foreach ([ 'Keyword', 'Volume', 'Status', 'Target', 'Result / Reason', 'Actions' ] as $header) {
+            echo '<th>' . esc_html($header) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($rows as $row) {
+            $row_id = (int) ($row['id'] ?? 0);
+            $copy_keyword = (string) ($row['normalized_keyword'] ?? '') !== '' ? (string) $row['normalized_keyword'] : (string) ($row['keyword'] ?? '');
+            echo '<tr>';
+            echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
+            echo '<td>' . esc_html(self::metric_to_string($row['volume'] ?? '')) . '</td>';
+            echo '<td>' . self::status_badge((string) ($row['status'] ?? 'review_required')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['target_name'] ?? $batch['target_name'] ?? '')) . '</td>';
+            echo '<td>' . esc_html(trim((string) ($row['result_action'] ?? '') . ((string) ($row['result_reason'] ?? '') !== '' ? ' — ' . (string) $row['result_reason'] : ''))) . '</td>';
+            echo '<td>' . self::import_row_action_forms($row, $batch) . ' ';
+            $inspect_url = add_query_arg([ 'page' => self::PAGE_SLUG, 'pool' => (string) ($batch['pool'] ?? 'model'), 'tmwseo_keyword_batch_id' => $batch_id, 'tmwseo_import_row_inspect' => $row_id ], admin_url('admin.php'));
+            echo '<a href="' . esc_url($inspect_url) . '">' . esc_html__('Inspect', 'tmwseo') . '</a> ';
+            echo '<button type="button" class="button-link" data-tmw-copy-keyword="' . esc_attr($copy_keyword) . '">' . esc_html__('Copy', 'tmwseo') . '</button>';
+            echo '</td></tr>';
+            if ($inspect_id === $row_id) {
+                echo '<tr><td colspan="6">';
+                self::render_import_row_inspect_panel($row, $batch);
+                echo '</td></tr>';
+            }
+        }
+        echo '</tbody></table>';
+        echo '<div class="notice notice-warning inline"><p><strong>' . esc_html__('Safety boundary:', 'tmwseo') . '</strong> ' . esc_html__('Manual row actions only update keyword-pool candidates and import-row review state. They do not write Rank Math, content, slugs, taxonomy terms, publishing state, or indexing/noindex.', 'tmwseo') . '</p></div>';
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $batch */
+    private static function import_row_action_forms(array $row, array $batch): string {
+        $row_id = (int) ($row['id'] ?? 0);
+        if ($row_id <= 0) { return ''; }
+        $forms = [];
+        foreach ([ 'approve' => __('Approve', 'tmwseo'), 'reject' => __('Reject', 'tmwseo') ] as $action => $label) {
+            $forms[] = '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="display:inline">'
+                . '<input type="hidden" name="action" value="tmwseo_keyword_import_row_action" />'
+                . '<input type="hidden" name="import_row_id" value="' . esc_attr((string) $row_id) . '" />'
+                . '<input type="hidden" name="import_row_action" value="' . esc_attr($action) . '" />'
+                . '<input type="hidden" name="' . esc_attr(self::NONCE_FIELD) . '" value="' . esc_attr(wp_create_nonce('tmwseo_keyword_import_row_action_' . $row_id)) . '" />'
+                . '<button type="submit" class="button-link">' . esc_html($label) . '</button>'
+                . '</form>';
+        }
+        return implode(' | ', $forms);
+    }
+
+    /** @param array<string,mixed> $row @param array<string,mixed> $batch */
+    private static function render_import_row_inspect_panel(array $row, array $batch): void {
+        $payload = json_decode((string) ($row['row_payload'] ?? ''), true);
+        echo '<div class="tmwseo-import-row-inspect" style="background:#fff;border:1px solid #ccd0d4;padding:12px;">';
+        echo '<h3>' . esc_html__('Import Row Inspect', 'tmwseo') . '</h3>';
+        echo '<dl style="display:grid;grid-template-columns:180px minmax(0,1fr);gap:6px 12px;">';
+        $details = [
+            'keyword' => $row['keyword'] ?? '',
+            'normalized_keyword' => $row['normalized_keyword'] ?? '',
+            'row_number' => $row['row_number'] ?? '',
+            'target' => (string) ($row['target_name'] ?? $batch['target_name'] ?? ''),
+            'source_batch/source_file' => trim((string) ($batch['source_batch'] ?? '') . ' / ' . (string) ($batch['source_file'] ?? ''), ' /'),
+            'validation_state' => $row['validation_state'] ?? '',
+            'decision' => $row['decision'] ?? '',
+            'result_action' => $row['result_action'] ?? '',
+            'result_reason' => $row['result_reason'] ?? '',
+            'volume/cpc/competition' => trim((string) ($row['volume'] ?? '') . ' / ' . (string) ($row['cpc'] ?? '') . ' / ' . (string) ($row['competition'] ?? ''), ' /'),
+            'candidate_id' => $row['candidate_id'] ?? '',
+        ];
+        foreach ($details as $label => $value) {
+            echo '<dt><strong>' . esc_html((string) $label) . '</strong></dt><dd>' . esc_html((string) $value) . '</dd>';
+        }
+        echo '</dl>';
+        echo '<h4>' . esc_html__('Row Payload', 'tmwseo') . '</h4>';
+        echo '<pre style="white-space:pre-wrap;max-height:320px;overflow:auto;">' . esc_html(json_encode(is_array($payload) ? $payload : [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) . '</pre>';
+        echo '</div>';
     }
 
     private static function render_metrics_tab(): void {
