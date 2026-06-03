@@ -35,26 +35,39 @@ class KeywordPoolSelectedImportService {
 
     /**
      * @param array<string,mixed> $dry_run
-     * @param array<int|string> $selected_rows Row numbers selected by the operator.
+     * @param array<int|string> $selected_rows Stable row tokens selected by the operator, or legacy row numbers.
      * @return array<string,mixed>
      */
     public function save_selected(array $dry_run, string $pool, array $selected_rows, string $save_mode = 'auto', array $context = []): array {
-        $posted_row_numbers = [];
-        foreach ($selected_rows as $row_number) {
-            $posted_row_numbers[(int) $row_number] = true;
+        $selected_lookup = [];
+        $legacy_zero_selected = false;
+        foreach ($selected_rows as $selected_row) {
+            $token = trim((string) $selected_row);
+            if (preg_match('/^[ni]:\d+$/', $token)) {
+                $selected_lookup[$token] = true;
+                continue;
+            }
+            if (!preg_match('/^-?\d+$/', $token)) {
+                continue;
+            }
+            $legacy_row_number = (int) $token;
+            if ($legacy_row_number > 0) {
+                $selected_lookup['n:' . $legacy_row_number] = true;
+            } else {
+                $legacy_zero_selected = true;
+            }
         }
 
-        $selected_lookup = [];
-        $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
-        foreach ($rows as $array_index => $row) {
-            if (!is_array($row)) {
-                continue;
+        if ($legacy_zero_selected) {
+            $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
+            foreach ($rows as $array_index => $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                if ((int) ($row['row_number'] ?? 0) <= 0) {
+                    $selected_lookup[$this->dry_run_row_lookup_key($row, (int) $array_index)] = true;
+                }
             }
-            $row_num = (int) ($row['row_number'] ?? 0);
-            if (!isset($posted_row_numbers[$row_num])) {
-                continue;
-            }
-            $selected_lookup[$this->dry_run_row_lookup_key($row, (int) $array_index)] = true;
         }
 
         return $this->save_matching_rows($dry_run, $pool, $selected_lookup, $save_mode, false, $context);

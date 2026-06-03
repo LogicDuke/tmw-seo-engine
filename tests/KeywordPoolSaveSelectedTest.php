@@ -226,6 +226,44 @@ Lexy Ness webcam model,900,3.25,0.08,Lexy Ness,77
     }
 
 
+    public function test_save_selected_model_row_number_zero_token_selects_specific_row(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_selected_zero_specific_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dry_run = [
+            'rows' => [
+                [
+                    'keyword' => 'anisyia cam',
+                    'normalized_keyword' => 'anisyia cam',
+                    'row_number' => 0,
+                    'validation_state' => 'valid',
+                    'decision' => 'accept',
+                    'tmw_score' => 80,
+                    'tmw_priority' => 'TMW-P1',
+                    'tmw_recommended_action' => 'approve_for_phase_1',
+                    'pool' => 'model',
+                ],
+                [
+                    'keyword' => 'anisyia live',
+                    'normalized_keyword' => 'anisyia live',
+                    'row_number' => 0,
+                    'validation_state' => 'valid',
+                    'decision' => 'accept',
+                    'tmw_score' => 82,
+                    'tmw_priority' => 'TMW-P1',
+                    'tmw_recommended_action' => 'approve_for_phase_1',
+                    'pool' => 'model',
+                ],
+            ],
+        ];
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dry_run, 'model', [ 'i:1' ], 'auto');
+
+        $this->assertSame(1, $result['summary']['selected']);
+        $this->assertSame(1, $result['summary']['inserted']);
+        $this->assertCount(1, $wpdb->candidate_inserts);
+        $this->assertSame('anisyia live', $wpdb->candidate_inserts[0]['data']['keyword']);
+    }
+
     public function test_save_selected_model_row_number_zero_uses_array_index_lookup(): void {
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_selected_zero_', true);
         $GLOBALS['wpdb'] = $wpdb;

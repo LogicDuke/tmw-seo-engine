@@ -59,6 +59,30 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         );
     }
 
+    public function test_admin_save_selected_uses_stable_row_tokens(): void {
+        $this->assertStringContainsString(
+            '$row_token = self::dry_run_row_lookup_key($row, (int) $row_index);',
+            $this->admin
+        );
+        $this->assertStringContainsString(
+            'esc_attr($row_token)',
+            $this->admin,
+            'Preview checkboxes must post stable n:/i: tokens, not raw row_number values'
+        );
+        $this->assertStringNotContainsString(
+            "esc_attr((string) (int) (\$row['row_number'] ?? 0))",
+            $this->admin,
+            'Preview checkboxes must not post ambiguous raw row_number values'
+        );
+    }
+
+    public function test_admin_attempted_row_total_includes_conflicts(): void {
+        $this->assertStringContainsString("\$attempted_row_total = (int) (\$summary['inserted'] ?? 0)", $this->admin);
+        $this->assertStringContainsString("+ (int) (\$summary['conflicts'] ?? 0);", $this->admin);
+        $this->assertStringContainsString('0 === $attempted_row_total', $this->admin);
+        $this->assertStringContainsString('$attempted_row_total', $this->admin);
+    }
+
     public function test_service_model_batch_persists_rows_for_pool_model(): void {
         // save_full_reviewed_model_batch must call persist_import with pool=model
         $this->assertStringContainsString(
