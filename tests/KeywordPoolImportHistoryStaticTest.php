@@ -24,6 +24,36 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->readme = (string) file_get_contents(__DIR__ . '/../README.md');
     }
 
+    public function test_service_uses_isset_not_empty_for_lookup_key(): void {
+        // empty($selected_lookup[$row_number]) silently skips rows with row_number=0
+        $this->assertStringNotContainsString(
+            'empty($selected_lookup[',
+            $this->service,
+            'save_matching_rows must use isset(), not empty(), for the lookup key check'
+        );
+    }
+
+    public function test_service_all_dry_run_row_lookup_uses_prefixed_keys(): void {
+        // The lookup must use a prefix to avoid PHP empty("0") false positive
+        $this->assertStringContainsString(
+            "'n:'",
+            $this->service,
+            'all_dry_run_row_lookup must use prefixed keys like n: to avoid empty("0") bug'
+        );
+    }
+
+    public function test_service_model_batch_persists_rows_for_pool_model(): void {
+        // save_full_reviewed_model_batch must call persist_import with pool=model
+        $this->assertStringContainsString(
+            'save_full_reviewed_model_batch',
+            $this->service
+        );
+        $this->assertStringContainsString(
+            "'model', \$this->all_dry_run_row_lookup",
+            $this->service
+        );
+    }
+
     public function test_schema_defines_import_batch_and_row_tables_with_required_indexes(): void {
         $this->assertStringContainsString("tmw_keyword_import_batches", $this->schema);
         $this->assertStringContainsString("tmw_keyword_import_rows", $this->schema);

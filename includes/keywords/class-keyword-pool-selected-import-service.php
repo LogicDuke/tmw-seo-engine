@@ -41,7 +41,9 @@ class KeywordPoolSelectedImportService {
     public function save_selected(array $dry_run, string $pool, array $selected_rows, string $save_mode = 'auto', array $context = []): array {
         $selected_lookup = [];
         foreach ($selected_rows as $row_number) {
-            $selected_lookup[(string) (int) $row_number] = true;
+            $rn = (int) $row_number;
+            $key = $rn > 0 ? 'n:' . $rn : 'n:0_' . $rn; // explicit non-empty key
+            $selected_lookup[$key] = true;
         }
         return $this->save_matching_rows($dry_run, $pool, $selected_lookup, $save_mode, false, $context);
     }
@@ -76,9 +78,13 @@ class KeywordPoolSelectedImportService {
     private function all_dry_run_row_lookup(array $dry_run): array {
         $selected_lookup = [];
         $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
-        foreach ($rows as $row) {
+        foreach ($rows as $index => $row) {
             if (is_array($row)) {
-                $selected_lookup[(string) (int) ($row['row_number'] ?? 0)] = true;
+                // Use row_number when available and > 0; fall back to the array index.
+                // Prefix with "n:" to prevent false empty() on key "0".
+                $row_num = (int) ($row['row_number'] ?? 0);
+                $key = $row_num > 0 ? 'n:' . $row_num : 'i:' . $index;
+                $selected_lookup[$key] = true;
             }
         }
         return $selected_lookup;
@@ -108,12 +114,13 @@ class KeywordPoolSelectedImportService {
         $seen_keywords = [];
 
         $rows = is_array($dry_run['rows'] ?? null) ? $dry_run['rows'] : [];
-        foreach ($rows as $row) {
+        foreach ($rows as $row_array_index => $row) {
             if (!is_array($row)) {
                 continue;
             }
-            $row_number = (string) (int) ($row['row_number'] ?? 0);
-            if (empty($selected_lookup[$row_number])) {
+            $row_num_int = (int) ($row['row_number'] ?? 0);
+            $lookup_key  = $row_num_int > 0 ? 'n:' . $row_num_int : 'i:' . $row_array_index;
+            if (!isset($selected_lookup[$lookup_key])) {
                 continue;
             }
 

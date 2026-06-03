@@ -474,6 +474,22 @@ class KeywordPoolsAdminPage {
         ];
         $created_batch_id = (int) ($import_result['batch_id'] ?? 0);
         $persistence_error = trim((string) ($import_result['persistence_error'] ?? ''));
+        // Model-specific row-persistence warning
+        if ('model' === $active_pool && $created_batch_id > 0) {
+            $row_failures = (int) ($import_result['row_persistence_failures'] ?? 0);
+            $total_rows   = (int) ($import_result['summary']['selected'] ?? 0);
+            if ($row_failures > 0 || ($total_rows > 0 && (int) ($import_result['summary']['inserted'] ?? 0) + (int) ($import_result['summary']['updated'] ?? 0) + (int) ($import_result['summary']['skipped'] ?? 0) + (int) ($import_result['summary']['blocked'] ?? 0) === 0)) {
+                $state['notices'][] = [
+                    'type' => 'warning',
+                    'text' => sprintf(
+                        '[TMW-KW-IMPORT] Model import rows were not persisted or all rows were dropped: %s',
+                        '' !== $persistence_error
+                            ? $persistence_error
+                            : 'row_number key collision or empty() guard — check plugin version and redeploy.'
+                    ),
+                ];
+            }
+        }
         if ($created_batch_id > 0) {
             if ('' !== $persistence_error) {
                 $state['notices'][] = [
@@ -488,7 +504,11 @@ class KeywordPoolsAdminPage {
                         $created_batch_id,
                         (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
                         (int) ($import_context['target_id'] ?? 0),
-                        (int) ($summary['selected'] ?? 0)
+                        (int) ($summary['inserted'] ?? 0)
+                            + (int) ($summary['updated'] ?? 0)
+                            + (int) ($summary['skipped'] ?? 0)
+                            + (int) ($summary['blocked'] ?? 0)
+                            + (int) ($summary['errors'] ?? 0)
                     ),
                 ];
             }

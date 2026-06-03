@@ -158,6 +158,57 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $this->assertSame('', $repository->last_error());
     }
 
+    public function test_persist_import_model_pool_persists_rows_and_returns_nonzero_batch_id(): void {
+        $prefix = 'wp_pr_import_model_';
+        $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $rows = [
+            [
+                'keyword' => 'anisyia live',
+                'normalized_keyword' => 'anisyia live',
+                'row_number' => 1,
+                'status' => 'queued_for_review',
+                'action' => 'inserted',
+                'reason' => '',
+                'volume' => 1200,
+                'cpc' => 0.45,
+                'competition' => 0.3,
+                '_dry_run_row' => [
+                    'keyword' => 'anisyia live',
+                    'row_number' => 1,
+                    'volume' => 1200,
+                ],
+            ],
+        ];
+        $context = [
+            'pool' => 'model',
+            'target_type' => 'model',
+            'target_id' => 4457,
+            'target_name' => 'Anisyia',
+            'target_slug' => 'anisyia',
+            'source_batch' => 'Anisyia',
+            'source_file' => 'Anisyia.csv',
+            'import_batch_id' => 'test-model-batch-uuid',
+            'imported_at' => '2026-06-03 12:00:00',
+        ];
+        $summary = [
+            'inserted' => 1,
+            'updated' => 0,
+            'skipped' => 0,
+            'blocked' => 0,
+            'errors' => 0,
+            'queued' => 1,
+            'approved' => 0,
+            'review_required' => 0,
+        ];
+
+        $batch_id = $repository->persist_import('model', $context, $summary, $rows);
+
+        $this->assertGreaterThan(0, $batch_id, 'Model pool batch_id must be > 0');
+        $this->assertSame(0, $repository->row_failure_count(), 'No row failures expected');
+    }
+
     public function test_missing_rows_table_reports_exact_table_name(): void {
         delete_option('tmw_keyword_import_rows_schema_error');
         $prefix = 'wp_pr_import_missing_rows_';
