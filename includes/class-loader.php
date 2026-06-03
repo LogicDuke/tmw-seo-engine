@@ -114,6 +114,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-keyword-pool-classifier.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-dry-run-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-candidate-repository.php' );
+        tmwseo_safe_require( $p . 'class-keyword-pool-import-batch-repository.php' );
         tmwseo_safe_require( $p . 'class-classified-model-keyword-provider.php' );
         tmwseo_safe_require( $p . 'class-keyword-pool-classification-apply-service.php' );
         tmwseo_safe_require( $p . 'class-model-fallback-keyword-pack-builder.php' );
