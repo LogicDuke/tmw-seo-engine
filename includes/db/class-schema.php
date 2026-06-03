@@ -218,8 +218,7 @@ class Schema {
         $missing = [];
 
         foreach ($required as $table_name) {
-            $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name));
-            if ($exists !== $table_name) {
+            if (!self::table_exists($table_name)) {
                 $missing[] = $table_name;
             }
         }
@@ -270,6 +269,16 @@ class Schema {
 
 
     /**
+     * Case-insensitive table existence check for MySQL table-name casing differences.
+     */
+    private static function table_exists(string $table_name): bool {
+        global $wpdb;
+
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name)));
+        return is_string($exists) && strtolower($exists) === strtolower($table_name);
+    }
+
+    /**
      * Ensure keyword import history tables exist on upgraded installs.
      *
      * WP Pusher and file-drop updates do not re-run plugin activation hooks,
@@ -281,14 +290,14 @@ class Schema {
 
         $target_version = 1;
         $version_option = 'tmw_keyword_import_history_schema_version';
-        $batches_table = $wpdb->prefix . 'tmw_keyword_import_batches';
-        $rows_table = $wpdb->prefix . 'tmw_keyword_import_rows';
-        $tables = [ $batches_table, $rows_table ];
+        $tables = [
+            $wpdb->prefix . 'tmw_keyword_import_batches',
+            $wpdb->prefix . 'tmw_keyword_import_rows',
+        ];
 
         $tables_exist = true;
         foreach ($tables as $table_name) {
-            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name)));
-            if (!is_string($found) || strtolower($found) !== strtolower($table_name)) {
+            if (!self::table_exists($table_name)) {
                 $tables_exist = false;
                 break;
             }
@@ -298,12 +307,11 @@ class Schema {
             return true;
         }
 
-        self::create_or_update_tables();
+        self::reconcile_keyword_import_history_tables();
 
         $tables_exist = true;
         foreach ($tables as $table_name) {
-            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name)));
-            if (!is_string($found) || strtolower($found) !== strtolower($table_name)) {
+            if (!self::table_exists($table_name)) {
                 $tables_exist = false;
                 break;
             }
@@ -315,6 +323,86 @@ class Schema {
         }
 
         return $tables_exist;
+    }
+
+    /**
+     * Reconcile only the keyword import history tables. Safe to run repeatedly.
+     */
+    private static function reconcile_keyword_import_history_tables(): void {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
+        $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
+
+        $sql_keyword_import_batches = "CREATE TABLE $keyword_import_batches (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            import_batch_id VARCHAR(64) NOT NULL,
+            pool VARCHAR(30) NOT NULL,
+            target_type VARCHAR(50) NULL,
+            target_id BIGINT UNSIGNED NULL,
+            target_name VARCHAR(255) NULL,
+            target_slug VARCHAR(191) NULL,
+            source_batch VARCHAR(255) NULL,
+            source_file VARCHAR(255) NULL,
+            imported_at DATETIME NOT NULL,
+            created_by BIGINT UNSIGNED NULL,
+            total_rows INT UNSIGNED NOT NULL DEFAULT 0,
+            inserted INT UNSIGNED NOT NULL DEFAULT 0,
+            updated INT UNSIGNED NOT NULL DEFAULT 0,
+            queued INT UNSIGNED NOT NULL DEFAULT 0,
+            review_required INT UNSIGNED NOT NULL DEFAULT 0,
+            approved INT UNSIGNED NOT NULL DEFAULT 0,
+            rejected INT UNSIGNED NOT NULL DEFAULT 0,
+            skipped INT UNSIGNED NOT NULL DEFAULT 0,
+            blocked INT UNSIGNED NOT NULL DEFAULT 0,
+            errors INT UNSIGNED NOT NULL DEFAULT 0,
+            status VARCHAR(30) NOT NULL DEFAULT 'open',
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY import_batch_id (import_batch_id),
+            KEY pool_target (pool, target_type, target_id),
+            KEY imported_at (imported_at),
+            KEY source_batch (source_batch)
+        ) $charset_collate;";
+
+        $sql_keyword_import_rows = "CREATE TABLE $keyword_import_rows (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            batch_id BIGINT UNSIGNED NOT NULL,
+            import_batch_id VARCHAR(64) NOT NULL,
+            row_number INT UNSIGNED NOT NULL DEFAULT 0,
+            keyword VARCHAR(255) NOT NULL,
+            normalized_keyword VARCHAR(255) NULL,
+            volume INT NULL,
+            cpc DECIMAL(10,2) NULL,
+            competition DECIMAL(6,4) NULL,
+            status VARCHAR(30) NOT NULL DEFAULT 'review_required',
+            result_action VARCHAR(30) NULL,
+            result_reason VARCHAR(255) NULL,
+            validation_state VARCHAR(60) NULL,
+            decision VARCHAR(60) NULL,
+            target_type VARCHAR(50) NULL,
+            target_id BIGINT UNSIGNED NULL,
+            target_name VARCHAR(255) NULL,
+            candidate_id BIGINT UNSIGNED NULL,
+            row_payload LONGTEXT NULL,
+            reviewed_by BIGINT UNSIGNED NULL,
+            reviewed_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY batch_row (batch_id, row_number),
+            KEY import_batch_id (import_batch_id),
+            KEY batch_status (batch_id, status),
+            KEY pool_target_status (target_type, target_id, status),
+            KEY candidate_id (candidate_id),
+            KEY keyword (keyword)
+        ) $charset_collate;";
+
+        dbDelta($sql_keyword_import_batches);
+        dbDelta($sql_keyword_import_rows);
     }
 
     /**
@@ -333,13 +421,10 @@ class Schema {
         $stored_version = (int) get_option('tmw_intelligence_schema_version', 0);
         $missing_tables = self::get_missing_required_intelligence_tables();
         $expansion_candidates = $wpdb->prefix . 'tmw_seed_expansion_candidates';
-        $has_expansion_candidates = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $expansion_candidates)) === $expansion_candidates);
+        $has_expansion_candidates = self::table_exists($expansion_candidates);
         $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
         $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
-        $has_keyword_import_history = (
-            $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keyword_import_batches)) === $keyword_import_batches
-            && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keyword_import_rows)) === $keyword_import_rows
-        );
+        $has_keyword_import_history = self::table_exists($keyword_import_batches) && self::table_exists($keyword_import_rows);
 
         if (!$has_keyword_import_history) {
             $has_keyword_import_history = self::ensure_keyword_import_history_schema();

@@ -49,12 +49,28 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('tmw_keyword_import_history_schema_version', $this->schema);
         $this->assertStringContainsString('SHOW TABLES LIKE %s', $this->schema);
         $this->assertStringContainsString('$wpdb->esc_like($table_name)', $this->schema);
-        $this->assertStringContainsString('self::create_or_update_tables();', $this->schema);
+        $this->assertStringContainsString('private static function reconcile_keyword_import_history_tables(): void', $this->schema);
+        $this->assertStringContainsString('self::reconcile_keyword_import_history_tables();', $this->schema);
+        $this->assertStringContainsString('dbDelta($sql_keyword_import_batches);', $this->schema);
+        $this->assertStringContainsString('dbDelta($sql_keyword_import_rows);', $this->schema);
         $this->assertStringContainsString('update_option($version_option, $target_version, false)', $this->schema);
+        $ensureStart = strpos($this->schema, 'public static function ensure_keyword_import_history_schema(): bool');
+        $ensureEnd = strpos($this->schema, 'private static function reconcile_keyword_import_history_tables(): void');
+        $this->assertIsInt($ensureStart);
+        $this->assertIsInt($ensureEnd);
+        $ensureMethod = substr($this->schema, $ensureStart, $ensureEnd - $ensureStart);
+        $this->assertStringNotContainsString('self::create_or_update_tables();', $ensureMethod);
         $this->assertStringContainsString("[TMW-KW-IMPORT] Import history tables verified/created.", $this->schema);
 
         $this->assertStringContainsString('Schema::ensure_keyword_import_history_schema();', $this->plugin);
         $this->assertStringContainsString("add_action('admin_init', [Schema::class, 'ensure_keyword_import_history_schema'])", $this->plugin);
+    }
+
+
+    public function test_table_existence_checks_are_case_insensitive(): void {
+        $this->assertStringContainsString('private static function table_exists(string $table_name): bool', $this->schema);
+        $this->assertStringContainsString('is_string($exists) && strtolower($exists) === strtolower($table_name)', $this->schema);
+        $this->assertStringContainsString('if (!self::table_exists($table_name))', $this->schema);
     }
 
     public function test_import_persistence_self_heals_missing_history_tables_before_returning_zero(): void {
