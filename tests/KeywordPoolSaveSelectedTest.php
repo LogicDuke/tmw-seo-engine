@@ -226,6 +226,35 @@ Lexy Ness webcam model,900,3.25,0.08,Lexy Ness,77
     }
 
 
+    public function test_save_selected_model_row_number_zero_uses_array_index_lookup(): void {
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_selected_zero_', true);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dry_run = [
+            'rows' => [
+                [
+                    'keyword' => 'anisyia cam',
+                    'normalized_keyword' => 'anisyia cam',
+                    'row_number' => 0,
+                    'validation_state' => 'valid',
+                    'decision' => 'accept',
+                    'tmw_score' => 80,
+                    'tmw_priority' => 'TMW-P1',
+                    'tmw_recommended_action' => 'approve_for_phase_1',
+                    'pool' => 'model',
+                ],
+            ],
+        ];
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dry_run, 'model', [0], 'auto');
+        $summary = $result['summary'];
+
+        $this->assertGreaterThan(
+            0,
+            ($summary['inserted'] ?? 0) + ($summary['updated'] ?? 0) + ($summary['skipped'] ?? 0) + ($summary['blocked'] ?? 0),
+            'Manual save_selected must not ignore model rows selected with row_number=0'
+        );
+    }
+
     public function test_model_full_reviewed_batch_persists_rows_with_row_number_zero(): void {
         // Rows with row_number=0 must NOT be silently dropped
         $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp590_model_zero_', true);

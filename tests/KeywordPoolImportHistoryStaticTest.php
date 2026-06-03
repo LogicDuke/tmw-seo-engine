@@ -42,6 +42,23 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         );
     }
 
+    public function test_service_lookup_paths_use_shared_helper(): void {
+        $this->assertStringContainsString(
+            'private function dry_run_row_lookup_key(array $row, int $array_index): string',
+            $this->service
+        );
+        $this->assertStringContainsString(
+            '$selected_lookup[$this->dry_run_row_lookup_key($row, (int) $index)] = true;',
+            $this->service,
+            'all_dry_run_row_lookup must use the shared lookup helper'
+        );
+        $this->assertStringContainsString(
+            '$lookup_key = $this->dry_run_row_lookup_key($row, (int) $row_array_index);',
+            $this->service,
+            'save_matching_rows must use the shared lookup helper'
+        );
+    }
+
     public function test_service_model_batch_persists_rows_for_pool_model(): void {
         // save_full_reviewed_model_batch must call persist_import with pool=model
         $this->assertStringContainsString(
