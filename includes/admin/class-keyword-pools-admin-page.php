@@ -473,19 +473,26 @@ class KeywordPoolsAdminPage {
             ),
         ];
         $created_batch_id = (int) ($import_result['batch_id'] ?? 0);
+        $persistence_error = trim((string) ($import_result['persistence_error'] ?? ''));
         if ($created_batch_id > 0) {
-            $state['notices'][] = [
-                'type' => 'success',
-                'text' => sprintf(
-                    '[TMW-KW-IMPORT] Created import batch %d for target %s:%d with %d rows',
-                    $created_batch_id,
-                    (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
-                    (int) ($import_context['target_id'] ?? 0),
-                    (int) ($summary['selected'] ?? 0)
-                ),
-            ];
+            if ('' !== $persistence_error) {
+                $state['notices'][] = [
+                    'type' => 'warning',
+                    'text' => sprintf('[TMW-KW-IMPORT] %s', $persistence_error),
+                ];
+            } else {
+                $state['notices'][] = [
+                    'type' => 'success',
+                    'text' => sprintf(
+                        '[TMW-KW-IMPORT] Created import batch %d for target %s:%d with %d rows',
+                        $created_batch_id,
+                        (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
+                        (int) ($import_context['target_id'] ?? 0),
+                        (int) ($summary['selected'] ?? 0)
+                    ),
+                ];
+            }
         } else {
-            $persistence_error = trim((string) ($import_result['persistence_error'] ?? ''));
             $state['notices'][] = [
                 'type' => 'warning',
                 'text' => '' !== $persistence_error

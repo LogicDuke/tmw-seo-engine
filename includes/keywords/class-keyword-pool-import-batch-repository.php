@@ -18,6 +18,7 @@ class KeywordPoolImportBatchRepository {
 
     private string $last_error = '';
     private string $last_query = '';
+    private int $row_failure_count = 0;
 
     public function batches_table(): string {
         global $wpdb;
@@ -35,6 +36,10 @@ class KeywordPoolImportBatchRepository {
 
     public function last_query(): string {
         return $this->last_query;
+    }
+
+    public function row_failure_count(): int {
+        return $this->row_failure_count;
     }
 
     public function tables_exist(): bool {
@@ -56,7 +61,7 @@ class KeywordPoolImportBatchRepository {
                 \TMWSEO\Engine\Schema::ensure_keyword_import_history_schema();
             }
             if (!$this->tables_exist()) {
-                $this->record_failure('Import history tables do not exist after schema ensure.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), []);
+                $this->record_failure('Import history tables do not exist after schema ensure.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
                 return 0;
             }
         }
@@ -72,7 +77,9 @@ class KeywordPoolImportBatchRepository {
 
         foreach ($rows as $index => $row) {
             if (!is_array($row)) { continue; }
-            $this->persist_row($batch_id, $pool, $context, $row, $index + 1);
+            if ($this->persist_row($batch_id, $pool, $context, $row, $index + 1) <= 0) {
+                $this->row_failure_count++;
+            }
         }
         $this->recalculate_batch_counts($batch_id);
         return $batch_id;
@@ -83,7 +90,7 @@ class KeywordPoolImportBatchRepository {
         global $wpdb;
 
         if (!$this->tables_exist()) {
-            $this->record_failure('Import history tables do not exist.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), []);
+            $this->record_failure('Import history tables do not exist.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
             return 0;
         }
 
@@ -127,14 +134,15 @@ class KeywordPoolImportBatchRepository {
             unset($data['created_at']);
             $updated = $wpdb->update($table, $data, [ 'id' => $existing_id ]);
             if (false === $updated) {
-                $this->record_failure($this->wpdb_error('Batch update failed.'), $table, array_keys($data));
+                $this->record_failure($this->wpdb_error('Batch update failed.'), $table, array_keys($data), 'Batch update failed');
+                return 0;
             }
             return $existing_id;
         }
 
         $inserted = $wpdb->insert($table, $data);
         if (false === $inserted || (int) $wpdb->insert_id <= 0) {
-            $this->record_failure($this->wpdb_error('Batch insert failed.'), $table, array_keys($data));
+            $this->record_failure($this->wpdb_error('Batch insert failed.'), $table, array_keys($data), 'Batch insert failed');
             return 0;
         }
 
@@ -187,14 +195,15 @@ class KeywordPoolImportBatchRepository {
             unset($data['created_at']);
             $updated = $wpdb->update($table, $data, [ 'id' => $existing_id ]);
             if (false === $updated) {
-                $this->record_failure($this->wpdb_error('Import row update failed.'), $table, array_keys($data));
+                $this->record_failure($this->wpdb_error('Import row update failed.'), $table, array_keys($data), 'Import row update failed');
+                return 0;
             }
             return $existing_id;
         }
 
         $inserted = $wpdb->insert($table, $data);
         if (false === $inserted || (int) $wpdb->insert_id <= 0) {
-            $this->record_failure($this->wpdb_error('Import row insert failed.'), $table, array_keys($data));
+            $this->record_failure($this->wpdb_error('Import row insert failed.'), $table, array_keys($data), 'Import row insert failed');
             return 0;
         }
 
@@ -344,20 +353,22 @@ class KeywordPoolImportBatchRepository {
     }
 
     /** @param array<int,string> $data_keys */
-    private function record_failure(string $message, string $table, array $data_keys): void {
+    private function record_failure(string $message, string $table, array $data_keys, string $event = 'Persistence failed'): void {
         global $wpdb;
-        $message = '' !== trim($message) ? trim($message) : 'Unknown database error.';
+        $message = '' !== trim($message) ? $this->sanitize_text($message, 255) : 'Unknown database error.';
         $this->last_error = $message;
         $this->last_query = isset($wpdb->last_query) ? (string) $wpdb->last_query : '';
 
+        $event = $this->sanitize_text($event, 80);
         $log = sprintf(
-            '[TMW-KW-IMPORT] Batch insert failed: %s | table=%s | keys=%s',
+            '[TMW-KW-IMPORT] %s: %s | table=%s | keys=%s',
+            '' !== $event ? $event : 'Persistence failed',
             $message,
             $table,
             implode(',', array_map(static fn($key): string => preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $key) ?? '', $data_keys))
         );
         if ('' !== $this->last_query) {
-            $log .= ' | query=' . $this->last_query;
+            $log .= ' | query_hash=' . sha1($this->last_query);
         }
         error_log($log);
     }
@@ -371,6 +382,7 @@ class KeywordPoolImportBatchRepository {
     private function clear_last_error(): void {
         $this->last_error = '';
         $this->last_query = '';
+        $this->row_failure_count = 0;
     }
 
     private function generate_import_batch_id(): string {

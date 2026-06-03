@@ -21,6 +21,10 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
     public array $updates = [];
     /** @var array<string,array<int,string>> */
     private array $columns;
+    public int $existing_batch_id = 0;
+    public int $existing_row_id = 0;
+    public string $fail_update_suffix = '';
+    public bool $fail_row_insert = false;
     private bool $fail_batch_insert;
 
     /** @param array<string,array<int,string>> $columns */
@@ -46,6 +50,12 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
             if (preg_match("/'([^']+)'/", $sql, $match)) {
                 return stripslashes($match[1]);
             }
+        }
+        if (str_contains($sql, 'tmw_keyword_import_batches') && str_contains($sql, 'import_batch_id')) {
+            return $this->existing_batch_id;
+        }
+        if (str_contains($sql, 'tmw_keyword_import_rows') && str_contains($sql, 'batch_id')) {
+            return $this->existing_row_id;
         }
         return 0;
     }
@@ -85,6 +95,10 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
             $this->last_error = 'Unknown column target_slug';
             return false;
         }
+        if ($this->fail_row_insert && str_ends_with($table, 'tmw_keyword_import_rows')) {
+            $this->last_error = 'Row insert failed for test';
+            return false;
+        }
         $this->insert_id++;
         $this->inserts[] = [ 'table' => $table, 'data' => $data ];
         return 1;
@@ -92,6 +106,10 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
 
     public function update(string $table, array $data, array $where, array $format = [], array $where_format = []): int|false {
         $this->last_query = 'UPDATE ' . $table;
+        if ('' !== $this->fail_update_suffix && str_ends_with($table, $this->fail_update_suffix)) {
+            $this->last_error = 'Update failed for test';
+            return false;
+        }
         $this->updates[] = [ 'table' => $table, 'data' => $data, 'where' => $where ];
         return 1;
     }
@@ -169,6 +187,68 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $this->assertSame(0, $batch_id);
         $this->assertSame('Unknown column target_slug', $repository->last_error());
         $this->assertStringContainsString('INSERT INTO ' . $prefix . 'tmw_keyword_import_batches', $repository->last_query());
+    }
+
+
+    public function test_batch_update_failure_returns_zero(): void {
+        $prefix = 'wp_pr_import_batch_update_fail_';
+        $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $GLOBALS['wpdb']->existing_batch_id = 22;
+        $GLOBALS['wpdb']->fail_update_suffix = 'tmw_keyword_import_batches';
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $batch_id = $repository->create_or_update_batch('category', [ 'import_batch_id' => 'existing-batch' ], [], 1);
+
+        $this->assertSame(0, $batch_id);
+        $this->assertSame('Update failed for test', $repository->last_error());
+    }
+
+    public function test_row_update_failure_returns_zero(): void {
+        $prefix = 'wp_pr_import_row_update_fail_';
+        $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $GLOBALS['wpdb']->existing_row_id = 33;
+        $GLOBALS['wpdb']->fail_update_suffix = 'tmw_keyword_import_rows';
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $row_id = $repository->persist_row(22, 'category', [ 'import_batch_id' => 'existing-batch' ], [ 'row_number' => 1, 'keyword' => 'big boob cam' ], 1);
+
+        $this->assertSame(0, $row_id);
+        $this->assertSame('Update failed for test', $repository->last_error());
+    }
+
+    public function test_row_level_failure_preserves_batch_and_records_failure_count(): void {
+        $prefix = 'wp_pr_import_row_insert_fail_';
+        $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $GLOBALS['wpdb']->fail_row_insert = true;
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $batch_id = $repository->persist_import('category', [
+            'target_type' => 'category_page',
+            'target_id' => 4534,
+            'import_batch_id' => 'batch-row-fails',
+        ], [], [ [ 'row_number' => 1, 'keyword' => 'big boob cam' ] ]);
+
+        $this->assertGreaterThan(0, $batch_id);
+        $this->assertSame(1, $repository->row_failure_count());
+        $this->assertSame('Row insert failed for test', $repository->last_error());
+    }
+
+
+    public function test_row_level_warning_reaches_service_and_admin_notice_paths(): void {
+        $service_source = (string) file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php');
+        $admin_source = (string) file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
+
+        $this->assertStringContainsString('Import batch persisted but one or more rows failed:', $service_source);
+        $this->assertStringContainsString('row_persistence_failures', $service_source);
+        $this->assertStringContainsString("'type' => 'warning'", $admin_source);
+        $this->assertStringContainsString("sprintf('[TMW-KW-IMPORT] %s', \$persistence_error)", $admin_source);
+    }
+
+    public function test_failure_logging_uses_query_hash_not_raw_query(): void {
+        $source = (string) file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-import-batch-repository.php');
+
+        $this->assertStringContainsString('query_hash=', $source);
+        $this->assertStringNotContainsString("' | query=' .", $source);
     }
 
     /** @return array<string,array<int,string>> */
