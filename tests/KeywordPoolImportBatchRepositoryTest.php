@@ -25,6 +25,8 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
     public int $existing_row_id = 0;
     public string $fail_update_suffix = '';
     public bool $fail_row_insert = false;
+    /** @var array<int,string> */
+    public array $missing_tables = [];
     private bool $fail_batch_insert;
 
     /** @param array<string,array<int,string>> $columns */
@@ -48,7 +50,8 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
         $this->last_query = $sql;
         if (str_starts_with($sql, 'SHOW TABLES LIKE')) {
             if (preg_match("/'([^']+)'/", $sql, $match)) {
-                return stripslashes($match[1]);
+                $table = stripslashes($match[1]);
+                return in_array($table, $this->missing_tables, true) ? null : $table;
             }
         }
         if (str_contains($sql, 'tmw_keyword_import_batches') && str_contains($sql, 'import_batch_id')) {
@@ -151,6 +154,22 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $this->assertSame(4534, $batch_inserts[0]['data']['target_id']);
         $this->assertCount(35, $row_inserts);
         $this->assertSame('', $repository->last_error());
+    }
+
+    public function test_missing_rows_table_reports_exact_table_name(): void {
+        $prefix = 'wp_pr_import_missing_rows_';
+        $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $GLOBALS['wpdb']->missing_tables = [ $prefix . 'tmw_keyword_import_rows' ];
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $batch_id = $repository->persist_import('category', [
+            'target_type' => 'category_page',
+            'target_id' => 4534,
+            'import_batch_id' => 'batch-missing-rows',
+        ], [], [ [ 'row_number' => 1, 'keyword' => 'big boob cam' ] ]);
+
+        $this->assertSame(0, $batch_id);
+        $this->assertSame('Import history schema missing table: ' . $prefix . 'tmw_keyword_import_rows', $repository->last_error());
     }
 
     public function test_insert_data_is_filtered_to_actual_schema_columns(): void {

@@ -43,14 +43,28 @@ class KeywordPoolImportBatchRepository {
     }
 
     public function tables_exist(): bool {
+        return empty($this->missing_tables());
+    }
+
+    /** @return array<int,string> */
+    public function missing_tables(): array {
         global $wpdb;
+        $missing = [];
         foreach ([ $this->batches_table(), $this->rows_table() ] as $table) {
             $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
             if (!is_string($found) || strtolower($found) !== strtolower($table)) {
-                return false;
+                $missing[] = $table;
             }
         }
-        return true;
+        return $missing;
+    }
+
+    private function missing_table_message(): string {
+        $missing = $this->missing_tables();
+        if (!empty($missing)) {
+            return 'Import history schema missing table: ' . $missing[0];
+        }
+        return 'Import history schema unavailable.';
     }
 
     /** @param array<string,mixed> $context @param array<int,array<string,mixed>> $rows */
@@ -62,7 +76,8 @@ class KeywordPoolImportBatchRepository {
                     \TMWSEO\Engine\Schema::ensure_keyword_import_history_schema();
                 }
                 if (!$this->tables_exist()) {
-                    $this->record_failure('Import history tables do not exist after schema ensure.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
+                    $message = $this->missing_table_message();
+                    $this->record_failure($message, implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
                     return 0;
                 }
             }
@@ -96,7 +111,8 @@ class KeywordPoolImportBatchRepository {
         global $wpdb;
 
         if (!$this->tables_exist()) {
-            $this->record_failure('Import history tables do not exist.', implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
+            $message = $this->missing_table_message();
+            $this->record_failure($message, implode(', ', [ $this->batches_table(), $this->rows_table() ]), [], 'Persistence failed');
             return 0;
         }
 

@@ -299,45 +299,57 @@ class Schema {
         $target_version = 1;
         $version_option = 'tmw_keyword_import_history_schema_version';
 
-        // Fast exit: version option already satisfied — skip all DB checks.
-        if ((int) get_option($version_option, 0) >= $target_version) {
-            return true;
-        }
-
         global $wpdb;
         $tables = [
             $wpdb->prefix . 'tmw_keyword_import_batches',
             $wpdb->prefix . 'tmw_keyword_import_rows',
         ];
 
-        $tables_exist = true;
-        foreach ($tables as $table_name) {
-            if (!self::table_exists($table_name)) {
-                $tables_exist = false;
-                break;
-            }
-        }
-
-        if ($tables_exist && (int) get_option($version_option, 0) >= $target_version) {
+        $missing_tables = self::missing_tables($tables);
+        if (empty($missing_tables) && (int) get_option($version_option, 0) >= $target_version) {
             return true;
         }
 
         self::reconcile_keyword_import_history_tables();
+        self::clear_table_exists_cache($tables);
 
-        $tables_exist = true;
-        foreach ($tables as $table_name) {
-            if (!self::table_exists($table_name)) {
-                $tables_exist = false;
-                break;
+        $missing_tables = self::missing_tables($tables);
+        if (empty($missing_tables)) {
+            update_option($version_option, $target_version, false);
+            error_log('[TMW-KW-IMPORT] Import history tables verified/created.');
+            return true;
+        }
+
+        foreach ($missing_tables as $missing_table) {
+            if ($missing_table === $wpdb->prefix . 'tmw_keyword_import_rows') {
+                error_log('[TMW-KW-IMPORT] Import rows table creation failed or missing after dbDelta: ' . $missing_table);
+            } else {
+                error_log('[TMW-KW-IMPORT] Import history schema missing table after dbDelta: ' . $missing_table);
             }
         }
 
-        if ($tables_exist) {
-            update_option($version_option, $target_version, false);
-            error_log('[TMW-KW-IMPORT] Import history tables verified/created.');
-        }
+        return false;
+    }
 
-        return $tables_exist;
+    /**
+     * @param array<int,string> $tables
+     * @return array<int,string>
+     */
+    private static function missing_tables(array $tables): array {
+        $missing = [];
+        foreach ($tables as $table_name) {
+            if (!self::table_exists($table_name)) {
+                $missing[] = $table_name;
+            }
+        }
+        return $missing;
+    }
+
+    /** @param array<int,string> $tables */
+    private static function clear_table_exists_cache(array $tables): void {
+        foreach ($tables as $table_name) {
+            unset(self::$table_exists_cache[$table_name]);
+        }
     }
 
     /**
@@ -376,7 +388,7 @@ class Schema {
             status VARCHAR(30) NOT NULL DEFAULT 'open',
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             UNIQUE KEY import_batch_id (import_batch_id),
             KEY pool_target (pool, target_type, target_id),
             KEY imported_at (imported_at),
@@ -407,7 +419,7 @@ class Schema {
             reviewed_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             UNIQUE KEY batch_row (batch_id, row_number),
             KEY import_batch_id (import_batch_id),
             KEY batch_status (batch_id, status),
@@ -809,7 +821,7 @@ class Schema {
             status VARCHAR(30) NOT NULL DEFAULT 'open',
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             UNIQUE KEY import_batch_id (import_batch_id),
             KEY pool_target (pool, target_type, target_id),
             KEY imported_at (imported_at),
@@ -840,7 +852,7 @@ class Schema {
             reviewed_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
+            PRIMARY KEY  (id),
             UNIQUE KEY batch_row (batch_id, row_number),
             KEY import_batch_id (import_batch_id),
             KEY batch_status (batch_id, status),
