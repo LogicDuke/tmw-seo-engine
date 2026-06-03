@@ -34,12 +34,34 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
             'KEY source_batch (source_batch)',
             'UNIQUE KEY batch_row (batch_id, row_number)',
             'KEY batch_status (batch_id, status)',
-            'KEY pool_target_status (target_type, target_id, status)',
             'KEY candidate_id (candidate_id)',
-            'KEY keyword (keyword)',
         ] as $indexSql) {
             $this->assertStringContainsString($indexSql, $this->schema);
         }
+    }
+
+    public function test_rows_table_sql_is_dbdelta_safe_and_avoids_risky_keyword_index(): void {
+        preg_match_all('/\$sql_keyword_import_rows = "CREATE TABLE \$keyword_import_rows \((.*?)\) \$charset_collate;";/s', $this->schema, $matches);
+        $this->assertNotEmpty($matches[1]);
+
+        foreach ($matches[1] as $rowsSql) {
+            $this->assertStringContainsString('PRIMARY KEY  (id)', $rowsSql);
+            $this->assertStringContainsString('UNIQUE KEY batch_row (batch_id, row_number)', $rowsSql);
+            $this->assertStringContainsString('KEY import_batch_id (import_batch_id)', $rowsSql);
+            $this->assertStringContainsString('KEY batch_status (batch_id, status)', $rowsSql);
+            $this->assertStringContainsString('KEY candidate_id (candidate_id)', $rowsSql);
+            $this->assertStringNotContainsString('KEY keyword (keyword)', $rowsSql);
+            $this->assertStringNotContainsString('KEY keyword (keyword(255))', $rowsSql);
+            $this->assertStringNotContainsString('row_payload)', $rowsSql);
+        }
+
+        $this->assertStringContainsString('private static function run_keyword_import_rows_dbdelta(string $rows_sql, string $rows_table): void', $this->schema);
+        $this->assertStringContainsString("\$wpdb->last_error = '';", $this->schema);
+        $this->assertStringContainsString('$dbdelta_error = self::safe_db_error((string) $wpdb->last_error);', $this->schema);
+        $this->assertStringContainsString("\$wpdb->prepare('SHOW TABLES LIKE %s', \$wpdb->esc_like(\$rows_table))", $this->schema);
+        $this->assertStringContainsString("\$reason = \$dbdelta_error !== '' ? \$dbdelta_error : 'dbDelta did not create table';", $this->schema);
+        $this->assertStringContainsString("update_option('tmw_keyword_import_rows_schema_error', \$message, false);", $this->schema);
+        $this->assertStringNotContainsString('error_log($rows_sql', $this->schema);
     }
 
 
@@ -56,7 +78,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('self::reconcile_keyword_import_history_tables();', $this->schema);
         $this->assertStringContainsString('self::clear_table_exists_cache($tables);', $this->schema);
         $this->assertStringContainsString('dbDelta($sql_keyword_import_batches);', $this->schema);
-        $this->assertStringContainsString('dbDelta($sql_keyword_import_rows);', $this->schema);
+        $this->assertStringContainsString('self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);', $this->schema);
         $this->assertStringContainsString('update_option($version_option, $target_version, false)', $this->schema);
         $ensureStart = strpos($this->schema, 'public static function ensure_keyword_import_history_schema(): bool');
         $ensureEnd = strpos($this->schema, 'private static function reconcile_keyword_import_history_tables(): void');
@@ -66,7 +88,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringNotContainsString('self::create_or_update_tables();', $ensureMethod);
         $this->assertStringNotContainsString('Fast exit: version option already satisfied', $ensureMethod);
         $this->assertStringContainsString("[TMW-KW-IMPORT] Import history tables verified/created.", $this->schema);
-        $this->assertStringContainsString("[TMW-KW-IMPORT] Import rows table creation failed or missing after dbDelta: ", $this->schema);
+        $this->assertStringContainsString("[TMW-KW-IMPORT] Rows table creation failed: ", $this->schema);
 
         $this->assertStringContainsString('Schema::ensure_keyword_import_history_schema();', $this->plugin);
         $this->assertStringContainsString("add_action('admin_init', [Schema::class, 'ensure_keyword_import_history_schema'])", $this->plugin);

@@ -62,6 +62,13 @@ class KeywordPoolImportBatchRepository {
     private function missing_table_message(): string {
         $missing = $this->missing_tables();
         if (!empty($missing)) {
+            $rows_table = $this->rows_table();
+            if (in_array($rows_table, $missing, true)) {
+                $schema_error = (string) get_option('tmw_keyword_import_rows_schema_error', '');
+                if ($schema_error !== '') {
+                    return $schema_error;
+                }
+            }
             return 'Import history schema missing table: ' . $missing[0];
         }
         return 'Import history schema unavailable.';

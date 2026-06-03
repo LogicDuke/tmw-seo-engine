@@ -157,6 +157,7 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
     }
 
     public function test_missing_rows_table_reports_exact_table_name(): void {
+        delete_option('tmw_keyword_import_rows_schema_error');
         $prefix = 'wp_pr_import_missing_rows_';
         $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
         $GLOBALS['wpdb']->missing_tables = [ $prefix . 'tmw_keyword_import_rows' ];
@@ -170,6 +171,24 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
 
         $this->assertSame(0, $batch_id);
         $this->assertSame('Import history schema missing table: ' . $prefix . 'tmw_keyword_import_rows', $repository->last_error());
+    }
+
+    public function test_missing_rows_table_exposes_schema_dbdelta_error_when_available(): void {
+        $prefix = 'wp_pr_import_rows_schema_error_';
+        $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $GLOBALS['wpdb']->missing_tables = [ $prefix . 'tmw_keyword_import_rows' ];
+        update_option('tmw_keyword_import_rows_schema_error', '[TMW-KW-IMPORT] Rows table creation failed: Specified key was too long', false);
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $batch_id = $repository->persist_import('category', [
+            'target_type' => 'category_page',
+            'target_id' => 4534,
+            'import_batch_id' => 'batch-missing-rows-dbdelta',
+        ], [], [ [ 'row_number' => 1, 'keyword' => 'big boob cam' ] ]);
+
+        $this->assertSame(0, $batch_id);
+        $this->assertSame('[TMW-KW-IMPORT] Rows table creation failed: Specified key was too long', $repository->last_error());
+        delete_option('tmw_keyword_import_rows_schema_error');
     }
 
     public function test_insert_data_is_filtered_to_actual_schema_columns(): void {
