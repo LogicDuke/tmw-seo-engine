@@ -12,12 +12,14 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
     private string $admin;
     private string $service;
     private string $repository;
+    private string $plugin;
 
     protected function setUp(): void {
         $this->schema = (string) file_get_contents(__DIR__ . '/../includes/db/class-schema.php');
         $this->admin = (string) file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->service = (string) file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php');
         $this->repository = (string) file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-import-batch-repository.php');
+        $this->plugin = (string) file_get_contents(__DIR__ . '/../includes/class-plugin.php');
     }
 
     public function test_schema_defines_import_batch_and_row_tables_with_required_indexes(): void {
@@ -37,6 +39,44 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         ] as $indexSql) {
             $this->assertStringContainsString($indexSql, $this->schema);
         }
+    }
+
+
+    public function test_runtime_upgrade_path_verifies_keyword_import_history_tables_on_admin_init(): void {
+        $this->assertStringContainsString('public static function ensure_keyword_import_history_schema(): bool', $this->schema);
+        $this->assertStringContainsString("\$wpdb->prefix . 'tmw_keyword_import_batches'", $this->schema);
+        $this->assertStringContainsString("\$wpdb->prefix . 'tmw_keyword_import_rows'", $this->schema);
+        $this->assertStringContainsString('tmw_keyword_import_history_schema_version', $this->schema);
+        $this->assertStringContainsString('SHOW TABLES LIKE %s', $this->schema);
+        $this->assertStringContainsString('$wpdb->esc_like($table_name)', $this->schema);
+        $this->assertStringContainsString('private static function reconcile_keyword_import_history_tables(): void', $this->schema);
+        $this->assertStringContainsString('self::reconcile_keyword_import_history_tables();', $this->schema);
+        $this->assertStringContainsString('dbDelta($sql_keyword_import_batches);', $this->schema);
+        $this->assertStringContainsString('dbDelta($sql_keyword_import_rows);', $this->schema);
+        $this->assertStringContainsString('update_option($version_option, $target_version, false)', $this->schema);
+        $ensureStart = strpos($this->schema, 'public static function ensure_keyword_import_history_schema(): bool');
+        $ensureEnd = strpos($this->schema, 'private static function reconcile_keyword_import_history_tables(): void');
+        $this->assertIsInt($ensureStart);
+        $this->assertIsInt($ensureEnd);
+        $ensureMethod = substr($this->schema, $ensureStart, $ensureEnd - $ensureStart);
+        $this->assertStringNotContainsString('self::create_or_update_tables();', $ensureMethod);
+        $this->assertStringContainsString("[TMW-KW-IMPORT] Import history tables verified/created.", $this->schema);
+
+        $this->assertStringContainsString('Schema::ensure_keyword_import_history_schema();', $this->plugin);
+        $this->assertStringContainsString("add_action('admin_init', [Schema::class, 'ensure_keyword_import_history_schema'])", $this->plugin);
+    }
+
+
+    public function test_table_existence_checks_are_case_insensitive(): void {
+        $this->assertStringContainsString('private static function table_exists(string $table_name): bool', $this->schema);
+        $this->assertStringContainsString('is_string($exists) && strtolower($exists) === strtolower($table_name)', $this->schema);
+        $this->assertStringContainsString('if (!self::table_exists($table_name))', $this->schema);
+    }
+
+    public function test_import_persistence_self_heals_missing_history_tables_before_returning_zero(): void {
+        $this->assertStringContainsString('if (!$this->tables_exist())', $this->repository);
+        $this->assertStringContainsString("method_exists('TMWSEO\\Engine\\Schema', 'ensure_keyword_import_history_schema')", $this->repository);
+        $this->assertStringContainsString('\TMWSEO\Engine\Schema::ensure_keyword_import_history_schema();', $this->repository);
     }
 
     public function test_repository_counts_rejected_rows_and_supports_pagination(): void {

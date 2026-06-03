@@ -40,7 +40,12 @@ class KeywordPoolImportBatchRepository {
     /** @param array<string,mixed> $context @param array<int,array<string,mixed>> $rows */
     public function persist_import(string $pool, array $context, array $summary, array $rows): int {
         if (!$this->tables_exist()) {
-            return 0;
+            if (class_exists('TMWSEO\\Engine\\Schema') && method_exists('TMWSEO\\Engine\\Schema', 'ensure_keyword_import_history_schema')) {
+                \TMWSEO\Engine\Schema::ensure_keyword_import_history_schema();
+            }
+            if (!$this->tables_exist()) {
+                return 0;
+            }
         }
 
         $batch_id = $this->create_or_update_batch($pool, $context, $summary, count($rows));
