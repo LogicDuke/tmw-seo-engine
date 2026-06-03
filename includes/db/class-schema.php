@@ -322,7 +322,8 @@ class Schema {
 
         foreach ($missing_tables as $missing_table) {
             if ($missing_table === $wpdb->prefix . 'tmw_keyword_import_rows') {
-                error_log('[TMW-KW-IMPORT] Import rows table creation failed or missing after dbDelta: ' . $missing_table);
+                $rows_schema_error = (string) get_option('tmw_keyword_import_rows_schema_error', '');
+                error_log($rows_schema_error !== '' ? $rows_schema_error : '[TMW-KW-IMPORT] Rows table creation failed: dbDelta did not create table');
             } else {
                 error_log('[TMW-KW-IMPORT] Import history schema missing table after dbDelta: ' . $missing_table);
             }
@@ -423,13 +424,39 @@ class Schema {
             UNIQUE KEY batch_row (batch_id, row_number),
             KEY import_batch_id (import_batch_id),
             KEY batch_status (batch_id, status),
-            KEY pool_target_status (target_type, target_id, status),
-            KEY candidate_id (candidate_id),
-            KEY keyword (keyword)
+            KEY candidate_id (candidate_id)
         ) $charset_collate;";
 
         dbDelta($sql_keyword_import_batches);
-        dbDelta($sql_keyword_import_rows);
+        self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);
+    }
+
+    private static function run_keyword_import_rows_dbdelta(string $rows_sql, string $rows_table): void {
+        global $wpdb;
+
+        $wpdb->last_error = '';
+        dbDelta($rows_sql);
+        $dbdelta_error = self::safe_db_error((string) $wpdb->last_error);
+        $found_rows_table = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($rows_table)));
+        $rows_table_exists = is_string($found_rows_table) && strtolower($found_rows_table) === strtolower($rows_table);
+
+        if ($rows_table_exists) {
+            delete_option('tmw_keyword_import_rows_schema_error');
+            return;
+        }
+
+        $reason = $dbdelta_error !== '' ? $dbdelta_error : 'dbDelta did not create table';
+        $message = '[TMW-KW-IMPORT] Rows table creation failed: ' . $reason;
+        error_log($message);
+        update_option('tmw_keyword_import_rows_schema_error', $message, false);
+    }
+
+    private static function safe_db_error(string $error): string {
+        $error = trim(preg_replace('/\s+/', ' ', $error) ?? '');
+        if ($error === '') {
+            return '';
+        }
+        return substr($error, 0, 300);
     }
 
     /**
@@ -856,9 +883,7 @@ class Schema {
             UNIQUE KEY batch_row (batch_id, row_number),
             KEY import_batch_id (import_batch_id),
             KEY batch_status (batch_id, status),
-            KEY pool_target_status (target_type, target_id, status),
-            KEY candidate_id (candidate_id),
-            KEY keyword (keyword)
+            KEY candidate_id (candidate_id)
         ) $charset_collate;";
 
         $sql_keyword_blacklist = "CREATE TABLE $keyword_blacklist (
@@ -1472,7 +1497,7 @@ $sql_legacy_rank = "CREATE TABLE $legacy_rank (
         dbDelta($sql_keyword_raw);
         dbDelta($sql_keyword_candidates);
         dbDelta($sql_keyword_import_batches);
-        dbDelta($sql_keyword_import_rows);
+        self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);
         dbDelta($sql_keyword_blacklist);
         dbDelta($sql_serp_domains);
         dbDelta($sql_competitor_keywords);
