@@ -214,32 +214,51 @@ class KeywordPoolsAdminPage {
         $candidate_id = (int) ($row['candidate_id'] ?? 0);
         $now = current_time('mysql');
         if ('approve' === $requested_action) {
-            if ($candidate_id > 0) {
-                $repository->update_candidate_status($candidate_id, 'approved');
+            $approved_candidate_id = 0;
+            if ($candidate_id > 0 && $repository->update_candidate_status($candidate_id, 'approved')) {
+                $approved_candidate_id = $candidate_id;
             } else {
-                $candidate_id = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate($row, $batch);
+                $approved_candidate_id = (new KeywordPoolSelectedImportService())->approve_import_row_as_candidate($row, $batch);
             }
-            if ($candidate_id > 0) {
+
+            if ($approved_candidate_id > 0) {
                 $repository->update_import_row($row_id, [
                     'status' => 'approved',
                     'result_action' => 'approved',
                     'result_reason' => 'manually_approved',
-                    'candidate_id' => $candidate_id,
+                    'candidate_id' => $approved_candidate_id,
+                    'reviewed_by' => get_current_user_id(),
+                    'reviewed_at' => $now,
+                ]);
+            } else {
+                $repository->update_import_row($row_id, [
+                    'result_action' => 'candidate_write_failed',
+                    'result_reason' => 'candidate_write_failed',
                     'reviewed_by' => get_current_user_id(),
                     'reviewed_at' => $now,
                 ]);
             }
         } else {
+            $can_reject = true;
             if ($candidate_id > 0) {
-                $repository->update_candidate_status($candidate_id, 'ignored');
+                $can_reject = $repository->update_candidate_status($candidate_id, 'ignored');
             }
-            $repository->update_import_row($row_id, [
-                'status' => 'rejected',
-                'result_action' => 'rejected',
-                'result_reason' => 'manually_rejected',
-                'reviewed_by' => get_current_user_id(),
-                'reviewed_at' => $now,
-            ]);
+            if ($can_reject) {
+                $repository->update_import_row($row_id, [
+                    'status' => 'rejected',
+                    'result_action' => 'rejected',
+                    'result_reason' => 'manually_rejected',
+                    'reviewed_by' => get_current_user_id(),
+                    'reviewed_at' => $now,
+                ]);
+            } else {
+                $repository->update_import_row($row_id, [
+                    'result_action' => 'candidate_write_failed',
+                    'result_reason' => 'candidate_write_failed',
+                    'reviewed_by' => get_current_user_id(),
+                    'reviewed_at' => $now,
+                ]);
+            }
         }
         $repository->recalculate_batch_counts($batch_id);
 
@@ -680,9 +699,16 @@ class KeywordPoolsAdminPage {
             echo '<div class="notice notice-warning inline"><p>' . esc_html__('Import batch was not found.', 'tmwseo') . '</p></div>';
             return;
         }
-        $rows = $repository->query_rows($batch_id);
+        $page_size = 100;
+        $current_page = max(1, isset($_GET['tmwseo_keyword_batch_page']) ? absint($_GET['tmwseo_keyword_batch_page']) : 1);
+        $total_rows = $repository->count_rows($batch_id);
+        $total_pages = max(1, (int) ceil($total_rows / $page_size));
+        if ($current_page > $total_pages) { $current_page = $total_pages; }
+        $offset = ($current_page - 1) * $page_size;
+        $rows = $repository->query_rows($batch_id, '', $page_size, $offset);
         echo '<hr /><h2>' . esc_html__('Import Batch', 'tmwseo') . ': ' . esc_html((string) ($batch['source_file'] ?: $batch['source_batch'] ?: $batch['import_batch_id'])) . '</h2>';
-        echo '<p>' . esc_html(sprintf('Target: %s. Imported: %s. Rows: %d.', (string) ($batch['target_name'] ?? ''), (string) ($batch['imported_at'] ?? ''), count($rows))) . '</p>';
+        echo '<p>' . esc_html(sprintf('Target: %s. Imported: %s. Total rows: %d. Page %d of %d.', (string) ($batch['target_name'] ?? ''), (string) ($batch['imported_at'] ?? ''), $total_rows, $current_page, $total_pages)) . '</p>';
+        self::render_batch_pagination($batch, $batch_id, $current_page, $total_pages);
         $inspect_id = isset($_GET['tmwseo_import_row_inspect']) ? absint($_GET['tmwseo_import_row_inspect']) : 0;
         echo '<table class="widefat striped"><thead><tr>';
         foreach ([ 'Keyword', 'Volume', 'Status', 'Target', 'Result / Reason', 'Actions' ] as $header) {
@@ -699,7 +725,7 @@ class KeywordPoolsAdminPage {
             echo '<td>' . esc_html((string) ($row['target_name'] ?? $batch['target_name'] ?? '')) . '</td>';
             echo '<td>' . esc_html(trim((string) ($row['result_action'] ?? '') . ((string) ($row['result_reason'] ?? '') !== '' ? ' — ' . (string) $row['result_reason'] : ''))) . '</td>';
             echo '<td>' . self::import_row_action_forms($row, $batch) . ' ';
-            $inspect_url = add_query_arg([ 'page' => self::PAGE_SLUG, 'pool' => (string) ($batch['pool'] ?? 'model'), 'tmwseo_keyword_batch_id' => $batch_id, 'tmwseo_import_row_inspect' => $row_id ], admin_url('admin.php'));
+            $inspect_url = add_query_arg([ 'page' => self::PAGE_SLUG, 'pool' => (string) ($batch['pool'] ?? 'model'), 'tmwseo_keyword_batch_id' => $batch_id, 'tmwseo_keyword_batch_page' => $current_page, 'tmwseo_import_row_inspect' => $row_id ], admin_url('admin.php'));
             echo '<a href="' . esc_url($inspect_url) . '">' . esc_html__('Inspect', 'tmwseo') . '</a> ';
             echo '<button type="button" class="button-link" data-tmw-copy-keyword="' . esc_attr($copy_keyword) . '">' . esc_html__('Copy', 'tmwseo') . '</button>';
             echo '</td></tr>';
@@ -710,7 +736,35 @@ class KeywordPoolsAdminPage {
             }
         }
         echo '</tbody></table>';
+        self::render_batch_pagination($batch, $batch_id, $current_page, $total_pages);
         echo '<div class="notice notice-warning inline"><p><strong>' . esc_html__('Safety boundary:', 'tmwseo') . '</strong> ' . esc_html__('Manual row actions only update keyword-pool candidates and import-row review state. They do not write Rank Math, content, slugs, taxonomy terms, publishing state, or indexing/noindex.', 'tmwseo') . '</p></div>';
+    }
+
+
+    /** @param array<string,mixed> $batch */
+    private static function render_batch_pagination(array $batch, int $batch_id, int $current_page, int $total_pages): void {
+        if ($total_pages <= 1) { return; }
+        $base_args = [
+            'page' => self::PAGE_SLUG,
+            'pool' => (string) ($batch['pool'] ?? 'model'),
+            'tmwseo_keyword_batch_id' => $batch_id,
+            'tmwseo_keyword_pools_target_id' => (int) ($batch['target_id'] ?? 0),
+        ];
+        echo '<p class="tablenav-pages">';
+        echo '<span class="displaying-num">' . esc_html(sprintf(__('Page %1$d of %2$d', 'tmwseo'), $current_page, $total_pages)) . '</span> ';
+        if ($current_page > 1) {
+            $previous_url = add_query_arg(array_merge($base_args, [ 'tmwseo_keyword_batch_page' => $current_page - 1 ]), admin_url('admin.php'));
+            echo '<a class="button" href="' . esc_url($previous_url) . '">' . esc_html__('Previous', 'tmwseo') . '</a> ';
+        } else {
+            echo '<span class="button disabled" aria-disabled="true">' . esc_html__('Previous', 'tmwseo') . '</span> ';
+        }
+        if ($current_page < $total_pages) {
+            $next_url = add_query_arg(array_merge($base_args, [ 'tmwseo_keyword_batch_page' => $current_page + 1 ]), admin_url('admin.php'));
+            echo '<a class="button" href="' . esc_url($next_url) . '">' . esc_html__('Next', 'tmwseo') . '</a>';
+        } else {
+            echo '<span class="button disabled" aria-disabled="true">' . esc_html__('Next', 'tmwseo') . '</span>';
+        }
+        echo '</p>';
     }
 
     /** @param array<string,mixed> $row @param array<string,mixed> $batch */

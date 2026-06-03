@@ -23,6 +23,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
     public function test_schema_defines_import_batch_and_row_tables_with_required_indexes(): void {
         $this->assertStringContainsString("tmw_keyword_import_batches", $this->schema);
         $this->assertStringContainsString("tmw_keyword_import_rows", $this->schema);
+        $this->assertStringContainsString('rejected INT UNSIGNED NOT NULL DEFAULT 0', $this->schema);
         foreach ([
             'UNIQUE KEY import_batch_id (import_batch_id)',
             'KEY pool_target (pool, target_type, target_id)',
@@ -36,6 +37,26 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         ] as $indexSql) {
             $this->assertStringContainsString($indexSql, $this->schema);
         }
+    }
+
+    public function test_repository_counts_rejected_rows_and_supports_pagination(): void {
+        $this->assertStringContainsString("SUM(status = 'rejected') AS rejected", $this->repository);
+        $this->assertStringContainsString("'rejected'", $this->repository);
+        $this->assertStringContainsString('public function query_rows(int $batch_id, string $status = \'\', int $limit = 100, int $offset = 0): array', $this->repository);
+        $this->assertStringContainsString('LIMIT %d OFFSET %d', $this->repository);
+        $this->assertStringContainsString('public function count_rows(int $batch_id, string $status = \'\'): int', $this->repository);
+        $this->assertStringContainsString('SELECT COUNT(*) FROM {$table}', $this->repository);
+        $this->assertStringNotContainsString('min(1000', $this->repository);
+    }
+
+    public function test_batch_view_has_pagination_controls(): void {
+        $this->assertStringContainsString('$page_size = 100', $this->admin);
+        $this->assertStringContainsString('count_rows($batch_id)', $this->admin);
+        $this->assertStringContainsString('query_rows($batch_id, \'\', $page_size, $offset)', $this->admin);
+        $this->assertStringContainsString('render_batch_pagination', $this->admin);
+        $this->assertStringContainsString('Previous', $this->admin);
+        $this->assertStringContainsString('Next', $this->admin);
+        $this->assertStringContainsString('Total rows: %d. Page %d of %d.', $this->admin);
     }
 
     public function test_import_results_persist_all_attempted_rows_and_context(): void {
@@ -68,6 +89,14 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString("'status' => 'rejected'", $this->admin);
         $this->assertStringContainsString("'result_reason' => 'manually_rejected'", $this->admin);
         $this->assertStringContainsString("update_candidate_status(\$candidate_id, 'ignored')", $this->admin);
+        $this->assertStringContainsString("if (\$candidate_id > 0 && \$repository->update_candidate_status(\$candidate_id, 'approved'))", $this->admin);
+        $this->assertStringContainsString('approve_import_row_as_candidate($row, $batch)', $this->admin);
+        $this->assertStringContainsString('candidate_write_failed', $this->admin);
+        $this->assertStringContainsString('if ($approved_candidate_id > 0)', $this->admin);
+        $this->assertStringContainsString('$can_reject = true', $this->admin);
+        $this->assertStringContainsString("\$can_reject = \$repository->update_candidate_status(\$candidate_id, 'ignored')", $this->admin);
+        $this->assertStringContainsString('if ($can_reject)', $this->admin);
+        $this->assertStringContainsString('SELECT id FROM {$table} WHERE id = %d LIMIT 1', $this->repository);
     }
 
     public function test_safety_boundary_excludes_rank_math_content_slug_taxonomy_publish_indexing_writes(): void {

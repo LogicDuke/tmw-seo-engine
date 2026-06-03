@@ -648,6 +648,7 @@ class Schema {
             queued INT UNSIGNED NOT NULL DEFAULT 0,
             review_required INT UNSIGNED NOT NULL DEFAULT 0,
             approved INT UNSIGNED NOT NULL DEFAULT 0,
+            rejected INT UNSIGNED NOT NULL DEFAULT 0,
             skipped INT UNSIGNED NOT NULL DEFAULT 0,
             blocked INT UNSIGNED NOT NULL DEFAULT 0,
             errors INT UNSIGNED NOT NULL DEFAULT 0,

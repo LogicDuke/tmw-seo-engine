@@ -86,6 +86,7 @@ class KeywordPoolImportBatchRepository {
             'queued' => max(0, (int) ($summary['queued'] ?? 0)),
             'review_required' => max(0, (int) ($summary['review_required'] ?? 0)),
             'approved' => max(0, (int) ($summary['approved'] ?? 0)),
+            'rejected' => max(0, (int) ($summary['rejected'] ?? 0)),
             'skipped' => max(0, (int) ($summary['skipped'] ?? 0)),
             'blocked' => max(0, (int) ($summary['blocked'] ?? 0)),
             'errors' => max(0, (int) ($summary['errors'] ?? 0)),
@@ -185,14 +186,26 @@ class KeywordPoolImportBatchRepository {
     }
 
     /** @return array<int,array<string,mixed>> */
-    public function query_rows(int $batch_id, string $status = '', int $limit = 500): array {
+    public function query_rows(int $batch_id, string $status = '', int $limit = 100, int $offset = 0): array {
         global $wpdb;
         if (!$this->tables_exist()) { return []; }
         $table = $this->rows_table();
+        $limit = max(1, $limit);
+        $offset = max(0, $offset);
         if ('' !== $status) {
-            return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d AND status = %s ORDER BY row_number ASC, id ASC LIMIT %d", $batch_id, $this->sanitize_key($status, 30), max(1, min(1000, $limit))), ARRAY_A);
+            return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d AND status = %s ORDER BY row_number ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $this->sanitize_key($status, 30), $limit, $offset), ARRAY_A);
         }
-        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d ORDER BY row_number ASC, id ASC LIMIT %d", $batch_id, max(1, min(1000, $limit))), ARRAY_A);
+        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d ORDER BY row_number ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $limit, $offset), ARRAY_A);
+    }
+
+    public function count_rows(int $batch_id, string $status = ''): int {
+        global $wpdb;
+        if (!$this->tables_exist()) { return 0; }
+        $table = $this->rows_table();
+        if ('' !== $status) {
+            return max(0, (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE batch_id = %d AND status = %s", $batch_id, $this->sanitize_key($status, 30))));
+        }
+        return max(0, (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE batch_id = %d", $batch_id)));
     }
 
     /** @param array<string,mixed> $updates */
@@ -220,8 +233,11 @@ class KeywordPoolImportBatchRepository {
 
     public function update_candidate_status(int $candidate_id, string $status): bool {
         global $wpdb;
+        if ($candidate_id <= 0) { return false; }
         $status = in_array($status, [ 'approved', 'ignored' ], true) ? $status : 'ignored';
         $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $existing_id = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE id = %d LIMIT 1", $candidate_id));
+        if ($existing_id <= 0) { return false; }
         $updated = $wpdb->update($table, [ 'status' => $status, 'updated_at' => $this->now() ], [ 'id' => $candidate_id ], [ '%s', '%s' ], [ '%d' ]);
         return false !== $updated;
     }
@@ -238,6 +254,7 @@ class KeywordPoolImportBatchRepository {
                 SUM(status = 'queued_for_review') AS queued,
                 SUM(status = 'review_required') AS review_required,
                 SUM(status = 'approved') AS approved,
+                SUM(status = 'rejected') AS rejected,
                 SUM(status = 'skipped') AS skipped,
                 SUM(status = 'blocked') AS blocked,
                 SUM(status = 'error') AS errors
@@ -246,7 +263,7 @@ class KeywordPoolImportBatchRepository {
         ), ARRAY_A);
         if (!is_array($counts)) { return; }
         $data = [ 'updated_at' => $this->now() ];
-        foreach ([ 'total_rows', 'inserted', 'updated', 'queued', 'review_required', 'approved', 'skipped', 'blocked', 'errors' ] as $key) {
+        foreach ([ 'total_rows', 'inserted', 'updated', 'queued', 'review_required', 'approved', 'rejected', 'skipped', 'blocked', 'errors' ] as $key) {
             $data[$key] = max(0, (int) ($counts[$key] ?? 0));
         }
         $wpdb->update($batch_table, $data, [ 'id' => $batch_id ]);
