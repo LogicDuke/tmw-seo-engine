@@ -485,9 +485,12 @@ class KeywordPoolsAdminPage {
                 ),
             ];
         } else {
+            $persistence_error = trim((string) ($import_result['persistence_error'] ?? ''));
             $state['notices'][] = [
                 'type' => 'warning',
-                'text' => '[TMW-KW-IMPORT] Import batch was not persisted (batch_id=0). Verify that tmw_keyword_import_batches and tmw_keyword_import_rows tables exist and the schema migration has run.',
+                'text' => '' !== $persistence_error
+                    ? sprintf('[TMW-KW-IMPORT] Import batch persistence failed: %s', $persistence_error)
+                    : '[TMW-KW-IMPORT] Import batch was not persisted (batch_id=0). Verify that tmw_keyword_import_batches and tmw_keyword_import_rows tables exist and the schema migration has run.',
             ];
         }
         return $state;

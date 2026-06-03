@@ -180,8 +180,15 @@ class KeywordPoolSelectedImportService {
         $summary['approved'] = count(array_filter($results, static fn($row): bool => is_array($row) && 'approved' === (string) ($row['status'] ?? '')));
         $summary['review_required'] = count(array_filter($results, static fn($row): bool => is_array($row) && 'blocked' === (string) ($row['action'] ?? '') && str_contains((string) ($row['reason'] ?? ''), 'review_required')));
         $batch_id = $this->batch_repository->persist_import($pool, $context, $summary, $history_rows);
+        $persistence_error = $batch_id > 0 ? '' : $this->batch_repository->last_error();
 
-        return [ 'summary' => $summary, 'rows' => $results, 'batch_id' => $batch_id, 'import_batch_id' => (string) ($context['import_batch_id'] ?? '') ];
+        return [
+            'summary' => $summary,
+            'rows' => $results,
+            'batch_id' => $batch_id,
+            'import_batch_id' => (string) ($context['import_batch_id'] ?? ''),
+            'persistence_error' => $persistence_error,
+        ];
     }
 
 
