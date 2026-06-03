@@ -268,6 +268,55 @@ class Schema {
         }
     }
 
+
+    /**
+     * Ensure keyword import history tables exist on upgraded installs.
+     *
+     * WP Pusher and file-drop updates do not re-run plugin activation hooks,
+     * so this runtime guard verifies the real prefixed tables and lets dbDelta
+     * create/update them additively when they are missing. Safe to run repeatedly.
+     */
+    public static function ensure_keyword_import_history_schema(): bool {
+        global $wpdb;
+
+        $target_version = 1;
+        $version_option = 'tmw_keyword_import_history_schema_version';
+        $batches_table = $wpdb->prefix . 'tmw_keyword_import_batches';
+        $rows_table = $wpdb->prefix . 'tmw_keyword_import_rows';
+        $tables = [ $batches_table, $rows_table ];
+
+        $tables_exist = true;
+        foreach ($tables as $table_name) {
+            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name)));
+            if (!is_string($found) || strtolower($found) !== strtolower($table_name)) {
+                $tables_exist = false;
+                break;
+            }
+        }
+
+        if ($tables_exist && (int) get_option($version_option, 0) >= $target_version) {
+            return true;
+        }
+
+        self::create_or_update_tables();
+
+        $tables_exist = true;
+        foreach ($tables as $table_name) {
+            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name)));
+            if (!is_string($found) || strtolower($found) !== strtolower($table_name)) {
+                $tables_exist = false;
+                break;
+            }
+        }
+
+        if ($tables_exist) {
+            update_option($version_option, $target_version, false);
+            error_log('[TMW-KW-IMPORT] Import history tables verified/created.');
+        }
+
+        return $tables_exist;
+    }
+
     /**
      * Ensure the intelligence schema is fully present for upgraded installs.
      * Safe to run repeatedly.
@@ -292,12 +341,17 @@ class Schema {
             && $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $keyword_import_rows)) === $keyword_import_rows
         );
 
+        if (!$has_keyword_import_history) {
+            $has_keyword_import_history = self::ensure_keyword_import_history_schema();
+        }
+
         if ($stored_version >= $target_version && empty($missing_tables) && $has_expansion_candidates && $has_keyword_import_history) {
             return;
         }
 
         self::create_or_update_tables();
         update_option('tmw_intelligence_schema_version', $target_version);
+        self::ensure_keyword_import_history_schema();
     }
 
     /**

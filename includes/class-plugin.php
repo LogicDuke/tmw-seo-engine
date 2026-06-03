@@ -252,6 +252,10 @@ class Plugin {
 
         Migration::maybe_migrate_legacy();
         Schema::ensure_intelligence_schema();
+        Schema::ensure_keyword_import_history_schema();
+        if (is_admin()) {
+            add_action('admin_init', [Schema::class, 'ensure_keyword_import_history_schema']);
+        }
         Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
         // Install engine-internal FOREIGN KEY constraints. Idempotent —
@@ -393,6 +397,7 @@ class Plugin {
 
         Schema::create_or_update_tables();
         Schema::ensure_intelligence_schema();
+        Schema::ensure_keyword_import_history_schema();
         Schema::reconcile_dfseo_scan_ledger_tables();
         Schema::normalize_cluster_schema_version_option();
         \TMWSEO\Engine\KeywordIntelligence\KeywordDatabase::create_table();
