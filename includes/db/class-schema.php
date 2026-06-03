@@ -416,7 +416,7 @@ class Schema {
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             batch_id BIGINT UNSIGNED NOT NULL,
             import_batch_id VARCHAR(64) NOT NULL,
-            row_number INT UNSIGNED NOT NULL DEFAULT 0,
+            row_index INT UNSIGNED NOT NULL DEFAULT 0,
             keyword VARCHAR(255) NOT NULL,
             normalized_keyword VARCHAR(255) NULL,
             volume INT NULL,
@@ -437,7 +437,7 @@ class Schema {
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
-            UNIQUE KEY batch_row (batch_id,row_number),
+            UNIQUE KEY batch_row (batch_id,row_index),
             KEY import_batch_id (import_batch_id),
             KEY batch_status (batch_id,status),
             KEY candidate_id (candidate_id)

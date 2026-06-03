@@ -872,7 +872,7 @@ class KeywordPoolsAdminPage {
         $details = [
             'keyword' => $row['keyword'] ?? '',
             'normalized_keyword' => $row['normalized_keyword'] ?? '',
-            'row_number' => $row['row_number'] ?? '',
+            'row_number' => $row['row_index'] ?? '',
             'target' => (string) ($row['target_name'] ?? $batch['target_name'] ?? ''),
             'source_batch/source_file' => trim((string) ($batch['source_batch'] ?? '') . ' / ' . (string) ($batch['source_file'] ?? ''), ' /'),
             'validation_state' => $row['validation_state'] ?? '',
@@ -1211,7 +1211,7 @@ class KeywordPoolsAdminPage {
         $reasons = is_array($row['reason_codes'] ?? null) ? implode(' | ', self::exportable_reason_codes($row)) : (string) ($row['reason_summary'] ?? '');
         $golden_missing_reasons = is_array($row['golden_missing_reasons'] ?? null) ? implode(' | ', array_map('strval', $row['golden_missing_reasons'])) : (string) ($row['golden_missing_reasons'] ?? '');
         return [
-            (string) ($row['row_number'] ?? ''),
+            (string) ($row['row_index'] ?? ''),
             (string) ($row['keyword'] ?? ''),
             (string) ($row['normalized_keyword'] ?? ''),
             (string) ($row['status_preview'] ?? ''),

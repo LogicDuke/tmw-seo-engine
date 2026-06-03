@@ -153,6 +153,8 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $this->assertSame('category_page', $batch_inserts[0]['data']['target_type']);
         $this->assertSame(4534, $batch_inserts[0]['data']['target_id']);
         $this->assertCount(35, $row_inserts);
+        $this->assertSame(1, $row_inserts[0]['data']['row_index']);
+        $this->assertArrayNotHasKey('row_number', $row_inserts[0]['data']);
         $this->assertSame('', $repository->last_error());
     }
 
@@ -293,7 +295,7 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
     private function columns(string $prefix): array {
         return [
             $prefix . 'tmw_keyword_import_batches' => [ 'id', 'import_batch_id', 'pool', 'target_type', 'target_id', 'target_name', 'target_slug', 'source_batch', 'source_file', 'imported_at', 'created_by', 'total_rows', 'inserted', 'updated', 'queued', 'review_required', 'approved', 'rejected', 'skipped', 'blocked', 'errors', 'status', 'created_at', 'updated_at' ],
-            $prefix . 'tmw_keyword_import_rows' => [ 'id', 'batch_id', 'import_batch_id', 'row_number', 'keyword', 'normalized_keyword', 'volume', 'cpc', 'competition', 'status', 'result_action', 'result_reason', 'validation_state', 'decision', 'target_type', 'target_id', 'target_name', 'candidate_id', 'row_payload', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at' ],
+            $prefix . 'tmw_keyword_import_rows' => [ 'id', 'batch_id', 'import_batch_id', 'row_index', 'keyword', 'normalized_keyword', 'volume', 'cpc', 'competition', 'status', 'result_action', 'result_reason', 'validation_state', 'decision', 'target_type', 'target_id', 'target_name', 'candidate_id', 'row_payload', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at' ],
         ];
     }
 }

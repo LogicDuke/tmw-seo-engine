@@ -13,6 +13,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
     private string $service;
     private string $repository;
     private string $plugin;
+    private string $readme;
 
     protected function setUp(): void {
         $this->schema = (string) file_get_contents(__DIR__ . '/../includes/db/class-schema.php');
@@ -20,6 +21,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->service = (string) file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-selected-import-service.php');
         $this->repository = (string) file_get_contents(__DIR__ . '/../includes/keywords/class-keyword-pool-import-batch-repository.php');
         $this->plugin = (string) file_get_contents(__DIR__ . '/../includes/class-plugin.php');
+        $this->readme = (string) file_get_contents(__DIR__ . '/../README.md');
     }
 
     public function test_schema_defines_import_batch_and_row_tables_with_required_indexes(): void {
@@ -32,7 +34,7 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
             'KEY pool_target (pool, target_type, target_id)',
             'KEY imported_at (imported_at)',
             'KEY source_batch (source_batch)',
-            'UNIQUE KEY batch_row (batch_id,row_number)',
+            'UNIQUE KEY batch_row (batch_id,row_index)',
             'KEY batch_status (batch_id,status)',
             'KEY candidate_id (candidate_id)',
         ] as $indexSql) {
@@ -46,9 +48,11 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
 
         $rowsSql = $matches[1][0];
         $this->assertStringContainsString('private static function get_keyword_import_rows_sql(string $rows_table, string $charset_collate): string', $this->schema);
-        $this->assertMatchesRegularExpression('/batch_id BIGINT UNSIGNED NOT NULL,\s*\R\s*import_batch_id VARCHAR\(64\) NOT NULL,\s*\R\s*row_number INT UNSIGNED NOT NULL DEFAULT 0,\s*\R\s*keyword VARCHAR\(255\) NOT NULL,/', $rowsSql);
+        $this->assertMatchesRegularExpression('/batch_id BIGINT UNSIGNED NOT NULL,\s*\R\s*import_batch_id VARCHAR\(64\) NOT NULL,\s*\R\s*row_index INT UNSIGNED NOT NULL DEFAULT 0,\s*\R\s*keyword VARCHAR\(255\) NOT NULL,/', $rowsSql);
         $this->assertStringContainsString('PRIMARY KEY  (id)', $rowsSql);
-        $this->assertStringContainsString('UNIQUE KEY batch_row (batch_id,row_number)', $rowsSql);
+        $this->assertStringContainsString('UNIQUE KEY batch_row (batch_id,row_index)', $rowsSql);
+        $this->assertStringNotContainsString('row_number INT UNSIGNED', $rowsSql);
+        $this->assertStringNotContainsString('batch_id,row_number', $rowsSql);
         $this->assertStringContainsString('KEY import_batch_id (import_batch_id)', $rowsSql);
         $this->assertStringContainsString('KEY batch_status (batch_id,status)', $rowsSql);
         $this->assertStringContainsString('KEY candidate_id (candidate_id)', $rowsSql);
@@ -125,6 +129,11 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString("SUM(status = 'rejected') AS rejected", $this->repository);
         $this->assertStringContainsString("'rejected'", $this->repository);
         $this->assertStringContainsString('public function query_rows(int $batch_id, string $status = \'\', int $limit = 100, int $offset = 0): array', $this->repository);
+        $this->assertStringContainsString("'row_index' => $row_number", $this->repository);
+        $this->assertStringContainsString('WHERE batch_id = %d AND row_index = %d', $this->repository);
+        $this->assertStringContainsString('ORDER BY row_index ASC, id ASC', $this->repository);
+        $this->assertStringNotContainsString("'row_number' => $row_number", $this->repository);
+        $this->assertStringNotContainsString('ORDER BY row_number ASC', $this->repository);
         $this->assertStringContainsString('LIMIT %d OFFSET %d', $this->repository);
         $this->assertStringContainsString('public function count_rows(int $batch_id, string $status = \'\'): int', $this->repository);
         $this->assertStringContainsString('SELECT COUNT(*) FROM {$table}', $this->repository);
@@ -159,6 +168,13 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
             $this->assertStringContainsString($label, $this->admin);
         }
         $this->assertStringContainsString('data-tmw-copy-keyword', $this->admin);
+    }
+
+
+    public function test_readme_version_matches_import_rows_fix_release(): void {
+        $this->assertStringContainsString('**Version:** 5.8.14-import-rows-fix', $this->readme);
+        $this->assertStringContainsString('`5.8.14-import-rows-fix`', $this->readme);
+        $this->assertStringNotContainsString('5.8.11-final-copy', $this->readme);
     }
 
     public function test_manual_import_row_actions_are_post_nonce_and_candidate_safe(): void {
