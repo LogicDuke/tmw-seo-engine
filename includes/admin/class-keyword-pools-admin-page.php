@@ -473,21 +473,31 @@ class KeywordPoolsAdminPage {
             ),
         ];
         $created_batch_id = (int) ($import_result['batch_id'] ?? 0);
+        $persistence_error = trim((string) ($import_result['persistence_error'] ?? ''));
         if ($created_batch_id > 0) {
-            $state['notices'][] = [
-                'type' => 'success',
-                'text' => sprintf(
-                    '[TMW-KW-IMPORT] Created import batch %d for target %s:%d with %d rows',
-                    $created_batch_id,
-                    (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
-                    (int) ($import_context['target_id'] ?? 0),
-                    (int) ($summary['selected'] ?? 0)
-                ),
-            ];
+            if ('' !== $persistence_error) {
+                $state['notices'][] = [
+                    'type' => 'warning',
+                    'text' => sprintf('[TMW-KW-IMPORT] %s', $persistence_error),
+                ];
+            } else {
+                $state['notices'][] = [
+                    'type' => 'success',
+                    'text' => sprintf(
+                        '[TMW-KW-IMPORT] Created import batch %d for target %s:%d with %d rows',
+                        $created_batch_id,
+                        (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
+                        (int) ($import_context['target_id'] ?? 0),
+                        (int) ($summary['selected'] ?? 0)
+                    ),
+                ];
+            }
         } else {
             $state['notices'][] = [
                 'type' => 'warning',
-                'text' => '[TMW-KW-IMPORT] Import batch was not persisted (batch_id=0). Verify that tmw_keyword_import_batches and tmw_keyword_import_rows tables exist and the schema migration has run.',
+                'text' => '' !== $persistence_error
+                    ? sprintf('[TMW-KW-IMPORT] Import batch persistence failed: %s', $persistence_error)
+                    : '[TMW-KW-IMPORT] Import batch was not persisted (batch_id=0). Verify that tmw_keyword_import_batches and tmw_keyword_import_rows tables exist and the schema migration has run.',
             ];
         }
         return $state;

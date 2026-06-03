@@ -180,8 +180,31 @@ class KeywordPoolSelectedImportService {
         $summary['approved'] = count(array_filter($results, static fn($row): bool => is_array($row) && 'approved' === (string) ($row['status'] ?? '')));
         $summary['review_required'] = count(array_filter($results, static fn($row): bool => is_array($row) && 'blocked' === (string) ($row['action'] ?? '') && str_contains((string) ($row['reason'] ?? ''), 'review_required')));
         $batch_id = $this->batch_repository->persist_import($pool, $context, $summary, $history_rows);
+        $persistence_error = '';
+        if ($batch_id <= 0) {
+            $persistence_error = $this->batch_repository->last_error();
+        } elseif ($this->batch_repository->row_failure_count() > 0) {
+            $persistence_error = sprintf(
+                'Import batch persisted but one or more rows failed: %s',
+                $this->safe_persistence_reason($this->batch_repository->last_error())
+            );
+        }
 
-        return [ 'summary' => $summary, 'rows' => $results, 'batch_id' => $batch_id, 'import_batch_id' => (string) ($context['import_batch_id'] ?? '') ];
+        return [
+            'summary' => $summary,
+            'rows' => $results,
+            'batch_id' => $batch_id,
+            'import_batch_id' => (string) ($context['import_batch_id'] ?? ''),
+            'persistence_error' => $persistence_error,
+            'row_persistence_failures' => $this->batch_repository->row_failure_count(),
+        ];
+    }
+
+
+    private function safe_persistence_reason(string $reason): string {
+        $reason = '' !== trim($reason) ? $reason : 'unknown database error';
+        $reason = function_exists('sanitize_text_field') ? sanitize_text_field($reason) : trim(strip_tags($reason));
+        return '' !== $reason ? $reason : 'unknown database error';
     }
 
 
