@@ -45,6 +45,8 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertNotEmpty($matches[1]);
 
         foreach ($matches[1] as $rowsSql) {
+            $this->assertMatchesRegularExpression('/import_batch_id VARCHAR\(64\) NOT NULL,\s*\R\s*row_number INT UNSIGNED NOT NULL DEFAULT 0,/', $rowsSql);
+            $this->assertDoesNotMatchRegularExpression('/import_batch_id VARCHAR\(64\) NOT NULL\s*\R\s*row_number INT UNSIGNED NOT NULL DEFAULT 0,/', $rowsSql);
             $this->assertStringContainsString('PRIMARY KEY  (id)', $rowsSql);
             $this->assertStringContainsString('UNIQUE KEY batch_row (batch_id, row_number)', $rowsSql);
             $this->assertStringContainsString('KEY import_batch_id (import_batch_id)', $rowsSql);
