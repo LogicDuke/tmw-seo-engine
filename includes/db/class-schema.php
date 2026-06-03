@@ -296,7 +296,11 @@ class Schema {
      * create/update them additively when they are missing. Safe to run repeatedly.
      */
     public static function ensure_keyword_import_history_schema(): bool {
-        $target_version = 1;
+        if (!self::can_run_keyword_import_history_schema_update()) {
+            return false;
+        }
+
+        $target_version = 2;
         $version_option = 'tmw_keyword_import_history_schema_version';
 
         global $wpdb;
@@ -323,13 +327,18 @@ class Schema {
         foreach ($missing_tables as $missing_table) {
             if ($missing_table === $wpdb->prefix . 'tmw_keyword_import_rows') {
                 $rows_schema_error = (string) get_option('tmw_keyword_import_rows_schema_error', '');
-                error_log($rows_schema_error !== '' ? $rows_schema_error : '[TMW-KW-IMPORT] Rows table creation failed: dbDelta did not create table');
+                $rows_sql_hash = self::safe_sql_hash(self::get_keyword_import_rows_sql($missing_table, $wpdb->get_charset_collate()));
+                error_log($rows_schema_error !== '' ? $rows_schema_error : '[TMW-KW-IMPORT] Rows table creation failed: db_error=none; sql_hash=' . $rows_sql_hash);
             } else {
                 error_log('[TMW-KW-IMPORT] Import history schema missing table after dbDelta: ' . $missing_table);
             }
         }
 
         return false;
+    }
+
+    private static function can_run_keyword_import_history_schema_update(): bool {
+        return (function_exists('is_admin') && is_admin()) || (defined('WP_CLI') && WP_CLI);
     }
 
     /**
@@ -396,11 +405,18 @@ class Schema {
             KEY source_batch (source_batch)
         ) $charset_collate;";
 
-        $sql_keyword_import_rows = "CREATE TABLE $keyword_import_rows (
+        $sql_keyword_import_rows = self::get_keyword_import_rows_sql($keyword_import_rows, $charset_collate);
+
+        dbDelta($sql_keyword_import_batches);
+        self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);
+    }
+
+    private static function get_keyword_import_rows_sql(string $rows_table, string $charset_collate): string {
+        return "CREATE TABLE $rows_table (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             batch_id BIGINT UNSIGNED NOT NULL,
-                import_batch_id VARCHAR(64) NOT NULL,
-                row_number INT UNSIGNED NOT NULL DEFAULT 0,
+            import_batch_id VARCHAR(64) NOT NULL,
+            row_index INT UNSIGNED NOT NULL DEFAULT 0,
             keyword VARCHAR(255) NOT NULL,
             normalized_keyword VARCHAR(255) NULL,
             volume INT NULL,
@@ -421,14 +437,11 @@ class Schema {
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY  (id),
-            UNIQUE KEY batch_row (batch_id, row_number),
+            UNIQUE KEY batch_row (batch_id,row_index),
             KEY import_batch_id (import_batch_id),
-            KEY batch_status (batch_id, status),
+            KEY batch_status (batch_id,status),
             KEY candidate_id (candidate_id)
         ) $charset_collate;";
-
-        dbDelta($sql_keyword_import_batches);
-        self::run_keyword_import_rows_dbdelta($sql_keyword_import_rows, $keyword_import_rows);
     }
 
     private static function run_keyword_import_rows_dbdelta(string $rows_sql, string $rows_table): void {
@@ -445,10 +458,14 @@ class Schema {
             return;
         }
 
-        $reason = $dbdelta_error !== '' ? $dbdelta_error : 'dbDelta did not create table';
-        $message = '[TMW-KW-IMPORT] Rows table creation failed: ' . $reason;
+        $db_error = $dbdelta_error !== '' ? $dbdelta_error : 'none';
+        $message = '[TMW-KW-IMPORT] Rows table creation failed: db_error=' . $db_error . '; sql_hash=' . self::safe_sql_hash($rows_sql);
         error_log($message);
         update_option('tmw_keyword_import_rows_schema_error', $message, false);
+    }
+
+    private static function safe_sql_hash(string $sql): string {
+        return hash('sha256', $sql);
     }
 
     private static function safe_db_error(string $error): string {
@@ -476,12 +493,15 @@ class Schema {
         $missing_tables = self::get_missing_required_intelligence_tables();
         $expansion_candidates = $wpdb->prefix . 'tmw_seed_expansion_candidates';
         $has_expansion_candidates = self::table_exists($expansion_candidates);
-        $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
-        $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
-        $has_keyword_import_history = self::table_exists($keyword_import_batches) && self::table_exists($keyword_import_rows);
+        $has_keyword_import_history = true;
+        if (self::can_run_keyword_import_history_schema_update()) {
+            $keyword_import_batches = $wpdb->prefix . 'tmw_keyword_import_batches';
+            $keyword_import_rows = $wpdb->prefix . 'tmw_keyword_import_rows';
+            $has_keyword_import_history = self::table_exists($keyword_import_batches) && self::table_exists($keyword_import_rows);
 
-        if (!$has_keyword_import_history) {
-            $has_keyword_import_history = self::ensure_keyword_import_history_schema();
+            if (!$has_keyword_import_history) {
+                $has_keyword_import_history = self::ensure_keyword_import_history_schema();
+            }
         }
 
         if ($stored_version >= $target_version && empty($missing_tables) && $has_expansion_candidates && $has_keyword_import_history) {
@@ -855,36 +875,7 @@ class Schema {
             KEY source_batch (source_batch)
         ) $charset_collate;";
 
-        $sql_keyword_import_rows = "CREATE TABLE $keyword_import_rows (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            batch_id BIGINT UNSIGNED NOT NULL,
-                import_batch_id VARCHAR(64) NOT NULL,
-                row_number INT UNSIGNED NOT NULL DEFAULT 0,
-            keyword VARCHAR(255) NOT NULL,
-            normalized_keyword VARCHAR(255) NULL,
-            volume INT NULL,
-            cpc DECIMAL(10,2) NULL,
-            competition DECIMAL(6,4) NULL,
-            status VARCHAR(30) NOT NULL DEFAULT 'review_required',
-            result_action VARCHAR(30) NULL,
-            result_reason VARCHAR(255) NULL,
-            validation_state VARCHAR(60) NULL,
-            decision VARCHAR(60) NULL,
-            target_type VARCHAR(50) NULL,
-            target_id BIGINT UNSIGNED NULL,
-            target_name VARCHAR(255) NULL,
-            candidate_id BIGINT UNSIGNED NULL,
-            row_payload LONGTEXT NULL,
-            reviewed_by BIGINT UNSIGNED NULL,
-            reviewed_at DATETIME NULL,
-            created_at DATETIME NOT NULL,
-            updated_at DATETIME NOT NULL,
-            PRIMARY KEY  (id),
-            UNIQUE KEY batch_row (batch_id, row_number),
-            KEY import_batch_id (import_batch_id),
-            KEY batch_status (batch_id, status),
-            KEY candidate_id (candidate_id)
-        ) $charset_collate;";
+        $sql_keyword_import_rows = self::get_keyword_import_rows_sql($keyword_import_rows, $charset_collate);
 
         $sql_keyword_blacklist = "CREATE TABLE $keyword_blacklist (
             id INT NOT NULL AUTO_INCREMENT,

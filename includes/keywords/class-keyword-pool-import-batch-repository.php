@@ -197,7 +197,7 @@ class KeywordPoolImportBatchRepository {
         $data = [
             'batch_id' => $batch_id,
             'import_batch_id' => $this->sanitize_text((string) ($context['import_batch_id'] ?? $result['import_batch_id'] ?? ''), 64),
-            'row_number' => $row_number,
+            'row_index' => $row_number,
             'keyword' => $keyword,
             'normalized_keyword' => '' !== $normalized ? $normalized : null,
             'volume' => $this->nullable_int($payload['volume'] ?? $result['volume'] ?? null),
@@ -219,7 +219,7 @@ class KeywordPoolImportBatchRepository {
 
         $data = $this->filter_data_for_table($table, $data);
 
-        $existing_id = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE batch_id = %d AND row_number = %d LIMIT 1", $batch_id, $row_number));
+        $existing_id = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE batch_id = %d AND row_index = %d LIMIT 1", $batch_id, $row_number));
         if ($existing_id > 0) {
             unset($data['created_at']);
             $updated = $wpdb->update($table, $data, [ 'id' => $existing_id ]);
@@ -276,9 +276,9 @@ class KeywordPoolImportBatchRepository {
         $limit = max(1, $limit);
         $offset = max(0, $offset);
         if ('' !== $status) {
-            return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d AND status = %s ORDER BY row_number ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $this->sanitize_key($status, 30), $limit, $offset), ARRAY_A);
+            return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d AND status = %s ORDER BY row_index ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $this->sanitize_key($status, 30), $limit, $offset), ARRAY_A);
         }
-        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d ORDER BY row_number ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $limit, $offset), ARRAY_A);
+        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d ORDER BY row_index ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $limit, $offset), ARRAY_A);
     }
 
     public function count_rows(int $batch_id, string $status = ''): int {
