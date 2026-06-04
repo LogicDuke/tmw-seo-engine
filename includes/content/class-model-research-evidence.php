@@ -443,7 +443,9 @@ class ModelResearchEvidence {
 	private static function final_humanize( string $text ): string {
 		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$text = (string) preg_replace( '#\\s{2,}#', ' ', $text );
-		$text = (string) preg_replace( '#\\s+([,.])#', '$1', $text );
+		$text = (string) preg_replace( '#\\s+([,.;:!?])#', '$1', $text );
+		$text = (string) preg_replace( '#\\.,|,\\.|;,|,;#', '.', $text );
+		$text = (string) preg_replace( '#([,.;:!?]){2,}#', '$1', $text );
 		return trim( $text );
 	}
 
@@ -552,6 +554,7 @@ class ModelResearchEvidence {
 		$out = [];
 		foreach ( $parts as $p ) {
 			$p = trim( (string) $p );
+			$p = trim( $p, " \t\n\r\0\x0B.,;:" );
 			if ( $p !== '' ) {
 				$out[] = $p;
 			}
@@ -567,6 +570,8 @@ class ModelResearchEvidence {
 	private static function clean_token( string $s ): string {
 		$s = trim( $s );
 		$s = (string) preg_replace( '#^[\\-\\–\\—\\*\\.\\)\\(\\s]+#', '', $s );
+		$s = trim( $s, " \t\n\r\0\x0B.,;:" );
+		$s = (string) preg_replace( '#[\\.,;:]+$#u', '', $s );
 		if ( $s === '' ) {
 			return '';
 		}
@@ -667,7 +672,7 @@ class ModelResearchEvidence {
 		if ( isset( $labels[ $key ] ) ) {
 			return $labels[ $key ];
 		}
-		return ucwords( $key );
+		return $key;
 	}
 
 	private static function natural_list( array $items ): string {

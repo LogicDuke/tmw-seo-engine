@@ -1622,20 +1622,15 @@ class TemplateContent {
             $platform = sanitize_key((string) ($target['platform'] ?? ''));
             $label = trim((string) ($target['label'] ?? ''));
             if (in_array($platform, ['livejasmin', 'jasmin'], true)) {
-                $target_url = trim((string) ($target['url'] ?? ''));
-                $excluded_primary_cam_rows['livejasmin'] = [
-                    'label' => $label !== '' ? $label : 'LiveJasmin',
-                    'url' => self::get_frontend_verified_link_href([
-                        'type' => 'livejasmin',
-                        'url' => $target_url,
-                    ]) ?: $target_url,
-                    'family' => VerifiedLinksFamilies::FAMILY_CAM,
-                    'activity_level' => 'primary_confirmed',
-                ];
+                // Do not synthesize a CAM row from an already-rendered target.
+                // Final live wording must be based on the exact verified row with
+                // explicit is_active + active/very_active metadata.
+                $excluded_primary_cam_rows['livejasmin'] = null;
             }
         }
 
         $grouped = [];
+        $excluded_primary_cam_rows = array_filter($excluded_primary_cam_rows, 'is_array');
         if (!empty($excluded_primary_cam_rows)) {
             $grouped[VerifiedLinksFamilies::FAMILY_CAM] = array_values($excluded_primary_cam_rows);
         }
@@ -1669,12 +1664,14 @@ class TemplateContent {
             if ($activity_note !== '') {
                 $label .= ' — ' . $activity_note;
             }
-            $grouped[$family][] = [
+            $grouped[$family][] = array_merge($entry, [
+                'type' => self::canonical_body_platform_slug($entry),
                 'label' => $label,
                 'url' => $frontend_url !== '' ? $frontend_url : $clean_url,
+                'verified_url' => $clean_url,
                 'family' => $family,
                 'activity_level' => sanitize_key((string) ($entry['activity_level'] ?? 'unknown')),
-            ];
+            ]);
         }
 
         if (empty($grouped)) {
@@ -1718,6 +1715,62 @@ class TemplateContent {
             . implode('', $chunks);
     }
 
+
+    /**
+     * Canonical platform identity used by the final body-render live gate.
+     */
+    private static function canonical_body_platform_slug(array $row): string {
+        $raw = (string) ($row['type'] ?? $row['platform'] ?? $row['platform_key'] ?? '');
+        if (class_exists(AffiliateLinkBuilder::class) && method_exists(AffiliateLinkBuilder::class, 'canonical_platform_slug')) {
+            $canonical = AffiliateLinkBuilder::canonical_platform_slug($raw);
+            if ($canonical !== '') {
+                return $canonical === 'jasmin' ? 'livejasmin' : sanitize_key($canonical);
+            }
+        }
+
+        $slug = sanitize_key($raw);
+        if ($slug === 'jasmin') {
+            return 'livejasmin';
+        }
+        return $slug;
+    }
+
+    /**
+     * Final fail-closed live gate for any model-body live-link wording.
+     *
+     * @param array<string,mixed> $row Exact verified destination row.
+     */
+    private static function verified_body_live_link_is_renderable(array $row): bool {
+        $type = self::canonical_body_platform_slug($row);
+        if ($type === '') {
+            return false;
+        }
+
+        $family = sanitize_key((string) ($row['family'] ?? ''));
+        if ($family === '') {
+            $family = VerifiedLinksFamilies::family_for($type);
+        }
+        if ($family !== VerifiedLinksFamilies::FAMILY_CAM) {
+            return false;
+        }
+
+        $has_http_url = false;
+        foreach (['verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
+            $url = trim((string) ($row[$key] ?? ''));
+            if (self::is_confirmed_external_http_url($url)) {
+                $has_http_url = true;
+                break;
+            }
+        }
+        if (!$has_http_url) {
+            return false;
+        }
+
+        $gate_row = $row;
+        $gate_row['type'] = $type;
+        return ModelBodySafety::verified_link_is_live_eligible($gate_row);
+    }
+
     /**
      * @param array{label?:string,family?:string,activity_level?:string} $row
      */
@@ -1730,10 +1783,7 @@ class TemplateContent {
         $activity = sanitize_key((string) ($row['activity_level'] ?? 'unknown'));
 
         if ($family === VerifiedLinksFamilies::FAMILY_CAM) {
-            if ($activity === 'primary_confirmed') {
-                return 'Visit Profile on ' . $label;
-            }
-            if (in_array($activity, ['active', 'very_active'], true)) {
+            if (self::verified_body_live_link_is_renderable($row)) {
                 return 'Watch Live on ' . $label;
             }
             return 'Visit Profile on ' . $label;
@@ -1851,7 +1901,37 @@ class TemplateContent {
         $summary = is_array($resolved_destinations['source_of_truth_summary'] ?? null)
             ? (array) $resolved_destinations['source_of_truth_summary']
             : [];
-        $live_count = count($cta_links);
+
+        $live_rows = [];
+        $live_keys = [];
+        foreach ((array) ($resolved_destinations['all_verified_destinations'] ?? []) as $entry) {
+            if (!is_array($entry) || !self::verified_body_live_link_is_renderable($entry)) {
+                continue;
+            }
+            $key = self::canonical_body_platform_slug($entry) . '|' . strtolower(rtrim((string) ($entry['url'] ?? ''), '/'));
+            if (isset($live_keys[$key])) {
+                continue;
+            }
+            $live_keys[$key] = true;
+            $live_rows[] = $entry;
+        }
+
+        foreach ($cta_links as $entry) {
+            if (!is_array($entry) || !self::verified_body_live_link_is_renderable($entry)) {
+                continue;
+            }
+            $key = self::canonical_body_platform_slug($entry) . '|' . strtolower(rtrim((string) ($entry['url'] ?? $entry['verified_url'] ?? ''), '/'));
+            if (isset($live_keys[$key])) {
+                continue;
+            }
+            $live_keys[$key] = true;
+            $live_rows[] = $entry;
+        }
+
+        $live_platform_labels = array_values(array_unique(array_filter(array_map(static function (array $row): string {
+            return trim((string) ($row['label'] ?? ''));
+        }, $live_rows), 'strlen')));
+        $live_count = count($live_platform_labels);
         $family_counts = [
             'cam_extra_count' => 0,
             'camsoda_count' => 0,
@@ -1867,13 +1947,13 @@ class TemplateContent {
                 continue;
             }
             $family = sanitize_key((string) ($entry['family'] ?? ''));
-            $type = sanitize_key((string) ($entry['type'] ?? $entry['platform_key'] ?? ''));
+            $type = self::canonical_body_platform_slug($entry);
             if ($family === VerifiedLinksFamilies::FAMILY_CAM) {
-                if (empty($entry['is_cta_eligible'])) {
+                if (!self::verified_body_live_link_is_renderable($entry)) {
                     $family_counts['cam_extra_count']++;
-                }
-                if ($type === 'camsoda') {
-                    $family_counts['camsoda_count']++;
+                    if ($type === 'camsoda') {
+                        $family_counts['camsoda_count']++;
+                    }
                 }
             }
         }
@@ -1892,6 +1972,7 @@ class TemplateContent {
 
         return array_merge($family_counts, [
             'live_count' => $live_count,
+            'live_platform_labels' => $live_platform_labels,
             'extra_count' => $extra_count,
             'total_count' => $total_count,
             'has_live_profile' => $live_count > 0,
@@ -2043,7 +2124,7 @@ class TemplateContent {
                 : $platform_text . ' is the confirmed live-room option from this check. Start there for live access.';
         } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
-            $answer_line = 'Live profiles are available on ' . $platform_text . '. Open a live room first, then use the other sections for updates.';
+            $answer_line = 'Confirmed live-room options are available on ' . $platform_text . '. Start with one verified room, then compare status after click-through.';
         } else {
             $answer_line = 'No live-room profile is confirmed active in this check.';
         }
@@ -2387,12 +2468,12 @@ class TemplateContent {
             if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
                 continue;
             }
-            $rows[] = [
+            $rows[] = array_merge($entry, [
                 'label' => (string) ($entry['label'] ?? ''),
                 'url' => $url,
                 'family' => $family,
                 'activity_level' => (string) ($entry['activity_level'] ?? 'unknown'),
-            ];
+            ]);
         }
 
         return self::render_truthful_destination_list($rows, true);
@@ -2415,12 +2496,12 @@ class TemplateContent {
             if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
                 continue;
             }
-            $rows[] = [
+            $rows[] = array_merge($entry, [
                 'label' => (string) ($entry['label'] ?? ''),
                 'url' => $url,
                 'family' => $family,
                 'activity_level' => (string) ($entry['activity_level'] ?? 'unknown'),
-            ];
+            ]);
         }
 
         return self::render_truthful_destination_list($rows);
@@ -2591,7 +2672,7 @@ class TemplateContent {
     private static function pick_confirmed_outbound_watch_target(array $links): array {
         $candidates = [];
         foreach ($links as $link) {
-            if (!is_array($link)) {
+            if (!is_array($link) || !self::verified_body_live_link_is_renderable($link)) {
                 continue;
             }
 
@@ -2673,6 +2754,9 @@ class TemplateContent {
         $confirmed = self::pick_confirmed_outbound_watch_target($links);
         $confirmed_url = strtolower(rtrim((string) ($confirmed['url'] ?? ''), '/'));
         foreach ($links as $link) {
+            if (!is_array($link) || !self::verified_body_live_link_is_renderable($link)) {
+                continue;
+            }
             if (empty($link['is_primary'])) {
                 continue;
             }
@@ -3107,6 +3191,9 @@ class TemplateContent {
 
         $items = [];
         foreach ($links as $link) {
+            if (!is_array($link) || !self::verified_body_live_link_is_renderable($link)) {
+                continue;
+            }
             // Skip the primary platform — render_primary_watch_cta() already outputs
             // it as a prominent <p> CTA above this section. Including it again here
             // would produce a duplicate "Watch {name} on {platform}" entry.

@@ -75,6 +75,7 @@ class ModelDestinationResolver {
                 'routed_url' => class_exists(VerifiedLinks::class) ? (string) VerifiedLinks::get_routed_url($link) : $url,
                 'platform_key' => $type,
                 'is_primary' => !empty($link['is_primary']),
+                'is_active' => array_key_exists('is_active', $link) ? $link['is_active'] : false,
                 'is_active_legacy' => $is_active_legacy,
                 'is_cta_eligible' => $is_cta_eligible,
                 'is_verified_curated' => true,
@@ -206,6 +207,11 @@ class ModelDestinationResolver {
                 'source' => 'verified_links',
                 'verified_url' => (string)($entry['url'] ?? ''),
                 'seo_affiliate_url' => $seo_affiliate_url,
+                'url' => (string)($entry['url'] ?? ''),
+                'type' => $platform,
+                'family' => $family,
+                'is_active' => $entry['is_active'] ?? false,
+                'activity_level' => (string)($entry['activity_level'] ?? 'unknown'),
             ];
         }
 
