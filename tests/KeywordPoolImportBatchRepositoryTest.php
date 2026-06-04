@@ -158,6 +158,45 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $this->assertSame('', $repository->last_error());
     }
 
+
+    public function test_persist_import_global_model_pool_batch_has_nullable_target_id(): void {
+        $prefix = 'wp_global_import_';
+        $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $batch_id = $repository->persist_import('model', [
+            'target_type' => 'global',
+            'target_id' => null,
+            'target_name' => 'Global Model Pool',
+            'target_slug' => 'global-model-pool',
+            'source_batch' => 'Global Model Pool',
+            'import_batch_id' => 'global-model-import',
+            'imported_at' => '2026-06-04 12:00:00',
+        ], [ 'inserted' => 1, 'queued' => 1 ], [
+            [ 'row_number' => 1, 'keyword' => 'all cam models live', 'status' => 'queued_for_review', 'action' => 'inserted', 'target_type' => 'global', 'target_name' => 'Global Model Pool' ],
+        ]);
+
+        $this->assertGreaterThan(0, $batch_id);
+        $batchInserts = array_values(array_filter($GLOBALS['wpdb']->inserts, fn(array $insert): bool => str_ends_with($insert['table'], 'tmw_keyword_import_batches')));
+        $this->assertSame('model', $batchInserts[0]['data']['pool']);
+        $this->assertSame('global', $batchInserts[0]['data']['target_type']);
+        $this->assertArrayHasKey('target_id', $batchInserts[0]['data']);
+        $this->assertNull($batchInserts[0]['data']['target_id']);
+        $this->assertSame('Global Model Pool', $batchInserts[0]['data']['target_name']);
+    }
+
+    public function test_query_batches_global_model_pool_does_not_require_numeric_target_id(): void {
+        $prefix = 'wp_global_query_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $GLOBALS['wpdb'] = $wpdb;
+
+        (new KeywordPoolImportBatchRepository())->query_batches('model', 'global', null, 10);
+
+        $this->assertStringContainsString("pool = 'model'", $wpdb->last_query);
+        $this->assertStringContainsString("target_type = 'global'", $wpdb->last_query);
+        $this->assertStringNotContainsString('target_id =', $wpdb->last_query);
+    }
+
     public function test_persist_import_model_pool_persists_rows_and_returns_nonzero_batch_id(): void {
         $prefix = 'wp_pr_import_model_';
         $GLOBALS['wpdb'] = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));

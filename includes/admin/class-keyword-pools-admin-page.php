@@ -27,6 +27,10 @@ class KeywordPoolsAdminPage {
     public const NONCE_FIELD = 'tmwseo_keyword_pools_nonce';
     public const EXPORT_ACTION = 'tmwseo_keyword_pools_export_preview';
     public const SAVE_ACTION = 'tmwseo_keyword_pools_save_selected';
+    private const GLOBAL_MODEL_POOL_SENTINEL = '__global_model_pool__';
+    private const GLOBAL_MODEL_POOL_LABEL = 'Global Model Pool / All Models';
+    private const GLOBAL_MODEL_POOL_NAME = 'Global Model Pool';
+    private const GLOBAL_MODEL_POOL_SLUG = 'global-model-pool';
 
     /** @var array<int, string> */
     private const ALLOWED_POOLS = [ 'model', 'video', 'category' ];
@@ -318,7 +322,12 @@ class KeywordPoolsAdminPage {
         ];
 
         if ('POST' !== (string) ($_SERVER['REQUEST_METHOD'] ?? '')) {
-            $target_id = isset($_GET['tmwseo_keyword_pools_target_id']) ? absint($_GET['tmwseo_keyword_pools_target_id']) : 0;
+            $target_value = isset($_GET['tmwseo_keyword_pools_target_id']) ? (string) wp_unslash($_GET['tmwseo_keyword_pools_target_id']) : '';
+            if (self::is_global_model_pool_value($active_pool, $target_value)) {
+                $state['import_context'] = self::global_model_pool_context();
+                return $state;
+            }
+            $target_id = absint($target_value);
             if ($target_id > 0 && self::pool_requires_target($active_pool)) {
                 $target = (new KeywordPoolTargetProvider())->validate_target($active_pool, $target_id);
                 if (is_array($target)) {
@@ -367,9 +376,9 @@ class KeywordPoolsAdminPage {
             $parser_result = $parser->parse_text($pasted_csv);
         }
 
-        $dry_run = (new KeywordPoolDryRunService())->dry_run($parser_result, $active_pool);
+        $dry_run = (new KeywordPoolDryRunService())->dry_run($parser_result, $active_pool, $import_context);
 
-        if (self::pool_requires_target($active_pool) && empty($import_context['target_id'])) {
+        if (self::pool_requires_target($active_pool) && !self::target_requirement_satisfied($active_pool, $import_context)) {
             $state['notices'][] = [ 'type' => 'warning', 'text' => self::target_required_message($active_pool) ];
         }
         $parser_result['_tmw_import_context'] = $import_context;
@@ -407,10 +416,10 @@ class KeywordPoolsAdminPage {
             return $state;
         }
 
-        $dry_run = (new KeywordPoolDryRunService())->dry_run($parser_result, $active_pool);
         $payload_context = is_array($parser_result['_tmw_import_context'] ?? null) ? $parser_result['_tmw_import_context'] : [];
         $import_context = self::posted_import_context($active_pool, (string) ($payload_context['source_file'] ?? ''), true, $payload_context);
-        if (self::pool_requires_target($active_pool) && empty($import_context['target_id'])) {
+        $dry_run = (new KeywordPoolDryRunService())->dry_run($parser_result, $active_pool, $import_context);
+        if (self::pool_requires_target($active_pool) && !self::target_requirement_satisfied($active_pool, $import_context)) {
             $state['parser_result'] = $parser_result;
             $state['dry_run'] = $dry_run;
             $state['import_context'] = $import_context;
@@ -509,7 +518,7 @@ class KeywordPoolsAdminPage {
                         '[TMW-KW-IMPORT] Created import batch %d for target %s:%d with %d rows',
                         $created_batch_id,
                         (string) ($import_context['target_type'] ?? self::target_type_for_pool($active_pool)),
-                        (int) ($import_context['target_id'] ?? 0),
+                        null === ($import_context['target_id'] ?? null) ? 0 : (int) ($import_context['target_id'] ?? 0),
                         $attempted_row_total
                     ),
                 ];
@@ -553,13 +562,20 @@ class KeywordPoolsAdminPage {
             'imported_at' => function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s'),
         ];
 
-        $target_id = isset($_POST['tmwseo_keyword_pools_target_id']) ? (int) wp_unslash($_POST['tmwseo_keyword_pools_target_id']) : (int) ($fallback['target_id'] ?? 0);
-        if ($target_id > 0 && self::pool_requires_target($pool)) {
-            $target = (new KeywordPoolTargetProvider())->validate_target($pool, $target_id);
-            if (is_array($target)) {
-                $context = array_merge($context, $target);
-            } elseif ($require_valid_target) {
-                $context['target_id'] = $target_id;
+        $posted_target_value = isset($_POST['tmwseo_keyword_pools_target_id']) ? (string) wp_unslash($_POST['tmwseo_keyword_pools_target_id']) : '';
+        $fallback_target_value = self::is_global_model_pool_context($fallback) ? self::GLOBAL_MODEL_POOL_SENTINEL : (string) ($fallback['target_id'] ?? '0');
+        $target_value = '' !== $posted_target_value ? $posted_target_value : $fallback_target_value;
+        if (self::is_global_model_pool_value($pool, $target_value) || ('model' === $pool && self::is_global_model_pool_context($fallback))) {
+            $context = array_merge($context, self::global_model_pool_context());
+        } else {
+            $target_id = absint($target_value);
+            if ($target_id > 0 && self::pool_requires_target($pool)) {
+                $target = (new KeywordPoolTargetProvider())->validate_target($pool, $target_id);
+                if (is_array($target)) {
+                    $context = array_merge($context, $target);
+                } elseif ($require_valid_target) {
+                    $context['target_id'] = $target_id;
+                }
             }
         }
 
@@ -575,12 +591,16 @@ class KeywordPoolsAdminPage {
             echo '<tr><th scope="row"><label for="tmwseo_keyword_pools_target_id">' . esc_html($label) . '</label></th><td>';
             echo '<select id="tmwseo_keyword_pools_target_id" name="tmwseo_keyword_pools_target_id"><option value="0">' . esc_html__('Select target…', 'tmwseo') . '</option>';
             $selected_id = (int) ($context['target_id'] ?? 0);
+            $selected_global = self::is_global_model_pool_context($context);
+            if ('model' === $pool) {
+                echo '<option value="' . esc_attr(self::GLOBAL_MODEL_POOL_SENTINEL) . '" ' . selected($selected_global, true, false) . '>' . esc_html__(self::GLOBAL_MODEL_POOL_LABEL, 'tmwseo') . '</option>';
+            }
             foreach ($targets as $target) {
-                echo '<option value="' . esc_attr((string) (int) ($target['target_id'] ?? 0)) . '" ' . selected($selected_id, (int) ($target['target_id'] ?? 0), false) . '>' . esc_html((string) ($target['label'] ?? '')) . '</option>';
+                echo '<option value="' . esc_attr((string) (int) ($target['target_id'] ?? 0)) . '" ' . selected(!$selected_global && $selected_id === (int) ($target['target_id'] ?? 0), true, false) . '>' . esc_html((string) ($target['label'] ?? '')) . '</option>';
             }
             echo '</select>';
             echo '<p class="description">' . esc_html__('Uses existing posts only; this does not create pages, posts, terms, or publish drafts.', 'tmwseo') . '</p>';
-            if ($for_save && $selected_id <= 0) {
+            if ($for_save && !self::target_requirement_satisfied($pool, $context)) {
                 echo '<p class="description" style="color:#b32d2e;">' . esc_html(self::target_required_message($pool)) . '</p>';
             }
             echo '</td></tr>';
@@ -591,6 +611,35 @@ class KeywordPoolsAdminPage {
         echo '<input id="tmwseo_keyword_pools_source_label" type="text" name="tmwseo_keyword_pools_source_label" class="regular-text" value="' . esc_attr($source_batch) . '" placeholder="' . esc_attr__('Optional batch/source label', 'tmwseo') . '" />';
         echo '<p class="description">' . esc_html__('Optional for preview; recommended before saving. If omitted for uploads, the sanitized filename is used.', 'tmwseo') . '</p>';
         echo '</td></tr>';
+    }
+
+
+    /** @param array<string,mixed> $context */
+    private static function target_requirement_satisfied(string $pool, array $context): bool {
+        if ('model' === $pool && self::is_global_model_pool_context($context)) {
+            return true;
+        }
+        return !empty($context['target_id']);
+    }
+
+    private static function is_global_model_pool_value(string $pool, string $value): bool {
+        return 'model' === $pool && self::GLOBAL_MODEL_POOL_SENTINEL === trim($value);
+    }
+
+    /** @return array<string,mixed> */
+    private static function global_model_pool_context(): array {
+        return [
+            'target_type' => 'global',
+            'target_id' => null,
+            'target_name' => self::GLOBAL_MODEL_POOL_NAME,
+            'target_slug' => self::GLOBAL_MODEL_POOL_SLUG,
+            'is_global_model_pool' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $context */
+    private static function is_global_model_pool_context(array $context): bool {
+        return !empty($context['is_global_model_pool']) || ('global' === (string) ($context['target_type'] ?? '') && self::GLOBAL_MODEL_POOL_SLUG === (string) ($context['target_slug'] ?? ''));
     }
 
     private static function pool_requires_target(string $pool): bool {
@@ -614,7 +663,7 @@ class KeywordPoolsAdminPage {
     private static function target_required_message(string $pool): string {
         return 'category' === $pool
             ? __('Target Category is required before saving category keywords.', 'tmwseo')
-            : __('Target Model is required before saving model keywords.', 'tmwseo');
+            : __('Target Model or Global Model Pool / All Models is required before saving model keywords.', 'tmwseo');
     }
 
     private static function invalid_target_message(string $pool): string {
@@ -735,8 +784,9 @@ class KeywordPoolsAdminPage {
             return;
         }
         $target_id = (int) ($context['target_id'] ?? 0);
+        $is_global_model_pool = self::is_global_model_pool_context($context);
         echo '<tr><th scope="row">' . esc_html__('Import History', 'tmwseo') . '</th><td>';
-        if ($target_id <= 0) {
+        if ($target_id <= 0 && !$is_global_model_pool) {
             echo '<p class="description">' . esc_html__('Select a target to see durable import history for that category or model.', 'tmwseo') . '</p>';
             echo '</td></tr>';
             return;
@@ -749,7 +799,7 @@ class KeywordPoolsAdminPage {
         $batches = $repository->query_batches(
             $pool,
             '' !== $query_target_type ? $query_target_type : null,
-            $target_id,
+            $is_global_model_pool ? null : $target_id,
             10
         );
         if ([] === $batches) {
@@ -930,8 +980,10 @@ class KeywordPoolsAdminPage {
         if (is_array($import_result)) {
             self::render_import_result($import_result);
         }
-        if (self::pool_requires_target($pool) && empty($context['target_id'])) {
+        if (self::pool_requires_target($pool) && !self::target_requirement_satisfied($pool, $context)) {
             echo '<div class="notice notice-warning inline"><p>' . esc_html(self::target_required_message($pool)) . '</p></div>';
+        } elseif (self::is_global_model_pool_context($context)) {
+            echo '<div class="notice notice-info inline"><p>' . esc_html(sprintf('Target: %s. Scope: %s.', self::GLOBAL_MODEL_POOL_LABEL, 'global_model_pool')) . '</p></div>';
         }
         self::render_export_form($dry_run);
         self::render_save_selected_form($pool, $parser_result, $dry_run, $context);

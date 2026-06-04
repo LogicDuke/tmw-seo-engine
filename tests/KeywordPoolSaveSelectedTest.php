@@ -949,6 +949,117 @@ queued explicit cam models,100
     }
 
 
+
+    public function test_global_model_pool_save_selected_writes_global_candidate_provenance(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_global_model_', true, $columns);
+        $GLOBALS['wpdb'] = $wpdb;
+        $context = [
+            'target_type' => 'global',
+            'target_id' => null,
+            'target_name' => 'Global Model Pool',
+            'target_slug' => 'global-model-pool',
+            'is_global_model_pool' => true,
+            'source_batch' => 'global-model-keywords.csv',
+            'source_file' => 'global-model-keywords.csv',
+            'import_batch_id' => 'global-batch-1',
+            'imported_at' => '2026-06-04 12:00:00',
+        ];
+        $parsed = (new KeywordPoolCsvParser())->parse_text("keyword,volume,cpc,competition,SEO Score,model_name
+all cam models live,1200,1.25,0.10,75,Anisyia
+");
+        $dryRun = (new KeywordPoolDryRunService())->dry_run($parsed, 'model', $context);
+
+        $this->assertSame('', $dryRun['inferred_model_context']);
+        $this->assertSame('', $dryRun['rows'][0]['model_keyword_owner']);
+        $this->assertSame('global_model_pool', $dryRun['rows'][0]['model_keyword_usage_scope']);
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2], 'auto', $context);
+
+        $this->assertSame(1, $result['summary']['inserted']);
+        $data = $wpdb->candidate_inserts[0]['data'];
+        $this->assertSame('model', $data['intent_type']);
+        $this->assertSame('model', $data['entity_type']);
+        $this->assertSame(0, $data['entity_id']);
+        $this->assertSame('global', $data['target_type']);
+        $this->assertArrayHasKey('target_id', $data);
+        $this->assertNull($data['target_id']);
+        $this->assertSame('Global Model Pool', $data['target_name']);
+        $this->assertSame('global-model-pool', $data['target_slug']);
+        $this->assertSame('queued_for_review', $data['status']);
+        $sources = json_decode($data['sources'], true);
+        $this->assertSame('', $sources['model_keyword_owner']);
+        $this->assertSame('global_model_pool', $sources['model_keyword_usage_scope']);
+        $this->assertTrue($sources['global_model_pool']);
+        $this->assertSame('global', $sources['target_type']);
+        $this->assertSame('Global Model Pool', $sources['target_name']);
+    }
+
+    public function test_global_model_pool_collision_with_existing_personal_model_keyword_conflicts(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_global_personal_conflict_', true, $columns, [
+            'id' => 77,
+            'keyword' => 'all cam models live',
+            'intent_type' => 'model',
+            'entity_type' => 'model',
+            'entity_id' => 902,
+            'target_type' => 'model',
+            'target_id' => 902,
+            'target_name' => 'Gabriela Hadid',
+            'target_slug' => 'gabriela-hadid',
+            'status' => 'approved',
+            'sources' => '{"model_keyword_owner":"gabriela hadid","model_keyword_usage_scope":"model_bio_only"}',
+            'notes' => '{}',
+        ]);
+        $GLOBALS['wpdb'] = $wpdb;
+        $context = [ 'target_type' => 'global', 'target_id' => null, 'target_name' => 'Global Model Pool', 'target_slug' => 'global-model-pool', 'is_global_model_pool' => true ];
+        $parsed = (new KeywordPoolCsvParser())->parse_text("keyword,volume,cpc,competition,SEO Score
+all cam models live,1200,1.25,0.10,75
+");
+        $dryRun = (new KeywordPoolDryRunService())->dry_run($parsed, 'model', $context);
+
+        $result = (new KeywordPoolSelectedImportService())->save_selected($dryRun, 'model', [2], 'approved', $context);
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('existing_keyword_has_different_target', $result['rows'][0]['reason']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
+    public function test_personal_model_keyword_collision_with_existing_global_model_keyword_conflicts(): void {
+        $columns = $this->keywordCandidateColumnsWithTargetOwnership();
+        $wpdb = new KeywordPoolSaveSelectedFakeWpdb('wp_personal_global_conflict_', true, $columns, [
+            'id' => 78,
+            'keyword' => 'anisyia livejasmin',
+            'intent_type' => 'model',
+            'entity_type' => 'model',
+            'entity_id' => 0,
+            'target_type' => 'global',
+            'target_id' => null,
+            'target_name' => 'Global Model Pool',
+            'target_slug' => 'global-model-pool',
+            'status' => 'queued_for_review',
+            'sources' => '{"global_model_pool":true,"model_keyword_usage_scope":"global_model_pool"}',
+            'notes' => '{}',
+        ]);
+        $GLOBALS['wpdb'] = $wpdb;
+        $dryRun = $this->dryRun("keyword,volume,cpc,competition,SEO Score,model_name
+anisyia livejasmin,1200,1.25,0.10,75,Anisyia
+", 'model');
+
+        $result = $this->serviceWithModelPosts([ $this->modelPost(902, 'Anisyia', 'anisyia') ])->save_selected($dryRun, 'model', [2], 'approved', [
+            'target_type' => 'model',
+            'target_id' => 902,
+            'target_name' => 'Anisyia',
+            'target_slug' => 'anisyia',
+        ]);
+
+        $this->assertSame(1, $result['summary']['conflicts']);
+        $this->assertSame('existing_keyword_has_different_target', $result['rows'][0]['reason']);
+        $this->assertSame([], $wpdb->candidate_inserts);
+        $this->assertSame([], $wpdb->candidate_updates);
+    }
+
     private function keywordCandidateColumnsWithTargetOwnership(): array {
         return [
             'id', 'keyword', 'canonical', 'status', 'intent', 'intent_type', 'entity_type', 'entity_id',

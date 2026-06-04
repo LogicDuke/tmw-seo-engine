@@ -134,6 +134,47 @@ class KeywordPoolsAdminPageTest extends TestCase {
         $this->assertStringContainsString('Source Label', $html);
     }
 
+
+    public function test_model_pool_upload_form_shows_global_model_pool_option_above_models(): void {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_GET = [ 'pool' => 'model' ];
+        $GLOBALS['_tmw_test_posts'] = [
+            902 => (object) [ 'ID' => 902, 'post_type' => 'model', 'post_status' => 'draft', 'post_title' => 'Gabriela Hadid', 'post_name' => 'gabriela-hadid' ],
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = (string) ob_get_clean();
+
+        $globalPosition = strpos($html, 'Global Model Pool / All Models');
+        $modelPosition = strpos($html, 'Gabriela Hadid (ID 902, slug: gabriela-hadid)');
+        $this->assertNotFalse($globalPosition);
+        $this->assertNotFalse($modelPosition);
+        $this->assertLessThan($modelPosition, $globalPosition);
+        $this->assertStringContainsString('value="__global_model_pool__"', $html);
+    }
+
+    public function test_global_model_pool_preview_satisfies_model_target_requirement_and_shows_scope(): void {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'tmwseo_keyword_pools_run_preview' => '1',
+            'tmwseo_keyword_pool' => 'model',
+            'tmwseo_keyword_pools_nonce' => 'test_nonce',
+            'tmwseo_keyword_pools_target_id' => '__global_model_pool__',
+            'tmwseo_keyword_pools_csv_text' => "keyword,volume
+all cam models live,100
+",
+        ];
+
+        ob_start();
+        KeywordPoolsAdminPage::render_page();
+        $html = (string) ob_get_clean();
+
+        $this->assertStringContainsString('Target: Global Model Pool / All Models. Scope: global_model_pool.', $html);
+        $this->assertStringContainsString('global_model_pool', $html);
+        $this->assertStringNotContainsString('Target Model or Global Model Pool / All Models is required before saving model keywords.', $html);
+    }
+
     public function test_target_provider_uses_uncapped_post_query_for_v1(): void {
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pool-target-provider.php');
         $this->assertIsString($source);
@@ -154,7 +195,7 @@ class KeywordPoolsAdminPageTest extends TestCase {
     public function test_preview_without_model_target_warns_but_renders_preview(): void {
         $html = $this->renderPreviewForPool('model', "keyword,volume\nabigail murray cam model,100\n");
 
-        $this->assertStringContainsString('Target Model is required before saving model keywords.', $html);
+        $this->assertStringContainsString('Target Model or Global Model Pool / All Models is required before saving model keywords.', $html);
         $this->assertStringContainsString('Preview Rows', $html);
     }
 
@@ -221,7 +262,7 @@ class KeywordPoolsAdminPageTest extends TestCase {
         KeywordPoolsAdminPage::render_page();
         $html = (string) ob_get_clean();
 
-        $this->assertStringContainsString('Target Model is required before saving model keywords.', $html);
+        $this->assertStringContainsString('Target Model or Global Model Pool / All Models is required before saving model keywords.', $html);
         $this->assertStringNotContainsString('Import Result', $html);
     }
 
