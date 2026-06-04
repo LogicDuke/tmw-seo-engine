@@ -10,6 +10,7 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Model\VerifiedLinks;
 use TMWSEO\Engine\Model\VerifiedLinksFamilies;
+use TMWSEO\Engine\Model\ModelBodySafety;
 use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
@@ -49,6 +50,7 @@ class TemplateContent {
 
         $resolved_destinations = ModelDestinationResolver::resolve((int) $post->ID);
         $cta_links = (array) ($resolved_destinations['watch_cta_destinations'] ?? []);
+        $verified_destination_rows = (array) ($resolved_destinations['all_verified_destinations'] ?? []);
         $active_platforms = array_values(array_filter(array_map('strval', (array)($resolved_destinations['active_platform_labels'] ?? [])), 'strlen'));
         $primary_platform_label = '';
         foreach ($cta_links as $row) {
@@ -75,18 +77,22 @@ class TemplateContent {
 
         $extra = is_array($pack['additional'] ?? null) ? $pack['additional'] : [];
         $extra = self::filter_name_free_keywords($extra, $name);
+        $extra = ModelBodySafety::filter_body_phrases($extra, $name, $verified_destination_rows);
         $extra = array_values(array_unique(array_merge(
             $extra,
             self::default_model_additional_keywords($primary_platform_label, $active_platforms)
         )));
+        $extra = ModelBodySafety::filter_body_phrases($extra, $name, $verified_destination_rows);
         $extra = array_slice($extra, 0, 5);
 
         $longtail = is_array($pack['longtail'] ?? null) ? $pack['longtail'] : [];
         $longtail = self::filter_name_free_keywords($longtail, $name);
+        $longtail = ModelBodySafety::filter_body_phrases($longtail, $name, $verified_destination_rows);
         $longtail = array_values(array_unique(array_merge(
             $longtail,
             self::default_model_longtail_keywords($primary_platform_label, $active_platforms)
         )));
+        $longtail = ModelBodySafety::filter_body_phrases($longtail, $name, $verified_destination_rows);
         $longtail = array_slice($longtail, 0, 8);
 
         // Single source of truth for Rank Math chips and the on-page keyword
@@ -95,9 +101,7 @@ class TemplateContent {
         // for non-model pages and legacy packs that do not carry the key.
         // Rank Math receives one focus keyword plus four secondary chips.
         // Keep the visible secondary-keyword pool aligned with that limit.
-        $rankmath_keywords = !empty($pack['rankmath_additional'])
-            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
-            : array_slice($extra, 0, 4);
+        $rankmath_keywords = self::select_body_safe_rankmath_keywords($pack, $extra, $name, $verified_destination_rows);
 
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
         $secondary_heading_phrases = self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra);
@@ -808,6 +812,24 @@ class TemplateContent {
         }
 
         return self::estimate_rankmath_word_count(implode("\n", $parts));
+    }
+
+    /**
+     * @param array<string,mixed> $pack
+     * @param string[] $extra
+     * @param array<int,array<string,mixed>> $verified_destination_rows
+     * @return string[]
+     */
+    private static function select_body_safe_rankmath_keywords(array $pack, array $extra, string $name, array $verified_destination_rows): array {
+        $rankmath_source = !empty($pack['rankmath_additional'])
+            ? (array) $pack['rankmath_additional']
+            : $extra;
+
+        return array_slice(
+            ModelBodySafety::filter_body_phrases($rankmath_source, $name, $verified_destination_rows),
+            0,
+            4
+        );
     }
 
     /**
@@ -4060,6 +4082,7 @@ class TemplateContent {
 
         // Remove doubled words/phrases at word boundaries (e.g. "the the", "platform platform").
         $content = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $content) ?: $content;
+        $content = ModelBodySafety::clean_body_text($content);
 
         $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
 

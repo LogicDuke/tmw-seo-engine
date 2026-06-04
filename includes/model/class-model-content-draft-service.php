@@ -19,7 +19,7 @@
 
 namespace TMWSEO\Engine\Model;
 
-use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Services\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -213,12 +213,49 @@ class ModelContentDraftService {
 
     /** @return array<int,array<string,mixed>> */
     private static function collect_platform_profiles( int $post_id ): array {
-        if ( ! class_exists( '\\TMWSEO\\Engine\\Platform\\PlatformProfiles' ) ) {
+        if ( ! class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) ) {
             return [];
         }
 
-        $links = PlatformProfiles::get_links( $post_id );
-        return is_array( $links ) ? $links : [];
+        $rows = VerifiedLinks::get_links( $post_id );
+        if ( ! is_array( $rows ) ) {
+            return [];
+        }
+
+        $out = [];
+        foreach ( $rows as $row ) {
+            if ( ! is_array( $row ) || ! ModelBodySafety::verified_link_is_live_eligible( $row ) ) {
+                continue;
+            }
+            $platform = sanitize_key( (string) ( $row['type'] ?? '' ) );
+            $url = trim( (string) ( $row['url'] ?? '' ) );
+            if ( $platform === '' || ! self::is_valid_http_url( $url ) ) {
+                continue;
+            }
+            $is_active = array_key_exists( 'is_active', $row ) ? ModelBodySafety::truthy_active( $row['is_active'] ) : false;
+            $activity_level = ModelBodySafety::normalize_activity_level( $row['activity_level'] ?? '', $is_active );
+            $label = class_exists( PlatformRegistry::class )
+                ? (string) ( PlatformRegistry::get( $platform )['name'] ?? ucfirst( $platform ) )
+                : ucfirst( $platform );
+            $out[] = [
+                'platform' => $platform,
+                'label' => $label,
+                'profile_url' => $url,
+                'is_primary' => ! empty( $row['is_primary'] ),
+                'activity_level' => $activity_level,
+                'source' => 'verified_links',
+            ];
+        }
+
+        return $out;
+    }
+
+    private static function is_valid_http_url( string $url ): bool {
+        if ( ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+            return false;
+        }
+        $scheme = strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) );
+        return in_array( $scheme, [ 'http', 'https' ], true );
     }
 
     /** @return array<string,string> */
