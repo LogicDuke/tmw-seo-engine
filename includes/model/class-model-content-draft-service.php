@@ -19,7 +19,7 @@
 
 namespace TMWSEO\Engine\Model;
 
-use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Platform\PlatformRegistry;
 use TMWSEO\Engine\Services\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -213,12 +213,39 @@ class ModelContentDraftService {
 
     /** @return array<int,array<string,mixed>> */
     private static function collect_platform_profiles( int $post_id ): array {
-        if ( ! class_exists( '\\TMWSEO\\Engine\\Platform\\PlatformProfiles' ) ) {
+        if ( ! class_exists( '\TMWSEO\Engine\Model\VerifiedLinks' ) ) {
             return [];
         }
 
-        $links = PlatformProfiles::get_links( $post_id );
-        return is_array( $links ) ? $links : [];
+        $rows = VerifiedLinks::get_links( $post_id );
+        if ( ! is_array( $rows ) ) {
+            return [];
+        }
+
+        $out = [];
+        foreach ( $rows as $row ) {
+            if ( ! is_array( $row ) || ! ModelBodySafety::verified_link_is_live_eligible( $row ) ) {
+                continue;
+            }
+            $platform = sanitize_key( (string) ( $row['type'] ?? '' ) );
+            $url = trim( (string) ( $row['url'] ?? '' ) );
+            if ( $platform === '' || $url === '' ) {
+                continue;
+            }
+            $label = class_exists( PlatformRegistry::class )
+                ? (string) ( PlatformRegistry::get( $platform )['name'] ?? ucfirst( $platform ) )
+                : ucfirst( $platform );
+            $out[] = [
+                'platform' => $platform,
+                'label' => $label,
+                'profile_url' => $url,
+                'is_primary' => ! empty( $row['is_primary'] ),
+                'activity_level' => (string) ( $row['activity_level'] ?? '' ),
+                'source' => 'verified_links',
+            ];
+        }
+
+        return $out;
     }
 
     /** @return array<string,string> */

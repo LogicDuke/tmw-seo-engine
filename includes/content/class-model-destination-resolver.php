@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Content;
 use TMWSEO\Engine\Logs;
 use TMWSEO\Engine\Model\VerifiedLinks;
 use TMWSEO\Engine\Model\VerifiedLinksFamilies;
+use TMWSEO\Engine\Model\ModelBodySafety;
 use TMWSEO\Engine\Platform\AffiliateLinkBuilder;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Platform\PlatformRegistry;
@@ -63,9 +64,9 @@ class ModelDestinationResolver {
                 $label = (string)($labels[$type] ?? ucfirst(str_replace('_', ' ', $type)));
             }
             $activity = self::normalize_activity_state($link);
-            $is_active_legacy = !empty($link['is_active']);
+            $is_active_legacy = ModelBodySafety::truthy_active($link['is_active'] ?? true);
             $is_cta_eligible = $family === VerifiedLinksFamilies::FAMILY_CAM
-                && in_array($activity['activity_level'], ['active', 'very_active'], true);
+                && ModelBodySafety::verified_link_is_live_eligible($link);
             $entry = [
                 'type' => $type,
                 'family' => $family,
@@ -252,10 +253,8 @@ class ModelDestinationResolver {
 
     /** @return array<string,string> */
     private static function normalize_activity_state(array $link): array {
-        $level = strtolower(trim((string)($link['activity_level'] ?? '')));
-        if (!in_array($level, ['unknown', 'inactive', 'active', 'very_active'], true)) {
-            $level = !empty($link['is_active']) ? 'active' : 'inactive';
-        }
+        $is_active = ModelBodySafety::truthy_active($link['is_active'] ?? true);
+        $level = ModelBodySafety::normalize_activity_level($link['activity_level'] ?? '', $is_active);
         return [
             'activity_level' => $level,
             'activity_note' => trim((string)($link['activity_note'] ?? '')),

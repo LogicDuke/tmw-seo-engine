@@ -547,15 +547,8 @@ class ModelOptimizer {
         if (is_array($draft_payload['platforms'] ?? null)) {
             $platforms = array_values(array_filter(array_map('strval', $draft_payload['platforms'])));
         }
-        if (empty($platforms) && class_exists('\\TMWSEO\\Engine\\Platform\\PlatformProfiles')) {
-            $links = PlatformProfiles::get_links((int)$post->ID);
-            if (is_array($links)) {
-                foreach ($links as $l) {
-                    $p = (string)($l['platform'] ?? '');
-                    if ($p !== '') $platforms[] = $p;
-                }
-            }
-        }
+        // Platform mentions in generated body copy are sourced only from
+        // model-specific verified links that are live-eligible (active or very_active).
 
         // If OpenAI configured and dry-run off, try to generate.
         $dry = (int) Settings::get('tmwseo_dry_run_mode', 0);
@@ -933,7 +926,7 @@ Requirements:
             'meta_description' => sanitize_text_field((string)($json['meta_description'] ?? '')),
             'focus_keyword' => sanitize_text_field((string)($json['focus_keyword'] ?? '')),
             'extra_keywords' => is_array($json['extra_keywords'] ?? null) ? array_values(array_map('sanitize_text_field', $json['extra_keywords'])) : [],
-            'intro' => isset($json['intro']) ? self::ensure_internal_links(wp_kses_post((string)$json['intro'])) : '',
+            'intro' => isset($json['intro']) ? self::ensure_internal_links(wp_kses_post(ModelBodySafety::clean_body_text((string)$json['intro']))) : '',
         ];
 
         // Model pages always use the model name as the focus keyword.

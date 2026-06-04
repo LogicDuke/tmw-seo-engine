@@ -47,7 +47,7 @@ class ModelContentGenerationFacade {
     ];
 
     /** @var string[] Fragments that must never appear in body copy. */
-    private static array $risky_fragments = [ 'porn', 'sex', 'nude', 'xxx' ];
+    private static array $risky_fragments = [ 'porn', 'sex', 'nude', 'xxx', 'bbw cam model', 'ebony cam model' ];
 
     /** @var array<string,string> Canonical display names for known platforms. */
     private static array $platform_labels = [
@@ -109,6 +109,9 @@ class ModelContentGenerationFacade {
 
         // ── Verified external links (real URLs from context)
         $verified_links = self::coerce_link_array( $context['verified_links'] ?? [] );
+        $platform_profiles = self::filter_live_eligible_platform_profiles( $platform_profiles, $verified_links );
+        $safe_keywords = ModelBodySafety::filter_body_phrases( $safe_keywords, $name, $verified_links );
+        $platform_keywords = ModelBodySafety::filter_body_phrases( $platform_keywords, $name, $verified_links );
 
         // ── Internal link targets (real WordPress URLs from context)
         $internal_links = self::resolve_internal_links( $context['internal_links'] ?? [] );
@@ -217,7 +220,7 @@ class ModelContentGenerationFacade {
 
         $sentences[] = 'This page is for adults only (18+).';
 
-        $text = implode( ' ', $sentences );
+        $text = ModelBodySafety::clean_body_text( implode( ' ', $sentences ) );
 
         // Filler sentences (same as ModelOptimizer) to reach minimum word count
         $fillers = [
@@ -248,7 +251,7 @@ class ModelContentGenerationFacade {
             $text = implode( ' ', array_slice( $words, 0, 240 ) ) . '…';
         }
 
-        return trim( $text );
+        return ModelBodySafety::clean_body_text( trim( $text ) );
     }
 
     /**
@@ -469,8 +472,8 @@ class ModelContentGenerationFacade {
 
         foreach ( $sections as $section ) {
             $level   = in_array( (string) ( $section['level'] ?? 'h2' ), [ 'h2', 'h3' ], true ) ? $section['level'] : 'h2';
-            $heading = (string) ( $section['heading'] ?? '' );
-            $body    = (string) ( $section['body']    ?? '' );
+            $heading = ModelBodySafety::clean_body_text( (string) ( $section['heading'] ?? '' ) );
+            $body    = ModelBodySafety::clean_body_text( (string) ( $section['body']    ?? '' ) );
             $extra   = (string) ( $section['html']    ?? '' );
 
             $html .= '<' . $level . '>' . esc_html( $heading ) . '</' . $level . '>' . "\n";
@@ -487,7 +490,7 @@ class ModelContentGenerationFacade {
         $html .= '<p>Common questions about ' . esc_html( $name ) . ' are answered below.</p>' . "\n";
         foreach ( $faq as $item ) {
             $html .= '<h3>' . esc_html( (string) ( $item['question'] ?? '' ) ) . '</h3>' . "\n";
-            $html .= '<p>' . esc_html( (string) ( $item['answer'] ?? '' ) ) . '</p>' . "\n";
+            $html .= '<p>' . esc_html( ModelBodySafety::clean_body_text( (string) ( $item['answer'] ?? '' ) ) ) . '</p>' . "\n";
         }
 
         return $html;
@@ -831,6 +834,40 @@ class ModelContentGenerationFacade {
         return strtolower( $name );
     }
 
+    /**
+     * @param array<int,array<string,mixed>> $platform_profiles
+     * @param array<int,array<string,mixed>> $verified_links
+     * @return array<int,array<string,mixed>>
+     */
+    private static function filter_live_eligible_platform_profiles( array $platform_profiles, array $verified_links ): array {
+        if ( empty( $platform_profiles ) ) {
+            return [];
+        }
+
+        $eligible = [];
+        foreach ( $verified_links as $link ) {
+            if ( ! is_array( $link ) || ! ModelBodySafety::verified_link_is_live_eligible( $link ) ) {
+                continue;
+            }
+            $slug = sanitize_key( (string) ( $link['type'] ?? $link['platform'] ?? $link['platform_key'] ?? '' ) );
+            if ( $slug !== '' ) {
+                $eligible[ $slug ] = true;
+            }
+        }
+
+        if ( empty( $eligible ) ) {
+            return [];
+        }
+
+        return array_values( array_filter( $platform_profiles, static function ( $profile ) use ( $eligible ): bool {
+            if ( ! is_array( $profile ) ) {
+                return false;
+            }
+            $slug = sanitize_key( (string) ( $profile['platform'] ?? '' ) );
+            return $slug !== '' && isset( $eligible[ $slug ] );
+        } ) );
+    }
+
     private static function platform_names_from_profiles( array $platform_profiles ): array {
         $names = [];
         foreach ( $platform_profiles as $profile ) {
@@ -838,7 +875,7 @@ class ModelContentGenerationFacade {
             if ( $slug === '' ) {
                 continue;
             }
-            $names[] = self::$platform_labels[ $slug ] ?? ucfirst( $slug );
+            $names[] = trim( (string) ( $profile['label'] ?? '' ) ) !== '' ? trim( (string) ( $profile['label'] ?? '' ) ) : ( self::$platform_labels[ $slug ] ?? ucfirst( $slug ) );
         }
         return array_values( array_unique( array_filter( $names ) ) );
     }

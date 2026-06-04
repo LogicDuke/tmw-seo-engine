@@ -10,6 +10,7 @@ use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Model\VerifiedLinks;
 use TMWSEO\Engine\Model\VerifiedLinksFamilies;
+use TMWSEO\Engine\Model\ModelBodySafety;
 use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
@@ -49,6 +50,7 @@ class TemplateContent {
 
         $resolved_destinations = ModelDestinationResolver::resolve((int) $post->ID);
         $cta_links = (array) ($resolved_destinations['watch_cta_destinations'] ?? []);
+        $verified_destination_rows = (array) ($resolved_destinations['all_verified_destinations'] ?? []);
         $active_platforms = array_values(array_filter(array_map('strval', (array)($resolved_destinations['active_platform_labels'] ?? [])), 'strlen'));
         $primary_platform_label = '';
         foreach ($cta_links as $row) {
@@ -75,6 +77,7 @@ class TemplateContent {
 
         $extra = is_array($pack['additional'] ?? null) ? $pack['additional'] : [];
         $extra = self::filter_name_free_keywords($extra, $name);
+        $extra = ModelBodySafety::filter_body_phrases($extra, $name, $verified_destination_rows);
         $extra = array_values(array_unique(array_merge(
             $extra,
             self::default_model_additional_keywords($primary_platform_label, $active_platforms)
@@ -83,6 +86,7 @@ class TemplateContent {
 
         $longtail = is_array($pack['longtail'] ?? null) ? $pack['longtail'] : [];
         $longtail = self::filter_name_free_keywords($longtail, $name);
+        $longtail = ModelBodySafety::filter_body_phrases($longtail, $name, $verified_destination_rows);
         $longtail = array_values(array_unique(array_merge(
             $longtail,
             self::default_model_longtail_keywords($primary_platform_label, $active_platforms)
@@ -98,6 +102,7 @@ class TemplateContent {
         $rankmath_keywords = !empty($pack['rankmath_additional'])
             ? array_slice((array) $pack['rankmath_additional'], 0, 4)
             : array_slice($extra, 0, 4);
+        $rankmath_keywords = ModelBodySafety::filter_body_phrases($rankmath_keywords, $name, $verified_destination_rows);
 
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
         $secondary_heading_phrases = self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra);
@@ -4060,6 +4065,7 @@ class TemplateContent {
 
         // Remove doubled words/phrases at word boundaries (e.g. "the the", "platform platform").
         $content = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $content) ?: $content;
+        $content = ModelBodySafety::clean_body_text($content);
 
         $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
 

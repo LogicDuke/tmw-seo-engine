@@ -211,6 +211,7 @@ class Loader {
         // Model Copy Cleanup (v5.8.8) — deterministic final-pass text cleanup
         // wired into all 7 model-content save sites immediately after evidence.
         tmwseo_safe_require( $p . 'class-model-copy-cleanup.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-model-body-safety.php' );
         tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
         tmwseo_safe_require( $p . 'class-model-destination-resolver.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
@@ -231,6 +232,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-context-aware-provider-interface.php' );
         tmwseo_safe_require( $p . 'class-rollback.php' );
         tmwseo_safe_require( $p . 'class-model-draft-context-builder.php' );
+        tmwseo_safe_require( $p . 'class-model-body-safety.php' ); // shared active-platform/body-copy safety guards
         tmwseo_safe_require( $p . 'class-model-content-generation-facade.php' ); // 5.9.0 — preview adapter (must load before draft service)
         tmwseo_safe_require( $p . 'class-model-content-draft-service.php' );
         tmwseo_safe_require( $p . 'class-model-optimizer.php' );

@@ -1,7 +1,7 @@
 <?php
 namespace TMWSEO\Engine\Model;
 
-use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Platform\PlatformRegistry;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) { exit; }
 class ModelDraftContextBuilder {
 
     /** @var string[] */
-    private static array $unsafe_fragments = ['porn', 'sex', 'nude', 'xxx'];
+    private static array $unsafe_fragments = ['porn', 'sex', 'nude', 'xxx', 'bbw cam model', 'ebony cam model'];
 
     /**
      * Build normalized read-only model context.
@@ -29,7 +29,7 @@ class ModelDraftContextBuilder {
         $content_context = self::build_current_content_context((string) $post->post_content);
         $rank_math = self::build_rank_math_context((int) $post->ID);
         $verified_links = self::build_verified_links_context((int) $post->ID);
-        $platform_profiles = self::build_platform_profiles_context((int) $post->ID);
+        $platform_profiles = self::build_platform_profiles_context((int) $post->ID, $verified_links);
         $internal_links = self::build_internal_links_context($post);
         $opportunity = self::build_opportunity_context((int) $post->ID);
 
@@ -111,7 +111,7 @@ class ModelDraftContextBuilder {
             if (!is_array($row)) continue;
             $url = trim((string) ($row['url'] ?? ''));
             if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) continue;
-            if (array_key_exists('is_active', $row) && empty($row['is_active'])) continue;
+            $is_active = ModelBodySafety::truthy_active($row['is_active'] ?? true);
 
             $out[] = [
                 'label' => trim((string) ($row['label'] ?? '')),
@@ -120,25 +120,35 @@ class ModelDraftContextBuilder {
                 'outbound_type' => sanitize_key((string) ($row['outbound_type'] ?? '')),
                 'is_primary' => !empty($row['is_primary']),
                 'use_affiliate' => !empty($row['use_affiliate']),
+                'is_active' => $is_active,
+                'activity_level' => ModelBodySafety::normalize_activity_level($row['activity_level'] ?? '', $is_active),
             ];
         }
         return $out;
     }
 
-    private static function build_platform_profiles_context(int $post_id): array {
-        $rows = PlatformProfiles::get_links($post_id);
+    private static function build_platform_profiles_context(int $post_id, array $verified_links): array {
         $out = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) continue;
-            $profile_url = trim((string) ($row['profile_url'] ?? ''));
+        foreach ($verified_links as $row) {
+            if (!is_array($row) || !ModelBodySafety::verified_link_is_live_eligible($row)) continue;
+            $platform = sanitize_key((string) ($row['type'] ?? ''));
+            if ($platform === '') continue;
+            $profile_url = trim((string) ($row['url'] ?? ''));
             if ($profile_url === '' || !filter_var($profile_url, FILTER_VALIDATE_URL)) continue;
-
+            $label = trim((string) ($row['label'] ?? ''));
+            if ($label === '' && class_exists(PlatformRegistry::class)) {
+                $label = (string) (PlatformRegistry::get($platform)['name'] ?? '');
+            }
             $out[] = [
-                'platform' => sanitize_key((string) ($row['platform'] ?? '')),
+                'platform' => $platform,
+                'label' => $label,
                 'profile_url' => $profile_url,
-                'affiliate_url' => trim((string) ($row['affiliate_url'] ?? '')),
-                'go_url' => trim((string) ($row['go_url'] ?? '')),
+                'affiliate_url' => '',
+                'go_url' => '',
                 'is_primary' => !empty($row['is_primary']),
+                'activity_level' => (string) ($row['activity_level'] ?? ''),
+                'is_active' => true,
+                'source' => 'verified_links',
             ];
         }
         return $out;
