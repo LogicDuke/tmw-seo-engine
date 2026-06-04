@@ -1241,6 +1241,12 @@ class VerifiedLinks {
      * Add a single verified link to a model post.
      * Used by the promote handler and by tests. Returns false if the URL
      * is invalid, already present (deduped), or the limit is reached.
+     *
+     * When callers use the legacy active boolean without an explicit activity
+     * level, preserve the old promoted-active behavior by setting active rows
+     * to activity_level=active. Passive/inactive callers still fail closed as
+     * activity_level=unknown, and save normalization derives is_active from
+     * the resulting activity dropdown value.
      */
     public static function add_link(
         int    $post_id,
@@ -1253,9 +1259,7 @@ class VerifiedLinks {
         array  $extra_meta    = [],
         ?string $activity_level = null
     ): bool {
-        $activity_level = $activity_level !== null
-            ? sanitize_key( $activity_level )
-            : ( $is_active ? 'active' : 'unknown' );
+        $activity_level = self::activity_level_for_add_link( $is_active, $activity_level );
 
         $entry = self::sanitize_and_validate_entry( [
             'url'            => $url,
@@ -1310,6 +1314,24 @@ class VerifiedLinks {
         update_post_meta( $post_id, self::META_KEY, wp_json_encode( $links ) );
 
         return true;
+    }
+
+
+    /**
+     * Resolve the activity dropdown value for programmatic add_link callers.
+     *
+     * @param string|null $activity_level Explicit dropdown value, when supplied.
+     */
+    private static function activity_level_for_add_link( bool $is_active, ?string $activity_level ): string {
+        if ( $activity_level !== null ) {
+            $activity_level = sanitize_key( $activity_level );
+            if ( in_array( $activity_level, [ 'unknown', 'inactive', 'active', 'very_active' ], true ) ) {
+                return $activity_level;
+            }
+            return 'unknown';
+        }
+
+        return $is_active ? 'active' : 'unknown';
     }
 
     // ── get_links() ───────────────────────────────────────────────────────

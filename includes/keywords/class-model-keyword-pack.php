@@ -6,6 +6,7 @@ use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Model\VerifiedLinks;
+use TMWSEO\Engine\Model\ModelBodySafety;
 use TMWSEO\Engine\Admin\ModelHelper;
 
 if (!defined('ABSPATH')) { exit; }
@@ -779,6 +780,10 @@ class ModelKeywordPack {
      * @param array<string,mixed> $link
      */
     private static function verified_link_is_active_enough_for_rankmath(array $link): bool {
+        if (class_exists(ModelBodySafety::class)) {
+            return ModelBodySafety::verified_link_is_live_eligible($link);
+        }
+
         $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '');
         return in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
     }
