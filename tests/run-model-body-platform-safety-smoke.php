@@ -163,6 +163,20 @@ smoke_assert_body($cta_labels === ['LiveJasmin'], 'Resolver CTA labels should in
 $active_labels = (array) ($resolved['active_platform_labels'] ?? []);
 smoke_assert_body($active_labels === ['LiveJasmin'], 'Resolver active labels should omit inactive CamSoda');
 
+VerifiedLinks::$links[202] = [
+    ['type' => 'instagram', 'label' => 'Instagram', 'url' => 'https://instagram.com/socialactive', 'is_active' => 1, 'activity_level' => 'active'],
+    ['type' => 'personal_site', 'label' => 'Official Site', 'url' => 'https://model.example.test/', 'is_active' => 1, 'activity_level' => 'active'],
+    ['type' => 'stripchat', 'label' => 'Stripchat', 'url' => 'https://stripchat.com/camactive', 'is_active' => 1, 'activity_level' => 'very_active'],
+];
+$resolved_non_cam = ModelDestinationResolver::resolve(202);
+$summary_method = new ReflectionMethod(TemplateContent::class, 'build_link_evidence_summary');
+$summary_method->setAccessible(true);
+$non_cam_summary = $summary_method->invoke(null, $resolved_non_cam, (array) ($resolved_non_cam['watch_cta_destinations'] ?? []));
+smoke_assert_body((int) ($non_cam_summary['live_count'] ?? 0) === 1, 'active non-cam rows must not count as live profiles');
+smoke_assert_body(($non_cam_summary['live_platform_labels'] ?? []) === ['Stripchat'], 'only active CAM rows should be live platform labels');
+smoke_assert_body((int) ($non_cam_summary['social_count'] ?? 0) === 1, 'active Instagram should remain social evidence only');
+smoke_assert_body((int) ($non_cam_summary['personal_site_count'] ?? 0) === 1, 'active personal site should remain personal evidence only');
+
 
 VerifiedLinks::$links[301] = [
     ['type' => 'livejasmin', 'label' => 'Inactive LiveJasmin', 'url' => 'https://livejasmin.com/en/chat/inactive', 'is_active' => 0, 'activity_level' => 'inactive'],

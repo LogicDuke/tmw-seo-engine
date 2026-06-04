@@ -1741,6 +1741,19 @@ class TemplateContent {
      * @param array<string,mixed> $row Exact verified destination row.
      */
     private static function verified_body_live_link_is_renderable(array $row): bool {
+        $type = self::canonical_body_platform_slug($row);
+        if ($type === '') {
+            return false;
+        }
+
+        $family = sanitize_key((string) ($row['family'] ?? ''));
+        if ($family === '') {
+            $family = VerifiedLinksFamilies::family_for($type);
+        }
+        if ($family !== VerifiedLinksFamilies::FAMILY_CAM) {
+            return false;
+        }
+
         $has_http_url = false;
         foreach (['verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
             $url = trim((string) ($row[$key] ?? ''));
@@ -1750,11 +1763,6 @@ class TemplateContent {
             }
         }
         if (!$has_http_url) {
-            return false;
-        }
-
-        $type = self::canonical_body_platform_slug($row);
-        if ($type === '') {
             return false;
         }
 
