@@ -329,17 +329,22 @@ class KeywordPoolCandidateRepository {
 
     /** @param array<string,mixed> $row */
     private function target_scope_matches_existing(array $row, string $target_type, ?int $target_id): bool {
+        $incoming_is_global = 'global' === $target_type && (null === $target_id || $target_id <= 0);
         $incoming_has_target = '' !== $target_type && null !== $target_id && $target_id > 0;
         $existing_type = $this->sanitize_optional_key((string) ($row['target_type'] ?? ''));
         $existing_id_raw = $row['target_id'] ?? null;
         $existing_id = null === $existing_id_raw || '' === (string) $existing_id_raw ? null : max(0, (int) $existing_id_raw);
+        $existing_is_global = 'global' === $existing_type && (null === $existing_id || $existing_id <= 0);
         $existing_has_target = '' !== $existing_type && null !== $existing_id && $existing_id > 0;
 
+        if ($incoming_is_global || $existing_is_global) {
+            return $incoming_is_global && $existing_is_global;
+        }
         if (!$incoming_has_target) {
-            return !$existing_has_target;
+            return !$existing_has_target && '' === $existing_type;
         }
         if (!$existing_has_target) {
-            return true;
+            return '' === $existing_type;
         }
         return $existing_type === $target_type && $existing_id === $target_id;
     }

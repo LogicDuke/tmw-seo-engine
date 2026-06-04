@@ -153,6 +153,7 @@ class KeywordPoolSelectedImportService {
             }
 
             $row = $this->ensure_tmw_scored_row($row, $pool);
+            $row = $this->apply_global_model_pool_context($row, $pool, $context);
             $row = $this->apply_model_entity_resolution($row, $pool);
             $status = $this->status_for_row($row, $save_mode, $full_batch);
             $keyword = $this->repository->normalize_keyword((string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''));
@@ -274,6 +275,10 @@ class KeywordPoolSelectedImportService {
             'import_batch_id' => (string) ($batch['import_batch_id'] ?? $import_row['import_batch_id'] ?? ''),
             'imported_at' => (string) ($batch['imported_at'] ?? ''),
         ];
+
+        if ($this->is_global_model_pool_context($context)) {
+            $row = $this->apply_global_model_pool_context($row, $pool, $context);
+        }
 
         if ('category' === $pool && (int) $context['target_id'] > 0) {
             $row['entity_id'] = (int) $context['target_id'];
@@ -429,11 +434,12 @@ class KeywordPoolSelectedImportService {
 
     /** @param array<string,mixed> $row @return array<string,mixed> */
     private function candidate_from_row(array $row, string $pool, string $save_mode, ?string $status = null, array $context = []): array {
+        $is_global_model_pool = $this->is_global_model_pool_context($context);
         $candidate = [
             'keyword' => (string) ($row['normalized_keyword'] ?? $row['keyword'] ?? ''),
             'intent_type' => $pool,
             'entity_type' => $this->entity_type_for_pool($pool),
-            'entity_id' => $this->entity_id_for_pool($row, $pool),
+            'entity_id' => $is_global_model_pool ? 0 : $this->entity_id_for_pool($row, $pool),
             'status' => $status ?: $this->status_for_row($row, $save_mode, false),
             'status_change_explicit' => 'auto' !== $save_mode,
             'provenance' => $this->provenance_for_row($row, $pool, $context),
@@ -460,6 +466,9 @@ class KeywordPoolSelectedImportService {
         $entity_id = $this->entity_id_for_pool($row, 'model');
         $needs_model_entity = $has_owner && in_array($scope, [ 'model_bio_only', 'model_page_only' ], true);
 
+        if ('global_model_pool' === $scope && 'auto' === $save_mode) {
+            return 'queued_for_review';
+        }
         if ($needs_model_entity && $entity_id <= 0) {
             return 'queued_for_review';
         }
@@ -525,11 +534,12 @@ class KeywordPoolSelectedImportService {
             'model_keyword_confidence' => (string) ($row['model_keyword_confidence'] ?? ''),
             'model_keyword_reason_codes' => is_array($row['model_keyword_reason_codes'] ?? null) ? array_values($row['model_keyword_reason_codes']) : [],
             'model_keyword_recommended_action' => (string) ($row['model_keyword_recommended_action'] ?? ''),
-            'model_keyword_owner' => (string) ($row['model_keyword_owner'] ?? ''),
-            'model_keyword_usage_scope' => (string) ($row['model_keyword_usage_scope'] ?? ''),
+            'model_keyword_owner' => $this->is_global_model_pool_context($context) ? '' : (string) ($row['model_keyword_owner'] ?? ''),
+            'model_keyword_usage_scope' => $this->is_global_model_pool_context($context) ? 'global_model_pool' : (string) ($row['model_keyword_usage_scope'] ?? ''),
             'model_keyword_primary_candidate' => (string) ($row['model_keyword_primary_candidate'] ?? ''),
             'model_keyword_scope_reason_codes' => is_array($row['model_keyword_scope_reason_codes'] ?? null) ? array_values($row['model_keyword_scope_reason_codes']) : [],
-            'personal_model_keyword_csv' => 'model' === $pool && '' !== (string) ($row['model_keyword_owner'] ?? ''),
+            'personal_model_keyword_csv' => 'model' === $pool && !$this->is_global_model_pool_context($context) && '' !== (string) ($row['model_keyword_owner'] ?? ''),
+            'global_model_pool' => $this->is_global_model_pool_context($context),
             'model_entity_resolution' => $model_resolution,
             'model_entity_id' => (int) ($row['model_entity_id'] ?? 0),
             'model_entity_match_type' => (string) ($row['model_entity_match_type'] ?? ''),
@@ -539,7 +549,7 @@ class KeywordPoolSelectedImportService {
             'golden_missing_reasons' => is_array($row['golden_missing_reasons'] ?? null) ? array_values($row['golden_missing_reasons']) : [],
             'imported_from_keyword_pools' => true,
             'target_type' => (string) ($context['target_type'] ?? ''),
-            'target_id' => (int) ($context['target_id'] ?? 0),
+            'target_id' => $this->is_global_model_pool_context($context) ? null : (int) ($context['target_id'] ?? 0),
             'target_name' => (string) ($context['target_name'] ?? ''),
             'target_slug' => (string) ($context['target_slug'] ?? ''),
             'source_batch' => (string) ($context['source_batch'] ?? ''),
@@ -557,7 +567,36 @@ class KeywordPoolSelectedImportService {
         if (empty($context['imported_at'])) {
             $context['imported_at'] = function_exists('current_time') ? current_time('mysql') : gmdate('Y-m-d H:i:s');
         }
+        if ($this->is_global_model_pool_context($context)) {
+            $context['target_type'] = 'global';
+            $context['target_id'] = null;
+            $context['target_name'] = 'Global Model Pool';
+            $context['target_slug'] = 'global-model-pool';
+            $context['is_global_model_pool'] = true;
+        }
         return $context;
+    }
+
+    /** @param array<string,mixed> $context */
+    private function is_global_model_pool_context(array $context): bool {
+        return !empty($context['is_global_model_pool']) || ('global' === (string) ($context['target_type'] ?? '') && 'global-model-pool' === (string) ($context['target_slug'] ?? ''));
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function apply_global_model_pool_context(array $row, string $pool, array $context): array {
+        if ('model' !== $pool || !$this->is_global_model_pool_context($context)) {
+            return $row;
+        }
+        $row['model_name'] = '';
+        $row['model_keyword_owner'] = '';
+        $row['model_keyword_usage_scope'] = 'global_model_pool';
+        $row['model_keyword_primary_candidate'] = 'no';
+        $row['entity_id'] = 0;
+        $row['post_id'] = 0;
+        $scope_reasons = is_array($row['model_keyword_scope_reason_codes'] ?? null) ? array_map('strval', $row['model_keyword_scope_reason_codes']) : [];
+        $scope_reasons[] = 'global_model_pool';
+        $row['model_keyword_scope_reason_codes'] = array_values(array_unique($scope_reasons));
+        return $row;
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

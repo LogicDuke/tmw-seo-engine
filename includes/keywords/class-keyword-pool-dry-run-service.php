@@ -57,14 +57,15 @@ class KeywordPoolDryRunService {
      * @param string                  $pool Target pool: model, video, or category.
      * @return array<string, mixed>
      */
-    public function dry_run(array $parsed_rows, string $pool): array {
+    public function dry_run(array $parsed_rows, string $pool, array $context = []): array {
         $pool = strtolower(trim($pool));
         if (! in_array($pool, self::POOLS, true)) {
             $pool = 'category';
         }
 
         $rows       = isset($parsed_rows['rows']) && is_array($parsed_rows['rows']) ? $parsed_rows['rows'] : $parsed_rows;
-        $inferred_model_context = 'model' === $pool ? $this->infer_model_context_from_rows($rows) : '';
+        $is_global_model_pool = 'model' === $pool && $this->is_global_model_pool_context($context);
+        $inferred_model_context = 'model' === $pool && !$is_global_model_pool ? $this->infer_model_context_from_rows($rows) : '';
         $preview    = [];
         $seen       = [];
         $summary    = [
@@ -82,7 +83,7 @@ class KeywordPoolDryRunService {
                 continue;
             }
 
-            $preview_row = $this->build_preview_row($row, $pool, (int) $index + 2, $inferred_model_context);
+            $preview_row = $this->build_preview_row($row, $pool, (int) $index + 2, $inferred_model_context, $is_global_model_pool);
             $normalized  = $preview_row['normalized_keyword'];
 
             if ('' !== $normalized) {
@@ -136,21 +137,27 @@ class KeywordPoolDryRunService {
         ];
     }
 
+
+    /** @param array<string,mixed> $context */
+    private function is_global_model_pool_context(array $context): bool {
+        return !empty($context['is_global_model_pool']) || ('global' === (string) ($context['target_type'] ?? '') && 'global-model-pool' === (string) ($context['target_slug'] ?? ''));
+    }
+
     /**
      * Backward-friendly alias for callers that prefer run().
      *
      * @param array<int|string, mixed> $parsed_rows Parser rows or full parser result.
      * @return array<string, mixed>
      */
-    public function run(array $parsed_rows, string $pool): array {
-        return $this->dry_run($parsed_rows, $pool);
+    public function run(array $parsed_rows, string $pool, array $context = []): array {
+        return $this->dry_run($parsed_rows, $pool, $context);
     }
 
     /**
      * @param array<string, mixed> $row Parsed canonical row.
      * @return array<string, mixed>
      */
-    private function build_preview_row(array $row, string $pool, int $fallback_row_number, string $inferred_model_context = ''): array {
+    private function build_preview_row(array $row, string $pool, int $fallback_row_number, string $inferred_model_context = '', bool $is_global_model_pool = false): array {
         $keyword            = $this->clean_text($row['keyword'] ?? '');
         $explicit_model_name = $this->clean_text($row['model_name'] ?? '');
         $model_name = '' !== $explicit_model_name ? $explicit_model_name : ('model' === $pool ? $inferred_model_context : '');
@@ -224,6 +231,19 @@ class KeywordPoolDryRunService {
             }
         }
 
+        if ($is_global_model_pool) {
+            $preview['model_name'] = '';
+            $preview['model_keyword_owner'] = '';
+            $preview['model_keyword_usage_scope'] = 'global_model_pool';
+            $preview['model_keyword_primary_candidate'] = 'no';
+            $preview['model_keyword_scope_reason_codes'] = array_values(array_unique(array_merge(
+                is_array($preview['model_keyword_scope_reason_codes'] ?? null) ? array_map('strval', $preview['model_keyword_scope_reason_codes']) : [],
+                [ 'global_model_pool' ]
+            )));
+            $preview['post_id'] = 0;
+            $preview['is_global_model_pool'] = true;
+        }
+
         $preview['reason_codes']             = array_values(array_unique($reason_codes));
         $preview['priority_preview']         = $this->priority_preview($preview);
         $preview['is_golden_keyword']        = $this->is_golden_keyword($preview);
@@ -235,7 +255,20 @@ class KeywordPoolDryRunService {
         $preview['reason_summary']           = $this->summarize_reasons($preview['reason_codes']);
 
         $preview = array_merge($preview, (new KeywordPoolMetricsScorer())->score($preview, $pool));
-        return $this->append_model_keyword_strategy($preview, $pool);
+        $preview = $this->append_model_keyword_strategy($preview, $pool);
+        if ($is_global_model_pool) {
+            $preview['model_name'] = '';
+            $preview['model_keyword_owner'] = '';
+            $preview['model_keyword_usage_scope'] = 'global_model_pool';
+            $preview['model_keyword_primary_candidate'] = 'no';
+            $preview['model_keyword_scope_reason_codes'] = array_values(array_unique(array_merge(
+                is_array($preview['model_keyword_scope_reason_codes'] ?? null) ? array_map('strval', $preview['model_keyword_scope_reason_codes']) : [],
+                [ 'global_model_pool' ]
+            )));
+            $preview['post_id'] = 0;
+            $preview['is_global_model_pool'] = true;
+        }
+        return $preview;
     }
     /**
      * @param array<string, mixed> $row Preview row.
