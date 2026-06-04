@@ -705,7 +705,7 @@ class ModelKeywordPack {
     /** @return string[] */
     private static function active_platform_slugs(int $model_id): array {
         $verified = self::verified_cam_platform_records($model_id);
-        if (!empty($verified)) {
+        if ($verified !== null) {
             return self::dedupe_platform_slugs(array_map(static function(array $record): string {
                 return (string) ($record['platform'] ?? '');
             }, $verified));
@@ -726,17 +726,19 @@ class ModelKeywordPack {
         return array_values(array_unique(array_filter($out, 'strlen')));
     }
 
-    /** @return array<int,array<string,mixed>> */
-    private static function verified_cam_platform_records(int $model_id): array {
+    /** @return array<int,array<string,mixed>>|null Null means no verified-link rows exist. */
+    private static function verified_cam_platform_records(int $model_id): ?array {
         if (!class_exists(VerifiedLinks::class)) {
-            return [];
+            return null;
         }
 
         $records = [];
+        $has_verified_links = false;
         foreach (VerifiedLinks::get_links($model_id) as $link) {
             if (!is_array($link)) {
                 continue;
             }
+            $has_verified_links = true;
             $type = sanitize_key((string) ($link['type'] ?? ''));
             if (!isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type])) {
                 continue;
@@ -769,7 +771,7 @@ class ModelKeywordPack {
             $seen[$platform] = true;
             $out[] = $record;
         }
-        return $out;
+        return $has_verified_links ? $out : null;
     }
 
     /**
@@ -1495,12 +1497,13 @@ class ModelKeywordPack {
         }
 
         $verified_records = self::verified_cam_platform_records($post_id);
+        $verified_links_exist = $verified_records !== null;
         $all_cam_link_debug = self::all_verified_cam_platform_debug_records($post_id, $alias_lookup, $model_name);
         $excluded_types = self::excluded_verified_link_types_for_rankmath($post_id);
         $legacy_slugs = self::legacy_rankmath_cam_platform_slugs($post_id);
-        $source = !empty($verified_records) ? 'verified_links' : 'legacy_platform_profiles';
-        $records = $verified_records;
-        if (empty($records)) {
+        $source = $verified_links_exist ? 'verified_links' : 'legacy_platform_profiles';
+        $records = $verified_records ?? [];
+        if (!$verified_links_exist && empty($records)) {
             foreach ($platform_slugs as $slug) {
                 $slug = sanitize_key((string) $slug);
                 if ($slug !== '' && isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$slug])) {

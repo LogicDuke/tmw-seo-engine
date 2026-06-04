@@ -199,29 +199,30 @@ smoke_assert(
 echo "  PASS: saved={$savedB}\n";
 
 /* ────────────────────────────────────────────────────────────────────────
- * TEST C: Aisha Dupont — Stripchat active + Chaturbate active, LiveJasmin absent.
+ * TEST C: Aisha Dupont — Stripchat active + Chaturbate active, LiveJasmin unknown.
  *
  * Real status for this test:
  *   Stripchat   is_active=true,  activity_level='active'  → ELIGIBLE
  *   Chaturbate  is_active=true,  activity_level='active'  → ELIGIBLE
- *   LiveJasmin  not present in VerifiedLinks               → no chip
+ *   LiveJasmin  is_active=true,  activity_level='unknown' → EXCLUDED
  *
  * Expected: Aisha Dupont, Aisha Dupont Stripchat, Aisha Dupont Chaturbate,
  *           + safe live-intent chips to fill remaining slots.
- * Forbidden: LiveJasmin (not in her verified links for this test).
+ * Forbidden: LiveJasmin (present but unknown in her verified links for this test).
  * Cap: max 5 chips total.
  * ──────────────────────────────────────────────────────────────────────── */
-echo "--- Test C: Aisha Dupont (Stripchat + Chaturbate active, no LiveJasmin) ---\n";
+echo "--- Test C: Aisha Dupont (Stripchat + Chaturbate active, LiveJasmin unknown) ---\n";
 $aishaId = 91003;
 $post3 = new WP_Post([ 'ID' => $aishaId, 'post_title' => 'Aisha Dupont', 'post_type' => 'model' ]);
 $GLOBALS['_tmw_smoke_posts'][$aishaId]  = $post3;
 $GLOBALS['_tmw_smoke_titles'][$aishaId] = 'Aisha Dupont';
 
-// Stripchat and Chaturbate are active. LiveJasmin is deliberately absent so
-// we can assert it does not appear as a chip without a verified link.
+// Stripchat and Chaturbate are active. LiveJasmin is present but unknown so
+// we can assert activity_level blocks stale verified-link platform chips.
 update_post_meta($aishaId, VerifiedLinks::META_KEY, json_encode([
     [ 'type' => 'stripchat',  'url' => 'https://stripchat.com/OhhAisha',  'is_active' => true, 'activity_level' => 'active' ],
     [ 'type' => 'chaturbate', 'url' => 'https://chaturbate.com/ohhaisha', 'is_active' => true, 'activity_level' => 'active' ],
+    [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/AishaDupont', 'is_active' => true, 'activity_level' => 'unknown' ],
 ]));
 update_post_meta($aishaId, 'rank_math_focus_keyword', ''); // start clean
 
@@ -235,8 +236,8 @@ smoke_assert(strpos($savedC, 'Aisha Dupont') === 0, "Test C: primary must start 
 smoke_assert_contains($savedC, 'Stripchat',  'Test C: Stripchat chip required');
 smoke_assert_contains($savedC, 'Chaturbate', 'Test C: Chaturbate chip required');
 
-// LiveJasmin must NOT appear — it is not in the verified links for this test.
-smoke_assert_not_contains($savedC, 'LiveJasmin', 'Test C: LiveJasmin absent from verified links — must not produce a chip');
+// LiveJasmin must NOT appear — it is present but unknown in verified links.
+smoke_assert_not_contains($savedC, 'LiveJasmin', 'Test C: LiveJasmin unknown in verified links — must not produce a chip');
 
 // At least one safe live-intent chip must be present.
 smoke_assert(
@@ -401,5 +402,37 @@ smoke_assert_contains($savedG, 'Stripchat', 'Test G: Stripchat chip required des
 smoke_assert_not_contains($savedG, 'CamSoda', 'Test G: CamSoda unknown must not produce chip');
 smoke_assert_not_contains($savedG, 'Chaturbate', 'Test G: Chaturbate inactive must not produce chip');
 echo "  PASS: activity source-of-truth records correct\n";
+
+/* ────────────────────────────────────────────────────────────────────────
+ * TEST H: Verified-link presence blocks fallback when no rows are eligible.
+ * ──────────────────────────────────────────────────────────────────────── */
+echo "--- Test H: Verified links block legacy fallback when all inactive/unknown ---\n";
+$inactiveId = 91005;
+$post5 = new WP_Post([ 'ID' => $inactiveId, 'post_title' => 'Fallback Blocked', 'post_type' => 'model' ]);
+$GLOBALS['_tmw_smoke_posts'][$inactiveId]  = $post5;
+$GLOBALS['_tmw_smoke_titles'][$inactiveId] = 'Fallback Blocked';
+update_post_meta($inactiveId, '_tmwseo_platform_primary', 'camsoda');
+update_post_meta($inactiveId, VerifiedLinks::META_KEY, json_encode([
+    [ 'type' => 'camsoda',    'url' => 'https://www.camsoda.com/fallbackblocked', 'is_active' => true, 'activity_level' => 'unknown' ],
+    [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/FallbackBlocked', 'is_active' => true, 'activity_level' => 'inactive' ],
+]));
+$activeSlugsMethod = new ReflectionMethod(ModelKeywordPack::class, 'active_platform_slugs');
+$activeSlugsMethod->setAccessible(true);
+smoke_assert($activeSlugsMethod->invoke(null, $inactiveId) === [], 'Test H: verified links exist but none eligible should return no active platform slugs');
+RankMathMapper::sync_to_rank_math($inactiveId, [], true);
+$savedH = (string) get_post_meta($inactiveId, 'rank_math_focus_keyword', true);
+smoke_assert_not_contains($savedH, 'CamSoda', 'Test H: unknown verified CamSoda must block legacy primary fallback');
+smoke_assert_not_contains($savedH, 'LiveJasmin', 'Test H: inactive verified LiveJasmin must not produce a chip');
+
+$legacyFallbackId = 91006;
+$post6 = new WP_Post([ 'ID' => $legacyFallbackId, 'post_title' => 'Legacy Fallback', 'post_type' => 'model' ]);
+$GLOBALS['_tmw_smoke_posts'][$legacyFallbackId]  = $post6;
+$GLOBALS['_tmw_smoke_titles'][$legacyFallbackId] = 'Legacy Fallback';
+update_post_meta($legacyFallbackId, '_tmwseo_platform_primary', 'stripchat');
+RankMathMapper::sync_to_rank_math($legacyFallbackId, [], true);
+$savedLegacy = (string) get_post_meta($legacyFallbackId, 'rank_math_focus_keyword', true);
+smoke_assert_contains($savedLegacy, 'Stripchat', 'Test H: no verified links should still allow legacy fallback');
+echo "  PASS: verified-link empty eligibility semantics correct\n";
+
 
 echo "\nAll smoke tests passed.\n";
