@@ -6,6 +6,7 @@ use TMWSEO\Engine\Services\DataForSEO;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Platform\PlatformProfiles;
 use TMWSEO\Engine\Model\VerifiedLinks;
+use TMWSEO\Engine\Model\ModelBodySafety;
 use TMWSEO\Engine\Admin\ModelHelper;
 
 if (!defined('ABSPATH')) { exit; }
@@ -704,7 +705,7 @@ class ModelKeywordPack {
     /** @return string[] */
     private static function active_platform_slugs(int $model_id): array {
         $verified = self::verified_cam_platform_records($model_id);
-        if (!empty($verified)) {
+        if ($verified !== null) {
             return self::dedupe_platform_slugs(array_map(static function(array $record): string {
                 return (string) ($record['platform'] ?? '');
             }, $verified));
@@ -725,25 +726,27 @@ class ModelKeywordPack {
         return array_values(array_unique(array_filter($out, 'strlen')));
     }
 
-    /** @return array<int,array<string,mixed>> */
-    private static function verified_cam_platform_records(int $model_id): array {
+    /** @return array<int,array<string,mixed>>|null Null means no verified-link rows exist. */
+    private static function verified_cam_platform_records(int $model_id): ?array {
         if (!class_exists(VerifiedLinks::class)) {
-            return [];
+            return null;
         }
 
         $records = [];
+        $has_verified_links = false;
         foreach (VerifiedLinks::get_links($model_id) as $link) {
             if (!is_array($link)) {
                 continue;
             }
+            $has_verified_links = true;
             $type = sanitize_key((string) ($link['type'] ?? ''));
             if (!isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type])) {
                 continue;
             }
             $platform = self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type];
             $is_active = self::verified_link_active_checkbox_value($link);
-            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '', $is_active);
-            if (!$is_active || !in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true)) {
+            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '');
+            if (!self::verified_link_is_active_enough_for_rankmath($link)) {
                 continue;
             }
             $records[] = [
@@ -768,21 +771,23 @@ class ModelKeywordPack {
             $seen[$platform] = true;
             $out[] = $record;
         }
-        return $out;
+        return $has_verified_links ? $out : null;
     }
 
     /**
-     * Rank Math platform extras require both the operator Active checkbox and
-     * an explicit SEO-safe activity state. A checked Active box alone does not
-     * override an Inactive activity state; that keeps stale cam rooms out of
-     * focus-keyword extras while preserving the link for admin/frontend review.
+     * Rank Math platform extras use activity_level as the status source of
+     * truth. Legacy is_active values are retained for diagnostics only and must
+     * not make unknown/inactive rows eligible or block active/very_active rows.
      *
      * @param array<string,mixed> $link
      */
     private static function verified_link_is_active_enough_for_rankmath(array $link): bool {
-        $is_active = self::verified_link_active_checkbox_value($link);
-        $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '', $is_active);
-        return $is_active && in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
+        if (class_exists(ModelBodySafety::class)) {
+            return ModelBodySafety::verified_link_is_live_eligible($link);
+        }
+
+        $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '');
+        return in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
     }
 
     private static function verified_link_active_checkbox_value(array $link): bool {
@@ -806,25 +811,19 @@ class ModelKeywordPack {
         return true;
     }
 
-    private static function normalize_verified_link_activity($value, bool $is_active): string {
+    private static function normalize_verified_link_activity($value): string {
         $raw = strtolower(trim((string) $value));
         if ($raw === '') {
-            return $is_active ? 'active' : 'inactive';
+            return 'unknown';
         }
 
         $normalized = str_replace([ '-', ' ' ], '_', $raw);
         $normalized = preg_replace('/[^a-z0-9_]+/i', '_', (string) $normalized);
         $normalized = trim((string) $normalized, '_');
-        if ($normalized === 'inactive') {
-            return 'inactive';
+        if (in_array($normalized, [ 'unknown', 'inactive', 'active', 'very_active' ], true)) {
+            return $normalized;
         }
-        if ($normalized === 'very_active') {
-            return 'very_active';
-        }
-        if ($normalized === 'active') {
-            return 'active';
-        }
-        return $is_active ? 'active' : 'inactive';
+        return 'unknown';
     }
 
     /** @return string[] */
@@ -1498,12 +1497,13 @@ class ModelKeywordPack {
         }
 
         $verified_records = self::verified_cam_platform_records($post_id);
+        $verified_links_exist = $verified_records !== null;
         $all_cam_link_debug = self::all_verified_cam_platform_debug_records($post_id, $alias_lookup, $model_name);
         $excluded_types = self::excluded_verified_link_types_for_rankmath($post_id);
         $legacy_slugs = self::legacy_rankmath_cam_platform_slugs($post_id);
-        $source = !empty($verified_records) ? 'verified_links' : 'legacy_platform_profiles';
-        $records = $verified_records;
-        if (empty($records)) {
+        $source = $verified_links_exist ? 'verified_links' : 'legacy_platform_profiles';
+        $records = $verified_records ?? [];
+        if (!$verified_links_exist && empty($records)) {
             foreach ($platform_slugs as $slug) {
                 $slug = sanitize_key((string) $slug);
                 if ($slug !== '' && isset(self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$slug])) {
@@ -1698,8 +1698,8 @@ class ModelKeywordPack {
             }
             $platform = self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type];
             $is_active = self::verified_link_active_checkbox_value($link);
-            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '', $is_active);
-            $eligible = $is_active && in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
+            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '');
+            $eligible = self::verified_link_is_active_enough_for_rankmath($link);
             $profile_slug = self::extract_verified_link_profile_slug((string) ($link['url'] ?? ''), $platform);
             $slug_norm = self::normalize_alias_for_platform_compare($profile_slug);
             $matched_alias = ($slug_norm !== '' && isset($alias_lookup[$slug_norm])) ? (string) $alias_lookup[$slug_norm] : '';

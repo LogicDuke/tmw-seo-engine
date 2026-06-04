@@ -40,6 +40,7 @@ if (!function_exists('wp_strip_all_tags'))   { function wp_strip_all_tags($s)   
 if (!function_exists('sanitize_text_field')) { function sanitize_text_field($s) { return trim(strip_tags((string)$s)); } }
 if (!function_exists('wp_parse_url'))        { function wp_parse_url($url, $c=-1){ return parse_url((string)$url, $c); } }
 if (!function_exists('wp_json_encode'))      { function wp_json_encode($d,$f=0,$dep=512){ return json_encode($d,$f,$dep); } }
+if (!function_exists('esc_url_raw'))         { function esc_url_raw($url)     { return trim((string)$url); } }
 
 function get_post_meta($id, $key='', $single=false) { return $GLOBALS['_tmw_smoke_meta'][(int)$id][(string)$key] ?? ''; }
 function update_post_meta($id, $key, $value)        { $GLOBALS['_tmw_smoke_meta'][(int)$id][(string)$key] = $value; return true; }
@@ -69,6 +70,7 @@ require_once dirname(__DIR__) . '/includes/keywords/class-page-type-keyword-filt
 require_once dirname(__DIR__) . '/includes/keywords/class-model-keyword-pool-classifier.php';
 require_once dirname(__DIR__) . '/includes/keywords/class-classified-model-keyword-provider.php';
 require_once dirname(__DIR__) . '/includes/model/class-verified-links-families.php';
+require_once dirname(__DIR__) . '/includes/model/class-model-body-safety.php';
 require_once dirname(__DIR__) . '/includes/model/class-verified-links.php';
 require_once dirname(__DIR__) . '/includes/keywords/class-model-keyword-pack.php';
 require_once dirname(__DIR__) . '/includes/content/class-audit-trail.php';
@@ -76,6 +78,7 @@ require_once dirname(__DIR__) . '/includes/content/class-rank-math-mapper.php';
 
 use TMWSEO\Engine\Content\RankMathMapper;
 use TMWSEO\Engine\Model\VerifiedLinks;
+use TMWSEO\Engine\Model\ModelBodySafety;
 use TMWSEO\Engine\Keywords\ModelKeywordPack;
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -196,29 +199,30 @@ smoke_assert(
 echo "  PASS: saved={$savedB}\n";
 
 /* ────────────────────────────────────────────────────────────────────────
- * TEST C: Aisha Dupont — Stripchat active + Chaturbate active, LiveJasmin absent.
+ * TEST C: Aisha Dupont — Stripchat active + Chaturbate active, LiveJasmin unknown.
  *
  * Real status for this test:
  *   Stripchat   is_active=true,  activity_level='active'  → ELIGIBLE
  *   Chaturbate  is_active=true,  activity_level='active'  → ELIGIBLE
- *   LiveJasmin  not present in VerifiedLinks               → no chip
+ *   LiveJasmin  is_active=true,  activity_level='unknown' → EXCLUDED
  *
  * Expected: Aisha Dupont, Aisha Dupont Stripchat, Aisha Dupont Chaturbate,
  *           + safe live-intent chips to fill remaining slots.
- * Forbidden: LiveJasmin (not in her verified links for this test).
+ * Forbidden: LiveJasmin (present but unknown in her verified links for this test).
  * Cap: max 5 chips total.
  * ──────────────────────────────────────────────────────────────────────── */
-echo "--- Test C: Aisha Dupont (Stripchat + Chaturbate active, no LiveJasmin) ---\n";
+echo "--- Test C: Aisha Dupont (Stripchat + Chaturbate active, LiveJasmin unknown) ---\n";
 $aishaId = 91003;
 $post3 = new WP_Post([ 'ID' => $aishaId, 'post_title' => 'Aisha Dupont', 'post_type' => 'model' ]);
 $GLOBALS['_tmw_smoke_posts'][$aishaId]  = $post3;
 $GLOBALS['_tmw_smoke_titles'][$aishaId] = 'Aisha Dupont';
 
-// Stripchat and Chaturbate are active. LiveJasmin is deliberately absent so
-// we can assert it does not appear as a chip without a verified link.
+// Stripchat and Chaturbate are active. LiveJasmin is present but unknown so
+// we can assert activity_level blocks stale verified-link platform chips.
 update_post_meta($aishaId, VerifiedLinks::META_KEY, json_encode([
     [ 'type' => 'stripchat',  'url' => 'https://stripchat.com/OhhAisha',  'is_active' => true, 'activity_level' => 'active' ],
     [ 'type' => 'chaturbate', 'url' => 'https://chaturbate.com/ohhaisha', 'is_active' => true, 'activity_level' => 'active' ],
+    [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/AishaDupont', 'is_active' => true, 'activity_level' => 'unknown' ],
 ]));
 update_post_meta($aishaId, 'rank_math_focus_keyword', ''); // start clean
 
@@ -232,8 +236,8 @@ smoke_assert(strpos($savedC, 'Aisha Dupont') === 0, "Test C: primary must start 
 smoke_assert_contains($savedC, 'Stripchat',  'Test C: Stripchat chip required');
 smoke_assert_contains($savedC, 'Chaturbate', 'Test C: Chaturbate chip required');
 
-// LiveJasmin must NOT appear — it is not in the verified links for this test.
-smoke_assert_not_contains($savedC, 'LiveJasmin', 'Test C: LiveJasmin absent from verified links — must not produce a chip');
+// LiveJasmin must NOT appear — it is present but unknown in verified links.
+smoke_assert_not_contains($savedC, 'LiveJasmin', 'Test C: LiveJasmin unknown in verified links — must not produce a chip');
 
 // At least one safe live-intent chip must be present.
 smoke_assert(
@@ -337,5 +341,98 @@ foreach ([
     // We intentionally do NOT assert it here.
 }
 echo "  PASS: all expected meta keys written\n";
+
+/* ────────────────────────────────────────────────────────────────────────
+ * TEST G: Activity-level source of truth for add_link + Rank Math records.
+ * ──────────────────────────────────────────────────────────────────────── */
+echo "--- Test G: Activity source of truth for add_link and Rank Math ---\n";
+$activityId = 91004;
+$post4 = new WP_Post([ 'ID' => $activityId, 'post_title' => 'Status Gate', 'post_type' => 'model' ]);
+$GLOBALS['_tmw_smoke_posts'][$activityId]  = $post4;
+$GLOBALS['_tmw_smoke_titles'][$activityId] = 'Status Gate';
+
+smoke_assert(
+    VerifiedLinks::add_link($activityId, 'https://stripchat.com/statusgate', 'stripchat', '', true, false, 'research'),
+    'Test G: promoted active add_link call should store successfully'
+);
+$storedAdd = VerifiedLinks::get_links($activityId);
+smoke_assert(($storedAdd[0]['activity_level'] ?? '') === 'active', 'Test G: add_link(... active true ...) must default activity_level=active');
+smoke_assert(!empty($storedAdd[0]['is_active']), 'Test G: active add_link compatibility is_active should be true');
+
+smoke_assert(
+    VerifiedLinks::add_link($activityId, 'https://camsoda.com/statusgate-missing', 'camsoda', '', false, false, 'manual'),
+    'Test G: inactive/missing add_link call should store successfully'
+);
+$storedMissing = VerifiedLinks::get_links($activityId);
+smoke_assert(($storedMissing[1]['activity_level'] ?? '') === 'unknown', 'Test G: add_link(... active false ...) without activity must default activity_level=unknown');
+smoke_assert(empty($storedMissing[1]['is_active']), 'Test G: unknown add_link compatibility is_active should be false');
+
+update_post_meta($activityId, VerifiedLinks::META_KEY, json_encode([
+    [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/StatusGate', 'is_active' => false, 'activity_level' => 'active' ],
+    [ 'type' => 'stripchat',  'url' => 'https://stripchat.com/statusgate',             'is_active' => false, 'activity_level' => 'very_active' ],
+    [ 'type' => 'camsoda',    'url' => 'https://www.camsoda.com/statusgate',           'is_active' => true,  'activity_level' => 'unknown' ],
+    [ 'type' => 'chaturbate', 'url' => 'https://chaturbate.com/statusgate/',           'is_active' => true,  'activity_level' => 'inactive' ],
+]));
+
+$recordsMethod = new ReflectionMethod(ModelKeywordPack::class, 'verified_cam_platform_records');
+$recordsMethod->setAccessible(true);
+$records = $recordsMethod->invoke(null, $activityId);
+$platforms = array_map(static fn(array $row): string => (string) ($row['platform'] ?? ''), $records);
+smoke_assert(in_array('livejasmin', $platforms, true), 'Test G: Rank Math should include active row even when legacy is_active=0');
+smoke_assert(in_array('stripchat', $platforms, true), 'Test G: Rank Math should include very_active row even when legacy is_active=0');
+smoke_assert(!in_array('camsoda', $platforms, true), 'Test G: Rank Math should exclude unknown row even when legacy is_active=1');
+smoke_assert(!in_array('chaturbate', $platforms, true), 'Test G: Rank Math should exclude inactive row even when legacy is_active=1');
+
+$body_live_platforms = [];
+foreach (VerifiedLinks::get_links($activityId) as $link) {
+    if (is_array($link) && ModelBodySafety::verified_link_is_live_eligible($link)) {
+        $body_live_platforms[] = (string) ($link['type'] ?? '');
+    }
+}
+$body_live_platforms = array_values(array_unique($body_live_platforms));
+sort($body_live_platforms);
+$rankmath_platforms = $platforms;
+sort($rankmath_platforms);
+smoke_assert($rankmath_platforms === $body_live_platforms, 'Test G: body generation and Rank Math should agree on live platforms');
+
+RankMathMapper::sync_to_rank_math($activityId, [], true);
+$savedG = (string) get_post_meta($activityId, 'rank_math_focus_keyword', true);
+smoke_assert_contains($savedG, 'LiveJasmin', 'Test G: LiveJasmin chip required despite legacy is_active=0');
+smoke_assert_contains($savedG, 'Stripchat', 'Test G: Stripchat chip required despite legacy is_active=0');
+smoke_assert_not_contains($savedG, 'CamSoda', 'Test G: CamSoda unknown must not produce chip');
+smoke_assert_not_contains($savedG, 'Chaturbate', 'Test G: Chaturbate inactive must not produce chip');
+echo "  PASS: activity source-of-truth records correct\n";
+
+/* ────────────────────────────────────────────────────────────────────────
+ * TEST H: Verified-link presence blocks fallback when no rows are eligible.
+ * ──────────────────────────────────────────────────────────────────────── */
+echo "--- Test H: Verified links block legacy fallback when all inactive/unknown ---\n";
+$inactiveId = 91005;
+$post5 = new WP_Post([ 'ID' => $inactiveId, 'post_title' => 'Fallback Blocked', 'post_type' => 'model' ]);
+$GLOBALS['_tmw_smoke_posts'][$inactiveId]  = $post5;
+$GLOBALS['_tmw_smoke_titles'][$inactiveId] = 'Fallback Blocked';
+update_post_meta($inactiveId, '_tmwseo_platform_primary', 'camsoda');
+update_post_meta($inactiveId, VerifiedLinks::META_KEY, json_encode([
+    [ 'type' => 'camsoda',    'url' => 'https://www.camsoda.com/fallbackblocked', 'is_active' => true, 'activity_level' => 'unknown' ],
+    [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/FallbackBlocked', 'is_active' => true, 'activity_level' => 'inactive' ],
+]));
+$activeSlugsMethod = new ReflectionMethod(ModelKeywordPack::class, 'active_platform_slugs');
+$activeSlugsMethod->setAccessible(true);
+smoke_assert($activeSlugsMethod->invoke(null, $inactiveId) === [], 'Test H: verified links exist but none eligible should return no active platform slugs');
+RankMathMapper::sync_to_rank_math($inactiveId, [], true);
+$savedH = (string) get_post_meta($inactiveId, 'rank_math_focus_keyword', true);
+smoke_assert_not_contains($savedH, 'CamSoda', 'Test H: unknown verified CamSoda must block legacy primary fallback');
+smoke_assert_not_contains($savedH, 'LiveJasmin', 'Test H: inactive verified LiveJasmin must not produce a chip');
+
+$legacyFallbackId = 91006;
+$post6 = new WP_Post([ 'ID' => $legacyFallbackId, 'post_title' => 'Legacy Fallback', 'post_type' => 'model' ]);
+$GLOBALS['_tmw_smoke_posts'][$legacyFallbackId]  = $post6;
+$GLOBALS['_tmw_smoke_titles'][$legacyFallbackId] = 'Legacy Fallback';
+update_post_meta($legacyFallbackId, '_tmwseo_platform_primary', 'stripchat');
+RankMathMapper::sync_to_rank_math($legacyFallbackId, [], true);
+$savedLegacy = (string) get_post_meta($legacyFallbackId, 'rank_math_focus_keyword', true);
+smoke_assert_contains($savedLegacy, 'Stripchat', 'Test H: no verified links should still allow legacy fallback');
+echo "  PASS: verified-link empty eligibility semantics correct\n";
+
 
 echo "\nAll smoke tests passed.\n";
