@@ -1172,7 +1172,7 @@ class VerifiedLinks {
             }
             $extra_meta['outbound_type'] = $outbound_type;
 
-            $added = self::add_link( $post_id, $outbound_url, $type, '', true, false, 'research', $extra_meta );
+            $added = self::add_link( $post_id, $outbound_url, $type, '', true, false, 'research', $extra_meta, 'active' );
             if ( $added ) {
                 $promoted++;
                 Logs::info( 'verified_links', '[TMW-VL] Promoted link from research', [
@@ -1250,16 +1250,22 @@ class VerifiedLinks {
         bool   $is_active     = true,
         bool   $is_primary    = false,
         string $promoted_from = 'manual',
-        array  $extra_meta    = []
+        array  $extra_meta    = [],
+        ?string $activity_level = null
     ): bool {
+        $activity_level = $activity_level !== null
+            ? sanitize_key( $activity_level )
+            : ( $is_active ? 'active' : 'unknown' );
+
         $entry = self::sanitize_and_validate_entry( [
-            'url'          => $url,
-            'type'         => $type,
-            'label'        => $label,
-            'is_active'    => $is_active    ? '1' : '0',
-            'is_primary'   => $is_primary   ? '1' : '0',
-            'promoted_from'=> $promoted_from,
-            'added_at'     => '',
+            'url'            => $url,
+            'type'           => $type,
+            'label'          => $label,
+            'is_active'      => $is_active    ? '1' : '0',
+            'is_primary'     => $is_primary   ? '1' : '0',
+            'promoted_from'  => $promoted_from,
+            'activity_level' => $activity_level,
+            'added_at'       => '',
         ] );
         if ( $entry === false ) { return false; }
 

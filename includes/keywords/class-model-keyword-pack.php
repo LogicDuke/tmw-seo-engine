@@ -742,8 +742,8 @@ class ModelKeywordPack {
             }
             $platform = self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type];
             $is_active = self::verified_link_active_checkbox_value($link);
-            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '', $is_active);
-            if (!$is_active || !in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true)) {
+            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '');
+            if (!self::verified_link_is_active_enough_for_rankmath($link)) {
                 continue;
             }
             $records[] = [
@@ -772,17 +772,15 @@ class ModelKeywordPack {
     }
 
     /**
-     * Rank Math platform extras require both the operator Active checkbox and
-     * an explicit SEO-safe activity state. A checked Active box alone does not
-     * override an Inactive activity state; that keeps stale cam rooms out of
-     * focus-keyword extras while preserving the link for admin/frontend review.
+     * Rank Math platform extras use activity_level as the status source of
+     * truth. Legacy is_active values are retained for diagnostics only and must
+     * not make unknown/inactive rows eligible or block active/very_active rows.
      *
      * @param array<string,mixed> $link
      */
     private static function verified_link_is_active_enough_for_rankmath(array $link): bool {
-        $is_active = self::verified_link_active_checkbox_value($link);
-        $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '', $is_active);
-        return $is_active && in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
+        $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '');
+        return in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
     }
 
     private static function verified_link_active_checkbox_value(array $link): bool {
@@ -806,25 +804,19 @@ class ModelKeywordPack {
         return true;
     }
 
-    private static function normalize_verified_link_activity($value, bool $is_active): string {
+    private static function normalize_verified_link_activity($value): string {
         $raw = strtolower(trim((string) $value));
         if ($raw === '') {
-            return $is_active ? 'active' : 'inactive';
+            return 'unknown';
         }
 
         $normalized = str_replace([ '-', ' ' ], '_', $raw);
         $normalized = preg_replace('/[^a-z0-9_]+/i', '_', (string) $normalized);
         $normalized = trim((string) $normalized, '_');
-        if ($normalized === 'inactive') {
-            return 'inactive';
+        if (in_array($normalized, [ 'unknown', 'inactive', 'active', 'very_active' ], true)) {
+            return $normalized;
         }
-        if ($normalized === 'very_active') {
-            return 'very_active';
-        }
-        if ($normalized === 'active') {
-            return 'active';
-        }
-        return $is_active ? 'active' : 'inactive';
+        return 'unknown';
     }
 
     /** @return string[] */
@@ -1698,8 +1690,8 @@ class ModelKeywordPack {
             }
             $platform = self::RANKMATH_CAM_PLATFORM_ALLOWLIST[$type];
             $is_active = self::verified_link_active_checkbox_value($link);
-            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '', $is_active);
-            $eligible = $is_active && in_array($activity, self::RANKMATH_SEO_ACTIVITY_LEVELS, true);
+            $activity = self::normalize_verified_link_activity($link['activity_level'] ?? '');
+            $eligible = self::verified_link_is_active_enough_for_rankmath($link);
             $profile_slug = self::extract_verified_link_profile_slug((string) ($link['url'] ?? ''), $platform);
             $slug_norm = self::normalize_alias_for_platform_compare($profile_slug);
             $matched_alias = ($slug_norm !== '' && isset($alias_lookup[$slug_norm])) ? (string) $alias_lookup[$slug_norm] : '';
