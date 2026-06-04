@@ -46,9 +46,9 @@
  *                                  Required when use_affiliate=true; ignored otherwise.
  *   "type"             : string  — one of ALLOWED_TYPES, required.
  *   "label"            : string  — optional display override, max 80 chars.
- *   "is_active"        : bool    — default true; inactive entries excluded from output.
+ *   "is_active"        : bool    — legacy compatibility flag, derived from activity_level.
  *   "is_primary"       : bool    — at most one entry may be true.
- *   "activity_level"   : string  — optional: unknown|inactive|active|very_active
+ *   "activity_level"   : string  — required status: unknown|inactive|active|very_active
  *   "activity_note"    : string  — optional short operator note (<=140 chars)
  *   "activity_checked_at": string — optional Y-m-d audit date
  *   "activity_evidence_url": string — optional audit evidence URL
@@ -327,7 +327,6 @@ class VerifiedLinks {
             . '<col>'                       // url
             . '<col style="width:130px;">'  // label
             . '<col style="width:120px;">'  // activity level
-            . '<col style="width:56px;">'   // active
             . '<col style="width:60px;">'   // primary
             . '<col style="width:36px;">'   // remove
             . '</colgroup>';
@@ -337,14 +336,13 @@ class VerifiedLinks {
         echo '<th>'                              . esc_html__( 'URL',     'tmwseo' ) . '</th>';
         echo '<th>'                              . esc_html__( 'Label',   'tmwseo' ) . '</th>';
         echo '<th>'                              . esc_html__( 'Activity','tmwseo' ) . '</th>';
-        echo '<th class="tmwseo-vl-th-center">' . esc_html__( 'Active',  'tmwseo' ) . '</th>';
         echo '<th class="tmwseo-vl-th-center">' . esc_html__( 'Primary', 'tmwseo' ) . '</th>';
         echo '<th></th>';
         echo '</tr></thead>';
         echo '<tbody id="' . esc_attr( $tbody_id ) . '" data-family="' . esc_attr( $family_slug ) . '">';
 
         if ( empty( $rows ) ) {
-            echo '<tr class="tmwseo-vl-empty-row"><td colspan="8" class="tmwseo-vl-empty">'
+            echo '<tr class="tmwseo-vl-empty-row"><td colspan="7" class="tmwseo-vl-empty">'
                 . esc_html__( 'No links in this block yet. Click "+ Add Link" below to add one.', 'tmwseo' )
                 . '</td></tr>';
         } else {
@@ -488,9 +486,6 @@ class VerifiedLinks {
                         '<input type="text" name="tmwseo_vl[' + n + '][activity_note]" value="" style="width:100%;margin-top:4px;" placeholder="Optional note" />' +
                     '</td>' +
                     '<td style="text-align:center;">' +
-                        '<input type="checkbox" name="tmwseo_vl[' + n + '][is_active]" value="1" checked />' +
-                    '</td>' +
-                    '<td style="text-align:center;">' +
                         '<input type="checkbox" name="tmwseo_vl[' + n + '][is_primary]" value="1" class="tmwseo-vl-primary" />' +
                     '</td>' +
                     '<td style="text-align:center;">' +
@@ -504,7 +499,7 @@ class VerifiedLinks {
                 hiddenHolder.className = 'tmwseo-vl-hidden-holder';
                 hiddenHolder.setAttribute('data-parent-idx', n);
                 hiddenHolder.innerHTML =
-                    '<td colspan="8">' +
+                    '<td colspan="7">' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][added_at]"      value="" />' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][promoted_from]" value="manual" />' +
                         '<input type="hidden" name="tmwseo_vl[' + n + '][source_url]"    value="" />' +
@@ -520,7 +515,7 @@ class VerifiedLinks {
                     ? '<select name="tmwseo_vl[' + n + '][affiliate_network]" style="font-size:11px;margin-left:4px;">' + networkSelectHtml + '</select>'
                     : '<span style="font-size:11px;color:#888;margin-left:4px;">' + configureAffHtml + '</span>';
                 affTr.innerHTML =
-                    '<td colspan="8" style="padding:4px 8px;">' +
+                    '<td colspan="7" style="padding:4px 8px;">' +
                         '<label style="font-size:11px;color:#555;cursor:pointer;">' +
                             '<input type="checkbox" name="tmwseo_vl[' + n + '][use_affiliate]" value="1" style="margin-right:4px;" />' +
                             labels.affRoute +
@@ -558,7 +553,7 @@ class VerifiedLinks {
                 if (rows.length === 0 && !emptyRow) {
                     var er = document.createElement('tr');
                     er.className = 'tmwseo-vl-empty-row';
-                    er.innerHTML = '<td colspan="8" class="tmwseo-vl-empty">' + labels.empty + '</td>';
+                    er.innerHTML = '<td colspan="7" class="tmwseo-vl-empty">' + labels.empty + '</td>';
                     tbody.appendChild(er);
                 } else if (rows.length > 0 && emptyRow) {
                     emptyRow.parentNode.removeChild(emptyRow);
@@ -691,7 +686,6 @@ class VerifiedLinks {
         $url               = (string) ( $entry['url']               ?? '' );
         $type              = (string) ( $entry['type']              ?? '' );
         $label             = (string) ( $entry['label']             ?? '' );
-        $is_active         = ! empty( $entry['is_active'] );
         $is_primary        = ! empty( $entry['is_primary'] );
         $added_at          = (string) ( $entry['added_at']          ?? '' );
         $prom_from         = (string) ( $entry['promoted_from']     ?? 'manual' );
@@ -699,9 +693,9 @@ class VerifiedLinks {
         $outbound_type     = (string) ( $entry['outbound_type']     ?? '' );
         $use_affiliate     = ! empty( $entry['use_affiliate'] );
         $affiliate_network = (string) ( $entry['affiliate_network'] ?? '' );
-        $activity_level    = (string) ( $entry['activity_level'] ?? ( $is_active ? 'active' : 'inactive' ) );
+        $activity_level    = sanitize_key( (string) ( $entry['activity_level'] ?? 'unknown' ) );
         if ( ! in_array( $activity_level, [ 'unknown', 'inactive', 'active', 'very_active' ], true ) ) {
-            $activity_level = $is_active ? 'active' : 'inactive';
+            $activity_level = 'unknown';
         }
         $activity_note      = (string) ( $entry['activity_note'] ?? '' );
         $activity_checked_at = (string) ( $entry['activity_checked_at'] ?? '' );
@@ -788,12 +782,6 @@ class VerifiedLinks {
             . ' placeholder="' . esc_attr__( 'Optional note', 'tmwseo' ) . '" />';
         echo '</td>';
 
-        // Active
-        echo '<td style="text-align:center;">';
-        echo '<input type="checkbox" name="tmwseo_vl[' . (int) $n . '][is_active]"'
-            . ' value="1"' . checked( $is_active, true, false ) . ' />';
-        echo '</td>';
-
         // Primary
         echo '<td style="text-align:center;">';
         echo '<input type="checkbox" name="tmwseo_vl[' . (int) $n . '][is_primary]"'
@@ -811,7 +799,7 @@ class VerifiedLinks {
         // Hidden audit-trail fields in a hidden sibling row so the table
         // continues to lay out correctly.
         echo '<tr class="tmwseo-vl-hidden-holder" data-parent-idx="' . (int) $n . '" style="display:none;">';
-        echo '<td colspan="8">';
+        echo '<td colspan="7">';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][added_at]"      value="' . esc_attr( $added_at ) . '" />';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][promoted_from]" value="' . esc_attr( $prom_from ) . '" />';
         echo '<input type="hidden" name="tmwseo_vl[' . (int) $n . '][source_url]"    value="' . esc_attr( $source_url ) . '" />';
@@ -822,7 +810,7 @@ class VerifiedLinks {
 
         // Affiliate routing — sub-row directly below the main entry row.
         echo '<tr class="tmwseo-vl-aff-row" data-parent-idx="' . (int) $n . '">';
-        echo '<td colspan="8" style="padding:4px 8px;">';
+        echo '<td colspan="7" style="padding:4px 8px;">';
         echo '<label style="font-size:11px;color:#555;cursor:pointer;">';
         echo '<input type="checkbox"'
             . ' name="tmwseo_vl[' . (int) $n . '][use_affiliate]"'
@@ -1345,7 +1333,7 @@ class VerifiedLinks {
             foreach ( $decoded as $row ) {
                 if ( ! is_array( $row ) ) { continue; }
                 if ( ! isset( $row['activity_level'] ) ) {
-                    $row['activity_level'] = ! empty( $row['is_active'] ) ? 'active' : 'inactive';
+                    $row['activity_level'] = 'unknown';
                 }
                 $row['activity_note'] = substr( sanitize_text_field( (string) ( $row['activity_note'] ?? '' ) ), 0, 140 );
                 $mapped[] = $row;
@@ -1363,7 +1351,7 @@ class VerifiedLinks {
         foreach ( $legacy as $row ) {
             if ( ! is_array( $row ) ) { continue; }
             if ( ! isset( $row['activity_level'] ) ) {
-                $row['activity_level'] = ! empty( $row['is_active'] ) ? 'active' : 'inactive';
+                $row['activity_level'] = 'unknown';
             }
             $row['activity_note'] = substr( sanitize_text_field( (string) ( $row['activity_note'] ?? '' ) ), 0, 140 );
             $mapped[] = $row;
@@ -1485,7 +1473,7 @@ class VerifiedLinks {
         $links = self::get_links( $post_id );
         $urls  = [];
         foreach ( $links as $link ) {
-            if ( empty( $link['is_active'] ) ) { continue; }
+            if ( ! ModelBodySafety::verified_link_is_live_eligible( $link ) ) { continue; }
             // Intentionally reads 'url', not get_routed_url() — see doc above.
             $url = trim( (string) ( $link['url'] ?? '' ) );
             if ( $url !== '' && filter_var( $url, FILTER_VALIDATE_URL ) ) {
@@ -1558,7 +1546,7 @@ class VerifiedLinks {
 
         $items = '';
         foreach ( $links as $link ) {
-            if ( $active_only && empty( $link['is_active'] ) ) { continue; }
+            if ( $active_only && ! ModelBodySafety::verified_link_is_live_eligible( $link ) ) { continue; }
 
             // Use routed URL (affiliate if configured; outbound target otherwise).
             $url = self::get_routed_url( $link );
@@ -1719,9 +1707,7 @@ class VerifiedLinks {
         $label = substr( sanitize_text_field( (string) ( $raw['label'] ?? '' ) ), 0, 80 );
 
         // Flags
-        $raw_active  = $raw['is_active']  ?? '1';
         $raw_primary = $raw['is_primary'] ?? '0';
-        $is_active   = ( $raw_active  !== '' && $raw_active  !== '0' && $raw_active  !== false );
         $is_primary  = ( $raw_primary !== '' && $raw_primary !== '0' && $raw_primary !== false );
 
         // added_at — preserve valid Y-m-d; otherwise set today
@@ -1754,7 +1740,8 @@ class VerifiedLinks {
         $activity_level_raw = sanitize_key( (string) ( $raw['activity_level'] ?? '' ) );
         $activity_level = in_array( $activity_level_raw, [ 'unknown', 'inactive', 'active', 'very_active' ], true )
             ? $activity_level_raw
-            : ( $is_active ? 'active' : 'inactive' );
+            : 'unknown';
+        $is_active = in_array( $activity_level, [ 'active', 'very_active' ], true );
         $activity_note = substr( sanitize_text_field( (string) ( $raw['activity_note'] ?? '' ) ), 0, 140 );
         $activity_checked_at_raw = trim( (string) ( $raw['activity_checked_at'] ?? '' ) );
         $activity_checked_at = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $activity_checked_at_raw ) ? $activity_checked_at_raw : '';

@@ -6,10 +6,10 @@ if (!defined('ABSPATH')) { exit; }
 /**
  * Shared guards for generated model-body copy.
  *
- * The body generator uses the same live-platform eligibility principle as the
- * Rank Math chip guard: a model-specific verified cam link is live-eligible
- * only when its Active checkbox is truthy and activity_level is active or
- * very_active.
+ * The body generator treats activity_level as the source of truth for live
+ * platform eligibility: a model-specific verified cam link is live-eligible
+ * only when activity_level is explicitly active or very_active. Missing,
+ * unknown, inactive, or invalid activity states fail closed.
  */
 class ModelBodySafety {
 
@@ -32,9 +32,8 @@ class ModelBodySafety {
 
     /** @param array<string,mixed> $link */
     public static function verified_link_is_live_eligible(array $link): bool {
-        $is_active = array_key_exists('is_active', $link) ? self::truthy_active($link['is_active']) : false;
-        $activity = self::normalize_activity_level($link['activity_level'] ?? '', $is_active);
-        return $is_active && in_array($activity, self::LIVE_ELIGIBLE_ACTIVITY_LEVELS, true);
+        $activity = self::normalize_activity_level($link['activity_level'] ?? '', false);
+        return in_array($activity, self::LIVE_ELIGIBLE_ACTIVITY_LEVELS, true);
     }
 
     public static function normalize_activity_level($value, bool $is_active): string {

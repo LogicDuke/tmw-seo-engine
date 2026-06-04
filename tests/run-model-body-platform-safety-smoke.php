@@ -94,20 +94,25 @@ function build_body_html(int $id, string $name, array $platform_profiles, array 
 }
 
 
-smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'activity_level' => 'active']), 'missing is_active must fail closed');
+smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'activity_level' => 'active']), 'activity_level=active without is_active should pass');
 smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1]), 'missing activity_level must fail closed');
 smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'recently_live']), 'invalid activity_level must fail closed');
 smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => '']), 'empty activity_level must fail closed');
-smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'active']), 'explicit active + is_active should pass');
-smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'very_active']), 'explicit very_active + is_active should pass');
-smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 0, 'activity_level' => 'active']), 'inactive checkbox must fail closed even with active level');
+smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'unknown']), 'activity_level=unknown + old is_active=1 must fail closed');
+smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'inactive']), 'activity_level=inactive + old is_active=1 must fail closed');
+smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'active']), 'explicit active + is_active=1 should pass');
+smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'very_active']), 'explicit very_active + is_active=1 should pass');
+smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 0, 'activity_level' => 'active']), 'activity_level=active + old is_active=0 must pass');
+smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 0, 'activity_level' => 'very_active']), 'activity_level=very_active + old is_active=0 must pass');
+smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_primary' => true, 'activity_level' => 'unknown']), 'primary + activity_level=unknown must fail closed');
+smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_primary' => true, 'activity_level' => 'inactive']), 'primary + activity_level=inactive must fail closed');
 
 $anisyia = build_body_html(101, 'Anisyia', [
     ['platform' => 'livejasmin', 'label' => 'LiveJasmin', 'profile_url' => 'https://livejasmin.com/en/chat/Anisyia', 'is_primary' => true],
     ['platform' => 'camsoda', 'label' => 'CamSoda', 'profile_url' => 'https://www.camsoda.com/anisyia'],
 ], [
     ['type' => 'livejasmin', 'label' => 'LiveJasmin', 'url' => 'https://livejasmin.com/en/chat/Anisyia', 'is_active' => 1, 'activity_level' => 'very_active', 'is_primary' => true],
-    ['type' => 'camsoda', 'label' => 'CamSoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => 1, 'activity_level' => ''],
+    ['type' => 'camsoda', 'label' => 'CamSoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => 1, 'activity_level' => 'unknown'],
 ], ['Anisyia bbw cam model', 'Anisyia ebony cam model', 'private live chat'], ['Anisyia CamSoda', 'LiveJasmin profile']);
 
 smoke_body_contains($anisyia, 'LiveJasmin', 'Anisyia active platform');
@@ -122,7 +127,7 @@ $aisha = build_body_html(102, 'Aisha Dupont', [
 ], [
     ['type' => 'stripchat', 'label' => 'Stripchat', 'url' => 'https://stripchat.com/AishaDupont', 'is_active' => 1, 'activity_level' => 'very_active', 'is_primary' => true],
     ['type' => 'chaturbate', 'label' => 'Chaturbate', 'url' => 'https://chaturbate.com/aishadupont/', 'is_active' => 1, 'activity_level' => 'active'],
-    ['type' => 'livejasmin', 'label' => 'LiveJasmin', 'url' => 'https://livejasmin.com/en/chat/AishaDupont', 'is_active' => 1, 'activity_level' => ''],
+    ['type' => 'livejasmin', 'label' => 'LiveJasmin', 'url' => 'https://livejasmin.com/en/chat/AishaDupont', 'is_active' => 1, 'activity_level' => 'unknown', 'is_primary' => true],
 ], ['The verified notes point to', 'personable cam delivery'], ['Use the the links below below']);
 
 smoke_body_contains($aisha, 'Watch Live on Stripchat', 'Aisha active Stripchat');
@@ -130,6 +135,20 @@ smoke_body_contains($aisha, 'Watch Live on Chaturbate', 'Aisha active Chaturbate
 foreach (['Watch Live on LiveJasmin', 'Open the verified live destination on LiveJasmin', 'Live profiles are available on LiveJasmin', 'confirmed live profile on LiveJasmin', 'personable cam delivery', 'The verified notes point to', 'Use the the links below below', 'links below below', 'the the', 'below below', '..'] as $needle) {
     smoke_body_not_contains($aisha, $needle, 'Aisha cleanup');
 }
+
+$primary_unknown = build_body_html(105, 'Primary Unknown', [
+    ['platform' => 'livejasmin', 'label' => 'LiveJasmin', 'profile_url' => 'https://livejasmin.com/en/chat/PrimaryUnknown', 'is_primary' => true],
+], [
+    ['type' => 'livejasmin', 'label' => 'LiveJasmin', 'url' => 'https://livejasmin.com/en/chat/PrimaryUnknown', 'is_active' => 1, 'activity_level' => 'unknown', 'is_primary' => true],
+], ['private live chat'], []);
+smoke_body_not_contains($primary_unknown, 'Watch Live on LiveJasmin', 'primary unknown must not render live');
+
+$primary_inactive = build_body_html(106, 'Primary Inactive', [
+    ['platform' => 'camsoda', 'label' => 'CamSoda', 'profile_url' => 'https://www.camsoda.com/primaryinactive', 'is_primary' => true],
+], [
+    ['type' => 'camsoda', 'label' => 'CamSoda', 'url' => 'https://www.camsoda.com/primaryinactive', 'is_active' => 1, 'activity_level' => 'inactive', 'is_primary' => true],
+], ['private live chat'], []);
+smoke_body_not_contains($primary_inactive, 'Watch Live on CamSoda', 'primary inactive must not render live');
 
 $abby = build_body_html(103, 'Abby Murray', [
     ['platform' => 'livejasmin', 'label' => 'LiveJasmin', 'profile_url' => 'https://livejasmin.com/en/chat/AbbyMurray', 'is_primary' => true],
@@ -166,6 +185,7 @@ smoke_assert_body($active_labels === ['LiveJasmin'], 'Resolver active labels sho
 VerifiedLinks::$links[202] = [
     ['type' => 'instagram', 'label' => 'Instagram', 'url' => 'https://instagram.com/socialactive', 'is_active' => 1, 'activity_level' => 'active'],
     ['type' => 'personal_site', 'label' => 'Official Site', 'url' => 'https://model.example.test/', 'is_active' => 1, 'activity_level' => 'active'],
+    ['type' => 'fansly', 'label' => 'Fansly', 'url' => 'https://fansly.com/fanactive', 'is_active' => 1, 'activity_level' => 'active'],
     ['type' => 'stripchat', 'label' => 'Stripchat', 'url' => 'https://stripchat.com/camactive', 'is_active' => 1, 'activity_level' => 'very_active'],
 ];
 $resolved_non_cam = ModelDestinationResolver::resolve(202);
@@ -176,6 +196,7 @@ smoke_assert_body((int) ($non_cam_summary['live_count'] ?? 0) === 1, 'active non
 smoke_assert_body(($non_cam_summary['live_platform_labels'] ?? []) === ['Stripchat'], 'only active CAM rows should be live platform labels');
 smoke_assert_body((int) ($non_cam_summary['social_count'] ?? 0) === 1, 'active Instagram should remain social evidence only');
 smoke_assert_body((int) ($non_cam_summary['personal_site_count'] ?? 0) === 1, 'active personal site should remain personal evidence only');
+smoke_assert_body((int) ($non_cam_summary['fan_platform_count'] ?? 0) === 1, 'active fan links should remain fan evidence only');
 
 
 VerifiedLinks::$links[301] = [
