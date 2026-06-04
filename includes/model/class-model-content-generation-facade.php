@@ -849,9 +849,10 @@ class ModelContentGenerationFacade {
             if ( ! is_array( $link ) || ! ModelBodySafety::verified_link_is_live_eligible( $link ) ) {
                 continue;
             }
-            $slug = sanitize_key( (string) ( $link['type'] ?? $link['platform'] ?? $link['platform_key'] ?? '' ) );
-            if ( $slug !== '' ) {
-                $eligible[ $slug ] = true;
+            $identity = self::canonical_platform_identity( (string) ( $link['type'] ?? $link['platform'] ?? $link['platform_key'] ?? '' ) );
+            $url = self::normalize_url_for_platform_match( (string) ( $link['url'] ?? $link['profile_url'] ?? '' ) );
+            if ( $identity !== '' && $url !== '' ) {
+                $eligible[ $identity . '|' . $url ] = true;
             }
         }
 
@@ -863,9 +864,48 @@ class ModelContentGenerationFacade {
             if ( ! is_array( $profile ) ) {
                 return false;
             }
-            $slug = sanitize_key( (string) ( $profile['platform'] ?? '' ) );
-            return $slug !== '' && isset( $eligible[ $slug ] );
+            $identity = self::canonical_platform_identity( (string) ( $profile['platform'] ?? $profile['type'] ?? '' ) );
+            if ( $identity === '' ) {
+                return false;
+            }
+            foreach ( [ 'profile_url', 'url' ] as $key ) {
+                $url = self::normalize_url_for_platform_match( (string) ( $profile[ $key ] ?? '' ) );
+                if ( $url !== '' && isset( $eligible[ $identity . '|' . $url ] ) ) {
+                    return true;
+                }
+            }
+            return false;
         } ) );
+    }
+
+    private static function canonical_platform_identity( string $platform ): string {
+        $platform = sanitize_key( $platform );
+        if ( in_array( $platform, [ 'jasmin', 'livejasmin' ], true ) ) {
+            return 'livejasmin';
+        }
+        return $platform;
+    }
+
+    private static function normalize_url_for_platform_match( string $url ): string {
+        $url = trim( html_entity_decode( $url, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+        if ( $url === '' || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+            return '';
+        }
+        $scheme = strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) );
+        if ( ! in_array( $scheme, [ 'http', 'https' ], true ) ) {
+            return '';
+        }
+        $host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+        if ( $host === '' ) {
+            return '';
+        }
+        $path = (string) wp_parse_url( $url, PHP_URL_PATH );
+        $path = '/' . trim( rawurldecode( $path ), '/' );
+        if ( $path === '/' ) {
+            $path = '';
+        }
+        $query = (string) wp_parse_url( $url, PHP_URL_QUERY );
+        return $scheme . '://' . $host . $path . ( $query !== '' ? '?' . $query : '' );
     }
 
     private static function platform_names_from_profiles( array $platform_profiles ): array {

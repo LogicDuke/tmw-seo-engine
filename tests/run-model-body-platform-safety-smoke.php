@@ -54,14 +54,18 @@ if (!class_exists('TMWSEO\\Engine\\Platform\\AffiliateLinkBuilder')) {
 if (!class_exists('TMWSEO\\Engine\\Platform\\PlatformRegistry')) {
     eval('namespace TMWSEO\\Engine\\Platform; class PlatformRegistry { public static function get($platform){ $map = ["livejasmin"=>"LiveJasmin", "camsoda"=>"CamSoda", "stripchat"=>"Stripchat", "chaturbate"=>"Chaturbate"]; return ["name" => $map[$platform] ?? ucfirst((string)$platform)]; } }');
 }
-if (!class_exists('TMWSEO\\Engine\\Content\\TemplateContent')) {
-    eval('namespace TMWSEO\\Engine\\Content; class TemplateContent { public static function get_editor_seed_data($post_id){ return []; } }');
-}
+require_once TMWSEO_ENGINE_PATH . 'includes/content/class-template-content.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-draft-context-builder.php';
+require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-content-draft-service.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/content/class-model-destination-resolver.php';
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-model-content-generation-facade.php';
 
+use TMWSEO\Engine\Model\ModelBodySafety;
 use TMWSEO\Engine\Model\ModelContentGenerationFacade;
+use TMWSEO\Engine\Model\ModelContentDraftService;
+use TMWSEO\Engine\Model\ModelDraftContextBuilder;
 use TMWSEO\Engine\Content\ModelDestinationResolver;
+use TMWSEO\Engine\Content\TemplateContent;
 use TMWSEO\Engine\Model\VerifiedLinks;
 
 function make_body_post(int $id, string $name): WP_Post {
@@ -86,6 +90,12 @@ function build_body_html(int $id, string $name, array $platform_profiles, array 
     smoke_assert_body(!empty($payload['ok']), $name . ' payload should be ok');
     return (string) ($payload['html_preview'] ?? '');
 }
+
+
+smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'activity_level' => 'active']), 'missing is_active must fail closed');
+smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1]), 'missing activity_level must fail closed');
+smoke_assert_body(!ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'recently_live']), 'invalid activity_level must fail closed');
+smoke_assert_body(ModelBodySafety::verified_link_is_live_eligible(['type' => 'livejasmin', 'url' => 'https://livejasmin.com/a', 'is_active' => 1, 'activity_level' => 'active']), 'explicit active + is_active should pass');
 
 $anisyia = build_body_html(101, 'Anisyia', [
     ['platform' => 'livejasmin', 'label' => 'LiveJasmin', 'profile_url' => 'https://livejasmin.com/en/chat/Anisyia', 'is_primary' => true],
@@ -133,5 +143,60 @@ $cta_labels = array_map(static fn(array $row): string => (string) ($row['label']
 smoke_assert_body($cta_labels === ['LiveJasmin'], 'Resolver CTA labels should include only active/very_active verified cam platforms');
 $active_labels = (array) ($resolved['active_platform_labels'] ?? []);
 smoke_assert_body($active_labels === ['LiveJasmin'], 'Resolver active labels should omit inactive CamSoda');
+
+
+VerifiedLinks::$links[301] = [
+    ['type' => 'livejasmin', 'label' => 'Inactive LiveJasmin', 'url' => 'https://livejasmin.com/en/chat/inactive', 'is_active' => 0, 'activity_level' => 'inactive'],
+    ['type' => 'stripchat', 'label' => 'Missing Activity', 'url' => 'https://stripchat.com/missingactivity', 'is_active' => 1],
+    ['type' => 'chaturbate', 'label' => 'Active Chaturbate', 'url' => 'https://chaturbate.com/active/', 'is_active' => 1, 'activity_level' => 'active'],
+];
+$draft_links_method = new ReflectionMethod(ModelDraftContextBuilder::class, 'build_verified_links_context');
+$draft_links_method->setAccessible(true);
+$draft_links = $draft_links_method->invoke(null, 301);
+smoke_assert_body(count($draft_links) === 1 && ($draft_links[0]['type'] ?? '') === 'chaturbate', 'draft context should pass only live-eligible verified links');
+$draft_preview = build_body_html(301, 'Draft Filter', [
+    ['platform' => 'chaturbate', 'label' => 'Active Chaturbate', 'profile_url' => 'https://chaturbate.com/active/'],
+], $draft_links);
+smoke_body_contains($draft_preview, 'Active Chaturbate', 'active verified preview link');
+smoke_body_not_contains($draft_preview, 'Inactive LiveJasmin', 'inactive verified preview link');
+smoke_body_not_contains($draft_preview, 'Missing Activity', 'missing activity verified preview link');
+
+$alias_html = build_body_html(302, 'Alias Model', [
+    ['platform' => 'livejasmin', 'label' => 'LiveJasmin', 'profile_url' => 'https://livejasmin.com/en/chat/CorrectAlias'],
+    ['platform' => 'livejasmin', 'label' => 'LiveJasmin', 'profile_url' => 'https://livejasmin.com/en/chat/StaleAlias'],
+], [
+    ['type' => 'jasmin', 'label' => 'LiveJasmin', 'url' => 'https://livejasmin.com/en/chat/CorrectAlias', 'is_active' => 1, 'activity_level' => 'very_active'],
+]);
+smoke_body_contains($alias_html, 'CorrectAlias', 'jasmin/livejasmin alias verified URL');
+smoke_body_not_contains($alias_html, 'StaleAlias', 'jasmin/livejasmin stale URL');
+
+$rankmath_method = new ReflectionMethod(TemplateContent::class, 'select_body_safe_rankmath_keywords');
+$rankmath_method->setAccessible(true);
+$rankmath_keywords = $rankmath_method->invoke(null, [
+    'rankmath_additional' => [
+        'Anisyia CamSoda',
+        'Anisyia bbw cam model',
+        'Anisyia ebony cam model',
+        'streamate cam model',
+        'Anisyia live cam',
+        'Anisyia live webcam',
+        'Anisyia private live chat',
+        'Anisyia profile links',
+    ],
+], [], 'Anisyia', [
+    ['type' => 'camsoda', 'label' => 'CamSoda', 'url' => 'https://www.camsoda.com/anisyia', 'is_active' => 0, 'activity_level' => 'inactive'],
+]);
+smoke_assert_body($rankmath_keywords === ['Anisyia live cam', 'Anisyia live webcam', 'Anisyia private live chat', 'Anisyia profile links'], 'unsafe first-four phrases should be filtered and backfilled by later safe phrases');
+
+VerifiedLinks::$links[401] = [
+    ['type' => 'livejasmin', 'label' => 'Invalid URL', 'url' => 'javascript:alert(1)', 'is_active' => 1, 'activity_level' => 'active'],
+    ['type' => 'stripchat', 'label' => 'FTP URL', 'url' => 'ftp://stripchat.example/model', 'is_active' => 1, 'activity_level' => 'active'],
+    ['type' => 'chaturbate', 'label' => 'Valid URL', 'url' => 'https://chaturbate.com/valid/', 'is_active' => 1, 'activity_level' => 'active'],
+];
+$draft_profiles_method = new ReflectionMethod(ModelContentDraftService::class, 'collect_platform_profiles');
+$draft_profiles_method->setAccessible(true);
+$draft_profiles = $draft_profiles_method->invoke(null, 401);
+smoke_assert_body(count($draft_profiles) === 1 && ($draft_profiles[0]['platform'] ?? '') === 'chaturbate', 'invalid platform profile URLs should be skipped');
+smoke_assert_body(($draft_profiles[0]['activity_level'] ?? '') === 'active', 'emitted draft activity_level should be normalized');
 
 echo "OK: model body platform safety smoke passed\n";

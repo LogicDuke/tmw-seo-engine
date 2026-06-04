@@ -82,6 +82,7 @@ class TemplateContent {
             $extra,
             self::default_model_additional_keywords($primary_platform_label, $active_platforms)
         )));
+        $extra = ModelBodySafety::filter_body_phrases($extra, $name, $verified_destination_rows);
         $extra = array_slice($extra, 0, 5);
 
         $longtail = is_array($pack['longtail'] ?? null) ? $pack['longtail'] : [];
@@ -91,6 +92,7 @@ class TemplateContent {
             $longtail,
             self::default_model_longtail_keywords($primary_platform_label, $active_platforms)
         )));
+        $longtail = ModelBodySafety::filter_body_phrases($longtail, $name, $verified_destination_rows);
         $longtail = array_slice($longtail, 0, 8);
 
         // Single source of truth for Rank Math chips and the on-page keyword
@@ -99,10 +101,7 @@ class TemplateContent {
         // for non-model pages and legacy packs that do not carry the key.
         // Rank Math receives one focus keyword plus four secondary chips.
         // Keep the visible secondary-keyword pool aligned with that limit.
-        $rankmath_keywords = !empty($pack['rankmath_additional'])
-            ? array_slice((array) $pack['rankmath_additional'], 0, 4)
-            : array_slice($extra, 0, 4);
-        $rankmath_keywords = ModelBodySafety::filter_body_phrases($rankmath_keywords, $name, $verified_destination_rows);
+        $rankmath_keywords = self::select_body_safe_rankmath_keywords($pack, $extra, $name, $verified_destination_rows);
 
         $secondary_visible_phrases = self::select_visible_secondary_keyword_phrases($rankmath_keywords, $extra);
         $secondary_heading_phrases = self::select_heading_safe_secondary_keyword_phrases($name, $rankmath_keywords, $extra);
@@ -813,6 +812,24 @@ class TemplateContent {
         }
 
         return self::estimate_rankmath_word_count(implode("\n", $parts));
+    }
+
+    /**
+     * @param array<string,mixed> $pack
+     * @param string[] $extra
+     * @param array<int,array<string,mixed>> $verified_destination_rows
+     * @return string[]
+     */
+    private static function select_body_safe_rankmath_keywords(array $pack, array $extra, string $name, array $verified_destination_rows): array {
+        $rankmath_source = !empty($pack['rankmath_additional'])
+            ? (array) $pack['rankmath_additional']
+            : $extra;
+
+        return array_slice(
+            ModelBodySafety::filter_body_phrases($rankmath_source, $name, $verified_destination_rows),
+            0,
+            4
+        );
     }
 
     /**

@@ -229,9 +229,11 @@ class ModelContentDraftService {
             }
             $platform = sanitize_key( (string) ( $row['type'] ?? '' ) );
             $url = trim( (string) ( $row['url'] ?? '' ) );
-            if ( $platform === '' || $url === '' ) {
+            if ( $platform === '' || ! self::is_valid_http_url( $url ) ) {
                 continue;
             }
+            $is_active = array_key_exists( 'is_active', $row ) ? ModelBodySafety::truthy_active( $row['is_active'] ) : false;
+            $activity_level = ModelBodySafety::normalize_activity_level( $row['activity_level'] ?? '', $is_active );
             $label = class_exists( PlatformRegistry::class )
                 ? (string) ( PlatformRegistry::get( $platform )['name'] ?? ucfirst( $platform ) )
                 : ucfirst( $platform );
@@ -240,12 +242,20 @@ class ModelContentDraftService {
                 'label' => $label,
                 'profile_url' => $url,
                 'is_primary' => ! empty( $row['is_primary'] ),
-                'activity_level' => (string) ( $row['activity_level'] ?? '' ),
+                'activity_level' => $activity_level,
                 'source' => 'verified_links',
             ];
         }
 
         return $out;
+    }
+
+    private static function is_valid_http_url( string $url ): bool {
+        if ( ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+            return false;
+        }
+        $scheme = strtolower( (string) wp_parse_url( $url, PHP_URL_SCHEME ) );
+        return in_array( $scheme, [ 'http', 'https' ], true );
     }
 
     /** @return array<string,string> */

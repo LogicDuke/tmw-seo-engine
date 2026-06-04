@@ -111,7 +111,13 @@ class ModelDraftContextBuilder {
             if (!is_array($row)) continue;
             $url = trim((string) ($row['url'] ?? ''));
             if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) continue;
-            $is_active = ModelBodySafety::truthy_active($row['is_active'] ?? true);
+            $is_active = array_key_exists('is_active', $row) ? ModelBodySafety::truthy_active($row['is_active']) : false;
+            $activity_level = ModelBodySafety::normalize_activity_level($row['activity_level'] ?? '', $is_active);
+            $normalized_row = array_merge($row, [
+                'is_active' => $is_active,
+                'activity_level' => $activity_level,
+            ]);
+            if (!ModelBodySafety::verified_link_is_live_eligible($normalized_row)) continue;
 
             $out[] = [
                 'label' => trim((string) ($row['label'] ?? '')),
@@ -121,7 +127,7 @@ class ModelDraftContextBuilder {
                 'is_primary' => !empty($row['is_primary']),
                 'use_affiliate' => !empty($row['use_affiliate']),
                 'is_active' => $is_active,
-                'activity_level' => ModelBodySafety::normalize_activity_level($row['activity_level'] ?? '', $is_active),
+                'activity_level' => $activity_level,
             ];
         }
         return $out;
