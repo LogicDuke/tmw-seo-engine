@@ -682,8 +682,8 @@ class ModelContentGenerationFacade {
             }
 
             $link_text = $is_primary
-                ? 'Watch ' . esc_html( $name ) . ' on ' . esc_html( $label ) . ' (Primary)'
-                : 'Watch ' . esc_html( $name ) . ' on ' . esc_html( $label );
+                ? 'Watch Live on ' . esc_html( $label ) . ' (Primary)'
+                : 'Watch Live on ' . esc_html( $label );
 
             $html .= '<li><a href="' . esc_url( $href ) . '" rel="' . esc_attr( self::rel_for_platform_profile( $platform ) ) . '" target="_blank">'
                    . $link_text

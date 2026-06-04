@@ -39,6 +39,9 @@ class ModelBodySafety {
 
     public static function normalize_activity_level($value, bool $is_active): string {
         $raw = strtolower(trim((string) $value));
+        if ($raw === '') {
+            return 'unknown';
+        }
         if (!in_array($raw, ['unknown', 'inactive', 'active', 'very_active'], true)) {
             return 'unknown';
         }
