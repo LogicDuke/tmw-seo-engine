@@ -4797,10 +4797,15 @@ class TemplateContent {
             // CodeRabbit issue #2 prevention: only add TemplatePool FAQs when
             // the existing content has fewer than 2 FAQ items (weak/absent FAQ).
             // Never replace a strong existing FAQ set.
-            $existing_faq_dt    = substr_count(strtolower($content), '<dt>');
-            $existing_faq_schema = substr_count(strtolower($content), 'schema.org/question');
-            $existing_faq_class = substr_count(strtolower($content), 'faq-question');
-            $existing_faq_count = max($existing_faq_dt, $existing_faq_schema, $existing_faq_class);
+            $content_lower       = strtolower($content);
+            $existing_faq_dt     = substr_count($content_lower, '<dt>');
+            $existing_faq_schema = substr_count($content_lower, 'schema.org/question');
+            $existing_faq_class  = substr_count($content_lower, 'faq-question');
+            $existing_faq_h2     = preg_match('/<h2[^>]*>[^<]*(?:faq|frequently asked questions)[^<]*<\/h2>/i', $content) ? 2 : 0;
+            $existing_faq_h3     = preg_match('/<h2[^>]*>[^<]*(?:faq|frequently asked questions)[^<]*<\/h2>.*?<h3[^>]*>/is', $content)
+                ? substr_count($content_lower, '<h3')
+                : 0;
+            $existing_faq_count  = max($existing_faq_dt, $existing_faq_schema, $existing_faq_class, $existing_faq_h2, $existing_faq_h3);
 
             if ($existing_faq_count < 2) {
                 $pool_faqs = $pool->get_faqs((int) $post->ID, $model_data, 5);
