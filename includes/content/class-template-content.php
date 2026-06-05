@@ -5809,35 +5809,59 @@ class TemplateContent {
             $html
         ) ?: $html;
 
-        // ── Fix 2: Duplicate H2 heading removal ───────────────────────────────
-        // Detects H2 pairs sharing a 4-word prefix; removes the shorter one.
-        // The longer heading is the keyword-enriched version from
-        // enforce_keyword_heading_placement and is always kept.
+        // ── Fix 2: Duplicate H2 heading removal (offset-based) ─────────────
+        // Detects H2 pairs sharing a 4-word prefix; marks the shorter/worse
+        // one for removal. Uses byte offsets from PREG_OFFSET_CAPTURE so that
+        // only the specific duplicate occurrence is excised, never the kept one.
+        // Removals are applied right-to-left (highest offset first) so earlier
+        // offsets remain valid after each substr_replace call.
         if (preg_match_all('/<h2\b[^>]*>(.*?)<\/h2>/isu', $html, $h2m, PREG_OFFSET_CAPTURE)) {
-            $seen_prefixes = [];
-            $to_remove     = [];
+            // $h2m[0] = [[full_tag, byte_offset], ...]
+            // $h2m[1] = [[inner_text, byte_offset], ...]
+            $seen_prefixes   = []; // prefix → ['inner' => ..., 'offset' => ..., 'len' => ...]
+            $offsets_to_drop = []; // [[offset, len], ...] — sorted desc before applying
+
             foreach ($h2m[0] as $idx => $match) {
-                $full_tag = $match[0];
-                $inner    = trim(wp_strip_all_tags((string) ($h2m[1][$idx][0] ?? '')));
-                $words    = preg_split('/\s+/u', $inner, 5, PREG_SPLIT_NO_EMPTY);
-                $prefix   = mb_strtolower(implode(' ', array_slice((array) $words, 0, 4)), 'UTF-8');
+                $full_tag    = (string) $match[0];
+                $byte_offset = (int)   $match[1];
+                $tag_len     = strlen($full_tag);  // byte length, not char length
+                $inner       = trim(wp_strip_all_tags((string) ($h2m[1][$idx][0] ?? '')));
+                $words       = preg_split('/\s+/u', $inner, 5, PREG_SPLIT_NO_EMPTY);
+                $prefix      = mb_strtolower(implode(' ', array_slice((array) $words, 0, 4)), 'UTF-8');
                 if ($prefix === '') {
                     continue;
                 }
+
                 if (isset($seen_prefixes[$prefix])) {
-                    $prev_inner = $seen_prefixes[$prefix]['inner'];
-                    if (strlen($inner) >= strlen($prev_inner)) {
-                        $to_remove[] = $seen_prefixes[$prefix]['full'];
-                        $seen_prefixes[$prefix] = ['inner' => $inner, 'full' => $full_tag];
+                    $prev = $seen_prefixes[$prefix];
+                    if (strlen($inner) >= strlen($prev['inner'])) {
+                        // Current is better — drop the previously seen occurrence.
+                        $offsets_to_drop[] = [$prev['offset'], $prev['len']];
+                        $seen_prefixes[$prefix] = [
+                            'inner'  => $inner,
+                            'offset' => $byte_offset,
+                            'len'    => $tag_len,
+                        ];
                     } else {
-                        $to_remove[] = $full_tag;
+                        // Previous is better — drop current occurrence.
+                        $offsets_to_drop[] = [$byte_offset, $tag_len];
                     }
                 } else {
-                    $seen_prefixes[$prefix] = ['inner' => $inner, 'full' => $full_tag];
+                    $seen_prefixes[$prefix] = [
+                        'inner'  => $inner,
+                        'offset' => $byte_offset,
+                        'len'    => $tag_len,
+                    ];
                 }
             }
-            foreach (array_unique($to_remove) as $dup_tag) {
-                $html = str_replace($dup_tag, '', $html);
+
+            if (!empty($offsets_to_drop)) {
+                // Sort descending by offset — process from end to start so that
+                // earlier byte positions are not invalidated by each removal.
+                usort($offsets_to_drop, static fn(array $a, array $b): int => $b[0] <=> $a[0]);
+                foreach ($offsets_to_drop as [$off, $len]) {
+                    $html = substr_replace($html, '', $off, $len);
+                }
             }
         }
 
@@ -5995,11 +6019,21 @@ class TemplateContent {
             $kept_so_far, $sub_idx, true, true
         );
 
-        // Process after-evidence segment (H2 and para already accounted for).
+        // Process after-evidence segment.
         if ($has_ev_block && $seg_after !== '') {
+            // Determine whether the first <h2> and first
+            // <p> were already consumed while processing $seg_before. If the
+            // evidence block is prepended at the very start and $seg_before is
+            // empty (or has no headings/paragraphs), the first real <h2> and <p>
+            // live in $seg_after and still need protection.
+            $before_had_h2   = (bool) preg_match('/<h2\\b/iu', $seg_before);
+            $before_had_para = (bool) preg_match('/<p\\b/iu',  $seg_before);
+            // Protect in $seg_after only when NOT already seen in $seg_before.
             $seg_after = $reduce_segment(
                 $seg_after, $name_pattern, $subs, $budget,
-                $kept_so_far, $sub_idx, false, false
+                $kept_so_far, $sub_idx,
+                !$before_had_h2,   // protect first H2  if $seg_before had none
+                !$before_had_para  // protect first <p> if $seg_before had none
             );
         }
 
