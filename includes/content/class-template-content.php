@@ -203,6 +203,69 @@ class TemplateContent {
             'resolved_destinations' => $resolved_destinations,
         ]));
 
+        // v5.8.19: gate diagnostic log — fires on manual Generate only.
+        // Logs every signal the gate evaluated so we can see exactly which
+        // condition failed without guessing. WP_DEBUG-gated; manual only.
+        if (defined('WP_DEBUG') && WP_DEBUG && !empty($pack['_manual_generate'])) {
+            $gate_sigs = $model_data_gate['signals'] ?? [];
+            $missing   = [];
+            if ((int)($gate_sigs['platform_links']  ?? 0) < 1) { $missing[] = 'platform_links<1'; }
+            if ((int)($gate_sigs['active_platforms'] ?? 0) < 1) { $missing[] = 'active_platforms<1'; }
+            // specific_fact_count components
+            $sfc = min(3, (int)($gate_sigs['platform_links']  ?? 0))
+                 + min(2, (int)($gate_sigs['active_platforms'] ?? 0))
+                 + min(2, (int)($gate_sigs['tags']            ?? 0))
+                 + min(1, (int)($gate_sigs['comparison_copy'] ?? 0))
+                 + min(1, (int)($gate_sigs['faq_items']       ?? 0))
+                 + min(3, (int)($gate_sigs['editor_seed_facts'] ?? 0));
+            if ($sfc < 4) { $missing[] = 'specific_fact_count=' . $sfc . '<4'; }
+            $or_condition_ok = (int)($gate_sigs['tags'] ?? 0) >= 1
+                || (int)($gate_sigs['comparison_copy'] ?? 0) >= 1
+                || (int)($gate_sigs['active_platforms'] ?? 0) >= 2;
+            if (!$or_condition_ok) { $missing[] = 'tags=0_AND_comparison_copy=0_AND_active_platforms<2'; }
+
+            error_log(sprintf(
+                '[TMW-POOL-GATE] post_id=%d platform_links=%d active_platforms=%d tags=%d ' .
+                'comparison_copy=%d faq_items=%d editor_seed_facts=%d additional_keywords=%d ' .
+                'specific_fact_count=%d sufficient=%d reason=%s',
+                (int) $post->ID,
+                (int)($gate_sigs['platform_links']    ?? 0),
+                (int)($gate_sigs['active_platforms']  ?? 0),
+                (int)($gate_sigs['tags']              ?? 0),
+                (int)($gate_sigs['comparison_copy']   ?? 0),
+                (int)($gate_sigs['faq_items']         ?? 0),
+                (int)($gate_sigs['editor_seed_facts'] ?? 0),
+                (int)($gate_sigs['additional_keywords'] ?? 0),
+                $sfc,
+                (int)(!empty($model_data_gate['is_sufficient'])),
+                (string)($model_data_gate['reason'] ?? 'unknown')
+            ));
+
+            if (!empty($missing)) {
+                error_log(sprintf(
+                    '[TMW-POOL-GATE] missing post_id=%d keys=%s',
+                    (int) $post->ID,
+                    implode(', ', $missing)
+                ));
+            }
+
+            // Additional detail: activity_level on each verified link, so we can
+            // see whether the single Abby verified link is blocking the gate.
+            $vl_detail = [];
+            foreach ((array)($resolved_destinations['all_verified_destinations'] ?? []) as $vl_row) {
+                $vl_detail[] = ($vl_row['type'] ?? '?') . ':' .
+                               ($vl_row['activity_level'] ?? 'none') . ':' .
+                               ($vl_row['is_cta_eligible'] ? 'cta_yes' : 'cta_no');
+            }
+            if (!empty($vl_detail)) {
+                error_log(sprintf(
+                    '[TMW-POOL-GATE] verified_link_detail post_id=%d links=%s',
+                    (int) $post->ID,
+                    implode('; ', $vl_detail)
+                ));
+            }
+        }
+
         $support_payload = self::build_model_renderer_support_payload($post, array_merge($pack, [
             'name' => $name,
             'cta_links' => $cta_links,

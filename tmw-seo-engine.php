@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.8.18-platform-schema-fix — TemplatePool is now the primary content builder for manual model Generate on sufficient-data pages. Replaces legacy paragraph bags with TemplatePool section bodies while preserving all CTA/affiliate HTML blocks, ModelResearchEvidence, ModelCopyCleanup, sparse fallback, and all non-model-generate paths unchanged.
- * Version: 5.8.18-platform-schema-fix
+ * Description: Intelligence Core v5.8.19-gate-diagnostics — TemplatePool is now the primary content builder for manual model Generate on sufficient-data pages. Replaces legacy paragraph bags with TemplatePool section bodies while preserving all CTA/affiliate HTML blocks, ModelResearchEvidence, ModelCopyCleanup, sparse fallback, and all non-model-generate paths unchanged.
+ * Version: 5.8.19-gate-diagnostics
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.18-platform-schema-fix');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.19-gate-diagnostics');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');
