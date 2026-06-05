@@ -3,450 +3,477 @@
     "version": "1.0.0",
     "sections": 10,
     "variants_per_section": 8,
-    "source": "claude-compatible-template-pool-foundation"
+    "placeholders": {
+      "{{name}}": "Model display name",
+      "{{platform}}": "Primary confirmed platform",
+      "{{platform_list}}": "Comma-separated confirmed live platforms",
+      "{{platform_count}}": "Number of confirmed live platforms",
+      "{{chat_options}}": "Comma-separated private chat options",
+      "{{chat_options_count}}": "Number of private chat options",
+      "{{turn_ons}}": "Comma-separated turn-on notes from profile",
+      "{{link_count}}": "Total confirmed profile links",
+      "{{similar_1}}": "First similar model name",
+      "{{similar_2}}": "Second similar model name",
+      "{{site_name}}": "Top-Models.Webcam",
+      "{{handle}}": "Model handle on primary platform"
+    },
+    "h2_note": "Each variant includes an `h2` field for the section heading and a `body` field for the paragraph. Use h2 as the <h2> tag text and body as the paragraph below it. Both fields support placeholders.",
+    "selection_rule": "Index = post_id mod 8. Same index used consistently per page across all sections."
   },
+
   "sections": {
+
     "intro": {
-      "label": "Intro",
+      "label": "Page introduction paragraph (no H2 — appears above first H2)",
       "variants": [
         {
-          "id": "in_0",
-          "body": "{{name}} is listed here with confirmed {{platform}} access, quick profile context, and practical pointers for choosing the right live room from {{site_name}}."
+          "id": "intro_0",
+          "body": "{{name}}'s cam style is built around {{turn_ons}} and a consistent live presence on {{platform}}. Profile details and live-room availability can change by session, so recheck the confirmed room before relying on specific session notes."
         },
         {
-          "id": "in_1",
-          "body": "Use this profile as a fast starting point for {{name}}, including the current {{platform}} room, available chat options, and related model suggestions."
+          "id": "intro_1",
+          "body": "{{name}} is a live cam model active on {{platform_list}}. Her sessions are focused on {{turn_ons}}. Confirm current room status directly on the platform before spending credits, as availability changes in real time."
         },
         {
-          "id": "in_2",
-          "body": "This page keeps the essentials for {{name}} in one place: confirmed platform links, session cues, and comparable performers to check next."
+          "id": "intro_2",
+          "body": "This profile page collects confirmed live-room links, private chat options, and official social profiles for {{name}}. Live-room availability on {{platform}} changes by session — use the verified links below and recheck status before joining."
         },
         {
-          "id": "in_3",
-          "body": "Before opening a live room for {{name}}, review the verified platform details, interest notes, and similar model paths collected for easier browsing."
+          "id": "intro_3",
+          "body": "{{name}} streams live on {{platform_list}} with a style built around {{turn_ons}}. This page lists {{link_count}} confirmed profile links organized by type so you can find the right destination quickly and avoid stale or copied pages."
         },
         {
-          "id": "in_4",
-          "body": "{{name}} can be reviewed through the confirmed {{platform}} listing below, with supporting details about chat style, links, and discovery options."
+          "id": "intro_4",
+          "body": "Find confirmed live-room access, private chat options, and official profiles for {{name}} on this page. {{name}} is active on {{platform}} and her sessions typically feature {{turn_ons}}. Room availability is session-specific — always confirm before clicking through."
         },
         {
-          "id": "in_5",
-          "body": "Start here for a concise {{name}} overview that highlights the active {{platform}} presence, useful session signals, and next-step browsing choices."
+          "id": "intro_5",
+          "body": "{{name}}'s live presence spans {{platform_list}}. Her cam sessions are known for {{turn_ons}} and a direct engagement style with viewers. Profile details on this page are verified — use the confirmed links and match the handle after click-through."
         },
         {
-          "id": "in_6",
-          "body": "The {{name}} profile summary focuses on verified access, platform context, and practical cues so visitors can decide where to begin."
+          "id": "intro_6",
+          "body": "This page covers {{name}}'s confirmed cam platforms, private chat options, fan pages, and social profiles in one place. {{name}} is primarily active on {{platform}}. Check session availability directly in her room before spending credits."
         },
         {
-          "id": "in_7",
-          "body": "This {{site_name}} entry organizes {{name}} details around confirmed rooms, profile signals, and safer first-click decisions."
+          "id": "intro_7",
+          "body": "{{name}} maintains an active live cam presence on {{platform_list}} with sessions centred on {{turn_ons}}. Use the verified profile links on this page as your starting point and confirm room status on the platform before joining any session."
         }
       ]
     },
+
     "turn_ons": {
-      "label": "Turn Ons",
+      "label": "Turn Ons section",
       "variants": [
         {
           "id": "to_0",
           "h2": "Turn Ons of {{name}} on {{platform}}",
-          "body": "{{name}}'s profile notes highlight {{turn_ons}} as session interests, giving visitors a quick sense of the tone to expect before opening the live room."
+          "body": "{{name}}'s profile notes highlight {{turn_ons}} as session interests. These notes reflect what has been listed on her confirmed profiles and should be treated as session context rather than fixed personal facts — availability and preferences can shift between sessions."
         },
         {
           "id": "to_1",
-          "h2": "What {{name}} Likes During Live Sessions",
-          "body": "For {{name}}, the clearest interest signals include {{turn_ons}}, which can help match the room style with the kind of interaction a visitor is seeking."
+          "h2": "{{name}} Session Interests and Turn Ons",
+          "body": "According to her confirmed profile notes, {{name}} is drawn to {{turn_ons}} during live sessions. Keep these in mind when joining her room, but always confirm current session preferences directly rather than assuming they are fixed."
         },
         {
           "id": "to_2",
-          "h2": "{{name}} Turn Ons and Room Cues",
-          "body": "The listed turn ons for {{name}} point toward {{turn_ons}}, so it is worth checking the current room mood and profile notes before starting a chat."
+          "h2": "What Turns {{name}} On During Live Sessions",
+          "body": "Profile notes for {{name}} list {{turn_ons}} as key session interests. These details come from her confirmed platform profiles and can vary by session. Use them as a starting point when deciding on your approach in her live room."
         },
         {
           "id": "to_3",
-          "h2": "Session Interests for {{name}}",
-          "body": "{{name}} appears best matched with viewers interested in {{turn_ons}}, especially when those cues align with the active {{platform}} room description."
+          "h2": "{{name}} Live Cam Turn-On Notes",
+          "body": "{{name}}'s listed turn-ons include {{turn_ons}}. These notes are sourced from her active platform profiles and reflect her stated session preferences at the time of the last profile check. Confirm current availability in the live room before making specific requests."
         },
         {
           "id": "to_4",
-          "h2": "How {{name}} Frames Her Interests",
-          "body": "The useful profile shorthand for {{name}} is {{turn_ons}}, which gives a practical preview without replacing the latest live room details."
+          "h2": "Session Preferences: {{name}} on {{platform}}",
+          "body": "The turn-on notes for {{name}} emphasise {{turn_ons}}. These are session-context notes, not fixed personal facts. Room dynamics change with each session, so treat this information as a guide rather than a guarantee of what will be available."
         },
         {
           "id": "to_5",
-          "h2": "{{name}} Interaction Signals",
-          "body": "Visitors comparing rooms can use {{turn_ons}} as the main interaction signal for {{name}} before deciding whether {{platform}} is the best first stop."
+          "h2": "{{name}}'s Interests and Live Session Style",
+          "body": "Based on confirmed profile data, {{name}} highlights {{turn_ons}} as part of her live session style. These preferences have been noted across her active profiles on {{platform_list}}. Always check current room status and confirm requests before the session begins."
         },
         {
           "id": "to_6",
-          "h2": "Turn Ons Listed for {{name}}",
-          "body": "The turn ons attached to {{name}} emphasize {{turn_ons}}, which may be helpful when choosing between public chat, private options, or another available link."
+          "h2": "Viewer Interaction Style for {{name}}",
+          "body": "{{name}}'s profile notes point to {{turn_ons}} as the themes she engages with most in live sessions. These notes are drawn from her verified profiles and updated at each profile check. Session-specific availability should always be confirmed in the live room."
         },
         {
           "id": "to_7",
-          "h2": "{{name}} Live Chat Preferences",
-          "body": "{{name}}'s live chat preferences are summarized around {{turn_ons}}, giving a quick pre-click reference for anyone browsing from {{site_name}}."
+          "h2": "{{name}} Live Cam: Session Context and Turn Ons",
+          "body": "Turn-on notes for {{name}} reference {{turn_ons}} based on her confirmed profile data. Treat these as session context that helps you engage more effectively in her live room — not as a fixed menu of guaranteed options."
         }
       ]
     },
-    "chat_options": {
-      "label": "Chat Options",
+
+    "private_chat_options": {
+      "label": "Private Chat Options section",
       "variants": [
         {
-          "id": "co_0",
-          "h2": "Chat Options Available for {{name}}",
-          "body": "Current profile data lists {{chat_options_count}} chat options for {{name}}, including {{chat_options}}, so visitors can compare the likely room format before choosing a link."
+          "id": "pco_0",
+          "h2": "{{name}} {{platform}} Private Chat Options",
+          "body": "Private chat with {{name}} can include {{chat_options}} when those options are available in the live room. With {{chat_options_count}} listed options, there is a range of interactive requests available. Availability changes by session — confirm the current room status before expecting a specific request."
         },
         {
-          "id": "co_1",
-          "h2": "How to Chat With {{name}}",
-          "body": "The available chat options for {{name}} include {{chat_options}}, which helps separate casual browsing from more focused session choices."
+          "id": "pco_1",
+          "h2": "Private Chat with {{name}}: Available Session Requests",
+          "body": "{{name}} lists {{chat_options_count}} private chat options including {{chat_options}}. These are interactive requests that can be made when the option is active in the live room. Always confirm availability with {{name}} before the private session begins."
         },
         {
-          "id": "co_2",
-          "h2": "{{name}} Room Formats",
-          "body": "{{name}} is associated with {{chat_options_count}} room formats: {{chat_options}}. Check the live page for the latest availability before starting."
+          "id": "pco_2",
+          "h2": "{{name}} Live Cam Private Show Options",
+          "body": "When booking a private show with {{name}} on {{platform}}, available request types include {{chat_options}}. Room availability for each option changes by session. Recheck the current room before expecting any specific private chat feature to be active."
         },
         {
-          "id": "co_3",
-          "h2": "Ways to Start With {{name}}",
-          "body": "Visitors can use {{chat_options}} as a guide to the available {{name}} session paths, then confirm the final option inside the {{platform}} room."
+          "id": "pco_3",
+          "h2": "What to Request in a {{name}} Private Session",
+          "body": "{{name}}'s confirmed private chat options cover {{chat_options}}. These {{chat_options_count}} options are listed based on her active profile data. Session availability varies — use the list as a guide and confirm directly in the room before your private session starts."
         },
         {
-          "id": "co_4",
-          "h2": "{{name}} Live Chat Choices",
-          "body": "The practical chat choices for {{name}} are summarized as {{chat_options}}, with {{chat_options_count}} listed options available in the profile data."
+          "id": "pco_4",
+          "h2": "{{name}} Private Chat: Session Request Guide",
+          "body": "Private sessions with {{name}} on {{platform}} support requests including {{chat_options}}. Not all options may be active in every session. Confirm current availability before spending credits on a specific request type."
         },
         {
-          "id": "co_5",
-          "h2": "Choosing a {{name}} Chat Mode",
-          "body": "If you are deciding how to approach {{name}}, start by reviewing {{chat_options}} and then use the confirmed link to verify live availability."
+          "id": "pco_5",
+          "h2": "Interactive Options for {{name}} Private Shows",
+          "body": "{{name}} offers up to {{chat_options_count}} interactive private chat options: {{chat_options}}. These are sourced from her confirmed profiles on {{platform_list}}. As with all live cam sessions, specific option availability is confirmed in the room at the time of your session."
         },
         {
-          "id": "co_6",
-          "h2": "{{name}} Session Options",
-          "body": "{{name}} currently has {{chat_options_count}} tracked session options, led by {{chat_options}}, which can make the first-click decision more straightforward."
+          "id": "pco_6",
+          "h2": "{{name}} Cam Show: Private Request Options",
+          "body": "Based on confirmed profile notes, {{name}} accepts private chat requests including {{chat_options}} when available. With {{chat_options_count}} listed options, her private sessions offer a range of interactive experiences. Always verify current availability before starting."
         },
         {
-          "id": "co_7",
-          "h2": "Chat Paths for {{name}}",
-          "body": "The main chat paths for {{name}} are {{chat_options}}, giving visitors a practical sense of what to look for once the room opens."
+          "id": "pco_7",
+          "h2": "Private Session Features: {{name}} on {{platform}}",
+          "body": "{{name}}'s private sessions on {{platform}} can include {{chat_options}}. These options are listed from her verified profile data and cover {{chat_options_count}} request types. Session dynamics change — confirm what is active in the room before making your first request."
         }
       ]
     },
-    "platforms": {
-      "label": "Platforms",
+
+    "official_profile_access": {
+      "label": "Official Profile Access section",
       "variants": [
         {
-          "id": "pl_0",
-          "h2": "Where to Find {{name}} Online",
-          "body": "{{name}} is tracked across {{platform_count}} platform entry points, including {{platform_list}}, with {{platform}} shown as the primary room for this profile."
+          "id": "opa_0",
+          "h2": "Official Profile Access for {{name}}",
+          "body": "{{platform}} is the confirmed primary live-room option for {{name}}. Start there for live access. Additional platforms listed on this page are confirmed secondary destinations or support profiles — not all of them are live-room entry points."
         },
         {
-          "id": "pl_1",
-          "h2": "{{name}} Platform Availability",
-          "body": "The platform summary for {{name}} currently includes {{platform_list}}, giving visitors a short list to compare before opening the confirmed room."
+          "id": "opa_1",
+          "h2": "{{name}} Confirmed Live Profiles",
+          "body": "Confirmed live-room access for {{name}} is available on {{platform_list}}. Start with the primary platform for the most reliable room entry. Use secondary platforms to compare status, check handle consistency, and find the best connection for your device."
         },
         {
-          "id": "pl_2",
-          "h2": "Primary Platform for {{name}}",
-          "body": "{{platform}} is the primary platform noted for {{name}}, while {{platform_list}} provides the broader tracked platform context."
+          "id": "opa_2",
+          "h2": "How to Access {{name}}'s Live Profile",
+          "body": "The confirmed live destination for {{name}} is on {{platform}}. Use the verified link on this page to reach her room directly. Match the handle shown here against the platform URL after click-through to confirm you are on the correct official profile."
         },
         {
-          "id": "pl_3",
-          "h2": "{{name}} Live Platform List",
-          "body": "There are {{platform_count}} platform references connected to {{name}}: {{platform_list}}. Use the verified link area to choose the safest route."
+          "id": "opa_3",
+          "h2": "{{name}} Official Platform Access",
+          "body": "{{name}} maintains {{platform_count}} confirmed live cam profile(s) across {{platform_list}}. Each platform entry has been verified against public profile data. Use the live-room section below for room entry and the additional links section for fan pages, social profiles, and support channels."
         },
         {
-          "id": "pl_4",
-          "h2": "Checking {{name}} on {{platform}}",
-          "body": "For a direct start, check {{name}} on {{platform}} first, then compare any other listed options from {{platform_list}} if needed."
+          "id": "opa_4",
+          "h2": "Verified Live Room Access: {{name}}",
+          "body": "The live-room links for {{name}} on this page are verified at each profile check. {{platform}} is the primary confirmed destination. Non-live profiles — including fan pages and social media — are listed separately so live-room navigation stays accurate."
         },
         {
-          "id": "pl_5",
-          "h2": "{{name}} Platform Comparison",
-          "body": "The platform comparison for {{name}} is simple: {{platform}} is highlighted, with {{platform_list}} retained as the wider discovery set."
+          "id": "opa_5",
+          "h2": "{{name}}'s Active Cam Platforms",
+          "body": "Active live-room profiles for {{name}} are available on {{platform_list}}. Verified links for each platform are grouped in the live section below. Non-active profiles are listed separately for follow and support purposes only."
         },
         {
-          "id": "pl_6",
-          "h2": "Live Rooms for {{name}}",
-          "body": "{{name}} has {{platform_count}} tracked room sources in this profile, and the current platform list is {{platform_list}}."
+          "id": "opa_6",
+          "h2": "Where to Find {{name}}: Official Access Guide",
+          "body": "{{name}} has {{link_count}} confirmed profile links across cam platforms, personal sites, fan pages, and social media. For live-room access, start with {{platform}}. All other links on this page are verified supporting destinations, not primary room-entry points."
         },
         {
-          "id": "pl_7",
-          "h2": "Best Starting Platform for {{name}}",
-          "body": "When choosing a starting point for {{name}}, use {{platform}} as the first platform reference and keep {{platform_list}} in mind for comparison."
+          "id": "opa_7",
+          "h2": "{{name}} Live Webcam: Official Profile Entry",
+          "body": "Official live-room access for {{name}} starts on {{platform}} using the verified link below. Secondary confirmed platforms are listed alongside their activity status. Fan pages, social profiles, and link hubs are grouped separately to keep room-entry navigation clear."
         }
       ]
     },
-    "verified_links": {
-      "label": "Verified Links",
+
+    "where_to_watch": {
+      "label": "Where to Watch Live section",
       "variants": [
         {
-          "id": "vl_0",
-          "h2": "Verified Links for {{name}}",
-          "body": "This profile tracks {{link_count}} link references for {{name}}, with the goal of sending visitors toward confirmed platform rooms instead of guesswork."
+          "id": "wtw_0",
+          "h2": "Where to Watch {{name}} Live",
+          "body": "Open the confirmed live profile below. Use the verified {{platform}} link as your primary access point. Additional links on this page are for profile checks, updates, fan pages, and support channels — they are separate from the live-room button."
         },
         {
-          "id": "vl_1",
-          "h2": "How {{name}} Links Are Organized",
-          "body": "The {{name}} link set is organized around {{link_count}} tracked entries so the primary {{platform}} option is easier to identify."
+          "id": "wtw_1",
+          "h2": "{{name}} Live Cam: How to Watch",
+          "body": "Use the confirmed live-room link below to reach {{name}} on {{platform}}. Confirm room status after click-through before starting any paid session. If the room is offline, check the additional confirmed platforms listed further down this page."
         },
         {
-          "id": "vl_2",
-          "h2": "{{name}} Link Check Summary",
-          "body": "For {{name}}, {{link_count}} links are available in the profile data, with confirmed rooms prioritized over unsupported external paths."
+          "id": "wtw_2",
+          "h2": "Watch {{name}} Live on {{platform}}",
+          "body": "The verified live destination for {{name}} on {{platform}} is listed below. This is the fastest route to her active room. Use any additional links on this page for platform comparisons, fan-page access, and handle verification only."
         },
         {
-          "id": "vl_3",
-          "h2": "Opening {{name}} Safely",
-          "body": "Before opening a room for {{name}}, use the verified link list and treat {{platform}} as the main reference point when available."
+          "id": "wtw_3",
+          "h2": "{{name}} Live Stream: Where to Start",
+          "body": "Start with the confirmed {{platform}} room below. If {{name}} is showing on more than one platform, compare room quality and playback stability before committing to a private session. The live section groups all active room destinations in one place."
         },
         {
-          "id": "vl_4",
-          "h2": "{{name}} Confirmed Room Access",
-          "body": "Confirmed access for {{name}} is built around the tracked link set, which currently contains {{link_count}} entries connected to {{platform_list}}."
+          "id": "wtw_4",
+          "h2": "{{name}} Online Now: Confirmed Live Destinations",
+          "body": "Confirmed live platforms for {{name}} are listed below with their current activity status. Use {{platform}} as your first destination. For each additional active platform, apply the same quick check: handle match, room activity, playback stability, and chat readability."
         },
         {
-          "id": "vl_5",
-          "h2": "Link Notes for {{name}}",
-          "body": "The link notes for {{name}} help reduce uncertainty by grouping {{link_count}} available references around the most relevant platform choices."
+          "id": "wtw_5",
+          "h2": "How to Watch {{name}} on {{platform_list}}",
+          "body": "{{name}} streams live on {{platform_list}}. The confirmed links below take you directly to her verified profiles on each platform. Open the platform you trust most first, then use the others for comparison or as a fallback if the primary room is offline."
         },
         {
-          "id": "vl_6",
-          "h2": "{{name}} Room Link Guidance",
-          "body": "Use the room link guidance for {{name}} to start with the confirmed {{platform}} entry and avoid unverified lookalike paths."
+          "id": "wtw_6",
+          "h2": "{{name}} Live Webcam Access",
+          "body": "Use the live-room button below to open {{name}}'s confirmed {{platform}} profile. Room availability changes in real time — confirm online status after the page loads before starting. Additional confirmed platforms below are available as backup access points."
         },
         {
-          "id": "vl_7",
-          "h2": "Finding the Right {{name}} Link",
-          "body": "The quickest route for {{name}} is usually the confirmed platform link, backed by {{link_count}} tracked references in this profile."
+          "id": "wtw_7",
+          "h2": "Best Way to Watch {{name}} Live Right Now",
+          "body": "The most reliable way to watch {{name}} live is through the confirmed {{platform}} link below. It bypasses search results and takes you directly to her verified room. Check the current online status on the platform page before spending credits."
         }
       ]
     },
-    "similar_models": {
-      "label": "Similar Models",
+
+    "before_you_click": {
+      "label": "Before You Click / profile check section",
       "variants": [
         {
-          "id": "sm_0",
-          "h2": "Models Similar to {{name}}",
-          "body": "If {{name}} is offline or not the right match, compare nearby picks such as {{similar_1}} and {{similar_2}} before leaving {{site_name}}."
+          "id": "byc_0",
+          "h2": "Before You Click: {{name}} Profile Check",
+          "body": "Confirm these four things before joining any {{name}} room: the handle in the URL matches the one on this page, the room shows recent activity, playback is stable on your device, and your account has credits loaded for private sessions. A one-minute check prevents most common issues."
         },
         {
-          "id": "sm_1",
-          "h2": "Who to Check After {{name}}",
-          "body": "Visitors who like {{name}} may also want to review {{similar_1}} or {{similar_2}}, especially when comparing style and platform availability."
+          "id": "byc_1",
+          "h2": "Quick Checklist Before Joining {{name}}'s Room",
+          "body": "Before clicking into {{name}}'s live room, verify the handle, check current activity status, test playback on your device, and review account requirements for private chat. This page lists {{link_count}} confirmed profiles — use the live section for room entry only."
         },
         {
-          "id": "sm_2",
-          "h2": "Alternatives to {{name}}",
-          "body": "Good alternatives to {{name}} include {{similar_1}} and {{similar_2}}, giving you fallback options when the primary room is unavailable."
+          "id": "byc_2",
+          "h2": "{{name}} Room Access: Pre-Click Checklist",
+          "body": "Use this checklist before joining any {{name}} session: (1) handle matches the one shown here, (2) room is showing active status, (3) playback runs smoothly on your device, (4) payment and privacy settings are configured. Use the confirmed {{platform}} link as your starting point."
         },
         {
-          "id": "sm_3",
-          "h2": "Related Profiles for {{name}}",
-          "body": "The related profile path for {{name}} can include {{similar_1}} and {{similar_2}}, which helps keep browsing focused on comparable live rooms."
+          "id": "byc_3",
+          "h2": "How to Safely Access {{name}}'s Live Room",
+          "body": "Start from the verified link on this page rather than a search result. Confirm the handle matches, check that the room is active, and test playback before starting a paid session. If anything looks inconsistent after click-through, return to this page and use the reported link."
         },
         {
-          "id": "sm_4",
-          "h2": "Similar Live Models to {{name}}",
-          "body": "For a similar live model search, start with {{similar_1}} and {{similar_2}} after reviewing the main {{name}} room."
+          "id": "byc_4",
+          "h2": "Profile Verification Tips for {{name}}",
+          "body": "Verified profiles can still go offline or change status between checks. Before joining {{name}}'s room: match the handle, look for recent chat activity, confirm playback quality, and check that the platform navigation feels consistent with a real profile rather than a mirror or copy."
         },
         {
-          "id": "sm_5",
-          "h2": "More Picks Like {{name}}",
-          "body": "More picks like {{name}} may include {{similar_1}} and {{similar_2}}, depending on who is online and which platform rooms are active."
+          "id": "byc_5",
+          "h2": "{{name}} on {{platform}}: What to Check First",
+          "body": "The confirmed {{platform}} link on this page goes directly to {{name}}'s verified room. After clicking through, confirm: the handle matches, the room is active, you can see live video or an offline notice, and the account prompts match what you expect from {{platform}}. Skip rooms that show unusual redirects or mismatched branding."
         },
         {
-          "id": "sm_6",
-          "h2": "Backup Choices for {{name}}",
-          "body": "When {{name}} is not available, {{similar_1}} and {{similar_2}} can act as backup choices from the same discovery flow."
+          "id": "byc_6",
+          "h2": "Stay Safe When Visiting {{name}}'s Profile",
+          "body": "Use only the links on this page to reach {{name}}'s profiles. Avoid shortened links, search ad destinations, and pages that copy her name or photos without a matching platform handle. A quick handle check after click-through is the fastest way to confirm you are in the right place."
         },
         {
-          "id": "sm_7",
-          "h2": "Compare {{name}} With Similar Profiles",
-          "body": "Compare {{name}} with {{similar_1}} and {{similar_2}} to decide whether the same style, platform, or chat options are a better fit."
+          "id": "byc_7",
+          "h2": "{{name}} Live Room: Access and Safety Notes",
+          "body": "This page has verified {{link_count}} confirmed profiles for {{name}}. For live-room access, use the {{platform}} link in the live section. Run a standard check on arrival: handle match, room activity, device playback, and payment settings. These steps take under a minute and keep your session experience consistent."
         }
       ]
     },
-    "profile_notes": {
-      "label": "Profile Notes",
+
+    "live_chat_experience": {
+      "label": "Live Chat Experience section",
       "variants": [
         {
-          "id": "pn_0",
-          "h2": "Profile Notes for {{name}}",
-          "body": "The most useful profile notes for {{name}} combine the handle {{handle}}, the primary platform {{platform}}, and the tracked interests listed on this page."
+          "id": "lce_0",
+          "h2": "Live Chat Experience with {{name}} on {{platform}}",
+          "body": "For the best live chat experience with {{name}}, start in the public room to test playback and connection speed before entering a private session. Review the private chat options listed on this page so your requests are ready. Load credits in advance to avoid session interruptions."
         },
         {
-          "id": "pn_1",
-          "h2": "{{name}} Profile Context",
-          "body": "{{name}} is summarized with handle {{handle}}, platform context from {{platform_list}}, and practical browsing details for first-time visitors."
+          "id": "lce_1",
+          "h2": "{{name}} Private Live Chat: What to Expect",
+          "body": "{{name}}'s private chat sessions on {{platform}} support {{chat_options_count}} confirmed request types. Start with the public room to assess connection quality, then move to private when the room is active and your credits are loaded. Confirm specific option availability at the start of your session."
         },
         {
-          "id": "pn_2",
-          "h2": "What to Know About {{name}}",
-          "body": "Before choosing a room, note that {{name}} is tied to {{handle}} and primarily presented through {{platform}} in this profile."
+          "id": "lce_2",
+          "h2": "Getting the Most from a {{name}} Live Session",
+          "body": "Before starting a private session with {{name}}, check playback stability in her public room, review her listed private chat options, and confirm credit requirements for the session type you want. A clear opening message about your preferred options helps {{name}} prepare for the session."
         },
         {
-          "id": "pn_3",
-          "h2": "{{name}} Quick Profile Snapshot",
-          "body": "The quick snapshot for {{name}} centers on {{handle}}, {{platform}}, and the listed chat cues that help visitors choose a starting point."
+          "id": "lce_3",
+          "h2": "{{name}} Live Webcam Chat Tips",
+          "body": "Test your device and connection in {{name}}'s public room before going private. If cam-to-cam is on your list, check that your camera and microphone are working before the session starts. Keep your request within the {{chat_options_count}} confirmed options listed on this page for the smoothest experience."
         },
         {
-          "id": "pn_4",
-          "h2": "Reading the {{name}} Profile",
-          "body": "Read the {{name}} profile as a compact guide to {{handle}}, current platform options, and the interaction details available before clicking through."
+          "id": "lce_4",
+          "h2": "How to Have a Great Session with {{name}}",
+          "body": "{{name}} streams live on {{platform_list}} and offers {{chat_options_count}} private chat options including {{chat_options}}. For the best session: join when the room is active, test playback first, load credits before going private, and keep your requests within her confirmed options. Clear communication from the start improves every session."
         },
         {
-          "id": "pn_5",
-          "h2": "{{name}} Handle and Details",
-          "body": "The handle {{handle}} is the main identifier attached to {{name}}, with {{platform}} and {{platform_list}} providing platform context."
+          "id": "lce_5",
+          "h2": "{{name}} and Private Live Chat: Session Guide",
+          "body": "A private session with {{name}} on {{platform}} works best when you arrive prepared. Test the public room first, load credits, confirm which of the {{chat_options_count}} options are active in the current session, and make your request clearly at the start. Recheck room status if the session was interrupted."
         },
         {
-          "id": "pn_6",
-          "h2": "{{name}} Profile Highlights",
-          "body": "Profile highlights for {{name}} include {{handle}}, {{chat_options}}, and the confirmed platform routing shown elsewhere on the page."
+          "id": "lce_6",
+          "h2": "Live Chat with {{name}}: Platform Comparison Tips",
+          "body": "When {{name}} is active on more than one platform, compare the rooms before committing. Check chat readability, loading speed, and private show pricing on each active platform. The differences between platforms matter most on mobile — test playback on your device before starting a paid session."
         },
         {
-          "id": "pn_7",
-          "h2": "{{name}} At a Glance",
-          "body": "At a glance, {{name}} is represented by {{handle}}, associated with {{platform}}, and supported by the tracked details in this profile."
+          "id": "lce_7",
+          "h2": "{{name}} Live Session: Practical Viewer Tips",
+          "body": "Viewers who get the most from {{name}}'s sessions typically follow the same pattern: public room test first, credits loaded, requests planned from her confirmed option list, and a quick handle check to confirm the correct profile. These steps take under two minutes and prevent the most common session issues."
         }
       ]
     },
-    "first_visit": {
-      "label": "First Visit",
+
+    "common_profile_questions": {
+      "label": "Common Profile Questions intro block",
       "variants": [
         {
-          "id": "fv_0",
-          "h2": "First Visit Tips for {{name}}",
-          "body": "On a first visit to {{name}}, open the confirmed {{platform}} room, review the live status, and compare {{chat_options}} before committing to a session."
+          "id": "cpq_0",
+          "h2": "Common Profile Questions for {{name}}",
+          "body": "The questions below cover handle verification, platform access, private chat, and how to navigate {{name}}'s confirmed profiles on {{site_name}}. Each answer is based on the verified profile data shown on this page."
         },
         {
-          "id": "fv_1",
-          "h2": "How to Start With {{name}}",
-          "body": "Start with {{name}} by checking the primary {{platform}} link, then use {{turn_ons}} and {{chat_options}} as context for the room."
+          "id": "cpq_1",
+          "h2": "{{name}} Profile: Frequently Asked Questions",
+          "body": "These questions address the most common navigation, access, and verification topics for {{name}}'s profile. Answers draw from confirmed platform data, verified link status, and the private chat options listed on this page."
         },
         {
-          "id": "fv_2",
-          "h2": "Before You Open {{name}}",
-          "body": "Before opening {{name}}, confirm that the room matches {{platform}}, scan the available options, and avoid unsupported links."
+          "id": "cpq_2",
+          "h2": "Questions About {{name}}'s Live Cam Profiles",
+          "body": "Use this section to find quick answers about accessing {{name}}'s confirmed live rooms, understanding her private chat options, and navigating between her {{link_count}} official profiles across {{platform_list}} and other destinations."
         },
         {
-          "id": "fv_3",
-          "h2": "{{name}} First-Click Guide",
-          "body": "The first-click guide for {{name}} is simple: use the confirmed room, check live availability, and keep related profiles in reserve."
+          "id": "cpq_3",
+          "h2": "{{name}} on {{platform}}: Profile Questions Answered",
+          "body": "The questions below focus on practical access, verification, and private chat for {{name}}. All answers are based on the confirmed profile data maintained on this {{site_name}} page."
         },
         {
-          "id": "fv_4",
-          "h2": "Starting a Session With {{name}}",
-          "body": "When starting a session with {{name}}, use {{platform}} first and verify whether {{chat_options}} are currently available in the room."
+          "id": "cpq_4",
+          "h2": "Need Help Finding {{name}} Live? Start Here",
+          "body": "This FAQ section answers common questions about {{name}}'s live room access, platform choices, private chat options, and how to avoid stale or copied profiles. Use it alongside the confirmed links above for the fastest route to her active room."
         },
         {
-          "id": "fv_5",
-          "h2": "New Visitor Notes for {{name}}",
-          "body": "New visitors should use {{site_name}} as a profile reference for {{name}}, then confirm the room details directly on {{platform}}."
+          "id": "cpq_5",
+          "h2": "{{name}} Viewer FAQ: Access, Chat, and Verification",
+          "body": "Questions and answers in this section cover three areas: getting live access to {{name}}'s room, understanding private chat options, and verifying you are on the correct official profile. All answers are grounded in the confirmed data on this page."
         },
         {
-          "id": "fv_6",
-          "h2": "Best First Step for {{name}}",
-          "body": "The best first step for {{name}} is to open the verified {{platform}} entry and compare the current room with the profile notes."
+          "id": "cpq_6",
+          "h2": "{{name}} Profile Help: Common Questions",
+          "body": "New to {{name}}'s profile on {{site_name}}? This section answers the most common questions about platform access, private chat, handle verification, and how to navigate between her {{link_count}} confirmed profiles safely."
         },
         {
-          "id": "fv_7",
-          "h2": "{{name}} First Room Check",
-          "body": "For a first room check, review {{name}} on {{platform}}, confirm the handle {{handle}}, and decide whether the listed options match your intent."
+          "id": "cpq_7",
+          "h2": "Everything You Need to Know About {{name}}'s Profiles",
+          "body": "Use this section for quick answers about {{name}}'s live room access on {{platform_list}}, her private chat options, and how {{site_name}} verifies and maintains her profile links. Each answer is updated alongside the profile page data."
         }
       ]
     },
-    "trust_safety": {
-      "label": "Trust and Safety",
+
+    "more_pages": {
+      "label": "More Pages internal linking section",
       "variants": [
         {
-          "id": "ts_0",
-          "h2": "Trust Notes for {{name}}",
-          "body": "Trust checks for {{name}} should focus on confirmed platform routing, the active {{platform}} room, and avoiding links that do not match the profile context."
+          "id": "mp_0",
+          "h2": "More Pages for {{name}} on {{site_name}}",
+          "body": "Continue exploring {{name}}'s content on {{site_name}} using the internal links below. Browse her video archive, compare similar models, or return to the full model directory and category pages."
         },
         {
-          "id": "ts_1",
-          "h2": "Safer Browsing for {{name}}",
-          "body": "For safer browsing, use the verified {{name}} link path, check that {{handle}} matches the room, and avoid unfamiliar redirects."
+          "id": "mp_1",
+          "h2": "Explore More {{name}} Content on {{site_name}}",
+          "body": "Use the links below to move from {{name}}'s profile to her video archive, related model profiles, or category pages. Each destination on {{site_name}} follows the same confirmed-link structure as this page."
         },
         {
-          "id": "ts_2",
-          "h2": "{{name}} Link Safety Basics",
-          "body": "The safety basics for {{name}} are to start from {{site_name}}, open the confirmed {{platform}} room, and keep unsupported lookalike links out of the flow."
+          "id": "mp_2",
+          "h2": "{{name}} Videos, Similar Models, and Categories",
+          "body": "From this page you can go directly to {{name}}'s video archive, browse the full {{site_name}} model directory, or explore category pages. Use the similar model links below to find active performers with comparable styles to {{name}}."
         },
         {
-          "id": "ts_3",
-          "h2": "How to Verify {{name}}",
-          "body": "Verify {{name}} by comparing the profile handle {{handle}}, platform label {{platform}}, and current live room details before interacting."
+          "id": "mp_3",
+          "h2": "What to Do Next After Visiting {{name}}'s Profile",
+          "body": "If {{name}}'s room is offline, use the similar model suggestions below to find an active performer. You can also browse her video archive, return to the model directory, or explore category pages to find performers matching your preferences."
         },
         {
-          "id": "ts_4",
-          "h2": "{{name}} Room Confidence Checks",
-          "body": "Confidence checks for {{name}} include the platform name, the handle {{handle}}, and whether the room matches the listed profile information."
+          "id": "mp_4",
+          "h2": "Navigate {{site_name}} from {{name}}'s Profile",
+          "body": "This profile is one of 3,500+ pages on {{site_name}}. Use the links below to browse {{name}}'s video archive, discover similar performers like {{similar_1}} and {{similar_2}}, or return to the full model directory and category listings."
         },
         {
-          "id": "ts_5",
-          "h2": "Avoiding Wrong Links for {{name}}",
-          "body": "Avoid wrong links for {{name}} by using confirmed routes and treating unexpected domains or mismatched handles as a reason to stop."
+          "id": "mp_5",
+          "h2": "{{name}}'s Video Archive and Related Profiles",
+          "body": "{{name}}'s profile connects to a video archive, a directory of similar models, and category pages on {{site_name}}. Use the internal links below to keep exploring without returning to a search engine."
         },
         {
-          "id": "ts_6",
-          "h2": "{{name}} Verified Access Notes",
-          "body": "Verified access notes for {{name}} are centered on {{platform}}, {{handle}}, and the link grouping maintained for this profile."
+          "id": "mp_6",
+          "h2": "Find More Content Like {{name}} on {{site_name}}",
+          "body": "If you enjoy {{name}}'s style, browse her video archive or check the similar model suggestions below. Performers like {{similar_1}} and {{similar_2}} share comparable content styles and confirmed live-room profiles on {{site_name}}."
         },
         {
-          "id": "ts_7",
-          "h2": "Safe Start for {{name}}",
-          "body": "A safe start for {{name}} means opening the confirmed room, checking the active profile details, and comparing the result with {{site_name}} notes."
+          "id": "mp_7",
+          "h2": "{{name}}: Related Videos, Models, and Categories",
+          "body": "Continue on {{site_name}} with {{name}}'s video archive, the similar model profiles listed below, or the full category directory. All destinations use the same verified-link structure as this page."
         }
       ]
     },
-    "next_steps": {
-      "label": "Next Steps",
+
+    "official_links_summary": {
+      "label": "Official Links and Profiles closing section",
       "variants": [
         {
-          "id": "ns_0",
-          "h2": "Next Steps for {{name}}",
-          "body": "After reviewing {{name}}, open the confirmed {{platform}} room, compare {{chat_options}}, or check similar profiles such as {{similar_1}} and {{similar_2}}."
+          "id": "ols_0",
+          "h2": "Official Links and Profiles for {{name}}",
+          "body": "The latest profile check for {{name}} found {{link_count}} confirmed profile links. These are grouped below by type: live cam platforms, personal and official sites, fan pages, video channels, social profiles, and link hubs. Use the live section for room entry and the remaining sections for updates and support."
         },
         {
-          "id": "ns_1",
-          "h2": "What to Do After Viewing {{name}}",
-          "body": "After viewing {{name}}, decide whether the {{platform}} room is active, whether {{turn_ons}} match your interest, and whether a similar profile is worth opening."
+          "id": "ols_1",
+          "h2": "{{name}}: All Confirmed Profiles and Links",
+          "body": "{{link_count}} profile links for {{name}} have been confirmed and are listed below. Live-room destinations are grouped first. Fan pages, social media, and link hubs follow separately so you can navigate to the right type of destination without confusion."
         },
         {
-          "id": "ns_2",
-          "h2": "Continue From {{name}}",
-          "body": "Continue from {{name}} by checking the verified room first, then using {{platform_list}} and similar model suggestions for backup options."
+          "id": "ols_2",
+          "h2": "Where to Find {{name}} Across the Web",
+          "body": "{{name}} maintains a confirmed presence across {{platform_list}} and additional fan, social, and link-hub platforms. All {{link_count}} verified links are listed below, grouped by function. Start with the live section for room access and use the rest for following, updates, and handle verification."
         },
         {
-          "id": "ns_3",
-          "h2": "Your {{name}} Decision Path",
-          "body": "Your decision path for {{name}} can be: confirm the room, scan the chat options, compare alternatives, and return to {{site_name}} if the fit is not right."
+          "id": "ols_3",
+          "h2": "{{name}} Verified Profile Directory",
+          "body": "This section lists all {{link_count}} confirmed profiles for {{name}}, verified at the time of the last profile check. Each link is categorised by type — live platform, fan page, social profile, or link hub — so you always know what to expect before clicking."
         },
         {
-          "id": "ns_4",
-          "h2": "Where to Go Next With {{name}}",
-          "body": "Where you go next with {{name}} depends on live availability, the {{platform}} room details, and whether {{similar_1}} or {{similar_2}} looks closer to your preference."
+          "id": "ols_4",
+          "h2": "Find {{name}} on Every Platform",
+          "body": "All confirmed destinations for {{name}} are listed below — from live cam platforms including {{platform_list}} to fan pages, social profiles, and link hubs. {{link_count}} links total, grouped by type. The live section is always listed first for fastest room access."
         },
         {
-          "id": "ns_5",
-          "h2": "{{name}} Browsing Wrap-Up",
-          "body": "Wrap up the {{name}} review by choosing the confirmed link, saving comparable profiles, and checking the live room details before interacting."
+          "id": "ols_5",
+          "h2": "{{name}}'s Complete Profile Link Collection",
+          "body": "The complete set of {{link_count}} confirmed profile links for {{name}} is listed below. Links are verified against platform data and grouped by type. Non-live links are clearly separated from live-room destinations so your navigation stays accurate."
         },
         {
-          "id": "ns_6",
-          "h2": "Final Check Before Opening {{name}}",
-          "body": "Before opening {{name}}, make a final check of {{platform}}, {{handle}}, and the listed session cues so the first click is intentional."
+          "id": "ols_6",
+          "h2": "All {{name}} Profiles: Confirmed and Categorised",
+          "body": "{{name}}'s {{link_count}} confirmed profiles span cam platforms, fan sites, social media, and link hubs. The live-room section is listed first for direct access. Additional sections cover everything else — useful for following, schedule updates, and backup access if the primary room is offline."
         },
         {
-          "id": "ns_7",
-          "h2": "{{name}} Quick Action Plan",
-          "body": "The quick action plan for {{name}} is to use the verified platform room, compare the current options, and keep similar models ready if the room is offline."
+          "id": "ols_7",
+          "h2": "{{name}} Official Link Hub: {{link_count}} Verified Profiles",
+          "body": "Every confirmed profile link for {{name}} is listed below, organised by type. Live cam platforms are listed first, followed by personal sites, fan pages, video channels, social profiles, and link hubs. All links are verified — match the handle after click-through for final confirmation."
         }
       ]
     }
+
   }
 }
