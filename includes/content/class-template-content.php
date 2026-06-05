@@ -392,6 +392,43 @@ class TemplateContent {
         // ── End TemplatePool primary mode injection ──────────────────────────
 
         $content = ModelPageRenderer::render($name, $renderer_payload);
+
+        // ── v5.8.21: Inject keyword-rich H2 for TemplatePool-primary pages ──
+        // The renderer always uses "Official Profile Access" as the first H2.
+        // For manual Generate with TemplatePool, we replace that heading with a
+        // model-name + platform + evidence-signal heading that naturally contains
+        // the focus keyword and a Rank Math secondary chip.
+        // This runs ONLY on manual Generate (pack has _manual_generate).
+        if (!empty($pack['_manual_generate']) && !empty($model_data_gate['is_sufficient'])) {
+            // Read evidence availability directly for heading variant selection.
+            $h2_has_turn_ons     = class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)
+                ? trim((string)(\TMWSEO\Engine\Content\ModelResearchEvidence::get_raw_fields((int)$post->ID)['turn_ons'] ?? '')) !== ''
+                : false;
+            $h2_has_private_chat = class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)
+                ? !empty(\TMWSEO\Engine\Content\ModelResearchEvidence::filter_private_chat_items(
+                    (string)(\TMWSEO\Engine\Content\ModelResearchEvidence::get_raw_fields((int)$post->ID)['private_chat'] ?? '')
+                  ))
+                : false;
+            $tp_intro_h2 = self::build_templatepool_intro_h2(
+                $name,
+                $primary_platform_label,
+                $h2_has_turn_ons,
+                $h2_has_private_chat,
+                (int) $post->ID
+            );
+            if ($tp_intro_h2 !== '') {
+                // Replace the renderer's first H2 (Official Profile Access) with
+                // the keyword-rich heading. Only replaces the first match.
+                $content = preg_replace(
+                    '/<h2>\s*Official Profile Access\s*<\/h2>/iu',
+                    $tp_intro_h2,
+                    $content,
+                    1
+                ) ?: $content;
+            }
+        }
+        // ── End keyword-rich H2 injection ────────────────────────────────────
+
         $content = self::split_long_paragraphs($content);
         $content = self::cleanup_model_content($content, $name);
         $content = self::ensure_minimum_useful_depth($content, $name, $active_platforms, $resolved_destinations, $primary_platform_label, $seed);
@@ -431,6 +468,17 @@ class TemplateContent {
         $enforcement = self::enforce_keyword_heading_placement($content, $rankmath_keywords, $name);
         $content = $enforcement['html'];
         $content = self::final_template_copy_cleanup($content);
+
+        // ── v5.8.21: TemplatePool paragraph deduplication ─────────────────
+        // When TemplatePool primary ran, the post-processing chain
+        // (ensure_minimum_useful_depth, expand_model_content, guard_keyword_density)
+        // can still append blocks whose opening sentences duplicate content
+        // already in the TemplatePool sections. Remove exact-duplicate
+        // <p> blocks and near-duplicate repeated safety paragraphs.
+        if (!empty($pack['_manual_generate'])) {
+            $content = self::dedupe_templatepool_output($content);
+        }
+        // ── End TemplatePool deduplication ────────────────────────────────
 
         // ── v5.8.17: TemplatePool primary (manual Generate only) ───────────
         // No-op: TemplatePool primary mode ran before ModelPageRenderer::render()
@@ -4310,7 +4358,9 @@ class TemplateContent {
     private static function ensure_minimum_useful_depth(string $content, string $name, array $active_platforms, array $resolved_destinations, string $primary_platform_label, string $seed): string {
         $plain = trim((string) wp_strip_all_tags($content));
         $word_count = str_word_count($plain);
-        if ($word_count >= 640) {
+        // v5.8.21: raised threshold from 640→720 so TemplatePool pages (750–900 words)
+        // skip the generic depth-padding blocks entirely.
+        if ($word_count >= 720) {
             return $content;
         }
 
@@ -4466,7 +4516,11 @@ class TemplateContent {
             'Reliable pages should explain access, verification, and safety in plain language, with enough context for a reader to make a careful decision without repeated focus-keyword stuffing.',
             'If a room or profile appears stale, wait for a better status signal and use only verified destinations for follow-up checks.',
         ];
-        for ($i = 0; $word_count > 0 && (($focus_hits / $word_count) * 100) > $target_density && $i < 12; $i++) {
+        // v5.8.21: cap neutral filler additions at 1 cycle (3 paragraphs max).
+        // The old limit of 12 caused the same 3 sentences to repeat 4 times,
+        // producing thin-looking duplicate copy at the bottom of the page.
+        $filler_cap = min(count($neutral_fillers), 3);
+        for ($i = 0; $word_count > 0 && (($focus_hits / $word_count) * 100) > $target_density && $i < $filler_cap; $i++) {
             $content .= "\n\n<p>" . $neutral_fillers[$i % count($neutral_fillers)] . '</p>';
             $word_count = self::count_visible_words($content);
         }
@@ -4730,12 +4784,41 @@ class TemplateContent {
             }
 
             // ── Turn-on evidence gate ────────────────────────────────────────
-            $has_turn_on_evidence = ($raw_turn_ons !== '');
-            $turn_ons_text        = '';
+            $has_turn_on_evidence   = ($raw_turn_ons !== '');
+            $turn_ons_text          = '';   // noun-phrase form for {{turn_ons}} in templates
+            $turn_ons_sentence      = '';   // full-sentence form for standalone paragraph
             if ($has_turn_on_evidence && class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)) {
-                $turn_ons_text = \TMWSEO\Engine\Content\ModelResearchEvidence::humanize_turn_ons($raw_turn_ons);
-                if ($turn_ons_text === '') {
+                $raw_humanized = \TMWSEO\Engine\Content\ModelResearchEvidence::humanize_turn_ons($raw_turn_ons);
+                if ($raw_humanized === '') {
                     $has_turn_on_evidence = false;
+                } else {
+                    // v5.8.21: detect full-sentence output (starts uppercase, ends '.').
+                    // humanize_turn_ons() fallback returns a complete sentence like:
+                    // "Her profile notes highlight an interactive approach..."
+                    // Injecting that into "built around {{turn_ons}}" breaks grammar.
+                    // Convert to a short noun phrase for template use; keep the full
+                    // sentence as a standalone paragraph appended after the intro.
+                    // v5.8.21: detect full-sentence output (starts uppercase, ends '.').
+                    // humanize_turn_ons() fallback returns a complete sentence like:
+                    // "Her profile notes highlight an interactive approach..."
+                    // Injecting that inline into "built around {{turn_ons}}" breaks
+                    // grammar and produces unreadable copy.
+                    //
+                    // Solution: when output is a full sentence, set turn_ons_text=''
+                    // so the TemplatePool {{turn_ons}} placeholder stays unresolved,
+                    // causing the pool to skip variants 0,1,3,4,5,7 (which use
+                    // {{turn_ons}}) and naturally select variant 2 or 6 (no {{turn_ons}}).
+                    // The full sentence is stored in turn_ons_sentence and appended
+                    // as a clean standalone paragraph after the intro.
+                    $is_full_sentence = preg_match('/^[A-Z].+\.$/u', trim($raw_humanized)) === 1;
+                    if ($is_full_sentence) {
+                        $turn_ons_text     = '';             // leave {{turn_ons}} unresolved — pool skips those variants
+                        $turn_ons_sentence = $raw_humanized; // clean standalone paragraph appended after intro
+                    } else {
+                        // Short phrase — safe for inline template injection.
+                        $turn_ons_text     = $raw_humanized;
+                        $turn_ons_sentence = '';
+                    }
                 }
             }
 
@@ -4839,14 +4922,21 @@ class TemplateContent {
             // guard will skip it, so we fall back to the legacy intro_paragraphs.
             $pool_intro = $resolve_section('intro');
             if ($pool_intro !== '') {
-                // Ensure the model name appears in the first sentence.
-                // All TemplatePool intro variants start with {{name}} so this
-                // is already satisfied. Add a brief direct-answer line before it
-                // only when the intro doesn't already state the platform.
+                // All TemplatePool intro variants start with {{name}} — model name
+                // is already in the first sentence.
+                // v5.8.21: when turn_ons produced a full sentence that was converted
+                // to a noun phrase for inline use, append the original sentence here
+                // as a standalone second paragraph so the evidence is not lost.
                 $intro_paragraphs_new = [$pool_intro];
+                if (!empty($turn_ons_sentence)) {
+                    $intro_paragraphs_new[] = $turn_ons_sentence;
+                }
             } else {
                 // Fallback: keep legacy intro paragraphs unchanged.
                 $intro_paragraphs_new = (array) ($renderer_payload['intro_paragraphs'] ?? []);
+                if (!empty($turn_ons_sentence)) {
+                    $intro_paragraphs_new[] = $turn_ons_sentence;
+                }
             }
 
             // ── Section 2: Official profile access (replaces watch_section_paragraphs) ─
@@ -4938,6 +5028,14 @@ class TemplateContent {
                 // Skip items with unresolved placeholders.
                 if (preg_match('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $q . $a)) {
                     continue;
+                }
+                // v5.8.21: Fix FAQ question grammar — questions that start with an
+                // imperative verb and end with '?' should begin with "Can I".
+                // Covers the case where e.g. "Report a fake X profile if I find one?"
+                // should be "Can I report a fake X profile if I find one?".
+                if (preg_match('/^(Report|Find|Tell|Show|Check|Verify|View|Open|Use|Start|Get|See|Track|Follow|Block|Access)\b/u', $q)
+                    && substr($q, -1) === '?') {
+                    $q = 'Can I ' . lcfirst($q);
                 }
                 $pool_faq_items[] = ['q' => $q, 'a' => $a];
             }
@@ -5035,4 +5133,147 @@ class TemplateContent {
         );
         return $content;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // v5.8.21: TemplatePool output cleanup helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Remove exact-duplicate and near-duplicate paragraphs from TemplatePool output.
+     *
+     * Targets three specific repetition patterns:
+     *  1. Exact <p>…</p> duplicates (same normalised text).
+     *  2. Near-duplicates where the first 70 characters of two <p> blocks match.
+     *  3. Repeated generic safety H2 sections (by heading text match).
+     *
+     * Only touches <p> and H2-guarded duplicate blocks; never touches CTAs,
+     * affiliate links, verified link groups, or H3 FAQ items.
+     *
+     * @param string $html
+     * @return string
+     */
+    private static function dedupe_templatepool_output(string $html): string {
+        if (trim($html) === '') {
+            return $html;
+        }
+
+        // ── Step 1: Remove exact-duplicate and near-duplicate <p> blocks ────
+        $seen_p     = [];
+        $html = (string) preg_replace_callback(
+            '/<p(\b[^>]*)>(.*?)<\/p>/isu',
+            static function (array $m) use (&$seen_p): string {
+                $inner  = trim((string) wp_strip_all_tags($m[2]));
+                $inner  = (string) preg_replace('/\s+/', ' ', $inner);
+                if ($inner === '') {
+                    return $m[0]; // keep empty structural paragraphs
+                }
+                $key60  = mb_strtolower(mb_substr($inner, 0, 70, 'UTF-8'), 'UTF-8');
+                $key_full = md5(mb_strtolower($inner, 'UTF-8'));
+                if (isset($seen_p[$key_full]) || isset($seen_p[$key60])) {
+                    return ''; // duplicate — remove
+                }
+                $seen_p[$key_full] = true;
+                $seen_p[$key60]    = true;
+                return $m[0];
+            },
+            $html
+        ) ?: $html;
+
+        // ── Step 2: Remove repeated generic safety / depth-padding H2 sections ─
+        // These headings are added by ensure_minimum_useful_depth(),
+        // expand_model_content_word_count(), and guard_model_focus_keyword_density().
+        // TemplatePool content is already long enough — these sections add no value.
+        $generic_h2_patterns = [
+            'How to Decide Where to Start',
+            'Verification and Review Method',
+            'How to Use Backup Destinations Safely',
+            'Practical Use of Non-Live Destinations',
+            'Practical Viewing Checklist',
+            'Profile Verification Notes',
+            'How to Compare Access Options',
+            'Safer Navigation Reminders',
+            'Reader-Friendly Summary',
+            'Quality and Safety Context',
+            'What to Check After Opening a Link',
+        ];
+
+        foreach ($generic_h2_patterns as $heading) {
+            // Remove the H2 + all following <p> blocks up to the next H2 or end.
+            $escaped = preg_quote($heading, '/');
+            $html = (string) preg_replace(
+                '/<h2>\s*' . $escaped . '\s*<\/h2>\s*(?:<p[^>]*>.*?<\/p>\s*)*/isu',
+                '',
+                $html
+            );
+        }
+
+        // ── Step 3: Collapse excess blank lines left by removals ─────────────
+        $html = (string) preg_replace('/\n{3,}/', "\n\n", $html);
+
+        return trim($html);
+    }
+
+    /**
+     * Build a keyword-rich H2 heading for the TemplatePool-primary intro section.
+     *
+     * Uses the model name + primary platform + available signal (turn-ons or private
+     * chat) to produce one natural-language H2 that:
+     *  - contains the focus keyword (model name) naturally
+     *  - contains the primary platform name
+     *  - references the highest-value secondary keyword signal available
+     *  - reads as a genuine model-profile heading, not keyword stuffing
+     *
+     * Returns empty string if name or platform are missing.
+     *
+     * @param string $name            Model display name.
+     * @param string $platform_label  Primary platform label (e.g. "LiveJasmin").
+     * @param bool   $has_turn_ons    Whether turn-on evidence exists.
+     * @param bool   $has_private_chat Whether private chat evidence exists.
+     * @param int    $post_id         Post ID for deterministic variant selection.
+     * @return string  H2 HTML tag or empty string.
+     */
+    private static function build_templatepool_intro_h2(
+        string $name,
+        string $platform_label,
+        bool $has_turn_ons,
+        bool $has_private_chat,
+        int $post_id
+    ): string {
+        if ($name === '' || $platform_label === '' || $platform_label === self::NEUTRAL_PLATFORM_FALLBACK) {
+            return '';
+        }
+
+        // Build a pool of natural model-profile headings appropriate to the
+        // evidence available. Using the model name + platform guarantees the
+        // focus keyword and a secondary keyword chip are both in the heading.
+        if ($has_turn_ons && $has_private_chat) {
+            $variants = [
+                $name . ' ' . $platform_label . ' Profile, Turn Ons and Private Chat Options',
+                $name . ' Live Cam Access and Private Chat Options on ' . $platform_label,
+                $name . ': ' . $platform_label . ' Turn Ons, Private Chat and Verified Profile',
+            ];
+        } elseif ($has_turn_ons) {
+            $variants = [
+                $name . ' ' . $platform_label . ' Turn Ons and Live Cam Session Notes',
+                $name . ' Live Cam Access and Session Style on ' . $platform_label,
+                $name . ': ' . $platform_label . ' Profile, Turn Ons and Live Room Access',
+            ];
+        } elseif ($has_private_chat) {
+            $variants = [
+                $name . ' Private Chat Options and Live Room Access on ' . $platform_label,
+                $name . ' ' . $platform_label . ' Profile and Private Chat Options',
+                $name . ': Verified ' . $platform_label . ' Profile and Private Chat Notes',
+            ];
+        } else {
+            $variants = [
+                $name . ' Live Cam Access and Verified Profile Details on ' . $platform_label,
+                $name . ' ' . $platform_label . ' Profile: Verified Links and Live Room Access',
+                'Where to Watch ' . $name . ' Live on ' . $platform_label,
+            ];
+        }
+
+        $idx = abs($post_id) % count($variants);
+        return '<h2>' . esc_html($variants[$idx]) . '</h2>';
+    }
+
 }
