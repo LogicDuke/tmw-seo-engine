@@ -269,16 +269,22 @@ class KeywordPoolImportBatchRepository {
     }
 
     /** @return array<int,array<string,mixed>> */
-    public function query_rows(int $batch_id, string $status = '', int $limit = 100, int $offset = 0): array {
+    public function query_rows(int $batch_id, string $status = '', int $limit = 100, int $offset = 0, string $orderby = '', string $order = 'desc'): array {
         global $wpdb;
         if (!$this->tables_exist()) { return []; }
         $table = $this->rows_table();
         $limit = max(1, $limit);
         $offset = max(0, $offset);
-        if ('' !== $status) {
-            return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d AND status = %s ORDER BY row_index ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $this->sanitize_key($status, 30), $limit, $offset), ARRAY_A);
+        $orderby = $this->sanitize_key($orderby, 30);
+        $order = 'asc' === strtolower($order) ? 'ASC' : 'DESC';
+        $order_clause = 'row_index ASC, id ASC';
+        if ('volume' === $orderby) {
+            $order_clause = 'COALESCE(volume, 0) ' . $order . ', row_index ASC, id ASC';
         }
-        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d ORDER BY row_index ASC, id ASC LIMIT %d OFFSET %d", $batch_id, $limit, $offset), ARRAY_A);
+        if ('' !== $status) {
+            return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d AND status = %s ORDER BY {$order_clause} LIMIT %d OFFSET %d", $batch_id, $this->sanitize_key($status, 30), $limit, $offset), ARRAY_A);
+        }
+        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d ORDER BY {$order_clause} LIMIT %d OFFSET %d", $batch_id, $limit, $offset), ARRAY_A);
     }
 
     public function count_rows(int $batch_id, string $status = ''): int {

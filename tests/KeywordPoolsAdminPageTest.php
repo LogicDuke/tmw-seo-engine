@@ -470,6 +470,58 @@ dani daniels,1200,2.50,0.10,75
         $this->assertStringContainsString('category_intent_detected', $values[$reasonCodesIndex]);
     }
 
+
+    public function test_import_batch_volume_sort_header_toggles_and_shows_direction(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'volume_sort_header');
+        $method->setAccessible(true);
+        $batch = [ 'pool' => 'model', 'target_id' => 902 ];
+
+        $defaultHeader = (string) $method->invoke(null, $batch, 44, 3, [ 'orderby' => '', 'order' => '' ]);
+        $descHeader = (string) $method->invoke(null, $batch, 44, 3, [ 'orderby' => 'volume', 'order' => 'desc' ]);
+        $ascHeader = (string) $method->invoke(null, $batch, 44, 3, [ 'orderby' => 'volume', 'order' => 'asc' ]);
+
+        $this->assertStringContainsString('orderby=volume', $defaultHeader);
+        $this->assertStringContainsString('order=desc', $defaultHeader);
+        $this->assertStringContainsString('tmwseo_keyword_batch_page=3', $defaultHeader);
+        $this->assertStringContainsString('Volume ↓', $descHeader);
+        $this->assertStringContainsString('order=asc', $descHeader);
+        $this->assertStringContainsString('Volume ↑', $ascHeader);
+        $this->assertStringContainsString('order=desc', $ascHeader);
+    }
+
+    public function test_import_batch_sort_urls_preserve_global_model_pool_context(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'batch_view_query_args');
+        $method->setAccessible(true);
+
+        $args = $method->invoke(null, [
+            'pool' => 'model',
+            'target_type' => 'global',
+            'target_id' => null,
+            'target_slug' => 'global-model-pool',
+            'target_name' => 'Global Model Pool',
+        ], 55, 2, [ 'orderby' => 'volume', 'order' => 'desc' ]);
+
+        $this->assertSame('model', $args['pool']);
+        $this->assertSame('__global_model_pool__', $args['tmwseo_keyword_pools_target_id']);
+        $this->assertSame(55, $args['tmwseo_keyword_batch_id']);
+        $this->assertSame(2, $args['tmwseo_keyword_batch_page']);
+        $this->assertSame('volume', $args['orderby']);
+        $this->assertSame('desc', $args['order']);
+    }
+
+    public function test_import_row_action_forms_preserve_volume_sort_and_page(): void {
+        $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_action_forms');
+        $method->setAccessible(true);
+
+        $html = (string) $method->invoke(null, [ 'id' => 707 ], [ 'pool' => 'model', 'target_id' => 902 ], 4, [ 'orderby' => 'volume', 'order' => 'asc' ]);
+
+        $this->assertStringContainsString('name="tmwseo_keyword_batch_page" value="4"', $html);
+        $this->assertStringContainsString('name="orderby" value="volume"', $html);
+        $this->assertStringContainsString('name="order" value="asc"', $html);
+        $this->assertStringContainsString('Approve', $html);
+        $this->assertStringContainsString('Reject', $html);
+    }
+
     public function test_admin_page_source_does_not_call_persistent_keyword_or_content_writes(): void {
         $source = file_get_contents(__DIR__ . '/../includes/admin/class-keyword-pools-admin-page.php');
         $this->assertIsString($source);
