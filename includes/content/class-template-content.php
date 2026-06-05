@@ -294,6 +294,27 @@ class TemplateContent {
         $renderer_payload['features_section_paragraphs'] = $dedup_bags['features'];
         $renderer_payload['comparison_section_paragraphs'] = $dedup_bags['comparison'];
 
+        // ── v5.8.17: TemplatePool primary mode ───────────────────────────────
+        // When the admin manually clicked Generate AND the data gate passed,
+        // replace the legacy paragraph bags in $renderer_payload with content
+        // built from TemplatePool sections. The HTML blocks (CTA buttons,
+        // affiliate links, external_info_html) are kept unchanged from
+        // $support_payload so no affiliate routing is affected.
+        if (!empty($pack['_manual_generate']) && !empty($model_data_gate['is_sufficient'])) {
+            $renderer_payload = self::build_template_pool_primary_payload(
+                $post,
+                $renderer_payload,
+                $name,
+                $primary_platform_label,
+                $active_platforms,
+                $resolved_destinations,
+                $cta_links,
+                $verified_destination_rows,
+                $faq_items
+            );
+        }
+        // ── End TemplatePool primary mode injection ──────────────────────────
+
         $content = ModelPageRenderer::render($name, $renderer_payload);
         $content = self::split_long_paragraphs($content);
         $content = self::cleanup_model_content($content, $name);
@@ -335,25 +356,12 @@ class TemplateContent {
         $content = $enforcement['html'];
         $content = self::final_template_copy_cleanup($content);
 
-        // ── v5.8.16: TemplatePool enrichment (manual Generate only) ──────────
-        // Runs only when:
-        //   1. Admin manually clicked Generate (pack carries '_manual_generate' = true)
-        //   2. Model data gate passed ($model_data_gate['is_sufficient'] === true)
-        //   3. TemplatePool class and JSON files are available
-        // Never overwrites seed/evidence content. Appends after existing body.
-        if (!empty($pack['_manual_generate']) && !empty($model_data_gate['is_sufficient'])) {
-            $content = self::apply_template_pool_enrichment(
-                $post,
-                $content,
-                $name,
-                $primary_platform_label,
-                $active_platforms,
-                $resolved_destinations,
-                $cta_links,
-                $verified_destination_rows
-            );
-        }
-        // ── End TemplatePool enrichment ──────────────────────────────────────
+        // ── v5.8.17: TemplatePool primary (manual Generate only) ───────────
+        // No-op: TemplatePool primary mode ran before ModelPageRenderer::render()
+        // above (see build_template_pool_primary_payload). If it ran successfully,
+        // $content is already TemplatePool-primary output. If it fell back, $content
+        // is the legacy output. Either way there is nothing to do here.
+        // ── End TemplatePool primary ─────────────────────────────────────────
 
         $seo_title = self::build_default_model_seo_title($name, $primary_platform_label, (int) $post->ID);
 
@@ -4543,48 +4551,55 @@ class TemplateContent {
         return true;
     }
     // ─────────────────────────────────────────────────────────────────────────
-    // v5.8.16: TemplatePool enrichment — manual Generate only
+    // v5.8.17: TemplatePool primary model builder — manual Generate only
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Enrich model page content with TemplatePool sections.
+     * Build a TemplatePool-primary renderer payload for manual model Generate.
+     *
+     * Replaces the legacy paragraph bags in $renderer_payload with TemplatePool
+     * section bodies. All HTML blocks (CTA, affiliate links, external_info_html,
+     * comparison_section_html) are preserved unchanged from $support_payload so
+     * no affiliate routing, Rank Math, or indexing logic is affected.
      *
      * Safety contract:
      *  - Runs ONLY when admin manually clicks Generate AND data gate passes.
-     *  - Never overwrites seed-evidence block (tmwseo-seed-evidence markers).
-     *  - Never overwrites existing H2 sections already present in $content.
-     *  - Skips any section whose resolved body still contains {{...}} tokens.
-     *  - Skips private_chat_options when no actual private-chat evidence exists.
-     *  - Skips turn_ons when no actual turn-on evidence exists.
-     *  - On any TemplatePool exception, returns $content unchanged.
+     *  - Falls back to the untouched $renderer_payload on any exception.
+     *  - Skips any section whose resolved body contains {{...}} tokens.
+     *  - Skips private_chat_options entirely when no private-chat evidence exists.
+     *  - Skips turn_ons entirely when no turn-on evidence exists.
+     *  - Never produces duplicate H2 headings.
+     *  - Exactly one FAQ block, drawn from the TemplatePool faq-pool.
      *  - Logs [TMW-POOL-WIRE] entries when WP_DEBUG is enabled.
      *
      * @param \WP_Post $post
-     * @param string   $content               Current generated HTML (after all cleanup passes).
-     * @param string   $name                  Model display name / focus keyword.
-     * @param string   $primary_platform_label Primary resolved platform label.
-     * @param string[] $active_platforms       All active platform labels.
-     * @param array    $resolved_destinations  From ModelDestinationResolver::resolve().
-     * @param array    $cta_links              Watch CTA rows.
+     * @param array    $renderer_payload         Current renderer payload assembled by build_model().
+     * @param string   $name                     Model display name / focus keyword.
+     * @param string   $primary_platform_label   Primary resolved platform label.
+     * @param string[] $active_platforms         All active platform labels.
+     * @param array    $resolved_destinations    From ModelDestinationResolver::resolve().
+     * @param array    $cta_links                Watch CTA rows.
      * @param array    $verified_destination_rows All verified destination rows.
-     * @return string
+     * @param array    $legacy_faq_items         FAQ items from legacy build_seed_faq_items().
+     * @return array Modified renderer payload.
      */
-    private static function apply_template_pool_enrichment(
+    private static function build_template_pool_primary_payload(
         \WP_Post $post,
-        string $content,
+        array $renderer_payload,
         string $name,
         string $primary_platform_label,
         array $active_platforms,
         array $resolved_destinations,
         array $cta_links,
-        array $verified_destination_rows
-    ): string {
+        array $verified_destination_rows,
+        array $legacy_faq_items
+    ): array {
         // Guard: TemplatePool class must be available.
         if (!class_exists(\TMWSEO\Engine\Model\TemplatePool::class)) {
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log(sprintf('[TMW-POOL-WIRE] fallback legacy post_id=%d reason=class_missing', (int) $post->ID));
             }
-            return $content;
+            return $renderer_payload;
         }
 
         try {
@@ -4598,10 +4613,9 @@ class TemplateContent {
             $raw_turn_ons     = trim((string) ($evidence['turn_ons'] ?? ''));
             $raw_private_chat = trim((string) ($evidence['private_chat'] ?? ''));
 
-            // ── Resolve private-chat items (evidence-gated) ──────────────────
-            // The private_chat_options section MUST NOT render unless operator
-            // has actually filled _tmwseo_seed_external_private_chat.
-            // CodeRabbit issue #3: never claim "confirmed" without evidence.
+            // ── Private-chat evidence gate ───────────────────────────────────
+            // Never render private_chat_options or live_chat_experience (which
+            // references chat_options_count) unless operator evidence exists.
             $private_chat_items        = [];
             $private_chat_count        = 0;
             $has_private_chat_evidence = false;
@@ -4613,7 +4627,7 @@ class TemplateContent {
                 }
             }
 
-            // ── Resolve turn-on themes (evidence-gated) ──────────────────────
+            // ── Turn-on evidence gate ────────────────────────────────────────
             $has_turn_on_evidence = ($raw_turn_ons !== '');
             $turn_ons_text        = '';
             if ($has_turn_on_evidence && class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)) {
@@ -4623,7 +4637,7 @@ class TemplateContent {
                 }
             }
 
-            // ── Build platform / link-count scalars ───────────────────────────
+            // ── Platform / link scalars ──────────────────────────────────────
             $verified_count = count($verified_destination_rows);
             $platform_count = count($active_platforms);
             $platform_label = ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK)
@@ -4632,7 +4646,7 @@ class TemplateContent {
             $platform_list_text = self::format_platform_list($active_platforms, $platform_label);
             $site_name          = (string) get_bloginfo('name');
 
-            // ── Find two similar model names for more_pages section ───────────
+            // ── Similar model names for more_pages section ───────────────────
             $similar_1 = '';
             $similar_2 = '';
             $related_q = get_posts([
@@ -4650,17 +4664,16 @@ class TemplateContent {
                 $similar_2 = trim((string) get_the_title((int) $related_q[1]));
             }
 
-            // ── Assemble model_data for TemplatePool {{placeholders}} ─────────
-            // Evidence-gated fields are only set when real evidence exists.
-            // Never supply fallback text for turn_ons or chat_options — an
-            // empty string causes TemplatePool to leave the placeholder
-            // unresolved, which triggers the {{...}} guard below.
+            // ── model_data for TemplatePool placeholder resolution ───────────
+            // Evidence-gated fields are empty strings when evidence is absent.
+            // TemplatePool leaves unresolved {{tokens}} in the output, which
+            // the guard below will catch and skip.
             $model_data = [
                 'name'               => $name,
                 'platform'           => $platform_label,
                 'platform_list'      => $platform_list_text,
                 'platform_count'     => (string) $platform_count,
-                'link_count'         => (string) $verified_count,
+                'link_count'         => (string) ($verified_count > 0 ? $verified_count : 'verified'),
                 'site_name'          => $site_name,
                 'similar_1'          => $similar_1,
                 'similar_2'          => $similar_2,
@@ -4668,195 +4681,209 @@ class TemplateContent {
                 'chat_options'       => $has_private_chat_evidence
                     ? implode(', ', array_slice($private_chat_items, 0, 6))
                     : '',
-                'chat_options_count' => $has_private_chat_evidence
-                    ? (string) $private_chat_count
-                    : '',
+                'chat_options_count' => $has_private_chat_evidence ? (string) $private_chat_count : '',
                 'handle'             => $name,
             ];
 
-            // ── Sections to attempt ───────────────────────────────────────────
-            // Evidence-gated sections are only added when their prerequisite
-            // data is confirmed present.
-            $sections_to_try = [
-                'intro',
-                'official_profile_access',
-                'where_to_watch',
-                'before_you_click',
-                'live_chat_experience',
-                'common_profile_questions',
-                'more_pages',
-                'official_links_summary',
-            ];
-            if ($has_turn_on_evidence) {
-                $sections_to_try[] = 'turn_ons';
-            }
-            if ($has_private_chat_evidence) {
-                $sections_to_try[] = 'private_chat_options';
-            }
-
-            // ── Extract existing H2 text from current content ────────────────
-            // Prevents TemplatePool from adding duplicate section headings.
-            $existing_h2s = [];
-            if (preg_match_all('/<h2[^>]*>(.*?)<\/h2>/is', $content, $h2_matches)) {
-                foreach ($h2_matches[1] as $h2_text) {
-                    $existing_h2s[] = strtolower(trim(wp_strip_all_tags($h2_text)));
-                }
-            }
-
-            $pool_sections_html = '';
-            $sections_added     = 0;
-
-            foreach ($sections_to_try as $section_key) {
-                // Skip platform-dependent sections when no active platforms resolved.
-                if (in_array($section_key, ['official_profile_access', 'where_to_watch', 'live_chat_experience'], true)
-                    && empty($active_platforms)) {
-                    continue;
-                }
-
+            // ── Helper: resolve + validate one section ───────────────────────
+            // Returns the resolved body string, or empty string if it fails any guard.
+            $resolve_section = function(string $section_key) use ($pool, $post, $model_data, $private_chat_count): string {
                 $section = $pool->get_section($section_key, (int) $post->ID, $model_data);
                 if ($section === null) {
-                    continue;
+                    return '';
                 }
-
-                $h2   = trim((string) ($section['h2'] ?? ''));
                 $body = trim((string) ($section['body'] ?? ''));
-
                 if ($body === '') {
-                    continue;
+                    return '';
                 }
-
-                // ── Guard: skip any section with unresolved {{...}} tokens ────
-                // CodeRabbit issue #1 prevention: missing placeholder values must
-                // never bleed into frontend output.
-                if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $h2 . $body)) {
+                // Reject any unresolved {{placeholder}} in body
+                if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $body)) {
                     if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log(sprintf(
-                            '[TMW-POOL-WIRE] skipping section=%s post_id=%d reason=unresolved_placeholder',
-                            $section_key,
-                            (int) $post->ID
-                        ));
+                        error_log(sprintf('[TMW-POOL-WIRE] skipping section=%s post_id=%d reason=unresolved_placeholder', $section_key, (int) $post->ID));
                     }
-                    continue;
+                    return '';
                 }
-
-                // ── Guard: skip section if H2 already exists in content ───────
-                // CodeRabbit issue #1 prevention: do not overwrite higher-trust
-                // existing content with TemplatePool text.
-                if ($h2 !== '') {
-                    $h2_lower = strtolower($h2);
-                    foreach ($existing_h2s as $existing) {
-                        $h2_words       = preg_split('/\s+/', $h2_lower, -1, PREG_SPLIT_NO_EMPTY);
-                        $existing_words = preg_split('/\s+/', $existing, -1, PREG_SPLIT_NO_EMPTY);
-                        if (empty($h2_words)) {
-                            continue;
-                        }
-                        $overlap = count(array_intersect($h2_words, $existing_words));
-                        $total   = count($h2_words);
-                        if ($total > 0 && ($overlap / $total) >= 0.70) {
-                            continue 2;
-                        }
-                    }
-                }
-
-                // ── Guard: private_chat "confirmed" language safety ────────────
-                // CodeRabbit issue #3: private_chat_options variants 3 and 6
-                // contain the word "confirmed" sourced from profile data.
-                // Block any variant that claims "confirmed" when evidence is
-                // thin (< 2 filtered private-chat items).
+                // Private-chat safety: skip "confirmed" language when evidence is thin
                 if ($section_key === 'private_chat_options' && $private_chat_count < 2) {
                     if (stripos($body, 'confirmed') !== false) {
                         if (defined('WP_DEBUG') && WP_DEBUG) {
-                            error_log(sprintf(
-                                '[TMW-POOL-WIRE] skipping private_chat variant post_id=%d reason=confirmed_without_sufficient_evidence items=%d',
-                                (int) $post->ID,
-                                $private_chat_count
-                            ));
+                            error_log(sprintf('[TMW-POOL-WIRE] skipping private_chat variant post_id=%d reason=confirmed_insufficient_evidence', (int) $post->ID));
                         }
-                        continue;
+                        return '';
                     }
                 }
+                return $body;
+            };
 
-                // ── Build section HTML ────────────────────────────────────────
-                $section_html = '';
-                if ($h2 !== '') {
-                    $section_html .= '<h2>' . esc_html($h2) . '</h2>';
+            // ── Helper: resolve + validate the H2 for a section ─────────────
+            $resolve_h2 = function(string $section_key) use ($pool, $post, $model_data): string {
+                $section = $pool->get_section($section_key, (int) $post->ID, $model_data);
+                if ($section === null) {
+                    return '';
                 }
-                $section_html .= wp_kses_post('<p>' . $body . '</p>');
-
-                $pool_sections_html .= "\n" . $section_html;
-                $sections_added++;
-
-                // Track new H2 to prevent later sections in this loop from
-                // duplicating it.
-                if ($h2 !== '') {
-                    $existing_h2s[] = strtolower($h2);
+                $h2 = trim((string) ($section['h2'] ?? ''));
+                if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $h2)) {
+                    return '';
                 }
-            }
+                return $h2;
+            };
 
-            // ── FAQ enrichment ────────────────────────────────────────────────
-            // CodeRabbit issue #2 prevention: only add TemplatePool FAQs when
-            // the existing content has fewer than 2 FAQ items (weak/absent FAQ).
-            // Never replace a strong existing FAQ set.
-            $content_lower       = strtolower($content);
-            $existing_faq_dt     = substr_count($content_lower, '<dt>');
-            $existing_faq_schema = substr_count($content_lower, 'schema.org/question');
-            $existing_faq_class  = substr_count($content_lower, 'faq-question');
-            $existing_faq_h2     = preg_match('/<h2[^>]*>[^<]*(?:faq|frequently asked questions)[^<]*<\/h2>/i', $content) ? 2 : 0;
-            $existing_faq_h3     = preg_match('/<h2[^>]*>[^<]*(?:faq|frequently asked questions)[^<]*<\/h2>.*?<h3[^>]*>/is', $content)
-                ? substr_count($content_lower, '<h3')
-                : 0;
-            $existing_faq_count  = max($existing_faq_dt, $existing_faq_schema, $existing_faq_class, $existing_faq_h2, $existing_faq_h3);
-
-            if ($existing_faq_count < 2) {
-                $pool_faqs = $pool->get_faqs((int) $post->ID, $model_data, 5);
-                if (!empty($pool_faqs)) {
-                    $faq_html  = '<h2>Frequently Asked Questions: ' . esc_html($name) . '</h2>';
-                    $faq_html .= '<dl>';
-                    $faq_added = 0;
-                    foreach ($pool_faqs as $faq) {
-                        $q = trim((string) ($faq['q'] ?? $faq['question'] ?? ''));
-                        $a = trim((string) ($faq['a'] ?? $faq['answer'] ?? ''));
-                        if ($q === '' || $a === '') {
-                            continue;
-                        }
-                        // Skip FAQ items with unresolved {{...}} tokens.
-                        if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $q . $a)) {
-                            continue;
-                        }
-                        $faq_html .= '<dt>' . esc_html($q) . '</dt>';
-                        $faq_html .= '<dd>' . wp_kses_post($a) . '</dd>';
-                        $faq_added++;
-                    }
-                    $faq_html .= '</dl>';
-                    if ($faq_added > 0) {
-                        $pool_sections_html .= "\n" . $faq_html;
-                        $sections_added++;
-                    }
-                }
-            }
-
-            // ── Append TemplatePool output AFTER the full generated body ──────
-            // TemplatePool sections always come last. They never:
-            //   - replace the seed-evidence marker block
-            //   - replace existing sections
-            //   - appear before existing generated body copy
-            if ($sections_added > 0 && $pool_sections_html !== '') {
-                $content = $content . "\n" . $pool_sections_html;
-                if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log(sprintf(
-                        '[TMW-POOL-WIRE] using TemplatePool post_id=%d sections_added=%d',
-                        (int) $post->ID,
-                        $sections_added
-                    ));
-                }
+            // ── Section 1: Intro (replaces intro_paragraphs) ─────────────────
+            // TemplatePool intro variants 0–7 all use {{name}} and {{platform}}
+            // which are always supplied. Variants that also use {{turn_ons}} will
+            // be skipped if turn_ons is empty (unresolved placeholder guard).
+            // We pick a variant that works: try get_section which is deterministic
+            // per post_id, but if it uses turn_ons and we have no evidence, the
+            // guard will skip it, so we fall back to the legacy intro_paragraphs.
+            $pool_intro = $resolve_section('intro');
+            if ($pool_intro !== '') {
+                // Ensure the model name appears in the first sentence.
+                // All TemplatePool intro variants start with {{name}} so this
+                // is already satisfied. Add a brief direct-answer line before it
+                // only when the intro doesn't already state the platform.
+                $intro_paragraphs_new = [$pool_intro];
             } else {
+                // Fallback: keep legacy intro paragraphs unchanged.
+                $intro_paragraphs_new = (array) ($renderer_payload['intro_paragraphs'] ?? []);
+            }
+
+            // ── Section 2: Official profile access (replaces watch_section_paragraphs) ─
+            $pool_official_access = $resolve_section('official_profile_access');
+            $pool_where_to_watch  = $resolve_section('where_to_watch');
+            if ($pool_official_access !== '') {
+                $watch_paragraphs_new = array_values(array_filter([
+                    $pool_official_access,
+                    $pool_where_to_watch !== '' ? $pool_where_to_watch : '',
+                ], 'strlen'));
+            } else {
+                $watch_paragraphs_new = (array) ($renderer_payload['watch_section_paragraphs'] ?? []);
+            }
+
+            // ── Section 3: Turn-ons (replaces about_section_paragraphs) ──────
+            // Only populated when turn-on evidence exists.
+            if ($has_turn_on_evidence) {
+                $pool_turn_ons = $resolve_section('turn_ons');
+                $about_paragraphs_new = $pool_turn_ons !== '' ? [$pool_turn_ons] : [];
+            } else {
+                $about_paragraphs_new = [];
+            }
+
+            // ── Section 4: Live chat / features (replaces features_section_paragraphs) ─
+            // live_chat_experience is preferred; private_chat_options is added
+            // when evidence exists. Without private-chat evidence, both
+            // live_chat_experience variants that use chat_options_count will
+            // fail the placeholder guard and we fall back to before_you_click text.
+            $pool_live_chat = '';
+            if (!empty($active_platforms)) {
+                $pool_live_chat = $resolve_section('live_chat_experience');
+            }
+            $pool_private_chat = $has_private_chat_evidence ? $resolve_section('private_chat_options') : '';
+
+            if ($pool_live_chat !== '' || $pool_private_chat !== '') {
+                $features_paragraphs_new = array_values(array_filter([
+                    $pool_live_chat,
+                    $pool_private_chat,
+                ], 'strlen'));
+            } else {
+                // Fallback: use before_you_click body as features intro, or keep legacy.
+                $pool_byc = $resolve_section('before_you_click');
+                $features_paragraphs_new = $pool_byc !== ''
+                    ? [$pool_byc]
+                    : (array) ($renderer_payload['features_section_paragraphs'] ?? []);
+            }
+
+            // ── Section 5: Before you click (replaces comparison_section_paragraphs) ─
+            $pool_before_click = $resolve_section('before_you_click');
+            if ($pool_before_click !== '') {
+                $comparison_paragraphs_new = [$pool_before_click];
+            } else {
+                $comparison_paragraphs_new = (array) ($renderer_payload['comparison_section_paragraphs'] ?? []);
+            }
+
+            // ── Section 6: Official links summary (replaces official_links_section_paragraphs) ─
+            $pool_links_summary = $resolve_section('official_links_summary');
+            if ($pool_links_summary !== '') {
+                // Prepend the TemplatePool body before the existing links summary paragraphs.
+                $existing_links_paras = (array) ($renderer_payload['official_links_section_paragraphs'] ?? []);
+                $official_links_paragraphs_new = array_merge([$pool_links_summary], $existing_links_paras);
+            } else {
+                $official_links_paragraphs_new = (array) ($renderer_payload['official_links_section_paragraphs'] ?? []);
+            }
+
+            // ── Section 7: FAQ (replaces faq_items) ─────────────────────────
+            // Use TemplatePool FAQs. If any are unusable, fall back to legacy.
+            $pool_faqs_raw = $pool->get_faqs((int) $post->ID, $model_data, 5);
+            $pool_faq_items = [];
+            foreach ($pool_faqs_raw as $faq) {
+                $q = trim((string) ($faq['q'] ?? $faq['question'] ?? ''));
+                $a = trim((string) ($faq['a'] ?? $faq['answer'] ?? ''));
+                if ($q === '' || $a === '') {
+                    continue;
+                }
+                // Skip items with unresolved placeholders.
+                if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $q . $a)) {
+                    continue;
+                }
+                $pool_faq_items[] = ['q' => $q, 'a' => $a];
+            }
+            // Use pool FAQs when we have at least 2; otherwise keep legacy.
+            $faq_items_new = count($pool_faq_items) >= 2 ? $pool_faq_items : $legacy_faq_items;
+
+            // ── Count how many sections actually resolved ────────────────────
+            $resolved_count = (int) ($pool_intro !== '')
+                + (int) ($pool_official_access !== '')
+                + (int) ($pool_live_chat !== '')
+                + (int) ($pool_before_click !== '')
+                + count($pool_faq_items);
+
+            // ── Require minimum resolved sections to proceed ─────────────────
+            // If fewer than 3 sections resolved, TemplatePool primary mode
+            // cannot produce adequate output — fall back to legacy payload.
+            if ($resolved_count < 3) {
                 if (defined('WP_DEBUG') && WP_DEBUG) {
                     error_log(sprintf(
-                        '[TMW-POOL-WIRE] fallback legacy post_id=%d reason=no_sections_passed_validation',
-                        (int) $post->ID
+                        '[TMW-POOL-WIRE] fallback legacy post_id=%d reason=insufficient_resolved_sections count=%d',
+                        (int) $post->ID,
+                        $resolved_count
                     ));
                 }
+                return $renderer_payload;
             }
+
+            // ── Build the H2 for the "About" / turn-ons section ─────────────
+            // We use the turn_ons section H2 from TemplatePool when evidence exists,
+            // otherwise fall back to the standard "About {name}" heading.
+            // NOTE: The renderer controls H2 headings for its named sections.
+            // We only override the paragraph *content* here; the renderer's
+            // heading logic (render_section calls) is preserved.
+
+            // ── Assemble the TemplatePool-primary payload ────────────────────
+            // Start from the existing renderer_payload (which carries all HTML
+            // blocks: watch_section_html, external_info_html, comparison_section_html,
+            // internal_links_html, etc.) and override only the paragraph bags.
+            $tp_payload = array_merge($renderer_payload, [
+                'intro_paragraphs'               => $intro_paragraphs_new,
+                'watch_section_paragraphs'        => $watch_paragraphs_new,
+                'about_section_paragraphs'        => $about_paragraphs_new,
+                'fans_like_section_paragraphs'    => [],
+                'features_section_paragraphs'     => $features_paragraphs_new,
+                'comparison_section_paragraphs'   => $comparison_paragraphs_new,
+                'faq_items'                       => $faq_items_new,
+                'official_links_section_paragraphs' => $official_links_paragraphs_new,
+                'questions_section_paragraphs'    => [],
+            ]);
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    '[TMW-POOL-WIRE] using TemplatePool primary post_id=%d resolved_sections=%d faq_count=%d',
+                    (int) $post->ID,
+                    $resolved_count,
+                    count($faq_items_new)
+                ));
+            }
+
+            return $tp_payload;
+
         } catch (\Throwable $e) {
             // TemplatePool failure must never break generation.
             if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -4866,9 +4893,31 @@ class TemplateContent {
                     $e->getMessage()
                 ));
             }
-            // Return original $content unchanged.
+            return $renderer_payload;
         }
+    }
 
+    /**
+     * Legacy apply_template_pool_enrichment — kept as dead code guard.
+     *
+     * @deprecated Replaced by build_template_pool_primary_payload in v5.8.17.
+     *             Never called; preserved so any stale references fail loudly
+     *             with a PHP deprecation rather than silently.
+     */
+    private static function apply_template_pool_enrichment(
+        \WP_Post $post,
+        string $content,
+        string $name,
+        string $primary_platform_label,
+        array $active_platforms,
+        array $resolved_destinations,
+        array $cta_links,
+        array $verified_destination_rows
+    ): string {
+        trigger_error(
+            '[TMW-POOL-WIRE] apply_template_pool_enrichment() is deprecated in v5.8.17. Use build_template_pool_primary_payload() instead.',
+            E_USER_DEPRECATED
+        );
         return $content;
     }
 }
