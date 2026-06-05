@@ -656,11 +656,37 @@ class TemplateContent {
             min(3, $signals['editor_seed_facts']);
 
         $confidence = ($signals['platform_links'] * 28.0) + ($signals['tags'] * 10.0) + ($signals['additional_keywords'] * 4.0) + ($signals['comparison_copy'] * 8.0) + ($signals['editor_seed_facts'] * 9.0);
-        $is_sufficient =
-            $signals['platform_links'] >= 1
+        // v5.8.20: two-tier gate.
+        //
+        // Tier A (strict) — original threshold, unchanged.
+        //   Requires specific_fact_count >= 4 and the OR-condition.
+        //   Covers models with tags, comparison copy, or seed facts.
+        //
+        // Tier B (active-platform relaxed) — new path.
+        //   Allows TemplatePool when a model has a confirmed active live platform
+        //   (platform_links >= 1, active_platforms >= 1) but only 3 specific facts
+        //   (e.g. 1 platform link + 1 active platform + 1 comparison_copy = 3).
+        //   Strictly requires the live-platform evidence; never triggers for
+        //   models with platform_links=0 or active_platforms=0.
+        $is_sufficient_strict = $signals['platform_links'] >= 1
             && $signals['active_platforms'] >= 1
             && $specific_fact_count >= 4
             && ($signals['tags'] >= 1 || $signals['comparison_copy'] >= 1 || $signals['active_platforms'] >= 2);
+
+        $is_sufficient_active_platform = $signals['platform_links'] >= 1
+            && $signals['active_platforms'] >= 1
+            && $specific_fact_count >= 3;
+
+        $is_sufficient = $is_sufficient_strict || $is_sufficient_active_platform;
+
+        // v5.8.19 diagnostic: log the relaxed gate path when it is the deciding factor.
+        if (defined('WP_DEBUG') && WP_DEBUG && !$is_sufficient_strict && $is_sufficient_active_platform) {
+            error_log(sprintf(
+                '[TMW-POOL-GATE] relaxed_active_platform_gate post_id=%d specific_fact_count=%d',
+                (int) $post->ID,
+                $specific_fact_count
+            ));
+        }
 
         return [
             'is_sufficient' => $is_sufficient,
