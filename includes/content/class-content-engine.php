@@ -1387,6 +1387,8 @@ class ContentEngine {
             $focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post($post, $focus_kw);
 
             if ($post->post_type === 'model') {
+                // v5.8.16: pass manual-generate intent into build_model via pack key.
+                if ($is_manual_model_request) { $keyword_pack['_manual_generate'] = true; }
                 $tpl = \TMWSEO\Engine\Content\TemplateContent::build_model($post, $keyword_pack);
                 $generated_content = (string)$tpl['content'];
                 $seo_title = TitleFixer::shorten((string)$tpl['seo_title'], 70);
