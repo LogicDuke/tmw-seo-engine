@@ -300,6 +300,19 @@ class TemplateContent {
         // built from TemplatePool sections. The HTML blocks (CTA buttons,
         // affiliate links, external_info_html) are kept unchanged from
         // $support_payload so no affiliate routing is affected.
+
+        // v5.8.18: guard_check log — fires on every manual Generate regardless
+        // of whether TemplatePool runs. Confirms _manual_generate flag arrives
+        // and reports the data-gate state for diagnostics.
+        if (defined('WP_DEBUG') && WP_DEBUG && !empty($pack['_manual_generate'])) {
+            error_log(sprintf(
+                '[TMW-POOL-WIRE] guard_check post_id=%d manual=%d sufficient=%d',
+                (int) $post->ID,
+                (int) !empty($pack['_manual_generate']),
+                (int) !empty($model_data_gate['is_sufficient'])
+            ));
+        }
+
         if (!empty($pack['_manual_generate']) && !empty($model_data_gate['is_sufficient'])) {
             $renderer_payload = self::build_template_pool_primary_payload(
                 $post,

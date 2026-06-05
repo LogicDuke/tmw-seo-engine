@@ -153,11 +153,11 @@ class PlatformProfiles {
             if ($url === '') continue;
 
             $wpdb->insert($table, [
-                'model_id' => $model_id,
-                'platform' => $key,
-                'profile_url' => $url,
-                'is_primary' => ($primary === $key) ? 1 : 0,
-                'updated_at' => current_time('mysql'),
+                'model_id'    => $model_id,
+                'platform_key' => $key,
+                'profile_url'  => $url,
+                'is_primary'   => ($primary === $key) ? 1 : 0,
+                'updated_at'   => current_time('mysql'),
             ]);
         }
     }
@@ -165,27 +165,45 @@ class PlatformProfiles {
     public static function get_links(int $model_id): array {
         global $wpdb;
         $table = $wpdb->prefix . 'tmw_platform_profiles';
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT platform, profile_url, is_primary FROM {$table} WHERE model_id=%d ORDER BY is_primary DESC, platform ASC", $model_id), ARRAY_A);
+
+        // v5.8.18: SELECT uses platform_key (actual schema column; was wrongly 'platform').
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT platform_key, profile_url, is_primary FROM {$table} WHERE model_id=%d ORDER BY is_primary DESC, platform_key ASC",
+                $model_id
+            ),
+            ARRAY_A
+        );
+
+        // v5.8.18: WP_DEBUG schema detection log — confirms live column set.
+        if (defined('WP_DEBUG') && WP_DEBUG && is_array($rows) && !empty($rows[0])) {
+            error_log('[TMW-PLATFORM-SCHEMA] detected columns=' . implode(',', array_keys((array) $rows[0])));
+        }
+
         if (!is_array($rows)) return [];
 
-        $primary = (string) get_post_meta($model_id, '_tmwseo_platform_primary', true);
+        $primary  = (string) get_post_meta($model_id, '_tmwseo_platform_primary', true);
         $enriched = [];
         foreach ($rows as $row) {
-            $platform = (string) ($row['platform'] ?? '');
-            $profile_url = (string) ($row['profile_url'] ?? '');
+            // Read from platform_key column; expose as 'platform' in the returned
+            // array so all callers keep receiving the same key they always have.
+            $platform    = (string) ($row['platform_key'] ?? '');
+            $profile_url = (string) ($row['profile_url']  ?? '');
             if ($platform === '' || $profile_url === '') {
                 continue;
             }
 
-            $username = self::get_username($model_id, $platform);
+            $username      = self::get_username($model_id, $platform);
             $affiliate_url = $username !== '' ? AffiliateLinkBuilder::build_affiliate_url($platform, $username) : '';
 
             $enriched[] = [
-                'platform' => $platform,
-                'profile_url' => $profile_url,
+                // Return key 'platform' (not 'platform_key') — backward-compatible
+                // with every caller that reads $row['platform'].
+                'platform'      => $platform,
+                'profile_url'   => $profile_url,
                 'affiliate_url' => $affiliate_url,
-                'go_url' => $username !== '' ? AffiliateLinkBuilder::go_url($platform, $username) : '',
-                'is_primary' => !empty($row['is_primary']) ? 1 : (($primary === $platform) ? 1 : 0),
+                'go_url'        => $username !== '' ? AffiliateLinkBuilder::go_url($platform, $username) : '',
+                'is_primary'    => !empty($row['is_primary']) ? 1 : (($primary === $platform) ? 1 : 0),
             ];
         }
 
