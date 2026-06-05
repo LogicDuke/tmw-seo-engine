@@ -250,17 +250,20 @@ class TemplateContent {
         }
         $faq_items = self::build_seed_faq_items($editor_seed, $faqs_tpl, $name);
 
-        $template_pool_payload = self::build_template_pool_renderer_payload(
-            $post,
-            $name,
-            $active_platforms,
-            $primary_platform_label,
-            $resolved_destinations,
-            $cta_links,
-            $link_evidence_summary,
-            $editor_seed,
-            $tags
-        );
+        $template_pool_payload = ['is_available' => false, 'reason' => 'not_manual_generate', 'payload' => []];
+        if (self::is_manual_model_generate_pack($pack)) {
+            $template_pool_payload = self::build_template_pool_renderer_payload(
+                $post,
+                $name,
+                $active_platforms,
+                $primary_platform_label,
+                $resolved_destinations,
+                $cta_links,
+                $link_evidence_summary,
+                $editor_seed,
+                $tags
+            );
+        }
 
         $renderer_payload = array_merge($support_payload, [
             'focus_keyword' => $name,
@@ -367,6 +370,38 @@ class TemplateContent {
             'seo_title' => $seo_title,
             'meta_description' => $meta_description,
         ];
+    }
+
+    /**
+     * Detect explicit manual model Generate intent carried in the keyword pack.
+     *
+     * TemplateContent::build_model() can be called by previews or future
+     * non-manual jobs, so TemplatePool must not run unless a trusted upstream
+     * manual marker is present.
+     *
+     * @param array<string,mixed> $pack
+     */
+    private static function is_manual_model_generate_pack(array $pack): bool {
+        if (!empty($pack['manual_model_generate']) || !empty($pack['explicit_generate'])) {
+            return true;
+        }
+
+        $payload = is_array($pack['payload'] ?? null) ? (array) $pack['payload'] : [];
+        if (!empty($payload['manual_model_generate']) || !empty($payload['explicit_generate'])) {
+            return true;
+        }
+
+        $source = sanitize_key((string) ($pack['generation_source'] ?? $pack['source'] ?? $payload['generation_source'] ?? $payload['source'] ?? ''));
+        if (in_array($source, ['manual', 'manual_model_generate', 'editor_metabox'], true)) {
+            return true;
+        }
+
+        $trigger = sanitize_key((string) ($pack['trigger'] ?? $payload['trigger'] ?? ''));
+        if ($trigger === 'manual' && (!empty($pack['model_generate']) || !empty($payload['model_generate']) || !empty($payload['manual_model_generate']))) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

@@ -1262,6 +1262,15 @@ class ContentEngine {
                 $keyword_pack = TemplateContent::hydrate_model_keyword_pack($post, $keyword_pack);
             }
             if ($is_manual_model_request) {
+                $keyword_pack['manual_model_generate'] = 1;
+                $keyword_pack['explicit_generate'] = !empty($payload['explicit_generate']) ? 1 : 0;
+                $keyword_pack['generation_source'] = 'manual_model_generate';
+                $keyword_pack['payload'] = [
+                    'manual_model_generate' => 1,
+                    'explicit_generate' => !empty($payload['explicit_generate']) ? 1 : 0,
+                    'trigger' => 'manual',
+                    'generated_via' => sanitize_key((string)($payload['generated_via'] ?? '')),
+                ];
                 $keyword_pack = self::bootstrap_manual_model_generate($post, $keyword_pack);
             }
             AssistedDraftEnrichmentService::enrich_rank_math_keywords($post, $keyword_pack);
