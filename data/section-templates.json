@@ -1,0 +1,452 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "sections": 10,
+    "variants_per_section": 8,
+    "source": "claude-compatible-template-pool-foundation"
+  },
+  "sections": {
+    "intro": {
+      "label": "Intro",
+      "variants": [
+        {
+          "id": "in_0",
+          "body": "{{name}} is listed here with confirmed {{platform}} access, quick profile context, and practical pointers for choosing the right live room from {{site_name}}."
+        },
+        {
+          "id": "in_1",
+          "body": "Use this profile as a fast starting point for {{name}}, including the current {{platform}} room, available chat options, and related model suggestions."
+        },
+        {
+          "id": "in_2",
+          "body": "This page keeps the essentials for {{name}} in one place: confirmed platform links, session cues, and comparable performers to check next."
+        },
+        {
+          "id": "in_3",
+          "body": "Before opening a live room for {{name}}, review the verified platform details, interest notes, and similar model paths collected for easier browsing."
+        },
+        {
+          "id": "in_4",
+          "body": "{{name}} can be reviewed through the confirmed {{platform}} listing below, with supporting details about chat style, links, and discovery options."
+        },
+        {
+          "id": "in_5",
+          "body": "Start here for a concise {{name}} overview that highlights the active {{platform}} presence, useful session signals, and next-step browsing choices."
+        },
+        {
+          "id": "in_6",
+          "body": "The {{name}} profile summary focuses on verified access, platform context, and practical cues so visitors can decide where to begin."
+        },
+        {
+          "id": "in_7",
+          "body": "This {{site_name}} entry organizes {{name}} details around confirmed rooms, profile signals, and safer first-click decisions."
+        }
+      ]
+    },
+    "turn_ons": {
+      "label": "Turn Ons",
+      "variants": [
+        {
+          "id": "to_0",
+          "h2": "Turn Ons of {{name}} on {{platform}}",
+          "body": "{{name}}'s profile notes highlight {{turn_ons}} as session interests, giving visitors a quick sense of the tone to expect before opening the live room."
+        },
+        {
+          "id": "to_1",
+          "h2": "What {{name}} Likes During Live Sessions",
+          "body": "For {{name}}, the clearest interest signals include {{turn_ons}}, which can help match the room style with the kind of interaction a visitor is seeking."
+        },
+        {
+          "id": "to_2",
+          "h2": "{{name}} Turn Ons and Room Cues",
+          "body": "The listed turn ons for {{name}} point toward {{turn_ons}}, so it is worth checking the current room mood and profile notes before starting a chat."
+        },
+        {
+          "id": "to_3",
+          "h2": "Session Interests for {{name}}",
+          "body": "{{name}} appears best matched with viewers interested in {{turn_ons}}, especially when those cues align with the active {{platform}} room description."
+        },
+        {
+          "id": "to_4",
+          "h2": "How {{name}} Frames Her Interests",
+          "body": "The useful profile shorthand for {{name}} is {{turn_ons}}, which gives a practical preview without replacing the latest live room details."
+        },
+        {
+          "id": "to_5",
+          "h2": "{{name}} Interaction Signals",
+          "body": "Visitors comparing rooms can use {{turn_ons}} as the main interaction signal for {{name}} before deciding whether {{platform}} is the best first stop."
+        },
+        {
+          "id": "to_6",
+          "h2": "Turn Ons Listed for {{name}}",
+          "body": "The turn ons attached to {{name}} emphasize {{turn_ons}}, which may be helpful when choosing between public chat, private options, or another available link."
+        },
+        {
+          "id": "to_7",
+          "h2": "{{name}} Live Chat Preferences",
+          "body": "{{name}}'s live chat preferences are summarized around {{turn_ons}}, giving a quick pre-click reference for anyone browsing from {{site_name}}."
+        }
+      ]
+    },
+    "chat_options": {
+      "label": "Chat Options",
+      "variants": [
+        {
+          "id": "co_0",
+          "h2": "Chat Options Available for {{name}}",
+          "body": "Current profile data lists {{chat_options_count}} chat options for {{name}}, including {{chat_options}}, so visitors can compare the likely room format before choosing a link."
+        },
+        {
+          "id": "co_1",
+          "h2": "How to Chat With {{name}}",
+          "body": "The available chat options for {{name}} include {{chat_options}}, which helps separate casual browsing from more focused session choices."
+        },
+        {
+          "id": "co_2",
+          "h2": "{{name}} Room Formats",
+          "body": "{{name}} is associated with {{chat_options_count}} room formats: {{chat_options}}. Check the live page for the latest availability before starting."
+        },
+        {
+          "id": "co_3",
+          "h2": "Ways to Start With {{name}}",
+          "body": "Visitors can use {{chat_options}} as a guide to the available {{name}} session paths, then confirm the final option inside the {{platform}} room."
+        },
+        {
+          "id": "co_4",
+          "h2": "{{name}} Live Chat Choices",
+          "body": "The practical chat choices for {{name}} are summarized as {{chat_options}}, with {{chat_options_count}} listed options available in the profile data."
+        },
+        {
+          "id": "co_5",
+          "h2": "Choosing a {{name}} Chat Mode",
+          "body": "If you are deciding how to approach {{name}}, start by reviewing {{chat_options}} and then use the confirmed link to verify live availability."
+        },
+        {
+          "id": "co_6",
+          "h2": "{{name}} Session Options",
+          "body": "{{name}} currently has {{chat_options_count}} tracked session options, led by {{chat_options}}, which can make the first-click decision more straightforward."
+        },
+        {
+          "id": "co_7",
+          "h2": "Chat Paths for {{name}}",
+          "body": "The main chat paths for {{name}} are {{chat_options}}, giving visitors a practical sense of what to look for once the room opens."
+        }
+      ]
+    },
+    "platforms": {
+      "label": "Platforms",
+      "variants": [
+        {
+          "id": "pl_0",
+          "h2": "Where to Find {{name}} Online",
+          "body": "{{name}} is tracked across {{platform_count}} platform entry points, including {{platform_list}}, with {{platform}} shown as the primary room for this profile."
+        },
+        {
+          "id": "pl_1",
+          "h2": "{{name}} Platform Availability",
+          "body": "The platform summary for {{name}} currently includes {{platform_list}}, giving visitors a short list to compare before opening the confirmed room."
+        },
+        {
+          "id": "pl_2",
+          "h2": "Primary Platform for {{name}}",
+          "body": "{{platform}} is the primary platform noted for {{name}}, while {{platform_list}} provides the broader tracked platform context."
+        },
+        {
+          "id": "pl_3",
+          "h2": "{{name}} Live Platform List",
+          "body": "There are {{platform_count}} platform references connected to {{name}}: {{platform_list}}. Use the verified link area to choose the safest route."
+        },
+        {
+          "id": "pl_4",
+          "h2": "Checking {{name}} on {{platform}}",
+          "body": "For a direct start, check {{name}} on {{platform}} first, then compare any other listed options from {{platform_list}} if needed."
+        },
+        {
+          "id": "pl_5",
+          "h2": "{{name}} Platform Comparison",
+          "body": "The platform comparison for {{name}} is simple: {{platform}} is highlighted, with {{platform_list}} retained as the wider discovery set."
+        },
+        {
+          "id": "pl_6",
+          "h2": "Live Rooms for {{name}}",
+          "body": "{{name}} has {{platform_count}} tracked room sources in this profile, and the current platform list is {{platform_list}}."
+        },
+        {
+          "id": "pl_7",
+          "h2": "Best Starting Platform for {{name}}",
+          "body": "When choosing a starting point for {{name}}, use {{platform}} as the first platform reference and keep {{platform_list}} in mind for comparison."
+        }
+      ]
+    },
+    "verified_links": {
+      "label": "Verified Links",
+      "variants": [
+        {
+          "id": "vl_0",
+          "h2": "Verified Links for {{name}}",
+          "body": "This profile tracks {{link_count}} link references for {{name}}, with the goal of sending visitors toward confirmed platform rooms instead of guesswork."
+        },
+        {
+          "id": "vl_1",
+          "h2": "How {{name}} Links Are Organized",
+          "body": "The {{name}} link set is organized around {{link_count}} tracked entries so the primary {{platform}} option is easier to identify."
+        },
+        {
+          "id": "vl_2",
+          "h2": "{{name}} Link Check Summary",
+          "body": "For {{name}}, {{link_count}} links are available in the profile data, with confirmed rooms prioritized over unsupported external paths."
+        },
+        {
+          "id": "vl_3",
+          "h2": "Opening {{name}} Safely",
+          "body": "Before opening a room for {{name}}, use the verified link list and treat {{platform}} as the main reference point when available."
+        },
+        {
+          "id": "vl_4",
+          "h2": "{{name}} Confirmed Room Access",
+          "body": "Confirmed access for {{name}} is built around the tracked link set, which currently contains {{link_count}} entries connected to {{platform_list}}."
+        },
+        {
+          "id": "vl_5",
+          "h2": "Link Notes for {{name}}",
+          "body": "The link notes for {{name}} help reduce uncertainty by grouping {{link_count}} available references around the most relevant platform choices."
+        },
+        {
+          "id": "vl_6",
+          "h2": "{{name}} Room Link Guidance",
+          "body": "Use the room link guidance for {{name}} to start with the confirmed {{platform}} entry and avoid unverified lookalike paths."
+        },
+        {
+          "id": "vl_7",
+          "h2": "Finding the Right {{name}} Link",
+          "body": "The quickest route for {{name}} is usually the confirmed platform link, backed by {{link_count}} tracked references in this profile."
+        }
+      ]
+    },
+    "similar_models": {
+      "label": "Similar Models",
+      "variants": [
+        {
+          "id": "sm_0",
+          "h2": "Models Similar to {{name}}",
+          "body": "If {{name}} is offline or not the right match, compare nearby picks such as {{similar_1}} and {{similar_2}} before leaving {{site_name}}."
+        },
+        {
+          "id": "sm_1",
+          "h2": "Who to Check After {{name}}",
+          "body": "Visitors who like {{name}} may also want to review {{similar_1}} or {{similar_2}}, especially when comparing style and platform availability."
+        },
+        {
+          "id": "sm_2",
+          "h2": "Alternatives to {{name}}",
+          "body": "Good alternatives to {{name}} include {{similar_1}} and {{similar_2}}, giving you fallback options when the primary room is unavailable."
+        },
+        {
+          "id": "sm_3",
+          "h2": "Related Profiles for {{name}}",
+          "body": "The related profile path for {{name}} can include {{similar_1}} and {{similar_2}}, which helps keep browsing focused on comparable live rooms."
+        },
+        {
+          "id": "sm_4",
+          "h2": "Similar Live Models to {{name}}",
+          "body": "For a similar live model search, start with {{similar_1}} and {{similar_2}} after reviewing the main {{name}} room."
+        },
+        {
+          "id": "sm_5",
+          "h2": "More Picks Like {{name}}",
+          "body": "More picks like {{name}} may include {{similar_1}} and {{similar_2}}, depending on who is online and which platform rooms are active."
+        },
+        {
+          "id": "sm_6",
+          "h2": "Backup Choices for {{name}}",
+          "body": "When {{name}} is not available, {{similar_1}} and {{similar_2}} can act as backup choices from the same discovery flow."
+        },
+        {
+          "id": "sm_7",
+          "h2": "Compare {{name}} With Similar Profiles",
+          "body": "Compare {{name}} with {{similar_1}} and {{similar_2}} to decide whether the same style, platform, or chat options are a better fit."
+        }
+      ]
+    },
+    "profile_notes": {
+      "label": "Profile Notes",
+      "variants": [
+        {
+          "id": "pn_0",
+          "h2": "Profile Notes for {{name}}",
+          "body": "The most useful profile notes for {{name}} combine the handle {{handle}}, the primary platform {{platform}}, and the tracked interests listed on this page."
+        },
+        {
+          "id": "pn_1",
+          "h2": "{{name}} Profile Context",
+          "body": "{{name}} is summarized with handle {{handle}}, platform context from {{platform_list}}, and practical browsing details for first-time visitors."
+        },
+        {
+          "id": "pn_2",
+          "h2": "What to Know About {{name}}",
+          "body": "Before choosing a room, note that {{name}} is tied to {{handle}} and primarily presented through {{platform}} in this profile."
+        },
+        {
+          "id": "pn_3",
+          "h2": "{{name}} Quick Profile Snapshot",
+          "body": "The quick snapshot for {{name}} centers on {{handle}}, {{platform}}, and the listed chat cues that help visitors choose a starting point."
+        },
+        {
+          "id": "pn_4",
+          "h2": "Reading the {{name}} Profile",
+          "body": "Read the {{name}} profile as a compact guide to {{handle}}, current platform options, and the interaction details available before clicking through."
+        },
+        {
+          "id": "pn_5",
+          "h2": "{{name}} Handle and Details",
+          "body": "The handle {{handle}} is the main identifier attached to {{name}}, with {{platform}} and {{platform_list}} providing platform context."
+        },
+        {
+          "id": "pn_6",
+          "h2": "{{name}} Profile Highlights",
+          "body": "Profile highlights for {{name}} include {{handle}}, {{chat_options}}, and the confirmed platform routing shown elsewhere on the page."
+        },
+        {
+          "id": "pn_7",
+          "h2": "{{name}} At a Glance",
+          "body": "At a glance, {{name}} is represented by {{handle}}, associated with {{platform}}, and supported by the tracked details in this profile."
+        }
+      ]
+    },
+    "first_visit": {
+      "label": "First Visit",
+      "variants": [
+        {
+          "id": "fv_0",
+          "h2": "First Visit Tips for {{name}}",
+          "body": "On a first visit to {{name}}, open the confirmed {{platform}} room, review the live status, and compare {{chat_options}} before committing to a session."
+        },
+        {
+          "id": "fv_1",
+          "h2": "How to Start With {{name}}",
+          "body": "Start with {{name}} by checking the primary {{platform}} link, then use {{turn_ons}} and {{chat_options}} as context for the room."
+        },
+        {
+          "id": "fv_2",
+          "h2": "Before You Open {{name}}",
+          "body": "Before opening {{name}}, confirm that the room matches {{platform}}, scan the available options, and avoid unsupported links."
+        },
+        {
+          "id": "fv_3",
+          "h2": "{{name}} First-Click Guide",
+          "body": "The first-click guide for {{name}} is simple: use the confirmed room, check live availability, and keep related profiles in reserve."
+        },
+        {
+          "id": "fv_4",
+          "h2": "Starting a Session With {{name}}",
+          "body": "When starting a session with {{name}}, use {{platform}} first and verify whether {{chat_options}} are currently available in the room."
+        },
+        {
+          "id": "fv_5",
+          "h2": "New Visitor Notes for {{name}}",
+          "body": "New visitors should use {{site_name}} as a profile reference for {{name}}, then confirm the room details directly on {{platform}}."
+        },
+        {
+          "id": "fv_6",
+          "h2": "Best First Step for {{name}}",
+          "body": "The best first step for {{name}} is to open the verified {{platform}} entry and compare the current room with the profile notes."
+        },
+        {
+          "id": "fv_7",
+          "h2": "{{name}} First Room Check",
+          "body": "For a first room check, review {{name}} on {{platform}}, confirm the handle {{handle}}, and decide whether the listed options match your intent."
+        }
+      ]
+    },
+    "trust_safety": {
+      "label": "Trust and Safety",
+      "variants": [
+        {
+          "id": "ts_0",
+          "h2": "Trust Notes for {{name}}",
+          "body": "Trust checks for {{name}} should focus on confirmed platform routing, the active {{platform}} room, and avoiding links that do not match the profile context."
+        },
+        {
+          "id": "ts_1",
+          "h2": "Safer Browsing for {{name}}",
+          "body": "For safer browsing, use the verified {{name}} link path, check that {{handle}} matches the room, and avoid unfamiliar redirects."
+        },
+        {
+          "id": "ts_2",
+          "h2": "{{name}} Link Safety Basics",
+          "body": "The safety basics for {{name}} are to start from {{site_name}}, open the confirmed {{platform}} room, and keep unsupported lookalike links out of the flow."
+        },
+        {
+          "id": "ts_3",
+          "h2": "How to Verify {{name}}",
+          "body": "Verify {{name}} by comparing the profile handle {{handle}}, platform label {{platform}}, and current live room details before interacting."
+        },
+        {
+          "id": "ts_4",
+          "h2": "{{name}} Room Confidence Checks",
+          "body": "Confidence checks for {{name}} include the platform name, the handle {{handle}}, and whether the room matches the listed profile information."
+        },
+        {
+          "id": "ts_5",
+          "h2": "Avoiding Wrong Links for {{name}}",
+          "body": "Avoid wrong links for {{name}} by using confirmed routes and treating unexpected domains or mismatched handles as a reason to stop."
+        },
+        {
+          "id": "ts_6",
+          "h2": "{{name}} Verified Access Notes",
+          "body": "Verified access notes for {{name}} are centered on {{platform}}, {{handle}}, and the link grouping maintained for this profile."
+        },
+        {
+          "id": "ts_7",
+          "h2": "Safe Start for {{name}}",
+          "body": "A safe start for {{name}} means opening the confirmed room, checking the active profile details, and comparing the result with {{site_name}} notes."
+        }
+      ]
+    },
+    "next_steps": {
+      "label": "Next Steps",
+      "variants": [
+        {
+          "id": "ns_0",
+          "h2": "Next Steps for {{name}}",
+          "body": "After reviewing {{name}}, open the confirmed {{platform}} room, compare {{chat_options}}, or check similar profiles such as {{similar_1}} and {{similar_2}}."
+        },
+        {
+          "id": "ns_1",
+          "h2": "What to Do After Viewing {{name}}",
+          "body": "After viewing {{name}}, decide whether the {{platform}} room is active, whether {{turn_ons}} match your interest, and whether a similar profile is worth opening."
+        },
+        {
+          "id": "ns_2",
+          "h2": "Continue From {{name}}",
+          "body": "Continue from {{name}} by checking the verified room first, then using {{platform_list}} and similar model suggestions for backup options."
+        },
+        {
+          "id": "ns_3",
+          "h2": "Your {{name}} Decision Path",
+          "body": "Your decision path for {{name}} can be: confirm the room, scan the chat options, compare alternatives, and return to {{site_name}} if the fit is not right."
+        },
+        {
+          "id": "ns_4",
+          "h2": "Where to Go Next With {{name}}",
+          "body": "Where you go next with {{name}} depends on live availability, the {{platform}} room details, and whether {{similar_1}} or {{similar_2}} looks closer to your preference."
+        },
+        {
+          "id": "ns_5",
+          "h2": "{{name}} Browsing Wrap-Up",
+          "body": "Wrap up the {{name}} review by choosing the confirmed link, saving comparable profiles, and checking the live room details before interacting."
+        },
+        {
+          "id": "ns_6",
+          "h2": "Final Check Before Opening {{name}}",
+          "body": "Before opening {{name}}, make a final check of {{platform}}, {{handle}}, and the listed session cues so the first click is intentional."
+        },
+        {
+          "id": "ns_7",
+          "h2": "{{name}} Quick Action Plan",
+          "body": "The quick action plan for {{name}} is to use the verified platform room, compare the current options, and keep similar models ready if the room is offline."
+        }
+      ]
+    }
+  }
+}

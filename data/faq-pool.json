@@ -1,0 +1,286 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "total_questions": 50,
+    "buckets": 5,
+    "questions_per_bucket": 10,
+    "source": "claude-compatible-template-pool-foundation"
+  },
+  "buckets": {
+    "platform_access": {
+      "label": "Platform Access",
+      "questions": [
+        {
+          "id": "pa_01",
+          "q": "Which link should I open first for {{name}}?",
+          "a": "Start with the confirmed {{platform}} room listed on this page, then compare any other tracked options only if the primary room is unavailable."
+        },
+        {
+          "id": "pa_02",
+          "q": "Where is {{name}} listed online?",
+          "a": "{{name}} is tracked with {{platform}} as the primary platform and {{platform_list}} as the broader platform context."
+        },
+        {
+          "id": "pa_03",
+          "q": "Is {{platform}} the main room for {{name}}?",
+          "a": "Yes, {{platform}} is treated as the main room reference for {{name}} in this profile when the link is available."
+        },
+        {
+          "id": "pa_04",
+          "q": "How many platforms are listed for {{name}}?",
+          "a": "This profile currently references {{platform_count}} platform options for {{name}}, including {{platform_list}}."
+        },
+        {
+          "id": "pa_05",
+          "q": "Can I compare {{name}} across platforms?",
+          "a": "Use {{platform_list}} to compare platform context, but start with the confirmed {{platform}} room for the cleanest first click."
+        },
+        {
+          "id": "pa_06",
+          "q": "What if the {{name}} room is offline?",
+          "a": "If {{name}} is offline, check the remaining listed platform context or compare similar profiles such as {{similar_1}} and {{similar_2}}."
+        },
+        {
+          "id": "pa_07",
+          "q": "Does {{site_name}} host the {{name}} live room?",
+          "a": "{{site_name}} organizes the profile and link guidance; the live room itself should open on the confirmed platform such as {{platform}}."
+        },
+        {
+          "id": "pa_08",
+          "q": "Should I use an unlisted link for {{name}}?",
+          "a": "No. Use the confirmed links shown for {{name}} and avoid unlisted paths that do not match {{platform}} or the profile handle."
+        },
+        {
+          "id": "pa_09",
+          "q": "How do I know I opened the right {{name}} page?",
+          "a": "Check that the platform is {{platform}} and the profile details match {{handle}} or the other identifiers shown on this page."
+        },
+        {
+          "id": "pa_10",
+          "q": "What is the fastest way to reach {{name}}?",
+          "a": "The fastest route is the confirmed {{platform}} link, followed by a quick room check to make sure {{name}} is currently available."
+        }
+      ]
+    },
+    "profile_details": {
+      "label": "Profile Details",
+      "questions": [
+        {
+          "id": "pd_01",
+          "q": "What should I know about {{name}} before visiting?",
+          "a": "Review {{name}}'s platform, handle {{handle}}, chat options, and turn ons before opening the live room."
+        },
+        {
+          "id": "pd_02",
+          "q": "What is {{name}}'s handle?",
+          "a": "The handle currently listed for {{name}} is {{handle}}, which can help verify the correct room."
+        },
+        {
+          "id": "pd_03",
+          "q": "What turn ons are listed for {{name}}?",
+          "a": "The profile notes for {{name}} highlight {{turn_ons}} as the main turn-on context."
+        },
+        {
+          "id": "pd_04",
+          "q": "What chat options are associated with {{name}}?",
+          "a": "{{name}} is associated with {{chat_options_count}} chat options, including {{chat_options}}."
+        },
+        {
+          "id": "pd_05",
+          "q": "Is {{name}} a good fit for my first visit?",
+          "a": "{{name}} may be a good fit if {{turn_ons}} and {{chat_options}} match the type of room you want to open."
+        },
+        {
+          "id": "pd_06",
+          "q": "Why does {{name}} have a profile here?",
+          "a": "This profile gives visitors a structured way to review {{name}}, the primary {{platform}} link, and related browsing choices."
+        },
+        {
+          "id": "pd_07",
+          "q": "What details help confirm {{name}}?",
+          "a": "Use the name {{name}}, handle {{handle}}, platform {{platform}}, and current room information together for confirmation."
+        },
+        {
+          "id": "pd_08",
+          "q": "Does {{name}} have similar profiles listed?",
+          "a": "Yes. Similar profiles may include {{similar_1}} and {{similar_2}}, depending on current discovery data."
+        },
+        {
+          "id": "pd_09",
+          "q": "How detailed is the {{name}} profile?",
+          "a": "The profile focuses on practical browsing details: platform context, chat options, turn ons, verified links, and similar models."
+        },
+        {
+          "id": "pd_10",
+          "q": "Can {{name}}'s details change?",
+          "a": "Yes. Live room availability, options, and platform details can change, so verify the current room before interacting."
+        }
+      ]
+    },
+    "chat_options": {
+      "label": "Chat Options",
+      "questions": [
+        {
+          "id": "co_01",
+          "q": "What can I do in {{name}}'s room?",
+          "a": "Use the listed chat options for {{name}}, including {{chat_options}}, as a guide before checking the live room."
+        },
+        {
+          "id": "co_02",
+          "q": "How many chat options does {{name}} have?",
+          "a": "The current profile data lists {{chat_options_count}} chat options for {{name}}."
+        },
+        {
+          "id": "co_03",
+          "q": "Are {{name}}'s chat options guaranteed?",
+          "a": "No. Treat {{chat_options}} as profile guidance and confirm live availability directly in the {{platform}} room."
+        },
+        {
+          "id": "co_04",
+          "q": "Should I check public chat before private options for {{name}}?",
+          "a": "A public room check is usually a practical first step before choosing a more focused option for {{name}}."
+        },
+        {
+          "id": "co_05",
+          "q": "How do {{name}}'s turn ons affect chat choice?",
+          "a": "The listed turn ons, {{turn_ons}}, can help you decide whether the available chat options match your intent."
+        },
+        {
+          "id": "co_06",
+          "q": "Can I choose a session type for {{name}}?",
+          "a": "Use {{chat_options}} as the session-type guide, then confirm the exact choices inside the active {{platform}} room."
+        },
+        {
+          "id": "co_07",
+          "q": "What should I compare before chatting with {{name}}?",
+          "a": "Compare the live status, {{chat_options}}, {{turn_ons}}, and platform details before starting with {{name}}."
+        },
+        {
+          "id": "co_08",
+          "q": "Do {{name}}'s options differ by platform?",
+          "a": "They can. If {{platform_list}} includes more than one option, verify the active features on the platform you open."
+        },
+        {
+          "id": "co_09",
+          "q": "What if {{name}}'s listed option is missing?",
+          "a": "If a listed option is missing, rely on the current room display and consider checking similar profiles such as {{similar_1}}."
+        },
+        {
+          "id": "co_10",
+          "q": "Is {{chat_options}} enough to decide on {{name}}?",
+          "a": "It is a useful preview, but you should still confirm room status, pricing, and available features on {{platform}}."
+        }
+      ]
+    },
+    "trust_safety": {
+      "label": "Trust and Safety",
+      "questions": [
+        {
+          "id": "ts_01",
+          "q": "How do I avoid fake links for {{name}}?",
+          "a": "Use the confirmed links on {{site_name}}, verify {{platform}}, and avoid pages that do not match {{handle}} or the profile details."
+        },
+        {
+          "id": "ts_02",
+          "q": "What should I verify after opening {{name}}?",
+          "a": "Verify the platform label, handle {{handle}}, room status, and whether the details match the {{name}} profile."
+        },
+        {
+          "id": "ts_03",
+          "q": "Are the {{name}} links manually safe forever?",
+          "a": "No link should be treated as permanent; always confirm the current room and platform details before interacting."
+        },
+        {
+          "id": "ts_04",
+          "q": "Why should I avoid random {{name}} links?",
+          "a": "Random links may point to lookalike or outdated pages, while this profile is organized around confirmed platform routing."
+        },
+        {
+          "id": "ts_05",
+          "q": "What is a safe first check for {{name}}?",
+          "a": "A safe first check is to open {{platform}}, confirm {{handle}}, and make sure the visible room matches {{name}}."
+        },
+        {
+          "id": "ts_06",
+          "q": "Does {{site_name}} change noindex or ranking settings for {{name}} here?",
+          "a": "This FAQ is only content guidance; indexing and ranking settings are separate site systems and should not be inferred from it."
+        },
+        {
+          "id": "ts_07",
+          "q": "Can I trust a link if the handle is different from {{handle}}?",
+          "a": "Be cautious. A different handle may mean the page is not the intended {{name}} room or needs further verification."
+        },
+        {
+          "id": "ts_08",
+          "q": "What if {{platform}} redirects unexpectedly for {{name}}?",
+          "a": "Stop and re-check the confirmed link path if a redirect does not match the expected platform or profile details."
+        },
+        {
+          "id": "ts_09",
+          "q": "Should I bookmark the {{name}} profile?",
+          "a": "Bookmarking the {{site_name}} profile can make it easier to return to confirmed link guidance before future visits."
+        },
+        {
+          "id": "ts_10",
+          "q": "How often should I re-check {{name}} details?",
+          "a": "Re-check details whenever you visit, because live availability, handles, and platform options can change over time."
+        }
+      ]
+    },
+    "alternatives": {
+      "label": "Alternatives",
+      "questions": [
+        {
+          "id": "al_01",
+          "q": "Who is similar to {{name}}?",
+          "a": "Profiles such as {{similar_1}} and {{similar_2}} may be useful alternatives when comparing style or availability."
+        },
+        {
+          "id": "al_02",
+          "q": "What should I do if {{name}} is offline?",
+          "a": "If {{name}} is offline, try similar profiles, compare {{platform_list}}, or return later to check the room again."
+        },
+        {
+          "id": "al_03",
+          "q": "Is {{similar_1}} a backup for {{name}}?",
+          "a": "{{similar_1}} can be a practical backup profile if {{name}} is unavailable or not the right fit."
+        },
+        {
+          "id": "al_04",
+          "q": "Is {{similar_2}} worth checking after {{name}}?",
+          "a": "{{similar_2}} is worth checking when you want another profile to compare after reviewing {{name}}."
+        },
+        {
+          "id": "al_05",
+          "q": "Should I compare {{name}} by platform or style?",
+          "a": "Compare both: start with {{platform}} availability, then use style cues such as {{turn_ons}} and {{chat_options}}."
+        },
+        {
+          "id": "al_06",
+          "q": "How do I continue browsing after {{name}}?",
+          "a": "Continue by opening verified alternatives on {{site_name}}, especially profiles related to {{similar_1}} or {{similar_2}}."
+        },
+        {
+          "id": "al_07",
+          "q": "Can similar models have different chat options?",
+          "a": "Yes. Similar profiles may have different options, so compare each room rather than assuming they match {{name}}."
+        },
+        {
+          "id": "al_08",
+          "q": "What if none of the {{name}} links work?",
+          "a": "If none of the links work, avoid random searches and use similar model suggestions or return later for another check."
+        },
+        {
+          "id": "al_09",
+          "q": "Why are alternatives included for {{name}}?",
+          "a": "Alternatives help visitors keep browsing when {{name}} is offline, busy, or not matching the preferred room style."
+        },
+        {
+          "id": "al_10",
+          "q": "Can I use {{platform_list}} to find alternatives to {{name}}?",
+          "a": "Yes. {{platform_list}} can guide platform-level browsing, while {{similar_1}} and {{similar_2}} guide profile-level browsing."
+        }
+      ]
+    }
+  }
+}
