@@ -377,6 +377,8 @@ class TemplateContent {
         }
 
         if (!empty($pack['_manual_generate']) && !empty($model_data_gate['is_sufficient'])) {
+            // v5.8.22: pass $rankmath_keywords and $extra so the primary builder
+            // can use dynamic secondary keywords for heading synthesis and intro placement.
             $renderer_payload = self::build_template_pool_primary_payload(
                 $post,
                 $renderer_payload,
@@ -386,7 +388,9 @@ class TemplateContent {
                 $resolved_destinations,
                 $cta_links,
                 $verified_destination_rows,
-                $faq_items
+                $faq_items,
+                $rankmath_keywords,
+                $extra
             );
         }
         // ── End TemplatePool primary mode injection ──────────────────────────
@@ -409,12 +413,14 @@ class TemplateContent {
                     (string)(\TMWSEO\Engine\Content\ModelResearchEvidence::get_raw_fields((int)$post->ID)['private_chat'] ?? '')
                   ))
                 : false;
+            // v5.8.22: pass rankmath_keywords for dynamic concept detection in heading
             $tp_intro_h2 = self::build_templatepool_intro_h2(
                 $name,
                 $primary_platform_label,
                 $h2_has_turn_ons,
                 $h2_has_private_chat,
-                (int) $post->ID
+                (int) $post->ID,
+                $rankmath_keywords
             );
             if ($tp_intro_h2 !== '') {
                 // Replace the renderer's first H2 (Official Profile Access) with
@@ -1460,6 +1466,11 @@ class TemplateContent {
             '/^Social\s+Profiles\b/iu',
             '/^Where\s+Are\s+the\s+Official\s+Links\b/iu',
             '/^Official\s+Links\s+and\s+Profiles\b/iu',
+            // v5.8.22: prevent duplicate "Live Chat Experience for X and Y" H3 injection
+            // into the features section which already has a "Live Chat Experience" H2.
+            '/^Live\s+Chat\s+Experience\b/iu',
+            '/^Before\s+You\s+Click\b/iu',
+            '/^More\s+Pages\s+for\b/iu',
         ];
 
         // Collect existing heading text (H2 + H3 + H4) for fast lookup.
@@ -4748,7 +4759,9 @@ class TemplateContent {
         array $resolved_destinations,
         array $cta_links,
         array $verified_destination_rows,
-        array $legacy_faq_items
+        array $legacy_faq_items,
+        array $rankmath_keywords = [],
+        array $extra_keywords = []
     ): array {
         // Guard: TemplatePool class must be available.
         if (!class_exists(\TMWSEO\Engine\Model\TemplatePool::class)) {
@@ -4853,7 +4866,13 @@ class TemplateContent {
             // Evidence-gated fields are empty strings when evidence is absent.
             // TemplatePool leaves unresolved {{tokens}} in the output, which
             // the guard below will catch and skip.
-            $model_data = [
+            // v5.8.22: Never set 'turn_ons', 'chat_options', or 'chat_options_count' to
+            // empty string. TemplatePool::resolve() replaces a key that exists with value ''
+            // rather than leaving the {{placeholder}} visible, which makes the placeholder
+            // guard fail to skip variants like "built around {{turn_ons}} and a consistent...".
+            // Omitting the key entirely makes array_key_exists() return false, causing
+            // resolve() to leave {{turn_ons}} in the body, which the guard then catches.
+            $model_data = array_filter([
                 'name'               => $name,
                 'platform'           => $platform_label,
                 'platform_list'      => $platform_list_text,
@@ -4862,13 +4881,15 @@ class TemplateContent {
                 'site_name'          => $site_name,
                 'similar_1'          => $similar_1,
                 'similar_2'          => $similar_2,
-                'turn_ons'           => $has_turn_on_evidence ? $turn_ons_text : '',
+                // Evidence-gated: only set when value is non-empty.
+                // Empty string → key omitted → placeholder stays → guard skips variant.
+                'turn_ons'           => $has_turn_on_evidence ? $turn_ons_text : null,
                 'chat_options'       => $has_private_chat_evidence
                     ? implode(', ', array_slice($private_chat_items, 0, 6))
-                    : '',
-                'chat_options_count' => $has_private_chat_evidence ? (string) $private_chat_count : '',
+                    : null,
+                'chat_options_count' => $has_private_chat_evidence ? (string) $private_chat_count : null,
                 'handle'             => $name,
-            ];
+            ], static fn($v): bool => $v !== null && $v !== '');
 
             // ── Helper: resolve + validate one section ───────────────────────
             // Returns the resolved body string, or empty string if it fails any guard.
@@ -5042,6 +5063,17 @@ class TemplateContent {
             // Use pool FAQs when we have at least 2; otherwise keep legacy.
             $faq_items_new = count($pool_faq_items) >= 2 ? $pool_faq_items : $legacy_faq_items;
 
+            // v5.8.22: Fix FAQ grammar on ALL sources (pool and legacy).
+            // Imperatives like "Report a fake X profile?" must be "Can I report...?".
+            $faq_items_new = array_map(static function(array $item): array {
+                $q = trim((string) ($item['q'] ?? ''));
+                if ($q !== '' && substr($q, -1) === '?'
+                    && preg_match('/^(Report|Find|Tell|Show|Check|Verify|View|Open|Use|Start|Get|See|Track|Follow|Block|Access)\b/u', $q)) {
+                    $item['q'] = 'Can I ' . lcfirst($q);
+                }
+                return $item;
+            }, $faq_items_new);
+
             // ── Count how many sections actually resolved ────────────────────
             $resolved_count = (int) ($pool_intro !== '')
                 + (int) ($pool_official_access !== '')
@@ -5085,6 +5117,57 @@ class TemplateContent {
                 'official_links_section_paragraphs' => $official_links_paragraphs_new,
                 'questions_section_paragraphs'    => [],
             ]);
+
+            // ── v5.8.22: Dynamic keyword-aware opening paragraph ────────────────
+            // Build a rich opening paragraph using focus keyword + selected extras.
+            // Only overwrites $tp_payload['intro_paragraphs'] when we can produce
+            // something better than the TemplatePool default.
+            $kw_intro = self::build_keyword_aware_intro_paragraph(
+                $name,
+                $platform_label,
+                $has_turn_on_evidence,
+                $turn_ons_sentence,
+                $has_private_chat_evidence,
+                $private_chat_items,
+                $rankmath_keywords,
+                $extra_keywords,
+                (int) $post->ID
+            );
+            if ($kw_intro !== '') {
+                // Prepend the keyword-rich intro before the TemplatePool intro text.
+                // The TemplatePool intro (variant 2 or 6) stays as a second paragraph.
+                $existing_intro = (array) ($tp_payload['intro_paragraphs'] ?? []);
+                $tp_payload['intro_paragraphs'] = array_merge([$kw_intro], $existing_intro);
+            }
+
+            // ── v5.8.22: Keyword density reduction ───────────────────────────
+            // After all sections are assembled, substitute some exact model-name
+            // mentions with natural pronouns/phrases in the paragraph bags.
+            // Target: reduce exact name hits from ~21 toward 10–12.
+            // Headings, the first paragraph, and CTA text are never touched.
+            $tp_payload = self::reduce_focus_keyword_density_in_payload(
+                $tp_payload,
+                $name,
+                $platform_label
+            );
+
+            // ── v5.8.22: [TMW-POOL-KEYWORDS] diagnostic log ──────────────────
+            if (defined('WP_DEBUG') && WP_DEBUG && !empty($rankmath_keywords)) {
+                $extras_used = implode(', ', array_slice($rankmath_keywords, 0, 4));
+                $intro_first = trim(wp_strip_all_tags((string)(($tp_payload['intro_paragraphs'] ?? [''])[0] ?? '')));
+                $intro_preview = mb_substr($intro_first, 0, 80, 'UTF-8');
+                $h2_candidates = array_filter(array_map('wp_strip_all_tags', [
+                    $intro_first,
+                    implode(' ', array_slice($tp_payload['watch_section_paragraphs'] ?? [], 0, 1)),
+                ]));
+                error_log(sprintf(
+                    '[TMW-POOL-KEYWORDS] post_id=%d focus="%s" extras="%s" used_intro="%s..."',
+                    (int) $post->ID,
+                    $name,
+                    $extras_used,
+                    $intro_preview
+                ));
+            }
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log(sprintf(
@@ -5237,7 +5320,8 @@ class TemplateContent {
         string $platform_label,
         bool $has_turn_ons,
         bool $has_private_chat,
-        int $post_id
+        int $post_id,
+        array $rankmath_keywords = []
     ): string {
         if ($name === '' || $platform_label === '' || $platform_label === self::NEUTRAL_PLATFORM_FALLBACK) {
             return '';
@@ -5246,6 +5330,15 @@ class TemplateContent {
         // Build a pool of natural model-profile headings appropriate to the
         // evidence available. Using the model name + platform guarantees the
         // focus keyword and a secondary keyword chip are both in the heading.
+        // v5.8.22: also detect extra keyword concepts from dynamic pack
+        $all_kws_lower = array_map('mb_strtolower', array_values((array) $rankmath_keywords));
+        $has_livecam_in_kw = false;
+        foreach ($all_kws_lower as $kw) {
+            if (str_contains($kw, 'live cam') || str_contains($kw, 'webcam') || str_contains($kw, 'live webcam')) {
+                $has_livecam_in_kw = true;
+            }
+        }
+
         if ($has_turn_ons && $has_private_chat) {
             $variants = [
                 $name . ' ' . $platform_label . ' Profile, Turn Ons and Private Chat Options',
@@ -5255,7 +5348,7 @@ class TemplateContent {
         } elseif ($has_turn_ons) {
             $variants = [
                 $name . ' ' . $platform_label . ' Turn Ons and Live Cam Session Notes',
-                $name . ' Live Cam Access and Session Style on ' . $platform_label,
+                $name . ' Live Cam Access and Turn Ons on ' . $platform_label,
                 $name . ': ' . $platform_label . ' Profile, Turn Ons and Live Room Access',
             ];
         } elseif ($has_private_chat) {
@@ -5263,6 +5356,12 @@ class TemplateContent {
                 $name . ' Private Chat Options and Live Room Access on ' . $platform_label,
                 $name . ' ' . $platform_label . ' Profile and Private Chat Options',
                 $name . ': Verified ' . $platform_label . ' Profile and Private Chat Notes',
+            ];
+        } elseif ($has_livecam_in_kw) {
+            $variants = [
+                $name . ' ' . $platform_label . ' Live Cam Access and Verified Profile',
+                $name . ' Live Cam Profile on ' . $platform_label . ': Verified Links and Access Notes',
+                'Where to Watch ' . $name . ' Live on ' . $platform_label,
             ];
         } else {
             $variants = [
@@ -5274,6 +5373,298 @@ class TemplateContent {
 
         $idx = abs($post_id) % count($variants);
         return '<h2>' . esc_html($variants[$idx]) . '</h2>';
+    }
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // v5.8.22: Dynamic keyword-aware helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Build a keyword-aware opening paragraph for TemplatePool-primary pages.
+     *
+     * Uses the focus keyword (model name), confirmed platform, and dynamic
+     * secondary keywords from the model keyword pack to produce a first
+     * paragraph that:
+     *  - mentions the model name naturally (focus keyword in first 10%)
+     *  - mentions the confirmed platform
+     *  - weaves in concepts from the secondary keyword pack where they fit
+     *    (live cam access, private chat options, turn ons, etc.)
+     *  - does not repeat the model name more than twice
+     *  - reads as human-authored model-profile copy
+     *
+     * All keyword concepts are drawn dynamically from $rankmath_keywords and
+     * $extra_keywords — no hardcoded model or site names.
+     *
+     * @param string   $name                Model display name (focus keyword).
+     * @param string   $platform_label      Primary platform label.
+     * @param bool     $has_turn_ons        Turn-on evidence present.
+     * @param string   $turn_ons_sentence   Full turn-on sentence (if is_full_sentence).
+     * @param bool     $has_private_chat    Private-chat evidence present.
+     * @param string[] $private_chat_items  Private-chat option list.
+     * @param string[] $rankmath_keywords   Dynamic Rank Math secondary chips.
+     * @param string[] $extra_keywords      Dynamic extra keyword pool.
+     * @param int      $post_id             Post ID for deterministic variant.
+     * @return string  Paragraph text (plain, no HTML tags).
+     */
+    private static function build_keyword_aware_intro_paragraph(
+        string $name,
+        string $platform_label,
+        bool $has_turn_ons,
+        string $turn_ons_sentence,
+        bool $has_private_chat,
+        array $private_chat_items,
+        array $rankmath_keywords,
+        array $extra_keywords,
+        int $post_id
+    ): string {
+        if ($name === '' || $platform_label === '' || $platform_label === self::NEUTRAL_PLATFORM_FALLBACK) {
+            return '';
+        }
+
+        // ── Detect which keyword concepts are available ───────────────────────
+        // Scan dynamic keyword list for concept signals. We look for keyword
+        // fragments that indicate intent, not exact strings — so this works for
+        // any model, not just Abby or Allysa.
+        $all_kws = array_merge(
+            array_values((array) $rankmath_keywords),
+            array_values((array) $extra_keywords)
+        );
+        $all_kws_lower = array_map('mb_strtolower', $all_kws);
+
+        $has_livecam_kw    = false;
+        $has_privchat_kw   = false;
+        $has_turnons_kw    = false;
+        $has_hd_kw         = false;
+        $platform_lower    = mb_strtolower($platform_label, 'UTF-8');
+
+        foreach ($all_kws_lower as $kw) {
+            if (str_contains($kw, 'live cam') || str_contains($kw, 'live webcam') || str_contains($kw, 'webcam')) {
+                $has_livecam_kw = true;
+            }
+            if (str_contains($kw, 'private chat') || str_contains($kw, 'private show') || str_contains($kw, 'private session')) {
+                $has_privchat_kw = true;
+            }
+            if (str_contains($kw, 'turn on') || str_contains($kw, 'turn-on') || str_contains($kw, 'session interest')) {
+                $has_turnons_kw = true;
+            }
+            if (str_contains($kw, 'hd') || str_contains($kw, 'hd stream') || str_contains($kw, 'hd cam')) {
+                $has_hd_kw = true;
+            }
+        }
+
+        // ── Build the signal list for the intro sentence ──────────────────────
+        // Collect the concepts we can mention naturally.
+        $signals = [];
+        if ($has_livecam_kw) {
+            $signals[] = 'live cam access';
+        }
+        if ($has_private_chat || $has_privchat_kw) {
+            $signals[] = 'private chat options';
+        }
+        if ($has_turn_ons || $has_turnons_kw) {
+            $signals[] = 'listed turn ons';
+        }
+        if ($has_hd_kw) {
+            $signals[] = 'HD stream access';
+        }
+
+        // ── Compose the opening sentence ─────────────────────────────────────
+        // Use variant selection based on which signals are available.
+        // All variants follow the same pattern:
+        //   "{Name} is listed with a confirmed {Platform} profile[, signals]. {navigation/verify sentence}."
+        // This puts the focus keyword, platform keyword, and secondary keyword
+        // concepts all in the first paragraph.
+        if (!empty($signals)) {
+            $signal_list = self::natural_keyword_list($signals);
+            $opening = $name . ' is listed with a confirmed ' . $platform_label . ' profile'
+                . ', ' . $signal_list
+                . ' that can change by session.';
+        } else {
+            $opening = $name . ' is listed with a confirmed ' . $platform_label . ' live cam profile.'
+                . ' Room availability is session-specific.';
+        }
+
+        // ── Second sentence: navigation/verify guidance ───────────────────────
+        // Varies based on what evidence is present. Always uses pronouns for name.
+        $parts_second = [];
+        if ($has_turn_ons && $turn_ons_sentence === '') {
+            // has short-phrase turn_ons already in model_data — reference lightly
+            $parts_second[] = 'This page summarises her verified live-room access and practical profile checks.';
+        } elseif ($has_private_chat) {
+            $parts_second[] = 'This page lists her private chat options, verified live-room links, and profile checks before visitors open the room.';
+        } else {
+            $parts_second[] = 'This page lists her confirmed profile links and access notes for visitors using ' . $platform_label . '.';
+        }
+
+        $paragraph = $opening . ' ' . implode(' ', $parts_second);
+        return trim($paragraph);
+    }
+
+    /**
+     * Format a short list of keyword concept strings naturally.
+     *
+     * "a, b, c" → "a, b, and c"
+     * "a, b" → "a and b"
+     * "a" → "a"
+     *
+     * @param string[] $items
+     * @return string
+     */
+    private static function natural_keyword_list(array $items): string {
+        $items = array_values(array_filter(array_map('trim', $items), 'strlen'));
+        if (empty($items)) {
+            return '';
+        }
+        if (count($items) === 1) {
+            return $items[0];
+        }
+        $last = array_pop($items);
+        return implode(', ', $items) . ', and ' . $last;
+    }
+
+    /**
+     * Reduce exact focus-keyword repetition in TemplatePool paragraph bags.
+     *
+     * After all sections are assembled, many paragraphs contain the exact
+     * model name (focus keyword). Rank Math counts all occurrences including
+     * heading H3s, paragraph text, and captions. The typical TemplatePool
+     * output for a 750-word page has ~21 exact hits — well above the 2.0%
+     * density ceiling.
+     *
+     * This method applies natural pronoun/phrase substitutions to second and
+     * later occurrences of the model name WITHIN individual paragraph strings.
+     * It never touches:
+     *  - the first intro paragraph (must keep focus keyword for Rank Math ✓)
+     *  - CTA HTML blocks (watch_section_html, external_info_html)
+     *  - FAQ question H3s (indexed by search engines as heading content)
+     *  - the more_pages section (anchor text needs the name)
+     *
+     * Substitutions are applied round-robin from a natural-sounding pool.
+     * Only non-first occurrences within each paragraph string are replaced.
+     *
+     * @param array  $tp_payload      The assembled TemplatePool renderer payload.
+     * @param string $name            Model display name (focus keyword).
+     * @param string $platform_label  Primary platform label.
+     * @return array Modified payload.
+     */
+    private static function reduce_focus_keyword_density_in_payload(
+        array $tp_payload,
+        string $name,
+        string $platform_label
+    ): array {
+        if ($name === '') {
+            return $tp_payload;
+        }
+
+        // ── Build the substitution pool ───────────────────────────────────────
+        // These are generic enough to work for any model name. They avoid
+        // platform-specific claims and do not introduce new keyword stuffing.
+        $subs = [
+            'she',
+            'her profile',
+            'the confirmed profile',
+            'the verified live room',
+            'this profile',
+            'the live room',
+        ];
+        // Add a platform-specific sub only when we have a real platform label.
+        if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+            $subs[] = 'the ' . $platform_label . ' profile';
+            $subs[] = 'the confirmed ' . $platform_label . ' room';
+        }
+
+        // ── Keys that carry paragraph text we can safely reduce ───────────────
+        // We skip the first element of intro_paragraphs (must keep name) and
+        // skip any HTML-bearing keys (watch_section_html, comparison_section_html, etc.)
+        $reducible_keys = [
+            'watch_section_paragraphs',
+            'about_section_paragraphs',
+            'features_section_paragraphs',
+            'comparison_section_paragraphs',
+            'official_links_section_paragraphs',
+            'questions_section_paragraphs',
+        ];
+
+        $name_pattern = '/\b' . preg_quote($name, '/') . '\b/iu';
+        $sub_idx      = 0;
+
+        // ── Apply to intro_paragraphs[1..n] (skip [0]) ───────────────────────
+        if (!empty($tp_payload['intro_paragraphs']) && is_array($tp_payload['intro_paragraphs'])) {
+            $paras = $tp_payload['intro_paragraphs'];
+            for ($i = 1; $i < count($paras); $i++) {
+                $paras[$i] = self::substitute_name_occurrences(
+                    (string) $paras[$i], $name, $name_pattern, $subs, $sub_idx
+                );
+            }
+            $tp_payload['intro_paragraphs'] = $paras;
+        }
+
+        // ── Apply to all elements of reducible paragraph bags ─────────────────
+        foreach ($reducible_keys as $key) {
+            if (empty($tp_payload[$key]) || !is_array($tp_payload[$key])) {
+                continue;
+            }
+            $reduced = [];
+            foreach ($tp_payload[$key] as $para) {
+                $reduced[] = self::substitute_name_occurrences(
+                    (string) $para, $name, $name_pattern, $subs, $sub_idx
+                );
+            }
+            $tp_payload[$key] = $reduced;
+        }
+
+        return $tp_payload;
+    }
+
+    /**
+     * Replace non-first occurrences of $name in $text with round-robin substitutions.
+     *
+     * The first occurrence in each paragraph is kept for natural reading flow.
+     * Subsequent occurrences are replaced with the next substitution in the pool.
+     *
+     * @param string   $text         The paragraph text.
+     * @param string   $name         The model name to reduce.
+     * @param string   $pattern      Pre-built regex pattern for $name.
+     * @param string[] $subs         Substitution pool.
+     * @param int      &$sub_idx     Round-robin index (modified in place).
+     * @return string
+     */
+    private static function substitute_name_occurrences(
+        string $text,
+        string $name,
+        string $pattern,
+        array $subs,
+        int &$sub_idx
+    ): string {
+        if ($text === '' || empty($subs)) {
+            return $text;
+        }
+        // Count occurrences in this paragraph
+        $hits = preg_match_all($pattern, $text);
+        if ($hits === false || $hits < 2) {
+            // 0 or 1 occurrences — nothing to reduce
+            return $text;
+        }
+        // Replace non-first occurrences
+        $first_done = false;
+        return (string) preg_replace_callback(
+            $pattern,
+            static function (array $m) use ($name, $subs, &$sub_idx, &$first_done): string {
+                if (!$first_done) {
+                    $first_done = true;
+                    return $m[0]; // keep first occurrence
+                }
+                $replacement = $subs[$sub_idx % count($subs)];
+                $sub_idx++;
+                // Preserve title case if original was title-cased
+                if (mb_strtolower($m[0][0], 'UTF-8') !== $m[0][0]) {
+                    return ucfirst($replacement);
+                }
+                return $replacement;
+            },
+            $text
+        ) ?: $text;
     }
 
 }
