@@ -199,22 +199,22 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
     public function test_repository_counts_rejected_rows_and_supports_pagination(): void {
         $this->assertStringContainsString("SUM(status = 'rejected') AS rejected", $this->repository);
         $this->assertStringContainsString("'rejected'", $this->repository);
-        $this->assertStringContainsString('public function query_rows(int $batch_id, string $status = \'\', int $limit = 100, int $offset = 0): array', $this->repository);
+        $this->assertStringContainsString("public function query_rows(int \$batch_id, string \$status = '', int \$limit = 100, int \$offset = 0, string \$orderby = '', string \$order = 'desc', string \$search = ''): array", $this->repository);
         $this->assertStringContainsString("'row_index' => $row_number", $this->repository);
         $this->assertStringContainsString('WHERE batch_id = %d AND row_index = %d', $this->repository);
         $this->assertStringContainsString('ORDER BY row_index ASC, id ASC', $this->repository);
         $this->assertStringNotContainsString("'row_number' => $row_number", $this->repository);
         $this->assertStringNotContainsString('ORDER BY row_number ASC', $this->repository);
         $this->assertStringContainsString('LIMIT %d OFFSET %d', $this->repository);
-        $this->assertStringContainsString('public function count_rows(int $batch_id, string $status = \'\'): int', $this->repository);
+        $this->assertStringContainsString("public function count_rows(int \$batch_id, string \$status = '', string \$search = ''): int", $this->repository);
         $this->assertStringContainsString('SELECT COUNT(*) FROM {$table}', $this->repository);
         $this->assertStringNotContainsString('min(1000', $this->repository);
     }
 
     public function test_batch_view_has_pagination_controls(): void {
         $this->assertStringContainsString('$page_size = 100', $this->admin);
-        $this->assertStringContainsString('count_rows($batch_id)', $this->admin);
-        $this->assertStringContainsString('query_rows($batch_id, \'\', $page_size, $offset)', $this->admin);
+        $this->assertStringContainsString("count_rows(\$batch_id, '', \$search)", $this->admin);
+        $this->assertStringContainsString("query_rows(\$batch_id, '', \$page_size, \$offset, \$sort['orderby'], \$sort['order'], \$search)", $this->admin);
         $this->assertStringContainsString('render_batch_pagination', $this->admin);
         $this->assertStringContainsString('Previous', $this->admin);
         $this->assertStringContainsString('Next', $this->admin);

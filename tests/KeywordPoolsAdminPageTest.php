@@ -554,13 +554,13 @@ dani daniels,1200,2.50,0.10,75
         $method = new ReflectionMethod(KeywordPoolsAdminPage::class, 'import_row_action_forms');
         $method->setAccessible(true);
 
-        $html = (string) $method->invoke(null, [ 'id' => 707 ], [ 'pool' => 'model', 'target_id' => 902 ], 4, [ 'orderby' => 'volume', 'order' => 'asc' ]);
+        $html = (string) $method->invoke(null, [ 'id' => 707 ], 4, [ 'orderby' => 'volume', 'order' => 'asc' ]);
 
         $this->assertStringContainsString('name="tmwseo_keyword_batch_page" value="4"', $html);
         $this->assertStringContainsString('name="orderby" value="volume"', $html);
         $this->assertStringContainsString('name="order" value="asc"', $html);
         $this->assertStringNotContainsString('tmwseo_pool_search', $html);
-        $htmlWithSearch = (string) $method->invoke(null, [ 'id' => 707 ], [ 'pool' => 'model', 'target_id' => 902 ], 4, [ 'orderby' => 'volume', 'order' => 'asc' ], 'classy');
+        $htmlWithSearch = (string) $method->invoke(null, [ 'id' => 707 ], 4, [ 'orderby' => 'volume', 'order' => 'asc' ], 'classy');
         $this->assertStringContainsString('name="tmwseo_pool_search" value="classy"', $htmlWithSearch);
         $this->assertStringContainsString('Approve', $html);
         $this->assertStringContainsString('Reject', $html);

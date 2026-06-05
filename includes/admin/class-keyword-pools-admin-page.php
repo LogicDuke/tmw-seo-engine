@@ -897,7 +897,7 @@ class KeywordPoolsAdminPage {
             echo '<td>' . self::status_badge((string) ($row['status'] ?? 'review_required')) . '</td>';
             echo '<td>' . esc_html((string) ($row['target_name'] ?? $batch['target_name'] ?? '')) . '</td>';
             echo '<td>' . esc_html(trim((string) ($row['result_action'] ?? '') . ((string) ($row['result_reason'] ?? '') !== '' ? ' — ' . (string) $row['result_reason'] : ''))) . '</td>';
-            echo '<td>' . self::import_row_action_forms($row, $batch, $current_page, $sort, $search) . ' ';
+            echo '<td>' . self::import_row_action_forms($row, $current_page, $sort, $search) . ' ';
             $inspect_args = self::batch_view_query_args($batch, $batch_id, $current_page, $sort, $search);
             $inspect_args['tmwseo_import_row_inspect'] = $row_id;
             $inspect_url = add_query_arg($inspect_args, admin_url('admin.php'));
@@ -1017,8 +1017,8 @@ class KeywordPoolsAdminPage {
         return '<a href="' . esc_url(add_query_arg($args, admin_url('admin.php'))) . '">' . esc_html($label) . '</a>';
     }
 
-    /** @param array<string,mixed> $row @param array<string,mixed> $batch */
-    private static function import_row_action_forms(array $row, array $batch, int $current_page = 1, array $sort = [], string $search = ''): string {
+    /** @param array<string,mixed> $row */
+    private static function import_row_action_forms(array $row, int $current_page = 1, array $sort = [], string $search = ''): string {
         $row_id = (int) ($row['id'] ?? 0);
         if ($row_id <= 0) { return ''; }
         $forms = [];
