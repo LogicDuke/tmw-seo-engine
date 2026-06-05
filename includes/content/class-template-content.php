@@ -5140,15 +5140,26 @@ class TemplateContent {
                 $tp_payload['intro_paragraphs'] = array_merge([$kw_intro], $existing_intro);
             }
 
-            // ── v5.8.22: Keyword density reduction ───────────────────────────
-            // After all sections are assembled, substitute some exact model-name
-            // mentions with natural pronouns/phrases in the paragraph bags.
-            // Target: reduce exact name hits from ~21 toward 10–12.
-            // Headings, the first paragraph, and CTA text are never touched.
+            // ── v5.8.23: Keyword density reduction (page-level budget) ──────
+            // Applies page-level exact-name budget (target: 10 mentions).
+            // Operator-reviewed bio paragraphs are never mutated.
+            // Headings, the first intro paragraph, and CTA HTML are untouched.
+            $protected_bio_text = class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)
+                ? ''
+                : '';
+            // Read reviewed bio summary for protection: if bio_review_status='reviewed'
+            // and bio_summary is non-empty, protect that exact text from substitution.
+            if (class_exists('\\TMWSEO\\Engine\\Content\\TemplateContent')) {
+                $bio_ev_for_density = self::get_bio_evidence_data((int) $post->ID);
+                $protected_bio_text = ($bio_ev_for_density['is_reviewable'] ?? false)
+                    ? trim((string) ($bio_ev_for_density['summary'] ?? ''))
+                    : '';
+            }
             $tp_payload = self::reduce_focus_keyword_density_in_payload(
                 $tp_payload,
                 $name,
-                $platform_label
+                $platform_label,
+                $protected_bio_text
             );
 
             // ── v5.8.22: [TMW-POOL-KEYWORDS] diagnostic log ──────────────────
@@ -5407,6 +5418,36 @@ class TemplateContent {
      * @param int      $post_id             Post ID for deterministic variant.
      * @return string  Paragraph text (plain, no HTML tags).
      */
+    /**
+     * Build a keyword-aware opening paragraph for TemplatePool-primary pages.
+     *
+     * EVIDENCE RULE (CodeRabbit Issue 1 — v5.8.23):
+     * Feature-specific claims (private chat options, listed turn ons) may only
+     * appear in the opening paragraph when the corresponding operator-evidence
+     * boolean is TRUE. SEO keywords alone do NOT constitute evidence and must
+     * NOT produce factual claims in prose copy.
+     *
+     * Keywords ($rankmath_keywords, $extra_keywords) are used only to detect
+     * whether a concept is worth mentioning in a GENERIC way (e.g. noting that
+     * this is a live cam profile) — never to claim a specific feature exists.
+     *
+     * Safe patterns:
+     *   - "{Name} is listed with a confirmed {Platform} profile." — always safe.
+     *   - "This page covers her verified profile access and session notes." — always safe.
+     *   - "Private chat options are available in her live room." — ONLY when $has_private_chat=true.
+     *   - "Her listed turn ons are noted below." — ONLY when $has_turn_ons=true.
+     *
+     * @param string   $name                Model display name (focus keyword).
+     * @param string   $platform_label      Primary platform label.
+     * @param bool     $has_turn_ons        Turn-on EVIDENCE present (operator field filled).
+     * @param string   $turn_ons_sentence   Full turn-on sentence when evidence is a prose sentence.
+     * @param bool     $has_private_chat    Private-chat EVIDENCE present (operator field filled).
+     * @param string[] $private_chat_items  Filtered private-chat option list from evidence.
+     * @param string[] $rankmath_keywords   Dynamic Rank Math secondary chips (keyword-only, no claims).
+     * @param string[] $extra_keywords      Dynamic extra keyword pool (keyword-only, no claims).
+     * @param int      $post_id             Post ID for deterministic variant selection.
+     * @return string  Paragraph text (plain, no HTML tags).
+     */
     private static function build_keyword_aware_intro_paragraph(
         string $name,
         string $platform_label,
@@ -5422,83 +5463,37 @@ class TemplateContent {
             return '';
         }
 
-        // ── Detect which keyword concepts are available ───────────────────────
-        // Scan dynamic keyword list for concept signals. We look for keyword
-        // fragments that indicate intent, not exact strings — so this works for
-        // any model, not just Abby or Allysa.
-        $all_kws = array_merge(
-            array_values((array) $rankmath_keywords),
-            array_values((array) $extra_keywords)
-        );
-        $all_kws_lower = array_map('mb_strtolower', $all_kws);
+        // ── Opening sentence: focus keyword + platform — always factual ───────
+        // This sentence is always safe regardless of keywords or evidence.
+        $opening = $name . ' is listed with a confirmed ' . $platform_label . ' live cam profile.';
 
-        $has_livecam_kw    = false;
-        $has_privchat_kw   = false;
-        $has_turnons_kw    = false;
-        $has_hd_kw         = false;
-        $platform_lower    = mb_strtolower($platform_label, 'UTF-8');
-
-        foreach ($all_kws_lower as $kw) {
-            if (str_contains($kw, 'live cam') || str_contains($kw, 'live webcam') || str_contains($kw, 'webcam')) {
-                $has_livecam_kw = true;
-            }
-            if (str_contains($kw, 'private chat') || str_contains($kw, 'private show') || str_contains($kw, 'private session')) {
-                $has_privchat_kw = true;
-            }
-            if (str_contains($kw, 'turn on') || str_contains($kw, 'turn-on') || str_contains($kw, 'session interest')) {
-                $has_turnons_kw = true;
-            }
-            if (str_contains($kw, 'hd') || str_contains($kw, 'hd stream') || str_contains($kw, 'hd cam')) {
-                $has_hd_kw = true;
-            }
+        // ── Evidence-gated feature signals ────────────────────────────────────
+        // These phrases only appear when the operator evidence boolean is TRUE.
+        // Keywords in $rankmath_keywords or $extra_keywords do NOT qualify here —
+        // an SEO keyword that mentions "private chat" does not mean the performer
+        // actually has private-chat evidence in the operator fields.
+        $evidence_signals = [];
+        if ($has_private_chat) {
+            $evidence_signals[] = 'private chat options';
+        }
+        if ($has_turn_ons) {
+            $evidence_signals[] = 'listed session interests';
         }
 
-        // ── Build the signal list for the intro sentence ──────────────────────
-        // Collect the concepts we can mention naturally.
-        $signals = [];
-        if ($has_livecam_kw) {
-            $signals[] = 'live cam access';
-        }
-        if ($has_private_chat || $has_privchat_kw) {
-            $signals[] = 'private chat options';
-        }
-        if ($has_turn_ons || $has_turnons_kw) {
-            $signals[] = 'listed turn ons';
-        }
-        if ($has_hd_kw) {
-            $signals[] = 'HD stream access';
-        }
-
-        // ── Compose the opening sentence ─────────────────────────────────────
-        // Use variant selection based on which signals are available.
-        // All variants follow the same pattern:
-        //   "{Name} is listed with a confirmed {Platform} profile[, signals]. {navigation/verify sentence}."
-        // This puts the focus keyword, platform keyword, and secondary keyword
-        // concepts all in the first paragraph.
-        if (!empty($signals)) {
-            $signal_list = self::natural_keyword_list($signals);
-            $opening = $name . ' is listed with a confirmed ' . $platform_label . ' profile'
-                . ', ' . $signal_list
-                . ' that can change by session.';
+        // ── Second sentence: navigation context, using evidence signals only ──
+        // Keywords may influence the generic framing (live room, profile access)
+        // but cannot add feature claims beyond what evidence supports.
+        if (!empty($evidence_signals)) {
+            $signal_str = self::natural_keyword_list($evidence_signals);
+            $second = 'This page covers her ' . $signal_str
+                . ', verified live-room access, and profile checks before visitors open the room.';
         } else {
-            $opening = $name . ' is listed with a confirmed ' . $platform_label . ' live cam profile.'
-                . ' Room availability is session-specific.';
+            // No feature evidence — use generic verified-access framing.
+            $second = 'This page covers her confirmed ' . $platform_label
+                . ' profile access, verified links, and practical room-access notes.';
         }
 
-        // ── Second sentence: navigation/verify guidance ───────────────────────
-        // Varies based on what evidence is present. Always uses pronouns for name.
-        $parts_second = [];
-        if ($has_turn_ons && $turn_ons_sentence === '') {
-            // has short-phrase turn_ons already in model_data — reference lightly
-            $parts_second[] = 'This page summarises her verified live-room access and practical profile checks.';
-        } elseif ($has_private_chat) {
-            $parts_second[] = 'This page lists her private chat options, verified live-room links, and profile checks before visitors open the room.';
-        } else {
-            $parts_second[] = 'This page lists her confirmed profile links and access notes for visitors using ' . $platform_label . '.';
-        }
-
-        $paragraph = $opening . ' ' . implode(' ', $parts_second);
-        return trim($paragraph);
+        return trim($opening . ' ' . $second);
     }
 
     /**
@@ -5526,40 +5521,50 @@ class TemplateContent {
     /**
      * Reduce exact focus-keyword repetition in TemplatePool paragraph bags.
      *
-     * After all sections are assembled, many paragraphs contain the exact
-     * model name (focus keyword). Rank Math counts all occurrences including
-     * heading H3s, paragraph text, and captions. The typical TemplatePool
-     * output for a 750-word page has ~21 exact hits — well above the 2.0%
-     * density ceiling.
+     * v5.8.23 redesign — three CodeRabbit issues resolved:
      *
-     * This method applies natural pronoun/phrase substitutions to second and
-     * later occurrences of the model name WITHIN individual paragraph strings.
-     * It never touches:
-     *  - the first intro paragraph (must keep focus keyword for Rank Math ✓)
-     *  - CTA HTML blocks (watch_section_html, external_info_html)
-     *  - FAQ question H3s (indexed by search engines as heading content)
-     *  - the more_pages section (anchor text needs the name)
+     * Issue 2 (operator bio protection):
+     *   Any paragraph whose text exactly matches $protected_bio_text is skipped
+     *   entirely. Operator-reviewed bio copy is never mutated.
      *
-     * Substitutions are applied round-robin from a natural-sounding pool.
-     * Only non-first occurrences within each paragraph string are replaced.
+     * Issue 3 (page-level budget instead of per-paragraph keep-first):
+     *   The old per-paragraph "keep first occurrence" strategy kept every single
+     *   {{name}}-resolved mention because each TemplatePool paragraph has exactly
+     *   one model name. This produced ~21 exact mentions unchanged.
+     *   The new approach uses a PAGE-LEVEL budget (TARGET_EXACT_MENTIONS = 10):
+     *   - First pass: count how many exact mentions exist across ALL paragraphs.
+     *   - Keep the first TARGET_EXACT_MENTIONS occurrences (in document order).
+     *   - Replace every occurrence beyond the budget with a round-robin substitution.
+     *   This guarantees the focus keyword appears in the first paragraph, key
+     *   headings, and CTAs while reducing overall density to the target range.
      *
-     * @param array  $tp_payload      The assembled TemplatePool renderer payload.
-     * @param string $name            Model display name (focus keyword).
-     * @param string $platform_label  Primary platform label.
+     * Protected slots (never replaced regardless of budget):
+     *   - intro_paragraphs[0]: must contain focus keyword for Rank Math ✓
+     *   - watch_section_html, external_info_html: CTA affiliate HTML, never touched
+     *   - faq_items[*]['q']: FAQ H3 question headings keep the name for context
+     *
+     * @param array  $tp_payload         The assembled TemplatePool renderer payload.
+     * @param string $name               Model display name (focus keyword).
+     * @param string $platform_label     Primary platform label.
+     * @param string $protected_bio_text Operator-reviewed bio text to protect (may be empty).
      * @return array Modified payload.
      */
     private static function reduce_focus_keyword_density_in_payload(
         array $tp_payload,
         string $name,
-        string $platform_label
+        string $platform_label,
+        string $protected_bio_text = ''
     ): array {
         if ($name === '') {
             return $tp_payload;
         }
 
-        // ── Build the substitution pool ───────────────────────────────────────
-        // These are generic enough to work for any model name. They avoid
-        // platform-specific claims and do not introduce new keyword stuffing.
+        // ── Page-level budget ─────────────────────────────────────────────────
+        // Target: 10 exact model-name mentions on a 750–900 word page.
+        // Below 8 would hurt readability; above 12 risks the Rank Math warning.
+        $target_exact_mentions = 10;
+
+        // ── Substitution pool ─────────────────────────────────────────────────
         $subs = [
             'she',
             'her profile',
@@ -5568,16 +5573,23 @@ class TemplateContent {
             'this profile',
             'the live room',
         ];
-        // Add a platform-specific sub only when we have a real platform label.
         if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
             $subs[] = 'the ' . $platform_label . ' profile';
             $subs[] = 'the confirmed ' . $platform_label . ' room';
         }
 
-        // ── Keys that carry paragraph text we can safely reduce ───────────────
-        // We skip the first element of intro_paragraphs (must keep name) and
-        // skip any HTML-bearing keys (watch_section_html, comparison_section_html, etc.)
-        $reducible_keys = [
+        // ── Build the protected bio fingerprint ───────────────────────────────
+        // Normalise whitespace for comparison.
+        $bio_fingerprint = '';
+        if ($protected_bio_text !== '') {
+            $bio_fingerprint = (string) preg_replace('/\s+/u', ' ', trim($protected_bio_text));
+        }
+
+        // ── Reducible paragraph bag keys ─────────────────────────────────────
+        // intro_paragraphs[0] is protected (processed separately).
+        // HTML-bearing keys (watch_section_html, comparison_section_html, etc.) are never included.
+        // faq_items question strings are also excluded (FAQ H3s should keep the name).
+        $reducible_bag_keys = [
             'watch_section_paragraphs',
             'about_section_paragraphs',
             'features_section_paragraphs',
@@ -5586,30 +5598,116 @@ class TemplateContent {
             'questions_section_paragraphs',
         ];
 
+        // ── Step 1: count exact mentions across all reducible content ─────────
+        // This gives us the page-level total to compare against the budget.
         $name_pattern = '/\b' . preg_quote($name, '/') . '\b/iu';
-        $sub_idx      = 0;
+        $total_mentions = 0;
 
-        // ── Apply to intro_paragraphs[1..n] (skip [0]) ───────────────────────
+        // intro_paragraphs[0] is a protected slot — always kept, counted but not reduced.
+        $intro_0_text = '';
+        if (!empty($tp_payload['intro_paragraphs']) && is_array($tp_payload['intro_paragraphs'])) {
+            $intro_0_text = (string) ($tp_payload['intro_paragraphs'][0] ?? '');
+            $hits = preg_match_all($name_pattern, $intro_0_text);
+            $total_mentions += (int) $hits;
+        }
+        foreach ($reducible_bag_keys as $key) {
+            if (empty($tp_payload[$key]) || !is_array($tp_payload[$key])) {
+                continue;
+            }
+            foreach ($tp_payload[$key] as $para) {
+                $para_text = (string) $para;
+                // Skip protected bio paragraphs from counting too
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    continue;
+                }
+                $hits = preg_match_all($name_pattern, $para_text);
+                $total_mentions += (int) $hits;
+            }
+        }
+        // Also count intro_paragraphs[1..n]
+        if (!empty($tp_payload['intro_paragraphs']) && is_array($tp_payload['intro_paragraphs'])) {
+            for ($i = 1; $i < count($tp_payload['intro_paragraphs']); $i++) {
+                $para_text = (string) ($tp_payload['intro_paragraphs'][$i] ?? '');
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    continue;
+                }
+                $hits = preg_match_all($name_pattern, $para_text);
+                $total_mentions += (int) $hits;
+            }
+        }
+
+        // If already at or below budget, nothing to do.
+        if ($total_mentions <= $target_exact_mentions) {
+            return $tp_payload;
+        }
+
+        // ── Step 2: apply page-level budget reduction ─────────────────────────
+        // We walk all reducible paragraphs in document order, tracking a shared
+        // counter. The first $target_exact_mentions occurrences page-wide are
+        // kept; everything beyond that is replaced.
+        // intro_paragraphs[0] is always fully preserved (counted in budget,
+        // never passed through the replacer).
+        $kept_so_far = (int) preg_match_all($name_pattern, $intro_0_text); // pre-spend budget on intro[0]
+        $sub_idx = 0;
+
+        $apply_budget = function(string $text) use (
+            $name_pattern, $subs, $target_exact_mentions, &$kept_so_far, &$sub_idx
+        ): string {
+            if ($text === '') {
+                return $text;
+            }
+            return (string) preg_replace_callback(
+                $name_pattern,
+                static function (array $m) use ($subs, $target_exact_mentions, &$kept_so_far, &$sub_idx): string {
+                    if ($kept_so_far < $target_exact_mentions) {
+                        $kept_so_far++;
+                        return $m[0]; // still within budget — keep exact name
+                    }
+                    // Budget exhausted — substitute
+                    $replacement = $subs[$sub_idx % count($subs)];
+                    $sub_idx++;
+                    // Preserve leading capitalisation
+                    if (mb_strlen($m[0]) > 0 && mb_strtolower(mb_substr($m[0], 0, 1, 'UTF-8'), 'UTF-8') !== mb_substr($m[0], 0, 1, 'UTF-8')) {
+                        return ucfirst($replacement);
+                    }
+                    return $replacement;
+                },
+                $text
+            ) ?: $text;
+        };
+
+        // Apply to intro_paragraphs[1..n] (skip [0])
         if (!empty($tp_payload['intro_paragraphs']) && is_array($tp_payload['intro_paragraphs'])) {
             $paras = $tp_payload['intro_paragraphs'];
             for ($i = 1; $i < count($paras); $i++) {
-                $paras[$i] = self::substitute_name_occurrences(
-                    (string) $paras[$i], $name, $name_pattern, $subs, $sub_idx
-                );
+                $para_text = (string) $paras[$i];
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                // Issue 2: skip operator-reviewed bio paragraphs
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    continue;
+                }
+                $paras[$i] = $apply_budget($para_text);
             }
             $tp_payload['intro_paragraphs'] = $paras;
         }
 
-        // ── Apply to all elements of reducible paragraph bags ─────────────────
-        foreach ($reducible_keys as $key) {
+        // Apply to all reducible paragraph bag keys
+        foreach ($reducible_bag_keys as $key) {
             if (empty($tp_payload[$key]) || !is_array($tp_payload[$key])) {
                 continue;
             }
             $reduced = [];
             foreach ($tp_payload[$key] as $para) {
-                $reduced[] = self::substitute_name_occurrences(
-                    (string) $para, $name, $name_pattern, $subs, $sub_idx
-                );
+                $para_text = (string) $para;
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                // Issue 2: skip operator-reviewed bio paragraphs
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    $reduced[] = $para_text; // keep verbatim
+                    continue;
+                }
+                $reduced[] = $apply_budget($para_text);
             }
             $tp_payload[$key] = $reduced;
         }
@@ -5617,54 +5715,6 @@ class TemplateContent {
         return $tp_payload;
     }
 
-    /**
-     * Replace non-first occurrences of $name in $text with round-robin substitutions.
-     *
-     * The first occurrence in each paragraph is kept for natural reading flow.
-     * Subsequent occurrences are replaced with the next substitution in the pool.
-     *
-     * @param string   $text         The paragraph text.
-     * @param string   $name         The model name to reduce.
-     * @param string   $pattern      Pre-built regex pattern for $name.
-     * @param string[] $subs         Substitution pool.
-     * @param int      &$sub_idx     Round-robin index (modified in place).
-     * @return string
-     */
-    private static function substitute_name_occurrences(
-        string $text,
-        string $name,
-        string $pattern,
-        array $subs,
-        int &$sub_idx
-    ): string {
-        if ($text === '' || empty($subs)) {
-            return $text;
-        }
-        // Count occurrences in this paragraph
-        $hits = preg_match_all($pattern, $text);
-        if ($hits === false || $hits < 2) {
-            // 0 or 1 occurrences — nothing to reduce
-            return $text;
-        }
-        // Replace non-first occurrences
-        $first_done = false;
-        return (string) preg_replace_callback(
-            $pattern,
-            static function (array $m) use ($name, $subs, &$sub_idx, &$first_done): string {
-                if (!$first_done) {
-                    $first_done = true;
-                    return $m[0]; // keep first occurrence
-                }
-                $replacement = $subs[$sub_idx % count($subs)];
-                $sub_idx++;
-                // Preserve title case if original was title-cased
-                if (mb_strtolower($m[0][0], 'UTF-8') !== $m[0][0]) {
-                    return ucfirst($replacement);
-                }
-                return $replacement;
-            },
-            $text
-        ) ?: $text;
-    }
+
 
 }
