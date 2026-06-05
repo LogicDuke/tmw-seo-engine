@@ -377,6 +377,8 @@ class TemplateContent {
         }
 
         if (!empty($pack['_manual_generate']) && !empty($model_data_gate['is_sufficient'])) {
+            // v5.8.22: pass $rankmath_keywords and $extra so the primary builder
+            // can use dynamic secondary keywords for heading synthesis and intro placement.
             $renderer_payload = self::build_template_pool_primary_payload(
                 $post,
                 $renderer_payload,
@@ -386,7 +388,9 @@ class TemplateContent {
                 $resolved_destinations,
                 $cta_links,
                 $verified_destination_rows,
-                $faq_items
+                $faq_items,
+                $rankmath_keywords,
+                $extra
             );
         }
         // ── End TemplatePool primary mode injection ──────────────────────────
@@ -409,12 +413,14 @@ class TemplateContent {
                     (string)(\TMWSEO\Engine\Content\ModelResearchEvidence::get_raw_fields((int)$post->ID)['private_chat'] ?? '')
                   ))
                 : false;
+            // v5.8.22: pass rankmath_keywords for dynamic concept detection in heading
             $tp_intro_h2 = self::build_templatepool_intro_h2(
                 $name,
                 $primary_platform_label,
                 $h2_has_turn_ons,
                 $h2_has_private_chat,
-                (int) $post->ID
+                (int) $post->ID,
+                $rankmath_keywords
             );
             if ($tp_intro_h2 !== '') {
                 // Replace the renderer's first H2 (Official Profile Access) with
@@ -1460,6 +1466,11 @@ class TemplateContent {
             '/^Social\s+Profiles\b/iu',
             '/^Where\s+Are\s+the\s+Official\s+Links\b/iu',
             '/^Official\s+Links\s+and\s+Profiles\b/iu',
+            // v5.8.22: prevent duplicate "Live Chat Experience for X and Y" H3 injection
+            // into the features section which already has a "Live Chat Experience" H2.
+            '/^Live\s+Chat\s+Experience\b/iu',
+            '/^Before\s+You\s+Click\b/iu',
+            '/^More\s+Pages\s+for\b/iu',
         ];
 
         // Collect existing heading text (H2 + H3 + H4) for fast lookup.
@@ -4748,7 +4759,9 @@ class TemplateContent {
         array $resolved_destinations,
         array $cta_links,
         array $verified_destination_rows,
-        array $legacy_faq_items
+        array $legacy_faq_items,
+        array $rankmath_keywords = [],
+        array $extra_keywords = []
     ): array {
         // Guard: TemplatePool class must be available.
         if (!class_exists(\TMWSEO\Engine\Model\TemplatePool::class)) {
@@ -4853,7 +4866,13 @@ class TemplateContent {
             // Evidence-gated fields are empty strings when evidence is absent.
             // TemplatePool leaves unresolved {{tokens}} in the output, which
             // the guard below will catch and skip.
-            $model_data = [
+            // v5.8.22: Never set 'turn_ons', 'chat_options', or 'chat_options_count' to
+            // empty string. TemplatePool::resolve() replaces a key that exists with value ''
+            // rather than leaving the {{placeholder}} visible, which makes the placeholder
+            // guard fail to skip variants like "built around {{turn_ons}} and a consistent...".
+            // Omitting the key entirely makes array_key_exists() return false, causing
+            // resolve() to leave {{turn_ons}} in the body, which the guard then catches.
+            $model_data = array_filter([
                 'name'               => $name,
                 'platform'           => $platform_label,
                 'platform_list'      => $platform_list_text,
@@ -4862,13 +4881,15 @@ class TemplateContent {
                 'site_name'          => $site_name,
                 'similar_1'          => $similar_1,
                 'similar_2'          => $similar_2,
-                'turn_ons'           => $has_turn_on_evidence ? $turn_ons_text : '',
+                // Evidence-gated: only set when value is non-empty.
+                // Empty string → key omitted → placeholder stays → guard skips variant.
+                'turn_ons'           => $has_turn_on_evidence ? $turn_ons_text : null,
                 'chat_options'       => $has_private_chat_evidence
                     ? implode(', ', array_slice($private_chat_items, 0, 6))
-                    : '',
-                'chat_options_count' => $has_private_chat_evidence ? (string) $private_chat_count : '',
+                    : null,
+                'chat_options_count' => $has_private_chat_evidence ? (string) $private_chat_count : null,
                 'handle'             => $name,
-            ];
+            ], static fn($v): bool => $v !== null && $v !== '');
 
             // ── Helper: resolve + validate one section ───────────────────────
             // Returns the resolved body string, or empty string if it fails any guard.
@@ -5042,6 +5063,17 @@ class TemplateContent {
             // Use pool FAQs when we have at least 2; otherwise keep legacy.
             $faq_items_new = count($pool_faq_items) >= 2 ? $pool_faq_items : $legacy_faq_items;
 
+            // v5.8.22: Fix FAQ grammar on ALL sources (pool and legacy).
+            // Imperatives like "Report a fake X profile?" must be "Can I report...?".
+            $faq_items_new = array_map(static function(array $item): array {
+                $q = trim((string) ($item['q'] ?? ''));
+                if ($q !== '' && substr($q, -1) === '?'
+                    && preg_match('/^(Report|Find|Tell|Show|Check|Verify|View|Open|Use|Start|Get|See|Track|Follow|Block|Access)\b/u', $q)) {
+                    $item['q'] = 'Can I ' . lcfirst($q);
+                }
+                return $item;
+            }, $faq_items_new);
+
             // ── Count how many sections actually resolved ────────────────────
             $resolved_count = (int) ($pool_intro !== '')
                 + (int) ($pool_official_access !== '')
@@ -5085,6 +5117,68 @@ class TemplateContent {
                 'official_links_section_paragraphs' => $official_links_paragraphs_new,
                 'questions_section_paragraphs'    => [],
             ]);
+
+            // ── v5.8.22: Dynamic keyword-aware opening paragraph ────────────────
+            // Build a rich opening paragraph using focus keyword + selected extras.
+            // Only overwrites $tp_payload['intro_paragraphs'] when we can produce
+            // something better than the TemplatePool default.
+            $kw_intro = self::build_keyword_aware_intro_paragraph(
+                $name,
+                $platform_label,
+                $has_turn_on_evidence,
+                $turn_ons_sentence,
+                $has_private_chat_evidence,
+                $private_chat_items,
+                $rankmath_keywords,
+                $extra_keywords,
+                (int) $post->ID
+            );
+            if ($kw_intro !== '') {
+                // Prepend the keyword-rich intro before the TemplatePool intro text.
+                // The TemplatePool intro (variant 2 or 6) stays as a second paragraph.
+                $existing_intro = (array) ($tp_payload['intro_paragraphs'] ?? []);
+                $tp_payload['intro_paragraphs'] = array_merge([$kw_intro], $existing_intro);
+            }
+
+            // ── v5.8.23: Keyword density reduction (page-level budget) ──────
+            // Applies page-level exact-name budget (target: 10 mentions).
+            // Operator-reviewed bio paragraphs are never mutated.
+            // Headings, the first intro paragraph, and CTA HTML are untouched.
+            $protected_bio_text = class_exists(\TMWSEO\Engine\Content\ModelResearchEvidence::class)
+                ? ''
+                : '';
+            // Read reviewed bio summary for protection: if bio_review_status='reviewed'
+            // and bio_summary is non-empty, protect that exact text from substitution.
+            if (class_exists('\\TMWSEO\\Engine\\Content\\TemplateContent')) {
+                $bio_ev_for_density = self::get_bio_evidence_data((int) $post->ID);
+                $protected_bio_text = ($bio_ev_for_density['is_reviewable'] ?? false)
+                    ? trim((string) ($bio_ev_for_density['summary'] ?? ''))
+                    : '';
+            }
+            $tp_payload = self::reduce_focus_keyword_density_in_payload(
+                $tp_payload,
+                $name,
+                $platform_label,
+                $protected_bio_text
+            );
+
+            // ── v5.8.22: [TMW-POOL-KEYWORDS] diagnostic log ──────────────────
+            if (defined('WP_DEBUG') && WP_DEBUG && !empty($rankmath_keywords)) {
+                $extras_used = implode(', ', array_slice($rankmath_keywords, 0, 4));
+                $intro_first = trim(wp_strip_all_tags((string)(($tp_payload['intro_paragraphs'] ?? [''])[0] ?? '')));
+                $intro_preview = mb_substr($intro_first, 0, 80, 'UTF-8');
+                $h2_candidates = array_filter(array_map('wp_strip_all_tags', [
+                    $intro_first,
+                    implode(' ', array_slice($tp_payload['watch_section_paragraphs'] ?? [], 0, 1)),
+                ]));
+                error_log(sprintf(
+                    '[TMW-POOL-KEYWORDS] post_id=%d focus="%s" extras="%s" used_intro="%s..."',
+                    (int) $post->ID,
+                    $name,
+                    $extras_used,
+                    $intro_preview
+                ));
+            }
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log(sprintf(
@@ -5237,7 +5331,8 @@ class TemplateContent {
         string $platform_label,
         bool $has_turn_ons,
         bool $has_private_chat,
-        int $post_id
+        int $post_id,
+        array $rankmath_keywords = []
     ): string {
         if ($name === '' || $platform_label === '' || $platform_label === self::NEUTRAL_PLATFORM_FALLBACK) {
             return '';
@@ -5246,6 +5341,15 @@ class TemplateContent {
         // Build a pool of natural model-profile headings appropriate to the
         // evidence available. Using the model name + platform guarantees the
         // focus keyword and a secondary keyword chip are both in the heading.
+        // v5.8.22: also detect extra keyword concepts from dynamic pack
+        $all_kws_lower = array_map('mb_strtolower', array_values((array) $rankmath_keywords));
+        $has_livecam_in_kw = false;
+        foreach ($all_kws_lower as $kw) {
+            if (str_contains($kw, 'live cam') || str_contains($kw, 'webcam') || str_contains($kw, 'live webcam')) {
+                $has_livecam_in_kw = true;
+            }
+        }
+
         if ($has_turn_ons && $has_private_chat) {
             $variants = [
                 $name . ' ' . $platform_label . ' Profile, Turn Ons and Private Chat Options',
@@ -5255,7 +5359,7 @@ class TemplateContent {
         } elseif ($has_turn_ons) {
             $variants = [
                 $name . ' ' . $platform_label . ' Turn Ons and Live Cam Session Notes',
-                $name . ' Live Cam Access and Session Style on ' . $platform_label,
+                $name . ' Live Cam Access and Turn Ons on ' . $platform_label,
                 $name . ': ' . $platform_label . ' Profile, Turn Ons and Live Room Access',
             ];
         } elseif ($has_private_chat) {
@@ -5263,6 +5367,12 @@ class TemplateContent {
                 $name . ' Private Chat Options and Live Room Access on ' . $platform_label,
                 $name . ' ' . $platform_label . ' Profile and Private Chat Options',
                 $name . ': Verified ' . $platform_label . ' Profile and Private Chat Notes',
+            ];
+        } elseif ($has_livecam_in_kw) {
+            $variants = [
+                $name . ' ' . $platform_label . ' Live Cam Access and Verified Profile',
+                $name . ' Live Cam Profile on ' . $platform_label . ': Verified Links and Access Notes',
+                'Where to Watch ' . $name . ' Live on ' . $platform_label,
             ];
         } else {
             $variants = [
@@ -5275,5 +5385,336 @@ class TemplateContent {
         $idx = abs($post_id) % count($variants);
         return '<h2>' . esc_html($variants[$idx]) . '</h2>';
     }
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // v5.8.22: Dynamic keyword-aware helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Build a keyword-aware opening paragraph for TemplatePool-primary pages.
+     *
+     * Uses the focus keyword (model name), confirmed platform, and dynamic
+     * secondary keywords from the model keyword pack to produce a first
+     * paragraph that:
+     *  - mentions the model name naturally (focus keyword in first 10%)
+     *  - mentions the confirmed platform
+     *  - weaves in concepts from the secondary keyword pack where they fit
+     *    (live cam access, private chat options, turn ons, etc.)
+     *  - does not repeat the model name more than twice
+     *  - reads as human-authored model-profile copy
+     *
+     * All keyword concepts are drawn dynamically from $rankmath_keywords and
+     * $extra_keywords — no hardcoded model or site names.
+     *
+     * @param string   $name                Model display name (focus keyword).
+     * @param string   $platform_label      Primary platform label.
+     * @param bool     $has_turn_ons        Turn-on evidence present.
+     * @param string   $turn_ons_sentence   Full turn-on sentence (if is_full_sentence).
+     * @param bool     $has_private_chat    Private-chat evidence present.
+     * @param string[] $private_chat_items  Private-chat option list.
+     * @param string[] $rankmath_keywords   Dynamic Rank Math secondary chips.
+     * @param string[] $extra_keywords      Dynamic extra keyword pool.
+     * @param int      $post_id             Post ID for deterministic variant.
+     * @return string  Paragraph text (plain, no HTML tags).
+     */
+    /**
+     * Build a keyword-aware opening paragraph for TemplatePool-primary pages.
+     *
+     * EVIDENCE RULE (CodeRabbit Issue 1 — v5.8.23):
+     * Feature-specific claims (private chat options, listed turn ons) may only
+     * appear in the opening paragraph when the corresponding operator-evidence
+     * boolean is TRUE. SEO keywords alone do NOT constitute evidence and must
+     * NOT produce factual claims in prose copy.
+     *
+     * Keywords ($rankmath_keywords, $extra_keywords) are used only to detect
+     * whether a concept is worth mentioning in a GENERIC way (e.g. noting that
+     * this is a live cam profile) — never to claim a specific feature exists.
+     *
+     * Safe patterns:
+     *   - "{Name} is listed with a confirmed {Platform} profile." — always safe.
+     *   - "This page covers her verified profile access and session notes." — always safe.
+     *   - "Private chat options are available in her live room." — ONLY when $has_private_chat=true.
+     *   - "Her listed turn ons are noted below." — ONLY when $has_turn_ons=true.
+     *
+     * @param string   $name                Model display name (focus keyword).
+     * @param string   $platform_label      Primary platform label.
+     * @param bool     $has_turn_ons        Turn-on EVIDENCE present (operator field filled).
+     * @param string   $turn_ons_sentence   Full turn-on sentence when evidence is a prose sentence.
+     * @param bool     $has_private_chat    Private-chat EVIDENCE present (operator field filled).
+     * @param string[] $private_chat_items  Filtered private-chat option list from evidence.
+     * @param string[] $rankmath_keywords   Dynamic Rank Math secondary chips (keyword-only, no claims).
+     * @param string[] $extra_keywords      Dynamic extra keyword pool (keyword-only, no claims).
+     * @param int      $post_id             Post ID for deterministic variant selection.
+     * @return string  Paragraph text (plain, no HTML tags).
+     */
+    private static function build_keyword_aware_intro_paragraph(
+        string $name,
+        string $platform_label,
+        bool $has_turn_ons,
+        string $turn_ons_sentence,
+        bool $has_private_chat,
+        array $private_chat_items,
+        array $rankmath_keywords,
+        array $extra_keywords,
+        int $post_id
+    ): string {
+        if ($name === '' || $platform_label === '' || $platform_label === self::NEUTRAL_PLATFORM_FALLBACK) {
+            return '';
+        }
+
+        // ── Opening sentence: focus keyword + platform — always factual ───────
+        // This sentence is always safe regardless of keywords or evidence.
+        $opening = $name . ' is listed with a confirmed ' . $platform_label . ' live cam profile.';
+
+        // ── Evidence-gated feature signals ────────────────────────────────────
+        // These phrases only appear when the operator evidence boolean is TRUE.
+        // Keywords in $rankmath_keywords or $extra_keywords do NOT qualify here —
+        // an SEO keyword that mentions "private chat" does not mean the performer
+        // actually has private-chat evidence in the operator fields.
+        $evidence_signals = [];
+        if ($has_private_chat) {
+            $evidence_signals[] = 'private chat options';
+        }
+        if ($has_turn_ons) {
+            $evidence_signals[] = 'listed session interests';
+        }
+
+        // ── Second sentence: navigation context, using evidence signals only ──
+        // Keywords may influence the generic framing (live room, profile access)
+        // but cannot add feature claims beyond what evidence supports.
+        if (!empty($evidence_signals)) {
+            $signal_str = self::natural_keyword_list($evidence_signals);
+            $second = 'This page covers her ' . $signal_str
+                . ', verified live-room access, and profile checks before visitors open the room.';
+        } else {
+            // No feature evidence — use generic verified-access framing.
+            $second = 'This page covers her confirmed ' . $platform_label
+                . ' profile access, verified links, and practical room-access notes.';
+        }
+
+        return trim($opening . ' ' . $second);
+    }
+
+    /**
+     * Format a short list of keyword concept strings naturally.
+     *
+     * "a, b, c" → "a, b, and c"
+     * "a, b" → "a and b"
+     * "a" → "a"
+     *
+     * @param string[] $items
+     * @return string
+     */
+    private static function natural_keyword_list(array $items): string {
+        $items = array_values(array_filter(array_map('trim', $items), 'strlen'));
+        if (empty($items)) {
+            return '';
+        }
+        if (count($items) === 1) {
+            return $items[0];
+        }
+        $last = array_pop($items);
+        return implode(', ', $items) . ', and ' . $last;
+    }
+
+    /**
+     * Reduce exact focus-keyword repetition in TemplatePool paragraph bags.
+     *
+     * v5.8.23 redesign — three CodeRabbit issues resolved:
+     *
+     * Issue 2 (operator bio protection):
+     *   Any paragraph whose text exactly matches $protected_bio_text is skipped
+     *   entirely. Operator-reviewed bio copy is never mutated.
+     *
+     * Issue 3 (page-level budget instead of per-paragraph keep-first):
+     *   The old per-paragraph "keep first occurrence" strategy kept every single
+     *   {{name}}-resolved mention because each TemplatePool paragraph has exactly
+     *   one model name. This produced ~21 exact mentions unchanged.
+     *   The new approach uses a PAGE-LEVEL budget (TARGET_EXACT_MENTIONS = 10):
+     *   - First pass: count how many exact mentions exist across ALL paragraphs.
+     *   - Keep the first TARGET_EXACT_MENTIONS occurrences (in document order).
+     *   - Replace every occurrence beyond the budget with a round-robin substitution.
+     *   This guarantees the focus keyword appears in the first paragraph, key
+     *   headings, and CTAs while reducing overall density to the target range.
+     *
+     * Protected slots (never replaced regardless of budget):
+     *   - intro_paragraphs[0]: must contain focus keyword for Rank Math ✓
+     *   - watch_section_html, external_info_html: CTA affiliate HTML, never touched
+     *   - faq_items[*]['q']: FAQ H3 question headings keep the name for context
+     *
+     * @param array  $tp_payload         The assembled TemplatePool renderer payload.
+     * @param string $name               Model display name (focus keyword).
+     * @param string $platform_label     Primary platform label.
+     * @param string $protected_bio_text Operator-reviewed bio text to protect (may be empty).
+     * @return array Modified payload.
+     */
+    private static function reduce_focus_keyword_density_in_payload(
+        array $tp_payload,
+        string $name,
+        string $platform_label,
+        string $protected_bio_text = ''
+    ): array {
+        if ($name === '') {
+            return $tp_payload;
+        }
+
+        // ── Page-level budget ─────────────────────────────────────────────────
+        // Target: 10 exact model-name mentions on a 750–900 word page.
+        // Below 8 would hurt readability; above 12 risks the Rank Math warning.
+        $target_exact_mentions = 10;
+
+        // ── Substitution pool ─────────────────────────────────────────────────
+        $subs = [
+            'she',
+            'her profile',
+            'the confirmed profile',
+            'the verified live room',
+            'this profile',
+            'the live room',
+        ];
+        if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+            $subs[] = 'the ' . $platform_label . ' profile';
+            $subs[] = 'the confirmed ' . $platform_label . ' room';
+        }
+
+        // ── Build the protected bio fingerprint ───────────────────────────────
+        // Normalise whitespace for comparison.
+        $bio_fingerprint = '';
+        if ($protected_bio_text !== '') {
+            $bio_fingerprint = (string) preg_replace('/\s+/u', ' ', trim($protected_bio_text));
+        }
+
+        // ── Reducible paragraph bag keys ─────────────────────────────────────
+        // intro_paragraphs[0] is protected (processed separately).
+        // HTML-bearing keys (watch_section_html, comparison_section_html, etc.) are never included.
+        // faq_items question strings are also excluded (FAQ H3s should keep the name).
+        $reducible_bag_keys = [
+            'watch_section_paragraphs',
+            'about_section_paragraphs',
+            'features_section_paragraphs',
+            'comparison_section_paragraphs',
+            'official_links_section_paragraphs',
+            'questions_section_paragraphs',
+        ];
+
+        // ── Step 1: count exact mentions across all reducible content ─────────
+        // This gives us the page-level total to compare against the budget.
+        $name_pattern = '/\b' . preg_quote($name, '/') . '\b/iu';
+        $total_mentions = 0;
+
+        // intro_paragraphs[0] is a protected slot — always kept, counted but not reduced.
+        $intro_0_text = '';
+        if (!empty($tp_payload['intro_paragraphs']) && is_array($tp_payload['intro_paragraphs'])) {
+            $intro_0_text = (string) ($tp_payload['intro_paragraphs'][0] ?? '');
+            $hits = preg_match_all($name_pattern, $intro_0_text);
+            $total_mentions += (int) $hits;
+        }
+        foreach ($reducible_bag_keys as $key) {
+            if (empty($tp_payload[$key]) || !is_array($tp_payload[$key])) {
+                continue;
+            }
+            foreach ($tp_payload[$key] as $para) {
+                $para_text = (string) $para;
+                // Skip protected bio paragraphs from counting too
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    continue;
+                }
+                $hits = preg_match_all($name_pattern, $para_text);
+                $total_mentions += (int) $hits;
+            }
+        }
+        // Also count intro_paragraphs[1..n]
+        if (!empty($tp_payload['intro_paragraphs']) && is_array($tp_payload['intro_paragraphs'])) {
+            for ($i = 1; $i < count($tp_payload['intro_paragraphs']); $i++) {
+                $para_text = (string) ($tp_payload['intro_paragraphs'][$i] ?? '');
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    continue;
+                }
+                $hits = preg_match_all($name_pattern, $para_text);
+                $total_mentions += (int) $hits;
+            }
+        }
+
+        // If already at or below budget, nothing to do.
+        if ($total_mentions <= $target_exact_mentions) {
+            return $tp_payload;
+        }
+
+        // ── Step 2: apply page-level budget reduction ─────────────────────────
+        // We walk all reducible paragraphs in document order, tracking a shared
+        // counter. The first $target_exact_mentions occurrences page-wide are
+        // kept; everything beyond that is replaced.
+        // intro_paragraphs[0] is always fully preserved (counted in budget,
+        // never passed through the replacer).
+        $kept_so_far = (int) preg_match_all($name_pattern, $intro_0_text); // pre-spend budget on intro[0]
+        $sub_idx = 0;
+
+        $apply_budget = function(string $text) use (
+            $name_pattern, $subs, $target_exact_mentions, &$kept_so_far, &$sub_idx
+        ): string {
+            if ($text === '') {
+                return $text;
+            }
+            return (string) preg_replace_callback(
+                $name_pattern,
+                static function (array $m) use ($subs, $target_exact_mentions, &$kept_so_far, &$sub_idx): string {
+                    if ($kept_so_far < $target_exact_mentions) {
+                        $kept_so_far++;
+                        return $m[0]; // still within budget — keep exact name
+                    }
+                    // Budget exhausted — substitute
+                    $replacement = $subs[$sub_idx % count($subs)];
+                    $sub_idx++;
+                    // Preserve leading capitalisation
+                    if (mb_strlen($m[0]) > 0 && mb_strtolower(mb_substr($m[0], 0, 1, 'UTF-8'), 'UTF-8') !== mb_substr($m[0], 0, 1, 'UTF-8')) {
+                        return ucfirst($replacement);
+                    }
+                    return $replacement;
+                },
+                $text
+            ) ?: $text;
+        };
+
+        // Apply to intro_paragraphs[1..n] (skip [0])
+        if (!empty($tp_payload['intro_paragraphs']) && is_array($tp_payload['intro_paragraphs'])) {
+            $paras = $tp_payload['intro_paragraphs'];
+            for ($i = 1; $i < count($paras); $i++) {
+                $para_text = (string) $paras[$i];
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                // Issue 2: skip operator-reviewed bio paragraphs
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    continue;
+                }
+                $paras[$i] = $apply_budget($para_text);
+            }
+            $tp_payload['intro_paragraphs'] = $paras;
+        }
+
+        // Apply to all reducible paragraph bag keys
+        foreach ($reducible_bag_keys as $key) {
+            if (empty($tp_payload[$key]) || !is_array($tp_payload[$key])) {
+                continue;
+            }
+            $reduced = [];
+            foreach ($tp_payload[$key] as $para) {
+                $para_text = (string) $para;
+                $para_norm = (string) preg_replace('/\s+/u', ' ', trim($para_text));
+                // Issue 2: skip operator-reviewed bio paragraphs
+                if ($bio_fingerprint !== '' && $para_norm === $bio_fingerprint) {
+                    $reduced[] = $para_text; // keep verbatim
+                    continue;
+                }
+                $reduced[] = $apply_budget($para_text);
+            }
+            $tp_payload[$key] = $reduced;
+        }
+
+        return $tp_payload;
+    }
+
+
 
 }
