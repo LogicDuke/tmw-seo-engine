@@ -4697,7 +4697,7 @@ class TemplateContent {
                     return '';
                 }
                 // Reject any unresolved {{placeholder}} in body
-                if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $body)) {
+                if (preg_match('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $body)) {
                     if (defined('WP_DEBUG') && WP_DEBUG) {
                         error_log(sprintf('[TMW-POOL-WIRE] skipping section=%s post_id=%d reason=unresolved_placeholder', $section_key, (int) $post->ID));
                     }
@@ -4722,7 +4722,7 @@ class TemplateContent {
                     return '';
                 }
                 $h2 = trim((string) ($section['h2'] ?? ''));
-                if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $h2)) {
+                if (preg_match('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $h2)) {
                     return '';
                 }
                 return $h2;
@@ -4768,32 +4768,45 @@ class TemplateContent {
                 $about_paragraphs_new = [];
             }
 
-            // ── Section 4: Live chat / features (replaces features_section_paragraphs) ─
-            // live_chat_experience is preferred; private_chat_options is added
-            // when evidence exists. Without private-chat evidence, both
-            // live_chat_experience variants that use chat_options_count will
-            // fail the placeholder guard and we fall back to before_you_click text.
+            // ── Section 4 + 5: Features and Comparison ───────────────────────────
+            // before_you_click is resolved ONCE and assigned to exactly one slot.
+            // This prevents the same body from appearing in both Features and
+            // Comparison when live_chat_experience has no usable variant.
+            // Priority order:
+            //   Features → live_chat_experience (preferred) OR private_chat_options
+            //               OR legacy features paragraphs (never before_you_click)
+            //   Comparison → before_you_click (preferred) OR legacy comparison
+
             $pool_live_chat = '';
             if (!empty($active_platforms)) {
                 $pool_live_chat = $resolve_section('live_chat_experience');
             }
             $pool_private_chat = $has_private_chat_evidence ? $resolve_section('private_chat_options') : '';
 
+            // Resolve before_you_click exactly once.
+            $pool_before_click = $resolve_section('before_you_click');
+
             if ($pool_live_chat !== '' || $pool_private_chat !== '') {
+                // Preferred path: live-chat content fills Features.
                 $features_paragraphs_new = array_values(array_filter([
                     $pool_live_chat,
                     $pool_private_chat,
                 ], 'strlen'));
+                // before_you_click is still available for Comparison.
             } else {
-                // Fallback: use before_you_click body as features intro, or keep legacy.
-                $pool_byc = $resolve_section('before_you_click');
-                $features_paragraphs_new = $pool_byc !== ''
-                    ? [$pool_byc]
+                // Fallback path: no live-chat content — use legacy Features paragraph
+                // bags (non-empty check), NOT before_you_click, so Comparison can
+                // still use it independently.
+                $legacy_features = (array) ($renderer_payload['features_section_paragraphs'] ?? []);
+                $legacy_features = array_values(array_filter($legacy_features, 'strlen'));
+                $features_paragraphs_new = !empty($legacy_features)
+                    ? $legacy_features
                     : (array) ($renderer_payload['features_section_paragraphs'] ?? []);
+                // before_you_click is still available for Comparison below.
             }
 
-            // ── Section 5: Before you click (replaces comparison_section_paragraphs) ─
-            $pool_before_click = $resolve_section('before_you_click');
+            // ── Section 5: Before you click (Comparison) ─────────────────────
+            // Uses the single $pool_before_click resolved above.
             if ($pool_before_click !== '') {
                 $comparison_paragraphs_new = [$pool_before_click];
             } else {
@@ -4821,7 +4834,7 @@ class TemplateContent {
                     continue;
                 }
                 // Skip items with unresolved placeholders.
-                if (preg_match('/\{\{[a-zA-Z0-9_\-]+\}\}/', $q . $a)) {
+                if (preg_match('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $q . $a)) {
                     continue;
                 }
                 $pool_faq_items[] = ['q' => $q, 'a' => $a];
