@@ -80,6 +80,10 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
                 $status = stripslashes($match[1]);
                 $rows = array_values(array_filter($rows, static fn(array $row): bool => (string) ($row['status'] ?? '') === $status));
             }
+            if (preg_match("/keyword LIKE '([^']+)' OR normalized_keyword LIKE '([^']+)'/", $sql, $match)) {
+                $needle = strtolower(str_replace(['%', '\\%', '\\_'], ['', '%', '_'], stripslashes($match[1])));
+                $rows = array_values(array_filter($rows, static fn(array $row): bool => str_contains(strtolower((string) ($row['keyword'] ?? '')), $needle) || str_contains(strtolower((string) ($row['normalized_keyword'] ?? '')), $needle)));
+            }
             if (str_contains($sql, 'COALESCE(volume, 0)')) {
                 $direction = str_contains($sql, 'COALESCE(volume, 0) ASC') ? 'asc' : 'desc';
                 usort($rows, static function (array $a, array $b) use ($direction): int {
@@ -484,4 +488,35 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
             $prefix . 'tmw_keyword_import_rows' => [ 'id', 'batch_id', 'import_batch_id', 'row_index', 'keyword', 'normalized_keyword', 'volume', 'cpc', 'competition', 'status', 'result_action', 'result_reason', 'validation_state', 'decision', 'target_type', 'target_id', 'target_name', 'candidate_id', 'row_payload', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at' ],
         ];
     }
+    public function test_query_rows_search_filters_before_volume_sort_and_pagination(): void {
+        $prefix = 'wp_search_rows_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 9, 'row_index' => 1, 'keyword' => 'classy model photos', 'normalized_keyword' => 'classy model photos', 'volume' => 100 ],
+            [ 'id' => 2, 'batch_id' => 9, 'row_index' => 2, 'keyword' => 'live cam model', 'normalized_keyword' => 'live cam model', 'volume' => 300 ],
+            [ 'id' => 3, 'batch_id' => 9, 'row_index' => 3, 'keyword' => 'classy live model', 'normalized_keyword' => 'classy live model', 'volume' => 500 ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $rows = $repository->query_rows(9, '', 1, 0, 'volume', 'desc', 'classy');
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('classy live model', $rows[0]['keyword']);
+        $this->assertStringContainsString("keyword LIKE '%classy%'", $wpdb->last_query);
+        $this->assertStringContainsString('COALESCE(volume, 0) DESC', $wpdb->last_query);
+    }
+
+    public function test_count_rows_uses_escaped_keyword_search_like(): void {
+        $prefix = 'wp_search_count_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $repository->count_rows(12, '', '100% classy');
+
+        $this->assertStringContainsString("keyword LIKE '%100\\% classy%'", $wpdb->last_query);
+        $this->assertStringContainsString('batch_id = 12', $wpdb->last_query);
+    }
+
 }

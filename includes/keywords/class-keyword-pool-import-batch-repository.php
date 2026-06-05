@@ -269,7 +269,7 @@ class KeywordPoolImportBatchRepository {
     }
 
     /** @return array<int,array<string,mixed>> */
-    public function query_rows(int $batch_id, string $status = '', int $limit = 100, int $offset = 0, string $orderby = '', string $order = 'desc'): array {
+    public function query_rows(int $batch_id, string $status = '', int $limit = 100, int $offset = 0, string $orderby = '', string $order = 'desc', string $search = ''): array {
         global $wpdb;
         if (!$this->tables_exist()) { return []; }
         $table = $this->rows_table();
@@ -281,20 +281,44 @@ class KeywordPoolImportBatchRepository {
         if ('volume' === $orderby) {
             $order_clause = 'COALESCE(volume, 0) ' . $order . ', row_index ASC, id ASC';
         }
+
+        $where = [ 'batch_id = %d' ];
+        $args = [ $batch_id ];
         if ('' !== $status) {
-            return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d AND status = %s ORDER BY {$order_clause} LIMIT %d OFFSET %d", $batch_id, $this->sanitize_key($status, 30), $limit, $offset), ARRAY_A);
+            $where[] = 'status = %s';
+            $args[] = $this->sanitize_key($status, 30);
         }
-        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE batch_id = %d ORDER BY {$order_clause} LIMIT %d OFFSET %d", $batch_id, $limit, $offset), ARRAY_A);
+        $search = $this->sanitize_text($search, 100);
+        if ('' !== $search) {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where[] = '(keyword LIKE %s OR normalized_keyword LIKE %s)';
+            $args[] = $like;
+            $args[] = $like;
+        }
+        $args[] = $limit;
+        $args[] = $offset;
+
+        return (array) $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE " . implode(' AND ', $where) . " ORDER BY {$order_clause} LIMIT %d OFFSET %d", ...$args), ARRAY_A);
     }
 
-    public function count_rows(int $batch_id, string $status = ''): int {
+    public function count_rows(int $batch_id, string $status = '', string $search = ''): int {
         global $wpdb;
         if (!$this->tables_exist()) { return 0; }
         $table = $this->rows_table();
+        $where = [ 'batch_id = %d' ];
+        $args = [ $batch_id ];
         if ('' !== $status) {
-            return max(0, (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE batch_id = %d AND status = %s", $batch_id, $this->sanitize_key($status, 30))));
+            $where[] = 'status = %s';
+            $args[] = $this->sanitize_key($status, 30);
         }
-        return max(0, (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE batch_id = %d", $batch_id)));
+        $search = $this->sanitize_text($search, 100);
+        if ('' !== $search) {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where[] = '(keyword LIKE %s OR normalized_keyword LIKE %s)';
+            $args[] = $like;
+            $args[] = $like;
+        }
+        return max(0, (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE " . implode(' AND ', $where), ...$args)));
     }
 
     /** @param array<string,mixed> $updates */
