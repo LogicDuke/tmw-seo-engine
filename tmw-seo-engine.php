@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TMW SEO Engine
  * Description: Intelligence Core v5.8.11-final-copy — Final deterministic copy pipeline fix. Builds on v5.8.10. No architecture changes, no routing changes, no link changes. (1) build_sparse_model_payload: secondary-keyword tails removed from intro and features intro; Features section rebuilt as practical prose paragraphs surfacing secondary phrases [0]/[1]/[3]; FAQ first-link answers shortened to concise semicolon form; single-platform comparison line shortened. (2) render_varied_features: static pool trimmed to 4 practical-checks bullets; meta-commentary "Platform notes here..." bullet removed. (3) build_platform_comparison single-CTA branch: redundant intro paragraph dropped; checklist trimmed to 2 non-overlapping bullets; CTA href/rel/target untouched. (4) build_verification_process_paragraph: returns empty string when verified_count > 0 (avoids duplicate status sentences); "latest grouped link check" wording eliminated. (5) official_links_section_paragraphs rebuilt with three independent filtered entries. (6) enforce_keyword_heading_placement: name-bearing keyword guard added (mirrors select_heading_safe_secondary_keyword_phrases); section-context guard restricts H3 injection to Features and FAQ only; six routing/link sections are now disallowed injection targets. (7) ensure_minimum_useful_depth: "How to Decide Where to Start" gated on count(active_platforms) >= 2. (8) ModelCopyCleanup dedupe_latest_check_sentences family extended with "latest grouped link check", "latest automated review", "grouped link check", "latest review". All links, routes, affiliate URLs, verified-link grouping, Rank Math coverage, extra-keyword pipeline, and CrakRevenue routing are untouched.
- * Version: 5.8.15-template-pool-foundation
+ * Version: 5.8.16-template-pool-wired
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.15-template-pool-foundation');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.16-template-pool-wired');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');

@@ -11,6 +11,7 @@ use TMWSEO\Engine\Services\TitleFixer;
 use TMWSEO\Engine\Model\VerifiedLinks;
 use TMWSEO\Engine\Model\VerifiedLinksFamilies;
 use TMWSEO\Engine\Model\ModelBodySafety;
+use TMWSEO\Engine\Model\TemplatePool;
 use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
@@ -249,6 +250,18 @@ class TemplateContent {
         }
         $faq_items = self::build_seed_faq_items($editor_seed, $faqs_tpl, $name);
 
+        $template_pool_payload = self::build_template_pool_renderer_payload(
+            $post,
+            $name,
+            $active_platforms,
+            $primary_platform_label,
+            $resolved_destinations,
+            $cta_links,
+            $link_evidence_summary,
+            $editor_seed,
+            $tags
+        );
+
         $renderer_payload = array_merge($support_payload, [
             'focus_keyword' => $name,
             'intro_paragraphs' => $intro_paragraphs,
@@ -279,6 +292,12 @@ class TemplateContent {
             $renderer_payload = array_merge($renderer_payload, self::build_sparse_model_payload($name, $active_platforms, $model_data_gate, $rankmath_keywords, $extra, $link_evidence_summary));
         }
         $renderer_payload = self::maybe_add_sparse_wordcount_support_paragraph($renderer_payload, $name, $active_platforms, !$model_data_gate['is_sufficient']);
+        if (!empty($template_pool_payload['is_available'])) {
+            $renderer_payload = self::apply_template_pool_renderer_payload($renderer_payload, (array) ($template_pool_payload['payload'] ?? []));
+            self::debug_template_pool_wire('[TMW-POOL-WIRE] manual model generate using TemplatePool post_id=' . (int) $post->ID);
+        } else {
+            self::debug_template_pool_wire('[TMW-POOL-WIRE] fallback to legacy model generation post_id=' . (int) $post->ID . ' reason=' . (string) ($template_pool_payload['reason'] ?? 'unavailable'));
+        }
 
         // ── Phrase deduplication (plain-string bags only, before render) ─────
         $dedup_bags = self::deduplicate_payload_phrases([
@@ -348,6 +367,298 @@ class TemplateContent {
             'seo_title' => $seo_title,
             'meta_description' => $meta_description,
         ];
+    }
+
+    /**
+     * Build TemplatePool-backed renderer payload for the manual model Generate path.
+     *
+     * @param string[] $active_platforms
+     * @param array<string,mixed> $resolved_destinations
+     * @param array<int,array<string,mixed>> $cta_links
+     * @param array<string,mixed> $link_evidence_summary
+     * @param array<string,mixed> $editor_seed
+     * @param string[] $tags
+     * @return array{is_available:bool,reason:string,payload:array<string,mixed>}
+     */
+    private static function build_template_pool_renderer_payload(\WP_Post $post, string $name, array $active_platforms, string $primary_platform_label, array $resolved_destinations, array $cta_links, array $link_evidence_summary, array $editor_seed, array $tags): array {
+        if (!class_exists(TemplatePool::class)) {
+            return ['is_available' => false, 'reason' => 'class_missing', 'payload' => []];
+        }
+
+        try {
+            $model_data = self::build_template_pool_model_data($post, $name, $active_platforms, $primary_platform_label, $resolved_destinations, $cta_links, $link_evidence_summary, $editor_seed, $tags);
+            $pool = new TemplatePool();
+            $wanted_keys = [
+                'intro',
+                'turn_ons',
+                'private_chat_options',
+                'official_profile_access',
+                'where_to_watch',
+                'before_you_click',
+                'live_chat_experience',
+                'common_profile_questions',
+                'more_pages',
+                'official_links_summary',
+            ];
+
+            $sections = [];
+            foreach ($wanted_keys as $key) {
+                $section = $pool->get_section($key, (int) $post->ID, $model_data);
+                $body = is_array($section) ? self::clean_template_pool_text((string) ($section['body'] ?? $section['content'] ?? ''), $name) : '';
+                if ($body !== '') {
+                    $sections[$key] = $body;
+                }
+            }
+
+            if (empty($sections)) {
+                return ['is_available' => false, 'reason' => 'empty_sections', 'payload' => []];
+            }
+
+            $faqs = [];
+            foreach ($pool->get_faqs((int) $post->ID, $model_data, 5) as $faq) {
+                if (!is_array($faq)) {
+                    continue;
+                }
+                $q = self::clean_template_pool_text((string) ($faq['q'] ?? $faq['question'] ?? ''), $name, true);
+                $a = self::clean_template_pool_text((string) ($faq['a'] ?? $faq['answer'] ?? ''), $name, false);
+                if ($q !== '' && $a !== '') {
+                    $faqs[] = ['q' => $q, 'a' => $a];
+                }
+            }
+
+            $payload = [
+                'intro_paragraphs' => array_values(array_filter([
+                    $sections['intro'] ?? '',
+                    $sections['official_profile_access'] ?? '',
+                ], 'strlen')),
+                'watch_section_paragraphs' => array_values(array_filter([
+                    $sections['where_to_watch'] ?? '',
+                ], 'strlen')),
+                'fans_like_section_paragraphs' => array_values(array_filter([
+                    $sections['turn_ons'] ?? '',
+                ], 'strlen')),
+                'features_section_paragraphs' => array_values(array_filter([
+                    $sections['live_chat_experience'] ?? '',
+                    $sections['private_chat_options'] ?? '',
+                ], 'strlen')),
+                'comparison_section_paragraphs' => array_values(array_filter([
+                    $sections['before_you_click'] ?? '',
+                ], 'strlen')),
+                'questions_section_paragraphs' => array_values(array_filter([
+                    $sections['common_profile_questions'] ?? '',
+                ], 'strlen')),
+                'internal_links_section_paragraphs' => array_values(array_filter([
+                    $sections['more_pages'] ?? '',
+                ], 'strlen')),
+                'official_links_section_paragraphs' => array_values(array_filter([
+                    $sections['official_links_summary'] ?? '',
+                ], 'strlen')),
+            ];
+
+            if (!empty($faqs)) {
+                $payload['faq_items'] = $faqs;
+            }
+
+            return ['is_available' => true, 'reason' => '', 'payload' => $payload];
+        } catch (\Throwable $e) {
+            return ['is_available' => false, 'reason' => 'exception_' . preg_replace('/[^a-z0-9_\-]+/i', '_', $e->getMessage()), 'payload' => []];
+        }
+    }
+
+    /**
+     * @param array<string,mixed> $renderer_payload
+     * @param array<string,mixed> $template_pool_payload
+     * @return array<string,mixed>
+     */
+    private static function apply_template_pool_renderer_payload(array $renderer_payload, array $template_pool_payload): array {
+        $replace_keys = [
+            'intro_paragraphs',
+            'watch_section_paragraphs',
+            'fans_like_section_paragraphs',
+            'features_section_paragraphs',
+            'comparison_section_paragraphs',
+            'questions_section_paragraphs',
+            'internal_links_section_paragraphs',
+            'faq_items',
+        ];
+
+        foreach ($replace_keys as $key) {
+            if (!empty($template_pool_payload[$key]) && is_array($template_pool_payload[$key])) {
+                $renderer_payload[$key] = $template_pool_payload[$key];
+            }
+        }
+
+        if (!empty($template_pool_payload['official_links_section_paragraphs']) && is_array($template_pool_payload['official_links_section_paragraphs'])) {
+            $legacy_official_links = is_array($renderer_payload['official_links_section_paragraphs'] ?? null)
+                ? $renderer_payload['official_links_section_paragraphs']
+                : [];
+            $renderer_payload['official_links_section_paragraphs'] = array_values(array_filter(array_merge(
+                $template_pool_payload['official_links_section_paragraphs'],
+                $legacy_official_links
+            ), 'strlen'));
+        }
+
+        return $renderer_payload;
+    }
+
+    /**
+     * @param string[] $active_platforms
+     * @param array<string,mixed> $resolved_destinations
+     * @param array<int,array<string,mixed>> $cta_links
+     * @param array<string,mixed> $link_evidence_summary
+     * @param array<string,mixed> $editor_seed
+     * @param string[] $tags
+     * @return array<string,string|int>
+     */
+    private static function build_template_pool_model_data(\WP_Post $post, string $name, array $active_platforms, string $primary_platform_label, array $resolved_destinations, array $cta_links, array $link_evidence_summary, array $editor_seed, array $tags): array {
+        $confirmed_platforms = array_values(array_unique(array_filter(array_map(static function ($platform): string {
+            return trim((string) $platform);
+        }, $active_platforms), 'strlen')));
+
+        $confirmed_platform_count = count($confirmed_platforms);
+        $platform = trim((string) $primary_platform_label);
+        if ($platform === '' || $platform === self::NEUTRAL_PLATFORM_FALLBACK) {
+            $platform = !empty($confirmed_platforms) ? (string) $confirmed_platforms[0] : 'LiveJasmin';
+        }
+        $platform_list = !empty($confirmed_platforms)
+            ? self::format_template_pool_list($confirmed_platforms, 8)
+            : $platform;
+
+        $research_fields = class_exists(ModelResearchEvidence::class)
+            ? ModelResearchEvidence::get_raw_fields((int) $post->ID)
+            : ['bio' => '', 'turn_ons' => '', 'private_chat' => ''];
+
+        $private_chat_items = class_exists(ModelResearchEvidence::class)
+            ? ModelResearchEvidence::filter_private_chat_items((string) ($research_fields['private_chat'] ?? ''))
+            : [];
+        $private_chat_items = array_values(array_filter(array_map(static function ($item): string {
+            return trim((string) $item);
+        }, $private_chat_items), 'strlen'));
+
+        $chat_options = !empty($private_chat_items)
+            ? self::format_template_pool_list($private_chat_items)
+            : 'session-specific private requests confirmed in the live room';
+
+        $turn_on_items = self::extract_template_pool_terms((string) ($research_fields['turn_ons'] ?? ''));
+        if (empty($turn_on_items)) {
+            $turn_on_items = array_values(array_filter(array_map('strval', (array) ($editor_seed['known_for_tags'] ?? [])), 'strlen'));
+        }
+        if (empty($turn_on_items)) {
+            $turn_on_items = array_values(array_filter(array_map('strval', $tags), 'strlen'));
+        }
+        $turn_ons = !empty($turn_on_items)
+            ? self::format_template_pool_list($turn_on_items, 6)
+            : 'live chat interaction and room engagement';
+
+        $similar_models = self::get_template_pool_similar_model_names($post);
+        $handle = self::get_template_pool_model_handle($post, $name, $cta_links, $resolved_destinations);
+        $link_count = max(0, (int) ($link_evidence_summary['total_count'] ?? count((array) ($resolved_destinations['all_verified_destinations'] ?? []))));
+
+        return [
+            'name' => $name,
+            'platform' => $platform,
+            'platform_2' => (string) ($confirmed_platforms[1] ?? ''),
+            'platform_list' => $platform_list,
+            'platform_count' => $confirmed_platform_count,
+            'chat_options' => $chat_options,
+            'chat_options_count' => count($private_chat_items),
+            'turn_ons' => $turn_ons,
+            'link_count' => $link_count,
+            'similar_1' => (string) ($similar_models[0] ?? ''),
+            'similar_2' => (string) ($similar_models[1] ?? ''),
+            'site_name' => 'Top-Models.Webcam',
+            'handle' => $handle,
+        ];
+    }
+
+    private static function clean_template_pool_text(string $text, string $name, bool $is_heading = false): string {
+        if (strpos($text, '{{') !== false || strpos($text, '}}') !== false) {
+            return '';
+        }
+
+        return self::cleanup_visible_text($text, $name, $is_heading);
+    }
+
+    /** @return string[] */
+    private static function extract_template_pool_terms(string $raw): array {
+        $raw = html_entity_decode(wp_strip_all_tags($raw), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $raw = preg_replace('/^\s*(?:turn\s*-?\s*ons?|interests?|known\s+for)\s*:?\s*/iu', '', $raw) ?: $raw;
+        $parts = preg_split('/[\r\n,;|]+|\s+•\s+|\s+-\s+/', $raw);
+        if (!is_array($parts)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($parts as $part) {
+            $clean = trim((string) preg_replace('/\s+/', ' ', $part));
+            $clean = trim($clean, " \t\n\r\0\x0B.-–—:");
+            if ($clean === '' || strlen($clean) > 80) {
+                continue;
+            }
+            $out[] = $clean;
+        }
+
+        return array_values(array_unique(array_slice($out, 0, 8)));
+    }
+
+    /** @param string[] $items */
+    private static function format_template_pool_list(array $items, int $limit = 8): string {
+        $items = array_values(array_filter(array_map(static function ($item): string {
+            return trim((string) preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', (string) $item)));
+        }, $items), 'strlen'));
+        $items = array_values(array_unique(array_slice($items, 0, max(1, $limit))));
+
+        return !empty($items) ? implode(', ', $items) : '';
+    }
+
+    /** @return string[] */
+    private static function get_template_pool_similar_model_names(\WP_Post $post): array {
+        $related = get_posts([
+            'post_type' => 'model',
+            'posts_per_page' => 2,
+            'post_status' => 'publish',
+            'post__not_in' => [(int) $post->ID],
+            'orderby' => 'date',
+            'order' => 'DESC',
+            'fields' => 'ids',
+        ]);
+
+        $names = [];
+        foreach ($related as $related_id) {
+            $title = trim((string) get_the_title((int) $related_id));
+            if ($title !== '') {
+                $names[] = $title;
+            }
+        }
+
+        return array_values(array_unique(array_slice($names, 0, 2)));
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $cta_links
+     * @param array<string,mixed> $resolved_destinations
+     */
+    private static function get_template_pool_model_handle(\WP_Post $post, string $name, array $cta_links, array $resolved_destinations): string {
+        foreach (array_merge($cta_links, (array) ($resolved_destinations['all_verified_destinations'] ?? [])) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            foreach (['username', 'handle', 'screen_name', 'profile_handle'] as $key) {
+                $value = trim((string) ($row[$key] ?? ''));
+                if ($value !== '') {
+                    return ltrim($value, '@');
+                }
+            }
+        }
+
+        $slug = trim((string) ($post->post_name ?? ''));
+        return $slug !== '' ? $slug : $name;
+    }
+
+    private static function debug_template_pool_wire(string $message): void {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log($message);
+        }
     }
 
     /**
