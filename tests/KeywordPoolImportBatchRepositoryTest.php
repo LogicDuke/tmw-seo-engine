@@ -27,6 +27,8 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
     public bool $fail_row_insert = false;
     /** @var array<int,string> */
     public array $missing_tables = [];
+    /** @var array<int,array<string,mixed>> */
+    public array $query_rows = [];
     private bool $fail_batch_insert;
 
     /** @param array<string,array<int,string>> $columns */
@@ -67,6 +69,33 @@ final class KeywordPoolImportBatchRepositoryTestWpdb {
         $this->last_query = $sql;
         if (preg_match('/SHOW COLUMNS FROM ([^\s]+)/', $sql, $match)) {
             return array_map(static fn(string $field): array => [ 'Field' => $field ], $this->columns[$match[1]] ?? []);
+        }
+        if (str_contains($sql, 'tmw_keyword_import_rows') && str_contains($sql, 'SELECT * FROM')) {
+            $rows = $this->query_rows;
+            if (preg_match('/batch_id = (\d+)/', $sql, $match)) {
+                $batch_id = (int) $match[1];
+                $rows = array_values(array_filter($rows, static fn(array $row): bool => (int) ($row['batch_id'] ?? 0) === $batch_id));
+            }
+            if (preg_match("/status = '([^']+)'/", $sql, $match)) {
+                $status = stripslashes($match[1]);
+                $rows = array_values(array_filter($rows, static fn(array $row): bool => (string) ($row['status'] ?? '') === $status));
+            }
+            if (str_contains($sql, 'COALESCE(volume, 0)')) {
+                $direction = str_contains($sql, 'COALESCE(volume, 0) ASC') ? 'asc' : 'desc';
+                usort($rows, static function (array $a, array $b) use ($direction): int {
+                    $left = is_numeric($a['volume'] ?? null) ? (int) $a['volume'] : 0;
+                    $right = is_numeric($b['volume'] ?? null) ? (int) $b['volume'] : 0;
+                    if ($left === $right) {
+                        return ((int) ($a['row_index'] ?? 0) <=> (int) ($b['row_index'] ?? 0)) ?: ((int) ($a['id'] ?? 0) <=> (int) ($b['id'] ?? 0));
+                    }
+                    return 'asc' === $direction ? $left <=> $right : $right <=> $left;
+                });
+            } else {
+                usort($rows, static fn(array $a, array $b): int => (((int) ($a['row_index'] ?? 0) <=> (int) ($b['row_index'] ?? 0)) ?: ((int) ($a['id'] ?? 0) <=> (int) ($b['id'] ?? 0))));
+            }
+            $limit = preg_match('/LIMIT (\d+)/', $sql, $match) ? (int) $match[1] : count($rows);
+            $offset = preg_match('/OFFSET (\d+)/', $sql, $match) ? (int) $match[1] : 0;
+            return array_slice($rows, $offset, $limit);
         }
         return [];
     }
@@ -372,6 +401,73 @@ final class KeywordPoolImportBatchRepositoryTest extends TestCase {
         $this->assertStringContainsString('row_persistence_failures', $service_source);
         $this->assertStringContainsString("'type' => 'warning'", $admin_source);
         $this->assertStringContainsString("sprintf('[TMW-KW-IMPORT] %s', \$persistence_error)", $admin_source);
+    }
+
+
+    public function test_query_rows_sorts_import_history_by_volume_desc_across_pagination(): void {
+        $prefix = 'wp_pr_import_sort_desc_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 77, 'row_index' => 1, 'keyword' => 'low', 'volume' => 10 ],
+            [ 'id' => 2, 'batch_id' => 77, 'row_index' => 2, 'keyword' => 'missing', 'volume' => null ],
+            [ 'id' => 3, 'batch_id' => 77, 'row_index' => 3, 'keyword' => 'high', 'volume' => 9000 ],
+            [ 'id' => 4, 'batch_id' => 77, 'row_index' => 4, 'keyword' => 'medium', 'volume' => 500 ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $rows = (new KeywordPoolImportBatchRepository())->query_rows(77, '', 2, 0, 'volume', 'desc');
+
+        $this->assertSame([ 'high', 'medium' ], array_column($rows, 'keyword'));
+        $this->assertStringContainsString('ORDER BY COALESCE(volume, 0) DESC', $wpdb->last_query);
+        $this->assertStringContainsString('LIMIT 2 OFFSET 0', $wpdb->last_query);
+    }
+
+    public function test_query_rows_sorts_import_history_by_volume_asc_with_safe_missing_values(): void {
+        $prefix = 'wp_pr_import_sort_asc_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 88, 'row_index' => 1, 'keyword' => 'high', 'volume' => 9000 ],
+            [ 'id' => 2, 'batch_id' => 88, 'row_index' => 2, 'keyword' => 'blank', 'volume' => null ],
+            [ 'id' => 3, 'batch_id' => 88, 'row_index' => 3, 'keyword' => 'low', 'volume' => 10 ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $rows = (new KeywordPoolImportBatchRepository())->query_rows(88, '', 10, 0, 'volume', 'asc');
+
+        $this->assertSame([ 'blank', 'low', 'high' ], array_column($rows, 'keyword'));
+        $this->assertStringContainsString('ORDER BY COALESCE(volume, 0) ASC', $wpdb->last_query);
+    }
+
+    public function test_query_rows_default_order_remains_row_index_when_no_sort_requested(): void {
+        $prefix = 'wp_pr_import_sort_default_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 2, 'batch_id' => 99, 'row_index' => 2, 'keyword' => 'higher', 'volume' => 9000 ],
+            [ 'id' => 1, 'batch_id' => 99, 'row_index' => 1, 'keyword' => 'lower', 'volume' => 10 ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $rows = (new KeywordPoolImportBatchRepository())->query_rows(99, '', 10, 0);
+
+        $this->assertSame([ 'lower', 'higher' ], array_column($rows, 'keyword'));
+        $this->assertStringContainsString('ORDER BY row_index ASC, id ASC', $wpdb->last_query);
+        $this->assertStringNotContainsString('COALESCE(volume, 0)', $wpdb->last_query);
+    }
+
+    public function test_query_rows_volume_sort_preserves_status_filter(): void {
+        $prefix = 'wp_pr_import_sort_status_';
+        $wpdb = new KeywordPoolImportBatchRepositoryTestWpdb($prefix, $this->columns($prefix));
+        $wpdb->query_rows = [
+            [ 'id' => 1, 'batch_id' => 101, 'row_index' => 1, 'keyword' => 'approved high', 'volume' => 9000, 'status' => 'approved' ],
+            [ 'id' => 2, 'batch_id' => 101, 'row_index' => 2, 'keyword' => 'review low', 'volume' => 10, 'status' => 'review_required' ],
+            [ 'id' => 3, 'batch_id' => 101, 'row_index' => 3, 'keyword' => 'review high', 'volume' => 1200, 'status' => 'review_required' ],
+        ];
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $rows = (new KeywordPoolImportBatchRepository())->query_rows(101, 'review_required', 10, 0, 'volume', 'desc');
+
+        $this->assertSame([ 'review high', 'review low' ], array_column($rows, 'keyword'));
+        $this->assertStringContainsString("status = 'review_required'", $wpdb->last_query);
     }
 
     public function test_failure_logging_uses_query_hash_not_raw_query(): void {
