@@ -486,6 +486,25 @@ class TemplateContent {
         }
         // ── End TemplatePool deduplication ────────────────────────────────
 
+        // ── v5.8.24: Final-render cleanup (manual Generate only) ─────────────
+        // Runs LAST on the fully assembled $content HTML, after all previous
+        // passes (render, evidence prepend, copy cleanup, dedup) complete.
+        // Fixes three issues that survive the payload/template layer:
+        //   1. FAQ H3 grammar: "Report a fake X?" → "Can I report a fake X?"
+        //   2. Duplicate "Live Chat Experience" H2 removal (keep better one)
+        //   3. Page-level model-name density budget (target: 12 mentions)
+        // Protected: first <p>, first <h2>, <a> anchors, evidence block, SEO fields.
+        // Logs [TMW-POOL-DENSITY] always when WP_DEBUG is on.
+        if (!empty($pack['_manual_generate'])) {
+            $content = self::templatepool_final_render_cleanup(
+                $content,
+                $name,
+                $primary_platform_label,
+                (int) $post->ID
+            );
+        }
+        // ── End v5.8.24 final-render cleanup ─────────────────────────────────
+
         // ── v5.8.17: TemplatePool primary (manual Generate only) ───────────
         // No-op: TemplatePool primary mode ran before ModelPageRenderer::render()
         // above (see build_template_pool_primary_payload). If it ran successfully,
@@ -5716,5 +5735,290 @@ class TemplateContent {
     }
 
 
+
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // v5.8.24: Final-render HTML cleanup for manual model Generate
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Final-render cleanup — runs on the fully assembled $content HTML string.
+     *
+     * Called from build_model() after ALL previous passes complete:
+     * ModelPageRenderer::render → evidence prepend → ModelCopyCleanup →
+     * expand_word_count → guard_keyword_density → enforce_keyword_headings →
+     * final_template_copy_cleanup → dedupe_templatepool_output → THIS.
+     *
+     * Three fixes applied in this order:
+     *
+     * 1. FAQ H3 grammar
+     *    <h3>Report a fake {model} profile if I find one?</h3>
+     *    → <h3>Can I report a fake {model} profile if I find one?</h3>
+     *    Matches any <h3> starting with an imperative verb and ending with '?'.
+     *
+     * 2. Duplicate heading removal
+     *    Detects two H2 headings with the same 4-word prefix.
+     *    Keeps the longer/better one (keyword-enriched by heading enforcement).
+     *    Removes the shorter generic duplicate.
+     *
+     * 3. Page-level model-name density reduction
+     *    Walks HTML tag-by-tag. Only mutates TEXT NODES.
+     *    Protected zones (never modified):
+     *      - <!-- tmwseo-seed-evidence:start/end --> block
+     *      - Inside <a>...</a> (CTA/affiliate links)
+     *      - First <h2>...</h2> (focus-keyword heading)
+     *      - First <p>...</p> (Rank Math first-10% check)
+     *    Budget: 12 exact model-name mentions.
+     *    Beyond budget: round-robin natural substitutions.
+     *
+     * Always logs [TMW-POOL-DENSITY] when WP_DEBUG is on.
+     *
+     * @param string $html           Fully rendered model page HTML.
+     * @param string $name           Model display name (focus keyword).
+     * @param string $platform_label Primary platform label.
+     * @param int    $post_id        Post ID for debug logging.
+     * @return string
+     */
+    private static function templatepool_final_render_cleanup(
+        string $html,
+        string $name,
+        string $platform_label,
+        int $post_id
+    ): string {
+        $budget = 12;
+
+        // Empty-content guard — log and return unchanged.
+        if (trim($html) === '' || $name === '') {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    '[TMW-POOL-DENSITY] post_id=%d before=0 after=0 budget=%d mode=empty_content',
+                    $post_id, $budget
+                ));
+            }
+            return $html;
+        }
+
+        // ── Fix 1: FAQ / H3 grammar ───────────────────────────────────────────
+        // Converts imperative-verb H3 question headings to first-person form.
+        // Operates on the rendered <h3> tags so it catches any FAQ source path.
+        $html = (string) preg_replace_callback(
+            '/<h3(\b[^>]*)>\s*(Report|Find|Tell|Show|Check|Verify|View|Open|Use|Start|Get|See|Track|Follow|Block|Access)\b([^<]*\?)\s*<\/h3>/iu',
+            static function (array $m): string {
+                return '<h3' . $m[1] . '>Can I ' . lcfirst($m[2]) . $m[3] . '</h3>';
+            },
+            $html
+        ) ?: $html;
+
+        // ── Fix 2: Duplicate H2 heading removal ───────────────────────────────
+        // Detects H2 pairs sharing a 4-word prefix; removes the shorter one.
+        // The longer heading is the keyword-enriched version from
+        // enforce_keyword_heading_placement and is always kept.
+        if (preg_match_all('/<h2\b[^>]*>(.*?)<\/h2>/isu', $html, $h2m, PREG_OFFSET_CAPTURE)) {
+            $seen_prefixes = [];
+            $to_remove     = [];
+            foreach ($h2m[0] as $idx => $match) {
+                $full_tag = $match[0];
+                $inner    = trim(wp_strip_all_tags((string) ($h2m[1][$idx][0] ?? '')));
+                $words    = preg_split('/\s+/u', $inner, 5, PREG_SPLIT_NO_EMPTY);
+                $prefix   = mb_strtolower(implode(' ', array_slice((array) $words, 0, 4)), 'UTF-8');
+                if ($prefix === '') {
+                    continue;
+                }
+                if (isset($seen_prefixes[$prefix])) {
+                    $prev_inner = $seen_prefixes[$prefix]['inner'];
+                    if (strlen($inner) >= strlen($prev_inner)) {
+                        $to_remove[] = $seen_prefixes[$prefix]['full'];
+                        $seen_prefixes[$prefix] = ['inner' => $inner, 'full' => $full_tag];
+                    } else {
+                        $to_remove[] = $full_tag;
+                    }
+                } else {
+                    $seen_prefixes[$prefix] = ['inner' => $inner, 'full' => $full_tag];
+                }
+            }
+            foreach (array_unique($to_remove) as $dup_tag) {
+                $html = str_replace($dup_tag, '', $html);
+            }
+        }
+
+        // ── Fix 3: Page-level model-name density reduction ───────────────────
+        // Count exact mentions BEFORE reduction (in visible text only).
+        $name_pattern = '/\b' . preg_quote($name, '/') . '\b/iu';
+        $before_count = (int) preg_match_all($name_pattern, wp_strip_all_tags($html));
+
+        if ($before_count <= $budget) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    '[TMW-POOL-DENSITY] post_id=%d before=%d after=%d budget=%d mode=no_reduction_needed',
+                    $post_id, $before_count, $before_count, $budget
+                ));
+            }
+            return $html;
+        }
+
+        // Substitution pool — natural references, no claims, any model.
+        $subs = [
+            'she',
+            'her profile',
+            'the confirmed profile',
+            'the verified live room',
+            'this profile',
+            'the live room',
+        ];
+        if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
+            $subs[] = 'the ' . $platform_label . ' profile';
+            $subs[] = 'the confirmed ' . $platform_label . ' room';
+        }
+
+        // Split evidence block away — never touch operator-reviewed content.
+        $ev_start_marker = '<!-- tmwseo-seed-evidence:start -->';
+        $ev_end_marker   = '<!-- tmwseo-seed-evidence:end -->';
+        $has_ev_block    = (strpos($html, $ev_start_marker) !== false);
+
+        if ($has_ev_block) {
+            $pos_start = (int) strpos($html, $ev_start_marker);
+            $pos_end   = strpos($html, $ev_end_marker);
+            if ($pos_end !== false) {
+                $pos_end  += strlen($ev_end_marker);
+                $seg_before = substr($html, 0, $pos_start);
+                $seg_ev     = substr($html, $pos_start, $pos_end - $pos_start);
+                $seg_after  = substr($html, $pos_end);
+            } else {
+                $seg_before = $html;
+                $seg_ev     = '';
+                $seg_after  = '';
+                $has_ev_block = false;
+            }
+        } else {
+            $seg_before = $html;
+            $seg_ev     = '';
+            $seg_after  = '';
+        }
+
+        // Shared page-level counters across all segments.
+        $kept_so_far = 0;
+        $sub_idx     = 0;
+
+        /**
+         * Walk one HTML segment, replacing model-name in TEXT NODES only.
+         * Protected: inside <a>, first <h2>, first <p>.
+         * Uses shared &$kept_so_far and &$sub_idx counters.
+         */
+        $reduce_segment = static function (
+            string $segment,
+            string $name_pattern,
+            array  $subs,
+            int    $budget,
+            int    &$kept_so_far,
+            int    &$sub_idx,
+            bool   $protect_first_h2,
+            bool   $protect_first_para
+        ): string {
+            if ($segment === '') {
+                return $segment;
+            }
+            $parts = preg_split('/(<[^>]+>)/u', $segment, -1, PREG_SPLIT_DELIM_CAPTURE);
+            if (!is_array($parts)) {
+                return $segment;
+            }
+
+            $in_anchor     = false;
+            $in_first_h2   = false;
+            $first_h2_done = !$protect_first_h2; // when false, next H2 is protected
+            $in_first_p    = false;
+            $first_p_done  = !$protect_first_para;
+
+            foreach ($parts as $i => $part) {
+                if ($part === '') {
+                    continue;
+                }
+                if ($part[0] === '<') {
+                    // Tag node — update state flags only.
+                    if (preg_match('/^<\s*a\b/iu', $part)) {
+                        $in_anchor = true;
+                    } elseif (preg_match('/^<\s*\/\s*a\s*>/iu', $part)) {
+                        $in_anchor = false;
+                    }
+                    if (!$first_h2_done) {
+                        if (preg_match('/^<\s*h2\b/iu', $part)) {
+                            $in_first_h2 = true;
+                        } elseif (preg_match('/^<\s*\/\s*h2\s*>/iu', $part) && $in_first_h2) {
+                            $in_first_h2   = false;
+                            $first_h2_done = true;
+                        }
+                    }
+                    if (!$first_p_done) {
+                        if (preg_match('/^<\s*p\b/iu', $part)) {
+                            $in_first_p = true;
+                        } elseif (preg_match('/^<\s*\/\s*p\s*>/iu', $part) && $in_first_p) {
+                            $in_first_p   = false;
+                            $first_p_done = true;
+                        }
+                    }
+                    continue;
+                }
+
+                // Text node.
+                if ($in_anchor || $in_first_h2 || $in_first_p) {
+                    // Protected zone — count toward budget but do not replace.
+                    $kept_so_far += (int) preg_match_all($name_pattern, $part);
+                    continue;
+                }
+
+                // Apply budget.
+                $parts[$i] = (string) preg_replace_callback(
+                    $name_pattern,
+                    static function (array $m) use ($subs, $budget, &$kept_so_far, &$sub_idx): string {
+                        if ($kept_so_far < $budget) {
+                            $kept_so_far++;
+                            return $m[0];
+                        }
+                        $r = $subs[$sub_idx % count($subs)];
+                        $sub_idx++;
+                        // Preserve title-case when original started with uppercase.
+                        $first_char = mb_substr($m[0], 0, 1, 'UTF-8');
+                        if ($first_char !== mb_strtolower($first_char, 'UTF-8')) {
+                            return ucfirst($r);
+                        }
+                        return $r;
+                    },
+                    $part
+                ) ?: $part;
+            }
+
+            return implode('', $parts);
+        };
+
+        // Process before-evidence segment (both H2 and first-para protected).
+        $seg_before = $reduce_segment(
+            $seg_before, $name_pattern, $subs, $budget,
+            $kept_so_far, $sub_idx, true, true
+        );
+
+        // Process after-evidence segment (H2 and para already accounted for).
+        if ($has_ev_block && $seg_after !== '') {
+            $seg_after = $reduce_segment(
+                $seg_after, $name_pattern, $subs, $budget,
+                $kept_so_far, $sub_idx, false, false
+            );
+        }
+
+        $html = $seg_before . $seg_ev . $seg_after;
+
+        $after_count = (int) preg_match_all($name_pattern, wp_strip_all_tags($html));
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                '[TMW-POOL-DENSITY] post_id=%d before=%d after=%d budget=%d mode=%s',
+                $post_id,
+                $before_count,
+                $after_count,
+                $budget,
+                $after_count < $before_count ? 'reduced' : 'no_reduction_needed'
+            ));
+        }
+
+        return $html;
+    }
 
 }
