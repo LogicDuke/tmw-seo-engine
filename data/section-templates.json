@@ -1,0 +1,134 @@
+{
+  "sections": {
+    "intro": {
+      "label": "Intro",
+      "variants": [
+        "{{model_name}} is tracked here as a model profile with a focus on verified destinations, current context, and practical ways to evaluate where to start.",
+        "This profile for {{model_name}} is designed to support a consistent model-page draft with verified-link context and careful platform notes.",
+        "Use this {{model_name}} profile as a structured reference point for official destinations, platform signals, and model-specific context.",
+        "{{model_name}} is organized in this model profile around clear discovery context, verified destinations, and safe next-step evaluation.",
+        "This page foundation keeps the {{model_name}} profile focused on concise model context, verified sources, and platform-aware navigation.",
+        "For {{model_name}}, the profile copy can introduce the model clearly while leaving detailed platform and verification decisions to later sections.",
+        "The {{model_name}} profile framework starts with a direct overview that can adapt to model data without changing routing or metadata behavior.",
+        "A future {{model_name}} model draft can use this opening pattern to explain who the profile covers and how verified destinations are evaluated."
+      ]
+    },
+    "quick_facts": {
+      "label": "Quick facts",
+      "variants": [
+        "Key details for {{model_name}} can be summarized around known platform presence, profile status, and available verification signals.",
+        "A compact facts section for {{model_name}} should highlight reliable identifiers, platform context, and any current verified-link evidence.",
+        "The quick facts for {{model_name}} can keep readers oriented with stable identifiers and the strongest available destination signals.",
+        "For {{model_name}}, short facts should prioritize confirmed profile information over speculation or unsupported assumptions.",
+        "A facts block for {{model_name}} can separate known details from missing context so the page remains accurate and easy to maintain.",
+        "{{model_name}} facts can be presented as a concise checklist of model identifiers, platform availability, and verification status.",
+        "This section can capture {{model_name}} essentials without expanding into unsupported biography or changing any generated output yet.",
+        "A future facts module for {{model_name}} can rely on deterministic template rotation while keeping the same model data placeholders."
+      ]
+    },
+    "where_to_find": {
+      "label": "Where to find",
+      "variants": [
+        "Where to find {{model_name}} should be based on verified destinations first, followed by any clearly labeled supporting platform context.",
+        "The destination section for {{model_name}} can guide readers toward confirmed profiles while avoiding unsupported platform claims.",
+        "For {{model_name}}, official and verified links should remain the priority when describing where a reader can continue.",
+        "A location-style section for {{model_name}} can explain available profile destinations without changing affiliate routing or link behavior.",
+        "{{model_name}} discovery copy can distinguish confirmed destinations from broader platform references in a predictable way.",
+        "This section can help readers understand where {{model_name}} appears while preserving existing link selection rules.",
+        "A future model page for {{model_name}} can use this destination wording to keep verified sources central and avoid overclaiming.",
+        "Where-to-find guidance for {{model_name}} should stay practical, link-aware, and grounded in the model data supplied at render time."
+      ]
+    },
+    "platform_notes": {
+      "label": "Platform notes",
+      "variants": [
+        "Platform notes for {{model_name}} can describe active signals, known handles, and destination confidence without rewriting routing decisions.",
+        "For {{model_name}}, platform context should clarify what is verified, what is inferred, and what still needs confirmation.",
+        "A platform-notes section can keep {{model_name}} copy useful by focusing on current evidence rather than generic platform claims.",
+        "{{model_name}} platform notes can be concise, practical, and tied to supplied model data placeholders.",
+        "This section can explain {{model_name}} platform availability while leaving output escaping and link rendering to future wiring.",
+        "Platform context for {{model_name}} should remain deterministic and side-effect-free when selected from the template pool.",
+        "A future {{model_name}} draft can rotate platform-note language by post ID without changing the underlying data or destinations.",
+        "The platform notes for {{model_name}} can support reader decisions while preserving existing verified-link and affiliate behavior."
+      ]
+    },
+    "verification": {
+      "label": "Verification",
+      "variants": [
+        "Verification copy for {{model_name}} should explain that confirmed destinations are favored over unverified search results.",
+        "For {{model_name}}, the verification section can summarize how model-specific links are evaluated before being presented.",
+        "A verification note can keep {{model_name}} profile language careful by separating confirmed signals from uncertain references.",
+        "{{model_name}} verification wording should stay conservative, transparent, and aligned with the available model data.",
+        "This section can describe verified-link confidence for {{model_name}} without updating posts, metadata, or Rank Math fields.",
+        "A future verification module for {{model_name}} can use deterministic variants while preserving all existing indexing rules.",
+        "Verification guidance for {{model_name}} can emphasize official or model-specific destinations when the data supports them.",
+        "The {{model_name}} profile can use this verification language to reduce ambiguity around active and inactive platform signals."
+      ]
+    },
+    "experience": {
+      "label": "Experience",
+      "variants": [
+        "Experience notes for {{model_name}} can focus on practical reader expectations, platform context, and profile confidence.",
+        "For {{model_name}}, the experience section can describe how to evaluate available destinations without making unsupported claims.",
+        "A reader-focused section for {{model_name}} can explain what to check first when comparing verified destinations.",
+        "{{model_name}} experience copy can remain useful by highlighting navigation, profile clarity, and current destination evidence.",
+        "This section can frame {{model_name}} in terms of practical evaluation rather than promotional or speculative biography.",
+        "A future {{model_name}} page can rotate experience wording while keeping the same safe output and link behavior.",
+        "Experience language for {{model_name}} should help readers compare platform signals without altering generation paths in this PR.",
+        "The {{model_name}} profile can use this section to explain how verified context supports better destination choices."
+      ]
+    },
+    "safety_notes": {
+      "label": "Safety notes",
+      "variants": [
+        "Safety notes for {{model_name}} can remind readers to rely on verified destinations and avoid impersonator profiles.",
+        "For {{model_name}}, safety copy should encourage checking profile names, destination consistency, and current verification status.",
+        "A safety section can help keep {{model_name}} navigation cautious by prioritizing confirmed links over copied profile pages.",
+        "{{model_name}} safety guidance can stay simple: verify the destination, compare identifiers, and avoid unsupported mirror pages.",
+        "This section can support safer model discovery for {{model_name}} without adding frontend output in the foundation PR.",
+        "Safety wording for {{model_name}} can explain why verified destinations matter when platform pages and handles change.",
+        "A future {{model_name}} model page can use this safety template to keep reader guidance consistent and deterministic.",
+        "The {{model_name}} profile can include safety context that is data-driven and separate from rendering-time escaping."
+      ]
+    },
+    "comparison": {
+      "label": "Comparison",
+      "variants": [
+        "Comparison copy for {{model_name}} can focus on verified destinations, platform fit, and current availability signals.",
+        "For {{model_name}}, comparison language should help readers understand differences between destinations without changing routing.",
+        "A comparison section can frame {{model_name}} platform options around confidence, relevance, and practical next steps.",
+        "{{model_name}} comparisons can stay concise by emphasizing active evidence and avoiding unsupported ranking claims.",
+        "This section can compare {{model_name}} destinations in a neutral way while preserving existing affiliate-link behavior.",
+        "A future comparison block for {{model_name}} can use deterministic rotation without touching category or video generation.",
+        "Comparison notes for {{model_name}} should remain grounded in supplied model data and verified platform context.",
+        "The {{model_name}} profile can use this comparison template to explain why one verified destination may be more useful than another."
+      ]
+    },
+    "updates": {
+      "label": "Updates",
+      "variants": [
+        "Update notes for {{model_name}} can explain that platform availability and verified destinations may change over time.",
+        "For {{model_name}}, an updates section can keep expectations realistic when handles, activity, or profile destinations shift.",
+        "A maintenance-focused section for {{model_name}} can describe why verified-link evidence should be revisited periodically.",
+        "{{model_name}} update wording can remain evergreen by noting that profile signals are evaluated from current data.",
+        "This section can support future refresh logic for {{model_name}} without publishing, regenerating, or changing current pages.",
+        "A future {{model_name}} draft can use update language to make model-page maintenance transparent and conservative.",
+        "Updates for {{model_name}} should be framed around data freshness, destination confidence, and reader clarity.",
+        "The {{model_name}} profile can use this section to explain that verified destinations are treated as evidence-sensitive."
+      ]
+    },
+    "decision": {
+      "label": "Decision guide",
+      "variants": [
+        "A decision guide for {{model_name}} can help readers start with the strongest verified destination before comparing alternatives.",
+        "For {{model_name}}, decision copy should prioritize official context, active platform evidence, and safe navigation.",
+        "This guide can help readers choose where to start with {{model_name}} by weighing verified links and platform confidence.",
+        "{{model_name}} decision guidance can stay practical: confirm the profile, review the available destination, and avoid lookalikes.",
+        "A future decision section for {{model_name}} can rotate by post ID while keeping all current output unchanged in this PR.",
+        "Decision language for {{model_name}} can summarize the safest next step without updating content or metadata fields.",
+        "The {{model_name}} profile can use this closing guidance to reinforce verified destinations and reader-focused evaluation.",
+        "A deterministic decision template can make {{model_name}} pages easier to vary later while remaining foundation-only now."
+      ]
+    }
+  }
+}
