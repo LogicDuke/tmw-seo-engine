@@ -5348,7 +5348,11 @@ class TemplateContent {
                             : $name . ' Live Cam Profile Checks')
                         : '',
                     'turn_ons_h2'     => $has_turn_on_evidence
-                        ? 'Turn Ons and Session Notes for ' . $name
+                        ? ($has_livejasmin_extra
+                            ? 'Turn Ons for ' . $name . ' LiveJasmin'
+                            : ($has_livecam_extra
+                                ? $name . ' Live Cam Turn Ons and Session Notes'
+                                : 'Turn Ons and Session Notes for ' . $name))
                         : '',
                     'webcam_tips_h2'  => $has_webcam_extra
                         ? $name . ' Live Chat Experience and Live Webcam Tips'
@@ -5867,14 +5871,15 @@ class TemplateContent {
         // ── Reducible paragraph bag keys ─────────────────────────────────────
         // intro_paragraphs[0] is protected (processed separately).
         // HTML-bearing keys (watch_section_html, comparison_section_html, etc.) are never included.
-        // faq_items question strings are also excluded (FAQ H3s should keep the name).
+        // faq_items (both q and a) are fully excluded — FAQ must keep the model name.
+        // questions_section_paragraphs excluded — may contain FAQ/heading copy.
+        // v5.8.26: only plain descriptive paragraph bags are reducible.
         $reducible_bag_keys = [
             'watch_section_paragraphs',
             'about_section_paragraphs',
             'features_section_paragraphs',
             'comparison_section_paragraphs',
             'official_links_section_paragraphs',
-            'questions_section_paragraphs',
         ];
 
         // ── Step 1: count exact mentions across all reducible content ─────────
@@ -6191,7 +6196,12 @@ class TemplateContent {
 
         /**
          * Walk one HTML segment, replacing model-name in TEXT NODES only.
-         * Protected: inside <a>, first <h2>, first <p>.
+         * v5.8.26 protected zones (never substituted, only counted toward budget):
+         *   - inside <a>…</a>  (CTA/affiliate anchor text, internal links)
+         *   - inside ANY <h2>…</h2>  (all section headings)
+         *   - inside ANY <h3>…</h3>  (FAQ questions, sub-headings)
+         *   - inside <li>…</li>  (More Pages list items, platform lists)
+         *   - first <p>…</p>  (Rank Math first-10% check)
          * Uses shared &$kept_so_far and &$sub_idx counters.
          */
         $reduce_segment = static function (
@@ -6213,8 +6223,11 @@ class TemplateContent {
             }
 
             $in_anchor     = false;
-            $in_first_h2   = false;
-            $first_h2_done = !$protect_first_h2; // when false, next H2 is protected
+            $in_any_h2     = false;   // v5.8.26: ALL h2 protected (was only first)
+            $in_any_h3     = false;   // v5.8.26: ALL h3 protected (FAQ questions)
+            $in_any_li     = false;   // v5.8.26: ALL li protected (link lists)
+            $in_first_h2   = false;   // kept for $protect_first_h2 compat
+            $first_h2_done = !$protect_first_h2;
             $in_first_p    = false;
             $first_p_done  = !$protect_first_para;
 
@@ -6229,13 +6242,28 @@ class TemplateContent {
                     } elseif (preg_match('/^<\s*\/\s*a\s*>/iu', $part)) {
                         $in_anchor = false;
                     }
-                    if (!$first_h2_done) {
-                        if (preg_match('/^<\s*h2\b/iu', $part)) {
-                            $in_first_h2 = true;
-                        } elseif (preg_match('/^<\s*\/\s*h2\s*>/iu', $part) && $in_first_h2) {
+                    // ALL h2 protection (v5.8.26)
+                    if (preg_match('/^<\s*h2\b/iu', $part)) {
+                        $in_any_h2   = true;
+                        $in_first_h2 = !$first_h2_done;
+                    } elseif (preg_match('/^<\s*\/\s*h2\s*>/iu', $part)) {
+                        $in_any_h2   = false;
+                        if ($in_first_h2) {
                             $in_first_h2   = false;
                             $first_h2_done = true;
                         }
+                    }
+                    // ALL h3 protection (v5.8.26 — FAQ questions)
+                    if (preg_match('/^<\s*h3\b/iu', $part)) {
+                        $in_any_h3 = true;
+                    } elseif (preg_match('/^<\s*\/\s*h3\s*>/iu', $part)) {
+                        $in_any_h3 = false;
+                    }
+                    // ALL li protection (v5.8.26 — More Pages / link lists)
+                    if (preg_match('/^<\s*li\b/iu', $part)) {
+                        $in_any_li = true;
+                    } elseif (preg_match('/^<\s*\/\s*li\s*>/iu', $part)) {
+                        $in_any_li = false;
                     }
                     if (!$first_p_done) {
                         if (preg_match('/^<\s*p\b/iu', $part)) {
@@ -6249,7 +6277,7 @@ class TemplateContent {
                 }
 
                 // Text node.
-                if ($in_anchor || $in_first_h2 || $in_first_p) {
+                if ($in_anchor || $in_any_h2 || $in_any_h3 || $in_any_li || $in_first_p) {
                     // Protected zone — count toward budget but do not replace.
                     $kept_so_far += (int) preg_match_all($name_pattern, $part);
                     continue;
@@ -6332,15 +6360,14 @@ class TemplateContent {
     }
 
     /**
-     * Fix 4 (v5.8.25) — deterministic placeholder-artifact sanitizer.
+     * Deterministic placeholder-artifact sanitizer (v5.8.25 + v5.8.26 additions).
      *
-     * Removes known bad phrases produced when density-reducer substitution
-     * strings ("the confirmed profile", "the verified live room", bare "She")
-     * survived into anchor text, FAQ answers, or heading text.
+     * Removes known bad phrases produced when density-reducer substitution strings
+     * survived into headings, FAQ text, anchor text, or link labels.
      *
      * Operates on the fully assembled HTML string. Does NOT touch:
      *   - <!-- tmwseo-seed-evidence:start/end --> blocks (split out before processing)
-     *   - <a href="..."> href attribute values (these are not affected by str_replace on text)
+     *   - <a href="..."> href attribute values
      *
      * Uses plain ASCII apostrophes throughout (no curly/smart quotes).
      *
@@ -6378,31 +6405,67 @@ class TemplateContent {
                 $seg_before = substr($html, 0, $ps);
                 $seg_ev     = substr($html, $ps, $pe - $ps);
                 $seg_after  = substr($html, $pe);
-                // Use a placeholder token that cannot appear in real content
                 $seg_body   = $seg_before . "\x02EVBLOCK\x03" . $seg_after;
             }
         }
 
         // Ordered replacement table — most specific first to avoid partial matches.
         // Plain ASCII apostrophes used throughout.
+        // v5.8.26: expanded with new density-reducer artifact strings.
         $replacements = [
-            // ── Internal link / anchor text artifacts ──
+            // ── v5.8.26: New density-reducer artifacts ──
+            // Heading artifacts
+            'Common This profile Profile Questions'         => 'Common ' . $n . ' Profile Questions',
+            'Common The profile Profile Questions'          => 'Common ' . $n . ' Profile Questions',
+            'Common The performer profile Profile Questions' => 'Common ' . $n . ' Profile Questions',
+            // FAQ question artifacts from name-free reducer
+            'How do I find the correct The profile profile' => 'How do I find the correct ' . $n . ' profile',
+            'How do I find the correct This profile profile' => 'How do I find the correct ' . $n . ' profile',
+            'Does This live room offer'                     => 'Does ' . $n . ' offer',
+            'Does The live room offer'                      => 'Does ' . $n . ' offer',
+            'Does This profile offer'                       => 'Does ' . $n . ' offer',
+            'Does The profile offer'                        => 'Does ' . $n . ' offer',
+            'Does The confirmed room offer'                 => 'Does ' . $n . ' offer',
+            'Does The verified room offer'                  => 'Does ' . $n . ' offer',
+            'for The live room'                             => 'for ' . $n,
+            'for This live room'                            => 'for ' . $n,
+            'for This profile'                              => 'for ' . $n . "'s profile",
+            'for The profile'                               => 'for ' . $n . "'s profile",
+            "The confirmed room's video archive"            => $n . "'s video archive",
+            "This profile's video archive"                  => $n . "'s video archive",
+            "The profile's video archive"                   => $n . "'s video archive",
+            // Internal link / anchor text artifacts
+            'Watch a The verified room Video'               => 'Watch ' . $n . "'s videos",
+            'Watch a The verified room video'               => 'Watch ' . $n . "'s videos",
+            'The Watch a The verified room Video link'      => 'the ' . self::model_video_anchor_text($n) . ' link',
+            'The Watch a The verified room video link'      => 'the ' . self::model_video_anchor_text($n) . ' link',
+            'The performer profile video archive'           => $n . ' video archive',
+            'This profile video archive'                    => $n . ' video archive',
+            'The profile video archive'                     => $n . ' video archive',
+            'fake The confirmed ' . $pl . ' room profile'   => 'fake ' . $n . ' profile',
+            'fake The confirmed LiveJasmin room profile'    => 'fake ' . $n . ' profile',
+            'fake The confirmed room profile'               => 'fake ' . $n . ' profile',
+            'fake The live room profile'                    => 'fake ' . $n . ' profile',
+            'When checking This profile live webcam'        => 'When checking ' . $n . ' live webcam',
+            'When checking The profile live webcam'         => 'When checking ' . $n . ' live webcam',
+            'Find The profile elsewhere'                    => 'Find ' . $n . ' elsewhere',
+            'Find This profile elsewhere'                   => 'Find ' . $n . ' elsewhere',
+            'Find The confirmed room elsewhere'             => 'Find ' . $n . ' elsewhere',
+            'Find The verified room elsewhere'              => 'Find ' . $n . ' elsewhere',
+            // ── v5.8.25: Original artifact strings (kept) ──
             'Watch a The verified live room Video'           => 'Watch ' . $n . "'s videos",
             'Watch a The verified live room video'           => 'Watch ' . $n . "'s videos",
             'Find The confirmed ' . $pl . ' room elsewhere'  => 'Find ' . $n . "'s confirmed " . $pl . ' room',
             'Find The confirmed LiveJasmin room elsewhere'   => 'Find ' . $n . "'s confirmed LiveJasmin room",
             'Find The confirmed live room elsewhere'         => 'Find ' . $n . "'s confirmed live room",
-            // ── FAQ question artifacts ──
             'Can I find The confirmed profile\'s video archive'  => 'Can I find ' . $n . "'s video archive",
             "Can I find The confirmed profile's video archive"   => 'Can I find ' . $n . "'s video archive",
             'Can I report a fake The live room profile if I find one?' => 'Can I report a fake ' . $n . ' profile if I find one?',
             'Can I report a fake The live room profile'          => 'Can I report a fake ' . $n . ' profile',
-            // ── Pronoun artifacts in questions and body text ──
             'Does She offer'   => 'Does ' . $n . ' offer',
             'Does she offer'   => 'Does ' . $n . ' offer',
             'for Her profile'  => 'for ' . $n . "'s profile",
             'for her profile'  => 'for ' . $n . "'s profile",
-            // ── Generic placeholder strings (possessive first) ──
             'The confirmed profile\'s'   => $n . "'s",
             "The confirmed profile's"    => $n . "'s",
             'the confirmed profile\'s'   => $n . "'s",
