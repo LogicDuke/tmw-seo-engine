@@ -19,6 +19,8 @@ class ModelKeywordPack {
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
             Logs::info('keywords', '[TMW-KW-PACK] build_start post_id=' . (int) $post->ID . ' model=' . $model_name);
         }
+        // Always write build_enter to debug.log regardless of which debug flag is set.
+        self::debug_log_direct('[TMW-KW-PACK] build_enter post_id=' . (int) $post->ID . ' model="' . $model_name . '"');
         $keyword_context_name = $model_name !== '' ? $model_name : 'live cam model';
         $primary = $keyword_context_name;
         $allow_generic_tag_queries = self::allow_generic_tag_queries();
@@ -27,15 +29,17 @@ class ModelKeywordPack {
         $platform_slugs = self::active_platform_slugs($post->ID);
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
             $inactive_platforms = self::debug_inactive_platform_slugs($platform_slugs);
-            Logs::info('keywords', '[TMW-KW-SOURCE] post_id=' . (int) $post->ID
+            $kw_source_start_msg = '[TMW-KW-SOURCE] post_id=' . (int) $post->ID
                 . ' model="' . $model_name . '"'
                 . ' active_platforms=' . self::debug_json($platform_slugs)
-                . ' inactive_platforms=' . self::debug_json($inactive_platforms), [
+                . ' inactive_platforms=' . self::debug_json($inactive_platforms);
+            Logs::info('keywords', $kw_source_start_msg, [
                 'post_id'            => (int) $post->ID,
                 'model'              => $model_name,
                 'active_platforms'   => $platform_slugs,
                 'inactive_platforms' => $inactive_platforms,
             ]);
+            self::debug_log_direct($kw_source_start_msg);
             // Keep the legacy [TMW-KW-PACK] tag for backwards log-grep compatibility.
             Logs::info('keywords', '[TMW-KW-PACK] active_platforms=' . self::debug_json($platform_slugs), [
                 'post_id' => (int) $post->ID,
@@ -67,13 +71,15 @@ class ModelKeywordPack {
                 'sources' => $classified_fragment['sources'] ?? [],
             ]);
             // [TMW-KW-SOURCE] req 2: provider counts — shows exactly how many rows each source contributed.
-            Logs::info('keywords', '[TMW-KW-SOURCE] post_id=' . (int) $post->ID
+            $kw_source_counts_msg = '[TMW-KW-SOURCE] post_id=' . (int) $post->ID
                 . ' model_specific_count=' . count($model_specific_candidates)
-                . ' global_pool_candidates=' . $global_pool_count, [
+                . ' global_pool_candidates=' . $global_pool_count;
+            Logs::info('keywords', $kw_source_counts_msg, [
                 'post_id'                => (int) $post->ID,
                 'model_specific_count'   => count($model_specific_candidates),
                 'global_pool_candidates' => $global_pool_count,
             ]);
+            self::debug_log_direct($kw_source_counts_msg);
             self::debug_log_global_model_pool_lookup((int) $post->ID);
         }
         if ($is_model_page && !empty($classified_fragment['primary_candidates'])) {
@@ -337,6 +343,15 @@ class ModelKeywordPack {
             }
             $fallback_used = $fallback_count > 0;
 
+            $kw_pack_selected_msg = '[TMW-KW-PACK] post_id=' . (int) $post->ID
+                . ' selected_focus="' . $primary . '"'
+                . ' selected_extras=' . self::debug_json($rankmath_chips)
+                . ' selected_extra_sources=' . self::debug_json(
+                    self::debug_rankmath_chip_sources($rankmath_chips, $approved_model_keywords, $rankmath_fallback_candidates, $approved_global_pool_keywords)
+                )
+                . ' fallback_used=' . ($fallback_used ? 'yes' : 'no')
+                . ' fallback_count=' . $fallback_count;
+
             Logs::info('keywords', '[TMW-KW-PACK] selected_focus=' . $primary . ' selected_extras=' . self::debug_json($rankmath_chips), [
                 'post_id' => (int) $post->ID,
                 'selected_focus' => $primary,
@@ -349,6 +364,7 @@ class ModelKeywordPack {
                 'fallback_used'  => $fallback_used,
                 'fallback_count' => $fallback_count,
             ]);
+            self::debug_log_direct($kw_pack_selected_msg);
             Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
                 'post_id'                    => $post->ID,
                 'primary'                    => $primary,
@@ -448,6 +464,26 @@ class ModelKeywordPack {
     }
 
     /**
+     * Write a message directly to the WordPress debug log via error_log().
+     *
+     * Fires when any of TMW_DEBUG, TMWSEO_DEBUG, or WP_DEBUG_LOG is truthy so that
+     * traces reach wp-content/debug.log even when the internal Logs::info() pipeline
+     * does not forward to that file.  Call this alongside every important Logs::info()
+     * trace that must appear in debug.log for live-site diagnosis.
+     *
+     * Debug-only helper — no effect on keyword selection behaviour.
+     */
+    private static function debug_log_direct(string $message): void {
+        if (
+            (defined('TMW_DEBUG') && TMW_DEBUG)
+            || (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)
+            || (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG)
+        ) {
+            error_log($message);
+        }
+    }
+
+    /**
      * Return the known platform slugs (from platform_keyword_label map) that are NOT active
      * for this model. Used only for [TMW-KW-SOURCE] start context logging.
      *
@@ -535,6 +571,7 @@ class ModelKeywordPack {
                 $ctx['skip_reason'] = $reason;
             }
             Logs::info('keywords', $msg, $ctx);
+            self::debug_log_direct($msg);
         };
 
         // 1. Model-specific approved rows (ordered by preference).
@@ -582,6 +619,7 @@ class ModelKeywordPack {
                     'selected'    => 'no',
                     'skip_reason' => 'platform_inactive',
                 ]);
+                self::debug_log_direct($msg);
             }
         }
     }
@@ -680,22 +718,6 @@ class ModelKeywordPack {
             $strategy_results['s3_target_type_slug'] = 'columns_absent';
         }
 
-        // Strategy 4 (final fallback): entity_id = 0.
-        if (isset($column_lookup['entity_id'], $column_lookup['entity_type'])) {
-            $cnt = (int) $wpdb->get_var($wpdb->prepare(
-                'SELECT COUNT(*) FROM ' . $table
-                . ' WHERE intent_type = %s AND entity_type = %s AND entity_id = %d AND status = %s',
-                'model', 'model', 0, 'approved'
-            ));
-            $strategy_results['s4_entity_id_zero'] = $cnt;
-            if ($selected_strategy === '' && $cnt > 0) {
-                $selected_strategy = 's4_entity_id_zero';
-                $selected_count    = $cnt;
-            }
-        } else {
-            $strategy_results['s4_entity_id_zero'] = 'columns_absent';
-        }
-
         Logs::info('keywords', '[TMW-KW-PACK] global_pool_strategies=' . self::debug_json($strategy_results), [
             'post_id'          => $post_id,
             'strategy_results' => $strategy_results,
@@ -724,6 +746,8 @@ class ModelKeywordPack {
             'selected_strategy'       => $selected_strategy ?: 'none',
             'selected_count'          => $selected_count,
         ]);
+        self::debug_log_direct('[TMW-KW-SOURCE] post_id=' . $post_id
+            . ' global_strategy_counts=' . self::debug_json($kw_source_strategy_counts));
 
         if ($selected_strategy !== '') {
             Logs::info('keywords', '[TMW-KW-PACK] global_pool_count=' . $selected_count, [
