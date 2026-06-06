@@ -47,6 +47,9 @@ class RankMathMapper {
         if ( self::page_type_for_post( $post_id ) === 'model' && class_exists( ModelKeywordPack::class ) ) {
             $post = get_post( $post_id );
             if ( $post instanceof \WP_Post ) {
+                if ( defined( 'TMWSEO_DEBUG' ) && TMWSEO_DEBUG ) {
+                    \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-RM-MAP] rebuilt_model_pack=true post_id=' . $post_id );
+                }
                 $keyword_pack       = ModelKeywordPack::build( $post );
                 $rebuilt_model_pack = true;
             }
@@ -74,6 +77,17 @@ class RankMathMapper {
         }
 
         if ( defined( 'TMWSEO_DEBUG' ) && TMWSEO_DEBUG ) {
+            \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-RM-MAP] post_id=' . $post_id . ' focus=' . $primary . ' extras=' . self::debug_json( $extras ) . ' final_csv=' . $focus_csv . ' rebuilt_model_pack=' . ( $rebuilt_model_pack ? 'true' : 'false' ), [
+                'post_id' => $post_id,
+                'focus' => $primary,
+                'extras' => $extras,
+                'final_csv' => $focus_csv,
+                'rebuilt_model_pack' => $rebuilt_model_pack,
+                'model_name' => self::page_type_for_post( $post_id ) === 'model' ? trim( (string) get_the_title( $post_id ) ) : '',
+                'rankmath_additional' => $keyword_pack['rankmath_additional'] ?? [],
+                'additional' => $keyword_pack['additional'] ?? [],
+                'sources' => $keyword_pack['sources'] ?? [],
+            ] );
             \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-SEO-RM-KW-PACK] RankMathMapper::sync_to_rank_math wrote Rank Math keyword CSV', [
                 'post_id' => $post_id,
                 'model_name' => self::page_type_for_post( $post_id ) === 'model' ? trim( (string) get_the_title( $post_id ) ) : '',
@@ -94,6 +108,13 @@ class RankMathMapper {
             AuditTrail::persist_keyword_pack( $post_id, $keyword_pack );
         }
     }
+
+    /** @param mixed $value */
+    private static function debug_json( $value ): string {
+        $encoded = function_exists( 'wp_json_encode' ) ? wp_json_encode( $value ) : json_encode( $value );
+        return is_string( $encoded ) ? $encoded : '[]';
+    }
+
 
     /** @param array<string,mixed> $keyword_pack */
     private static function persist_model_keyword_pack_sources( int $post_id, array $keyword_pack ): void {
