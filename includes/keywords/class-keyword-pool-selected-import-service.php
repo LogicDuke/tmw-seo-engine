@@ -596,6 +596,19 @@ class KeywordPoolSelectedImportService {
         $scope_reasons = is_array($row['model_keyword_scope_reason_codes'] ?? null) ? array_map('strval', $row['model_keyword_scope_reason_codes']) : [];
         $scope_reasons[] = 'global_model_pool';
         $row['model_keyword_scope_reason_codes'] = array_values(array_unique($scope_reasons));
+        // [TMW-KW-GLOBAL-SAVE] trace — shows the keyword about to be saved with global markers.
+        if (
+            (defined('TMW_DEBUG') && TMW_DEBUG)
+            || (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)
+            || (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG)
+        ) {
+            $kw = (string) ($row['normalized_keyword'] ?? $row['keyword'] ?? '');
+            error_log('[TMW-KW-GLOBAL-SAVE] keyword="' . $kw . '"'
+                . ' target_type=global'
+                . ' target_name="' . (string) ($context['target_name'] ?? 'Global Model Pool') . '"'
+                . ' target_slug="' . (string) ($context['target_slug'] ?? 'global-model-pool') . '"'
+                . ' model_keyword_usage_scope=global_model_pool');
+        }
         return $row;
     }
 

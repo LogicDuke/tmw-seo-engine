@@ -169,6 +169,9 @@ class KeywordPoolCandidateRepository {
             if (false === $updated) {
                 return $this->result($keyword, $intent, $result_status, 'error', 'database_update_failed', $entity_type, $entity_id, $warnings);
             }
+            if (!empty($data['target_type']) && 'global' === $data['target_type']) {
+                $this->debug_log_global_save($id, (string) ($data['target_name'] ?? ''), (string) ($data['target_slug'] ?? ''));
+            }
             return $this->result($keyword, $intent, $result_status, 'updated', implode('|', $warnings) ?: 'same_scope_keyword_updated', $entity_type, $entity_id, $warnings, $id);
         }
 
@@ -176,7 +179,11 @@ class KeywordPoolCandidateRepository {
         if (false === $inserted) {
             return $this->result($keyword, $intent, $result_status, 'error', 'database_insert_failed', $entity_type, $entity_id, $warnings);
         }
-        return $this->result($keyword, $intent, $result_status, 'inserted', implode('|', $warnings) ?: 'keyword_inserted', $entity_type, $entity_id, $warnings, (int) $wpdb->insert_id);
+        $new_id = (int) $wpdb->insert_id;
+        if (!empty($data['target_type']) && 'global' === $data['target_type']) {
+            $this->debug_log_global_save($new_id, (string) ($data['target_name'] ?? ''), (string) ($data['target_slug'] ?? ''));
+        }
+        return $this->result($keyword, $intent, $result_status, 'inserted', implode('|', $warnings) ?: 'keyword_inserted', $entity_type, $entity_id, $warnings, $new_id);
     }
 
 
@@ -336,6 +343,14 @@ class KeywordPoolCandidateRepository {
         $existing_id = null === $existing_id_raw || '' === (string) $existing_id_raw ? null : max(0, (int) $existing_id_raw);
         $existing_is_global = 'global' === $existing_type && (null === $existing_id || $existing_id <= 0);
         $existing_has_target = '' !== $existing_type && null !== $existing_id && $existing_id > 0;
+
+        // PR-685: When incoming carries explicit global markers and the existing row has no
+        // target_type yet (unclaimed — never tagged), allow the update so the import path can
+        // write the explicit markers onto old untagged rows. This is NOT a blanket entity_id=0
+        // promotion; it only fires when the caller provides an explicit global target_type.
+        if ($incoming_is_global && '' === $existing_type && (null === $existing_id || $existing_id <= 0)) {
+            return true;
+        }
 
         if ($incoming_is_global || $existing_is_global) {
             return $incoming_is_global && $existing_is_global;
@@ -588,5 +603,23 @@ class KeywordPoolCandidateRepository {
             'entity_id' => $entity_id,
             'warnings' => $warnings,
         ], $extra);
+    }
+
+    /**
+     * Emit a [TMW-KW-GLOBAL-SAVE] trace to error_log when a global-pool row is written.
+     * Active only when TMW_DEBUG, TMWSEO_DEBUG, or WP_DEBUG_LOG is true.
+     */
+    private function debug_log_global_save(int $row_id, string $target_name, string $target_slug): void {
+        if (
+            !(defined('TMW_DEBUG') && TMW_DEBUG)
+            && !(defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)
+            && !(defined('WP_DEBUG_LOG') && WP_DEBUG_LOG)
+        ) {
+            return;
+        }
+        error_log('[TMW-KW-GLOBAL-SAVE] row_id=' . $row_id
+            . ' target_type=global'
+            . ' target_name="' . $target_name . '"'
+            . ' target_slug="' . $target_slug . '"');
     }
 }
