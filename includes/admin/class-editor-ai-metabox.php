@@ -369,9 +369,10 @@ class Editor_AI_Metabox {
 
         $default_strategy = self::default_generate_strategy((string) $post->post_type, $has_openai, $has_claude, $ai_primary);
 
+        echo '<div class="tmwseo-generate-controls">';
         echo '<div class="tmwseo-mb-field">';
         echo '<label for="tmwseo-generate-strategy">' . esc_html__('Strategy', 'tmwseo') . '</label>';
-        echo '<select id="tmwseo-generate-strategy" style="width:100%">';
+        echo '<select id="tmwseo-generate-strategy" style="width:100%" data-tmwseo-generate-strategy="1">';
         echo '<option value="template" ' . selected($default_strategy, 'template', false) . '>' . esc_html__('Template', 'tmwseo') . '</option>';
         if ($has_openai) {
             echo '<option value="openai" ' . selected($default_strategy, 'openai', false) . '>' . esc_html__('OpenAI (if configured)', 'tmwseo') . '</option>';
@@ -386,7 +387,7 @@ class Editor_AI_Metabox {
         echo '</select>';
         echo '</div>';
 
-        echo '<p style="margin:0 0 4px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        echo '<p style="margin:0 0 4px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" data-tmwseo-generate-insert-block="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
         if ((string) $post->post_type === 'model') {
             echo '<p class="tmwseo-mb-help" style="margin-top:0">' . esc_html__('For model pages, keep this checked to insert/update the TMW SEO block instead of replacing existing content.', 'tmwseo') . '</p>';
         }
@@ -401,6 +402,7 @@ class Editor_AI_Metabox {
             . 'data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '"'
             . '>' . esc_html__('Generate', 'tmwseo') . '</button>';
         echo '</div>';
+        echo '</div>'; // .tmwseo-generate-controls
 
         echo '<p style="margin:8px 0 0"><label><input type="checkbox" name="_tmwseo_ready_to_index" value="1" ' . checked($ready_to_index, true, false) . '> ' . esc_html__('Ready to index', 'tmwseo') . '</label></p>';
         echo '</div>'; // .tmwseo-mb-zone (generate)
