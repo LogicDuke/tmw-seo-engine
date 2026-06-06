@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Admin;
 use TMWSEO\Engine\Keywords\UnifiedKeywordWorkflowService;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 use TMWSEO\Engine\Services\Settings;
+use TMWSEO\Engine\Logs;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -44,17 +45,58 @@ class Editor_AI_Metabox {
 
     public static function enqueue_editor_assets(): void {
         $screen = function_exists('get_current_screen') ? get_current_screen() : null;
-        if (!$screen || !in_array($screen->post_type, ['model', 'post', 'tmw_category_page'], true)) {
+        $post_type = $screen ? (string) ($screen->post_type ?? '') : '';
+        if (!$screen || !in_array($post_type, ['model', 'post', 'tmw_category_page'], true)) {
+            if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+                Logs::info('admin', '[TMW-GEN-SIDEBAR] skipped reason=unsupported_screen', [
+                    'screen' => $screen ? (string) ($screen->id ?? '') : '',
+                    'post_type' => $post_type,
+                ]);
+            }
             return;
         }
+
+        $post_id = 0;
+        $post = null;
+        if (isset($GLOBALS['post']) && $GLOBALS['post'] instanceof \WP_Post) {
+            $post = $GLOBALS['post'];
+            $post_id = (int) $post->ID;
+        }
+
+        $has_openai = class_exists('TMWSEO\Engine\Services\OpenAI') && \TMWSEO\Engine\Services\OpenAI::is_configured();
+        $has_claude = class_exists('TMWSEO\Engine\Services\Anthropic') && \TMWSEO\Engine\Services\Anthropic::is_configured();
+        $ai_primary = class_exists(Settings::class) ? trim((string) Settings::get('tmwseo_ai_primary', 'openai')) : 'openai';
 
         wp_enqueue_script(
             'tmwseo-editor-ai-metabox',
             TMWSEO_ENGINE_URL . 'assets/js/editor-ai-metabox.js',
-            ['wp-data', 'wp-notices', 'wp-edit-post'],
+            ['wp-data', 'wp-notices', 'wp-edit-post', 'wp-plugins', 'wp-element'],
             defined('TMWSEO_ENGINE_VERSION') ? TMWSEO_ENGINE_VERSION : null,
             true
         );
+
+        wp_localize_script('tmwseo-editor-ai-metabox', 'tmwseoGenerateSidebar', [
+            'postId' => $post_id,
+            'postType' => $post_type,
+            'nonce' => $post_id > 0 ? wp_create_nonce('tmwseo_generate_' . $post_id) : '',
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'defaultStrategy' => self::default_generate_strategy($post_type, $has_openai, $has_claude, $ai_primary),
+            'hasOpenAI' => $has_openai,
+            'hasClaude' => $has_claude,
+            'insertBlockDefault' => true,
+            'modelHelp' => $post_type === 'model'
+                ? __('For model pages, keep this checked to insert/update the TMW SEO block instead of replacing existing content.', 'tmwseo')
+                : '',
+        ]);
+
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('admin', '[TMW-GEN-SIDEBAR] enqueue post_type=' . $post_type . ' screen=' . (string) ($screen->id ?? ''), [
+                'post_id' => $post_id,
+                'post_type' => $post_type,
+                'screen' => (string) ($screen->id ?? ''),
+                'block_editor_panel' => true,
+            ]);
+        }
     }
 
     public static function register_metabox(): void {
@@ -73,6 +115,15 @@ class Editor_AI_Metabox {
     }
 
     public static function render($post): void {
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('admin', '[TMW-GEN-SIDEBAR] render post_id=' . (int) $post->ID . ' visible=classic_metabox', [
+                'post_id' => (int) $post->ID,
+                'post_type' => (string) $post->post_type,
+                'metabox_id' => 'tmwseo_ai_generate',
+                'context' => 'side',
+            ]);
+        }
+
         wp_nonce_field('tmwseo_editor_ai_metabox_' . $post->ID, 'tmwseo_editor_ai_metabox_nonce');
 
         $ready_to_index = (string) get_post_meta($post->ID, '_tmwseo_ready_to_index', true) === '1';
@@ -318,9 +369,10 @@ class Editor_AI_Metabox {
 
         $default_strategy = self::default_generate_strategy((string) $post->post_type, $has_openai, $has_claude, $ai_primary);
 
+        echo '<div class="tmwseo-generate-controls">';
         echo '<div class="tmwseo-mb-field">';
         echo '<label for="tmwseo-generate-strategy">' . esc_html__('Strategy', 'tmwseo') . '</label>';
-        echo '<select id="tmwseo-generate-strategy" style="width:100%">';
+        echo '<select id="tmwseo-generate-strategy" style="width:100%" data-tmwseo-generate-strategy="1">';
         echo '<option value="template" ' . selected($default_strategy, 'template', false) . '>' . esc_html__('Template', 'tmwseo') . '</option>';
         if ($has_openai) {
             echo '<option value="openai" ' . selected($default_strategy, 'openai', false) . '>' . esc_html__('OpenAI (if configured)', 'tmwseo') . '</option>';
@@ -335,7 +387,7 @@ class Editor_AI_Metabox {
         echo '</select>';
         echo '</div>';
 
-        echo '<p style="margin:0 0 4px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
+        echo '<p style="margin:0 0 4px"><label><input type="checkbox" id="tmwseo-generate-insert-block" value="1" data-tmwseo-generate-insert-block="1" checked> ' . esc_html__('Insert content block', 'tmwseo') . '</label></p>';
         if ((string) $post->post_type === 'model') {
             echo '<p class="tmwseo-mb-help" style="margin-top:0">' . esc_html__('For model pages, keep this checked to insert/update the TMW SEO block instead of replacing existing content.', 'tmwseo') . '</p>';
         }
@@ -350,6 +402,7 @@ class Editor_AI_Metabox {
             . 'data-ajax-url="' . esc_url(admin_url('admin-ajax.php')) . '"'
             . '>' . esc_html__('Generate', 'tmwseo') . '</button>';
         echo '</div>';
+        echo '</div>'; // .tmwseo-generate-controls
 
         echo '<p style="margin:8px 0 0"><label><input type="checkbox" name="_tmwseo_ready_to_index" value="1" ' . checked($ready_to_index, true, false) . '> ' . esc_html__('Ready to index', 'tmwseo') . '</label></p>';
         echo '</div>'; // .tmwseo-mb-zone (generate)
