@@ -242,26 +242,39 @@ class ModelKeywordPack {
         // Confidence = how well the final selected additional keywords scored.
         $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
 
-        // Dedicated Rank Math chips: model-name-led, varied per post.
-        // These replace the old name-free generic fallback as the Rank Math chip source.
+        // Dedicated Rank Math chips: built from three priority sources.
+        // Priority order: (1) approved model-specific keywords, (2) approved global
+        // model pool keywords, (3) safe neutral deterministic fallback.
         $rankmath_chips = [];
         $approved_model_keywords = [];
+        $approved_global_pool_keywords = [];
         $rankmath_fallback_candidates = [];
         if ($is_model_page) {
+            // Source 1: approved model-specific keywords, ordered by preference pattern.
             $approved_model_keywords = self::order_model_rankmath_candidates(
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
                 $model_name
             );
+            // Source 2: approved Global Model Pool keywords (fill when model-specific is sparse).
+            $approved_global_pool_keywords = (array) ($classified_fragment['global_pool_candidates'] ?? []);
+            // Source 3: safe neutral deterministic fallback — no unsafe adult/platform-implied terms.
             $rankmath_fallback_candidates = self::build_rankmath_chips($model_name, $platform_slugs);
             if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+                Logs::info('keywords', '[TMW-KW-PACK] global_pool_candidates=' . self::debug_json($approved_global_pool_keywords), [
+                    'post_id' => (int) $post->ID,
+                    'global_pool_count' => count($approved_global_pool_keywords),
+                    'global_pool_candidates' => $approved_global_pool_keywords,
+                    'global_pool_source' => 'classified_provider_global_pool_candidates',
+                ]);
                 Logs::info('keywords', '[TMW-KW-PACK] fallback_candidates=' . self::debug_json($rankmath_fallback_candidates), [
                     'post_id' => (int) $post->ID,
                     'fallback_type' => 'rankmath_chips',
                     'fallback_candidates' => $rankmath_fallback_candidates,
                 ]);
             }
+            // Merge by priority: model-specific first, then global pool, then fallback.
             $rankmath_chips = self::merge_preferred_keywords(
-                $approved_model_keywords,
+                array_merge($approved_model_keywords, $approved_global_pool_keywords),
                 $rankmath_fallback_candidates,
                 12
             );
@@ -279,15 +292,18 @@ class ModelKeywordPack {
                 'selected_focus' => $primary,
                 'selected_focus_source' => self::debug_primary_source($primary, $classified_fragment, $model_name),
                 'selected_extras' => $rankmath_chips,
-                'selected_extra_sources' => self::debug_rankmath_chip_sources($rankmath_chips, $approved_model_keywords, $rankmath_fallback_candidates),
+                'selected_extra_sources' => self::debug_rankmath_chip_sources($rankmath_chips, $approved_model_keywords, $rankmath_fallback_candidates, $approved_global_pool_keywords),
                 'approved_model_keywords' => $approved_model_keywords,
+                'approved_global_pool_keywords' => $approved_global_pool_keywords,
                 'rankmath_fallback_candidates' => $rankmath_fallback_candidates,
             ]);
             Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
-                'post_id'             => $post->ID,
-                'primary'             => $primary,
-                'rankmath_additional' => $rankmath_chips,
-                'extra_focus_from_db' => $classified_fragment['extra_focus_candidates'] ?? [],
+                'post_id'                    => $post->ID,
+                'primary'                    => $primary,
+                'rankmath_additional'        => $rankmath_chips,
+                'extra_focus_from_db'        => $classified_fragment['extra_focus_candidates'] ?? [],
+                'global_pool_from_db'        => $classified_fragment['global_pool_candidates'] ?? [],
+                'rebuilt_model_pack'         => !empty($approved_model_keywords) || !empty($approved_global_pool_keywords),
             ]);
         }
 
@@ -396,61 +412,112 @@ class ModelKeywordPack {
         $columns = is_array($columns) ? array_map('strval', $columns) : [];
         $column_lookup = array_fill_keys($columns, true);
         Logs::info('keywords', '[TMW-KW-PACK] global_pool_columns=' . self::debug_json($columns), [
-            'post_id' => $post_id,
+            'post_id'           => $post_id,
             'available_columns' => $columns,
         ]);
 
         $base_supported = isset($column_lookup['intent_type'], $column_lookup['status']);
-        $query = '';
-        $query_args = [];
-        $query_strategy = '';
-        $query_where = '';
-        $target_slug_populated = null;
-        if ($base_supported && isset($column_lookup['model_keyword_usage_scope'])) {
-            $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND model_keyword_usage_scope = %s';
-            $query_args = [ 'model', 'approved', 'global_model_pool' ];
-            $query_strategy = 'intent_status_model_keyword_usage_scope';
-            $query_where = "intent_type='model' AND status='approved' AND model_keyword_usage_scope='global_model_pool'";
-        } elseif ($base_supported && isset($column_lookup['target_type'], $column_lookup['target_name'])) {
-            $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_name = %s';
-            $query_args = [ 'model', 'approved', 'global', 'Global Model Pool' ];
-            $query_strategy = 'intent_status_target_type_target_name';
-            $query_where = "intent_type='model' AND status='approved' AND target_type='global' AND target_name='Global Model Pool'";
-        } elseif ($base_supported && isset($column_lookup['target_type'], $column_lookup['target_slug'])) {
-            $target_slug_count = (int) $wpdb->get_var($wpdb->prepare(
-                'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s',
-                'model',
-                'approved',
-                'global',
-                'global-model-pool'
-            ));
-            $target_slug_populated = $target_slug_count > 0;
-            if ($target_slug_populated) {
-                $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s';
-                $query_args = [ 'model', 'approved', 'global', 'global-model-pool' ];
-                $query_strategy = 'intent_status_target_type_target_slug_populated';
-                $query_where = "intent_type='model' AND status='approved' AND target_type='global' AND target_slug='global-model-pool'";
-            }
-        }
-
-        if ($query === '') {
-            Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=no_supported_global_pool_columns', [
-                'post_id' => $post_id,
+        if (!$base_supported) {
+            Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=base_columns_absent', [
+                'post_id'           => $post_id,
                 'available_columns' => $columns,
-                'required_base_columns_present' => $base_supported,
-                'target_slug_populated' => $target_slug_populated,
             ]);
             return;
         }
 
-        $count = (int) $wpdb->get_var($wpdb->prepare($query, $query_args));
-        Logs::info('keywords', '[TMW-KW-PACK] global_pool_count=' . $count, [
-            'post_id' => $post_id,
-            'global_pool_count' => $count,
-            'global_pool_query_strategy' => $query_strategy,
-            'global_pool_query_where' => $query_where,
-            'global_pool_usage' => 'not_selected_by_current_model_specific_build_path',
+        // Mirror the cascading fallback order in fetch_global_pool_candidates().
+        // Run a COUNT(*) for every applicable strategy and report all results so
+        // the log shows exactly which strategy the provider will select at runtime.
+        $strategy_results = [];
+        $selected_strategy = '';
+        $selected_count    = 0;
+
+        // Strategy 1: model_keyword_usage_scope = 'global_model_pool'.
+        if (isset($column_lookup['model_keyword_usage_scope'])) {
+            $cnt = (int) $wpdb->get_var($wpdb->prepare(
+                'SELECT COUNT(*) FROM ' . $table
+                . ' WHERE intent_type = %s AND status = %s AND model_keyword_usage_scope = %s',
+                'model', 'approved', 'global_model_pool'
+            ));
+            $strategy_results['s1_scope_column'] = $cnt;
+            if ($selected_strategy === '' && $cnt > 0) {
+                $selected_strategy = 's1_scope_column';
+                $selected_count    = $cnt;
+            }
+        } else {
+            $strategy_results['s1_scope_column'] = 'column_absent';
+        }
+
+        // Strategy 2: target_type + target_name.
+        if (isset($column_lookup['target_type'], $column_lookup['target_name'])) {
+            $cnt = (int) $wpdb->get_var($wpdb->prepare(
+                'SELECT COUNT(*) FROM ' . $table
+                . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_name = %s',
+                'model', 'approved', 'global', 'Global Model Pool'
+            ));
+            $strategy_results['s2_target_type_name'] = $cnt;
+            if ($selected_strategy === '' && $cnt > 0) {
+                $selected_strategy = 's2_target_type_name';
+                $selected_count    = $cnt;
+            }
+        } else {
+            $strategy_results['s2_target_type_name'] = 'columns_absent';
+        }
+
+        // Strategy 3: target_type + target_slug.
+        if (isset($column_lookup['target_type'], $column_lookup['target_slug'])) {
+            $cnt = (int) $wpdb->get_var($wpdb->prepare(
+                'SELECT COUNT(*) FROM ' . $table
+                . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s',
+                'model', 'approved', 'global', 'global-model-pool'
+            ));
+            $strategy_results['s3_target_type_slug'] = $cnt;
+            if ($selected_strategy === '' && $cnt > 0) {
+                $selected_strategy = 's3_target_type_slug';
+                $selected_count    = $cnt;
+            }
+        } else {
+            $strategy_results['s3_target_type_slug'] = 'columns_absent';
+        }
+
+        // Strategy 4 (final fallback): entity_id = 0.
+        if (isset($column_lookup['entity_id'], $column_lookup['entity_type'])) {
+            $cnt = (int) $wpdb->get_var($wpdb->prepare(
+                'SELECT COUNT(*) FROM ' . $table
+                . ' WHERE intent_type = %s AND entity_type = %s AND entity_id = %d AND status = %s',
+                'model', 'model', 0, 'approved'
+            ));
+            $strategy_results['s4_entity_id_zero'] = $cnt;
+            if ($selected_strategy === '' && $cnt > 0) {
+                $selected_strategy = 's4_entity_id_zero';
+                $selected_count    = $cnt;
+            }
+        } else {
+            $strategy_results['s4_entity_id_zero'] = 'columns_absent';
+        }
+
+        Logs::info('keywords', '[TMW-KW-PACK] global_pool_strategies=' . self::debug_json($strategy_results), [
+            'post_id'          => $post_id,
+            'strategy_results' => $strategy_results,
+            'selected_strategy'=> $selected_strategy ?: 'none',
+            'selected_count'   => $selected_count,
+            'global_pool_usage'=> 'loaded_via_classified_provider_global_pool_candidates',
         ]);
+
+        if ($selected_strategy !== '') {
+            Logs::info('keywords', '[TMW-KW-PACK] global_pool_count=' . $selected_count, [
+                'post_id'            => $post_id,
+                'global_pool_count'  => $selected_count,
+                'selected_strategy'  => $selected_strategy,
+                'strategy_results'   => $strategy_results,
+                'global_pool_usage'  => 'loaded_via_classified_provider_global_pool_candidates',
+            ]);
+        } else {
+            Logs::info('keywords', '[TMW-KW-PACK] global_pool_count=0 reason=all_strategies_empty', [
+                'post_id'          => $post_id,
+                'strategy_results' => $strategy_results,
+            ]);
+        }
     }
 
 
@@ -989,14 +1056,14 @@ class ModelKeywordPack {
         $has_livejasmin = in_array('livejasmin', $platform_keys, true) || in_array('jasmin', $platform_keys, true);
         $has_camsoda = in_array('camsoda', $platform_keys, true);
 
+        // PR-683: Deterministic fallback must NOT emit unapproved platform-adult chips.
+        // "livejasmin porn" and "porn" are excluded from fallback; they may only appear via
+        // explicitly approved rows in the keyword pool (model-specific or global pool).
         $chips = [];
         if ($has_livejasmin) {
             $chips[] = $name_lc . ' livejasmin';
             $chips[] = 'livejasmin ' . $name_lc;
             $chips[] = $name_lc . ' live';
-            $chips[] = $name_lc . ' livejasmin porn';
-            $chips[] = $name_lc . ' porn';
-            $chips[] = $name_lc . ' private live chat';
             $chips[] = $has_camsoda ? $name_lc . ' camsoda' : $name_lc . ' live cam';
         }
 
@@ -1011,13 +1078,15 @@ class ModelKeywordPack {
             $chips[] = $name_lc . ' ' . (function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label));
         }
 
+        // PR-683: Safe neutral fallback chips — no adult/platform terms.
         foreach ([
+            'profile',
+            'live cam',
+            'private chat',
+            'webcam profile',
             'webcam model',
             'live cam chat',
             'cam profile',
-            'webcam chat',
-            'cam model',
-            'cam girl',
         ] as $mod) {
             $chips[] = $name_lc . ' ' . $mod;
         }
