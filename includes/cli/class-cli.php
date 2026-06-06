@@ -338,6 +338,55 @@ class TMWSEOCommand extends \WP_CLI_Command {
         );
     }
 
+    // ── Global Model Pool repair ────────────────────────────────────────────
+
+    /**
+     * Repair Global Model Pool keyword candidates missing explicit DB-column markers.
+     *
+     * Scans tmw_keyword_candidates for rows whose sources JSON contains
+     * model_keyword_usage_scope="global_model_pool" or global_model_pool=true,
+     * then writes target_type='global', target_name='Global Model Pool',
+     * target_slug='global-model-pool' for rows that lack those markers.
+     *
+     * ## OPTIONS
+     *
+     * [--dry-run]
+     * : Identify rows and log without writing changes.
+     *
+     * ## EXAMPLES
+     *
+     *   wp tmwseo global-pool-repair
+     *   wp tmwseo global-pool-repair --dry-run
+     *
+     * @subcommand global-pool-repair
+     */
+    public function global_pool_repair( $args, $assoc ) {
+        $dry_run = !empty( $assoc['dry-run'] );
+
+        if ( $dry_run ) {
+            \WP_CLI::log( '[TMW] Dry-run mode — no database writes will be performed.' );
+        }
+
+        require_once dirname( __DIR__ ) . '/keywords/class-global-model-pool-repair-service.php';
+        $service = new \TMWSEO\Engine\Keywords\GlobalModelPoolRepairService();
+        $stats   = $service->scan_and_repair( $dry_run );
+
+        $label = $dry_run ? '[DRY-RUN] Would update' : 'Updated';
+        \WP_CLI::log( '[TMW-KW-GLOBAL-REPAIR] scanned=' . $stats['scanned']
+            . ' updated=' . $stats['updated']
+            . ' skipped=' . $stats['skipped']
+            . ' errors=' . $stats['errors'] );
+
+        if ( $stats['errors'] > 0 ) {
+            \WP_CLI::warning( $stats['errors'] . ' row(s) failed to update. Check debug.log for details.' );
+        }
+        if ( $dry_run ) {
+            \WP_CLI::success( 'Dry-run complete. ' . $stats['updated'] . ' row(s) would be repaired.' );
+        } else {
+            \WP_CLI::success( $label . ' ' . $stats['updated'] . ' row(s).' );
+        }
+    }
+
     // ── Shared helpers ─────────────────────────────────────────────────────
 
     /**
