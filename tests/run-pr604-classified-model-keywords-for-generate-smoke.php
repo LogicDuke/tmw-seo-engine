@@ -60,6 +60,10 @@ final class Pr604SmokeWpdb {
         }, $sql);
     }
     public function get_var(string $sql) { $this->queries[] = $sql; return str_starts_with($sql, 'SHOW TABLES LIKE') ? $this->prefix . 'tmw_keyword_candidates' : null; }
+    public function get_col(string $sql, int $column = 0): array {
+        $this->queries[] = $sql;
+        return [ 'id', 'keyword', 'intent_type', 'entity_type', 'entity_id', 'status', 'sources', 'target_type', 'target_id', 'target_name', 'target_slug', 'model_keyword_usage_scope' ];
+    }
     public function get_results(string $sql, string $output = 'OBJECT'): array {
         $this->queries[] = $sql;
         if (!str_contains($sql, 'FROM ' . $this->prefix . 'tmw_keyword_candidates')) { return []; }
@@ -165,7 +169,47 @@ $wpdb->rows = [ 20 => $row(20, 'only pending', 5555, 'queued_for_review', $meta(
 $fallback_pack = ModelKeywordPack::build(new WP_Post(5555, 'model', 'Fallback Model'));
 pr604_assert($fallback_pack['primary'] === 'Fallback Model', 'Existing post-title fallback should remain when no approved classified rows exist.');
 pr604_assert(!empty($fallback_pack['additional']) && !empty($fallback_pack['rankmath_additional']), 'Existing generated fallback extras should still work without approved classified rows.');
+pr604_assert(!in_array('fallback model livejasmin porn', $fallback_pack['rankmath_additional'], true), 'Safe deterministic fallback must not emit livejasmin porn.');
+pr604_assert($fallback_pack['rankmath_additional'] === [ 'fallback model profile', 'fallback model livejasmin profile', 'fallback model live cam', 'fallback model private chat' ], 'Safe deterministic fallback should use safe model chips only.');
 pr604_assert($wpdb->updates === [] && $wpdb->inserts === [], 'Fallback pack build must not perform database writes.');
+
+$rankmath_chip_method = new ReflectionMethod(ModelKeywordPack::class, 'build_rankmath_chips');
+$rankmath_chip_method->setAccessible(true);
+$streamate_fallback_chips = $rankmath_chip_method->invoke(null, 'Streamate Fallback', [ 'streamate' ]);
+foreach ($streamate_fallback_chips as $chip) { pr604_assert(stripos((string) $chip, 'streamate') === false, 'Deterministic fallback must not emit denied platform term streamate: ' . (string) $chip); }
+pr604_assert(count($streamate_fallback_chips) <= 4, 'Denied-platform fallback chips must stay capped to four extras.');
+
+$global_row = static function (int $id, string $keyword, string $status, array $sources, array $extra = []) use ($row): array {
+    return array_merge($row($id, $keyword, 0, $status, $sources), [
+        'target_type' => 'global',
+        'target_id' => null,
+        'target_name' => 'Global Model Pool',
+        'target_slug' => '',
+        'model_keyword_usage_scope' => 'global_model_pool',
+    ], $extra);
+};
+$wpdb->rows = [
+    31 => $global_row(31, 'fallback model livejasmin profile', 'approved', array_merge($meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool'), [ 'platform_key' => 'livejasmin' ])),
+    32 => $global_row(32, 'global model live cam', 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool')),
+    33 => $global_row(33, 'global model private chat', 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool')),
+    34 => $global_row(34, 'global model webcam profile', 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool')),
+    35 => $global_row(35, 'queued global model', 'queued_for_review', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool')),
+    36 => $global_row(36, 'rejected global model', 'rejected', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool')),
+    37 => $global_row(37, 'blocked global model', 'blocked', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool')),
+    38 => $global_row(38, 'collision global model', 'approved', array_merge($meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool'), [ 'blocked_collision' => true ])),
+];
+$global_pack = ModelKeywordPack::build(new WP_Post(5555, 'model', 'Fallback Model'));
+pr604_assert($global_pack['rankmath_additional'] === [ 'fallback model livejasmin profile', 'global model live cam', 'global model private chat', 'global model webcam profile' ], 'Approved global model pool rows should fill Rank Math extras before deterministic fallback.');
+foreach ([ 'queued global model', 'rejected global model', 'blocked global model', 'collision global model', 'fallback model livejasmin porn', 'fallback model profile' ] as $bad) { pr604_assert(!in_array($bad, $global_pack['rankmath_additional'], true), 'Global pool selection should exclude disallowed/fallback keyword: ' . $bad . '.'); }
+pr604_assert(count($global_pack['rankmath_additional']) === 4, 'Global pool Rank Math extras should be capped at four extras.');
+
+$wpdb->rows = [
+    41 => $row(41, 'specific model live cam', 6001, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, 'Specific Model')),
+    42 => $global_row(42, 'global model live cam', 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true, '', 'global_model_pool')),
+];
+$specific_pack = ModelKeywordPack::build(new WP_Post(6001, 'model', 'Specific Model'));
+pr604_assert($specific_pack['rankmath_additional'][0] === 'specific model live cam', 'Model-specific approved rows should win before approved global rows.');
+pr604_assert($specific_pack['rankmath_additional'][1] === 'global model live cam', 'Approved global rows should follow model-specific rows before fallback.');
 
 echo "✓ PR 604 classified model keywords for Generate smoke checks passed\n";
 }

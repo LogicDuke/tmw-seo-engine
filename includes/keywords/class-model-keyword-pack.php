@@ -43,9 +43,13 @@ class ModelKeywordPack {
 
         $seed = $keyword_context_name . '-' . $post->ID;
 
+        $classified_provider = new ClassifiedModelKeywordProvider();
         $classified_fragment = $is_model_page
-            ? (new ClassifiedModelKeywordProvider())->build_for_model((int) $post->ID, $model_name)
+            ? $classified_provider->build_for_model((int) $post->ID, $model_name)
             : self::empty_classified_fragment();
+        $global_model_pool_fragment = ($is_model_page && method_exists($classified_provider, 'approved_global_model_pool_keywords'))
+            ? $classified_provider->approved_global_model_pool_keywords($model_name, $platform_slugs)
+            : self::empty_global_model_pool_fragment();
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
             $model_specific_candidates = self::debug_model_specific_candidates($classified_fragment);
             Logs::info('keywords', '[TMW-KW-PACK] model_specific_count=' . count($model_specific_candidates) . ' candidates=' . self::debug_json($model_specific_candidates), [
@@ -246,12 +250,28 @@ class ModelKeywordPack {
         // These replace the old name-free generic fallback as the Rank Math chip source.
         $rankmath_chips = [];
         $approved_model_keywords = [];
+        $approved_active_platform_keywords = [];
+        $approved_global_model_pool_keywords = [];
+        $approved_rankmath_keywords = [];
         $rankmath_fallback_candidates = [];
         if ($is_model_page) {
             $approved_model_keywords = self::order_model_rankmath_candidates(
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
                 $model_name
             );
+            $approved_active_platform_keywords = self::order_model_rankmath_candidates(
+                (array) ($global_model_pool_fragment['active_platform_candidates'] ?? []),
+                $model_name
+            );
+            $approved_global_model_pool_keywords = self::order_model_rankmath_candidates(
+                (array) ($global_model_pool_fragment['global_pool_candidates'] ?? []),
+                $model_name
+            );
+            $approved_rankmath_keywords = self::merge_rankmath_keyword_groups([
+                $approved_model_keywords,
+                $approved_active_platform_keywords,
+                $approved_global_model_pool_keywords,
+            ], 12);
             $rankmath_fallback_candidates = self::build_rankmath_chips($model_name, $platform_slugs);
             if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
                 Logs::info('keywords', '[TMW-KW-PACK] fallback_candidates=' . self::debug_json($rankmath_fallback_candidates), [
@@ -261,7 +281,7 @@ class ModelKeywordPack {
                 ]);
             }
             $rankmath_chips = self::merge_preferred_keywords(
-                $approved_model_keywords,
+                $approved_rankmath_keywords,
                 $rankmath_fallback_candidates,
                 12
             );
@@ -279,8 +299,10 @@ class ModelKeywordPack {
                 'selected_focus' => $primary,
                 'selected_focus_source' => self::debug_primary_source($primary, $classified_fragment, $model_name),
                 'selected_extras' => $rankmath_chips,
-                'selected_extra_sources' => self::debug_rankmath_chip_sources($rankmath_chips, $approved_model_keywords, $rankmath_fallback_candidates),
+                'selected_extra_sources' => self::debug_rankmath_chip_sources($rankmath_chips, $approved_rankmath_keywords, $rankmath_fallback_candidates),
                 'approved_model_keywords' => $approved_model_keywords,
+                'approved_active_platform_keywords' => $approved_active_platform_keywords,
+                'approved_global_model_pool_keywords' => $approved_global_model_pool_keywords,
                 'rankmath_fallback_candidates' => $rankmath_fallback_candidates,
             ]);
             Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
@@ -303,6 +325,7 @@ class ModelKeywordPack {
                 'dfseo' => DataForSEO::is_configured() ? 1 : 0,
                 'keyword_pack_dirs' => $categories,
                 'classified_model_keywords' => $classified_fragment['sources'] ?? [],
+                'classified_global_model_pool_keywords' => $global_model_pool_fragment['sources'] ?? [],
             ],
         ];
     }
@@ -466,6 +489,17 @@ class ModelKeywordPack {
         ];
     }
 
+    /** @return array{extra_focus_candidates:array<int,string>,active_platform_candidates:array<int,string>,global_pool_candidates:array<int,string>,excluded_candidates:array<int,string>,sources:array<string,mixed>} */
+    private static function empty_global_model_pool_fragment(): array {
+        return [
+            'extra_focus_candidates' => [],
+            'active_platform_candidates' => [],
+            'global_pool_candidates' => [],
+            'excluded_candidates' => [],
+            'sources' => [],
+        ];
+    }
+
     /** @param array<string,mixed> $fragment @return array<string,bool> */
     private static function classified_exclusion_lookup(array $fragment): array {
         $lookup = [];
@@ -490,6 +524,30 @@ class ModelKeywordPack {
             }
         }
         return $fallback;
+    }
+
+    /** @param array<int,array<int,string>> $groups @return string[] */
+    private static function merge_rankmath_keyword_groups(array $groups, int $limit): array {
+        $merged = [];
+        $seen = [];
+        foreach ($groups as $group) {
+            foreach ($group as $keyword) {
+                $clean = self::normalize_keyword((string) $keyword);
+                if ($clean === '') {
+                    continue;
+                }
+                $key = strtolower($clean);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $merged[] = $clean;
+                if (count($merged) >= $limit) {
+                    return $merged;
+                }
+            }
+        }
+        return $merged;
     }
 
     /** @param string[] $preferred @param string[] $fallback @return string[] */
@@ -766,16 +824,79 @@ class ModelKeywordPack {
 
     /** @return string[] */
     private static function active_platform_slugs(int $model_id): array {
-        $rows = PlatformProfiles::get_links($model_id);
+        $rows = class_exists(PlatformProfiles::class) ? PlatformProfiles::get_links($model_id) : [];
         $slugs = [];
+        $verified_records = self::verified_cam_platform_records($model_id);
+        foreach ($verified_records as $record) {
+            $platform = sanitize_key((string) ($record['platform'] ?? ''));
+            if ($platform !== '') {
+                $slugs[] = $platform;
+            }
+        }
+        if (self::verified_cam_links_exist($model_id)) {
+            return array_values(array_unique(array_filter($slugs, 'strlen')));
+        }
         foreach ($rows as $r) {
             $p = isset($r['platform']) ? sanitize_key((string)$r['platform']) : '';
+            if ($p === '' && isset($r['platform_key'])) {
+                $p = sanitize_key((string) $r['platform_key']);
+            }
             if ($p !== '') $slugs[] = $p;
         }
         // If primary is set but there is no row yet, keep it.
         $primary = sanitize_key((string)get_post_meta($model_id, '_tmwseo_platform_primary', true));
         if ($primary !== '') $slugs[] = $primary;
         return array_values(array_unique(array_filter($slugs, 'strlen')));
+    }
+
+    private static function verified_cam_links_exist(int $model_id): bool {
+        $verified_links_class = '\TMWSEO\Engine\Model\VerifiedLinks';
+        if (!class_exists($verified_links_class) || !method_exists($verified_links_class, 'get_links')) {
+            return false;
+        }
+        foreach ((array) $verified_links_class::get_links($model_id) as $link) {
+            if (is_array($link)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private static function verified_cam_platform_records(int $model_id): array {
+        $verified_links_class = '\TMWSEO\Engine\Model\VerifiedLinks';
+        $body_safety_class = '\TMWSEO\Engine\Model\ModelBodySafety';
+        if (!class_exists($verified_links_class) || !method_exists($verified_links_class, 'get_links')) {
+            return [];
+        }
+
+        $records = [];
+        foreach ((array) $verified_links_class::get_links($model_id) as $link) {
+            if (!is_array($link)) {
+                continue;
+            }
+            if (class_exists($body_safety_class) && method_exists($body_safety_class, 'verified_link_is_live_eligible')) {
+                if (!$body_safety_class::verified_link_is_live_eligible($link)) {
+                    continue;
+                }
+            } else {
+                $activity = sanitize_key((string) ($link['activity_level'] ?? ''));
+                if (!in_array($activity, [ 'active', 'very_active' ], true)) {
+                    continue;
+                }
+            }
+            $platform = sanitize_key((string) ($link['type'] ?? $link['platform'] ?? $link['platform_key'] ?? ''));
+            if ($platform === '') {
+                continue;
+            }
+            $records[] = [
+                'platform' => $platform,
+                'url' => (string) ($link['url'] ?? $link['profile_url'] ?? ''),
+                'activity_level' => sanitize_key((string) ($link['activity_level'] ?? '')),
+            ];
+        }
+
+        return $records;
     }
 
     /** @return string[] */
@@ -982,50 +1103,26 @@ class ModelKeywordPack {
         }
 
         $name_lc = function_exists('mb_strtolower') ? mb_strtolower($clean_name, 'UTF-8') : strtolower($clean_name);
-        $platform_keys = array_values(array_unique(array_filter(array_map(
-            static fn($slug): string => sanitize_key((string) $slug),
-            $platform_slugs
-        ), 'strlen')));
-        $has_livejasmin = in_array('livejasmin', $platform_keys, true) || in_array('jasmin', $platform_keys, true);
-        $has_camsoda = in_array('camsoda', $platform_keys, true);
-
-        $chips = [];
-        if ($has_livejasmin) {
-            $chips[] = $name_lc . ' livejasmin';
-            $chips[] = 'livejasmin ' . $name_lc;
-            $chips[] = $name_lc . ' live';
-            $chips[] = $name_lc . ' livejasmin porn';
-            $chips[] = $name_lc . ' porn';
-            $chips[] = $name_lc . ' private live chat';
-            $chips[] = $has_camsoda ? $name_lc . ' camsoda' : $name_lc . ' live cam';
-        }
-
-        foreach ($platform_keys as $platform_key) {
-            if ($platform_key === 'livejasmin' || $platform_key === 'jasmin') {
-                continue;
-            }
+        $chips = [
+            $name_lc . ' profile',
+        ];
+        foreach (array_values(array_unique(array_filter(array_map('sanitize_key', array_map('strval', $platform_slugs)), 'strlen'))) as $platform_key) {
             $label = self::platform_keyword_label($platform_key);
             if ($label === '') {
                 continue;
             }
-            $chips[] = $name_lc . ' ' . (function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label));
+            $chips[] = $name_lc . ' ' . (function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label)) . ' profile';
         }
-
-        foreach ([
-            'webcam model',
-            'live cam chat',
-            'cam profile',
-            'webcam chat',
-            'cam model',
-            'cam girl',
-        ] as $mod) {
-            $chips[] = $name_lc . ' ' . $mod;
-        }
+        $chips = array_merge($chips, [
+            $name_lc . ' live cam',
+            $name_lc . ' private chat',
+            $name_lc . ' webcam profile',
+        ]);
 
         $filtered = [];
         foreach (self::dedupe_keywords($chips) as $chip) {
             $chip_lc = function_exists('mb_strtolower') ? mb_strtolower($chip, 'UTF-8') : strtolower($chip);
-            if ($chip_lc === $name_lc) {
+            if ($chip_lc === $name_lc || self::contains_unsafe_rankmath_fallback_term($chip_lc)) {
                 continue;
             }
             $filtered[] = $chip;
@@ -1034,11 +1131,19 @@ class ModelKeywordPack {
             }
         }
 
-        // PR-615: Do NOT apply PageTypeKeywordFilter here. Approved classified keywords
-        // (e.g. "anisyia livejasmin porn") are legitimate for LiveJasmin-platform pages
-        // and must not be stripped by the UNSAFE_TERMS filter. finalize_rankmath_additional_keywords
-        // handles deduplication and primary removal without running the unsafe filter.
         return array_slice($filtered, 0, 4);
+    }
+
+    private static function contains_unsafe_rankmath_fallback_term(string $keyword): bool {
+        $keyword = function_exists('mb_strtolower') ? mb_strtolower(self::normalize_keyword($keyword), 'UTF-8') : strtolower(self::normalize_keyword($keyword));
+        if ($keyword === '') {
+            return false;
+        }
+        return preg_match('/(?:^|\s)(?:porn|porno|adult|sex|xxx|nude|nudes|naked|leak|leaked|onlyfans|bbw|ebony|streamate|milf|asian|latina)(?:\s|$)/u', $keyword) === 1;
+    }
+
+    private static function chip_suffix_contains_denylist_term(string $suffix): bool {
+        return self::contains_unsafe_rankmath_fallback_term($suffix);
     }
 
     private static function platform_keyword_label(string $platform): string {
