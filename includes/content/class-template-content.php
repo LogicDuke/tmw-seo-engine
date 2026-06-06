@@ -446,18 +446,17 @@ class TemplateContent {
                 ? $renderer_payload['_extra_kw_h2_overrides']
                 : [];
             if (!empty($h2_overrides)) {
-                // ── v5.8.27: Evidence-prepend headings (highest priority — target real visible H2s) ──
-                // "Turn Ons" → turn_ons_h2 (evidence-gated; evidence-prepend always sets this H2)
+                // ── Turn-ons H2: apply only once ─────────────────────────────
+                // Evidence-prepend heading (<h2>Turn Ons</h2>) takes priority.
+                // At this point evidence prepend has NOT run yet, so we detect
+                // its future presence via $h2_has_turn_ons (evidence field exists).
+                // If evidence exists, skip renderer fallback here — the
+                // post-evidence-prepend block will replace <h2>Turn Ons</h2> instead.
+                // If evidence does NOT exist, apply renderer fallback now.
                 $turn_ons_h2 = trim((string) ($h2_overrides['turn_ons_h2'] ?? ''));
-                if ($turn_ons_h2 !== '') {
-                    // Target both the evidence-prepend heading (bare "Turn Ons") and
-                    // the renderer's "About {name}" heading — whichever is present.
-                    $content = preg_replace(
-                        '/<h2>\s*Turn Ons\s*<\/h2>/iu',
-                        '<h2>' . esc_html($turn_ons_h2) . '</h2>',
-                        $content,
-                        1
-                    ) ?: $content;
+                if ($turn_ons_h2 !== '' && !$h2_has_turn_ons) {
+                    // No evidence → evidence-prepend will not add "Turn Ons" H2 →
+                    // replace the renderer's "About {name}" heading as the only target.
                     $content = preg_replace(
                         '/<h2>\s*About\s+' . preg_quote($name, '/') . '\s*<\/h2>/iu',
                         '<h2>' . esc_html($turn_ons_h2) . '</h2>',
@@ -465,16 +464,15 @@ class TemplateContent {
                         1
                     ) ?: $content;
                 }
-                // "Private Chat Options" → private_chat_h2 (evidence-gated string)
+                // (When $h2_has_turn_ons is true, the post-evidence-prepend block
+                //  handles <h2>Turn Ons</h2> — nothing to do here.)
+
+                // ── Private-chat H2: apply only once ─────────────────────────
+                // Same logic: if private-chat evidence exists, evidence-prepend will
+                // inject <h2>Private Chat Options</h2>; post-evidence block handles it.
+                // If no evidence, replace renderer's "Where to Watch Live" now.
                 $private_chat_h2 = trim((string) ($h2_overrides['private_chat_h2'] ?? ''));
-                if ($private_chat_h2 !== '') {
-                    // Target evidence-prepend heading and renderer's "Where to Watch Live"
-                    $content = preg_replace(
-                        '/<h2>\s*Private Chat Options\s*<\/h2>/iu',
-                        '<h2>' . esc_html($private_chat_h2) . '</h2>',
-                        $content,
-                        1
-                    ) ?: $content;
+                if ($private_chat_h2 !== '' && !$h2_has_private_chat) {
                     $content = preg_replace(
                         '/<h2>\s*Where to Watch Live\s*<\/h2>/iu',
                         '<h2>' . esc_html($private_chat_h2) . '</h2>',
@@ -482,6 +480,9 @@ class TemplateContent {
                         1
                     ) ?: $content;
                 }
+                // (When $h2_has_private_chat is true, the post-evidence-prepend block
+                //  handles <h2>Private Chat Options</h2> — nothing to do here.)
+
                 // "Live Chat Experience…" → webcam_tips_h2
                 $webcam_tips_h2 = trim((string) ($h2_overrides['webcam_tips_h2'] ?? ''));
                 if ($webcam_tips_h2 !== '') {
