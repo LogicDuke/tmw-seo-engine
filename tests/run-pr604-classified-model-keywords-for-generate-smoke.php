@@ -173,6 +173,12 @@ pr604_assert(!in_array('fallback model livejasmin porn', $fallback_pack['rankmat
 pr604_assert($fallback_pack['rankmath_additional'] === [ 'fallback model profile', 'fallback model livejasmin profile', 'fallback model live cam', 'fallback model private chat' ], 'Safe deterministic fallback should use safe model chips only.');
 pr604_assert($wpdb->updates === [] && $wpdb->inserts === [], 'Fallback pack build must not perform database writes.');
 
+$rankmath_chip_method = new ReflectionMethod(ModelKeywordPack::class, 'build_rankmath_chips');
+$rankmath_chip_method->setAccessible(true);
+$streamate_fallback_chips = $rankmath_chip_method->invoke(null, 'Streamate Fallback', [ 'streamate' ]);
+foreach ($streamate_fallback_chips as $chip) { pr604_assert(stripos((string) $chip, 'streamate') === false, 'Deterministic fallback must not emit denied platform term streamate: ' . (string) $chip); }
+pr604_assert(count($streamate_fallback_chips) <= 4, 'Denied-platform fallback chips must stay capped to four extras.');
+
 $global_row = static function (int $id, string $keyword, string $status, array $sources, array $extra = []) use ($row): array {
     return array_merge($row($id, $keyword, 0, $status, $sources), [
         'target_type' => 'global',

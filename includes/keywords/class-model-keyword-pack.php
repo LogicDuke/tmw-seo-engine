@@ -826,11 +826,15 @@ class ModelKeywordPack {
     private static function active_platform_slugs(int $model_id): array {
         $rows = class_exists(PlatformProfiles::class) ? PlatformProfiles::get_links($model_id) : [];
         $slugs = [];
-        foreach (self::verified_cam_platform_records($model_id) as $record) {
+        $verified_records = self::verified_cam_platform_records($model_id);
+        foreach ($verified_records as $record) {
             $platform = sanitize_key((string) ($record['platform'] ?? ''));
             if ($platform !== '') {
                 $slugs[] = $platform;
             }
+        }
+        if (self::verified_cam_links_exist($model_id)) {
+            return array_values(array_unique(array_filter($slugs, 'strlen')));
         }
         foreach ($rows as $r) {
             $p = isset($r['platform']) ? sanitize_key((string)$r['platform']) : '';
@@ -843,6 +847,19 @@ class ModelKeywordPack {
         $primary = sanitize_key((string)get_post_meta($model_id, '_tmwseo_platform_primary', true));
         if ($primary !== '') $slugs[] = $primary;
         return array_values(array_unique(array_filter($slugs, 'strlen')));
+    }
+
+    private static function verified_cam_links_exist(int $model_id): bool {
+        $verified_links_class = '\TMWSEO\Engine\Model\VerifiedLinks';
+        if (!class_exists($verified_links_class) || !method_exists($verified_links_class, 'get_links')) {
+            return false;
+        }
+        foreach ((array) $verified_links_class::get_links($model_id) as $link) {
+            if (is_array($link)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -1118,16 +1135,15 @@ class ModelKeywordPack {
     }
 
     private static function contains_unsafe_rankmath_fallback_term(string $keyword): bool {
-        return preg_match('/(?:^|\s)(?:porn|porno|adult|sex|xxx|nude|nudes|naked|leak|leaked|onlyfans)(?:\s|$)/u', $keyword) === 1;
+        $keyword = function_exists('mb_strtolower') ? mb_strtolower(self::normalize_keyword($keyword), 'UTF-8') : strtolower(self::normalize_keyword($keyword));
+        if ($keyword === '') {
+            return false;
+        }
+        return preg_match('/(?:^|\s)(?:porn|porno|adult|sex|xxx|nude|nudes|naked|leak|leaked|onlyfans|bbw|ebony|streamate|milf|asian|latina)(?:\s|$)/u', $keyword) === 1;
     }
 
     private static function chip_suffix_contains_denylist_term(string $suffix): bool {
-        $suffix = function_exists('mb_strtolower') ? mb_strtolower(self::normalize_keyword($suffix), 'UTF-8') : strtolower(self::normalize_keyword($suffix));
-        if ($suffix === '') {
-            return false;
-        }
-        return preg_match('/(?:^|\s)(?:bbw|ebony|streamate|milf|asian|latina)(?:\s|$)/u', $suffix) === 1
-            || self::contains_unsafe_rankmath_fallback_term($suffix);
+        return self::contains_unsafe_rankmath_fallback_term($suffix);
     }
 
     private static function platform_keyword_label(string $platform): string {
