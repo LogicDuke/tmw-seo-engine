@@ -99,13 +99,37 @@ class Logs {
     }
 
     public static function debug(string $context, string $message, array $data = []): void { self::add('debug', $context, $message, $data); }
-    public static function info(string $context, string $message, array $data = []): void { self::add('info', $context, $message, $data); }
+    public static function info(string $context, string $message, array $data = []): void {
+        self::add('info', $context, $message, $data);
+        self::mirror_debug_probe_to_php_error_log($message);
+    }
     public static function warn(string $context, string $message, array $data = []): void { self::add('warn', $context, $message, $data); }
     // PSR-3 spells this `warning`; the engine has 45 sites using warn() and
     // 7 newer sites using warning(). The latter were silently fatal-error
     // landmines until this alias existed. Both spellings persist for back-compat.
     public static function warning(string $context, string $message, array $data = []): void { self::warn($context, $message, $data); }
     public static function error(string $context, string $message, array $data = []): void { self::add('error', $context, $message, $data); }
+
+
+    /**
+     * Temporary debug visibility bridge for PR-677 probe markers.
+     *
+     * Logs::info() persists to the tmw_logs database table, which powers the
+     * admin log views, but operators are checking wp-content/debug.log for
+     * these two manual Generate probes. Mirror only the requested markers and
+     * only when the explicit plugin debug constant is enabled.
+     */
+    private static function mirror_debug_probe_to_php_error_log(string $message): void {
+        if (!(defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)) {
+            return;
+        }
+
+        if (strpos($message, '[TMW-KW-PACK]') !== 0 && strpos($message, '[TMW-RM-MAP]') !== 0) {
+            return;
+        }
+
+        error_log($message);
+    }
 
     /**
      * Delete log rows older than the retention window. Without this the
