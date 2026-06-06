@@ -301,24 +301,7 @@ class ClassifiedModelKeywordProvider {
             }
         }
 
-        // Strategy 4 (final schema-safe fallback): entity_id = 0.
-        // Reached only after all three explicit strategies return zero rows.
-        // Risk: may include model rows where entity_id was never assigned (DB default 0).
-        // Mitigated by requiring intent_type='model' AND entity_type='model' AND status='approved'
-        // — all three conditions together make accidental inclusion unlikely in practice.
-        if (isset($column_lookup['entity_id'], $column_lookup['entity_type'])) {
-            $rows = $wpdb->get_results(
-                $wpdb->prepare(
-                    'SELECT id, keyword, sources FROM ' . $table
-                    . ' WHERE intent_type = %s AND entity_type = %s AND entity_id = %d AND status = %s ORDER BY id ASC',
-                    'model', 'model', 0, 'approved'
-                ),
-                $out
-            );
-            if (is_array($rows) && !empty($rows)) {
-                return $this->extract_keywords_from_rows($rows);
-            }
-        }
+    
 
         return [];
     }
