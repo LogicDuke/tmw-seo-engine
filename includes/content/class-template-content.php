@@ -432,6 +432,71 @@ class TemplateContent {
                     1
                 ) ?: $content;
             }
+
+            // ── v5.8.25: Extra-keyword H2 post-render replacements ────────────
+            // ModelPageRenderer hard-codes its H2 text and does not read payload
+            // *_h2 keys. We apply name-bearing H2 overrides here via preg_replace
+            // on the fully rendered HTML, reading actual target strings stored in
+            // _extra_kw_h2_overrides by build_template_pool_primary_payload().
+            // Only runs when TemplatePool primary ran (flag set in payload).
+            $h2_overrides = is_array($renderer_payload['_extra_kw_h2_overrides'] ?? null)
+                ? $renderer_payload['_extra_kw_h2_overrides']
+                : [];
+            if (!empty($h2_overrides)) {
+                // "Where to Watch Live" → private_chat_h2 (evidence-gated string)
+                $private_chat_h2 = trim((string) ($h2_overrides['private_chat_h2'] ?? ''));
+                if ($private_chat_h2 !== '') {
+                    $content = preg_replace(
+                        '/<h2>\s*Where to Watch Live\s*<\/h2>/iu',
+                        '<h2>' . esc_html($private_chat_h2) . '</h2>',
+                        $content,
+                        1
+                    ) ?: $content;
+                }
+                // "About {name}" → turn_ons_h2 (evidence-gated string)
+                $turn_ons_h2 = trim((string) ($h2_overrides['turn_ons_h2'] ?? ''));
+                if ($turn_ons_h2 !== '') {
+                    $content = preg_replace(
+                        '/<h2>\s*About\s+' . preg_quote($name, '/') . '\s*<\/h2>/iu',
+                        '<h2>' . esc_html($turn_ons_h2) . '</h2>',
+                        $content,
+                        1
+                    ) ?: $content;
+                }
+                // "Live Chat Experience…" → webcam_tips_h2
+                $webcam_tips_h2 = trim((string) ($h2_overrides['webcam_tips_h2'] ?? ''));
+                if ($webcam_tips_h2 !== '') {
+                    $content = preg_replace(
+                        '/<h2>\s*Live Chat Experience\b[^<]*<\/h2>/iu',
+                        '<h2>' . esc_html($webcam_tips_h2) . '</h2>',
+                        $content,
+                        1
+                    ) ?: $content;
+                }
+                // "Before You Click…" → before_click_h2
+                $before_click_h2 = trim((string) ($h2_overrides['before_click_h2'] ?? ''));
+                $before_click_h2 = $before_click_h2 !== ''
+                    ? $before_click_h2
+                    : "Before You Click " . $name . "'s Confirmed Profile";
+                $content = preg_replace(
+                    '/<h2>\s*Before You Click\b[^<]*<\/h2>/iu',
+                    '<h2>' . esc_html($before_click_h2) . '</h2>',
+                    $content,
+                    1
+                ) ?: $content;
+                // "Common Profile Questions" → questions_h2
+                $questions_h2 = trim((string) ($h2_overrides['questions_h2'] ?? ''));
+                $questions_h2 = $questions_h2 !== ''
+                    ? $questions_h2
+                    : 'Common ' . $name . ' Profile Questions';
+                $content = preg_replace(
+                    '/<h2>\s*Common Profile Questions\s*<\/h2>/iu',
+                    '<h2>' . esc_html($questions_h2) . '</h2>',
+                    $content,
+                    1
+                ) ?: $content;
+            }
+            // ── End v5.8.25 extra-keyword H2 post-render replacements ─────────
         }
         // ── End keyword-rich H2 injection ────────────────────────────────────
 
@@ -4912,8 +4977,14 @@ class TemplateContent {
 
             // ── Helper: resolve + validate one section ───────────────────────
             // Returns the resolved body string, or empty string if it fails any guard.
+            // v5.8.25: when the deterministic variant has unresolved {{placeholders}},
+            // rotate through up to 7 more variants to find one that resolves cleanly.
+            // This fixes the intro/turn_ons skip when turn_ons_text='' and variant 0
+            // requires {{turn_ons}} (e.g. Abby Murray post_id=4432: pick_index=0).
             $resolve_section = function(string $section_key) use ($pool, $post, $model_data, $private_chat_count): string {
-                $section = $pool->get_section($section_key, (int) $post->ID, $model_data);
+                $post_id_int = (int) $post->ID;
+
+                $section = $pool->get_section($section_key, $post_id_int, $model_data);
                 if ($section === null) {
                     return '';
                 }
@@ -4921,33 +4992,89 @@ class TemplateContent {
                 if ($body === '') {
                     return '';
                 }
-                // Reject any unresolved {{placeholder}} in body
-                if (preg_match('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $body)) {
-                    if (defined('WP_DEBUG') && WP_DEBUG) {
-                        error_log(sprintf('[TMW-POOL-WIRE] skipping section=%s post_id=%d reason=unresolved_placeholder', $section_key, (int) $post->ID));
+
+                $unresolved_before = (int) preg_match_all('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $body);
+
+                if ($unresolved_before > 0) {
+                    // Primary pick has unresolved tokens — rotate through alternates.
+                    $primary_offset = $post_id_int;
+                    $found_clean    = false;
+                    $fallback_from  = $primary_offset % 8; // approximate variant index for log
+                    $fallback_to    = $fallback_from;
+
+                    for ($offset = 1; $offset <= 7; $offset++) {
+                        $alt_seed    = $post_id_int + $offset;
+                        $alt_section = $pool->get_section($section_key, $alt_seed, $model_data);
+                        if ($alt_section === null) {
+                            continue;
+                        }
+                        $alt_body = trim((string) ($alt_section['body'] ?? ''));
+                        if ($alt_body === '') {
+                            continue;
+                        }
+                        $alt_unresolved = (int) preg_match_all('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $alt_body);
+                        if ($alt_unresolved === 0) {
+                            $body        = $alt_body;
+                            $fallback_to = ($post_id_int + $offset) % 8;
+                            $found_clean = true;
+                            break;
+                        }
                     }
-                    return '';
+
+                    if (!$found_clean) {
+                        // All variants unresolved — log and skip as before.
+                        if (defined('WP_DEBUG') && WP_DEBUG) {
+                            error_log(sprintf(
+                                '[TMW-POOL-PLACEHOLDER] post_id=%d section=%s unresolved_before=%d unresolved_after=%d action=all_variants_unresolved fallback_from=%d fallback_to=%d',
+                                $post_id_int, $section_key, $unresolved_before, $unresolved_before, $fallback_from, $fallback_from
+                            ));
+                            error_log(sprintf('[TMW-POOL-WIRE] skipping section=%s post_id=%d reason=unresolved_placeholder', $section_key, $post_id_int));
+                        }
+                        return '';
+                    }
+
+                    if (defined('WP_DEBUG') && WP_DEBUG) {
+                        error_log(sprintf(
+                            '[TMW-POOL-PLACEHOLDER] post_id=%d section=%s unresolved_before=%d unresolved_after=0 action=resolved_variant fallback_from=%d fallback_to=%d',
+                            $post_id_int, $section_key, $unresolved_before, $fallback_from, $fallback_to
+                        ));
+                    }
                 }
+
                 // Private-chat safety: skip "confirmed" language when evidence is thin
                 if ($section_key === 'private_chat_options' && $private_chat_count < 2) {
                     if (stripos($body, 'confirmed') !== false) {
                         if (defined('WP_DEBUG') && WP_DEBUG) {
-                            error_log(sprintf('[TMW-POOL-WIRE] skipping private_chat variant post_id=%d reason=confirmed_insufficient_evidence', (int) $post->ID));
+                            error_log(sprintf('[TMW-POOL-WIRE] skipping private_chat variant post_id=%d reason=confirmed_insufficient_evidence', $post_id_int));
                         }
                         return '';
                     }
                 }
+
                 return $body;
             };
 
             // ── Helper: resolve + validate the H2 for a section ─────────────
+            // v5.8.25: rotate through alternates when primary H2 has unresolved tokens.
             $resolve_h2 = function(string $section_key) use ($pool, $post, $model_data): string {
-                $section = $pool->get_section($section_key, (int) $post->ID, $model_data);
+                $post_id_int = (int) $post->ID;
+                $section = $pool->get_section($section_key, $post_id_int, $model_data);
                 if ($section === null) {
                     return '';
                 }
                 $h2 = trim((string) ($section['h2'] ?? ''));
                 if (preg_match('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $h2)) {
+                    // Rotate through alternates
+                    for ($offset = 1; $offset <= 7; $offset++) {
+                        $alt = $pool->get_section($section_key, $post_id_int + $offset, $model_data);
+                        if ($alt === null) {
+                            continue;
+                        }
+                        $alt_h2 = trim((string) ($alt['h2'] ?? ''));
+                        if (!preg_match('/\{\{\s*[a-zA-Z0-9_\-]+\s*\}\}/', $alt_h2)) {
+                            return $alt_h2;
+                        }
+                    }
                     return '';
                 }
                 return $h2;
@@ -5157,6 +5284,87 @@ class TemplateContent {
                 // The TemplatePool intro (variant 2 or 6) stays as a second paragraph.
                 $existing_intro = (array) ($tp_payload['intro_paragraphs'] ?? []);
                 $tp_payload['intro_paragraphs'] = array_merge([$kw_intro], $existing_intro);
+            }
+
+            // ── v5.8.25: Name-bearing H2 overrides for Rank Math extra keyword placement ─
+            // Rank Math marks extra keywords green only when they appear in a subheading.
+            // All model-name-led extra keywords (e.g. "Abby Murray live cam") are blocked
+            // from H2 injection by is_heading_safe_secondary_phrase() because they contain
+            // the model name. We override section H2s directly inside the TemplatePool
+            // primary payload — this does not touch enforce_keyword_heading_placement()
+            // or any legacy/category/video paths.
+            $h2_overrides_used = [];
+            if (!empty($extra_keywords)) {
+                $all_extra_lower = array_map(
+                    static fn(string $k): string => mb_strtolower(trim($k), 'UTF-8'),
+                    array_values(array_filter(array_map('strval', $extra_keywords), 'strlen'))
+                );
+
+                // Detect concepts present in extra keywords
+                $has_livecam_extra   = false;
+                $has_privatechat_extra = false;
+                $has_webcam_extra    = false;
+                $has_livejasmin_extra = false;
+                foreach ($all_extra_lower as $ekw) {
+                    if (str_contains($ekw, 'live cam') && !str_contains($ekw, 'webcam')) {
+                        $has_livecam_extra = true;
+                    }
+                    if (str_contains($ekw, 'private') && str_contains($ekw, 'chat')) {
+                        $has_privatechat_extra = true;
+                    }
+                    if (str_contains($ekw, 'webcam') || str_contains($ekw, 'live webcam')) {
+                        $has_webcam_extra = true;
+                    }
+                    if (str_contains($ekw, 'livejasmin') || str_contains($ekw, 'live jasmin')) {
+                        $has_livejasmin_extra = true;
+                    }
+                }
+
+                // Build H2 override map — model-name-bearing, keyword-inclusive
+                if ($has_livejasmin_extra || $has_livecam_extra) {
+                    $h2_overrides_used[] = $name . ' LiveJasmin Profile and Live Cam Access';
+                }
+                if ($has_privatechat_extra) {
+                    $h2_overrides_used[] = $name . ' Live Cam Private Chat Options';
+                }
+                if ($has_webcam_extra && !$has_privatechat_extra) {
+                    $h2_overrides_used[] = 'Live Chat Experience and Live Webcam Tips for ' . $name;
+                } elseif ($has_webcam_extra) {
+                    $h2_overrides_used[] = 'Live Chat Experience and Live Webcam Tips for ' . $name;
+                }
+
+                // v5.8.25 revised: Store actual target H2 strings (not booleans) so the
+                // post-render replacement block in build_model() can use them directly.
+                // private_chat_h2 is evidence-gated: claims "options" only when operator
+                // evidence ($has_private_chat_evidence) confirms them; otherwise uses safe
+                // access-check wording that does not imply a specific feature exists.
+                $tp_payload['_extra_kw_h2_overrides'] = [
+                    'live_access_h2'  => ($has_livejasmin_extra || $has_livecam_extra)
+                        ? $name . ' LiveJasmin Profile and Live Cam Access'
+                        : '',
+                    'private_chat_h2' => $has_privatechat_extra
+                        ? ($has_private_chat_evidence
+                            ? $name . ' Live Cam Private Chat Options'
+                            : $name . ' Live Cam Profile Checks')
+                        : '',
+                    'turn_ons_h2'     => $has_turn_on_evidence
+                        ? 'Turn Ons and Session Notes for ' . $name
+                        : '',
+                    'webcam_tips_h2'  => $has_webcam_extra
+                        ? $name . ' Live Chat Experience and Live Webcam Tips'
+                        : '',
+                    'before_click_h2' => "Before You Click " . $name . "'s Confirmed Profile",
+                    'questions_h2'    => 'Common ' . $name . ' Profile Questions',
+                ];
+            }
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log(sprintf(
+                    '[TMW-POOL-EXTRA-KW] post_id=%d intro_used="%s" headings_used="%s"',
+                    (int) $post->ID,
+                    implode(', ', array_slice(array_values(array_filter(array_map('strval', $extra_keywords), 'strlen')), 0, 4)),
+                    implode(', ', $h2_overrides_used)
+                ));
             }
 
             // ── v5.8.23: Keyword density reduction (page-level budget) ──────
@@ -5482,15 +5690,64 @@ class TemplateContent {
             return '';
         }
 
-        // ── Opening sentence: focus keyword + platform — always factual ───────
-        // This sentence is always safe regardless of keywords or evidence.
-        $opening = $name . ' is listed with a confirmed ' . $platform_label . ' live cam profile.';
+        // ── Detect keyword concepts from extra_keywords ───────────────────────
+        // Used to decide which natural access-method phrases to include in the intro.
+        // We never claim features beyond what evidence supports — these keyword signals
+        // only affect generic navigation framing, not feature claims.
+        $all_kw_lower = array_map(
+            static fn(string $k): string => mb_strtolower(trim($k), 'UTF-8'),
+            array_values(array_filter(array_map('strval', array_merge($rankmath_keywords, $extra_keywords)), 'strlen'))
+        );
+        $has_livecam_kw    = false;
+        $has_webcam_kw     = false;
+        $has_privatechat_kw = false;
+        foreach ($all_kw_lower as $kw) {
+            if (str_contains($kw, 'live cam') || str_contains($kw, 'live webcam') || str_contains($kw, 'webcam')) {
+                $has_livecam_kw = true;
+            }
+            if (str_contains($kw, 'webcam') || str_contains($kw, 'live webcam')) {
+                $has_webcam_kw = true;
+            }
+            if (str_contains($kw, 'private') && str_contains($kw, 'chat')) {
+                $has_privatechat_kw = true;
+            }
+        }
+
+        // ── Opening sentence: always includes focus keyword + confirmed platform ─
+        // v5.8.25: weave live cam / webcam / private chat access concepts from
+        // extra keywords into the opening sentence naturally. This gives Rank Math
+        // the first-10% occurrence it needs for extra keyword chips while keeping
+        // the sentence factual and readable.
+        //
+        // Evidence safety: "private chat options" / "private live chat options" may only
+        // appear when $has_private_chat is TRUE (operator evidence field is populated).
+        // When the keyword contains "private chat" but evidence is absent, we use
+        // the safe navigation phrase "private live chat access checks" instead —
+        // this describes what the page offers (access notes) not what the model offers.
+        $private_chat_phrase = $has_private_chat
+            ? 'private live chat options'
+            : 'private live chat access checks';
+
+        if ($has_livecam_kw && $has_privatechat_kw && $has_webcam_kw) {
+            $opening = $name . ' is listed with a confirmed ' . $platform_label
+                . ' profile, giving visitors a checked starting point for '
+                . $name . ' live cam access, ' . $private_chat_phrase . ', and current live webcam room-status checks before opening the room.';
+        } elseif ($has_livecam_kw && $has_privatechat_kw) {
+            $opening = $name . ' is listed with a confirmed ' . $platform_label
+                . ' profile. This page covers ' . $name . ' live cam access, ' . $private_chat_phrase . ', and practical room-access checks.';
+        } elseif ($has_livecam_kw && $has_webcam_kw) {
+            $opening = $name . ' is listed with a confirmed ' . $platform_label
+                . ' live cam profile. Check the ' . $name . ' live cam room and live webcam status before opening the room.';
+        } elseif ($has_livecam_kw) {
+            $opening = $name . ' is listed with a confirmed ' . $platform_label
+                . ' live cam profile. This page covers ' . $name . ' live cam access and verified profile checks.';
+        } else {
+            $opening = $name . ' is listed with a confirmed ' . $platform_label . ' live cam profile.';
+        }
 
         // ── Evidence-gated feature signals ────────────────────────────────────
         // These phrases only appear when the operator evidence boolean is TRUE.
-        // Keywords in $rankmath_keywords or $extra_keywords do NOT qualify here —
-        // an SEO keyword that mentions "private chat" does not mean the performer
-        // actually has private-chat evidence in the operator fields.
+        // Keywords alone do NOT constitute evidence and must NOT produce feature claims.
         $evidence_signals = [];
         if ($has_private_chat) {
             $evidence_signals[] = 'private chat options';
@@ -5500,19 +5757,15 @@ class TemplateContent {
         }
 
         // ── Second sentence: navigation context, using evidence signals only ──
-        // Keywords may influence the generic framing (live room, profile access)
-        // but cannot add feature claims beyond what evidence supports.
-        if (!empty($evidence_signals)) {
+        // Skip when opening already covers the content naturally.
+        if (!empty($evidence_signals) && !($has_livecam_kw && $has_privatechat_kw)) {
             $signal_str = self::natural_keyword_list($evidence_signals);
             $second = 'This page covers her ' . $signal_str
                 . ', verified live-room access, and profile checks before visitors open the room.';
-        } else {
-            // No feature evidence — use generic verified-access framing.
-            $second = 'This page covers her confirmed ' . $platform_label
-                . ' profile access, verified links, and practical room-access notes.';
+            return trim($opening . ' ' . $second);
         }
 
-        return trim($opening . ' ' . $second);
+        return trim($opening);
     }
 
     /**
@@ -5584,16 +5837,23 @@ class TemplateContent {
         $target_exact_mentions = 10;
 
         // ── Substitution pool ─────────────────────────────────────────────────
+        // v5.8.25 revised: name-FREE substitutes so the density reducer actually
+        // lowers the exact focus-keyword count. Name-bearing strings (e.g.
+        // "$name . "'s profile'") still match the focus-keyword regex and would
+        // not reduce density. These generic phrases operate on body paragraph text
+        // only (reducible_bag_keys); headings, intro[0], and CTAs are protected.
+        // Known bad artifacts ("The confirmed profile", bare "She" etc.) are caught
+        // downstream by sanitize_placeholder_artifacts() — not produced here.
         $subs = [
-            'she',
-            'her profile',
-            'the confirmed profile',
-            'the verified live room',
             'this profile',
+            'the profile',
+            'this live room',
             'the live room',
+            'the confirmed room',
+            'the verified room',
+            'the performer profile',
         ];
         if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $subs[] = 'the ' . $platform_label . ' profile';
             $subs[] = 'the confirmed ' . $platform_label . ' room';
         }
 
@@ -5880,17 +6140,23 @@ class TemplateContent {
             return $html;
         }
 
-        // Substitution pool — natural references, no claims, any model.
+        // Substitution pool — v5.8.25 revised: name-FREE phrases so the HTML-level
+        // density reducer actually lowers the exact focus-keyword count.
+        // Name-bearing strings still match the focus-keyword regex and would not
+        // reduce density. These phrases operate on text nodes only; protected zones
+        // (first <p>, first <h2>, <a> anchors, evidence block) are never touched.
+        // sanitize_placeholder_artifacts() runs after this pass and corrects any
+        // known bad artifact strings that survive substitution.
         $subs = [
-            'she',
-            'her profile',
-            'the confirmed profile',
-            'the verified live room',
             'this profile',
+            'the profile',
+            'this live room',
             'the live room',
+            'the confirmed room',
+            'the verified room',
+            'the performer profile',
         ];
         if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $subs[] = 'the ' . $platform_label . ' profile';
             $subs[] = 'the confirmed ' . $platform_label . ' room';
         }
 
@@ -6052,7 +6318,113 @@ class TemplateContent {
             ));
         }
 
+        // ── Fix 4: Placeholder artifact sanitizer ─────────────────────────────
+        // v5.8.25: A final deterministic string-replace pass removes any known
+        // bad artifact phrases that survive density reduction. These originate
+        // from TemplatePool template literals that were rendered before the
+        // density-reducer ran, e.g. "the confirmed profile" in anchor text or
+        // FAQ answers that the token-based reducer did not mutate.
+        // All replacements use plain ASCII apostrophes. Case-insensitive.
+        // Protected zones (evidence block, <a> anchors) already handled above.
+        $html = self::sanitize_placeholder_artifacts($html, $name, $platform_label);
+
         return $html;
+    }
+
+    /**
+     * Fix 4 (v5.8.25) — deterministic placeholder-artifact sanitizer.
+     *
+     * Removes known bad phrases produced when density-reducer substitution
+     * strings ("the confirmed profile", "the verified live room", bare "She")
+     * survived into anchor text, FAQ answers, or heading text.
+     *
+     * Operates on the fully assembled HTML string. Does NOT touch:
+     *   - <!-- tmwseo-seed-evidence:start/end --> blocks (split out before processing)
+     *   - <a href="..."> href attribute values (these are not affected by str_replace on text)
+     *
+     * Uses plain ASCII apostrophes throughout (no curly/smart quotes).
+     *
+     * @param string $html           Fully assembled model page HTML.
+     * @param string $name           Model display name (focus keyword).
+     * @param string $platform_label Primary platform label.
+     * @return string
+     */
+    private static function sanitize_placeholder_artifacts(
+        string $html,
+        string $name,
+        string $platform_label
+    ): string {
+        if (trim($html) === '' || $name === '') {
+            return $html;
+        }
+
+        $n  = $name;
+        $pl = ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK)
+            ? $platform_label
+            : 'LiveJasmin';
+
+        // Split out evidence block so operator-reviewed content is never touched.
+        $ev_start = '<!-- tmwseo-seed-evidence:start -->';
+        $ev_end   = '<!-- tmwseo-seed-evidence:end -->';
+        $has_ev   = (strpos($html, $ev_start) !== false);
+        $seg_ev   = '';
+        $seg_body = $html;
+
+        if ($has_ev) {
+            $ps = (int) strpos($html, $ev_start);
+            $pe = strpos($html, $ev_end);
+            if ($pe !== false) {
+                $pe        += strlen($ev_end);
+                $seg_before = substr($html, 0, $ps);
+                $seg_ev     = substr($html, $ps, $pe - $ps);
+                $seg_after  = substr($html, $pe);
+                // Use a placeholder token that cannot appear in real content
+                $seg_body   = $seg_before . "\x02EVBLOCK\x03" . $seg_after;
+            }
+        }
+
+        // Ordered replacement table — most specific first to avoid partial matches.
+        // Plain ASCII apostrophes used throughout.
+        $replacements = [
+            // ── Internal link / anchor text artifacts ──
+            'Watch a The verified live room Video'           => 'Watch ' . $n . "'s videos",
+            'Watch a The verified live room video'           => 'Watch ' . $n . "'s videos",
+            'Find The confirmed ' . $pl . ' room elsewhere'  => 'Find ' . $n . "'s confirmed " . $pl . ' room',
+            'Find The confirmed LiveJasmin room elsewhere'   => 'Find ' . $n . "'s confirmed LiveJasmin room",
+            'Find The confirmed live room elsewhere'         => 'Find ' . $n . "'s confirmed live room",
+            // ── FAQ question artifacts ──
+            'Can I find The confirmed profile\'s video archive'  => 'Can I find ' . $n . "'s video archive",
+            "Can I find The confirmed profile's video archive"   => 'Can I find ' . $n . "'s video archive",
+            'Can I report a fake The live room profile if I find one?' => 'Can I report a fake ' . $n . ' profile if I find one?',
+            'Can I report a fake The live room profile'          => 'Can I report a fake ' . $n . ' profile',
+            // ── Pronoun artifacts in questions and body text ──
+            'Does She offer'   => 'Does ' . $n . ' offer',
+            'Does she offer'   => 'Does ' . $n . ' offer',
+            'for Her profile'  => 'for ' . $n . "'s profile",
+            'for her profile'  => 'for ' . $n . "'s profile",
+            // ── Generic placeholder strings (possessive first) ──
+            'The confirmed profile\'s'   => $n . "'s",
+            "The confirmed profile's"    => $n . "'s",
+            'the confirmed profile\'s'   => $n . "'s",
+            "the confirmed profile's"    => $n . "'s",
+            'The confirmed profile'      => $n . "'s confirmed profile",
+            'the confirmed profile'      => $n . "'s confirmed profile",
+            'The live room profile'      => $n . "'s profile",
+            'the live room profile'      => $n . "'s profile",
+            'The verified live room'     => $n . "'s verified live room",
+            'the verified live room'     => $n . "'s live room",
+        ];
+
+        foreach ($replacements as $bad => $good) {
+            $seg_body = str_replace($bad, $good, $seg_body);
+        }
+
+        // Restore evidence block.
+        if ($has_ev && $seg_ev !== '') {
+            $seg_body = str_replace("\x02EVBLOCK\x03", $seg_ev, $seg_body);
+        }
+
+        return $seg_body;
     }
 
 }
