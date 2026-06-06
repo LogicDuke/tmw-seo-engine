@@ -70,11 +70,6 @@ class RankMathMapper {
         $focus_list = array_slice( $focus_list, 0, 1 + self::RANK_MATH_EXTRA_CAP );
 
         $focus_csv = implode( ',', $focus_list );
-
-        if ( defined( 'TMWSEO_DEBUG' ) && TMWSEO_DEBUG ) {
-            \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-RM-MAP] debug_probe_loaded post_id=' . $post_id );
-        }
-
         if ( ! empty( $focus_list ) ) {
             update_post_meta( $post_id, 'rank_math_focus_keyword', $focus_csv );
         } else {

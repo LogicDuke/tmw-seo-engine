@@ -94,10 +94,6 @@ class AdminAjaxHandlers {
             'explicit_generate'     => ( $post_type === 'model' && ! $refresh_keywords_only ) ? 1 : 0,
         ];
 
-        if ( defined( 'TMWSEO_DEBUG' ) && TMWSEO_DEBUG && ! empty( $job_payload['manual_model_generate'] ) ) {
-            Logs::info( 'keywords', '[TMW-KW-PACK] debug_probe_loaded post_id=' . $post_id );
-        }
-
         if ( $post_type === 'model' && $refresh_keywords_only ) {
             ob_start();
             try {
