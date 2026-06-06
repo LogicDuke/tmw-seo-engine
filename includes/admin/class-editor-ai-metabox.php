@@ -70,8 +70,8 @@ class Editor_AI_Metabox {
         wp_enqueue_script(
             'tmwseo-editor-ai-metabox',
             TMWSEO_ENGINE_URL . 'assets/js/editor-ai-metabox.js',
-            ['wp-data', 'wp-notices', 'wp-edit-post', 'wp-editor', 'wp-plugins', 'wp-element'],
-            defined('TMWSEO_ENGINE_VERSION') ? TMWSEO_ENGINE_VERSION : (string) filemtime(TMWSEO_ENGINE_PATH . 'assets/js/editor-ai-metabox.js'),
+            ['wp-data', 'wp-notices', 'wp-edit-post', 'wp-plugins', 'wp-element'],
+            defined('TMWSEO_ENGINE_VERSION') ? TMWSEO_ENGINE_VERSION : null,
             true
         );
 
@@ -84,21 +84,17 @@ class Editor_AI_Metabox {
             'hasOpenAI' => $has_openai,
             'hasClaude' => $has_claude,
             'insertBlockDefault' => true,
-            'debug' => defined('TMWSEO_DEBUG') && TMWSEO_DEBUG,
             'modelHelp' => $post_type === 'model'
                 ? __('For model pages, keep this checked to insert/update the TMW SEO block instead of replacing existing content.', 'tmwseo')
                 : '',
         ]);
 
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
-            $script_version = defined('TMWSEO_ENGINE_VERSION') ? TMWSEO_ENGINE_VERSION : 'filemtime';
-            error_log('[TMW-GEN-SIDEBAR] enqueue screen=' . (string) ($screen->id ?? '') . ' post_type=' . $post_type . ' script=editor-ai-metabox.js version=' . $script_version);
             Logs::info('admin', '[TMW-GEN-SIDEBAR] enqueue post_type=' . $post_type . ' screen=' . (string) ($screen->id ?? ''), [
                 'post_id' => $post_id,
                 'post_type' => $post_type,
                 'screen' => (string) ($screen->id ?? ''),
                 'block_editor_panel' => true,
-                'script_version' => $script_version,
             ]);
         }
     }
