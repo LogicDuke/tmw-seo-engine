@@ -26,6 +26,17 @@ class ModelKeywordPack {
 
         $platform_slugs = self::active_platform_slugs($post->ID);
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            $inactive_platforms = self::debug_inactive_platform_slugs($platform_slugs);
+            Logs::info('keywords', '[TMW-KW-SOURCE] post_id=' . (int) $post->ID
+                . ' model="' . $model_name . '"'
+                . ' active_platforms=' . self::debug_json($platform_slugs)
+                . ' inactive_platforms=' . self::debug_json($inactive_platforms), [
+                'post_id'            => (int) $post->ID,
+                'model'              => $model_name,
+                'active_platforms'   => $platform_slugs,
+                'inactive_platforms' => $inactive_platforms,
+            ]);
+            // Keep the legacy [TMW-KW-PACK] tag for backwards log-grep compatibility.
             Logs::info('keywords', '[TMW-KW-PACK] active_platforms=' . self::debug_json($platform_slugs), [
                 'post_id' => (int) $post->ID,
                 'active_platforms' => $platform_slugs,
@@ -48,11 +59,20 @@ class ModelKeywordPack {
             : self::empty_classified_fragment();
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
             $model_specific_candidates = self::debug_model_specific_candidates($classified_fragment);
+            $global_pool_count = count((array) ($classified_fragment['global_pool_candidates'] ?? []));
             Logs::info('keywords', '[TMW-KW-PACK] model_specific_count=' . count($model_specific_candidates) . ' candidates=' . self::debug_json($model_specific_candidates), [
                 'post_id' => (int) $post->ID,
                 'model_specific_count' => count($model_specific_candidates),
                 'candidates' => $model_specific_candidates,
                 'sources' => $classified_fragment['sources'] ?? [],
+            ]);
+            // [TMW-KW-SOURCE] req 2: provider counts — shows exactly how many rows each source contributed.
+            Logs::info('keywords', '[TMW-KW-SOURCE] post_id=' . (int) $post->ID
+                . ' model_specific_count=' . count($model_specific_candidates)
+                . ' global_pool_candidates=' . $global_pool_count, [
+                'post_id'                => (int) $post->ID,
+                'model_specific_count'   => count($model_specific_candidates),
+                'global_pool_candidates' => $global_pool_count,
             ]);
             self::debug_log_global_model_pool_lookup((int) $post->ID);
         }
@@ -283,10 +303,40 @@ class ModelKeywordPack {
                 $classified_exclusions,
                 $model_name
             );
+            // [TMW-KW-SOURCE] req 4: one log line per candidate — records source, selection outcome, skip reason.
+            if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+                self::debug_log_kw_source_candidates(
+                    (int) $post->ID,
+                    $approved_model_keywords,
+                    $approved_global_pool_keywords,
+                    $rankmath_fallback_candidates,
+                    $rankmath_chips,
+                    $classified_exclusions,
+                    $primary,
+                    $platform_slugs
+                );
+            }
         }
 
         // [TMW-SEO-RMKW] PR-615 debug logging — active only when TMWSEO_DEBUG is true.
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            // Determine fallback usage: how many of the final chips came from deterministic fallback.
+            $fallback_lookup_lc = [];
+            foreach ($rankmath_fallback_candidates as $kw) {
+                $clean = self::normalize_keyword((string) $kw);
+                if ($clean !== '') {
+                    $fallback_lookup_lc[strtolower($clean)] = true;
+                }
+            }
+            $fallback_count = 0;
+            foreach ($rankmath_chips as $chip) {
+                $key = strtolower(self::normalize_keyword((string) $chip));
+                if ($key !== '' && isset($fallback_lookup_lc[$key])) {
+                    $fallback_count++;
+                }
+            }
+            $fallback_used = $fallback_count > 0;
+
             Logs::info('keywords', '[TMW-KW-PACK] selected_focus=' . $primary . ' selected_extras=' . self::debug_json($rankmath_chips), [
                 'post_id' => (int) $post->ID,
                 'selected_focus' => $primary,
@@ -296,6 +346,8 @@ class ModelKeywordPack {
                 'approved_model_keywords' => $approved_model_keywords,
                 'approved_global_pool_keywords' => $approved_global_pool_keywords,
                 'rankmath_fallback_candidates' => $rankmath_fallback_candidates,
+                'fallback_used'  => $fallback_used,
+                'fallback_count' => $fallback_count,
             ]);
             Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
                 'post_id'                    => $post->ID,
@@ -352,13 +404,20 @@ class ModelKeywordPack {
         return $primary_lc !== '' && $primary_lc === $model_lc ? 'model_title_fallback' : 'keyword_context_fallback';
     }
 
-    /** @param string[] $chips @param string[] $approved @param string[] $fallback @return array<string,string> */
-    private static function debug_rankmath_chip_sources(array $chips, array $approved, array $fallback): array {
+    /** @param string[] $chips @param string[] $approved @param string[] $fallback @param string[] $global_pool @return array<string,string> */
+    private static function debug_rankmath_chip_sources(array $chips, array $approved, array $fallback, array $global_pool = []): array {
         $approved_lookup = [];
         foreach ($approved as $keyword) {
             $clean = self::normalize_keyword((string) $keyword);
             if ($clean !== '') {
                 $approved_lookup[strtolower($clean)] = true;
+            }
+        }
+        $global_pool_lookup = [];
+        foreach ($global_pool as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean !== '') {
+                $global_pool_lookup[strtolower($clean)] = true;
             }
         }
         $fallback_lookup = [];
@@ -377,6 +436,8 @@ class ModelKeywordPack {
             $key = strtolower($clean);
             if (isset($approved_lookup[$key])) {
                 $sources[$clean] = 'classified_model_specific_approved';
+            } elseif (isset($global_pool_lookup[$key])) {
+                $sources[$clean] = 'global_pool_approved';
             } elseif (isset($fallback_lookup[$key])) {
                 $sources[$clean] = 'rankmath_generated_fallback';
             } else {
@@ -384,6 +445,145 @@ class ModelKeywordPack {
             }
         }
         return $sources;
+    }
+
+    /**
+     * Return the known platform slugs (from platform_keyword_label map) that are NOT active
+     * for this model. Used only for [TMW-KW-SOURCE] start context logging.
+     *
+     * @param  string[] $active_slugs
+     * @return string[]
+     */
+    private static function debug_inactive_platform_slugs(array $active_slugs): array {
+        $known = ['livejasmin', 'stripchat', 'myfreecams', 'camsoda', 'cam4', 'chaturbate', 'bonga'];
+        $active_lc = array_fill_keys(array_map('strtolower', $active_slugs), true);
+        return array_values(array_filter($known, static fn(string $slug): bool => !isset($active_lc[$slug])));
+    }
+
+    /**
+     * Emit one [TMW-KW-SOURCE] candidate log line per chip candidate.
+     *
+     * Covers every keyword that was presented to the merge/finalize pipeline:
+     * - model-specific approved rows
+     * - global pool approved rows
+     * - deterministic fallback chips
+     * - hypothetical inactive-platform chips (logged as skipped with platform_inactive)
+     *
+     * Does NOT re-run selection logic — observes only.
+     *
+     * @param string[]          $approved_model     model-specific extra_focus_candidates after ordering
+     * @param string[]          $global_pool        global_pool_candidates from provider
+     * @param string[]          $fallback            build_rankmath_chips() output (pre-merge)
+     * @param string[]          $final_chips        rankmath_chips after finalize (the 4 chosen)
+     * @param array<string,bool>$exclusions         classified_exclusion_lookup
+     * @param string            $primary            the selected primary focus keyword
+     * @param string[]          $active_platforms   active platform slugs
+     */
+    private static function debug_log_kw_source_candidates(
+        int    $post_id,
+        array  $approved_model,
+        array  $global_pool,
+        array  $fallback,
+        array  $final_chips,
+        array  $exclusions,
+        string $primary,
+        array  $active_platforms
+    ): void {
+        $primary_lc = strtolower(self::normalize_keyword($primary));
+
+        // Build a fast lookup of what was actually selected.
+        $selected_lc = [];
+        foreach ($final_chips as $chip) {
+            $key = strtolower(self::normalize_keyword((string) $chip));
+            if ($key !== '') {
+                $selected_lc[$key] = true;
+            }
+        }
+
+        // Helper: determine skip reason for a keyword not in $selected_lc.
+        $skip_reason = static function (string $kw_lc) use ($exclusions, $primary_lc, $selected_lc): string {
+            if (isset($exclusions[$kw_lc])) {
+                return 'classified_excluded';
+            }
+            if ($primary_lc !== '' && $kw_lc === $primary_lc) {
+                return 'matches_primary';
+            }
+            return 'cap_exceeded';
+        };
+
+        // Helper: emit one candidate log line.
+        $log_candidate = static function (string $keyword, string $source) use (
+            $post_id, $selected_lc, $skip_reason
+        ): void {
+            $kw_lc   = strtolower(self::normalize_keyword($keyword));
+            $selected = isset($selected_lc[$kw_lc]) ? 'yes' : 'no';
+            $reason   = $selected === 'no' ? $skip_reason($kw_lc) : '';
+
+            $msg = '[TMW-KW-SOURCE] candidate post_id=' . $post_id
+                . ' keyword="' . $keyword . '"'
+                . ' source="' . $source . '"'
+                . ' selected=' . $selected
+                . ($reason !== '' ? ' skip_reason="' . $reason . '"' : '');
+
+            $ctx = [
+                'post_id'  => $post_id,
+                'keyword'  => $keyword,
+                'source'   => $source,
+                'selected' => $selected,
+            ];
+            if ($reason !== '') {
+                $ctx['skip_reason'] = $reason;
+            }
+            Logs::info('keywords', $msg, $ctx);
+        };
+
+        // 1. Model-specific approved rows (ordered by preference).
+        foreach ($approved_model as $kw) {
+            $log_candidate((string) $kw, 'model_specific_approved');
+        }
+
+        // 2. Global pool approved rows.
+        foreach ($global_pool as $kw) {
+            $log_candidate((string) $kw, 'global_pool_approved');
+        }
+
+        // 3. Deterministic fallback chips.
+        foreach ($fallback as $kw) {
+            $log_candidate((string) $kw, 'deterministic_fallback');
+        }
+
+        // 4. Hypothetical chips for inactive platforms — logged as skipped/platform_inactive.
+        // These are the chips build_rankmath_chips() would have generated had the platform been active.
+        $active_lc = array_fill_keys(array_map('strtolower', $active_platforms), true);
+        $known_platforms = ['livejasmin', 'stripchat', 'myfreecams', 'camsoda', 'cam4', 'chaturbate', 'bonga'];
+        $name_lc = strtolower(self::normalize_keyword($primary !== '' ? $primary : ''));
+        if ($name_lc !== '') {
+            foreach ($known_platforms as $slug) {
+                if (isset($active_lc[$slug])) {
+                    continue; // active — already covered by fallback or model-specific
+                }
+                // Generate the hypothetical chip this platform would have contributed.
+                $label = self::platform_keyword_label($slug);
+                if ($label === '') {
+                    continue;
+                }
+                $hypothetical_chip = $name_lc . ' ' . strtolower($label);
+                $msg = '[TMW-KW-SOURCE] candidate post_id=' . $post_id
+                    . ' keyword="' . $hypothetical_chip . '"'
+                    . ' source="platform"'
+                    . ' platform="' . $slug . '"'
+                    . ' selected=no'
+                    . ' skip_reason="platform_inactive"';
+                Logs::info('keywords', $msg, [
+                    'post_id'     => $post_id,
+                    'keyword'     => $hypothetical_chip,
+                    'source'      => 'platform',
+                    'platform'    => $slug,
+                    'selected'    => 'no',
+                    'skip_reason' => 'platform_inactive',
+                ]);
+            }
+        }
     }
 
     private static function debug_log_global_model_pool_lookup(int $post_id): void {
@@ -502,6 +702,27 @@ class ModelKeywordPack {
             'selected_strategy'=> $selected_strategy ?: 'none',
             'selected_count'   => $selected_count,
             'global_pool_usage'=> 'loaded_via_classified_provider_global_pool_candidates',
+        ]);
+
+        // [TMW-KW-SOURCE] req 3: global pool detection — three strategies, no entity_id=0.
+        // Values are row counts; 0 means the strategy was applicable but found nothing;
+        // absent key means the required column does not exist on this schema version.
+        $kw_source_strategy_counts = [];
+        if (isset($column_lookup['model_keyword_usage_scope'])) {
+            $kw_source_strategy_counts['scope'] = is_int($strategy_results['s1_scope_column']) ? $strategy_results['s1_scope_column'] : 0;
+        }
+        if (isset($column_lookup['target_type'], $column_lookup['target_name'])) {
+            $kw_source_strategy_counts['target_name'] = is_int($strategy_results['s2_target_type_name']) ? $strategy_results['s2_target_type_name'] : 0;
+        }
+        if (isset($column_lookup['target_type'], $column_lookup['target_slug'])) {
+            $kw_source_strategy_counts['target_slug'] = is_int($strategy_results['s3_target_type_slug']) ? $strategy_results['s3_target_type_slug'] : 0;
+        }
+        Logs::info('keywords', '[TMW-KW-SOURCE] post_id=' . $post_id
+            . ' global_strategy_counts=' . self::debug_json($kw_source_strategy_counts), [
+            'post_id'                 => $post_id,
+            'global_strategy_counts'  => $kw_source_strategy_counts,
+            'selected_strategy'       => $selected_strategy ?: 'none',
+            'selected_count'          => $selected_count,
         ]);
 
         if ($selected_strategy !== '') {
