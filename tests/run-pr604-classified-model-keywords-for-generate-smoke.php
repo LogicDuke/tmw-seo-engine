@@ -44,8 +44,10 @@ use TMWSEO\Engine\Keywords\ModelKeywordPoolClassifier;
 
 final class Pr604SmokeWpdb {
     public string $prefix = 'wp_';
-    /** @var array<int,array<string,mixed>> */
+    /** @var array<int,array<string,mixed>> Model-specific rows (entity_id > 0). */
     public array $rows = [];
+    /** @var array<int,array<string,mixed>> Global pool rows (model_keyword_usage_scope = global_model_pool). */
+    public array $global_rows = [];
     public array $queries = [];
     public array $updates = [];
     public array $inserts = [];
@@ -57,14 +59,39 @@ final class Pr604SmokeWpdb {
         return preg_replace_callback('/%[sdf]/', static function () use ($args, &$i) {
             $value = $args[$i++] ?? '';
             return is_string($value) ? "'" . addslashes($value) . "'" : (string) $value;
-        }, $sql);
+        }, $sql) ?? $sql;
     }
-    public function get_var(string $sql) { $this->queries[] = $sql; return str_starts_with($sql, 'SHOW TABLES LIKE') ? $this->prefix . 'tmw_keyword_candidates' : null; }
+    public function get_var(string $sql) {
+        $this->queries[] = $sql;
+        return str_starts_with($sql, 'SHOW TABLES LIKE') ? $this->prefix . 'tmw_keyword_candidates' : null;
+    }
+    public function get_col(string $sql, int $x = 0): array {
+        $this->queries[] = $sql;
+        if (str_contains($sql, 'SHOW COLUMNS')) {
+            return [
+                'id', 'keyword', 'intent_type', 'entity_type', 'entity_id',
+                'status', 'sources', 'model_keyword_usage_scope',
+                'target_type', 'target_name', 'target_slug',
+            ];
+        }
+        return [];
+    }
     public function get_results(string $sql, string $output = 'OBJECT'): array {
         $this->queries[] = $sql;
         if (!str_contains($sql, 'FROM ' . $this->prefix . 'tmw_keyword_candidates')) { return []; }
+        // Route global pool queries identified by the scope discriminator.
+        if (str_contains($sql, "model_keyword_usage_scope = 'global_model_pool'")) {
+            $rows = array_values(array_filter($this->global_rows, static fn(array $row): bool =>
+                ($row['intent_type'] ?? '') === 'model'
+                && ($row['status'] ?? '') === 'approved'
+                && ($row['model_keyword_usage_scope'] ?? '') === 'global_model_pool'
+            ));
+            usort($rows, static fn($a, $b): int => ((int) $a['id']) <=> ((int) $b['id']));
+            return $rows;
+        }
+        // Route model-specific queries.
         $entity_id = 0;
-        if (preg_match('/entity_id = (\d+)/', $sql, $m)) { $entity_id = (int) $m[1]; }
+        if (preg_match("/entity_id = '?(\d+)'?/", $sql, $m)) { $entity_id = (int) $m[1]; }
         $rows = array_values(array_filter($this->rows, static function (array $row) use ($entity_id): bool {
             return ($row['intent_type'] ?? '') === 'model'
                 && ($row['entity_type'] ?? '') === 'model'
@@ -167,5 +194,87 @@ pr604_assert($fallback_pack['primary'] === 'Fallback Model', 'Existing post-titl
 pr604_assert(!empty($fallback_pack['additional']) && !empty($fallback_pack['rankmath_additional']), 'Existing generated fallback extras should still work without approved classified rows.');
 pr604_assert($wpdb->updates === [] && $wpdb->inserts === [], 'Fallback pack build must not perform database writes.');
 
+
+// ── PR-683 Global Pool smoke checks ─────────────────────────────────────────
+
+// Add a global_row factory for the smoke test.
+$global_row = static function (int $id, string $keyword, string $status, string $klass = null, string $usage = null, bool $standalone = true) use ($meta): array {
+    $klass = $klass ?? ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM;
+    $usage = $usage ?? ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED;
+    return [
+        'id' => $id, 'keyword' => $keyword,
+        'intent_type' => 'model', 'entity_type' => 'model', 'entity_id' => 0,
+        'status' => $status,
+        'model_keyword_usage_scope' => 'global_model_pool',
+        'target_type' => 'global', 'target_name' => 'Global Model Pool', 'target_slug' => 'global-model-pool',
+        'sources' => json_encode($meta($klass, $usage, $standalone, 'Global', 'global_model_pool')),
+    ];
+};
+
+// [GP-1] Global pool fills when no model-specific rows exist (Abby Murray, post_id=4432).
+$wpdb->rows = [];
+$wpdb->global_rows = [
+    $global_row(901, 'live cam profile', 'approved'),
+    $global_row(902, 'private chat webcam', 'approved'),
+];
+$provider = new ClassifiedModelKeywordProvider();
+$gp1_fragment = $provider->build_for_model(4432, 'Abby Murray');
+pr604_assert(in_array('live cam profile', $gp1_fragment['global_pool_candidates'], true), '[GP-1] Global pool row must appear in global_pool_candidates when no model rows exist.');
+pr604_assert(in_array('private chat webcam', $gp1_fragment['global_pool_candidates'], true), '[GP-1] Second global pool row must appear in global_pool_candidates.');
+pr604_assert(empty($gp1_fragment['extra_focus_candidates']), '[GP-1] extra_focus_candidates must be empty when no model-specific rows exist.');
+$gp1_pack = ModelKeywordPack::build(new WP_Post(4432, 'model', 'Abby Murray'));
+pr604_assert(in_array('live cam profile', $gp1_pack['rankmath_additional'], true), '[GP-1] Global pool row must appear in rankmath_additional.');
+pr604_assert(count($gp1_pack['rankmath_additional']) <= 4, '[GP-1] rankmath_additional must be capped at 4 extras.');
+pr604_assert(!in_array('abby murray livejasmin porn', $gp1_pack['rankmath_additional'], true), '[GP-1] Unsafe porn fallback chip must not appear.');
+
+// [GP-2] queued_for_review global rows are excluded.
+$wpdb->rows = [];
+$wpdb->global_rows = [
+    $global_row(910, 'live cam profile', 'approved'),
+    $global_row(911, 'pending global term', 'queued_for_review'),
+];
+$gp2_fragment = (new ClassifiedModelKeywordProvider())->build_for_model(9110, 'Queued Model');
+pr604_assert(in_array('live cam profile', $gp2_fragment['global_pool_candidates'], true), '[GP-2] Approved global row must be in global_pool_candidates.');
+pr604_assert(!in_array('pending global term', $gp2_fragment['global_pool_candidates'], true), '[GP-2] queued_for_review global row must be excluded.');
+
+// [GP-3] CLASS_UNSAFE_STANDALONE global rows excluded even if approved.
+$wpdb->rows = [];
+$wpdb->global_rows = [
+    $global_row(920, 'live cam profile', 'approved'),
+    $global_row(921, 'porn', 'approved', ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE, ModelKeywordPoolClassifier::USAGE_MODIFIER_ONLY, false),
+];
+$gp3_fragment = (new ClassifiedModelKeywordProvider())->build_for_model(9120, 'Unsafe Global');
+pr604_assert(in_array('live cam profile', $gp3_fragment['global_pool_candidates'], true), '[GP-3] Safe approved global row must appear in global_pool_candidates.');
+pr604_assert(!in_array('porn', $gp3_fragment['global_pool_candidates'], true), '[GP-3] CLASS_UNSAFE_STANDALONE row must be excluded even if approved.');
+
+// [GP-4] Model-specific rows beat global pool (Anisyia fixture still passes with global rows present).
+$wpdb->rows = [
+    0 => $row(0, 'live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
+    1 => $row(1, 'anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
+    2 => $row(2, 'anisyia livejasmin', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
+    3 => $row(3, 'livejasmin anisyia', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_SECONDARY_FOCUS_ALLOWED, true)),
+    12 => $row(12, 'anisyia live', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_UNKNOWN_REVIEW, ModelKeywordPoolClassifier::USAGE_REVIEW_REQUIRED, false)),
+    13 => $row(13, 'anisyia livejasmin porn', 4457, 'approved', $meta(ModelKeywordPoolClassifier::CLASS_PERSONAL_MODEL_KEYWORD, ModelKeywordPoolClassifier::USAGE_PRIMARY_FOCUS_ALLOWED, true)),
+];
+$wpdb->global_rows = [
+    $global_row(930, 'live cam profile', 'approved'),
+    $global_row(931, 'private chat webcam', 'approved'),
+];
+$gp4_pack = ModelKeywordPack::build(new WP_Post(4457, 'model', 'Anisyia'));
+pr604_assert($gp4_pack['rankmath_additional'] === [ 'anisyia livejasmin', 'livejasmin anisyia', 'anisyia live', 'anisyia livejasmin porn' ], '[GP-4] Anisyia model-specific extras must still fill 4 slots, beating global pool rows.');
+pr604_assert(!in_array('live cam profile', $gp4_pack['rankmath_additional'], true), '[GP-4] Global pool rows must not displace model-specific extras when model already has 4 approved extras.');
+
+// [GP-5] Deterministic fallback emits no unsafe porn chips.
+$wpdb->rows = [];
+$wpdb->global_rows = [];
+$gp5_pack = ModelKeywordPack::build(new WP_Post(4432, 'model', 'Abby Murray'));
+pr604_assert(!in_array('abby murray livejasmin porn', $gp5_pack['rankmath_additional'], true), '[GP-5] "abby murray livejasmin porn" must NOT come from deterministic fallback.');
+pr604_assert(!in_array('abby murray porn', $gp5_pack['rankmath_additional'], true), '[GP-5] "abby murray porn" must NOT come from deterministic fallback.');
+foreach ($gp5_pack['rankmath_additional'] as $chip) {
+    pr604_assert(!str_contains(strtolower((string) $chip), 'porn'), '[GP-5] No porn chip allowed in pure fallback: ' . $chip);
+}
+pr604_assert(!empty($gp5_pack['rankmath_additional']), '[GP-5] Fallback must still produce safe extras.');
+
+echo "✓ PR 683 global pool keyword selection smoke checks passed\n";
 echo "✓ PR 604 classified model keywords for Generate smoke checks passed\n";
 }

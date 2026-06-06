@@ -28,7 +28,24 @@ class ClassifiedModelKeywordProvider {
         ModelKeywordPoolClassifier::CLASS_SUPPORTING_MODEL_TERM,
     ];
 
-    /** @return array{primary_candidates:array<int,string>,extra_focus_candidates:array<int,string>,body_semantic_candidates:array<int,string>,modifier_candidates:array<int,string>,excluded_candidates:array<int,string>,sources:array<string,mixed>} */
+    /**
+     * Build the keyword fragment for a given model post.
+     *
+     * Fetches both model-specific approved rows (entity_id = $model_post_id) and
+     * approved Global Model Pool rows. The global pool candidates are returned in
+     * `global_pool_candidates` and are used by ModelKeywordPack as the second-priority
+     * source for Rank Math extras (after model-specific, before deterministic fallback).
+     *
+     * @return array{
+     *   primary_candidates:array<int,string>,
+     *   extra_focus_candidates:array<int,string>,
+     *   body_semantic_candidates:array<int,string>,
+     *   modifier_candidates:array<int,string>,
+     *   excluded_candidates:array<int,string>,
+     *   global_pool_candidates:array<int,string>,
+     *   sources:array<string,mixed>
+     * }
+     */
     public function build_for_model(int $model_post_id, string $model_name): array {
         $empty = $this->empty_fragment();
         if ($model_post_id <= 0) {
@@ -58,8 +75,17 @@ class ClassifiedModelKeywordProvider {
             ),
             defined('ARRAY_A') ? ARRAY_A : 'ARRAY_A'
         );
+
+        // Always fetch global pool candidates — used as second-priority fill for Rank Math extras
+        // when model-specific approved rows are sparse or absent.
+        $global_pool_candidates = $this->fetch_global_pool_candidates();
+
         if (!is_array($rows) || empty($rows)) {
-            return $empty;
+            // No model-specific rows. Return global pool candidates in the fragment so
+            // ModelKeywordPack can use them before falling back to the deterministic chips.
+            $fragment = $this->empty_fragment();
+            $fragment['global_pool_candidates'] = $global_pool_candidates;
+            return $fragment;
         }
 
         $primary_personal = [];
@@ -167,6 +193,7 @@ class ClassifiedModelKeywordProvider {
             'body_semantic_candidates' => self::dedupe($body),
             'modifier_candidates'      => self::dedupe($modifiers),
             'excluded_candidates'      => self::dedupe($excluded),
+            'global_pool_candidates'   => $global_pool_candidates,
             'sources'                  => [
                 'provider' => 'classified_model_keyword_provider',
                 'entity_id' => $model_post_id,
@@ -175,15 +202,148 @@ class ClassifiedModelKeywordProvider {
         ];
     }
 
-    /** @return array{primary_candidates:array<int,string>,extra_focus_candidates:array<int,string>,body_semantic_candidates:array<int,string>,modifier_candidates:array<int,string>,excluded_candidates:array<int,string>,sources:array<string,mixed>} */
+    /**
+     * Fetch approved Global Model Pool keyword candidates using schema-safe detection.
+     *
+     * Mirrors the three-strategy detection logic from
+     * ModelKeywordPack::debug_log_global_model_pool_lookup() but fetches actual keyword
+     * rows instead of just counting them. Results are used as second-priority fill for
+     * Rank Math extras when model-specific approved rows are absent or sparse.
+     *
+     * Detection strategy priority (same as debug log):
+     *   1. model_keyword_usage_scope = 'global_model_pool'  (preferred, explicit column)
+     *   2. target_type = 'global' AND target_name = 'Global Model Pool'
+     *   3. target_type = 'global' AND target_slug = 'global-model-pool'
+     *
+     * Only status='approved' rows are returned. CLASS_UNSAFE_STANDALONE keywords
+     * are excluded even if approved.
+     *
+     * @return array<int,string> Normalized approved keyword strings, in DB id order.
+     */
+    private function fetch_global_pool_candidates(): array {
+        global $wpdb;
+        if (!is_object($wpdb) || !isset($wpdb->prefix)) {
+            return [];
+        }
+
+        $table = $wpdb->prefix . self::TABLE_SUFFIX;
+
+        // Verify table exists.
+        if (method_exists($wpdb, 'get_var') && method_exists($wpdb, 'esc_like') && method_exists($wpdb, 'prepare')) {
+            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+            if (!is_string($found) || strtolower($found) !== strtolower($table)) {
+                return [];
+            }
+        }
+
+        if (!method_exists($wpdb, 'get_col') || !method_exists($wpdb, 'get_results') || !method_exists($wpdb, 'prepare')) {
+            return [];
+        }
+
+        // Detect available columns (schema-safe — the live table may not have all columns yet).
+        $columns = $wpdb->get_col('SHOW COLUMNS FROM ' . $table, 0);
+        $columns = is_array($columns) ? array_map('strval', $columns) : [];
+        $column_lookup = array_fill_keys($columns, true);
+
+        if (!isset($column_lookup['intent_type'], $column_lookup['status'])) {
+            return [];
+        }
+
+        $out = defined('ARRAY_A') ? ARRAY_A : 'ARRAY_A';
+
+        // PR-683: Cascading fallback — try each strategy in order and return on the first
+        // non-empty result set. This guarantees Global Model Pool rows are found regardless
+        // of which schema version was used when they were written (scope column vs.
+        // target_type/target_name/target_slug vs. legacy entity_id=0).
+
+        // Strategy 1: model_keyword_usage_scope = 'global_model_pool' (explicit scope column, preferred).
+        if (isset($column_lookup['model_keyword_usage_scope'])) {
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    'SELECT id, keyword, sources FROM ' . $table
+                    . ' WHERE intent_type = %s AND status = %s AND model_keyword_usage_scope = %s ORDER BY id ASC',
+                    'model', 'approved', 'global_model_pool'
+                ),
+                $out
+            );
+            if (is_array($rows) && !empty($rows)) {
+                return $this->extract_keywords_from_rows($rows);
+            }
+        }
+
+        // Strategy 2: target_type = 'global' AND target_name = 'Global Model Pool'.
+        if (isset($column_lookup['target_type'], $column_lookup['target_name'])) {
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    'SELECT id, keyword, sources FROM ' . $table
+                    . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_name = %s ORDER BY id ASC',
+                    'model', 'approved', 'global', 'Global Model Pool'
+                ),
+                $out
+            );
+            if (is_array($rows) && !empty($rows)) {
+                return $this->extract_keywords_from_rows($rows);
+            }
+        }
+
+        // Strategy 3: target_type = 'global' AND target_slug = 'global-model-pool'.
+        if (isset($column_lookup['target_type'], $column_lookup['target_slug'])) {
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    'SELECT id, keyword, sources FROM ' . $table
+                    . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s ORDER BY id ASC',
+                    'model', 'approved', 'global', 'global-model-pool'
+                ),
+                $out
+            );
+            if (is_array($rows) && !empty($rows)) {
+                return $this->extract_keywords_from_rows($rows);
+            }
+        }
+
+    
+
+        return [];
+    }
+
+    /**
+     * Convert a get_results row set into a deduplicated keyword string array,
+     * skipping empty keywords and CLASS_UNSAFE_STANDALONE entries.
+     *
+     * @param  array<int,array<string,mixed>> $rows
+     * @return array<int,string>
+     */
+    private function extract_keywords_from_rows(array $rows): array {
+        $keywords = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $keyword = self::normalize_phrase((string) ($row['keyword'] ?? ''));
+            if ($keyword === '') {
+                continue;
+            }
+            // Exclude definitionally unsafe standalone terms even if approved.
+            $sources       = $this->decode_sources($row['sources'] ?? null);
+            $keyword_class = (string) $this->source_value($sources, 'keyword_class');
+            if ($keyword_class === ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE) {
+                continue;
+            }
+            $keywords[] = $keyword;
+        }
+        return self::dedupe($keywords);
+    }
+
+    /** @return array{primary_candidates:array<int,string>,extra_focus_candidates:array<int,string>,body_semantic_candidates:array<int,string>,modifier_candidates:array<int,string>,excluded_candidates:array<int,string>,global_pool_candidates:array<int,string>,sources:array<string,mixed>} */
     private function empty_fragment(): array {
         return [
-            'primary_candidates' => [],
-            'extra_focus_candidates' => [],
+            'primary_candidates'       => [],
+            'extra_focus_candidates'   => [],
             'body_semantic_candidates' => [],
-            'modifier_candidates' => [],
-            'excluded_candidates' => [],
-            'sources' => [],
+            'modifier_candidates'      => [],
+            'excluded_candidates'      => [],
+            'global_pool_candidates'   => [],
+            'sources'                  => [],
         ];
     }
 
@@ -289,6 +449,8 @@ class ClassifiedModelKeywordProvider {
         if ($scope === '') {
             return true;
         }
+        // global_model_pool rows are fetched separately via fetch_global_pool_candidates(),
+        // not via the model-specific query, so they are excluded here.
         if (in_array($scope, [ 'model_bio_only', 'model', 'model_page', 'model_pages', 'model_generate', 'model_content', 'model_keyword_pack' ], true)) {
             return true;
         }
