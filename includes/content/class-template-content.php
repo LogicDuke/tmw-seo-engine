@@ -433,29 +433,30 @@ class TemplateContent {
                 ) ?: $content;
             }
 
-            // ── v5.8.25: Extra-keyword H2 post-render replacements ────────────
+            // ── v5.8.25/v5.8.27: Extra-keyword H2 post-render replacements ──────
             // ModelPageRenderer hard-codes its H2 text and does not read payload
             // *_h2 keys. We apply name-bearing H2 overrides here via preg_replace
             // on the fully rendered HTML, reading actual target strings stored in
             // _extra_kw_h2_overrides by build_template_pool_primary_payload().
+            // v5.8.27: also targets evidence-prepend headings "Turn Ons" and
+            // "Private Chat Options" injected by ModelResearchEvidence::prepend_sections()
+            // which run after the renderer and bypass all previous H2 logic.
             // Only runs when TemplatePool primary ran (flag set in payload).
             $h2_overrides = is_array($renderer_payload['_extra_kw_h2_overrides'] ?? null)
                 ? $renderer_payload['_extra_kw_h2_overrides']
                 : [];
             if (!empty($h2_overrides)) {
-                // "Where to Watch Live" → private_chat_h2 (evidence-gated string)
-                $private_chat_h2 = trim((string) ($h2_overrides['private_chat_h2'] ?? ''));
-                if ($private_chat_h2 !== '') {
-                    $content = preg_replace(
-                        '/<h2>\s*Where to Watch Live\s*<\/h2>/iu',
-                        '<h2>' . esc_html($private_chat_h2) . '</h2>',
-                        $content,
-                        1
-                    ) ?: $content;
-                }
-                // "About {name}" → turn_ons_h2 (evidence-gated string)
+                // ── Turn-ons H2: apply only once ─────────────────────────────
+                // Evidence-prepend heading (<h2>Turn Ons</h2>) takes priority.
+                // At this point evidence prepend has NOT run yet, so we detect
+                // its future presence via $h2_has_turn_ons (evidence field exists).
+                // If evidence exists, skip renderer fallback here — the
+                // post-evidence-prepend block will replace <h2>Turn Ons</h2> instead.
+                // If evidence does NOT exist, apply renderer fallback now.
                 $turn_ons_h2 = trim((string) ($h2_overrides['turn_ons_h2'] ?? ''));
-                if ($turn_ons_h2 !== '') {
+                if ($turn_ons_h2 !== '' && !$h2_has_turn_ons) {
+                    // No evidence → evidence-prepend will not add "Turn Ons" H2 →
+                    // replace the renderer's "About {name}" heading as the only target.
                     $content = preg_replace(
                         '/<h2>\s*About\s+' . preg_quote($name, '/') . '\s*<\/h2>/iu',
                         '<h2>' . esc_html($turn_ons_h2) . '</h2>',
@@ -463,6 +464,25 @@ class TemplateContent {
                         1
                     ) ?: $content;
                 }
+                // (When $h2_has_turn_ons is true, the post-evidence-prepend block
+                //  handles <h2>Turn Ons</h2> — nothing to do here.)
+
+                // ── Private-chat H2: apply only once ─────────────────────────
+                // Same logic: if private-chat evidence exists, evidence-prepend will
+                // inject <h2>Private Chat Options</h2>; post-evidence block handles it.
+                // If no evidence, replace renderer's "Where to Watch Live" now.
+                $private_chat_h2 = trim((string) ($h2_overrides['private_chat_h2'] ?? ''));
+                if ($private_chat_h2 !== '' && !$h2_has_private_chat) {
+                    $content = preg_replace(
+                        '/<h2>\s*Where to Watch Live\s*<\/h2>/iu',
+                        '<h2>' . esc_html($private_chat_h2) . '</h2>',
+                        $content,
+                        1
+                    ) ?: $content;
+                }
+                // (When $h2_has_private_chat is true, the post-evidence-prepend block
+                //  handles <h2>Private Chat Options</h2> — nothing to do here.)
+
                 // "Live Chat Experience…" → webcam_tips_h2
                 $webcam_tips_h2 = trim((string) ($h2_overrides['webcam_tips_h2'] ?? ''));
                 if ($webcam_tips_h2 !== '') {
@@ -496,7 +516,7 @@ class TemplateContent {
                     1
                 ) ?: $content;
             }
-            // ── End v5.8.25 extra-keyword H2 post-render replacements ─────────
+            // ── End v5.8.27 extra-keyword H2 post-render replacements ─────────
         }
         // ── End keyword-rich H2 injection ────────────────────────────────────
 
@@ -517,6 +537,43 @@ class TemplateContent {
             $content = \TMWSEO\Engine\Content\ModelResearchEvidence::prepend_sections( (int) $post->ID, $content, (string) $post->post_title );
         }
         // ── End Model Research Evidence prepend ─────────────────────────────
+
+        // ── v5.8.27: Evidence-prepend H2 keyword overrides ───────────────────
+        // ModelResearchEvidence::prepend_sections() injects bare headings such as
+        // <h2>Turn Ons</h2> and <h2>Private Chat Options</h2> above the generated
+        // body. The earlier post-render H2 block (before evidence prepend) cannot
+        // reach these headings because they do not exist yet at that point.
+        // This pass runs immediately after evidence prepend and targets those exact
+        // heading strings, replacing them with the keyword-enriched versions already
+        // computed by build_template_pool_primary_payload() and stored in
+        // $renderer_payload['_extra_kw_h2_overrides'].
+        // Only fires on manual Generate when TemplatePool primary ran.
+        if (!empty($pack['_manual_generate']) && !empty($model_data_gate['is_sufficient'])) {
+            $ev_h2_overrides = is_array($renderer_payload['_extra_kw_h2_overrides'] ?? null)
+                ? $renderer_payload['_extra_kw_h2_overrides']
+                : [];
+            if (!empty($ev_h2_overrides)) {
+                $ev_turn_ons_h2 = trim((string) ($ev_h2_overrides['turn_ons_h2'] ?? ''));
+                if ($ev_turn_ons_h2 !== '') {
+                    $content = preg_replace(
+                        '/<h2>\s*Turn Ons\s*<\/h2>/iu',
+                        '<h2>' . esc_html($ev_turn_ons_h2) . '</h2>',
+                        $content,
+                        1
+                    ) ?: $content;
+                }
+                $ev_private_chat_h2 = trim((string) ($ev_h2_overrides['private_chat_h2'] ?? ''));
+                if ($ev_private_chat_h2 !== '') {
+                    $content = preg_replace(
+                        '/<h2>\s*Private Chat Options\s*<\/h2>/iu',
+                        '<h2>' . esc_html($ev_private_chat_h2) . '</h2>',
+                        $content,
+                        1
+                    ) ?: $content;
+                }
+            }
+        }
+        // ── End v5.8.27 evidence-prepend H2 keyword overrides ────────────────
 
         // ── Final-pass deterministic copy cleanup (v5.8.8) ──────────────────
         // Runs immediately after evidence prepend so it sees the full
@@ -5286,81 +5343,84 @@ class TemplateContent {
                 $tp_payload['intro_paragraphs'] = array_merge([$kw_intro], $existing_intro);
             }
 
-            // ── v5.8.25: Name-bearing H2 overrides for Rank Math extra keyword placement ─
+            // ── v5.8.27: Name-bearing H2 overrides for Rank Math extra keyword placement ─
             // Rank Math marks extra keywords green only when they appear in a subheading.
-            // All model-name-led extra keywords (e.g. "Abby Murray live cam") are blocked
-            // from H2 injection by is_heading_safe_secondary_phrase() because they contain
-            // the model name. We override section H2s directly inside the TemplatePool
-            // primary payload — this does not touch enforce_keyword_heading_placement()
-            // or any legacy/category/video paths.
+            // Concept detection MUST use $rankmath_keywords as primary source because
+            // $extra_keywords was already stripped by filter_name_free_keywords() — all
+            // name-bearing keywords like "Abby Murray LiveJasmin" are removed from $extra
+            // before this point and will never appear in $extra_keywords.
+            // $rankmath_keywords comes from pack['rankmath_additional'] via
+            // select_body_safe_rankmath_keywords(), which preserves name-bearing chips.
             $h2_overrides_used = [];
-            if (!empty($extra_keywords)) {
-                $all_extra_lower = array_map(
-                    static fn(string $k): string => mb_strtolower(trim($k), 'UTF-8'),
-                    array_values(array_filter(array_map('strval', $extra_keywords), 'strlen'))
-                );
 
-                // Detect concepts present in extra keywords
-                $has_livecam_extra   = false;
-                $has_privatechat_extra = false;
-                $has_webcam_extra    = false;
-                $has_livejasmin_extra = false;
-                foreach ($all_extra_lower as $ekw) {
-                    if (str_contains($ekw, 'live cam') && !str_contains($ekw, 'webcam')) {
-                        $has_livecam_extra = true;
-                    }
-                    if (str_contains($ekw, 'private') && str_contains($ekw, 'chat')) {
-                        $has_privatechat_extra = true;
-                    }
-                    if (str_contains($ekw, 'webcam') || str_contains($ekw, 'live webcam')) {
-                        $has_webcam_extra = true;
-                    }
-                    if (str_contains($ekw, 'livejasmin') || str_contains($ekw, 'live jasmin')) {
-                        $has_livejasmin_extra = true;
-                    }
-                }
+            // Merge $rankmath_keywords (primary) + $extra_keywords (fallback) for detection.
+            $kw_for_h2_detection = array_values(array_unique(array_merge(
+                array_map('strval', $rankmath_keywords),
+                array_map('strval', $extra_keywords)
+            )));
+            $all_kw_h2_lower = array_map(
+                static fn(string $k): string => mb_strtolower(trim($k), 'UTF-8'),
+                array_filter($kw_for_h2_detection, 'strlen')
+            );
 
-                // Build H2 override map — model-name-bearing, keyword-inclusive
-                if ($has_livejasmin_extra || $has_livecam_extra) {
-                    $h2_overrides_used[] = $name . ' LiveJasmin Profile and Live Cam Access';
+            // Detect concepts from the merged keyword pool
+            $has_livecam_extra    = false;
+            $has_privatechat_extra = false;
+            $has_webcam_extra     = false;
+            $has_livejasmin_extra  = false;
+            foreach ($all_kw_h2_lower as $ekw) {
+                if (str_contains($ekw, 'live cam') && !str_contains($ekw, 'webcam')) {
+                    $has_livecam_extra = true;
                 }
-                if ($has_privatechat_extra) {
-                    $h2_overrides_used[] = $name . ' Live Cam Private Chat Options';
+                if (str_contains($ekw, 'private') && str_contains($ekw, 'chat')) {
+                    $has_privatechat_extra = true;
                 }
-                if ($has_webcam_extra && !$has_privatechat_extra) {
-                    $h2_overrides_used[] = 'Live Chat Experience and Live Webcam Tips for ' . $name;
-                } elseif ($has_webcam_extra) {
-                    $h2_overrides_used[] = 'Live Chat Experience and Live Webcam Tips for ' . $name;
+                if (str_contains($ekw, 'webcam') || str_contains($ekw, 'live webcam')) {
+                    $has_webcam_extra = true;
                 }
-
-                // v5.8.25 revised: Store actual target H2 strings (not booleans) so the
-                // post-render replacement block in build_model() can use them directly.
-                // private_chat_h2 is evidence-gated: claims "options" only when operator
-                // evidence ($has_private_chat_evidence) confirms them; otherwise uses safe
-                // access-check wording that does not imply a specific feature exists.
-                $tp_payload['_extra_kw_h2_overrides'] = [
-                    'live_access_h2'  => ($has_livejasmin_extra || $has_livecam_extra)
-                        ? $name . ' LiveJasmin Profile and Live Cam Access'
-                        : '',
-                    'private_chat_h2' => $has_privatechat_extra
-                        ? ($has_private_chat_evidence
-                            ? $name . ' Live Cam Private Chat Options'
-                            : $name . ' Live Cam Profile Checks')
-                        : '',
-                    'turn_ons_h2'     => $has_turn_on_evidence
-                        ? ($has_livejasmin_extra
-                            ? 'Turn Ons for ' . $name . ' LiveJasmin'
-                            : ($has_livecam_extra
-                                ? $name . ' Live Cam Turn Ons and Session Notes'
-                                : 'Turn Ons and Session Notes for ' . $name))
-                        : '',
-                    'webcam_tips_h2'  => $has_webcam_extra
-                        ? $name . ' Live Chat Experience and Live Webcam Tips'
-                        : '',
-                    'before_click_h2' => "Before You Click " . $name . "'s Confirmed Profile",
-                    'questions_h2'    => 'Common ' . $name . ' Profile Questions',
-                ];
+                if (str_contains($ekw, 'livejasmin') || str_contains($ekw, 'live jasmin')) {
+                    $has_livejasmin_extra = true;
+                }
             }
+
+            // Build H2 override display list for log
+            if ($has_livejasmin_extra || $has_livecam_extra) {
+                $h2_overrides_used[] = $name . ' LiveJasmin Profile and Live Cam Access';
+            }
+            if ($has_privatechat_extra) {
+                $h2_overrides_used[] = $has_private_chat_evidence
+                    ? $name . ' Live Cam Private Chat Options'
+                    : $name . ' Live Cam Profile Checks';
+            }
+            if ($has_webcam_extra) {
+                $h2_overrides_used[] = $name . ' Live Chat Experience and Live Webcam Tips';
+            }
+
+            // Store actual target H2 strings for the post-render preg_replace block.
+            // Always set the payload key so the post-render block runs (before_click_h2
+            // and questions_h2 apply unconditionally when TemplatePool primary ran).
+            $tp_payload['_extra_kw_h2_overrides'] = [
+                'live_access_h2'  => ($has_livejasmin_extra || $has_livecam_extra)
+                    ? $name . ' LiveJasmin Profile and Live Cam Access'
+                    : '',
+                'private_chat_h2' => $has_privatechat_extra
+                    ? ($has_private_chat_evidence
+                        ? $name . ' Live Cam Private Chat Options'
+                        : $name . ' Live Cam Profile Checks')
+                    : '',
+                'turn_ons_h2'     => $has_turn_on_evidence
+                    ? ($has_livejasmin_extra
+                        ? 'Turn Ons for ' . $name . ' LiveJasmin'
+                        : ($has_livecam_extra
+                            ? $name . ' Live Cam Turn Ons and Session Notes'
+                            : 'Turn Ons and Session Notes for ' . $name))
+                    : '',
+                'webcam_tips_h2'  => $has_webcam_extra
+                    ? $name . ' Live Chat Experience and Live Webcam Tips'
+                    : '',
+                'before_click_h2' => "Before You Click " . $name . "'s Confirmed Profile",
+                'questions_h2'    => 'Common ' . $name . ' Profile Questions',
+            ];
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 error_log(sprintf(
@@ -6196,12 +6256,17 @@ class TemplateContent {
 
         /**
          * Walk one HTML segment, replacing model-name in TEXT NODES only.
-         * v5.8.26 protected zones (never substituted, only counted toward budget):
+         * v5.8.27 protected zones (never substituted, only counted toward budget):
          *   - inside <a>…</a>  (CTA/affiliate anchor text, internal links)
          *   - inside ANY <h2>…</h2>  (all section headings)
          *   - inside ANY <h3>…</h3>  (FAQ questions, sub-headings)
          *   - inside <li>…</li>  (More Pages list items, platform lists)
          *   - first <p>…</p>  (Rank Math first-10% check)
+         *   - inside FAQ block: all <p> tags between the FAQ section H2
+         *     (matching "Common … Profile Questions") and the next <h2> or end.
+         *     This protects FAQ answer paragraphs which live in <p> not <h3>.
+         *   - any <p> whose text contains "When checking" and "webcam" — the
+         *     build_secondary_link_keyword_paragraph() output must not be mutated.
          * Uses shared &$kept_so_far and &$sub_idx counters.
          */
         $reduce_segment = static function (
@@ -6223,13 +6288,25 @@ class TemplateContent {
             }
 
             $in_anchor     = false;
-            $in_any_h2     = false;   // v5.8.26: ALL h2 protected (was only first)
-            $in_any_h3     = false;   // v5.8.26: ALL h3 protected (FAQ questions)
-            $in_any_li     = false;   // v5.8.26: ALL li protected (link lists)
-            $in_first_h2   = false;   // kept for $protect_first_h2 compat
+            $in_any_h2     = false;
+            $in_any_h3     = false;
+            $in_any_li     = false;
+            $in_first_h2   = false;
             $first_h2_done = !$protect_first_h2;
             $in_first_p    = false;
             $first_p_done  = !$protect_first_para;
+
+            // v5.8.27: FAQ block protection.
+            // Once we see an H2 that looks like "Common … Profile Questions",
+            // every subsequent <p> until the next <h2> is protected.
+            $in_faq_block  = false;  // true from FAQ H2 to next H2
+            $in_faq_p      = false;  // true while inside a <p> inside the FAQ block
+
+            // v5.8.27: "When checking" paragraph protection.
+            // Paragraphs whose text starts with or contains "When checking" and
+            // "webcam" must not be reduced (produced by build_secondary_link_keyword_paragraph).
+            $in_when_checking_p  = false;
+            $when_checking_buf   = '';  // accumulate text of current <p> for detection
 
             foreach ($parts as $i => $part) {
                 if ($part === '') {
@@ -6242,29 +6319,35 @@ class TemplateContent {
                     } elseif (preg_match('/^<\s*\/\s*a\s*>/iu', $part)) {
                         $in_anchor = false;
                     }
-                    // ALL h2 protection (v5.8.26)
+                    // H2 handling — also tracks FAQ block entry/exit
                     if (preg_match('/^<\s*h2\b/iu', $part)) {
                         $in_any_h2   = true;
                         $in_first_h2 = !$first_h2_done;
+                        // A new H2 ends any active FAQ block
+                        if ($in_faq_block) {
+                            $in_faq_block = false;
+                            $in_faq_p     = false;
+                        }
                     } elseif (preg_match('/^<\s*\/\s*h2\s*>/iu', $part)) {
-                        $in_any_h2   = false;
+                        $in_any_h2 = false;
                         if ($in_first_h2) {
                             $in_first_h2   = false;
                             $first_h2_done = true;
                         }
                     }
-                    // ALL h3 protection (v5.8.26 — FAQ questions)
+                    // H3 protection (FAQ questions, sub-headings)
                     if (preg_match('/^<\s*h3\b/iu', $part)) {
                         $in_any_h3 = true;
                     } elseif (preg_match('/^<\s*\/\s*h3\s*>/iu', $part)) {
                         $in_any_h3 = false;
                     }
-                    // ALL li protection (v5.8.26 — More Pages / link lists)
+                    // LI protection (More Pages / link lists)
                     if (preg_match('/^<\s*li\b/iu', $part)) {
                         $in_any_li = true;
                     } elseif (preg_match('/^<\s*\/\s*li\s*>/iu', $part)) {
                         $in_any_li = false;
                     }
+                    // First-para protection
                     if (!$first_p_done) {
                         if (preg_match('/^<\s*p\b/iu', $part)) {
                             $in_first_p = true;
@@ -6273,11 +6356,44 @@ class TemplateContent {
                             $first_p_done = true;
                         }
                     }
+                    // FAQ block: <p> open/close
+                    if ($in_faq_block) {
+                        if (preg_match('/^<\s*p\b/iu', $part)) {
+                            $in_faq_p = true;
+                        } elseif (preg_match('/^<\s*\/\s*p\s*>/iu', $part) && $in_faq_p) {
+                            $in_faq_p = false;
+                        }
+                    }
+                    // "When checking" paragraph: <p> open/close
+                    if (preg_match('/^<\s*p\b/iu', $part)) {
+                        $in_when_checking_p = false; // reset; we will decide after reading text
+                        $when_checking_buf  = '';
+                    } elseif (preg_match('/^<\s*\/\s*p\s*>/iu', $part)) {
+                        $in_when_checking_p = false;
+                        $when_checking_buf  = '';
+                    }
                     continue;
                 }
 
-                // Text node.
-                if ($in_anchor || $in_any_h2 || $in_any_h3 || $in_any_li || $in_first_p) {
+                // Text node: check if we just entered a "When checking" paragraph.
+                // We detect it on the first text node of the <p>.
+                if ($when_checking_buf === '' && stripos($part, 'When checking') !== false) {
+                    // Mark this whole paragraph as protected if it also contains 'webcam' or 'live'
+                    if (stripos($part, 'webcam') !== false || stripos($part, 'live') !== false) {
+                        $in_when_checking_p = true;
+                    }
+                }
+                $when_checking_buf .= $part;
+
+                // Check if current H2 text marks the start of the FAQ block.
+                // The FAQ H2 always matches "Common … Profile Questions".
+                if ($in_any_h2 && preg_match('/Common\b.*\bProfile\s+Questions/iu', $part)) {
+                    $in_faq_block = true;
+                }
+
+                // Text node — apply protection check.
+                if ($in_anchor || $in_any_h2 || $in_any_h3 || $in_any_li || $in_first_p
+                    || $in_faq_p || $in_when_checking_p) {
                     // Protected zone — count toward budget but do not replace.
                     $kept_so_far += (int) preg_match_all($name_pattern, $part);
                     continue;
@@ -6342,7 +6458,7 @@ class TemplateContent {
                 $before_count,
                 $after_count,
                 $budget,
-                $after_count < $before_count ? 'reduced' : 'no_reduction_needed'
+                $after_count < $before_count ? 'safe_body_only' : 'no_reduction_needed'
             ));
         }
 
