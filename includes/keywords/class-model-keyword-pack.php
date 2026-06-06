@@ -394,26 +394,43 @@ class ModelKeywordPack {
 
         $columns = $wpdb->get_col('SHOW COLUMNS FROM ' . $table, 0);
         $columns = is_array($columns) ? array_map('strval', $columns) : [];
-        foreach ([ 'intent_type', 'status', 'target_type', 'target_slug' ] as $required_column) {
-            if (!in_array($required_column, $columns, true)) {
-                Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=required_column_unavailable_' . $required_column, [
-                    'post_id' => $post_id,
-                    'available_columns' => $columns,
-                ]);
-                return;
-            }
+        $column_lookup = array_fill_keys($columns, true);
+        Logs::info('keywords', '[TMW-KW-PACK] global_pool_columns=' . self::debug_json($columns), [
+            'post_id' => $post_id,
+            'available_columns' => $columns,
+        ]);
+
+        $base_supported = isset($column_lookup['intent_type'], $column_lookup['status']);
+        $query = '';
+        $query_args = [];
+        $query_strategy = '';
+        if ($base_supported && isset($column_lookup['model_keyword_usage_scope'])) {
+            $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND model_keyword_usage_scope = %s';
+            $query_args = [ 'model', 'approved', 'global_model_pool' ];
+            $query_strategy = 'intent_status_model_keyword_usage_scope';
+        } elseif ($base_supported && isset($column_lookup['target_type'], $column_lookup['target_name'])) {
+            $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_name = %s';
+            $query_args = [ 'model', 'approved', 'global', 'Global Model Pool' ];
+            $query_strategy = 'intent_status_target_type_target_name';
         }
 
-        $count = (int) $wpdb->get_var($wpdb->prepare(
-            'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s',
-            'model',
-            'approved',
-            'global',
-            'global-model-pool'
-        ));
+        if ($query === '') {
+            Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=no_supported_global_pool_columns', [
+                'post_id' => $post_id,
+                'available_columns' => $columns,
+                'required_base_columns_present' => $base_supported,
+            ]);
+            return;
+        }
+
+        $count = (int) $wpdb->get_var($wpdb->prepare($query, $query_args));
         Logs::info('keywords', '[TMW-KW-PACK] global_pool_count=' . $count, [
             'post_id' => $post_id,
             'global_pool_count' => $count,
+            'global_pool_query_strategy' => $query_strategy,
+            'global_pool_query_where' => $query_strategy === 'intent_status_model_keyword_usage_scope'
+                ? "intent_type='model' AND status='approved' AND model_keyword_usage_scope='global_model_pool'"
+                : "intent_type='model' AND status='approved' AND target_type='global' AND target_name='Global Model Pool'",
             'global_pool_usage' => 'not_selected_by_current_model_specific_build_path',
         ]);
     }
