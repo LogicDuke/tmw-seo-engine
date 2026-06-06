@@ -16,12 +16,21 @@ class ModelKeywordPack {
      */
     public static function build(\WP_Post $post): array {
         $model_name = trim((string)$post->post_title);
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('keywords', '[TMW-KW-PACK] build_start post_id=' . (int) $post->ID . ' model=' . $model_name);
+        }
         $keyword_context_name = $model_name !== '' ? $model_name : 'live cam model';
         $primary = $keyword_context_name;
         $allow_generic_tag_queries = self::allow_generic_tag_queries();
         $is_model_page = $post->post_type === 'model';
 
         $platform_slugs = self::active_platform_slugs($post->ID);
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('keywords', '[TMW-KW-PACK] active_platforms=' . self::debug_json($platform_slugs), [
+                'post_id' => (int) $post->ID,
+                'active_platforms' => $platform_slugs,
+            ]);
+        }
         $safe_tags = self::safe_tag_slugs_for_post($post);
         $top_tags = self::top_model_tags($safe_tags);
 
@@ -37,6 +46,16 @@ class ModelKeywordPack {
         $classified_fragment = $is_model_page
             ? (new ClassifiedModelKeywordProvider())->build_for_model((int) $post->ID, $model_name)
             : self::empty_classified_fragment();
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            $model_specific_candidates = self::debug_model_specific_candidates($classified_fragment);
+            Logs::info('keywords', '[TMW-KW-PACK] model_specific_count=' . count($model_specific_candidates) . ' candidates=' . self::debug_json($model_specific_candidates), [
+                'post_id' => (int) $post->ID,
+                'model_specific_count' => count($model_specific_candidates),
+                'candidates' => $model_specific_candidates,
+                'sources' => $classified_fragment['sources'] ?? [],
+            ]);
+            self::debug_log_global_model_pool_lookup((int) $post->ID);
+        }
         if ($is_model_page && !empty($classified_fragment['primary_candidates'])) {
             $primary = self::select_model_primary_keyword((array) $classified_fragment['primary_candidates'], $model_name, $primary);
         }
@@ -101,6 +120,16 @@ class ModelKeywordPack {
         // 3) Deterministic, always-relevant fallbacks.
         $fallback_additional = self::fallback_additional($keyword_context_name, $platform_slugs, $top_tags);
         $fallback_longtail = self::fallback_longtail($keyword_context_name, $platform_slugs, $top_tags);
+        if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('keywords', '[TMW-KW-PACK] fallback_candidates=' . self::debug_json([
+                'additional' => $fallback_additional,
+                'longtail' => $fallback_longtail,
+            ]), [
+                'post_id' => (int) $post->ID,
+                'fallback_additional' => $fallback_additional,
+                'fallback_longtail' => $fallback_longtail,
+            ]);
+        }
 
         // 4) Merge, score, and pick.
         $additional_pool = [];
@@ -216,14 +245,24 @@ class ModelKeywordPack {
         // Dedicated Rank Math chips: model-name-led, varied per post.
         // These replace the old name-free generic fallback as the Rank Math chip source.
         $rankmath_chips = [];
+        $approved_model_keywords = [];
+        $rankmath_fallback_candidates = [];
         if ($is_model_page) {
             $approved_model_keywords = self::order_model_rankmath_candidates(
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
                 $model_name
             );
+            $rankmath_fallback_candidates = self::build_rankmath_chips($model_name, $platform_slugs);
+            if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+                Logs::info('keywords', '[TMW-KW-PACK] fallback_candidates=' . self::debug_json($rankmath_fallback_candidates), [
+                    'post_id' => (int) $post->ID,
+                    'fallback_type' => 'rankmath_chips',
+                    'fallback_candidates' => $rankmath_fallback_candidates,
+                ]);
+            }
             $rankmath_chips = self::merge_preferred_keywords(
                 $approved_model_keywords,
-                self::build_rankmath_chips($model_name, $platform_slugs),
+                $rankmath_fallback_candidates,
                 12
             );
             $rankmath_chips = self::finalize_rankmath_additional_keywords(
@@ -235,6 +274,15 @@ class ModelKeywordPack {
 
         // [TMW-SEO-RMKW] PR-615 debug logging — active only when TMWSEO_DEBUG is true.
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
+            Logs::info('keywords', '[TMW-KW-PACK] selected_focus=' . $primary . ' selected_extras=' . self::debug_json($rankmath_chips), [
+                'post_id' => (int) $post->ID,
+                'selected_focus' => $primary,
+                'selected_focus_source' => self::debug_primary_source($primary, $classified_fragment, $model_name),
+                'selected_extras' => $rankmath_chips,
+                'selected_extra_sources' => self::debug_rankmath_chip_sources($rankmath_chips, $approved_model_keywords, $rankmath_fallback_candidates),
+                'approved_model_keywords' => $approved_model_keywords,
+                'rankmath_fallback_candidates' => $rankmath_fallback_candidates,
+            ]);
             Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
                 'post_id'             => $post->ID,
                 'primary'             => $primary,
@@ -257,6 +305,117 @@ class ModelKeywordPack {
                 'classified_model_keywords' => $classified_fragment['sources'] ?? [],
             ],
         ];
+    }
+
+
+    /** @param mixed $value */
+    private static function debug_json($value): string {
+        $encoded = function_exists('wp_json_encode') ? wp_json_encode($value) : json_encode($value);
+        return is_string($encoded) ? $encoded : '[]';
+    }
+
+    /** @param array<string,mixed> $fragment @return string[] */
+    private static function debug_model_specific_candidates(array $fragment): array {
+        return self::dedupe_keywords(array_merge(
+            (array) ($fragment['primary_candidates'] ?? []),
+            (array) ($fragment['extra_focus_candidates'] ?? []),
+            (array) ($fragment['body_semantic_candidates'] ?? []),
+            (array) ($fragment['modifier_candidates'] ?? [])
+        ));
+    }
+
+    /** @param array<string,mixed> $fragment */
+    private static function debug_primary_source(string $primary, array $fragment, string $model_name): string {
+        $primary_lc = strtolower(self::normalize_keyword($primary));
+        foreach ((array) ($fragment['primary_candidates'] ?? []) as $candidate) {
+            if ($primary_lc !== '' && strtolower(self::normalize_keyword((string) $candidate)) === $primary_lc) {
+                return 'classified_model_specific_primary';
+            }
+        }
+        $model_lc = strtolower(self::normalize_keyword($model_name));
+        return $primary_lc !== '' && $primary_lc === $model_lc ? 'model_title_fallback' : 'keyword_context_fallback';
+    }
+
+    /** @param string[] $chips @param string[] $approved @param string[] $fallback @return array<string,string> */
+    private static function debug_rankmath_chip_sources(array $chips, array $approved, array $fallback): array {
+        $approved_lookup = [];
+        foreach ($approved as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean !== '') {
+                $approved_lookup[strtolower($clean)] = true;
+            }
+        }
+        $fallback_lookup = [];
+        foreach ($fallback as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean !== '') {
+                $fallback_lookup[strtolower($clean)] = true;
+            }
+        }
+        $sources = [];
+        foreach ($chips as $chip) {
+            $clean = self::normalize_keyword((string) $chip);
+            if ($clean === '') {
+                continue;
+            }
+            $key = strtolower($clean);
+            if (isset($approved_lookup[$key])) {
+                $sources[$clean] = 'classified_model_specific_approved';
+            } elseif (isset($fallback_lookup[$key])) {
+                $sources[$clean] = 'rankmath_generated_fallback';
+            } else {
+                $sources[$clean] = 'post_filter_unknown';
+            }
+        }
+        return $sources;
+    }
+
+    private static function debug_log_global_model_pool_lookup(int $post_id): void {
+        if (!(defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)) {
+            return;
+        }
+        global $wpdb;
+        if (!is_object($wpdb) || !isset($wpdb->prefix) || !method_exists($wpdb, 'get_var') || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'esc_like')) {
+            Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=wpdb_unavailable', [ 'post_id' => $post_id ]);
+            return;
+        }
+
+        $table = $wpdb->prefix . 'tmw_keyword_candidates';
+        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)));
+        if (!is_string($found) || strtolower($found) !== strtolower($table)) {
+            Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=keyword_candidate_table_unavailable', [ 'post_id' => $post_id ]);
+            return;
+        }
+
+        if (!method_exists($wpdb, 'get_col')) {
+            Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=wpdb_get_col_unavailable', [ 'post_id' => $post_id ]);
+            return;
+        }
+
+        $columns = $wpdb->get_col('SHOW COLUMNS FROM ' . $table, 0);
+        $columns = is_array($columns) ? array_map('strval', $columns) : [];
+        foreach ([ 'intent_type', 'status', 'target_type', 'target_slug' ] as $required_column) {
+            if (!in_array($required_column, $columns, true)) {
+                Logs::info('keywords', '[TMW-KW-PACK] global_pool_lookup=missing reason=required_column_unavailable_' . $required_column, [
+                    'post_id' => $post_id,
+                    'available_columns' => $columns,
+                ]);
+                return;
+            }
+        }
+
+        $count = (int) $wpdb->get_var($wpdb->prepare(
+            'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s',
+            'model',
+            'approved',
+            'global',
+            'global-model-pool'
+        ));
+        Logs::info('keywords', '[TMW-KW-PACK] global_pool_count=' . $count, [
+            'post_id' => $post_id,
+            'global_pool_count' => $count,
+            'global_pool_usage' => 'not_selected_by_current_model_specific_build_path',
+        ]);
     }
 
 
