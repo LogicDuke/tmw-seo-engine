@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.8.25-templatepool-placeholder-and-extra-keyword-cleanup — Fixes TemplatePool section skip by rotating variants when {{turn_ons}} is unresolvable; replaces unsafe density-reducer substitution pool with model-name-specific safe phrases; adds placeholder sanitizer for known bad artifact strings; adds name-bearing H2 overrides for Rank Math extra keyword placement; adds TMW-POOL-PLACEHOLDER and TMW-POOL-EXTRA-KW debug logs.
- * Version: 5.8.25-templatepool-placeholder-and-extra-keyword-cleanup
+ * Description: Intelligence Core v5.8.26-templatepool-protected-density-cleanup — Restricts name-free density substitution to safe body paragraphs only; protects all H2/H3 headings, FAQ questions/answers, internal link labels, and anchor text from name-free substitution in both payload and HTML density reducers; expands sanitize_placeholder_artifacts with new v5.8.26 artifact strings; improves turn_ons H2 to include platform keyword concept.
+ * Version: 5.8.26-templatepool-protected-density-cleanup
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.25-templatepool-placeholder-and-extra-keyword-cleanup');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.26-templatepool-protected-density-cleanup');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');
