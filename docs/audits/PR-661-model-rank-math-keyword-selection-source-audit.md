@@ -82,7 +82,7 @@ Likely minimal integration points:
 
 3. `includes/content/class-rank-math-mapper.php`
    - Probably no selection-order change is needed if `rankmath_additional` is corrected upstream; this file remains the final write/CSV cap point.
-   - Keep the new `[TMW-RM-MAP]` audit log.
+   - No debug log or runtime mapper change is included in this audit-only PR.
 
 ## F. Minimal implementation plan for the next PR
 
@@ -114,14 +114,17 @@ Recommended tests for the implementation PR:
 - Add a provider-level test for global model-pool approved rows and status exclusions.
 - Add a static assertion that `build_rankmath_chips()` no longer contains unapproved unsafe adult formulas, if the next PR removes them.
 
-## Debug instrumentation added in this audit PR
+## Runtime-change confirmation
 
-Debug-only logs were added behind `TMWSEO_DEBUG`:
+Per review feedback, this PR is audit-document-only. The earlier debug instrumentation proposal was removed, so there are no PHP runtime changes in this PR.
 
-- `[TMW-KW-PACK] source=...`
-- `[TMW-KW-PACK] selected_focus=...`
-- `[TMW-KW-PACK] selected_extras=...`
-- `[TMW-KW-PACK] pool_counts model_specific=... active_platform=... global=... fallback=...`
-- `[TMW-RM-MAP] post_id=... focus=... extras=...`
+Explicit pre-merge confirmations:
 
-These logs are audit instrumentation only and do not change selection behavior.
+1. `includes/content/class-rank-math-mapper.php` is not changed by the final patch.
+2. `includes/keywords/class-model-keyword-pack.php` is not changed by the final patch.
+3. No keyword selection order changed.
+4. No Rank Math CSV output changed.
+5. No model body/template generation changed.
+6. No indexing/noindex, publishing, affiliate routing, category/video generation, verified links, or platform live-status logic changed.
+7. If `TMWSEO_DEBUG` is false or undefined, live behavior is unchanged because this final patch contains no runtime code.
+8. Syntax checks were rerun against both previously touched PHP files after reverting instrumentation.

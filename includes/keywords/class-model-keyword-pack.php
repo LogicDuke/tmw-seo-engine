@@ -235,42 +235,11 @@ class ModelKeywordPack {
 
         // [TMW-SEO-RMKW] PR-615 debug logging — active only when TMWSEO_DEBUG is true.
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
-            $classified_extra_candidates = (array) ($classified_fragment['extra_focus_candidates'] ?? []);
-            $fallback_rankmath_candidates = self::build_rankmath_chips($model_name, $platform_slugs);
-            $rankmath_source_parts = [];
-            if (!empty($classified_extra_candidates)) {
-                $rankmath_source_parts[] = 'model_specific_approved';
-            }
-            if (!empty($fallback_rankmath_candidates)) {
-                $rankmath_source_parts[] = 'deterministic_fallback_formulas';
-            }
-            if (empty($rankmath_source_parts)) {
-                $rankmath_source_parts[] = 'none';
-            }
-
             Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
                 'post_id'             => $post->ID,
                 'primary'             => $primary,
                 'rankmath_additional' => $rankmath_chips,
-                'extra_focus_from_db' => $classified_extra_candidates,
-            ]);
-            Logs::info('keywords', '[TMW-KW-PACK] source=' . implode('+', $rankmath_source_parts), [
-                'post_id' => (int) $post->ID,
-                'post_type' => (string) $post->post_type,
-            ]);
-            Logs::info('keywords', '[TMW-KW-PACK] selected_focus=' . $primary, [
-                'post_id' => (int) $post->ID,
-            ]);
-            Logs::info('keywords', '[TMW-KW-PACK] selected_extras=' . implode(',', $rankmath_chips), [
-                'post_id' => (int) $post->ID,
-                'selected_extras' => $rankmath_chips,
-            ]);
-            Logs::info('keywords', '[TMW-KW-PACK] pool_counts model_specific=' . count($classified_extra_candidates) . ' active_platform=' . count($platform_slugs) . ' global=0 fallback=' . count($fallback_rankmath_candidates), [
-                'post_id' => (int) $post->ID,
-                'model_specific' => count($classified_extra_candidates),
-                'active_platform' => count($platform_slugs),
-                'global' => 0,
-                'fallback' => count($fallback_rankmath_candidates),
+                'extra_focus_from_db' => $classified_fragment['extra_focus_candidates'] ?? [],
             ]);
         }
 
