@@ -404,14 +404,33 @@ class ModelKeywordPack {
         $query = '';
         $query_args = [];
         $query_strategy = '';
+        $query_where = '';
+        $target_slug_populated = null;
         if ($base_supported && isset($column_lookup['model_keyword_usage_scope'])) {
             $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND model_keyword_usage_scope = %s';
             $query_args = [ 'model', 'approved', 'global_model_pool' ];
             $query_strategy = 'intent_status_model_keyword_usage_scope';
+            $query_where = "intent_type='model' AND status='approved' AND model_keyword_usage_scope='global_model_pool'";
         } elseif ($base_supported && isset($column_lookup['target_type'], $column_lookup['target_name'])) {
             $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_name = %s';
             $query_args = [ 'model', 'approved', 'global', 'Global Model Pool' ];
             $query_strategy = 'intent_status_target_type_target_name';
+            $query_where = "intent_type='model' AND status='approved' AND target_type='global' AND target_name='Global Model Pool'";
+        } elseif ($base_supported && isset($column_lookup['target_type'], $column_lookup['target_slug'])) {
+            $target_slug_count = (int) $wpdb->get_var($wpdb->prepare(
+                'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s',
+                'model',
+                'approved',
+                'global',
+                'global-model-pool'
+            ));
+            $target_slug_populated = $target_slug_count > 0;
+            if ($target_slug_populated) {
+                $query = 'SELECT COUNT(*) FROM ' . $table . ' WHERE intent_type = %s AND status = %s AND target_type = %s AND target_slug = %s';
+                $query_args = [ 'model', 'approved', 'global', 'global-model-pool' ];
+                $query_strategy = 'intent_status_target_type_target_slug_populated';
+                $query_where = "intent_type='model' AND status='approved' AND target_type='global' AND target_slug='global-model-pool'";
+            }
         }
 
         if ($query === '') {
@@ -419,6 +438,7 @@ class ModelKeywordPack {
                 'post_id' => $post_id,
                 'available_columns' => $columns,
                 'required_base_columns_present' => $base_supported,
+                'target_slug_populated' => $target_slug_populated,
             ]);
             return;
         }
@@ -428,9 +448,7 @@ class ModelKeywordPack {
             'post_id' => $post_id,
             'global_pool_count' => $count,
             'global_pool_query_strategy' => $query_strategy,
-            'global_pool_query_where' => $query_strategy === 'intent_status_model_keyword_usage_scope'
-                ? "intent_type='model' AND status='approved' AND model_keyword_usage_scope='global_model_pool'"
-                : "intent_type='model' AND status='approved' AND target_type='global' AND target_name='Global Model Pool'",
+            'global_pool_query_where' => $query_where,
             'global_pool_usage' => 'not_selected_by_current_model_specific_build_path',
         ]);
     }
