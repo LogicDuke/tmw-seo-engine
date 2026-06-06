@@ -436,54 +436,62 @@ class TemplateContent {
             // ── v5.8.25: Extra-keyword H2 post-render replacements ────────────
             // ModelPageRenderer hard-codes its H2 text and does not read payload
             // *_h2 keys. We apply name-bearing H2 overrides here via preg_replace
-            // on the fully rendered HTML, using concept flags stored in the payload
-            // by build_template_pool_primary_payload().
+            // on the fully rendered HTML, reading actual target strings stored in
+            // _extra_kw_h2_overrides by build_template_pool_primary_payload().
             // Only runs when TemplatePool primary ran (flag set in payload).
             $h2_overrides = is_array($renderer_payload['_extra_kw_h2_overrides'] ?? null)
                 ? $renderer_payload['_extra_kw_h2_overrides']
                 : [];
             if (!empty($h2_overrides)) {
-                // "Where to Watch Live" → "{Name} Live Cam Private Chat Options"
-                // (when private chat extra keyword present)
-                if (!empty($h2_overrides['has_privatechat'])) {
+                // "Where to Watch Live" → private_chat_h2 (evidence-gated string)
+                $private_chat_h2 = trim((string) ($h2_overrides['private_chat_h2'] ?? ''));
+                if ($private_chat_h2 !== '') {
                     $content = preg_replace(
                         '/<h2>\s*Where to Watch Live\s*<\/h2>/iu',
-                        '<h2>' . esc_html($name . ' Live Cam Private Chat Options') . '</h2>',
+                        '<h2>' . esc_html($private_chat_h2) . '</h2>',
                         $content,
                         1
                     ) ?: $content;
                 }
-                // "About {name}" → "Turn Ons and Session Notes for {name}"
-                // (when turn-on evidence exists)
-                if (!empty($h2_overrides['has_turn_ons'])) {
+                // "About {name}" → turn_ons_h2 (evidence-gated string)
+                $turn_ons_h2 = trim((string) ($h2_overrides['turn_ons_h2'] ?? ''));
+                if ($turn_ons_h2 !== '') {
                     $content = preg_replace(
                         '/<h2>\s*About\s+' . preg_quote($name, '/') . '\s*<\/h2>/iu',
-                        '<h2>' . esc_html('Turn Ons and Session Notes for ' . $name) . '</h2>',
+                        '<h2>' . esc_html($turn_ons_h2) . '</h2>',
                         $content,
                         1
                     ) ?: $content;
                 }
-                // "Live Chat Experience…" → "Live Chat Experience and Live Webcam Tips"
-                // (when live webcam extra keyword present)
-                if (!empty($h2_overrides['has_webcam'])) {
+                // "Live Chat Experience…" → webcam_tips_h2
+                $webcam_tips_h2 = trim((string) ($h2_overrides['webcam_tips_h2'] ?? ''));
+                if ($webcam_tips_h2 !== '') {
                     $content = preg_replace(
                         '/<h2>\s*Live Chat Experience\b[^<]*<\/h2>/iu',
-                        '<h2>' . esc_html('Live Chat Experience and Live Webcam Tips') . '</h2>',
+                        '<h2>' . esc_html($webcam_tips_h2) . '</h2>',
                         $content,
                         1
                     ) ?: $content;
                 }
-                // "Before You Click…" → "Before You Click {Name}'s Confirmed Profile"
+                // "Before You Click…" → before_click_h2
+                $before_click_h2 = trim((string) ($h2_overrides['before_click_h2'] ?? ''));
+                $before_click_h2 = $before_click_h2 !== ''
+                    ? $before_click_h2
+                    : "Before You Click " . $name . "'s Confirmed Profile";
                 $content = preg_replace(
                     '/<h2>\s*Before You Click\b[^<]*<\/h2>/iu',
-                    '<h2>' . esc_html("Before You Click " . $name . "'s Confirmed Profile") . '</h2>',
+                    '<h2>' . esc_html($before_click_h2) . '</h2>',
                     $content,
                     1
                 ) ?: $content;
-                // "Common Profile Questions" → "Common {Name} Profile Questions"
+                // "Common Profile Questions" → questions_h2
+                $questions_h2 = trim((string) ($h2_overrides['questions_h2'] ?? ''));
+                $questions_h2 = $questions_h2 !== ''
+                    ? $questions_h2
+                    : 'Common ' . $name . ' Profile Questions';
                 $content = preg_replace(
                     '/<h2>\s*Common Profile Questions\s*<\/h2>/iu',
-                    '<h2>' . esc_html('Common ' . $name . ' Profile Questions') . '</h2>',
+                    '<h2>' . esc_html($questions_h2) . '</h2>',
                     $content,
                     1
                 ) ?: $content;
@@ -5325,16 +5333,28 @@ class TemplateContent {
                     $h2_overrides_used[] = 'Live Chat Experience and Live Webcam Tips for ' . $name;
                 }
 
-                // v5.8.25: Store the keyword-concept flags and desired H2 strings
-                // for the post-render preg_replace pass in build_model().
-                // ModelPageRenderer hard-codes its H2 text — payload *_h2 keys are
-                // not consumed by the renderer. We pass the desired headings through
-                // a dedicated payload key that build_model() reads after render().
+                // v5.8.25 revised: Store actual target H2 strings (not booleans) so the
+                // post-render replacement block in build_model() can use them directly.
+                // private_chat_h2 is evidence-gated: claims "options" only when operator
+                // evidence ($has_private_chat_evidence) confirms them; otherwise uses safe
+                // access-check wording that does not imply a specific feature exists.
                 $tp_payload['_extra_kw_h2_overrides'] = [
-                    'has_livejasmin'    => $has_livejasmin_extra || $has_livecam_extra,
-                    'has_privatechat'   => $has_privatechat_extra,
-                    'has_webcam'        => $has_webcam_extra,
-                    'has_turn_ons'      => $has_turn_on_evidence,
+                    'live_access_h2'  => ($has_livejasmin_extra || $has_livecam_extra)
+                        ? $name . ' LiveJasmin Profile and Live Cam Access'
+                        : '',
+                    'private_chat_h2' => $has_privatechat_extra
+                        ? ($has_private_chat_evidence
+                            ? $name . ' Live Cam Private Chat Options'
+                            : $name . ' Live Cam Profile Checks')
+                        : '',
+                    'turn_ons_h2'     => $has_turn_on_evidence
+                        ? 'Turn Ons and Session Notes for ' . $name
+                        : '',
+                    'webcam_tips_h2'  => $has_webcam_extra
+                        ? $name . ' Live Chat Experience and Live Webcam Tips'
+                        : '',
+                    'before_click_h2' => "Before You Click " . $name . "'s Confirmed Profile",
+                    'questions_h2'    => 'Common ' . $name . ' Profile Questions',
                 ];
             }
 
@@ -5817,21 +5837,24 @@ class TemplateContent {
         $target_exact_mentions = 10;
 
         // ── Substitution pool ─────────────────────────────────────────────────
-        // v5.8.25: model-name-specific substitutes — safe at sentence-initial
-        // positions because ucfirst() on "Abby Murray's profile" reads correctly.
-        // Removed bare pronouns ('she', 'her profile') which broke "Does She..."
-        // and "for Her profile" when capitalised. All phrases include the name
-        // so Rank Math still counts them as focus-keyword-adjacent references.
+        // v5.8.25 revised: name-FREE substitutes so the density reducer actually
+        // lowers the exact focus-keyword count. Name-bearing strings (e.g.
+        // "$name . "'s profile'") still match the focus-keyword regex and would
+        // not reduce density. These generic phrases operate on body paragraph text
+        // only (reducible_bag_keys); headings, intro[0], and CTAs are protected.
+        // Known bad artifacts ("The confirmed profile", bare "She" etc.) are caught
+        // downstream by sanitize_placeholder_artifacts() — not produced here.
         $subs = [
-            $name . "'s profile",
-            $name . "'s live room",
-            $name . "'s confirmed profile",
             'this profile',
-            $name . "'s cam page",
+            'the profile',
+            'this live room',
+            'the live room',
+            'the confirmed room',
+            'the verified room',
+            'the performer profile',
         ];
         if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $subs[] = $name . ' on ' . $platform_label;
-            $subs[] = $name . "'s " . $platform_label . ' profile';
+            $subs[] = 'the confirmed ' . $platform_label . ' room';
         }
 
         // ── Build the protected bio fingerprint ───────────────────────────────
@@ -6117,20 +6140,24 @@ class TemplateContent {
             return $html;
         }
 
-        // Substitution pool — v5.8.25: name-specific phrases, no bare pronouns.
-        // Replaces generic "she / her profile / the confirmed profile" with
-        // model-name-bearing substitutes that remain grammatical when ucfirst()
-        // is applied at sentence-initial positions.
+        // Substitution pool — v5.8.25 revised: name-FREE phrases so the HTML-level
+        // density reducer actually lowers the exact focus-keyword count.
+        // Name-bearing strings still match the focus-keyword regex and would not
+        // reduce density. These phrases operate on text nodes only; protected zones
+        // (first <p>, first <h2>, <a> anchors, evidence block) are never touched.
+        // sanitize_placeholder_artifacts() runs after this pass and corrects any
+        // known bad artifact strings that survive substitution.
         $subs = [
-            $name . "'s profile",
-            $name . "'s live room",
-            $name . "'s confirmed profile",
             'this profile',
-            $name . "'s cam page",
+            'the profile',
+            'this live room',
+            'the live room',
+            'the confirmed room',
+            'the verified room',
+            'the performer profile',
         ];
         if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $subs[] = $name . ' on ' . $platform_label;
-            $subs[] = $name . "'s " . $platform_label . ' profile';
+            $subs[] = 'the confirmed ' . $platform_label . ' room';
         }
 
         // Split evidence block away — never touch operator-reviewed content.
