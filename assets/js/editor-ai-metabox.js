@@ -6,10 +6,10 @@
 
         button.dataset.bound = '1';
 
+        const strategyField = document.getElementById('tmwseo-generate-strategy');
+        const insertBlockField = document.getElementById('tmwseo-generate-insert-block');
+
         button.addEventListener('click', async () => {
-            const controls = button.closest('.tmwseo-generate-controls') || document;
-            const strategyField = controls.querySelector('[data-tmwseo-generate-strategy]') || document.getElementById('tmwseo-generate-strategy');
-            const insertBlockField = controls.querySelector('[data-tmwseo-generate-insert-block]') || document.getElementById('tmwseo-generate-insert-block');
             const postId = button.dataset.postId;
             const nonce = button.dataset.nonce;
             const ajaxUrl = button.dataset.ajaxUrl;
@@ -197,111 +197,12 @@
         });
     };
 
-
-    const registerGutenbergGeneratePanel = () => {
-        const config = window.tmwseoGenerateSidebar || null;
-        const debug = config && config.debug;
-
-        if (debug) { console.log('[TMW-GEN-SIDEBAR] js_loaded'); }
-
-        if (!config || !config.postId || config.registered) {
-            if (debug) { console.log('[TMW-GEN-SIDEBAR] skipped reason=' + (!config ? 'no_config' : !config.postId ? 'no_postId' : 'already_registered')); }
-            return;
-        }
-        if (!window.wp || !wp.plugins || !wp.element) {
-            if (debug) { console.log('[TMW-GEN-SIDEBAR] skipped reason=missing_wp_packages wp=' + !!window.wp + ' plugins=' + !!(window.wp && wp.plugins) + ' element=' + !!(window.wp && wp.element)); }
-            return;
-        }
-
-        const el = wp.element.createElement;
-
-        // WP 6.6+ moved PluginDocumentSettingPanel from wp.editPost to wp.editor.
-        // Check wp.editor first (current), then wp.editPost (legacy < 6.6).
-        const PluginDocumentSettingPanel =
-            (wp.editor && wp.editor.PluginDocumentSettingPanel) ||
-            (wp.editPost && wp.editPost.PluginDocumentSettingPanel) ||
-            null;
-        const registerPlugin = wp.plugins.registerPlugin;
-
-        if (debug) {
-            console.log('[TMW-GEN-SIDEBAR] registerPlugin_attempt');
-            console.log('[TMW-GEN-SIDEBAR] PluginDocumentSettingPanel_available=' + !!PluginDocumentSettingPanel
-                + ' source=' + (wp.editor && wp.editor.PluginDocumentSettingPanel ? 'wp.editor' : wp.editPost && wp.editPost.PluginDocumentSettingPanel ? 'wp.editPost' : 'none'));
-        }
-
-        if (!PluginDocumentSettingPanel || typeof registerPlugin !== 'function') {
-            if (debug) { console.log('[TMW-GEN-SIDEBAR] skipped reason=PluginDocumentSettingPanel_or_registerPlugin_unavailable'); }
-            return;
-        }
-
-        config.registered = true;
-        const strategyOptions = [
-            el('option', { value: 'template', key: 'template' }, 'Template'),
-            el('option', { value: 'openai', key: 'openai' }, config.hasOpenAI ? 'OpenAI (if configured)' : 'OpenAI (not configured)'),
-            el('option', { value: 'claude', key: 'claude' }, config.hasClaude ? 'Claude (Anthropic)' : 'Claude (not configured)'),
-        ];
-
-        const TmwGeneratePanel = () => el(
-            PluginDocumentSettingPanel,
-            {
-                name: 'tmwseo-generate-sidebar',
-                title: 'TMW Generate',
-                className: 'tmwseo-generate-sidebar-panel',
-            },
-            el('div', { className: 'tmwseo-generate-controls' },
-                el('p', { className: 'tmwseo-mb-field' },
-                    el('label', { htmlFor: 'tmwseo-generate-sidebar-strategy' }, 'Strategy'),
-                    el('select', {
-                        id: 'tmwseo-generate-sidebar-strategy',
-                        style: { width: '100%' },
-                        defaultValue: config.defaultStrategy || 'template',
-                        'data-tmwseo-generate-strategy': '1',
-                    }, strategyOptions)
-                ),
-                el('p', { style: { margin: '0 0 4px' } },
-                    el('label', {},
-                        el('input', {
-                            type: 'checkbox',
-                            id: 'tmwseo-generate-sidebar-insert-block',
-                            value: '1',
-                            defaultChecked: config.insertBlockDefault !== false,
-                            'data-tmwseo-generate-insert-block': '1',
-                        }),
-                        ' Insert content block'
-                    )
-                ),
-                config.modelHelp ? el('p', { className: 'tmwseo-mb-help', style: { marginTop: 0 } }, config.modelHelp) : null,
-                el('div', { className: 'tmwseo-mb-btn-stack' },
-                    el('button', {
-                        type: 'button',
-                        id: 'tmwseo-generate-sidebar-btn',
-                        className: 'button button-primary',
-                        'data-post-id': String(config.postId),
-                        'data-nonce': config.nonce || '',
-                        'data-ajax-url': config.ajaxUrl || '',
-                    }, 'Generate')
-                )
-            )
-        );
-
-        registerPlugin('tmwseo-generate-sidebar', { render: TmwGeneratePanel });
-        if (debug) { console.log('[TMW-GEN-SIDEBAR] registerPlugin_done name=tmwseo-generate-sidebar'); }
-    };
-
     const setup = () => {
-        registerGutenbergGeneratePanel();
-
         const generateButton              = document.getElementById('tmwseo-generate-btn');
-        const generateSidebarButton       = document.getElementById('tmwseo-generate-sidebar-btn');
         const refreshKeywordsButton       = document.getElementById('tmwseo-refresh-keywords-btn');
         const rerunPreviewPhrasesButton   = document.getElementById('tmwseo-rerun-preview-phrases-btn');
 
         bindQueueButton(generateButton, {
-            loadingText: 'Generating...',
-            successText: 'SEO generated. Reloading...',
-        });
-
-        bindQueueButton(generateSidebarButton, {
             loadingText: 'Generating...',
             successText: 'SEO generated. Reloading...',
         });

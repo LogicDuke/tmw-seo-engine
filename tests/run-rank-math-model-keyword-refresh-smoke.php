@@ -302,19 +302,19 @@ foreach ([
     );
 }
 
-// Rank Math secondary chips are normalized lowercase after generation.
+// Anisyia LiveJasmin chip must use canonical label "LiveJasmin" (not "livejasmin").
 // CamSoda is inactive for Anisyia — the casing check for CamSoda is not applicable.
 if (stripos($savedA, 'livejasmin') !== false) {
     smoke_assert(
-        strpos($savedA, 'livejasmin') !== false,
-        "Test E: Anisyia LiveJasmin chip should be normalized lowercase; got «{$savedA}»"
+        strpos($savedA, 'LiveJasmin') !== false,
+        "Test E: Anisyia LiveJasmin chip must use canonical «LiveJasmin» casing; got «{$savedA}»"
     );
 }
-// Abby Murray LiveJasmin chip should also be normalized lowercase.
+// Abby Murray LiveJasmin chip must use canonical label "LiveJasmin".
 if (stripos($savedB, 'livejasmin') !== false) {
     smoke_assert(
-        strpos($savedB, 'livejasmin') !== false,
-        "Test E: Abby Murray LiveJasmin chip should be normalized lowercase; got «{$savedB}»"
+        strpos($savedB, 'LiveJasmin') !== false,
+        "Test E: Abby Murray LiveJasmin chip must use canonical «LiveJasmin» casing; got «{$savedB}»"
     );
 }
 
