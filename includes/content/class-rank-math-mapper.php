@@ -82,6 +82,13 @@ class RankMathMapper {
                 'final_rank_math_csv' => $focus_csv,
                 'stored_pack_bypassed_or_rebuilt' => $rebuilt_model_pack,
             ] );
+            \TMWSEO\Engine\Logs::info( 'keywords', '[TMW-RM-MAP] post_id=' . $post_id . ' focus=' . $primary . ' extras=' . implode( ',', $extras ), [
+                'post_id' => $post_id,
+                'focus' => $primary,
+                'extras' => $extras,
+                'focus_csv' => $focus_csv,
+                'rebuilt_model_pack' => $rebuilt_model_pack,
+            ] );
         }
 
         // Always persist the engine's primary keyword separately.
