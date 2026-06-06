@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.8.16-template-pool-wired — Wires TemplatePool into manual model Generate (admin click only). TemplatePool sections append after existing body only when admin explicitly generates a sufficient-data model page. All other paths (bulk, cron, keywords-only, category, video) are unchanged.
- * Version: 5.8.16-template-pool-wired
+ * Description: Intelligence Core v5.8.28-model-keyword-db-selector - Adds DB/tag/platform-based model Rank Math extra keyword selection. No generated text, H2, category, video, affiliate, indexing, or publishing behavior is changed.
+ * Version: 5.8.28-model-keyword-db-selector
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.16-template-pool-wired');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.28-model-keyword-db-selector');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');

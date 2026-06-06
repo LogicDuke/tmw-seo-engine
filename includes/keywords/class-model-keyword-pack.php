@@ -223,7 +223,7 @@ class ModelKeywordPack {
             );
             $rankmath_chips = self::merge_preferred_keywords(
                 $approved_model_keywords,
-                self::build_rankmath_chips($model_name, $post->ID, $platform_slugs),
+                self::build_rankmath_chips($model_name, $platform_slugs),
                 12
             );
             $rankmath_chips = self::finalize_rankmath_additional_keywords(
@@ -777,11 +777,11 @@ class ModelKeywordPack {
      * Replaces the old name-free generic fallback as the Rank Math chip source.
      *
      * @param string   $name          Exact model name.
-     * @param int      $post_id       Post ID used as deterministic seed.
+
      * @param string[] $platform_slugs Active platform slugs for optional platform chip.
      * @return string[]               Up to 4 chips.
      */
-    private static function build_rankmath_chips(string $name, int $post_id, array $platform_slugs): array {
+    private static function build_rankmath_chips(string $name, array $platform_slugs): array {
         $clean_name = self::normalize_keyword($name);
         if ($clean_name === '') {
             return [];
