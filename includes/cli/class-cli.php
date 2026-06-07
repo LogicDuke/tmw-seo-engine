@@ -9,6 +9,10 @@
  *   wp tmwseo image-meta --post_id=4457 --roles=front,back --force
  *   wp tmwseo image-meta --post_id=4457 --roles=front,back --force --dry-run
  *   wp tmwseo image-inspect --post_id=4457
+ *   wp tmwseo global-pool-repair --dry-run
+ *   wp tmwseo link-model-keywords --model_name="Anisyia" --dry-run
+ *   wp tmwseo link-model-keywords --model_name="Anisyia"
+ *   wp tmwseo link-model-keywords --dry-run --limit=500
  *
  * @package TMWSEO\Engine\CLI
  */
@@ -384,6 +388,136 @@ class TMWSEOCommand extends \WP_CLI_Command {
             \WP_CLI::success( 'Dry-run complete. ' . $stats['updated'] . ' row(s) would be repaired.' );
         } else {
             \WP_CLI::success( $label . ' ' . $stats['updated'] . ' row(s).' );
+        }
+    }
+
+    // ── Personal model keyword linker ──────────────────────────────────────
+
+    /**
+     * Link approved personal model keyword rows from entity_id=0
+     * to the correct WordPress model post ID.
+     *
+     * Scans tmw_keyword_candidates for approved rows where:
+     *   - intent_type = model
+     *   - entity_type = model
+     *   - entity_id   = 0
+     *   - sources.personal_model_keyword_csv = true
+     *   - sources.model_keyword_owner is non-empty
+     *
+     * Skips Global Model Pool rows, rows without CSV provenance,
+     * and ambiguous / not-found owner matches.
+     *
+     * Only entity_id is written — status, keyword text, target fields,
+     * and Rank Math fields are never touched.
+     *
+     * ## OPTIONS
+     *
+     * [--model_name=<name>]
+     * : Restrict the scan to rows whose sources.model_keyword_owner
+     *   matches this name (after normalisation).  Use for safe per-model
+     *   testing before running the full scan.
+     *
+     * [--limit=<n>]
+     * : Maximum number of eligible rows to process. Default: 500. Max: 5000.
+     *
+     * [--dry-run]
+     * : Identify rows and log what would happen; write nothing.
+     *
+     * [--force]
+     * : Reserved for future use.  Currently, all eligible entity_id=0 rows
+     *   are processed regardless of this flag.
+     *
+     * ## EXAMPLES
+     *
+     *     # Safe dry-run for Anisyia only — confirms which rows will be linked.
+     *     wp tmwseo link-model-keywords --model_name="Anisyia" --dry-run
+     *
+     *     # Link Anisyia rows for real.
+     *     wp tmwseo link-model-keywords --model_name="Anisyia"
+     *
+     *     # Full scan, dry-run, up to 500 rows.
+     *     wp tmwseo link-model-keywords --dry-run --limit=500
+     *
+     *     # Full scan, real run, up to 500 rows.
+     *     wp tmwseo link-model-keywords --limit=500
+     *
+     * @subcommand link-model-keywords
+     */
+    public function link_model_keywords( $args, $assoc ) {
+        $dry_run    = ! empty( $assoc['dry-run'] );
+        $force      = ! empty( $assoc['force'] );
+        $limit      = isset( $assoc['limit'] ) ? max( 1, (int) $assoc['limit'] ) : 500;
+        $model_name = isset( $assoc['model_name'] ) ? trim( (string) $assoc['model_name'] ) : '';
+
+        if ( $dry_run ) {
+            \WP_CLI::log( '[TMW-KW-MODEL-LINK] Dry-run mode — no database writes will be performed.' );
+        }
+
+        if ( '' !== $model_name ) {
+            \WP_CLI::log( '[TMW-KW-MODEL-LINK] Restricting scan to owner: "' . $model_name . '"' );
+        }
+
+        require_once dirname( __DIR__ ) . '/keywords/class-model-keyword-link-service.php';
+        $service = new \TMWSEO\Engine\Keywords\ModelKeywordLinkService();
+        $stats   = $service->scan_and_link( $dry_run, $limit, $model_name, $force );
+
+        // Per-row output.
+        $action_rows = array_filter( $stats['rows'], static function ( $row ) {
+            return is_array( $row )
+                && ! in_array( (string) ( $row['action'] ?? '' ), [ 'skipped' ], true );
+        } );
+        $skip_rows = array_filter( $stats['rows'], static function ( $row ) {
+            return is_array( $row ) && 'skipped' === (string) ( $row['action'] ?? '' );
+        } );
+
+        foreach ( $action_rows as $row ) {
+            $action = (string) ( $row['action'] ?? '' );
+            $msg    = sprintf(
+                'id=%-6d  keyword="%-30s"  owner="%-20s"  post_id=%-6d  action=%s',
+                (int) ( $row['id'] ?? 0 ),
+                (string) ( $row['keyword'] ?? '' ),
+                (string) ( $row['owner'] ?? '' ),
+                (int) ( $row['resolved_post_id'] ?? 0 ),
+                $action
+            );
+            \WP_CLI::log( $msg );
+        }
+
+        foreach ( $skip_rows as $row ) {
+            \WP_CLI::log( sprintf(
+                'id=%-6d  keyword="%-30s"  owner="%-20s"  skipped reason=%s',
+                (int) ( $row['id'] ?? 0 ),
+                (string) ( $row['keyword'] ?? '' ),
+                (string) ( $row['owner'] ?? '' ),
+                (string) ( $row['reason'] ?? '' )
+            ) );
+        }
+
+        // Summary log line — mirrors the service's internal debug_log format.
+        \WP_CLI::log(
+            '[TMW-KW-MODEL-LINK] scanned=' . $stats['scanned']
+            . ' linked='   . $stats['linked']
+            . ' skipped='  . $stats['skipped']
+            . ' errors='   . $stats['errors']
+            . ' dry_run='  . ( $dry_run ? 'yes' : 'no' )
+        );
+
+        if ( $stats['errors'] > 0 ) {
+            \WP_CLI::warning( $stats['errors'] . ' row(s) failed to update. Check debug.log for [TMW-KW-MODEL-LINK] entries.' );
+        }
+
+        if ( $dry_run ) {
+            \WP_CLI::success(
+                'Dry-run complete. '
+                . $stats['linked'] . ' row(s) would be linked; '
+                . $stats['skipped'] . ' skipped.'
+            );
+        } else {
+            \WP_CLI::success(
+                'Linked ' . $stats['linked'] . ' row(s). '
+                . $stats['skipped'] . ' skipped. '
+                . $stats['errors'] . ' error(s).'
+            );
         }
     }
 
