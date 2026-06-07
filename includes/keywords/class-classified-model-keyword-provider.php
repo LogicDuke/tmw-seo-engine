@@ -130,15 +130,25 @@ class ClassifiedModelKeywordProvider {
                 $row, $model_post_id, $keyword, $normalized_model, $keyword_class, $suggested_usage, $standalone_allowed
             );
 
+            // PR-689: approved personal CSV rows whose scope was recorded as
+            // 'manual_review' (or another non-standard value) pass all safety checks
+            // but are blocked by scope_is_compatible() before any rescue can run.
+            // This flag lets the scope gate and focus gate be bypassed when the row
+            // has explicit CSV provenance, an approved entity_id link, and a safe keyword.
+            $admitted_approved_personal_extra = $this->is_approved_personal_csv_extra_candidate(
+                $row, $sources, $model_post_id, $keyword, $keyword_class, $normalized_model
+            );
+
             if ($keyword === '') {
                 $reason = 'empty_keyword';
             } elseif ($keyword_class === '') {
                 $reason = 'missing_keyword_class';
             } elseif (!$this->owner_matches($sources, $keyword, $normalized_model)) {
                 $reason = 'wrong_model_keyword_owner';
-            } elseif (!$this->scope_is_compatible($sources)) {
+            } elseif (!$admitted_approved_personal_extra && !$this->scope_is_compatible($sources)) {
                 $reason = 'incompatible_model_keyword_usage_scope';
             } elseif (!$admitted_live_intent_review_keyword
+                && !$admitted_approved_personal_extra
                 && $this->is_focus_excluded($keyword_class, $suggested_usage, $standalone_allowed)) {
                 $reason = 'excluded_from_focus_by_classification';
             }
@@ -162,7 +172,9 @@ class ClassifiedModelKeywordProvider {
                 }
             }
 
-            if ($this->is_model_focus_extra_candidate($keyword_class, $suggested_usage) || $admitted_live_intent_review_keyword) {
+            if ($this->is_model_focus_extra_candidate($keyword_class, $suggested_usage)
+                || $admitted_live_intent_review_keyword
+                || $admitted_approved_personal_extra) {
                 if (in_array($keyword_class, self::SUPPORTING_CLASSES, true)) {
                     $supporting_extra[] = $keyword;
                 } else {
@@ -186,11 +198,13 @@ class ClassifiedModelKeywordProvider {
                 $modifiers[] = $keyword;
             }
 
-            $source_rows[] = $this->source_summary(
-                $row,
-                $sources,
-                $admitted_live_intent_review_keyword ? 'included_model_live_intent_review_required' : 'included'
-            );
+            $decision = 'included';
+            if ($admitted_live_intent_review_keyword) {
+                $decision = 'included_model_live_intent_review_required';
+            } elseif ($admitted_approved_personal_extra) {
+                $decision = 'included_approved_personal_csv_extra';
+            }
+            $source_rows[] = $this->source_summary($row, $sources, $decision);
         }
 
         return [
@@ -388,6 +402,61 @@ class ClassifiedModelKeywordProvider {
             return false;
         }
         return $this->is_safe_model_live_intent_phrase($keyword, $normalized_model);
+    }
+
+    /**
+     * Return true when an approved personal CSV model keyword row should be admitted
+     * as an extra_focus_candidate regardless of its model_keyword_usage_scope value.
+     *
+     * This covers rows where scope was recorded as 'manual_review' (or another
+     * non-standard value that fails scope_is_compatible()) but the row has since been
+     * manually approved and entity-linked via the ModelKeywordLinkService.
+     *
+     * All conditions must be true:
+     *   1. status = approved  (explicit human sign-off)
+     *   2. intent_type = model AND entity_type = model
+     *   3. entity_id = current model post ID  (linker has resolved the row)
+     *   4. sources.personal_model_keyword_csv = true  (CSV provenance, not inferred)
+     *   5. keyword contains the normalized model name  (not a generic term)
+     *   6. keyword_class (after PR-615 default) is not CLASS_UNSAFE_STANDALONE
+     *   7. keyword passes the adult-fallback-term safety check
+     *
+     * Rows with status ignored/rejected/blocked are excluded by condition 1.
+     * Generic/global keywords are excluded by condition 5.
+     * The row is only ever added to extra_focus_candidates, never to primary.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $sources
+     */
+    private function is_approved_personal_csv_extra_candidate(
+        array  $row,
+        array  $sources,
+        int    $model_post_id,
+        string $keyword,
+        string $keyword_class,
+        string $normalized_model
+    ): bool {
+        if ((string) ($row['status']      ?? '') !== 'approved') { return false; }
+        if ((string) ($row['intent_type'] ?? '') !== 'model')    { return false; }
+        if ((string) ($row['entity_type'] ?? '') !== 'model')    { return false; }
+        if ((int)    ($row['entity_id']   ?? 0)  !== $model_post_id) { return false; }
+        if ($normalized_model === '')                              { return false; }
+
+        // Must have explicit personal CSV provenance — prevents global pool or
+        // auto-generated rows from being admitted via this path.
+        if (!$this->source_bool($sources, 'personal_model_keyword_csv')) { return false; }
+
+        // Must contain the model name — prevents admission of generic terms
+        // that happen to share entity_id because of a bulk-link operation.
+        if (!self::contains_phrase($keyword, $normalized_model)) { return false; }
+
+        // Must not be definitionally unsafe regardless of approved status.
+        if ($keyword_class === ModelKeywordPoolClassifier::CLASS_UNSAFE_STANDALONE) { return false; }
+
+        // No adult/unsafe content.
+        if ($this->contains_adult_fallback_term($keyword)) { return false; }
+
+        return true;
     }
 
     private function is_safe_model_live_intent_phrase(string $keyword, string $normalized_model): bool {
