@@ -124,11 +124,11 @@ class ModelKeywordLinkService {
         $has_updated_at   = isset($columns['updated_at']);
         $normalized_filter = $this->normalize_owner($model_name);
 
-        $processed = 0;
-        $offset    = 0;
+        $processed    = 0;
+        $last_seen_id = 0;
 
         do {
-            $rows = $this->fetch_batch($table, $offset, self::BATCH_SIZE, $has_target_type);
+            $rows = $this->fetch_batch($table, $last_seen_id, self::BATCH_SIZE, $has_target_type);
 
             if (!is_array($rows) || empty($rows)) {
                 break;
@@ -146,6 +146,14 @@ class ModelKeywordLinkService {
                 $stats['scanned']++;
                 $id      = (int)    ($row['id']      ?? 0);
                 $keyword = (string) ($row['keyword']  ?? '');
+
+                // Advance keyset cursor before any early continues so the cursor
+                // moves forward regardless of whether the row is linked, skipped,
+                // dry-run, or invalid.  This prevents re-fetching the same row on
+                // the next batch query when it still has entity_id=0 (skipped rows).
+                if ($id > $last_seen_id) {
+                    $last_seen_id = $id;
+                }
 
                 if ($id <= 0) {
                     $stats['skipped']++;
@@ -249,8 +257,6 @@ class ModelKeywordLinkService {
                     );
                 }
             }
-
-            $offset += self::BATCH_SIZE;
 
         } while (count($rows) === self::BATCH_SIZE && $processed < $limit);
 
@@ -441,24 +447,30 @@ class ModelKeywordLinkService {
     // ── DB helpers ────────────────────────────────────────────────────────
 
     /**
-     * Fetch one batch of entity_id=0 approved model keyword rows.
+     * Fetch one batch of entity_id=0 approved model keyword rows using keyset
+     * pagination.
+     *
+     * Uses `AND id > $last_seen_id` instead of OFFSET so that rows linked
+     * during the scan (entity_id changes from 0 to a post ID) do not cause
+     * subsequent batches to skip rows.  The cursor is advanced per-row in
+     * scan_and_link() regardless of row outcome.
      *
      * Selects only the columns needed for eligibility checks + linking.
      * target_type is only included when the column exists (schema-safe).
      *
      * @return array<int,array<string,mixed>>
      */
-    private function fetch_batch(string $table, int $offset, int $batch_size, bool $has_target_type): array {
+    private function fetch_batch(string $table, int $last_seen_id, int $batch_size, bool $has_target_type): array {
         global $wpdb;
 
         $select = 'id, keyword, sources' . ($has_target_type ? ', target_type' : '');
 
         $sql = $wpdb->prepare(
             'SELECT ' . $select . ' FROM ' . $table
-            . ' WHERE intent_type = %s AND entity_type = %s AND entity_id = %d AND status = %s'
-            . ' ORDER BY id ASC LIMIT %d OFFSET %d',
-            'model', 'model', 0, 'approved',
-            $batch_size, $offset
+            . ' WHERE intent_type = %s AND entity_type = %s AND entity_id = %d AND status = %s AND id > %d'
+            . ' ORDER BY id ASC LIMIT %d',
+            'model', 'model', 0, 'approved', $last_seen_id,
+            $batch_size
         );
 
         $rows = $wpdb->get_results($sql, defined('ARRAY_A') ? ARRAY_A : 'ARRAY_A');

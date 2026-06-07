@@ -372,6 +372,63 @@ final class ModelKeywordLinkServiceTest extends TestCase {
         $this->assertCount( 0, $wpdb->updates, 'NO DB updates for global pool row' );
     }
 
+    // ── Scenario: keyset pagination does not skip rows when earlier rows are linked ──
+
+    /**
+     * With OFFSET pagination, linking the first BATCH_SIZE rows removes them from the
+     * entity_id=0 result set, so OFFSET 200 on a 1-row remainder returns nothing.
+     * With keyset pagination (id > last_seen_id), the cursor advances independently
+     * of entity_id changes, so all rows are found.
+     *
+     * Regression test: create BATCH_SIZE + 1 rows and assert all are scanned and linked.
+     */
+    public function test_keyset_pagination_does_not_skip_rows_when_earlier_rows_are_linked(): void {
+        // BATCH_SIZE = 200; create 201 rows so two fetch queries are required.
+        $rows = [];
+        for ( $i = 1; $i <= 201; $i++ ) {
+            $rows[] = $this->personal_row( $i, 'anisyia keyword ' . $i, 'anisyia' );
+        }
+        $wpdb = new ModelKeywordLinkFakeWpdb( $rows );
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $stats = $this->service_with_posts( [ $this->model_post( 4457, 'Anisyia', 'anisyia' ) ] )
+            ->scan_and_link( false, 500 );
+
+        $this->assertSame( 201, $stats['scanned'], 'all 201 rows must be scanned' );
+        $this->assertSame( 201, $stats['linked'],  'all 201 rows must be linked' );
+        $this->assertSame( 0,   $stats['skipped'], 'no rows should be skipped' );
+        $this->assertSame( 0,   $stats['errors'],  'no errors' );
+        $this->assertCount( 201, $wpdb->updates,   'exactly 201 DB updates must be written' );
+
+        // Every linked row must have the correct post ID.
+        foreach ( $wpdb->updates as $update ) {
+            $this->assertSame( 4457, $update['data']['entity_id'] );
+        }
+
+        // Verify keyset cursor pattern: SELECT queries must use `id >`, never OFFSET.
+        $select_queries = array_filter(
+            $wpdb->queries,
+            static fn( $q ) => false !== stripos( $q, 'SELECT' )
+                             && false !== stripos( $q, 'entity_id' )
+        );
+        $this->assertGreaterThanOrEqual( 2, count( $select_queries ),
+            'at least 2 batch queries should be issued for 201 rows with BATCH_SIZE=200' );
+        foreach ( $select_queries as $q ) {
+            $this->assertStringNotContainsString( 'OFFSET', $q,
+                'queries must NOT use OFFSET pagination' );
+            $this->assertMatchesRegularExpression( '/\bid\s*>\s*\d+/i', $q,
+                'queries must use keyset id > cursor' );
+        }
+
+        // The second batch query must carry a cursor > 0 (i.e. id > 200).
+        $select_list = array_values( $select_queries );
+        if ( isset( $select_list[1] ) ) {
+            preg_match( '/\bid\s*>\s*(\d+)/i', $select_list[1], $m );
+            $this->assertGreaterThan( 0, (int) ( $m[1] ?? 0 ),
+                'second batch query cursor must be greater than 0' );
+        }
+    }
+
     // ── Factory helpers ───────────────────────────────────────────────────
 
     /**
@@ -519,9 +576,42 @@ final class ModelKeywordLinkFakeWpdb {
             );
         }
 
-        // SELECT rows — return all rows (LIMIT/OFFSET ignored for simplicity).
+        // SELECT rows — simulate keyset pagination used by fetch_batch().
+        // Parses `id > N` cursor and LIMIT from the prepared SQL so that:
+        //   - rows already linked (entity_id != 0) are excluded
+        //   - only rows with id > cursor are returned
+        //   - at most LIMIT rows are returned
+        // This makes multi-batch tests accurate without a real database.
         if ( false !== stripos( $sql, 'SELECT' ) ) {
-            return array_values( $this->rows );
+            // Extract keyset cursor: `AND id > N` (no OFFSET).
+            $last_seen_id = -1;
+            if ( preg_match( '/\bid\s*>\s*(\d+)/i', $sql, $m ) ) {
+                $last_seen_id = (int) $m[1];
+            }
+
+            // Extract LIMIT.
+            $batch_limit = PHP_INT_MAX;
+            if ( preg_match( '/LIMIT\s+(\d+)/i', $sql, $m ) ) {
+                $batch_limit = (int) $m[1];
+            }
+
+            // Filter: entity_id=0 AND id > cursor, sorted by id ASC, capped at limit.
+            $filtered = [];
+            foreach ( $this->rows as $row ) {
+                if ( (int) ( $row['entity_id'] ?? -1 ) !== 0 ) {
+                    continue; // Already linked by a previous update().
+                }
+                if ( $last_seen_id >= 0 && (int) ( $row['id'] ?? 0 ) <= $last_seen_id ) {
+                    continue; // Before or at the cursor.
+                }
+                $filtered[] = $row;
+            }
+
+            usort( $filtered, static fn( $a, $b ) =>
+                (int) ( $a['id'] ?? 0 ) <=> (int) ( $b['id'] ?? 0 )
+            );
+
+            return array_slice( array_values( $filtered ), 0, $batch_limit );
         }
 
         return [];
