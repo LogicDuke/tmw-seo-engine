@@ -165,6 +165,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-keyword-idea-aggregator.php' );
         tmwseo_safe_require( $p . 'class-unified-keyword-workflow-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-library.php' );
+        tmwseo_safe_require( $p . 'class-model-keyword-pool-template-expander.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-pack.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-suggestion-generator.php' );
 
