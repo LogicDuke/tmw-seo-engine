@@ -392,6 +392,12 @@ class ClassifiedModelKeywordProvider {
             $normalized_model . ' live',
             $normalized_model . ' live chat',
             $normalized_model . ' live cam',
+            // PR-688: also admit model+cam / model+webcam personal keywords that were
+            // mis-classified as CLASS_UNKNOWN_REVIEW because "cam"/"webcam" alone are
+            // not in PLATFORM_TERMS or CORE_MODEL_TERMS, while being unambiguously safe
+            // cam-platform intent phrases when combined with the model name.
+            $normalized_model . ' cam',
+            $normalized_model . ' webcam',
         ];
         return in_array($keyword, $safe_phrases, true);
     }
