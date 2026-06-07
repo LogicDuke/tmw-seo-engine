@@ -150,6 +150,9 @@ class KeywordPoolsAdminPage {
         self::render_notices($state['notices']);
         self::render_get_notice();
         self::render_tabs($active_pool);
+        if (class_exists(KeywordPoolReviewAdminCard::class)) {
+            KeywordPoolReviewAdminCard::render(self::CAPABILITY);
+        }
         $view_batch_id = isset($_GET['tmwseo_keyword_batch_id']) ? absint($_GET['tmwseo_keyword_batch_id']) : 0;
 
         if ($view_batch_id > 0 && 'metrics' !== $active_pool) {
