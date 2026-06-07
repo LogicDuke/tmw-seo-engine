@@ -1,6 +1,6 @@
 <?php
 /**
- * TMW SEO Engine — File Loader
+ * TMW SEO Engine â€” File Loader
  *
  * Groups all includes by domain instead of a single 100+ line flat list.
  * This makes it immediately clear which domain a missing file belongs to,
@@ -8,11 +8,11 @@
  * breaking an unrelated domain (e.g. keywords/).
  *
  * Every entry still uses tmwseo_safe_require() so a single missing file
- * never fatals the whole admin. Behaviour is identical to the old flat list —
+ * never fatals the whole admin. Behaviour is identical to the old flat list â€”
  * this is purely a structural reorganisation.
  *
  * Loading order within each group follows dependency direction:
- *   interfaces → repositories → services → engines → admin pages
+ *   interfaces â†’ repositories â†’ services â†’ engines â†’ admin pages
  *
  * @package TMWSEO\Engine
  * @since   5.1.1
@@ -45,7 +45,7 @@ class Loader {
         self::load_cli();
     }
 
-    // ── Core ──────────────────────────────────────────────────────────────────
+    // â”€â”€ Core â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_core(): void {
         $p = TMWSEO_ENGINE_PATH;
@@ -66,7 +66,7 @@ class Loader {
         tmwseo_safe_require( $p . 'includes/export/class-csv-exporter.php' );
     }
 
-    // ── Services ──────────────────────────────────────────────────────────────
+    // â”€â”€ Services â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_services(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/services/';
@@ -98,12 +98,12 @@ class Loader {
         tmwseo_safe_require( $p . 'class-pagespeed.php' );
         tmwseo_safe_require( $p . 'class-rank-tracker.php' );
         tmwseo_safe_require( $p . 'class-title-fixer.php' );
-        // @deprecated — use seo-engine/topic-authority/ instead. Kept for backward compat.
+        // @deprecated â€” use seo-engine/topic-authority/ instead. Kept for backward compat.
         tmwseo_safe_require( $p . 'class-topic-authority-engine.php' );
         tmwseo_safe_require( $p . 'class-semantic-coverage-engine.php' );
     }
 
-    // ── Keywords ──────────────────────────────────────────────────────────────
+    // â”€â”€ Keywords â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_keywords(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/keywords/';
@@ -165,6 +165,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-keyword-idea-aggregator.php' );
         tmwseo_safe_require( $p . 'class-unified-keyword-workflow-service.php' );
         tmwseo_safe_require( $p . 'class-keyword-library.php' );
+        tmwseo_safe_require( $p . 'class-model-keyword-pool-template-expander.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-pack.php' );
         tmwseo_safe_require( $p . 'class-model-keyword-suggestion-generator.php' );
 
@@ -190,7 +191,7 @@ class Loader {
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/seo-engine/opportunities/class-model-opportunity-import-service.php' );
     }
 
-    // ── Content ───────────────────────────────────────────────────────────────
+    // â”€â”€ Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_content(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/content/';
@@ -205,10 +206,10 @@ class Loader {
         tmwseo_safe_require( $p . 'class-rank-math-reader.php' );
         tmwseo_safe_require( $p . 'class-rank-math-checklist.php' );
         tmwseo_safe_require( $p . 'class-content-generation-gate.php' );
-        // Model Research Evidence helper (v5.8.7) — simple 3-field evidence flow.
-        // Replaces v5.8.0–v5.8.6 ExternalProfileEvidence + ExternalProfileEvidenceRenderer.
+        // Model Research Evidence helper (v5.8.7) â€” simple 3-field evidence flow.
+        // Replaces v5.8.0â€“v5.8.6 ExternalProfileEvidence + ExternalProfileEvidenceRenderer.
         tmwseo_safe_require( $p . 'class-model-research-evidence.php' );
-        // Model Copy Cleanup (v5.8.8) — deterministic final-pass text cleanup
+        // Model Copy Cleanup (v5.8.8) â€” deterministic final-pass text cleanup
         // wired into all 7 model-content save sites immediately after evidence.
         tmwseo_safe_require( $p . 'class-model-copy-cleanup.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-model-body-safety.php' );
@@ -224,7 +225,7 @@ class Loader {
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-hooks.php' );
     }
 
-    // ── Models ────────────────────────────────────────────────────────────────
+    // â”€â”€ Models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_models(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/model/';
@@ -233,7 +234,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-rollback.php' );
         tmwseo_safe_require( $p . 'class-model-draft-context-builder.php' );
         tmwseo_safe_require( $p . 'class-model-body-safety.php' ); // shared active-platform/body-copy safety guards
-        tmwseo_safe_require( $p . 'class-model-content-generation-facade.php' ); // 5.9.0 — preview adapter (must load before draft service)
+        tmwseo_safe_require( $p . 'class-model-content-generation-facade.php' ); // 5.9.0 â€” preview adapter (must load before draft service)
         tmwseo_safe_require( $p . 'class-model-content-draft-service.php' );
         tmwseo_safe_require( $p . 'class-model-optimizer.php' );
         tmwseo_safe_require( $p . 'class-model-discovery-worker.php' );
@@ -242,11 +243,11 @@ class Loader {
         tmwseo_safe_require( $p . 'class-model-platform-probe.php' );
         tmwseo_safe_require( $p . 'class-model-direct-probe-provider.php' );
         tmwseo_safe_require( $p . 'class-model-full-audit-provider.php' );
-        tmwseo_safe_require( $p . 'class-verified-links-families.php' ); // 5.1.0 — VEL family registry (must precede class-verified-links.php)
-        tmwseo_safe_require( $p . 'class-verified-links.php' ); // 4.7.0 — verified external links
+        tmwseo_safe_require( $p . 'class-verified-links-families.php' ); // 5.1.0 â€” VEL family registry (must precede class-verified-links.php)
+        tmwseo_safe_require( $p . 'class-verified-links.php' ); // 4.7.0 â€” verified external links
     }
 
-    // ── Platform ──────────────────────────────────────────────────────────────
+    // â”€â”€ Platform â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_platform(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/platform/';
@@ -256,7 +257,7 @@ class Loader {
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/affiliates/class-crakrevenue-cam-manager.php' );
     }
 
-    // ── Categories ───────────────────────────────────────────────────────────
+    // â”€â”€ Categories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_categories(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/categories/';
@@ -264,7 +265,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-category-keyword-classifier.php' );
     }
 
-    // ── Integrations ──────────────────────────────────────────────────────────
+    // â”€â”€ Integrations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_integrations(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/integrations/';
@@ -275,7 +276,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-google-ads-keyword-planner-api.php' );
     }
 
-    // ── SEO Engine (seo-engine/ subtree) ──────────────────────────────────────
+    // â”€â”€ SEO Engine (seo-engine/ subtree) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_seo_engine(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/seo-engine/';
@@ -364,7 +365,7 @@ class Loader {
         tmwseo_safe_require( $p . 'debug/class-debug-dashboard.php' );
     }
 
-    // ── Cluster & Lighthouse ──────────────────────────────────────────────────
+    // â”€â”€ Cluster & Lighthouse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_cluster_and_lighthouse(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/cluster/';
@@ -386,12 +387,12 @@ class Loader {
         tmwseo_safe_require( $lh . 'class-lh-bootstrap.php' );
     }
 
-    // ── Admin ─────────────────────────────────────────────────────────────────
+    // â”€â”€ Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_admin(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/admin/';
         tmwseo_safe_require( $p . 'class-admin-ui.php' );
-        tmwseo_safe_require( $p . 'class-tmwseo-routes.php' );  // admin route map — must load before page files
+        tmwseo_safe_require( $p . 'class-tmwseo-routes.php' );  // admin route map â€” must load before page files
         tmwseo_safe_require( $p . 'class-list-table-pagination.php' );
         tmwseo_safe_require( $p . 'tables/class-keywords-table.php' );
         tmwseo_safe_require( $p . 'tables/class-clusters-table.php' );
@@ -399,25 +400,25 @@ class Loader {
         tmwseo_safe_require( $p . 'tables/class-opportunities-table.php' );
         tmwseo_safe_require( $p . 'tables/class-seed-registry-table.php' );
 
-        // Handler classes (extracted from god class — v5.1.1)
+        // Handler classes (extracted from god class â€” v5.1.1)
         tmwseo_safe_require( $p . 'class-admin-ajax-handlers.php' );
         tmwseo_safe_require( $p . 'class-admin-form-handlers.php' );
-        // Settings API registration + sanitizers — extracted from Admin
+        // Settings API registration + sanitizers â€” extracted from Admin
         // to start chipping at the 4,700-line god class. Must load before
         // class-admin.php because Admin::init() now delegates the
         // admin_init hook to AdminSettingsSanitizer::register().
         tmwseo_safe_require( $p . 'class-admin-settings-sanitizer.php' );
-        // Admin notices — `admin_notices` hook target + pipeline-health
+        // Admin notices â€” `admin_notices` hook target + pipeline-health
         // renderers. Must load before class-admin.php for the same reason.
         tmwseo_safe_require( $p . 'class-admin-notices.php' );
-        // Admin menu — `admin_menu` registration + submenu reorder. Owns
+        // Admin menu â€” `admin_menu` registration + submenu reorder. Owns
         // ~30 add_submenu_page calls + 7 legacy-slug redirect handlers.
         tmwseo_safe_require( $p . 'class-admin-menu.php' );
-        // Tools page — `tmwseo-tools` submenu renderer + helper-readiness
+        // Tools page â€” `tmwseo-tools` submenu renderer + helper-readiness
         // panel. Must load before class-admin-menu.php registers the
         // submenu page that targets it.
         tmwseo_safe_require( $p . 'class-admin-tools-page.php' );
-        // DataForSEO Keyword Strategy Preview page — dry-run planning UI
+        // DataForSEO Keyword Strategy Preview page â€” dry-run planning UI
         // + the paid-scan admin_post handler + scan-summary renderers.
         tmwseo_safe_require( $p . 'class-admin-dfseo-preview-page.php' );
 
@@ -451,7 +452,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-content-review-page.php' );
         tmwseo_safe_require( $p . 'class-video-seo-metabox.php' );
         tmwseo_safe_require( $p . 'class-model-helper.php' );
-        // Model Metabox — extracted from class-model-helper.php. Owns the
+        // Model Metabox â€” extracted from class-model-helper.php. Owns the
         // "Model Research" metabox renderer (audit's biggest single named
         // target at 945 lines), the save_post hook, the AJAX research-save
         // handler, and editor asset enqueueing. Must load after
@@ -468,12 +469,12 @@ class Loader {
         // Category Formula Engine admin page (5.2.0)
         tmwseo_safe_require( $p . 'class-category-formula-admin-page.php' );
 
-        // Suggestions admin (large — handlers extracted to trait v5.1.1)
+        // Suggestions admin (large â€” handlers extracted to trait v5.1.1)
         tmwseo_safe_require( $p . 'class-suggestions-form-handlers-trait.php' );
         tmwseo_safe_require( $p . 'class-suggestions-admin-page.php' );
     }
 
-    // ── Intelligence ─────────────────────────────────────────────────────────
+    // â”€â”€ Intelligence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_intelligence(): void {
         $p = TMWSEO_ENGINE_PATH . 'includes/intelligence/';
@@ -481,7 +482,7 @@ class Loader {
         tmwseo_safe_require( $p . 'class-intelligence-admin.php' );
     }
 
-    // ── CLI ───────────────────────────────────────────────────────────────────
+    // â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private static function load_cli(): void {
         if ( defined( 'WP_CLI' ) && WP_CLI ) {

@@ -6,10 +6,9 @@
  * expands {model} placeholders for the requested pool target.
  *
  * Returns accepted keywords and structured warning items separately.
- * Not wired to any existing class in this PR.
  *
  * @package TMWSEO\Engine\Keywords
- * @since   5.9.2
+ * @since   5.9.3
  */
 
 declare( strict_types=1 );
@@ -53,6 +52,17 @@ class ModelKeywordPoolTemplateExpander {
     private const LOWERCASE_POOLS = [
         'model_rankmath_pool', 'model_body_pool', 'model_tag_keyword_pool',
         'category_keyword_pool', 'video_keyword_pool',
+    ];
+
+    /**
+     * Bucket processing order for expand_for_pool_bucketed().
+     * @var string[]
+     */
+    private const BUCKET_ORDER = [
+        'platform_entity',
+        'live_cam',
+        'profile_discovery',
+        'chat_conversion',
     ];
 
     /**
@@ -151,8 +161,7 @@ class ModelKeywordPoolTemplateExpander {
     /**
      * Expand all qualifying templates for the requested pool and include template metadata.
      *
-     * This is a read-only helper for admin review screens. It intentionally does not alter
-     * expand_for_pool() output shape so existing callers keep receiving keyword strings.
+     * Read-only helper for admin review screens. Does not alter expand_for_pool() output shape.
      *
      * @param  string   $model_name
      * @param  string   $pool_target           One of VALID_POOLS.
@@ -183,6 +192,7 @@ class ModelKeywordPoolTemplateExpander {
                     'template_id' => (string) ( $entry['id'] ?? '' ),
                     'template'    => (string) ( $entry['template'] ?? '' ),
                     'pool_target' => $pool_target,
+                    'bucket'      => (string) ( $entry['bucket'] ?? '' ),
                 ];
             }
             foreach ( $result['warnings'] as $w ) {
@@ -194,6 +204,186 @@ class ModelKeywordPoolTemplateExpander {
         $accepted = self::deterministic_sort_metadata( $accepted, $post_id );
         self::log_expanded( $post_id, $pool_target, count( $accepted ), count( $warnings ) );
         return [ 'accepted' => $accepted, 'warnings' => $warnings ];
+    }
+
+    /**
+     * Bucketed deterministic selector for model Rank Math extra keywords.
+     *
+     * Picks up to $count keywords from model_rankmath_pool eligible templates,
+     * one per bucket in priority order [platform_entity, live_cam, profile_discovery,
+     * chat_conversion], then fills remaining slots from any bucket on a second pass.
+     *
+     * Within each bucket, templates are sorted first by bucket_priority (1 = preferred
+     * compound, 2 = fallback single-word suffix), then by deterministic hash so
+     * different post IDs rotate through template variants.
+     *
+     * Same post_id + same config = same selected keywords.
+     * Never returns literal {model}. Obeys platform_gate and all existing safety gates.
+     *
+     * @param  string   $model_name
+     * @param  int      $post_id               Model post ID (used as rotation seed).
+     * @param  string[] $active_platform_slugs Active sanitised platform slugs.
+     * @param  int      $count                 Target number of extra keywords (default 4).
+     * @return array{accepted:string[],warnings:list<array<string,string>>,metadata:list<array<string,string>>}
+     */
+    public static function expand_for_pool_bucketed(
+        string $model_name,
+        int    $post_id,
+        array  $active_platform_slugs = [],
+        int    $count = 4
+    ): array {
+        $model_name = trim( $model_name );
+        if ( $model_name === '' || $count <= 0 ) {
+            return [ 'accepted' => [], 'warnings' => [], 'metadata' => [] ];
+        }
+
+        $all_templates = self::load_templates();
+        $all_warnings  = [];
+
+        // Build per-bucket candidate lists filtered to model_rankmath_pool eligible.
+        // Only approved templates with rankmath_safe=true and model_rankmath_pool in pool_targets.
+        $buckets = [];
+        foreach ( $all_templates as $entry ) {
+            if ( ! is_array( $entry ) ) { continue; }
+            if ( ( $entry['approval_status'] ?? '' ) !== 'approved' ) { continue; }
+            if ( ! ( (bool) ( $entry['rankmath_safe'] ?? false ) ) ) { continue; }
+            $pool_targets = (array) ( $entry['pool_targets'] ?? [] );
+            if ( ! in_array( 'model_rankmath_pool', $pool_targets, true ) ) { continue; }
+            $bucket = (string) ( $entry['bucket'] ?? 'body_only' );
+            if ( ! in_array( $bucket, self::BUCKET_ORDER, true ) ) { continue; }
+
+            $priority = (int) ( $entry['bucket_priority'] ?? 2 );
+            $tid      = (string) ( $entry['id'] ?? '' );
+            // Deterministic hash: encodes post_id × bucket × template_id for stable rotation.
+            $sort_key = sprintf( '%u', crc32( (string) $post_id . '|' . $bucket . '|' . $tid ) );
+
+            $buckets[ $bucket ][] = [
+                'entry'    => $entry,
+                'priority' => $priority,
+                'sort_key' => $sort_key,
+            ];
+        }
+
+        // Sort each bucket: priority ASC (1 before 2), then sort_key ASC (deterministic).
+        foreach ( $buckets as $bucket => &$candidates ) {
+            usort( $candidates, static function ( array $a, array $b ): int {
+                if ( $a['priority'] !== $b['priority'] ) {
+                    return $a['priority'] < $b['priority'] ? -1 : 1;
+                }
+                return strcmp( $a['sort_key'], $b['sort_key'] );
+            } );
+        }
+        unset( $candidates );
+
+        $accepted         = [];
+        $metadata         = [];
+        $used_template_ids = [];
+
+        // First pass: one keyword per bucket in BUCKET_ORDER priority.
+        foreach ( self::BUCKET_ORDER as $bucket ) {
+            if ( count( $accepted ) >= $count ) { break; }
+            if ( empty( $buckets[ $bucket ] ) ) { continue; }
+
+            foreach ( $buckets[ $bucket ] as $candidate ) {
+                $entry = $candidate['entry'];
+                $tid   = (string) ( $entry['id'] ?? '' );
+                if ( isset( $used_template_ids[ $tid ] ) ) { continue; }
+
+                $result = self::process_template(
+                    $entry, $model_name, 'model_rankmath_pool', $post_id, $active_platform_slugs
+                );
+                foreach ( $result['warnings'] as $w ) { $all_warnings[] = $w; }
+
+                if ( $result['accepted'] !== null ) {
+                    $keyword = (string) $result['accepted'];
+                    $accepted[]                   = $keyword;
+                    $used_template_ids[ $tid ]    = true;
+                    $metadata[]                   = [
+                        'keyword'     => $keyword,
+                        'template_id' => $tid,
+                        'template'    => (string) ( $entry['template'] ?? '' ),
+                        'bucket'      => $bucket,
+                    ];
+                    if ( self::dbg() ) {
+                        $msg = '[TMW-KW-TEMPLATE] bucketed post_id=' . $post_id
+                             . ' bucket=' . $bucket
+                             . ' selected="' . $keyword . '"'
+                             . ' template_id=' . $tid;
+                        error_log( $msg );
+                        self::ilog( $msg, [
+                            'post_id'     => $post_id,
+                            'bucket'      => $bucket,
+                            'selected'    => $keyword,
+                            'template_id' => $tid,
+                        ] );
+                    }
+                    break; // one per bucket in first pass
+                }
+            }
+        }
+
+        // Second pass: fill remaining slots from any bucket without the one-per-bucket limit.
+        if ( count( $accepted ) < $count ) {
+            foreach ( self::BUCKET_ORDER as $bucket ) {
+                if ( count( $accepted ) >= $count ) { break; }
+                if ( empty( $buckets[ $bucket ] ) ) { continue; }
+
+                foreach ( $buckets[ $bucket ] as $candidate ) {
+                    if ( count( $accepted ) >= $count ) { break; }
+                    $entry = $candidate['entry'];
+                    $tid   = (string) ( $entry['id'] ?? '' );
+                    if ( isset( $used_template_ids[ $tid ] ) ) { continue; }
+
+                    $result = self::process_template(
+                        $entry, $model_name, 'model_rankmath_pool', $post_id, $active_platform_slugs
+                    );
+                    foreach ( $result['warnings'] as $w ) { $all_warnings[] = $w; }
+
+                    if ( $result['accepted'] !== null ) {
+                        $keyword = (string) $result['accepted'];
+                        $accepted[]                = $keyword;
+                        $used_template_ids[ $tid ] = true;
+                        $metadata[]                = [
+                            'keyword'     => $keyword,
+                            'template_id' => $tid,
+                            'template'    => (string) ( $entry['template'] ?? '' ),
+                            'bucket'      => $bucket,
+                        ];
+                        if ( self::dbg() ) {
+                            $msg = '[TMW-KW-TEMPLATE] bucketed post_id=' . $post_id
+                                 . ' bucket=' . $bucket . ' (fill)'
+                                 . ' selected="' . $keyword . '"'
+                                 . ' template_id=' . $tid;
+                            error_log( $msg );
+                            self::ilog( $msg, [
+                                'post_id'     => $post_id,
+                                'bucket'      => $bucket . '_fill',
+                                'selected'    => $keyword,
+                                'template_id' => $tid,
+                            ] );
+                        }
+                    }
+                }
+            }
+        }
+
+        if ( self::dbg() ) {
+            $msg = '[TMW-KW-TEMPLATE] bucketed_summary post_id=' . $post_id
+                 . ' accepted=' . count( $accepted )
+                 . ' warnings=' . count( $all_warnings );
+            error_log( $msg );
+            self::ilog( $msg, [
+                'post_id'  => $post_id,
+                'accepted' => count( $accepted ),
+                'warnings' => count( $all_warnings ),
+            ] );
+        }
+
+        return [
+            'accepted' => array_slice( $accepted, 0, $count ),
+            'warnings' => $all_warnings,
+            'metadata' => array_slice( $metadata, 0, $count ),
+        ];
     }
 
     /**
@@ -305,7 +495,7 @@ class ModelKeywordPoolTemplateExpander {
 
     /** Reset static cache and load flag. For unit tests only. */
     public static function reset_cache(): void {
-        self::$cache      = null;
+        self::$cache       = null;
         self::$load_logged = false;
     }
 
@@ -333,10 +523,8 @@ class ModelKeywordPoolTemplateExpander {
         $status = (string) ( $entry['approval_status'] ?? 'pending' );
 
         // Gate 0: pool_targets membership — silent skip, not an error.
-        // This must run before warning-producing gates so unrelated pools do not
-        // receive pending/rejected/not-model-eligible warnings.
         if ( ! in_array( $pool_target, (array) ( $entry['pool_targets'] ?? [] ), true ) ) {
-        return $none;
+            return $none;
         }
 
         // Gate 1: approval status
@@ -362,7 +550,6 @@ class ModelKeywordPoolTemplateExpander {
                 self::warn( 'not_model_eligible', $tid, $tmpl, '', $pool_target, 'Not eligible for model pages.' ),
             ] ];
         }
-
 
         // Gate 4: safety flag
         $flag = self::POOL_SAFETY_FLAGS[ $pool_target ] ?? null;
@@ -414,9 +601,11 @@ class ModelKeywordPoolTemplateExpander {
 
         return [ 'accepted' => $expanded, 'warnings' => $extras ];
     }
-     private static function is_model_pool( string $pool_target ): bool {
-    return str_starts_with( $pool_target, 'model_' );
+
+    private static function is_model_pool( string $pool_target ): bool {
+        return str_starts_with( $pool_target, 'model_' );
     }
+
     private static function expand_template( string $tpl, string $name, string $pool ): string {
         $n = in_array( $pool, self::LOWERCASE_POOLS, true )
             ? ( function_exists( 'mb_strtolower' ) ? mb_strtolower( $name, 'UTF-8' ) : strtolower( $name ) )
@@ -438,8 +627,8 @@ class ModelKeywordPoolTemplateExpander {
     private static function platform_active( string $gate, array $slugs ): bool {
         $active = array_map( 'sanitize_key', $slugs );
         if ( in_array( $gate, $active, true ) ) { return true; }
-        if ( $gate === 'livejasmin' && in_array( 'jasmin',      $active, true ) ) { return true; }
-        if ( $gate === 'jasmin'     && in_array( 'livejasmin',  $active, true ) ) { return true; }
+        if ( $gate === 'livejasmin' && in_array( 'jasmin',     $active, true ) ) { return true; }
+        if ( $gate === 'jasmin'     && in_array( 'livejasmin', $active, true ) ) { return true; }
         return false;
     }
 
