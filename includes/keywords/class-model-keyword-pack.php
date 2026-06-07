@@ -19,7 +19,6 @@ class ModelKeywordPack {
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
             Logs::info('keywords', '[TMW-KW-PACK] build_start post_id=' . (int) $post->ID . ' model=' . $model_name);
         }
-        // Always write build_enter to debug.log regardless of which debug flag is set.
         self::debug_log_direct('[TMW-KW-PACK] build_enter post_id=' . (int) $post->ID . ' model="' . $model_name . '"');
         $keyword_context_name = $model_name !== '' ? $model_name : 'live cam model';
         $primary = $keyword_context_name;
@@ -40,7 +39,6 @@ class ModelKeywordPack {
                 'inactive_platforms' => $inactive_platforms,
             ]);
             self::debug_log_direct($kw_source_start_msg);
-            // Keep the legacy [TMW-KW-PACK] tag for backwards log-grep compatibility.
             Logs::info('keywords', '[TMW-KW-PACK] active_platforms=' . self::debug_json($platform_slugs), [
                 'post_id' => (int) $post->ID,
                 'active_platforms' => $platform_slugs,
@@ -70,7 +68,6 @@ class ModelKeywordPack {
                 'candidates' => $model_specific_candidates,
                 'sources' => $classified_fragment['sources'] ?? [],
             ]);
-            // [TMW-KW-SOURCE] req 2: provider counts — shows exactly how many rows each source contributed.
             $kw_source_counts_msg = '[TMW-KW-SOURCE] post_id=' . (int) $post->ID
                 . ' model_specific_count=' . count($model_specific_candidates)
                 . ' global_pool_candidates=' . $global_pool_count;
@@ -105,7 +102,6 @@ class ModelKeywordPack {
                 }
             }
 
-            // Also enrich with 1-2 top tag seeds (helps long-tail coverage without off-topic spam).
             foreach ($top_tags as $tag_slug) {
                 $tag_phrase = str_replace('-', ' ', (string)$tag_slug);
                 if ($tag_phrase === '') continue;
@@ -178,7 +174,6 @@ class ModelKeywordPack {
             $additional_pool[$kw] = max($additional_pool[$kw] ?? 0, KeywordLibrary::score($kw, $context));
         }
         foreach ($dfseo as $kw) {
-            // Only take shorter items into "additional".
             $wc = count(array_filter(preg_split('/\s+/u', trim($kw)), 'strlen'));
             if ($wc > 6) continue;
             $kw = self::normalize_keyword($kw);
@@ -194,10 +189,6 @@ class ModelKeywordPack {
             $fallback_additional = self::filter_keywords_against_classified_exclusions($fallback_additional, $classified_exclusions);
         }
 
-        // Model pages expose exactly 4 additional keywords. Approved classified
-        // personal model keywords are allowed to lead this list; generated
-        // fallbacks stay name-free so they do not repeat the exact model name or
-        // push density over the safe range later on.
         $additional_target = $is_model_page
             ? 4
             : self::dynamic_additional_count($additional_pool, $platform_slugs, $safe_tags);
@@ -264,44 +255,90 @@ class ModelKeywordPack {
             $longtail = self::pick_top($longtail_pool, 8, $primary, 8);
         }
 
-        // Patch 2.1: compute keyword confidence from real scoring data.
-        // Confidence = how well the final selected additional keywords scored.
         $confidence = self::compute_confidence($additional, $additional_pool, $platform_slugs, $safe_tags, DataForSEO::is_configured());
 
-        // Dedicated Rank Math chips: built from three priority sources.
-        // Priority order: (1) approved model-specific keywords, (2) approved global
-        // model pool keywords, (3) safe neutral deterministic fallback.
-        $rankmath_chips = [];
-        $approved_model_keywords = [];
+        // ── Rank Math extra keyword selection ─────────────────────────────────
+        //
+        // Priority order for model pages:
+        //   P1: approved personal/model-specific CSV keywords (explicit human sign-off)
+        //   P2: bucketed template-expanded model Rank Math extras (Git-approved, deterministic)
+        //   P3: filtered old global DB pool (safety-gated fallback)
+        //   P4: existing deterministic fallback chips
+        //
+        // P1 must never be overridden by P2, P3, or P4.
+        // P3 has a model-rankmath-specific safety gate blocking unsafe generic terms.
+        // ─────────────────────────────────────────────────────────────────────
+        $rankmath_chips                = [];
+        $approved_model_keywords       = [];
+        $template_expanded_chips       = [];
         $approved_global_pool_keywords = [];
-        $rankmath_fallback_candidates = [];
+        $rankmath_fallback_candidates  = [];
+
         if ($is_model_page) {
-            // Source 1: approved model-specific keywords, ordered by preference pattern.
+            // P1: approved personal/model-specific CSV keywords, ordered by preference.
             $approved_model_keywords = self::order_model_rankmath_candidates(
                 (array) ($classified_fragment['extra_focus_candidates'] ?? []),
                 $model_name
             );
-            // Source 2: approved Global Model Pool keywords (fill when model-specific is sparse).
-            $approved_global_pool_keywords = (array) ($classified_fragment['global_pool_candidates'] ?? []);
-            // Source 3: safe neutral deterministic fallback — no unsafe adult/platform-implied terms.
+
+            // P2: bucketed template-expanded model Rank Math extras.
+            // Git-approved config, deterministic, safe, varied across 3,500+ models.
+            $template_expanded_result = ModelKeywordPoolTemplateExpander::expand_for_pool_bucketed(
+                $model_name,
+                (int) $post->ID,
+                $platform_slugs,
+                4
+            );
+            $template_expanded_chips = (array) ($template_expanded_result['accepted'] ?? []);
+
+            // P3: filtered old global DB pool.
+            // Apply model-rankmath-only safety gate before using as fallback.
+            $raw_global_pool           = (array) ($classified_fragment['global_pool_candidates'] ?? []);
+            $approved_global_pool_keywords = self::filter_global_pool_for_model_rankmath($raw_global_pool);
+
+            // P4: existing deterministic fallback chips.
             $rankmath_fallback_candidates = self::build_rankmath_chips($model_name, $platform_slugs);
+
             if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
-                Logs::info('keywords', '[TMW-KW-PACK] global_pool_candidates=' . self::debug_json($approved_global_pool_keywords), [
+                $removed_count = count($raw_global_pool) - count($approved_global_pool_keywords);
+                $pool_gate_msg = '[TMW-KW-PACK] global_pool_after_model_rankmath_gate'
+                    . ' count=' . count($approved_global_pool_keywords)
+                    . ' removed=' . $removed_count;
+                Logs::info('keywords', $pool_gate_msg, [
+                    'post_id'      => (int) $post->ID,
+                    'count_after'  => count($approved_global_pool_keywords),
+                    'count_before' => count($raw_global_pool),
+                    'removed'      => $removed_count,
+                ]);
+                self::debug_log_direct($pool_gate_msg);
+
+                $tpl_chips_msg = '[TMW-KW-PACK] template_expanded_chips'
+                    . ' count=' . count($template_expanded_chips)
+                    . ' chips=' . self::debug_json($template_expanded_chips);
+                Logs::info('keywords', $tpl_chips_msg, [
                     'post_id' => (int) $post->ID,
-                    'global_pool_count' => count($approved_global_pool_keywords),
+                    'count'   => count($template_expanded_chips),
+                    'chips'   => $template_expanded_chips,
+                ]);
+                self::debug_log_direct($tpl_chips_msg);
+
+                Logs::info('keywords', '[TMW-KW-PACK] global_pool_candidates=' . self::debug_json($approved_global_pool_keywords), [
+                    'post_id'                => (int) $post->ID,
+                    'global_pool_count'      => count($approved_global_pool_keywords),
                     'global_pool_candidates' => $approved_global_pool_keywords,
-                    'global_pool_source' => 'classified_provider_global_pool_candidates',
+                    'global_pool_source'     => 'classified_provider_global_pool_candidates_filtered',
                 ]);
                 Logs::info('keywords', '[TMW-KW-PACK] fallback_candidates=' . self::debug_json($rankmath_fallback_candidates), [
-                    'post_id' => (int) $post->ID,
-                    'fallback_type' => 'rankmath_chips',
-                    'fallback_candidates' => $rankmath_fallback_candidates,
+                    'post_id'              => (int) $post->ID,
+                    'fallback_type'        => 'rankmath_chips',
+                    'fallback_candidates'  => $rankmath_fallback_candidates,
                 ]);
             }
-            // Merge by priority: model-specific first, then global pool, then fallback.
+
+            // Merge P1+P2 as preferred, P3+P4 as fallback.
             $rankmath_chips = self::merge_preferred_keywords(
-                array_merge($approved_model_keywords, $approved_global_pool_keywords),
-                $rankmath_fallback_candidates,
+                array_merge($approved_model_keywords, $template_expanded_chips),
+                array_merge($approved_global_pool_keywords, $rankmath_fallback_candidates),
                 12
             );
             $rankmath_chips = self::finalize_rankmath_additional_keywords(
@@ -309,11 +346,12 @@ class ModelKeywordPack {
                 $classified_exclusions,
                 $model_name
             );
-            // [TMW-KW-SOURCE] req 4: one log line per candidate — records source, selection outcome, skip reason.
+
             if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
                 self::debug_log_kw_source_candidates(
                     (int) $post->ID,
                     $approved_model_keywords,
+                    $template_expanded_chips,
                     $approved_global_pool_keywords,
                     $rankmath_fallback_candidates,
                     $rankmath_chips,
@@ -324,9 +362,7 @@ class ModelKeywordPack {
             }
         }
 
-        // [TMW-SEO-RMKW] PR-615 debug logging — active only when TMWSEO_DEBUG is true.
         if (defined('TMWSEO_DEBUG') && TMWSEO_DEBUG) {
-            // Determine fallback usage: how many of the final chips came from deterministic fallback.
             $fallback_lookup_lc = [];
             foreach ($rankmath_fallback_candidates as $kw) {
                 $clean = self::normalize_keyword((string) $kw);
@@ -347,7 +383,13 @@ class ModelKeywordPack {
                 . ' selected_focus="' . $primary . '"'
                 . ' selected_extras=' . self::debug_json($rankmath_chips)
                 . ' selected_extra_sources=' . self::debug_json(
-                    self::debug_rankmath_chip_sources($rankmath_chips, $approved_model_keywords, $rankmath_fallback_candidates, $approved_global_pool_keywords)
+                    self::debug_rankmath_chip_sources(
+                        $rankmath_chips,
+                        $approved_model_keywords,
+                        $rankmath_fallback_candidates,
+                        $approved_global_pool_keywords,
+                        $template_expanded_chips
+                    )
                 )
                 . ' fallback_used=' . ($fallback_used ? 'yes' : 'no')
                 . ' fallback_count=' . $fallback_count;
@@ -357,21 +399,29 @@ class ModelKeywordPack {
                 'selected_focus' => $primary,
                 'selected_focus_source' => self::debug_primary_source($primary, $classified_fragment, $model_name),
                 'selected_extras' => $rankmath_chips,
-                'selected_extra_sources' => self::debug_rankmath_chip_sources($rankmath_chips, $approved_model_keywords, $rankmath_fallback_candidates, $approved_global_pool_keywords),
-                'approved_model_keywords' => $approved_model_keywords,
+                'selected_extra_sources' => self::debug_rankmath_chip_sources(
+                    $rankmath_chips,
+                    $approved_model_keywords,
+                    $rankmath_fallback_candidates,
+                    $approved_global_pool_keywords,
+                    $template_expanded_chips
+                ),
+                'approved_model_keywords'       => $approved_model_keywords,
+                'template_expanded_chips'       => $template_expanded_chips,
                 'approved_global_pool_keywords' => $approved_global_pool_keywords,
-                'rankmath_fallback_candidates' => $rankmath_fallback_candidates,
+                'rankmath_fallback_candidates'  => $rankmath_fallback_candidates,
                 'fallback_used'  => $fallback_used,
                 'fallback_count' => $fallback_count,
             ]);
             self::debug_log_direct($kw_pack_selected_msg);
             Logs::info('keywords', '[TMW-SEO-RMKW] ModelKeywordPack::build completed', [
-                'post_id'                    => $post->ID,
-                'primary'                    => $primary,
-                'rankmath_additional'        => $rankmath_chips,
-                'extra_focus_from_db'        => $classified_fragment['extra_focus_candidates'] ?? [],
-                'global_pool_from_db'        => $classified_fragment['global_pool_candidates'] ?? [],
-                'rebuilt_model_pack'         => !empty($approved_model_keywords) || !empty($approved_global_pool_keywords),
+                'post_id'             => $post->ID,
+                'primary'             => $primary,
+                'rankmath_additional' => $rankmath_chips,
+                'extra_focus_from_db' => $classified_fragment['extra_focus_candidates'] ?? [],
+                'global_pool_from_db' => $classified_fragment['global_pool_candidates'] ?? [],
+                'template_expanded'   => $template_expanded_chips,
+                'rebuilt_model_pack'  => !empty($approved_model_keywords) || !empty($template_expanded_chips) || !empty($approved_global_pool_keywords),
             ]);
         }
 
@@ -420,13 +470,33 @@ class ModelKeywordPack {
         return $primary_lc !== '' && $primary_lc === $model_lc ? 'model_title_fallback' : 'keyword_context_fallback';
     }
 
-    /** @param string[] $chips @param string[] $approved @param string[] $fallback @param string[] $global_pool @return array<string,string> */
-    private static function debug_rankmath_chip_sources(array $chips, array $approved, array $fallback, array $global_pool = []): array {
+    /**
+     * @param string[] $chips
+     * @param string[] $approved
+     * @param string[] $fallback
+     * @param string[] $global_pool
+     * @param string[] $template_expanded
+     * @return array<string,string>
+     */
+    private static function debug_rankmath_chip_sources(
+        array $chips,
+        array $approved,
+        array $fallback,
+        array $global_pool = [],
+        array $template_expanded = []
+    ): array {
         $approved_lookup = [];
         foreach ($approved as $keyword) {
             $clean = self::normalize_keyword((string) $keyword);
             if ($clean !== '') {
                 $approved_lookup[strtolower($clean)] = true;
+            }
+        }
+        $template_lookup = [];
+        foreach ($template_expanded as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean !== '') {
+                $template_lookup[strtolower($clean)] = true;
             }
         }
         $global_pool_lookup = [];
@@ -452,8 +522,10 @@ class ModelKeywordPack {
             $key = strtolower($clean);
             if (isset($approved_lookup[$key])) {
                 $sources[$clean] = 'classified_model_specific_approved';
+            } elseif (isset($template_lookup[$key])) {
+                $sources[$clean] = 'template_expanded_approved';
             } elseif (isset($global_pool_lookup[$key])) {
-                $sources[$clean] = 'global_pool_approved';
+                $sources[$clean] = 'global_pool_approved_filtered';
             } elseif (isset($fallback_lookup[$key])) {
                 $sources[$clean] = 'rankmath_generated_fallback';
             } else {
@@ -463,16 +535,6 @@ class ModelKeywordPack {
         return $sources;
     }
 
-    /**
-     * Write a message directly to the WordPress debug log via error_log().
-     *
-     * Fires when any of TMW_DEBUG, TMWSEO_DEBUG, or WP_DEBUG_LOG is truthy so that
-     * traces reach wp-content/debug.log even when the internal Logs::info() pipeline
-     * does not forward to that file.  Call this alongside every important Logs::info()
-     * trace that must appear in debug.log for live-site diagnosis.
-     *
-     * Debug-only helper — no effect on keyword selection behaviour.
-     */
     private static function debug_log_direct(string $message): void {
         if (
             (defined('TMW_DEBUG') && TMW_DEBUG)
@@ -483,13 +545,7 @@ class ModelKeywordPack {
         }
     }
 
-    /**
-     * Return the known platform slugs (from platform_keyword_label map) that are NOT active
-     * for this model. Used only for [TMW-KW-SOURCE] start context logging.
-     *
-     * @param  string[] $active_slugs
-     * @return string[]
-     */
+    /** @param string[] $active_slugs @return string[] */
     private static function debug_inactive_platform_slugs(array $active_slugs): array {
         $known = ['livejasmin', 'stripchat', 'myfreecams', 'camsoda', 'cam4', 'chaturbate', 'bonga'];
         $active_lc = array_fill_keys(array_map('strtolower', $active_slugs), true);
@@ -497,19 +553,10 @@ class ModelKeywordPack {
     }
 
     /**
-     * Emit one [TMW-KW-SOURCE] candidate log line per chip candidate.
-     *
-     * Covers every keyword that was presented to the merge/finalize pipeline:
-     * - model-specific approved rows
-     * - global pool approved rows
-     * - deterministic fallback chips
-     * - hypothetical inactive-platform chips (logged as skipped with platform_inactive)
-     *
-     * Does NOT re-run selection logic — observes only.
-     *
      * @param string[]          $approved_model     model-specific extra_focus_candidates after ordering
-     * @param string[]          $global_pool        global_pool_candidates from provider
-     * @param string[]          $fallback            build_rankmath_chips() output (pre-merge)
+     * @param string[]          $template_expanded  template-expanded bucketed chips (P2)
+     * @param string[]          $global_pool        global_pool_candidates from provider (filtered, P3)
+     * @param string[]          $fallback            build_rankmath_chips() output (P4)
      * @param string[]          $final_chips        rankmath_chips after finalize (the 4 chosen)
      * @param array<string,bool>$exclusions         classified_exclusion_lookup
      * @param string            $primary            the selected primary focus keyword
@@ -518,6 +565,7 @@ class ModelKeywordPack {
     private static function debug_log_kw_source_candidates(
         int    $post_id,
         array  $approved_model,
+        array  $template_expanded,
         array  $global_pool,
         array  $fallback,
         array  $final_chips,
@@ -527,7 +575,6 @@ class ModelKeywordPack {
     ): void {
         $primary_lc = strtolower(self::normalize_keyword($primary));
 
-        // Build a fast lookup of what was actually selected.
         $selected_lc = [];
         foreach ($final_chips as $chip) {
             $key = strtolower(self::normalize_keyword((string) $chip));
@@ -536,7 +583,6 @@ class ModelKeywordPack {
             }
         }
 
-        // Helper: determine skip reason for a keyword not in $selected_lc.
         $skip_reason = static function (string $kw_lc) use ($exclusions, $primary_lc, $selected_lc): string {
             if (isset($exclusions[$kw_lc])) {
                 return 'classified_excluded';
@@ -547,7 +593,6 @@ class ModelKeywordPack {
             return 'cap_exceeded';
         };
 
-        // Helper: emit one candidate log line.
         $log_candidate = static function (string $keyword, string $source) use (
             $post_id, $selected_lc, $skip_reason
         ): void {
@@ -574,32 +619,35 @@ class ModelKeywordPack {
             self::debug_log_direct($msg);
         };
 
-        // 1. Model-specific approved rows (ordered by preference).
+        // 1. Model-specific approved rows (P1).
         foreach ($approved_model as $kw) {
             $log_candidate((string) $kw, 'model_specific_approved');
         }
 
-        // 2. Global pool approved rows.
-        foreach ($global_pool as $kw) {
-            $log_candidate((string) $kw, 'global_pool_approved');
+        // 2. Template-expanded bucketed chips (P2).
+        foreach ($template_expanded as $kw) {
+            $log_candidate((string) $kw, 'template_expanded_approved');
         }
 
-        // 3. Deterministic fallback chips.
+        // 3. Global pool approved rows, safety-filtered (P3).
+        foreach ($global_pool as $kw) {
+            $log_candidate((string) $kw, 'global_pool_approved_filtered');
+        }
+
+        // 4. Deterministic fallback chips (P4).
         foreach ($fallback as $kw) {
             $log_candidate((string) $kw, 'deterministic_fallback');
         }
 
-        // 4. Hypothetical chips for inactive platforms — logged as skipped/platform_inactive.
-        // These are the chips build_rankmath_chips() would have generated had the platform been active.
+        // 5. Hypothetical chips for inactive platforms — logged as skipped/platform_inactive.
         $active_lc = array_fill_keys(array_map('strtolower', $active_platforms), true);
         $known_platforms = ['livejasmin', 'stripchat', 'myfreecams', 'camsoda', 'cam4', 'chaturbate', 'bonga'];
         $name_lc = strtolower(self::normalize_keyword($primary !== '' ? $primary : ''));
         if ($name_lc !== '') {
             foreach ($known_platforms as $slug) {
                 if (isset($active_lc[$slug])) {
-                    continue; // active — already covered by fallback or model-specific
+                    continue;
                 }
-                // Generate the hypothetical chip this platform would have contributed.
                 $label = self::platform_keyword_label($slug);
                 if ($label === '') {
                     continue;
@@ -663,14 +711,10 @@ class ModelKeywordPack {
             return;
         }
 
-        // Mirror the cascading fallback order in fetch_global_pool_candidates().
-        // Run a COUNT(*) for every applicable strategy and report all results so
-        // the log shows exactly which strategy the provider will select at runtime.
         $strategy_results = [];
         $selected_strategy = '';
         $selected_count    = 0;
 
-        // Strategy 1: model_keyword_usage_scope = 'global_model_pool'.
         if (isset($column_lookup['model_keyword_usage_scope'])) {
             $cnt = (int) $wpdb->get_var($wpdb->prepare(
                 'SELECT COUNT(*) FROM ' . $table
@@ -686,7 +730,6 @@ class ModelKeywordPack {
             $strategy_results['s1_scope_column'] = 'column_absent';
         }
 
-        // Strategy 2: target_type + target_name.
         if (isset($column_lookup['target_type'], $column_lookup['target_name'])) {
             $cnt = (int) $wpdb->get_var($wpdb->prepare(
                 'SELECT COUNT(*) FROM ' . $table
@@ -702,7 +745,6 @@ class ModelKeywordPack {
             $strategy_results['s2_target_type_name'] = 'columns_absent';
         }
 
-        // Strategy 3: target_type + target_slug.
         if (isset($column_lookup['target_type'], $column_lookup['target_slug'])) {
             $cnt = (int) $wpdb->get_var($wpdb->prepare(
                 'SELECT COUNT(*) FROM ' . $table
@@ -726,9 +768,6 @@ class ModelKeywordPack {
             'global_pool_usage'=> 'loaded_via_classified_provider_global_pool_candidates',
         ]);
 
-        // [TMW-KW-SOURCE] req 3: global pool detection — three strategies, no entity_id=0.
-        // Values are row counts; 0 means the strategy was applicable but found nothing;
-        // absent key means the required column does not exist on this schema version.
         $kw_source_strategy_counts = [];
         if (isset($column_lookup['model_keyword_usage_scope'])) {
             $kw_source_strategy_counts['scope'] = is_int($strategy_results['s1_scope_column']) ? $strategy_results['s1_scope_column'] : 0;
@@ -852,12 +891,14 @@ class ModelKeywordPack {
             $available[$key] = $clean;
         }
 
+        // Preferred ordering for model-specific CSV keywords.
+        // Note: porn-related patterns removed — they must not be promoted by fallback ordering.
+        // If an approved personal CSV row contains those terms, it still flows through the
+        // existing personal CSV gate in ClassifiedModelKeywordProvider but is not preferentially ordered.
         $preferred_keys = [
             $model_lc . ' livejasmin',
             'livejasmin ' . $model_lc,
             $model_lc . ' live',
-            $model_lc . ' livejasmin porn',
-            $model_lc . ' porn',
         ];
 
         $ordered = [];
@@ -930,20 +971,64 @@ class ModelKeywordPack {
     }
 
     /**
-     * Determine how many additional keywords to assign based on data richness.
+     * Safety gate for old global DB pool keywords entering model Rank Math slots.
      *
-     * Replaces the old hardcoded "always 4" rule.
+     * Applied only to $approved_global_pool_keywords (P3). Never applied to
+     * personal/model-specific CSV keywords (P1) — those have explicit human sign-off.
+     * Does not globally delete or reclassify these keywords in the DB.
+     * Video and category pool policies are separate and not affected here.
      *
-     * Minimum: 2 (even thin models get at least 2 compound keywords).
-     * Maximum: 6 (rich models with many tags/platforms/DFSEO results).
-     *
-     * @param array<string,int> $pool     Scored keyword pool.
-     * @param string[]          $platforms Active platform slugs.
-     * @param string[]          $tags      Safe tag slugs.
-     * @return int
+     * @param  string[] $keywords Raw global pool keywords.
+     * @return string[] Filtered keywords safe for model Rank Math slots.
      */
+    private static function filter_global_pool_for_model_rankmath(array $keywords): array {
+        $exact_blocked = [
+            'adult video chat',
+            'video chat room',
+            'live cam show',
+            'webcam model',
+            'cam girl',
+            'hot model',
+            'sexy model',
+        ];
+        $exact_lookup = array_fill_keys($exact_blocked, true);
+
+        $fragment_blocked = [
+            'porn', 'sex', 'xxx', 'nude', 'underage',
+            'teen', 'teens', 'schoolgirl', 'school girl', 'virgin', 'young',
+        ];
+
+        $out = [];
+        foreach ($keywords as $keyword) {
+            $clean = self::normalize_keyword((string) $keyword);
+            if ($clean === '') { continue; }
+            $lc = strtolower($clean);
+
+            // Exact match block.
+            if (isset($exact_lookup[$lc])) { continue; }
+
+            // Word-boundary fragment block.
+            $blocked = false;
+            foreach ($fragment_blocked as $fragment) {
+                if (preg_match(
+                    '/(?:^|\s)' . preg_quote($fragment, '/') . '(?:\s|$)/u',
+                    $lc
+                ) === 1) {
+                    $blocked = true;
+                    break;
+                }
+            }
+            if ($blocked) { continue; }
+
+            $out[] = $clean;
+        }
+
+        return self::dedupe_keywords($out);
+    }
+
+    /** @return int */
     private static function dynamic_additional_count(array $pool, array $platforms, array $tags): int {
-        $quality_threshold = 30; // minimum score to count as a viable candidate
+        $quality_threshold = 30;
         $viable = 0;
         foreach ($pool as $score) {
             if ((int) $score >= $quality_threshold) {
@@ -951,7 +1036,6 @@ class ModelKeywordPack {
             }
         }
 
-        // Base count from viable pool size.
         if ($viable >= 12) {
             $count = 6;
         } elseif ($viable >= 8) {
@@ -964,12 +1048,10 @@ class ModelKeywordPack {
             $count = 2;
         }
 
-        // Bonus for multi-platform models.
         if (count($platforms) >= 3) {
             $count = min(6, $count + 1);
         }
 
-        // Bonus for tag-rich models.
         if (count($tags) >= 6) {
             $count = min(6, $count + 1);
         }
@@ -978,27 +1060,18 @@ class ModelKeywordPack {
     }
 
     /**
-     * Compute keyword confidence from real scoring data.
-     *
-     * Patch 2.1: confidence reflects how strong the keyword assignment actually is.
-     * NOT a placeholder — derived from: selected keyword scores, data source richness,
-     * platform count, tag count.
-     *
-     * Scale: 0–100 (float).
-     *
-     * @param string[]          $selected   Chosen additional keywords.
-     * @param array<string,int> $pool       Full scored keyword pool.
-     * @param string[]          $platforms  Active platform slugs.
-     * @param string[]          $tags       Safe tag slugs.
-     * @param bool              $has_dfseo  Whether DataForSEO was available.
+     * @param string[]          $selected
+     * @param array<string,int> $pool
+     * @param string[]          $platforms
+     * @param string[]          $tags
+     * @param bool              $has_dfseo
      * @return float
      */
     private static function compute_confidence(array $selected, array $pool, array $platforms, array $tags, bool $has_dfseo): float {
         if (empty($selected)) {
-            return 10.0; // bare minimum — we have a primary keyword but nothing else
+            return 10.0;
         }
 
-        // Average score of selected keywords (max possible ~80 from KeywordLibrary::score).
         $scores = [];
         $pool_lower = [];
         foreach ($pool as $kw => $score) {
@@ -1010,13 +1083,10 @@ class ModelKeywordPack {
         }
 
         $avg_score = count($scores) > 0 ? array_sum($scores) / count($scores) : 0;
-
-        // Normalize avg_score from 0–80 range to 0–50 contribution.
         $score_component = min(50.0, ($avg_score / 80.0) * 50.0);
 
-        // Data richness bonuses.
         $richness = 0.0;
-        if ($has_dfseo)              $richness += 15.0; // real demand data available
+        if ($has_dfseo)              $richness += 15.0;
         if (count($platforms) >= 1)  $richness += 10.0;
         if (count($platforms) >= 3)  $richness += 5.0;
         if (count($tags) >= 3)       $richness += 10.0;
@@ -1029,13 +1099,8 @@ class ModelKeywordPack {
     /** @param string[] $tags @return string[] */
     private static function top_model_tags(array $tags): array {
         $generic = [
-            'girl' => true,
-            'cam' => true,
-            'webcam' => true,
-            'live' => true,
-            'chat' => true,
-            'model' => true,
-            'show' => true,
+            'girl' => true, 'cam' => true, 'webcam' => true,
+            'live' => true, 'chat' => true, 'model' => true, 'show' => true,
         ];
 
         $scored = [];
@@ -1045,13 +1110,10 @@ class ModelKeywordPack {
             $phrase = str_replace('-', ' ', $tag_slug);
             $len = strlen($phrase);
             if ($len < 3) continue;
-
             $is_generic = isset($generic[strtolower($phrase)]);
             $scored[] = [
-                'tag' => $tag_slug,
-                'len' => $len,
-                'generic' => $is_generic ? 1 : 0,
-                'idx' => (int)$idx,
+                'tag' => $tag_slug, 'len' => $len,
+                'generic' => $is_generic ? 1 : 0, 'idx' => (int)$idx,
             ];
         }
 
@@ -1084,7 +1146,6 @@ class ModelKeywordPack {
             $p = isset($r['platform']) ? sanitize_key((string)$r['platform']) : '';
             if ($p !== '') $slugs[] = $p;
         }
-        // If primary is set but there is no row yet, keep it.
         $primary = sanitize_key((string)get_post_meta($model_id, '_tmwseo_platform_primary', true));
         if ($primary !== '') $slugs[] = $primary;
         return array_values(array_unique(array_filter($slugs, 'strlen')));
@@ -1102,19 +1163,14 @@ class ModelKeywordPack {
                 $slug = sanitize_key((string)$t->slug);
                 if ($slug === '') continue;
                 if (in_array($slug, ['uncategorized'], true)) continue;
-                // Block super risky/irrelevant labels.
                 if (preg_match('/\b(teen|underage|school)\b/i', $slug)) continue;
                 $out[] = $slug;
             }
         }
-        // Prefer tag-like terms.
         $out = array_values(array_unique($out));
-
-        // Keep only tags that have a keyword pack directory.
         $out = array_values(array_filter($out, function($slug){
             return KeywordLibrary::has_category($slug);
         }));
-
         return $out;
     }
 
@@ -1176,9 +1232,7 @@ class ModelKeywordPack {
 
         foreach (array_slice($tags, 0, 2) as $tag) {
             $tag_phrase = trim(str_replace('-', ' ', (string) $tag));
-            if ($tag_phrase === '') {
-                continue;
-            }
+            if ($tag_phrase === '') { continue; }
             $out[] = $tag_phrase . ' chat ideas';
             $out[] = $tag_phrase . ' chat style';
         }
@@ -1187,14 +1241,9 @@ class ModelKeywordPack {
     }
 
 
-    /**
-     * @param array<string,int> $pool
-     * @return array<string,int>
-     */
+    /** @param array<string,int> $pool @return array<string,int> */
     private static function filter_scored_pool_for_model_page(array $pool): array {
-        if (empty($pool)) {
-            return [];
-        }
+        if (empty($pool)) { return []; }
 
         $allowed = PageTypeKeywordFilter::filter_for_model_page(array_keys($pool));
         $allowed_keys = [];
@@ -1205,12 +1254,8 @@ class ModelKeywordPack {
         $filtered = [];
         foreach ($pool as $kw => $score) {
             $clean = self::normalize_keyword((string) $kw);
-            if ($clean === '') {
-                continue;
-            }
-            if (!isset($allowed_keys[strtolower($clean)])) {
-                continue;
-            }
+            if ($clean === '') { continue; }
+            if (!isset($allowed_keys[strtolower($clean)])) { continue; }
             $filtered[$clean] = max((int) ($filtered[$clean] ?? 0), (int) $score);
         }
 
@@ -1238,9 +1283,7 @@ class ModelKeywordPack {
         $filtered = [];
         foreach ($pool as $kw => $score) {
             $kw = self::normalize_keyword((string) $kw);
-            if ($kw === '' || self::keyword_contains_name($kw, $name)) {
-                continue;
-            }
+            if ($kw === '' || self::keyword_contains_name($kw, $name)) { continue; }
             $filtered[$kw] = max((int) ($filtered[$kw] ?? 0), (int) $score);
         }
 
@@ -1252,9 +1295,7 @@ class ModelKeywordPack {
                 continue;
             }
             $ordered[] = $clean;
-            if (count($ordered) >= $count) {
-                break;
-            }
+            if (count($ordered) >= $count) { break; }
         }
 
         return array_slice($ordered, 0, $count);
@@ -1262,36 +1303,25 @@ class ModelKeywordPack {
 
     private static function is_tag_only_query(string $keyword, string $name, array $tags): bool {
         if (self::keyword_contains_name($keyword, $name)) return false;
-
         $keyword_l = strtolower($keyword);
         foreach (array_slice($tags, 0, 2) as $tag_slug) {
             $tag_phrase = trim(strtolower(str_replace('-', ' ', (string)$tag_slug)));
             if ($tag_phrase === '') continue;
-            if (strpos($keyword_l, $tag_phrase) !== false) {
-                return true;
-            }
+            if (strpos($keyword_l, $tag_phrase) !== false) { return true; }
         }
-
         return false;
     }
 
     /**
-     * Build Rank Math-specific keyword chips for a model page.
-     *
-     * Chips are always model-name-led (e.g. "Arianna webcam"),
-     * varied deterministically per post ID, and safe for Rank Math.
-     * Replaces the old name-free generic fallback as the Rank Math chip source.
+     * Build Rank Math-specific keyword chips for a model page (P4 fallback).
      *
      * @param string   $name          Exact model name.
-
      * @param string[] $platform_slugs Active platform slugs for optional platform chip.
      * @return string[]               Up to 4 chips.
      */
     private static function build_rankmath_chips(string $name, array $platform_slugs): array {
         $clean_name = self::normalize_keyword($name);
-        if ($clean_name === '') {
-            return [];
-        }
+        if ($clean_name === '') { return []; }
 
         $name_lc = function_exists('mb_strtolower') ? mb_strtolower($clean_name, 'UTF-8') : strtolower($clean_name);
         $platform_keys = array_values(array_unique(array_filter(array_map(
@@ -1301,9 +1331,6 @@ class ModelKeywordPack {
         $has_livejasmin = in_array('livejasmin', $platform_keys, true) || in_array('jasmin', $platform_keys, true);
         $has_camsoda = in_array('camsoda', $platform_keys, true);
 
-        // PR-683: Deterministic fallback must NOT emit unapproved platform-adult chips.
-        // "livejasmin porn" and "porn" are excluded from fallback; they may only appear via
-        // explicitly approved rows in the keyword pool (model-specific or global pool).
         $chips = [];
         if ($has_livejasmin) {
             $chips[] = $name_lc . ' livejasmin';
@@ -1313,17 +1340,12 @@ class ModelKeywordPack {
         }
 
         foreach ($platform_keys as $platform_key) {
-            if ($platform_key === 'livejasmin' || $platform_key === 'jasmin') {
-                continue;
-            }
+            if ($platform_key === 'livejasmin' || $platform_key === 'jasmin') { continue; }
             $label = self::platform_keyword_label($platform_key);
-            if ($label === '') {
-                continue;
-            }
+            if ($label === '') { continue; }
             $chips[] = $name_lc . ' ' . (function_exists('mb_strtolower') ? mb_strtolower($label, 'UTF-8') : strtolower($label));
         }
 
-        // PR-683: Safe neutral fallback chips — no adult/platform terms.
         foreach ([
             'profile',
             'live cam',
@@ -1339,19 +1361,11 @@ class ModelKeywordPack {
         $filtered = [];
         foreach (self::dedupe_keywords($chips) as $chip) {
             $chip_lc = function_exists('mb_strtolower') ? mb_strtolower($chip, 'UTF-8') : strtolower($chip);
-            if ($chip_lc === $name_lc) {
-                continue;
-            }
+            if ($chip_lc === $name_lc) { continue; }
             $filtered[] = $chip;
-            if (count($filtered) >= 4) {
-                break;
-            }
+            if (count($filtered) >= 4) { break; }
         }
 
-        // PR-615: Do NOT apply PageTypeKeywordFilter here. Approved classified keywords
-        // (e.g. "anisyia livejasmin porn") are legitimate for LiveJasmin-platform pages
-        // and must not be stripped by the UNSAFE_TERMS filter. finalize_rankmath_additional_keywords
-        // handles deduplication and primary removal without running the unsafe filter.
         return array_slice($filtered, 0, 4);
     }
 
@@ -1359,27 +1373,20 @@ class ModelKeywordPack {
         $platform = sanitize_key($platform);
         $map = [
             'livejasmin' => 'LiveJasmin',
-            'stripchat' => 'Stripchat',
+            'stripchat'  => 'Stripchat',
             'myfreecams' => 'MyFreeCams',
-            'camsoda' => 'CamSoda',
-            'cam4' => 'CAM4',
+            'camsoda'    => 'CamSoda',
+            'cam4'       => 'CAM4',
             'chaturbate' => 'Chaturbate',
-            'bonga' => 'Bonga',
+            'bonga'      => 'Bonga',
         ];
-        if (isset($map[$platform])) {
-            return $map[$platform];
-        }
-
+        if (isset($map[$platform])) { return $map[$platform]; }
         $platform = trim(str_replace(['-', '_'], ' ', $platform));
         return $platform !== '' ? ucwords($platform) : '';
     }
 
-    /**
-     * @param array<string,int> $pool
-     * @return string[]
-     */
+    /** @param array<string,int> $pool @return string[] */
     private static function pick_top(array $pool, int $count, string $name, int $max_non_name = PHP_INT_MAX): array {
-        // Normalize pool keys.
         $scored = [];
         foreach ($pool as $kw => $score) {
             $kw = self::normalize_keyword((string)$kw);
@@ -1392,7 +1399,6 @@ class ModelKeywordPack {
             }
         }
 
-        // Sort by score.
         uasort($scored, function($a, $b){
             $sa = (int)($a['score'] ?? 0);
             $sb = (int)($b['score'] ?? 0);
@@ -1403,7 +1409,6 @@ class ModelKeywordPack {
         $picked = [];
         $name_l = strtolower($name);
 
-        // First pass: try to take those containing the name.
         foreach ($scored as $item) {
             if (count($picked) >= $count) break;
             $kw = (string)($item['kw'] ?? '');
@@ -1412,7 +1417,6 @@ class ModelKeywordPack {
             }
         }
 
-        // Second pass: fill remaining with best-scoring.
         $non_name_added = 0;
         foreach ($scored as $item) {
             if (count($picked) >= $count) break;
@@ -1431,13 +1435,10 @@ class ModelKeywordPack {
     private static function normalize_keyword(string $keyword): string {
         $keyword = KeywordLibrary::clean_keyword($keyword);
         if ($keyword === '') return '';
-
         $parts = preg_split('/\s+/u', trim($keyword));
         $parts = is_array($parts) ? array_values(array_filter($parts, 'strlen')) : [];
         if (empty($parts)) return '';
-        if (count($parts) > 7) {
-            $parts = array_slice($parts, 0, 7);
-        }
+        if (count($parts) > 7) { $parts = array_slice($parts, 0, 7); }
         return trim(preg_replace('/\s+/u', ' ', implode(' ', $parts)));
     }
 
@@ -1457,20 +1458,16 @@ class ModelKeywordPack {
     }
 
     /** @param string[] $additional */
-    private static function debug_assert_model_additional_keywords(array $additional, string $name): void {
-        if (!(defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)) {
-            return;
-        }
-
-        foreach ($additional as $i => $kw) {
-            $kw = (string) $kw;
-            if ($kw !== '' && self::keyword_contains_name($kw, $name)) {
+private static function debug_assert_model_additional_keywords(array $additional, string $name): void {
+    if (!(defined('TMWSEO_DEBUG') && TMWSEO_DEBUG)) { return; }
+    foreach ($additional as $i => $kw) {
+        $kw = (string) $kw;
+        if ($kw !== '' && self::keyword_contains_name($kw, $name)) {
+            if (class_exists(Logs::class) && method_exists(Logs::class, 'warn')) {
                 Logs::warn('keywords', '[TMW-KEYWORDS] Model additional keyword still contains exact name', [
-                    'index' => $i,
-                    'keyword' => $kw,
-                    'name' => $name,
+                    'index' => $i, 'keyword' => $kw, 'name' => $name,
                 ]);
             }
         }
     }
-}
+}}

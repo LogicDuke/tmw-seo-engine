@@ -2,9 +2,11 @@
 /**
  * Global Model Keyword Pool — Template Pattern Config
  *
- * APPROVAL: Set approval_status = 'approved' and merge the PR. The merged PR is the operator approval.
+ * APPROVAL: Operator approves by merging this file with approval_status = 'approved'.
  * Pending templates return warnings only and are never auto-expanded.
- * Personal CSV keywords continue via ClassifiedModelKeywordProvider — unchanged.
+ *
+ * BUCKET VALUES: platform_entity | live_cam | profile_discovery | chat_conversion | body_only
+ * BUCKET_PRIORITY: 1 = preferred compound template, 2 = fallback / single-word suffix
  *
  * POOLS:
  *   model_rankmath_pool    Rank Math extra slots (lowercase expansion)
@@ -20,7 +22,7 @@
  *   porn, sex, xxx, nude, underage, teen, teens, schoolgirl, school girl, virgin, young
  *
  * @package TMWSEO\Engine\Keywords
- * @since   5.9.2
+ * @since   5.9.3
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
@@ -40,6 +42,7 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => 'livejasmin', 'volume_policy' => 'always',
+        'bucket' => 'platform_entity', 'bucket_priority' => 1,
         'notes' => 'Vol: anisyia livejasmin=1900; livejasmin=1830000. LJ platform gated.',
     ],
     [
@@ -53,6 +56,7 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => 'livejasmin', 'volume_policy' => 'always',
+        'bucket' => 'platform_entity', 'bucket_priority' => 1,
         'notes' => 'Vol: livejasmin anisyia=170. Reversed order.',
     ],
     [
@@ -66,7 +70,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: anisyia live=320; live cam=246000.',
+        'bucket' => 'live_cam', 'bucket_priority' => 2,
+        'notes' => 'Single-word suffix. Vol: anisyia live=320; live cam=246000. Fallback only within bucket.',
     ],
     [
         'id' => 'tmw-tpl-004', 'template' => '{model} cam',
@@ -79,7 +84,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: anisyia cam=320; cam model=14800.',
+        'bucket' => 'live_cam', 'bucket_priority' => 2,
+        'notes' => 'Single-word suffix. Vol: anisyia cam=320; cam model=14800. Fallback only within bucket.',
     ],
     [
         'id' => 'tmw-tpl-005', 'template' => '{model} webcam',
@@ -92,7 +98,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: live webcam=246000; webcam model=18100.',
+        'bucket' => 'live_cam', 'bucket_priority' => 2,
+        'notes' => 'Single-word suffix. Vol: live webcam=246000; webcam model=18100. Fallback only within bucket.',
     ],
     [
         'id' => 'tmw-tpl-006', 'template' => '{model} live cam',
@@ -105,7 +112,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: live cam=246000; live cam model=1600.',
+        'bucket' => 'live_cam', 'bucket_priority' => 1,
+        'notes' => 'Preferred compound. Vol: live cam=246000; live cam model=1600.',
     ],
     [
         'id' => 'tmw-tpl-007', 'template' => '{model} live webcam',
@@ -118,7 +126,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: live webcam=246000.',
+        'bucket' => 'live_cam', 'bucket_priority' => 1,
+        'notes' => 'Preferred compound. Vol: live webcam=246000.',
     ],
 
     // ── GROUP B: Chat / Profile ───────────────────────────────────────────────
@@ -134,7 +143,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: private cam=8100; adult cam chat=18100. Cross-pool.',
+        'bucket' => 'chat_conversion', 'bucket_priority' => 1,
+        'notes' => 'Preferred. Vol: private cam=8100; adult cam chat=18100.',
     ],
     [
         'id' => 'tmw-tpl-009', 'template' => '{model} live chat',
@@ -147,7 +157,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: adult video chat=135000.',
+        'bucket' => 'chat_conversion', 'bucket_priority' => 1,
+        'notes' => 'Preferred. Vol: adult video chat=135000.',
     ],
     [
         'id' => 'tmw-tpl-010', 'template' => '{model} webcam chat',
@@ -160,7 +171,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: adult cam chat=18100.',
+        'bucket' => 'chat_conversion', 'bucket_priority' => 2,
+        'notes' => 'Secondary. Vol: adult cam chat=18100.',
     ],
     [
         'id' => 'tmw-tpl-011', 'template' => '{model} webcam profile',
@@ -173,7 +185,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: webcam model=18100; model profile=1600.',
+        'bucket' => 'profile_discovery', 'bucket_priority' => 1,
+        'notes' => 'Preferred. Vol: webcam model=18100; model profile=1600.',
     ],
     [
         'id' => 'tmw-tpl-012', 'template' => '{model} livejasmin profile',
@@ -186,7 +199,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => 'livejasmin', 'volume_policy' => 'always',
-        'notes' => 'Vol: livejasmin profile=10; livejasmin model=3600. LJ gated.',
+        'bucket' => 'platform_entity', 'bucket_priority' => 1,
+        'notes' => 'LJ gated profile. Vol: livejasmin profile=10; livejasmin model=3600.',
     ],
     [
         'id' => 'tmw-tpl-013', 'template' => '{model} cam profile',
@@ -199,7 +213,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: cam model=14800; model profile=1600.',
+        'bucket' => 'profile_discovery', 'bucket_priority' => 1,
+        'notes' => 'Preferred. Vol: cam model=14800; model profile=1600.',
     ],
     [
         'id' => 'tmw-tpl-014', 'template' => '{model} model profile',
@@ -212,7 +227,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: model profile bio=18100. Expands e.g. "anisyia model profile".',
+        'bucket' => 'profile_discovery', 'bucket_priority' => 1,
+        'notes' => 'Preferred. Vol: model profile bio=18100.',
     ],
     [
         'id' => 'tmw-tpl-015', 'template' => '{model} verified profile',
@@ -225,7 +241,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => true,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Body/H3 only. Editorial phrase, not a standard search keyword.',
+        'bucket' => 'profile_discovery', 'bucket_priority' => 2,
+        'notes' => 'Body/H3 only. Not a standard search keyword.',
     ],
 
     // ── GROUP C: Room ─────────────────────────────────────────────────────────
@@ -241,7 +258,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: online cam room=90.',
+        'bucket' => 'live_cam', 'bucket_priority' => 2,
+        'notes' => 'Secondary. Vol: online cam room=90.',
     ],
     [
         'id' => 'tmw-tpl-017', 'template' => '{model} cam room',
@@ -254,7 +272,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: online cam room=90; private cam room=70.',
+        'bucket' => 'live_cam', 'bucket_priority' => 2,
+        'notes' => 'Secondary. Vol: online cam room=90; private cam room=70.',
     ],
     [
         'id' => 'tmw-tpl-018', 'template' => '{model} private room',
@@ -267,7 +286,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => true,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Body only. Cam-platform jargon; not a typical search keyword.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'Body only. Cam-platform jargon.',
     ],
 
     // ── GROUP D: Watch / Discovery ────────────────────────────────────────────
@@ -283,7 +303,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Good H2 heading. Root: live cam=246000.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'H2/meta/body only. Root: live cam=246000.',
     ],
     [
         'id' => 'tmw-tpl-020', 'template' => 'watch {model} cam',
@@ -296,7 +317,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Watch/cam H2 variant.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'H2/body only.',
     ],
     [
         'id' => 'tmw-tpl-021', 'template' => 'watch {model} webcam',
@@ -309,6 +331,7 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
         'notes' => 'Body only.',
     ],
     [
@@ -322,7 +345,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Good H2. Root: live cam=246000.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'H2/meta/body only. Root: live cam=246000.',
     ],
 
     // ── GROUP E: Model Type ───────────────────────────────────────────────────
@@ -338,7 +362,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: cam model=14800; livejasmin cam model=70.',
+        'bucket' => 'live_cam', 'bucket_priority' => 1,
+        'notes' => 'Preferred compound. Vol: cam model=14800; livejasmin cam model=70.',
     ],
     [
         'id' => 'tmw-tpl-024', 'template' => '{model} webcam model',
@@ -351,7 +376,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: webcam model=18100; livejasmin webcam model=70.',
+        'bucket' => 'live_cam', 'bucket_priority' => 1,
+        'notes' => 'Preferred compound. Vol: webcam model=18100.',
     ],
     [
         'id' => 'tmw-tpl-025', 'template' => '{model} live cam model',
@@ -364,23 +390,25 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: live cam model=1600.',
+        'bucket' => 'live_cam', 'bucket_priority' => 1,
+        'notes' => 'Preferred compound. Vol: live cam model=1600.',
     ],
 
-    // ── GROUP F: Profile / About ──────────────────────────────────────────────
+    // ── GROUP F: Profile / About — tmw-tpl-026 DOWNGRADED ─────────────────────
 
     [
         'id' => 'tmw-tpl-026', 'template' => '{model} profile',
-        'pool_targets' => [ 'model_rankmath_pool', 'model_h2_pool', 'model_h3_faq_pool', 'model_body_pool', 'model_meta_pool' ],
-        'roles' => [ 'rankmath_keyword', 'h2_heading', 'h3_heading', 'body_keyword', 'meta_keyword' ],
+        'pool_targets' => [ 'model_h2_pool', 'model_h3_faq_pool', 'model_body_pool', 'model_meta_pool' ],
+        'roles' => [ 'h2_heading', 'h3_heading', 'body_keyword', 'meta_keyword' ],
         'approval_status' => 'approved', 'approved_by' => 'tmw-operator',
-        'rankmath_safe' => true,  'h2_safe' => true,  'h3_safe' => true,
+        'rankmath_safe' => false, 'h2_safe' => true,  'h3_safe' => true,
         'body_safe' => true, 'meta_safe' => true, 'tag_pool_safe' => false,
         'category_pool_safe' => false, 'video_pool_safe' => false,
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: model profile=1600; model profile bio=18100. Versatile cross-pool.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'DOWNGRADED from rankmath_safe. Single-word suffix too broad for Rank Math. H2/body/meta only.',
     ],
     [
         'id' => 'tmw-tpl-027', 'template' => 'about {model}',
@@ -393,6 +421,7 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
         'notes' => 'Standard H2. Mirrors current hardcoded About section.',
     ],
 
@@ -409,7 +438,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: private webcam chat=90; livejasmin private chat=50.',
+        'bucket' => 'chat_conversion', 'bucket_priority' => 1,
+        'notes' => 'Preferred compound. Vol: private webcam chat=90; livejasmin private chat=50.',
     ],
     [
         'id' => 'tmw-tpl-029', 'template' => '{model} live private chat',
@@ -422,7 +452,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Variant word order.',
+        'bucket' => 'chat_conversion', 'bucket_priority' => 2,
+        'notes' => 'Secondary variant.',
     ],
     [
         'id' => 'tmw-tpl-030', 'template' => '{model} private live chat',
@@ -435,23 +466,25 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Reversed variant.',
+        'bucket' => 'chat_conversion', 'bucket_priority' => 2,
+        'notes' => 'Secondary variant.',
     ],
 
-    // ── GROUP H: Online / Chat ────────────────────────────────────────────────
+    // ── GROUP H: Online / Chat — tmw-tpl-031, tmw-tpl-033 DOWNGRADED ─────────
 
     [
         'id' => 'tmw-tpl-031', 'template' => '{model} online',
-        'pool_targets' => [ 'model_rankmath_pool', 'model_body_pool', 'model_meta_pool' ],
-        'roles' => [ 'rankmath_keyword', 'body_keyword', 'meta_keyword' ],
+        'pool_targets' => [ 'model_body_pool', 'model_meta_pool' ],
+        'roles' => [ 'body_keyword', 'meta_keyword' ],
         'approval_status' => 'approved', 'approved_by' => 'tmw-operator',
-        'rankmath_safe' => true,  'h2_safe' => false, 'h3_safe' => false,
+        'rankmath_safe' => false, 'h2_safe' => false, 'h3_safe' => false,
         'body_safe' => true, 'meta_safe' => true, 'tag_pool_safe' => false,
         'category_pool_safe' => false, 'video_pool_safe' => false,
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: online model=2400; cam model online=90.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'DOWNGRADED from rankmath_safe. Single-word suffix too generic. Body/meta only.',
     ],
     [
         'id' => 'tmw-tpl-032', 'template' => '{model} live online',
@@ -464,23 +497,25 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
         'notes' => 'Body only.',
     ],
     [
         'id' => 'tmw-tpl-033', 'template' => '{model} chat',
-        'pool_targets' => [ 'model_rankmath_pool', 'model_body_pool', 'model_meta_pool' ],
-        'roles' => [ 'rankmath_keyword', 'body_keyword', 'meta_keyword' ],
+        'pool_targets' => [ 'model_body_pool', 'model_meta_pool' ],
+        'roles' => [ 'body_keyword', 'meta_keyword' ],
         'approval_status' => 'approved', 'approved_by' => 'tmw-operator',
-        'rankmath_safe' => true,  'h2_safe' => false, 'h3_safe' => false,
+        'rankmath_safe' => false, 'h2_safe' => false, 'h3_safe' => false,
         'body_safe' => true, 'meta_safe' => true, 'tag_pool_safe' => false,
         'category_pool_safe' => false, 'video_pool_safe' => false,
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: video chat=1220000.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'DOWNGRADED from rankmath_safe. Single-word suffix too generic (vol 24.9M). Body/meta only.',
     ],
 
-    // ── GROUP I: Show Variants ────────────────────────────────────────────────
+    // ── GROUP I: Show Variants — tmw-tpl-035 DOWNGRADED ──────────────────────
 
     [
         'id' => 'tmw-tpl-034', 'template' => '{model} live show',
@@ -493,20 +528,22 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: live cam show=12100; cam show=33100.',
+        'bucket' => 'live_cam', 'bucket_priority' => 2,
+        'notes' => 'Secondary. Vol: live cam show=12100; cam show=33100.',
     ],
     [
         'id' => 'tmw-tpl-035', 'template' => '{model} cam show',
-        'pool_targets' => [ 'model_rankmath_pool', 'model_body_pool', 'model_meta_pool' ],
-        'roles' => [ 'rankmath_keyword', 'body_keyword', 'meta_keyword' ],
+        'pool_targets' => [ 'model_body_pool' ],
+        'roles' => [ 'body_keyword' ],
         'approval_status' => 'approved', 'approved_by' => 'tmw-operator',
-        'rankmath_safe' => true,  'h2_safe' => false, 'h3_safe' => false,
-        'body_safe' => true, 'meta_safe' => true, 'tag_pool_safe' => false,
+        'rankmath_safe' => false, 'h2_safe' => false, 'h3_safe' => false,
+        'body_safe' => true, 'meta_safe' => false, 'tag_pool_safe' => false,
         'category_pool_safe' => false, 'video_pool_safe' => false,
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: cam show=33100.',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
+        'notes' => 'DOWNGRADED from rankmath_safe. "cam show" also blocked by PageTypeKeywordFilter::MODEL_BLOCKED_PATTERNS. Body only.',
     ],
     [
         'id' => 'tmw-tpl-036', 'template' => '{model} webcam show',
@@ -519,6 +556,7 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
+        'bucket' => 'body_only', 'bucket_priority' => 1,
         'notes' => 'Body only.',
     ],
     [
@@ -532,7 +570,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => null, 'volume_policy' => 'always',
-        'notes' => 'Vol: livejasmin private show=90.',
+        'bucket' => 'chat_conversion', 'bucket_priority' => 2,
+        'notes' => 'Secondary. Vol: livejasmin private show=90.',
     ],
 
     // ── GROUP J: LiveJasmin / Jasmin Variants ─────────────────────────────────
@@ -548,6 +587,7 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => 'livejasmin', 'volume_policy' => 'always',
+        'bucket' => 'platform_entity', 'bucket_priority' => 1,
         'notes' => 'Vol: livejasmin model=3600.',
     ],
     [
@@ -561,7 +601,8 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => 'livejasmin', 'volume_policy' => 'always',
-        'notes' => 'Vol: jasmin=368000. Jasmin is the LJ slug alias.',
+        'bucket' => 'platform_entity', 'bucket_priority' => 2,
+        'notes' => 'Secondary. Vol: jasmin=368000. Jasmin is LJ alias.',
     ],
     [
         'id' => 'tmw-tpl-040', 'template' => 'jasmin {model}',
@@ -574,6 +615,7 @@ return [
         'model_page_eligible' => true, 'requires_review' => false,
         'warning_if_used_without_approval' => '',
         'platform_gate' => 'livejasmin', 'volume_policy' => 'always',
-        'notes' => 'Reversed jasmin variant. LJ gated.',
+        'bucket' => 'platform_entity', 'bucket_priority' => 2,
+        'notes' => 'Secondary reversed variant. LJ gated.',
     ],
 ];
