@@ -107,7 +107,7 @@ class ModelPageRenderer {
             $payload['features_section_paragraphs'] ?? [],
             $name,
             $payload['features_section_html'] ?? '',
-            self::build_secondary_subheadings($secondary_heading_slots['features'] ?? [], 1, 'Live Chat Experience for')
+            []  // v5.8.28: H3 sub-headings suppressed — "Live Chat Experience for X" H3s are awkward keyword-stuffing
         );
         if ($features !== '') {
             $sections[] = $features;
