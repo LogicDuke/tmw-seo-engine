@@ -212,8 +212,8 @@ class ModelKeywordLinkService {
                 }
 
                 // Real mode: write only entity_id (+ updated_at).
-                $updated = $this->write_entity_id($table, $id, $post_id, $has_updated_at);
-                if ($updated) {
+                $write_result = $this->write_entity_id($table, $id, $post_id, $has_updated_at);
+                if ('linked' === $write_result) {
                     $stats['linked']++;
                     $stats['rows'][] = $this->row_result($id, $keyword, $owner, $post_id, 'linked', '');
                     $this->debug_log(
@@ -222,6 +222,19 @@ class ModelKeywordLinkService {
                         . ' owner="' . $owner . '"'
                         . ' linked post_id=' . $post_id
                         . ' match_type=' . $match_type
+                    );
+                } elseif ('concurrent_update' === $write_result) {
+                    // Another process linked this row between our scan and our update.
+                    // Do not count as linked; not an error.
+                    $stats['skipped']++;
+                    $stats['rows'][] = $this->row_result(
+                        $id, $keyword, $owner, $post_id, 'skipped', 'concurrent_update'
+                    );
+                    $this->debug_log(
+                        '[TMW-KW-MODEL-LINK] id=' . $id
+                        . ' keyword="' . $keyword . '"'
+                        . ' owner="' . $owner . '"'
+                        . ' skipped reason=concurrent_update'
                     );
                 } else {
                     $stats['errors']++;
@@ -316,7 +329,8 @@ class ModelKeywordLinkService {
         }
 
         // Secondary marker — also written by provenance_for_row().
-        if (!empty($sources['global_model_pool'])) {
+        // Use is_truthy_flag() so string "false" is not treated as truthy.
+        if ($this->is_truthy_flag($sources['global_model_pool'] ?? null)) {
             return true;
         }
 
@@ -350,7 +364,8 @@ class ModelKeywordLinkService {
         ) {
             return true;
         }
-        return !empty($entry['global_model_pool']);
+        // Use is_truthy_flag() so string "false" is not treated as truthy.
+        return $this->is_truthy_flag($entry['global_model_pool'] ?? null);
     }
 
     // ── Sources JSON helpers ──────────────────────────────────────────────
@@ -455,8 +470,14 @@ class ModelKeywordLinkService {
      *
      * This is the ONLY DB write this service ever makes.
      * Status, keyword, target fields, and sources JSON are never touched.
+     *
+     * The WHERE clause includes entity_id=0 so a concurrent link by another
+     * process results in 0 affected rows rather than silently overwriting
+     * the winner's value.
+     *
+     * @return string 'linked' | 'concurrent_update' | 'error'
      */
-    private function write_entity_id(string $table, int $id, int $post_id, bool $has_updated_at): bool {
+    private function write_entity_id(string $table, int $id, int $post_id, bool $has_updated_at): string {
         global $wpdb;
 
         $data = [ 'entity_id' => $post_id ];
@@ -466,8 +487,18 @@ class ModelKeywordLinkService {
                 : gmdate('Y-m-d H:i:s');
         }
 
-        $result = $wpdb->update($table, $data, [ 'id' => $id ]);
-        return false !== $result;
+        // entity_id=0 in WHERE: if another process already linked this row,
+        // the WHERE no longer matches and we get 0 affected rows (not false).
+        $result = $wpdb->update($table, $data, [ 'id' => $id, 'entity_id' => 0 ]);
+
+        if (false === $result) {
+            return 'error';
+        }
+        if (0 === (int) $result) {
+            // Row no longer has entity_id=0 — another process linked it concurrently.
+            return 'concurrent_update';
+        }
+        return 'linked';
     }
 
     private function table_exists(string $table): bool {
@@ -524,6 +555,26 @@ class ModelKeywordLinkService {
     }
 
     // ── Utility ───────────────────────────────────────────────────────────
+
+    /**
+     * Strict boolean-ish check for sources JSON flag fields.
+     *
+     * Avoids the !empty() pitfall where string "false" evaluates as truthy.
+     * Only `true`, `1`, or the strings "1"/"true"/"yes" (case-insensitive)
+     * are considered truthy.  String "false", `0`, `null`, and absent keys
+     * all return false.
+     *
+     * @param mixed $value
+     */
+    private function is_truthy_flag($value): bool {
+        if (true === $value || 1 === $value) {
+            return true;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), [ '1', 'true', 'yes' ], true);
+        }
+        return false;
+    }
 
     /** @return array<string,mixed> */
     private function decode_json($value): array {

@@ -55,7 +55,11 @@ final class ModelKeywordLinkServiceTest extends TestCase {
 
         $this->assertCount( 1, $wpdb->updates, 'exactly one DB update should be written' );
         $this->assertSame( 4457, $wpdb->updates[0]['data']['entity_id'], 'entity_id should be 4457' );
-        $this->assertSame( [ 'id' => 1 ], $wpdb->updates[0]['where'],   'where clause should target id=1' );
+        $this->assertSame(
+            [ 'id' => 1, 'entity_id' => 0 ],
+            $wpdb->updates[0]['where'],
+            'WHERE clause must target id=1 AND entity_id=0 to guard against concurrent updates'
+        );
     }
 
     // ── Scenario 2: Dry-run does not write ───────────────────────────────
@@ -211,6 +215,13 @@ final class ModelKeywordLinkServiceTest extends TestCase {
             );
         }
         $this->assertContains( 'entity_id', $written_keys );
+
+        // WHERE must include entity_id=0 (concurrent-update guard).
+        $this->assertSame(
+            [ 'id' => 9, 'entity_id' => 0 ],
+            $wpdb->updates[0]['where'],
+            'WHERE clause must include entity_id=0'
+        );
     }
 
     // ── Scenario: model_name filter restricts to matching owner ──────────
@@ -257,6 +268,108 @@ final class ModelKeywordLinkServiceTest extends TestCase {
         foreach ( $wpdb->updates as $update ) {
             $this->assertSame( 4457, $update['data']['entity_id'] );
         }
+    }
+
+    // ── Scenario: concurrent update is skipped, not linked or errored ────
+
+    /**
+     * When $wpdb->update() returns 0 (row no longer has entity_id=0 because
+     * another process already linked it), the row must be counted as skipped
+     * with reason 'concurrent_update', not as linked or errored.
+     */
+    public function test_concurrent_update_is_counted_as_skipped_not_linked(): void {
+        $row  = $this->personal_row( 20, 'anisyia cam', 'anisyia' );
+        $wpdb = new ModelKeywordLinkFakeWpdb( [ $row ] );
+        $wpdb->simulate_concurrent_ids[] = 20; // update() will return 0 for this id
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $stats = $this->service_with_posts( [ $this->model_post( 4457, 'Anisyia', 'anisyia' ) ] )
+            ->scan_and_link( false, 500 );
+
+        $this->assertSame( 1, $stats['scanned'] );
+        $this->assertSame( 0, $stats['linked'],  'concurrent update must NOT be counted as linked' );
+        $this->assertSame( 1, $stats['skipped'], 'concurrent update must be counted as skipped' );
+        $this->assertSame( 0, $stats['errors'],  'concurrent update is not an error' );
+        $this->assertSame( 'concurrent_update', $stats['rows'][0]['reason'] );
+
+        // The UPDATE was attempted with the correct WHERE clause.
+        $this->assertCount( 1, $wpdb->updates, 'update must be attempted even when it returns 0' );
+        $this->assertSame(
+            [ 'id' => 20, 'entity_id' => 0 ],
+            $wpdb->updates[0]['where'],
+            'WHERE must include entity_id=0'
+        );
+    }
+
+    // ── Scenarios: global_model_pool flag with various value types ────────
+
+    /**
+     * sources.global_model_pool = "false" (string) must NOT trigger the global
+     * pool guard — the row should be treated as a linkable personal keyword.
+     */
+    public function test_global_model_pool_string_false_is_not_treated_as_global(): void {
+        $row             = $this->personal_row( 21, 'anisyia livejasmin', 'anisyia' );
+        $row['sources']  = json_encode( [
+            'personal_model_keyword_csv'   => true,
+            'model_keyword_owner'          => 'anisyia',
+            'model_keyword_usage_scope'    => 'model_generate',
+            'global_model_pool'            => 'false',   // string "false" — must NOT be treated as global
+        ] );
+        $wpdb = new ModelKeywordLinkFakeWpdb( [ $row ] );
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $stats = $this->service_with_posts( [ $this->model_post( 4457, 'Anisyia', 'anisyia' ) ] )
+            ->scan_and_link( false, 500 );
+
+        $this->assertSame( 1, $stats['linked'],  'string "false" must not trigger global pool guard' );
+        $this->assertSame( 0, $stats['skipped'], 'row should not be skipped' );
+        $this->assertCount( 1, $wpdb->updates );
+    }
+
+    /**
+     * sources.global_model_pool = "true" (string) MUST trigger the global pool
+     * guard — the row must be skipped as a Global Model Pool row.
+     */
+    public function test_global_model_pool_string_true_is_treated_as_global(): void {
+        $row             = $this->personal_row( 22, 'livejasmin model', 'livejasmin' );
+        $row['sources']  = json_encode( [
+            'personal_model_keyword_csv'   => true,
+            'model_keyword_owner'          => 'livejasmin',
+            'model_keyword_usage_scope'    => 'model_generate',
+            'global_model_pool'            => 'true',    // string "true" — MUST be treated as global
+        ] );
+        $wpdb = new ModelKeywordLinkFakeWpdb( [ $row ] );
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $stats = $this->service_with_posts( [] )->scan_and_link( false, 500 );
+
+        $this->assertSame( 0, $stats['linked'] );
+        $this->assertSame( 1, $stats['skipped'] );
+        $this->assertSame( 'global_model_pool_row', $stats['rows'][0]['reason'] );
+        $this->assertCount( 0, $wpdb->updates, 'NO DB updates for global pool row' );
+    }
+
+    /**
+     * sources.global_model_pool = true (PHP/JSON bool) MUST trigger the global
+     * pool guard — the row must be skipped as a Global Model Pool row.
+     */
+    public function test_global_model_pool_boolean_true_is_treated_as_global(): void {
+        $row             = $this->personal_row( 23, 'livejasmin model', 'livejasmin' );
+        $row['sources']  = json_encode( [
+            'personal_model_keyword_csv'   => true,
+            'model_keyword_owner'          => 'livejasmin',
+            'model_keyword_usage_scope'    => 'model_generate',
+            'global_model_pool'            => true,      // PHP bool true → JSON true — MUST be treated as global
+        ] );
+        $wpdb = new ModelKeywordLinkFakeWpdb( [ $row ] );
+        $GLOBALS['wpdb'] = $wpdb;
+
+        $stats = $this->service_with_posts( [] )->scan_and_link( false, 500 );
+
+        $this->assertSame( 0, $stats['linked'] );
+        $this->assertSame( 1, $stats['skipped'] );
+        $this->assertSame( 'global_model_pool_row', $stats['rows'][0]['reason'] );
+        $this->assertCount( 0, $wpdb->updates, 'NO DB updates for global pool row' );
     }
 
     // ── Factory helpers ───────────────────────────────────────────────────
@@ -327,6 +440,10 @@ final class ModelKeywordLinkServiceTest extends TestCase {
  *   get_results() — SHOW COLUMNS FROM → column list
  *                 — SELECT ... WHERE entity_id=0 → row list
  *   update()      — records writes without touching a real DB
+ *
+ * simulate_concurrent_ids: IDs listed here cause update() to return 0,
+ * simulating a concurrent process that already changed entity_id before
+ * this service's WHERE entity_id=0 clause could match.
  */
 final class ModelKeywordLinkFakeWpdb {
     public string $prefix = 'wp_';
@@ -339,6 +456,14 @@ final class ModelKeywordLinkFakeWpdb {
 
     /** @var array<int,string> All SQL strings passed to get_results() or prepare(). */
     public array $queries = [];
+
+    /**
+     * Row IDs for which update() returns 0 (simulates a concurrent link —
+     * the WHERE entity_id=0 clause finds no matching row).
+     *
+     * @var array<int,int>
+     */
+    public array $simulate_concurrent_ids = [];
 
     /** Columns present in the fake table. */
     private array $columns = [
@@ -394,7 +519,6 @@ final class ModelKeywordLinkFakeWpdb {
             );
         }
 
-        // esc_like stub usage in SHOW TABLES — handled in get_var().
         // SELECT rows — return all rows (LIMIT/OFFSET ignored for simplicity).
         if ( false !== stripos( $sql, 'SELECT' ) ) {
             return array_values( $this->rows );
@@ -404,13 +528,22 @@ final class ModelKeywordLinkFakeWpdb {
     }
 
     /**
-     * @param string $table
+     * @param string              $table
      * @param array<string,mixed> $data
      * @param array<string,mixed> $where
+     * @return int|false  1 = success, 0 = concurrent (entity_id no longer 0), false = db error
      */
-    public function update( string $table, array $data, array $where ): int {
+    public function update( string $table, array $data, array $where ) {
         $this->updates[] = [ 'table' => $table, 'data' => $data, 'where' => $where ];
         $id = (int) ( $where['id'] ?? 0 );
+
+        // Simulate concurrent update: another process already changed entity_id.
+        if ( in_array( $id, $this->simulate_concurrent_ids, true ) ) {
+            // Do NOT merge data into rows (the real DB row was already updated
+            // by the concurrent process, making WHERE entity_id=0 non-matching).
+            return 0;
+        }
+
         if ( isset( $this->rows[ $id ] ) ) {
             $this->rows[ $id ] = array_merge( $this->rows[ $id ], $data );
         }
