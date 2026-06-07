@@ -5176,8 +5176,13 @@ class TemplateContent {
             }
 
             // ── Section 3: Turn-ons (replaces about_section_paragraphs) ──────
-            // Only populated when turn-on evidence exists.
-            if ($has_turn_on_evidence) {
+            // v5.8.28: Only attempt pool resolution when $turn_ons_text is a valid
+            // noun phrase. When the humanizer returned a full sentence, $turn_ons_text
+            // is '' — all turn_ons pool variants require {{turn_ons}} and every rotation
+            // would log [TMW-POOL-PLACEHOLDER] all_variants_unresolved + [TMW-POOL-WIRE]
+            // skipping section=turn_ons. The standalone sentence was already appended to
+            // intro_paragraphs above, so nothing is lost by skipping pool resolution here.
+            if ($has_turn_on_evidence && $turn_ons_text !== '') {
                 $pool_turn_ons = $resolve_section('turn_ons');
                 $about_paragraphs_new = $pool_turn_ons !== '' ? [$pool_turn_ons] : [];
             } else {
@@ -5392,9 +5397,7 @@ class TemplateContent {
                     ? $name . ' Live Cam Private Chat Options'
                     : $name . ' Live Cam Profile Checks';
             }
-            if ($has_webcam_extra) {
-                $h2_overrides_used[] = $name . ' Live Chat Experience and Live Webcam Tips';
-            }
+            // v5.8.28: webcam_tips_h2 suppressed — no longer generated.
 
             // Store actual target H2 strings for the post-render preg_replace block.
             // Always set the payload key so the post-render block runs (before_click_h2
@@ -5415,11 +5418,9 @@ class TemplateContent {
                             ? $name . ' Live Cam Turn Ons and Session Notes'
                             : 'Turn Ons and Session Notes for ' . $name))
                     : '',
-                'webcam_tips_h2'  => $has_webcam_extra
-                    ? $name . ' Live Chat Experience and Live Webcam Tips'
-                    : '',
-                'before_click_h2' => "Before You Click " . $name . "'s Confirmed Profile",
-                'questions_h2'    => 'Common ' . $name . ' Profile Questions',
+                'webcam_tips_h2'  => '',  // v5.8.28: suppressed — avoids "{Name} Live Chat Experience and Live Webcam Tips" keyword-stuffing
+                'before_click_h2' => 'Before You Click the Confirmed Profile',
+                'questions_h2'    => 'Common Profile Questions',
             ];
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
