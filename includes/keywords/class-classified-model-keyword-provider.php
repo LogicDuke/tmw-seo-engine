@@ -108,7 +108,6 @@ class ClassifiedModelKeywordProvider {
             $suggested_usage = (string) $this->source_value($sources, 'suggested_usage');
             $standalone_allowed = $this->source_bool($sources, 'standalone_allowed');
             $reason = '';
-            $admitted_live_intent_review_keyword = false;
 
             // PR-615: status='approved' is explicit human sign-off. If keyword_class
             // metadata is missing, default to safe values rather than sending the keyword
@@ -121,6 +120,16 @@ class ClassifiedModelKeywordProvider {
                 $standalone_allowed = $standalone_allowed ?? true;
             }
 
+            // PR-688: evaluate the live/cam rescue BEFORE is_focus_excluded() so that
+            // CLASS_UNKNOWN_REVIEW rows with approved model-linked cam intent (e.g.
+            // "anisyia cam") are never hard-excluded by the focus gate before the rescue
+            // has a chance to admit them.  The rescue itself already enforces all safety
+            // guards: approved status, entity_id match, model name containment, no adult
+            // terms, and the safe-phrase whitelist.
+            $admitted_live_intent_review_keyword = $this->is_approved_model_linked_live_intent_extra(
+                $row, $model_post_id, $keyword, $normalized_model, $keyword_class, $suggested_usage, $standalone_allowed
+            );
+
             if ($keyword === '') {
                 $reason = 'empty_keyword';
             } elseif ($keyword_class === '') {
@@ -129,12 +138,9 @@ class ClassifiedModelKeywordProvider {
                 $reason = 'wrong_model_keyword_owner';
             } elseif (!$this->scope_is_compatible($sources)) {
                 $reason = 'incompatible_model_keyword_usage_scope';
-            } elseif ($this->is_focus_excluded($keyword_class, $suggested_usage, $standalone_allowed)) {
-                if ($this->is_approved_model_linked_live_intent_extra($row, $model_post_id, $keyword, $normalized_model, $keyword_class, $suggested_usage, $standalone_allowed)) {
-                    $admitted_live_intent_review_keyword = true;
-                } else {
-                    $reason = 'excluded_from_focus_by_classification';
-                }
+            } elseif (!$admitted_live_intent_review_keyword
+                && $this->is_focus_excluded($keyword_class, $suggested_usage, $standalone_allowed)) {
+                $reason = 'excluded_from_focus_by_classification';
             }
 
             if ($reason !== '') {
