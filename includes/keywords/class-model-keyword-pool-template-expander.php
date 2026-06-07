@@ -149,6 +149,54 @@ class ModelKeywordPoolTemplateExpander {
     }
 
     /**
+     * Expand all qualifying templates for the requested pool and include template metadata.
+     *
+     * This is a read-only helper for admin review screens. It intentionally does not alter
+     * expand_for_pool() output shape so existing callers keep receiving keyword strings.
+     *
+     * @param  string   $model_name
+     * @param  string   $pool_target           One of VALID_POOLS.
+     * @param  int      $post_id               Model post ID; 0 = preview context.
+     * @param  string[] $active_platform_slugs Active sanitised platform slugs.
+     * @return array{accepted:list<array<string,string>>,warnings:list<array<string,string>>}
+     */
+    public static function expand_for_pool_with_metadata(
+        string $model_name,
+        string $pool_target,
+        int    $post_id = 0,
+        array  $active_platform_slugs = []
+    ): array {
+        $model_name = trim( $model_name );
+        if ( $model_name === '' || ! in_array( $pool_target, self::VALID_POOLS, true ) ) {
+            return [ 'accepted' => [], 'warnings' => [] ];
+        }
+
+        $accepted = [];
+        $warnings = [];
+        foreach ( self::load_templates() as $entry ) {
+            if ( ! is_array( $entry ) ) { continue; }
+            $result = self::process_template( $entry, $model_name, $pool_target, $post_id, $active_platform_slugs );
+            if ( $result['accepted'] !== null ) {
+                $keyword = (string) $result['accepted'];
+                $accepted[] = [
+                    'keyword'     => $keyword,
+                    'template_id' => (string) ( $entry['id'] ?? '' ),
+                    'template'    => (string) ( $entry['template'] ?? '' ),
+                    'pool_target' => $pool_target,
+                ];
+            }
+            foreach ( $result['warnings'] as $w ) {
+                $warnings[] = $w;
+            }
+        }
+
+        $accepted = self::dedupe_metadata( $accepted );
+        $accepted = self::deterministic_sort_metadata( $accepted, $post_id );
+        self::log_expanded( $post_id, $pool_target, count( $accepted ), count( $warnings ) );
+        return [ 'accepted' => $accepted, 'warnings' => $warnings ];
+    }
+
+    /**
      * Preview all model-scoped pools for a given model.
      *
      * @param  string   $model_name
@@ -428,6 +476,34 @@ class ModelKeywordPoolTemplateExpander {
             if ( $k === '' || isset( $seen[ $k ] ) ) { continue; }
             $seen[ $k ] = true;
             $out[]      = $item;
+        }
+        return $out;
+    }
+
+    /** @param list<array<string,string>> $items @return list<array<string,string>> */
+    private static function deterministic_sort_metadata( array $items, int $post_id ): array {
+        if ( count( $items ) <= 1 ) { return $items; }
+        $seed = abs( $post_id ) % 997;
+        usort( $items, static function ( array $a, array $b ) use ( $seed ): int {
+            $ak = (string) ( $a['keyword'] ?? '' );
+            $bk = (string) ( $b['keyword'] ?? '' );
+            $ha = sprintf( '%u', crc32( (string) $seed . '|' . $ak ) );
+            $hb = sprintf( '%u', crc32( (string) $seed . '|' . $bk ) );
+            return $ha === $hb ? strcmp( $ak, $bk ) : ( $ha < $hb ? -1 : 1 );
+        } );
+        return $items;
+    }
+
+    /** @param list<array<string,string>> $items @return list<array<string,string>> */
+    private static function dedupe_metadata( array $items ): array {
+        $seen = [];
+        $out  = [];
+        foreach ( $items as $item ) {
+            $keyword = (string) ( $item['keyword'] ?? '' );
+            $key = strtolower( trim( $keyword ) );
+            if ( $key === '' || isset( $seen[ $key ] ) ) { continue; }
+            $seen[ $key ] = true;
+            $out[] = $item;
         }
         return $out;
     }
