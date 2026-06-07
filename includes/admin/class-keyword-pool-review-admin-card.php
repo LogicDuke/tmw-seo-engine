@@ -76,6 +76,7 @@ class KeywordPoolReviewAdminCard {
             'summary'          => null,
             'live_status'      => null,
             'rankmath_pool'    => null,
+            'preview_metadata' => null,
         ];
 
         if ('POST' !== (string) ($_SERVER['REQUEST_METHOD'] ?? '') || empty($_POST['tmwseo_keyword_pool_review_submit'])) {
@@ -139,6 +140,17 @@ class KeywordPoolReviewAdminCard {
                 is_array($state['platform_slugs']) ? $state['platform_slugs'] : []
             )
             : null;
+        if (method_exists(ModelKeywordPoolTemplateExpander::class, 'expand_for_pool_with_metadata')) {
+            $state['preview_metadata'] = [];
+            foreach (array_keys(self::MODEL_POOL_LABELS) as $pool_target) {
+                $state['preview_metadata'][$pool_target] = ModelKeywordPoolTemplateExpander::expand_for_pool_with_metadata(
+                    (string) $state['model_name'],
+                    (string) $pool_target,
+                    (int) $state['post_id'],
+                    is_array($state['platform_slugs']) ? $state['platform_slugs'] : []
+                );
+            }
+        }
         if ((int) $state['post_id'] > 0) {
             $state['live_status'] = self::build_live_keyword_status($state);
         }
@@ -208,7 +220,8 @@ class KeywordPoolReviewAdminCard {
         $preview = is_array($state['preview'] ?? null) ? $state['preview'] : [];
         foreach (self::MODEL_POOL_LABELS as $pool => $label) {
             $data = is_array($preview[$pool] ?? null) ? $preview[$pool] : [];
-            $accepted = is_array($data['accepted'] ?? null) ? $data['accepted'] : [];
+            $metadata_preview = is_array($state['preview_metadata'] ?? null) && is_array($state['preview_metadata'][$pool] ?? null) ? $state['preview_metadata'][$pool] : [];
+            $accepted = is_array($metadata_preview['accepted'] ?? null) ? $metadata_preview['accepted'] : (is_array($data['accepted'] ?? null) ? $data['accepted'] : []);
             $warnings = is_array($data['warnings'] ?? null) ? $data['warnings'] : [];
             echo '<h3>' . esc_html($label) . '</h3>';
             echo '<p><strong>' . esc_html__('Accepted keyword count:', 'tmwseo') . '</strong> ' . esc_html((string) count($accepted)) . ' &nbsp; ';
@@ -236,20 +249,25 @@ class KeywordPoolReviewAdminCard {
     /** @param array<int,mixed> $accepted */
     private static function render_accepted_table(array $accepted, string $pool, int $post_id = 0): void {
         echo '<table class="widefat striped" style="margin-bottom:12px;"><thead><tr>';
-        foreach ([ 'Keyword / Heading', 'Pool', 'Source: template', 'Status', 'Volume', 'Difficulty', 'CPC', 'Volume Source' ] as $heading) {
+        foreach ([ 'Keyword / Heading', 'Base Phrase', 'Pool', 'Source', 'Status', 'Expanded Volume', 'Base Phrase Volume', 'Difficulty', 'CPC', 'Volume Source' ] as $heading) {
             echo '<th>' . esc_html($heading) . '</th>';
         }
         echo '</tr></thead><tbody>';
         if ([] === $accepted) {
-            echo '<tr><td colspan="8">' . esc_html__('No accepted keywords for this pool.', 'tmwseo') . '</td></tr>';
+            echo '<tr><td colspan="10">' . esc_html__('No accepted keywords for this pool.', 'tmwseo') . '</td></tr>';
         }
-        foreach ($accepted as $keyword) {
-            $volume = self::lookup_volume_metadata((string) $keyword, $post_id);
-            echo '<tr><td>' . esc_html((string) $keyword) . '</td><td>' . esc_html($pool) . '</td><td>' . esc_html__('template', 'tmwseo') . '</td><td>' . esc_html__('accepted', 'tmwseo') . '</td>';
-            echo '<td>' . esc_html(self::display_metric($volume['volume'] ?? null)) . '</td>';
+        foreach ($accepted as $item) {
+            $keyword = is_array($item) ? (string) ($item['keyword'] ?? '') : (string) $item;
+            $template = is_array($item) ? (string) ($item['template'] ?? '') : '';
+            $volume = self::lookup_volume_metadata_with_base_phrase($keyword, $post_id, $template);
+            echo '<tr><td>' . esc_html($keyword) . '</td>';
+            echo '<td>' . esc_html((string) ($volume['base_phrase'] ?? '')) . '</td>';
+            echo '<td>' . esc_html($pool) . '</td><td>' . esc_html__('template', 'tmwseo') . '</td><td>' . esc_html__('accepted', 'tmwseo') . '</td>';
+            echo '<td>' . esc_html(self::display_metric($volume['expanded_volume'] ?? null)) . '</td>';
+            echo '<td>' . esc_html(self::display_metric($volume['base_phrase_volume'] ?? null)) . '</td>';
             echo '<td>' . esc_html(self::display_metric($volume['difficulty'] ?? null)) . '</td>';
             echo '<td>' . esc_html(self::display_metric($volume['cpc'] ?? null)) . '</td>';
-            echo '<td>' . esc_html((string) ($volume['source'] ?? 'unknown')) . '</td></tr>';
+            echo '<td>' . esc_html((string) ($volume['lookup_source'] ?? 'unknown')) . '</td></tr>';
         }
         echo '</tbody></table>';
     }
@@ -293,17 +311,18 @@ class KeywordPoolReviewAdminCard {
         $live = is_array($state['live_status'] ?? null) ? $state['live_status'] : [];
         $rows = is_array($live['rows'] ?? null) ? $live['rows'] : [];
         echo '<table class="widefat striped" style="margin-bottom:12px;"><thead><tr>';
-        foreach ([ 'Keyword', 'Role', 'Current Rank Math Position', 'Model-safe status', 'Matched template ID', 'Matched template', 'Candidate source if known', 'Volume', 'Difficulty', 'CPC', 'Warning' ] as $heading) {
+        foreach ([ 'Keyword', 'Base Phrase', 'Role', 'Current Rank Math Position', 'Model-safe status', 'Matched template ID', 'Matched template', 'Candidate source if known', 'Volume', 'Difficulty', 'CPC', 'Volume Source', 'Warning' ] as $heading) {
             echo '<th>' . esc_html($heading) . '</th>';
         }
         echo '</tr></thead><tbody>';
         if ([] === $rows) {
-            echo '<tr><td colspan="11">' . esc_html__('No current Rank Math focus keywords found for this post.', 'tmwseo') . '</td></tr>';
+            echo '<tr><td colspan="13">' . esc_html__('No current Rank Math focus keywords found for this post.', 'tmwseo') . '</td></tr>';
         }
         foreach ($rows as $row) {
             $row = is_array($row) ? $row : [];
             echo '<tr>';
             echo '<td>' . esc_html((string) ($row['keyword'] ?? '')) . '</td>';
+            echo '<td>' . esc_html((string) ($row['base_phrase'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($row['role'] ?? '')) . '</td>';
             echo '<td>' . esc_html((string) ($row['position'] ?? '')) . '</td>';
             echo '<td>' . self::status_badge((string) ($row['status'] ?? 'unknown_review_needed')) . '</td>';
@@ -313,6 +332,7 @@ class KeywordPoolReviewAdminCard {
             echo '<td>' . esc_html(self::display_metric($row['volume'] ?? null)) . '</td>';
             echo '<td>' . esc_html(self::display_metric($row['difficulty'] ?? null)) . '</td>';
             echo '<td>' . esc_html(self::display_metric($row['cpc'] ?? null)) . '</td>';
+            echo '<td>' . esc_html((string) ($row['lookup_source'] ?? 'unknown')) . '</td>';
             echo '<td>' . esc_html((string) ($row['warning'] ?? '')) . '</td>';
             echo '</tr>';
         }
@@ -358,8 +378,7 @@ class KeywordPoolReviewAdminCard {
         foreach ($current as $index => $keyword) {
             $role = 0 === $index ? 'focus' : 'extra';
             $normalized = self::normalize_keyword($keyword);
-            $volume = self::lookup_volume_metadata($keyword, $post_id);
-            $candidate_source = (string) ($volume['candidate_source'] ?? 'unknown');
+            $candidate_source = 'unknown';
             $status = 'unknown_review_needed';
             $warning = '';
             $matched_id = '';
@@ -391,12 +410,23 @@ class KeywordPoolReviewAdminCard {
                 $warning = __('This keyword is not part of the approved model template pool.', 'tmwseo');
             }
 
+            $lookup_template = $matched_template !== '' ? $matched_template : self::template_from_model_keyword($keyword, $model_name);
+            $volume = self::lookup_volume_metadata_with_base_phrase($keyword, $post_id, $lookup_template);
+            if ('unknown' === $candidate_source) {
+                $candidate_source = (string) ($volume['candidate_source'] ?? 'unknown');
+            }
+            if ($status === 'unknown_review_needed' && $candidate_source === 'old_global_candidate') {
+                $status = 'old_global_candidate';
+                $warning = __('This keyword appears to come from the old global approved pool.', 'tmwseo');
+            }
+
             if (empty($volume['found']) && $warning === '') {
                 $warning = __('Volume unknown.', 'tmwseo');
             }
 
             $rows[] = [
                 'keyword'             => $keyword,
+                'base_phrase'         => (string) ($volume['base_phrase'] ?? ''),
                 'role'                => $role,
                 'position'            => $index + 1,
                 'status'              => $status,
@@ -406,6 +436,7 @@ class KeywordPoolReviewAdminCard {
                 'volume'              => $volume['volume'] ?? null,
                 'difficulty'          => $volume['difficulty'] ?? null,
                 'cpc'                 => $volume['cpc'] ?? null,
+                'lookup_source'       => (string) ($volume['lookup_source'] ?? 'unknown'),
                 'warning'             => $warning,
             ];
         }
@@ -536,6 +567,107 @@ class KeywordPoolReviewAdminCard {
             }
         }
         return $out;
+    }
+
+    private static function template_from_model_keyword(string $keyword, string $model_name): string {
+        $normalized_keyword = self::normalize_keyword($keyword);
+        $normalized_model = self::normalize_keyword($model_name);
+        if ($normalized_keyword === '' || $normalized_model === '') {
+            return '';
+        }
+
+        return trim((string) preg_replace('/(?:^|\s)' . preg_quote($normalized_model, '/') . '(?:\s|$)/u', ' {model} ', $normalized_keyword));
+    }
+
+    /**
+     * Derive a reusable SEO-volume phrase from a model keyword template.
+     */
+    private static function derive_base_phrase_from_template(string $template): string {
+        $phrase = (string) preg_replace('/\{\{\s*model\s*\}\}|\{\s*model\s*\}/iu', ' ', $template);
+        $phrase = self::normalize_keyword($phrase);
+        if ($phrase === '') {
+            return '';
+        }
+
+        $words = preg_split('/\s+/u', $phrase) ?: [];
+        $useful = array_values(array_filter($words, static fn($word) => !in_array((string) $word, [ 'watch' ], true)));
+        if (empty($useful)) {
+            return '';
+        }
+
+        return $phrase;
+    }
+
+    /** @return string[] */
+    private static function base_phrase_lookup_candidates(string $template): array {
+        $base_phrase = self::derive_base_phrase_from_template($template);
+        if ($base_phrase === '') {
+            return [];
+        }
+
+        $candidates = [ $base_phrase ];
+        $words = preg_split('/\s+/u', $base_phrase) ?: [];
+        while (count($words) > 1 && in_array((string) $words[0], [ 'watch' ], true)) {
+            array_shift($words);
+            $candidate = trim(implode(' ', $words));
+            if ($candidate !== '') {
+                $candidates[] = $candidate;
+            }
+        }
+
+        $out = [];
+        foreach ($candidates as $candidate) {
+            $normalized = self::normalize_keyword($candidate);
+            if ($normalized !== '' && !in_array($normalized, $out, true)) {
+                $out[] = $normalized;
+            }
+        }
+        return $out;
+    }
+
+    /** @return array{found:bool,volume:mixed,difficulty:mixed,cpc:mixed,source:string,candidate_source:string,expanded_volume:mixed,base_phrase_volume:mixed,base_phrase:string,lookup_source:string} */
+    private static function lookup_volume_metadata_with_base_phrase(string $expanded_keyword, int $post_id, string $template = ''): array {
+        $unknown = [
+            'found' => false,
+            'volume' => null,
+            'difficulty' => null,
+            'cpc' => null,
+            'source' => 'unknown',
+            'candidate_source' => 'unknown',
+            'expanded_volume' => null,
+            'base_phrase_volume' => null,
+            'base_phrase' => self::derive_base_phrase_from_template($template),
+            'lookup_source' => 'unknown',
+        ];
+
+        $expanded = self::lookup_volume_metadata($expanded_keyword, $post_id);
+        if (!empty($expanded['found'])) {
+            return array_merge($unknown, $expanded, [
+                'found' => true,
+                'expanded_volume' => $expanded['volume'] ?? null,
+                'base_phrase_volume' => null,
+                'source' => 'exact_expanded_keyword',
+                'lookup_source' => 'exact_expanded_keyword',
+            ]);
+        }
+
+        foreach (self::base_phrase_lookup_candidates($template) as $base_phrase) {
+            $base = self::lookup_volume_metadata($base_phrase, $post_id);
+            if (empty($base['found'])) {
+                continue;
+            }
+
+            return array_merge($unknown, $base, [
+                'found' => true,
+                'expanded_volume' => null,
+                'base_phrase_volume' => $base['volume'] ?? null,
+                'base_phrase' => $base_phrase,
+                'source' => 'base_phrase_keyword',
+                'lookup_source' => 'base_phrase_keyword',
+            ]);
+        }
+
+        return $unknown;
     }
 
     /** @return array{found:bool,volume:mixed,difficulty:mixed,cpc:mixed,source:string,candidate_source:string} */
