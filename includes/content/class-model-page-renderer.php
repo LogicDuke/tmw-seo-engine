@@ -75,7 +75,7 @@ class ModelPageRenderer {
         }
 
         $internal_links = self::render_section(
-            'More Pages for ' . $name,
+            'More Pages',
             $payload['internal_links_section_paragraphs'] ?? [],
             $name,
             $payload['internal_links_html'] ?? ''

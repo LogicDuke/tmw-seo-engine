@@ -16,9 +16,7 @@
     },
     "selection_rule": "Pick 1 question per bucket per page. Use (post_id mod 10) as index within each bucket."
   },
-
   "buckets": {
-
     "platform_access": {
       "label": "Platform access",
       "questions": [
@@ -74,14 +72,13 @@
         }
       ]
     },
-
     "private_chat": {
       "label": "Private chat",
       "questions": [
         {
           "id": "pc_01",
           "q": "How do I start a private chat with {{name}}?",
-          "a": "Open the confirmed live-room link for {{name}} on {{platform}}. Once the room loads, look for the private show or private chat button. You will need credits loaded on your account before starting. Confirm the room is active and {{name}} is online before initiating."
+          "a": "Open the confirmed live-room link for {{name}} on {{platform}}. Once the room loads, look for the private show or private chat button. You will need credits loaded on your account before starting. Confirm the room is active and this performer is online before initiating."
         },
         {
           "id": "pc_02",
@@ -130,7 +127,6 @@
         }
       ]
     },
-
     "model_specific": {
       "label": "Model-specific (name + platform injected)",
       "questions": [
@@ -152,7 +148,7 @@
         {
           "id": "ms_04",
           "q": "Does {{name}} have a fan page or subscription content?",
-          "a": "Fan and subscription pages for {{name}} are listed in the Official Links and Profiles section of this page when they have been confirmed. These include platforms such as OnlyFans, Fansly, and FanCentro where {{name}} publishes content separately from live cam sessions."
+          "a": "Fan and subscription pages for {{name}} are listed in the Official Links and Profiles section of this page when they have been confirmed. These include platforms such as OnlyFans, Fansly, and FanCentro where this performer publishes content separately from live cam sessions."
         },
         {
           "id": "ms_05",
@@ -172,7 +168,7 @@
         {
           "id": "ms_08",
           "q": "Are there videos of {{name}} I can watch on this site?",
-          "a": "Yes. Use the Watch a {{name}} Video link in the More Pages section of this page to browse the {{name}} video archive on {{site_name}}. Videos are a good way to preview her style before starting a live session."
+          "a": "Yes. Use the video archive link in the More Pages section of this page to browse the model video archive on {{site_name}}. Videos are a good way to preview her style before starting a live session."
         },
         {
           "id": "ms_09",
@@ -186,7 +182,6 @@
         }
       ]
     },
-
     "comparison_navigation": {
       "label": "Comparison and navigation",
       "questions": [
@@ -217,8 +212,8 @@
         },
         {
           "id": "cn_06",
-          "q": "Can I find {{name}}'s video archive on {{site_name}}?",
-          "a": "Yes. The Watch a {{name}} Video link in the More Pages section takes you to the {{name}} video archive on {{site_name}}. The archive is separate from the live profile and does not require platform credits to browse."
+          "q": "Is there a video archive for this model on {{site_name}}?",
+          "a": "Yes. Use the video archive link in the More Pages section to open related model videos on {{site_name}}. The archive is separate from the live profile and does not require platform credits to browse."
         },
         {
           "id": "cn_07",
@@ -242,7 +237,6 @@
         }
       ]
     },
-
     "safety_verification": {
       "label": "Safety and verification",
       "questions": [
@@ -254,7 +248,7 @@
         {
           "id": "sv_02",
           "q": "What does 'non-active' mean on a {{name}} profile link?",
-          "a": "Non-active means the profile has been confirmed as belonging to {{name}} but is not currently functioning as a live-room entry point. It may be a fan page, an inactive cam account, or a platform where {{name}} is no longer streaming. Use it for profile checks or following, not for live-room access."
+          "a": "Non-active means the profile has been confirmed as belonging to {{name}} but is not currently functioning as a live-room entry point. It may be a fan page, an inactive cam account, or a platform where this performer is no longer streaming. Use it for profile checks or following, not for live-room access."
         },
         {
           "id": "sv_03",
@@ -278,7 +272,7 @@
         },
         {
           "id": "sv_07",
-          "q": "Can I report a fake {{name}} profile if I find one?",
+          "q": "Can I report a fake profile if I find one?",
           "a": "Yes. Use the report function on the platform where you found the suspected fake profile. You can also help {{site_name}} maintain accuracy by using the contact or feedback option on this page if you notice a confirmed link has changed or a new fake profile has appeared."
         },
         {
@@ -298,6 +292,5 @@
         }
       ]
     }
-
   }
 }

@@ -745,7 +745,7 @@ class TemplateContent {
             'community_destinations_section_html' => '',
             'community_destinations_section_paragraphs' => $community_destination_paragraphs,
             'internal_links_section_paragraphs' => [
-                'Use these internal pages to continue from ' . $name . ' to the model video archive, model directory, and category pages on this site.',
+                'Use these internal pages to continue to the model video archive, model directory, and category pages on this site.',
             ],
             'internal_links_html' => $internal_links_html,
             'related_models_html' => $internal_links_html,
@@ -2031,7 +2031,7 @@ class TemplateContent {
             return '';
         }
 
-        return '<h3>' . esc_html('Find ' . $name . ' elsewhere') . '</h3>'
+        return '<h3>' . esc_html('Find This Profile Elsewhere') . '</h3>'
             . implode('', $chunks);
     }
 
@@ -2939,9 +2939,9 @@ class TemplateContent {
             return '';
         }
 
-        $intro = 'If you enjoy ' . $name . ', you may also want to browse similar profile pages for more live-chat options.';
+        $intro = 'If you enjoy this performer, you may also want to browse similar profile pages for more live-chat options.';
         if (!empty($active_platforms)) {
-            $intro = 'If you enjoy ' . $name . ' on ' . self::format_platform_list($active_platforms, $active_platforms[0]) . ', you may also want to compare a few similar model profiles.';
+            $intro = 'If you enjoy this performer on ' . self::format_platform_list($active_platforms, $active_platforms[0]) . ', you may also want to compare a few similar model profiles.';
         }
 
         $items = '';
@@ -3478,9 +3478,7 @@ class TemplateContent {
     }
 
     private static function model_video_anchor_text(string $model_title): string {
-        $model_title = trim($model_title) !== '' ? trim($model_title) : 'this model';
-        $article = preg_match('/^[AEIOU]/i', $model_title) ? 'an' : 'a';
-        return 'Watch ' . $article . ' ' . $model_title . ' video';
+        return 'Watch a video from this model';
     }
 
     private static function log_suppressed_fake_video_archive_link(int $model_post_id, string $model_title, string $model_slug): void {
