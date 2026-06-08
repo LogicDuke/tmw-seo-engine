@@ -870,7 +870,42 @@ class ModelKeywordPack {
     private static function finalize_rankmath_additional_keywords(array $keywords, array $excluded, string $primary): array {
         $keywords = self::filter_keywords_against_classified_exclusions($keywords, $excluded);
         $keywords = self::remove_primary_keyword_from_extras($keywords, $primary);
-        return array_slice(self::dedupe_keywords($keywords), 0, 4);
+        $keywords = self::dedupe_keywords($keywords);
+        return self::dedupe_reordered_keywords($keywords, 4);
+    }
+
+    /**
+     * Remove keywords that are reordered duplicates of an earlier keyword.
+     *
+     * "anisyia livejasmin" and "livejasmin anisyia" share the same sorted
+     * token set and are treated as duplicates; the first occurrence wins.
+     *
+     * @param  string[] $keywords  Already exact-deduped list.
+     * @return string[]
+     */
+    private static function dedupe_reordered_keywords(array $keywords): array {
+        $out = [];
+        $seen_fingerprints = [];
+        foreach ($keywords as $kw) {
+            $clean = self::normalize_keyword((string) $kw);
+            if ($clean === '') {
+                continue;
+            }
+            $lower = function_exists('mb_strtolower') ? mb_strtolower($clean, 'UTF-8') : strtolower($clean);
+            $tokens = preg_split('/\s+/u', $lower);
+            if (!is_array($tokens)) {
+                $tokens = [$lower];
+            }
+            $tokens = array_values(array_filter($tokens, 'strlen'));
+            sort($tokens, SORT_STRING);
+            $fingerprint = implode('|', $tokens);
+            if (isset($seen_fingerprints[$fingerprint])) {
+                continue;
+            }
+            $seen_fingerprints[$fingerprint] = true;
+            $out[] = $kw;
+        }
+        return $out;
     }
 
     /** @param string[] $keywords @return string[] */
@@ -897,7 +932,6 @@ class ModelKeywordPack {
         // existing personal CSV gate in ClassifiedModelKeywordProvider but is not preferentially ordered.
         $preferred_keys = [
             $model_lc . ' livejasmin',
-            'livejasmin ' . $model_lc,
             $model_lc . ' live',
         ];
 
@@ -1471,3 +1505,4 @@ private static function debug_assert_model_additional_keywords(array $additional
         }
     }
 }}
+
