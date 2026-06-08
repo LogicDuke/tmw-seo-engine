@@ -483,16 +483,6 @@ class TemplateContent {
                 // (When $h2_has_private_chat is true, the post-evidence-prepend block
                 //  handles <h2>Private Chat Options</h2> ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â nothing to do here.)
 
-                // "Live Chat ExperienceÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ webcam_tips_h2
-                $webcam_tips_h2 = trim((string) ($h2_overrides['webcam_tips_h2'] ?? ''));
-                if ($webcam_tips_h2 !== '') {
-                    $content = preg_replace(
-                        '/<h2>\s*Live Chat Experience\b[^<]*<\/h2>/iu',
-                        '<h2>' . esc_html($webcam_tips_h2) . '</h2>',
-                        $content,
-                        1
-                    ) ?: $content;
-                }
                 // "Before You ClickÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ before_click_h2
                 $before_click_h2 = trim((string) ($h2_overrides['before_click_h2'] ?? ''));
                 $before_click_h2 = $before_click_h2 !== ''
@@ -5415,7 +5405,6 @@ class TemplateContent {
                             ? $name . ' Live Cam Turn Ons and Session Notes'
                             : 'Turn Ons and Session Notes for ' . $name))
                     : '',
-                'webcam_tips_h2'  => '',
                 'before_click_h2' => 'Before You Click the Confirmed Profile',
                 'questions_h2'    => 'Common Profile Questions',
             ];
@@ -6456,7 +6445,7 @@ class TemplateContent {
                 $before_count,
                 $after_count,
                 $budget,
-                $after_count < $before_count ? 'safe_body_only' : 'no_reduction_needed'
+                $after_count < $before_count ? 'safe_body_only' : ($before_count > $budget ? 'protected_zones_only' : 'no_reduction_needed')
             ));
         }
 
