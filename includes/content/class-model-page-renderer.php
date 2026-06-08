@@ -101,7 +101,6 @@ class ModelPageRenderer {
         }
 
         $features_heading = self::heading_with_focus('Live Chat Experience', $focus_keyword, $name);
-        $features_heading = self::append_secondary_heading_phrase($features_heading, $secondary_heading_slots['features'][0] ?? '');
         $features = self::render_section(
             $features_heading,
             $payload['features_section_paragraphs'] ?? [],
