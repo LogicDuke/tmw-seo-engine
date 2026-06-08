@@ -2345,26 +2345,16 @@ class TemplateContent {
         if ($phrase === '') {
             return '';
         }
-        // v5.8.31 (corrected PR #701): Split by link-count context.
-        //
+        // v5.8.31: Split by link-count context.
         // has_extra_links = false → single confirmed live profile only (e.g. Alice Schuster
-        //   with 1 link). Navigation paragraph uses neutral "this profile's cam links" so
-        //   a model-name-bearing $phrase does not add a low-value density mention on pages
-        //   that have nothing extra to navigate to anyway.
-        //
-        // has_extra_links = true → multiple confirmed profiles present (fan pages, social,
-        //   personal sites, etc.). The original $phrase is restored so that the Rank Math
-        //   secondary keyword chip gets a natural body-text occurrence in the Official Links
-        //   section — the primary purpose of this helper (§ build_model_renderer_support_payload
-        //   comment: "standalone When checking {keyword} links … body-only keyword coverage").
+        //   with 1 link). Neutral wording avoids a low-value model-name mention on pages
+        //   that have no extra destinations to navigate toward anyway.
+        // has_extra_links = true → multiple confirmed profiles present. $phrase is used so
+        //   the Rank Math secondary keyword chip gets a natural body-text occurrence in the
+        //   Official Links section (primary purpose of this helper).
         if (empty($evidence['has_extra_links'])) {
-            // Single-profile page: no extra destinations to navigate; neutral wording avoids
-            // an unnecessary model-name mention without sacrificing keyword coverage.
             return "When checking this profile's cam links, start with the confirmed live profile and avoid assuming extra destinations exist until they are verified.";
         }
-        // Multi-profile page: use $phrase to provide body-text placement for the Rank Math
-        // extra keyword chip. One model-name mention here is acceptable — the FAQ neutralizer
-        // in neutralize_low_value_faq_name_mentions() removes 3–5 more mentions elsewhere.
         return 'When checking ' . $phrase . ' links, use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.';
     }
 
@@ -6625,7 +6615,6 @@ class TemplateContent {
      * clarity value and only inflates focus-keyword density.
      *
      * Preserved (not touched):
-     *   - FAQ questions where the model name is needed for specificity or platform context
      *   - "How much does a private show with {Name} cost?" (high-intent SEO question)
      *   - "How do I find the correct {Name} profile on {Platform}?" (handle-verification Q)
      *   - Any FAQ item not matching a known low-value pattern
@@ -6648,39 +6637,30 @@ class TemplateContent {
 
             // ── Question rewrites ─────────────────────────────────────────────
             // Pattern 1: "Is {Name} available on multiple platforms?"
-            // Low value: availability is about the page structure, not the name.
             $q = (string) preg_replace(
                 '/^Is\s+' . $n . '\s+available\s+on\s+multiple\s+platforms\?$/iu',
                 'Is this model available on multiple platforms?',
                 $q
             );
-
             // Pattern 2: "Does {Name} have a fan page or subscription content?"
-            // Low value: the page structure answers this, not the specific name.
             $q = (string) preg_replace(
                 '/^Does\s+' . $n . '\s+have\s+a\s+fan\s+page\s+or\s+subscription\s+content\?$/iu',
                 'Does this model have a fan page or subscription content?',
                 $q
             );
-
             // Pattern 3: "How do I protect my privacy when watching {Name} on {Platform}?"
-            // Low value: the answer is platform-generic, not model-specific.
             $q = (string) preg_replace(
                 '/^How\s+do\s+I\s+protect\s+my\s+privacy\s+when\s+watching\s+' . $n . '\s+on\s+(.+?)\?$/iu',
                 'How do I protect my privacy on $1?',
                 $q
             );
-
             // Pattern 4: "Who are similar models to {Name} on {SiteName}?"
-            // Low value: the similar-models section answers this generically.
             $q = (string) preg_replace(
                 '/^Who\s+are\s+similar\s+models\s+to\s+' . $n . '\s+on\s+(.+?)\?$/iu',
                 'Who are similar models on $1?',
                 $q
             );
-
-            // Pattern 5: "How often is the {Name} profile page on {SiteName} updated?"
-            // Low value: update frequency is site-level, not model-specific.
+            // Pattern 5: "How often is the {Name} profile page … updated?"
             $q = (string) preg_replace(
                 '/^How\s+often\s+is\s+the\s+' . $n . '\s+profile\s+page\s+(?:on\s+.+?\s+)?updated\?$/iu',
                 'How often is this profile page updated?',
@@ -6689,24 +6669,18 @@ class TemplateContent {
 
             // ── Answer rewrites ───────────────────────────────────────────────
             // Answer A1: "This page lists all confirmed platforms for {Name}."
-            // The sentence is about the page, not the name — neutral form is clearer.
             $a = (string) preg_replace(
                 '/\bThis\s+page\s+lists\s+all\s+confirmed\s+platforms\s+for\s+' . $n . '\b/iu',
                 'This page lists all confirmed platforms for this model',
                 $a
             );
-
             // Answer A2: "Fan and subscription pages for {Name} are listed..."
-            // Trimming the name here loses nothing — the page context is clear.
             $a = (string) preg_replace(
                 '/\bFan\s+and\s+subscription\s+pages\s+for\s+' . $n . '\s+are\s+listed\b/iu',
                 'Fan and subscription pages are listed',
                 $a
             );
-
-            // Answer A3: "The Similar Models section on this page lists performers
-            //             with comparable styles or platforms to {Name}."
-            // The section heading identifies context; the name is redundant.
+            // Answer A3: "The Similar Models section … to {Name}."
             $a = (string) preg_replace(
                 '/\bThe\s+Similar\s+Models\s+section\s+(?:on\s+this\s+page\s+)?lists\s+performers\s+with\s+comparable\s+styles\s+or\s+platforms\s+to\s+' . $n . '\b\.?/iu',
                 'The Similar Models section lists performers with comparable styles or platforms.',
