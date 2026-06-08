@@ -871,8 +871,7 @@ class ModelKeywordPack {
         $keywords = self::filter_keywords_against_classified_exclusions($keywords, $excluded);
         $keywords = self::remove_primary_keyword_from_extras($keywords, $primary);
         $keywords = self::dedupe_keywords($keywords);
-        $keywords = self::dedupe_reordered_keywords($keywords);
-        return array_slice($keywords, 0, 4);
+        return self::dedupe_reordered_keywords($keywords, 4);
     }
 
     /**
@@ -892,9 +891,10 @@ class ModelKeywordPack {
             if ($clean === '') {
                 continue;
             }
-            $tokens = preg_split('/\s+/u', strtolower($clean));
+            $lower = function_exists('mb_strtolower') ? mb_strtolower($clean, 'UTF-8') : strtolower($clean);
+            $tokens = preg_split('/\s+/u', $lower);
             if (!is_array($tokens)) {
-                $tokens = [strtolower($clean)];
+                $tokens = [$lower];
             }
             $tokens = array_values(array_filter($tokens, 'strlen'));
             sort($tokens, SORT_STRING);
@@ -1505,3 +1505,4 @@ private static function debug_assert_model_additional_keywords(array $additional
         }
     }
 }}
+
