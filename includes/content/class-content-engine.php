@@ -1438,6 +1438,14 @@ class ContentEngine {
             // Evidence is applied through ModelResearchEvidence::prepend_sections()
             // before save, so a post-save miss check is no longer meaningful.
 
+            // v5.8.29: write rank_math_title from the canonical builder so the
+            // template/TemplatePool path matches the Claude and OpenAI paths.
+            // TemplateContent::build_default_model_seo_title() always produces a
+            // title with a year (number) and a power word from model_title_allowlist,
+            // satisfying both Rank Math Title Readability checks. Without this line
+            // the stale weak formula "{name} Live Chat – Watch {name} Webcam Now"
+            // (set by an older path) is left in rank_math_title untouched.
+            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
             if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
             if ($focus_kw !== '') {
                 // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
