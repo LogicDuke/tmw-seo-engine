@@ -2345,14 +2345,27 @@ class TemplateContent {
         if ($phrase === '') {
             return '';
         }
-        // v5.8.31: Use neutral "this profile's cam links" instead of the model-name-led
-        // $phrase (e.g. "alice schuster cam profile") to remove one low-value structural
-        // model-name repetition from the official-links section. The $phrase parameter
-        // is kept in the signature to avoid caller changes.
+        // v5.8.31 (corrected PR #701): Split by link-count context.
+        //
+        // has_extra_links = false → single confirmed live profile only (e.g. Alice Schuster
+        //   with 1 link). Navigation paragraph uses neutral "this profile's cam links" so
+        //   a model-name-bearing $phrase does not add a low-value density mention on pages
+        //   that have nothing extra to navigate to anyway.
+        //
+        // has_extra_links = true → multiple confirmed profiles present (fan pages, social,
+        //   personal sites, etc.). The original $phrase is restored so that the Rank Math
+        //   secondary keyword chip gets a natural body-text occurrence in the Official Links
+        //   section — the primary purpose of this helper (§ build_model_renderer_support_payload
+        //   comment: "standalone When checking {keyword} links … body-only keyword coverage").
         if (empty($evidence['has_extra_links'])) {
+            // Single-profile page: no extra destinations to navigate; neutral wording avoids
+            // an unnecessary model-name mention without sacrificing keyword coverage.
             return "When checking this profile's cam links, start with the confirmed live profile and avoid assuming extra destinations exist until they are verified.";
         }
-        return "When checking this profile's cam links, use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.";
+        // Multi-profile page: use $phrase to provide body-text placement for the Rank Math
+        // extra keyword chip. One model-name mention here is acceptable — the FAQ neutralizer
+        // in neutralize_low_value_faq_name_mentions() removes 3–5 more mentions elsewhere.
+        return 'When checking ' . $phrase . ' links, use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.';
     }
 
     /**
