@@ -1425,6 +1425,12 @@ class ContentEngine {
                     'ID'           => $post_id,
                     'post_content' => $final_content,
                 ]);
+                // v5.8.29 (guarded in PR #700): write rank_math_title only in apply
+                // mode so that preview-only generation never mutates the live Rank Math
+                // title. build_default_model_seo_title() always produces a title with a
+                // year (number) and a power word from model_title_allowlist, satisfying
+                // both Rank Math Title Readability checks.
+                if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
             } else {
                 update_post_meta($post_id, '_tmwseo_ai_preview_content', $generated_content);
                 update_post_meta($post_id, '_tmwseo_ai_preview_generated_at', current_time('mysql'));
@@ -1438,14 +1444,6 @@ class ContentEngine {
             // Evidence is applied through ModelResearchEvidence::prepend_sections()
             // before save, so a post-save miss check is no longer meaningful.
 
-            // v5.8.29: write rank_math_title from the canonical builder so the
-            // template/TemplatePool path matches the Claude and OpenAI paths.
-            // TemplateContent::build_default_model_seo_title() always produces a
-            // title with a year (number) and a power word from model_title_allowlist,
-            // satisfying both Rank Math Title Readability checks. Without this line
-            // the stale weak formula "{name} Live Chat – Watch {name} Webcam Now"
-            // (set by an older path) is left in rank_math_title untouched.
-            if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
             if ($meta_desc !== '') update_post_meta($post_id, 'rank_math_description', $meta_desc);
             if ($focus_kw !== '') {
                 // Patch 2: use centralized RankMathMapper (focus + 4 extras cap).
