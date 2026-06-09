@@ -1,4 +1,7 @@
 
+## PR-XXX — Reference Profiles verified-link family
+- Added a Reference Profiles family to Verified External Links for Babepedia, ThePornDB, FreeOnes, IMDb, Wikidata, Wikipedia, IAFD, and Boobpedia.
+
 ## 5.8.9-remove-awe-dead-code
 - Removed legacy AWE/AWEmpire integration dead code from tmw-seo-engine, including integration classes, AWE-only tests, and stale bootstrap wiring.
 - Rationale: WPS LiveJasmin owns video/platform data, and tmw-seo-engine now relies on manual Model Research evidence fields for bio evidence input.

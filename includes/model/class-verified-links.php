@@ -105,12 +105,22 @@ class VerifiedLinks {
         'fancentro',
         // Tube sites
         'pornhub',
-        // Social media + link hubs
+        // Social media
         'instagram',
         'tiktok',
         'x',
         'facebook',
         'youtube',
+        // Reference profiles
+        'babepedia',
+        'theporndb',
+        'freeones',
+        'imdb',
+        'wikidata',
+        'wikipedia',
+        'iafd',
+        'boobpedia',
+        // Link hubs
         'linktree',
         'beacons',
         'allmylinks',
@@ -141,6 +151,14 @@ class VerifiedLinks {
         'x'             => 'X (Twitter)',
         'facebook'      => 'Facebook',
         'youtube'       => 'YouTube',
+        'babepedia'     => 'Babepedia',
+        'theporndb'     => 'ThePornDB',
+        'freeones'      => 'FreeOnes',
+        'imdb'          => 'IMDb',
+        'wikidata'      => 'Wikidata',
+        'wikipedia'     => 'Wikipedia',
+        'iafd'          => 'IAFD',
+        'boobpedia'     => 'Boobpedia',
         'linktree'      => 'Linktree',
         'beacons'       => 'Beacons',
         'allmylinks'    => 'AllMyLinks',
@@ -958,7 +976,7 @@ class VerifiedLinks {
      *
      * @since 5.1.0 Added family bucket-sort: rows are grouped by family in
      *              the fixed display order (cam → personal → fansite → tube
-     *              → social → unmapped), preserving submission order within
+     *              → social → reference → link hub → unmapped), preserving submission order within
      *              each family. The on-disk JSON shape is unchanged.
      */
     public static function save_metabox( int $post_id, \WP_Post $post ): void {
@@ -1420,6 +1438,11 @@ class VerifiedLinks {
 
         $type = sanitize_key( (string) ( $link['type'] ?? '' ) );
         $type = in_array( $type, [ 'livejasmin', 'jasmin' ], true ) ? 'livejasmin' : $type;
+        $family = VerifiedLinksFamilies::family_for( $type );
+        if ( $family === VerifiedLinksFamilies::FAMILY_REFERENCE ) {
+            return $url;
+        }
+
         if ( $use_affiliate
             && $type === 'livejasmin'
             && class_exists( '\TMWSEO\Engine\Platform\AffiliateLinkBuilder' )
@@ -1524,6 +1547,11 @@ class VerifiedLinks {
      */
     private static function shortcode_rel_for_link( array $link, string $rendered_url = '' ): string {
         $raw_url       = trim( (string) ( $link['url'] ?? '' ) );
+        $family = VerifiedLinksFamilies::family_for( sanitize_key( (string) ( $link['type'] ?? 'other' ) ) );
+        if ( $family === VerifiedLinksFamilies::FAMILY_REFERENCE ) {
+            return 'noopener external';
+        }
+
         $is_commercial = ! empty( $link['use_affiliate'] )
             || ( $raw_url !== '' && $rendered_url !== '' && $rendered_url !== $raw_url );
 
@@ -1531,7 +1559,6 @@ class VerifiedLinks {
             return 'sponsored noopener';
         }
 
-        $family = VerifiedLinksFamilies::family_for( sanitize_key( (string) ( $link['type'] ?? 'other' ) ) );
         if ( in_array( $family, [ VerifiedLinksFamilies::FAMILY_CAM, VerifiedLinksFamilies::FAMILY_FANSITE ], true ) ) {
             return 'sponsored noopener';
         }
@@ -1585,7 +1612,7 @@ class VerifiedLinks {
 
             $display = ( $show_label && $custom_label !== '' )
                 ? $custom_label
-                : self::type_label( $type );
+                : self::default_display_label( $type, (string) get_the_title( $model_id ) );
 
             $items .= '<li>'
                 . '<a href="' . esc_url( $url ) . '" rel="' . esc_attr( self::shortcode_rel_for_link( $link, $url ) ) . '" target="_blank">'
@@ -1840,6 +1867,22 @@ class VerifiedLinks {
      */
     private static function type_label( string $type ): string {
         return self::TYPE_LABELS[ $type ] ?? ucfirst( str_replace( '_', ' ', $type ) );
+    }
+
+    /**
+     * Resolve safe default frontend anchor text for links without an operator label.
+     */
+    private static function default_display_label( string $type, string $model_name = '' ): string {
+        $type = sanitize_key( $type );
+        $service = self::type_label( $type );
+        if ( VerifiedLinksFamilies::family_for( $type ) === VerifiedLinksFamilies::FAMILY_REFERENCE ) {
+            $name = trim( sanitize_text_field( $model_name ) );
+            if ( $name !== '' ) {
+                return $name . ' profile on ' . $service;
+            }
+        }
+
+        return $service;
     }
 
     // ── platform_label_from_url() — human-readable name for promote table ────

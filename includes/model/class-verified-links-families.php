@@ -3,7 +3,7 @@
  * TMW SEO Engine — Verified External Links: Family Registry
  *
  * Single source of truth that maps every Verified External Link `type` slug
- * to one of six family blocks, plus an `unmapped` bucket for legacy/unknown
+ * to one of seven family blocks, plus an `unmapped` bucket for legacy/unknown
  * slugs.
  *
  * Block display order is fixed:
@@ -12,8 +12,9 @@
  *   3. fansite        (Fansites)
  *   4. tube_site      (Tube Sites)
  *   5. social         (Social Media)
- *   6. link_hub       (Link Hubs)
- *   7. unmapped       (Other / Legacy — only rendered when populated)
+ *   6. reference_profile (Reference Profiles)
+ *   7. link_hub       (Link Hubs)
+ *   8. unmapped       (Other / Legacy — only rendered when populated)
  *
  * The registry is intentionally small and pure (no WP calls in static maps)
  * so it is safe to consume from PHPUnit without a full WP bootstrap.
@@ -27,16 +28,17 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 class VerifiedLinksFamilies {
 
-    const FAMILY_CAM      = 'cam_platform';
-    const FAMILY_PERSONAL = 'personal_site';
-    const FAMILY_FANSITE  = 'fansite';
-    const FAMILY_TUBE     = 'tube_site';
-    const FAMILY_SOCIAL   = 'social';
-    const FAMILY_LINK_HUB = 'link_hub';
-    const FAMILY_UNMAPPED = 'unmapped';
+    const FAMILY_CAM       = 'cam_platform';
+    const FAMILY_PERSONAL  = 'personal_site';
+    const FAMILY_FANSITE   = 'fansite';
+    const FAMILY_TUBE      = 'tube_site';
+    const FAMILY_SOCIAL    = 'social';
+    const FAMILY_REFERENCE = 'reference_profile';
+    const FAMILY_LINK_HUB  = 'link_hub';
+    const FAMILY_UNMAPPED  = 'unmapped';
 
     /**
-     * Display order for the six operator-facing blocks.
+     * Display order for the seven operator-facing blocks.
      * `unmapped` is appended at runtime by display_order() and only rendered
      * when at least one row falls into it.
      *
@@ -49,6 +51,7 @@ class VerifiedLinksFamilies {
             self::FAMILY_FANSITE,
             self::FAMILY_TUBE,
             self::FAMILY_SOCIAL,
+            self::FAMILY_REFERENCE,
             self::FAMILY_LINK_HUB,
         ];
     }
@@ -100,6 +103,16 @@ class VerifiedLinksFamilies {
             'x'            => self::FAMILY_SOCIAL,
             'facebook'     => self::FAMILY_SOCIAL,
             'youtube'      => self::FAMILY_SOCIAL,
+
+            // Reference profiles
+            'babepedia'    => self::FAMILY_REFERENCE,
+            'theporndb'    => self::FAMILY_REFERENCE,
+            'freeones'     => self::FAMILY_REFERENCE,
+            'imdb'         => self::FAMILY_REFERENCE,
+            'wikidata'     => self::FAMILY_REFERENCE,
+            'wikipedia'    => self::FAMILY_REFERENCE,
+            'iafd'         => self::FAMILY_REFERENCE,
+            'boobpedia'    => self::FAMILY_REFERENCE,
 
             // Link hubs
             'linktree'     => self::FAMILY_LINK_HUB,
@@ -173,9 +186,10 @@ class VerifiedLinksFamilies {
             self::FAMILY_PERSONAL => __( 'Personal Website', 'tmwseo' ),
             self::FAMILY_FANSITE  => __( 'Fansites',         'tmwseo' ),
             self::FAMILY_TUBE     => __( 'Tube Sites',       'tmwseo' ),
-            self::FAMILY_SOCIAL   => __( 'Social Media',     'tmwseo' ),
-            self::FAMILY_LINK_HUB => __( 'Link Hubs',        'tmwseo' ),
-            self::FAMILY_UNMAPPED => __( 'Other / Legacy',   'tmwseo' ),
+            self::FAMILY_SOCIAL    => __( 'Social Media',        'tmwseo' ),
+            self::FAMILY_REFERENCE => __( 'Reference Profiles',  'tmwseo' ),
+            self::FAMILY_LINK_HUB  => __( 'Link Hubs',           'tmwseo' ),
+            self::FAMILY_UNMAPPED  => __( 'Other / Legacy',      'tmwseo' ),
         ];
         return $labels[ $family ] ?? ucfirst( str_replace( '_', ' ', $family ) );
     }
@@ -190,9 +204,10 @@ class VerifiedLinksFamilies {
             self::FAMILY_PERSONAL => '#117a65', // teal
             self::FAMILY_FANSITE  => '#a93226', // crimson
             self::FAMILY_TUBE     => '#7d3c98', // purple
-            self::FAMILY_SOCIAL   => '#b9770e', // amber
-            self::FAMILY_LINK_HUB => '#148f77', // green-teal
-            self::FAMILY_UNMAPPED => '#566573', // slate
+            self::FAMILY_SOCIAL    => '#b9770e', // amber
+            self::FAMILY_REFERENCE => '#2e86c1', // reference blue
+            self::FAMILY_LINK_HUB  => '#148f77', // green-teal
+            self::FAMILY_UNMAPPED  => '#566573', // slate
         ];
         return $colors[ $family ] ?? '#444';
     }
@@ -223,6 +238,14 @@ class VerifiedLinksFamilies {
             'x'             => 'X (Twitter)',
             'facebook'      => 'Facebook',
             'youtube'       => 'YouTube',
+            'babepedia'     => 'Babepedia',
+            'theporndb'     => 'ThePornDB',
+            'freeones'      => 'FreeOnes',
+            'imdb'          => 'IMDb',
+            'wikidata'      => 'Wikidata',
+            'wikipedia'     => 'Wikipedia',
+            'iafd'          => 'IAFD',
+            'boobpedia'     => 'Boobpedia',
             'linktree'      => 'Linktree',
             'beacons'       => 'Beacons',
             'allmylinks'    => 'AllMyLinks',
