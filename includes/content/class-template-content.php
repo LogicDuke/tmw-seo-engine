@@ -6873,11 +6873,11 @@ class TemplateContent {
 
             $is_platform    = (
                 ($platform_lc !== '' && mb_strpos($kw_lower_trim, $platform_lc, 0, 'UTF-8') !== false)
-                || (bool) preg_match('/(livejasmin|stripchat|chaturbate|camsoda|bongacams|flirt4free|myfreecams|cam4|streamate)/iu', $kw)
+                || (bool) preg_match('/\b(livejasmin|stripchat|chaturbate|camsoda|bongacams|flirt4free|myfreecams|cam4|streamate)\b/iu', $kw)
             );
-            $is_live_cam    = (bool) preg_match('/live\s+cam/iu', $kw);
-            $is_private     = (bool) preg_match('/private\s+(?:chat|webcam|show|session)|live\s+chat/iu', $kw);
-            $is_profile     = (bool) preg_match('/(?:model|cam|webcam)\s+profile/iu', $kw);
+            $is_live_cam    = (bool) preg_match('/\blive\s+cam\b/iu', $kw);
+            $is_private     = (bool) preg_match('/\bprivate\s+(?:chat|webcam|show|session)\b|\blive\s+chat\b/iu', $kw);
+            $is_profile     = (bool) preg_match('/\b(?:model|cam|webcam)\s+profile\b/iu', $kw);
 
             // Build the insertion sentence from approved patterns.
             $sentence = '';
@@ -6938,7 +6938,7 @@ class TemplateContent {
             }
 
             // Build H2→content index.
-            preg_match_all('/<h2[^>]*>(.*?)<\/h2>/isu', $html, $h2m, PREG_OFFSET_CAPTURE);
+            preg_match_all('/<h2\b[^>]*>(.*?)<\/h2>/isu', $html, $h2m, PREG_OFFSET_CAPTURE);
             $h2_positions = [];
             foreach ($h2m[0] as $i => $m) {
                 $h2_positions[] = [
@@ -7021,7 +7021,7 @@ class TemplateContent {
 
                 // Good candidate — append the sentence inside the closing </p>.
                 $new_p = '<p>' . trim($p_inner) . ' ' . $sentence . '</p>';
-                $html  = substr_replace($html, $new_p, $p_offset, mb_strlen($p_full, 'UTF-8'));
+                $html  = substr_replace($html, $new_p, $p_offset, strlen($p_full));
 
                 if ($debug) {
                     error_log(sprintf(
