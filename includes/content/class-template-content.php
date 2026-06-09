@@ -6477,6 +6477,47 @@ class TemplateContent {
         }
 
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Fix 4: Placeholder artifact sanitizer ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+        // v5.8.33: Structural low-value model-name softening.
+        // Runs after the density reducer as a final targeted pass. Catches
+        // known low-value structural phrases that the budget-based reducer
+        // may not have reached (because protected zones consumed the budget).
+        // These phrases exist in section-template variants that use {{name}}
+        // but where the model name adds no SEO or clarity value.
+        // Logs [TMW-KW-DENSITY-BALANCE] when WP_DEBUG is on.
+        $n_esc = preg_quote( $name, '/' );
+
+        // Pattern A: "joining any {Name} room" → "joining any live room"
+        // Source: before_you_click section template variants [0] and [2].
+        $html = (string) preg_replace(
+            '/\bjoining\s+any\s+' . $n_esc . '\s+room\b/iu',
+            'joining any live room',
+            $html
+        );
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG
+            && preg_match( '/joining any live room/i', $html )
+        ) {
+            error_log( sprintf(
+                '[TMW-KW-DENSITY-BALANCE] replaced post_id=%d phrase="joining any [name] room" reason="low_value_model_name"',
+                $post_id
+            ) );
+        }
+
+        // Pattern B: "Continue exploring {Name}'s content on…" → "Continue exploring this model's content on…"
+        // Source: more_pages section template variants [0] and [7].
+        $html = (string) preg_replace(
+            '/\bContinue\s+exploring\s+' . $n_esc . "'s\s+content\b/iu",
+            "Continue exploring this model's content",
+            $html
+        );
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG
+            && preg_match( "/Continue exploring this model's content/i", $html )
+        ) {
+            error_log( sprintf(
+                '[TMW-KW-DENSITY-BALANCE] replaced post_id=%d phrase="Continue exploring [name] content" reason="low_value_model_name"',
+                $post_id
+            ) );
+        }
+
         // v5.8.25: A final deterministic string-replace pass removes any known
         // bad artifact phrases that survive density reduction. These originate
         // from TemplatePool template literals that were rendered before the
@@ -6698,6 +6739,15 @@ class TemplateContent {
             $a = (string) preg_replace(
                 '/\bThe\s+Similar\s+Models\s+section\s+(?:on\s+this\s+page\s+)?lists\s+performers\s+with\s+comparable\s+styles\s+or\s+platforms\s+to\s+' . $n . '\b\.?/iu',
                 'The Similar Models section lists performers with comparable styles or platforms.',
+                $a
+            );
+
+            // Answer A4: cam-to-cam FAQ answer — "Check the private chat options
+            // listed on this page for {Name} and confirm with the room controls."
+            // Low-value structural mention; model name adds nothing here.
+            $a = (string) preg_replace(
+                '/\\bCheck\\s+the\\s+private\\s+chat\\s+options\\s+listed\\s+on\\s+this\\s+page\\s+for\\s+' . $n . '\\s+and\\s+confirm\\b/iu',
+                'Check the private chat options listed on this page for the current profile and confirm',
                 $a
             );
 
