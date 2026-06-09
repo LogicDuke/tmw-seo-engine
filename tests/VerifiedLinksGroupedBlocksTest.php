@@ -118,7 +118,7 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
      */
     public function test_block_order_is_fixed_with_link_hubs_block(): void {
         $this->assertSame(
-            [ 'cam_platform', 'personal_site', 'fansite', 'tube_site', 'social', 'link_hub' ],
+            [ 'cam_platform', 'personal_site', 'fansite', 'tube_site', 'social', 'reference_profile', 'link_hub' ],
             VerifiedLinksFamilies::block_order(),
             'Block display order must include the dedicated Link Hubs family in this order.'
         );
@@ -129,7 +129,7 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
      */
     public function test_display_order_appends_unmapped_last(): void {
         $order = VerifiedLinksFamilies::display_order();
-        $this->assertCount( 7, $order );
+        $this->assertCount( 8, $order );
         $this->assertSame( 'unmapped', end( $order ) );
     }
 
@@ -148,6 +148,31 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
             [ 'linktree', 'beacons', 'allmylinks', 'solo_to', 'carrd', 'link_me', 'friendsbio' ],
             array_keys( VerifiedLinksFamilies::types_in_family( VerifiedLinksFamilies::FAMILY_LINK_HUB ) )
         );
+    }
+
+    public function test_reference_profile_types_resolve_to_reference_profile_family(): void {
+        foreach ( [ 'babepedia', 'theporndb', 'freeones', 'imdb', 'wikidata', 'wikipedia', 'iafd', 'boobpedia' ] as $slug ) {
+            $this->assertSame(
+                VerifiedLinksFamilies::FAMILY_REFERENCE,
+                VerifiedLinksFamilies::family_for( $slug ),
+                "Reference profile slug '{$slug}' must resolve to the Reference Profiles family."
+            );
+        }
+    }
+
+    public function test_reference_profile_family_contains_reference_services_in_dropdown_order(): void {
+        $this->assertSame(
+            [ 'babepedia', 'theporndb', 'freeones', 'imdb', 'wikidata', 'wikipedia', 'iafd', 'boobpedia' ],
+            array_keys( VerifiedLinksFamilies::types_in_family( VerifiedLinksFamilies::FAMILY_REFERENCE ) )
+        );
+    }
+
+    public function test_link_hub_family_excludes_reference_profile_types(): void {
+        $link_hubs = array_keys( VerifiedLinksFamilies::types_in_family( VerifiedLinksFamilies::FAMILY_LINK_HUB ) );
+        $this->assertSame( [ 'linktree', 'beacons', 'allmylinks', 'solo_to', 'carrd', 'link_me', 'friendsbio' ], $link_hubs );
+        foreach ( [ 'babepedia', 'theporndb', 'freeones', 'imdb', 'wikidata', 'wikipedia', 'iafd', 'boobpedia' ] as $slug ) {
+            $this->assertNotContains( $slug, $link_hubs );
+        }
     }
 
     public function test_social_family_excludes_link_hub_types(): void {
@@ -189,6 +214,18 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
             $known,
             'Families registry and ALLOWED_TYPES must define the exact same slug set.'
         );
+    }
+
+    public function test_allowed_types_type_labels_and_family_registry_stay_synchronized(): void {
+        $allowed = VerifiedLinks::ALLOWED_TYPES;
+        $type_labels = array_keys( VerifiedLinks::TYPE_LABELS );
+        $family_types = VerifiedLinksFamilies::all_known_types();
+        sort( $allowed );
+        sort( $type_labels );
+        sort( $family_types );
+
+        $this->assertSame( $allowed, $type_labels );
+        $this->assertSame( $allowed, $family_types );
     }
 
     /**
@@ -316,6 +353,29 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
 
         $types = array_map( static fn( $r ) => $r['type'], $this->read_stored( $post_id ) );
         $this->assertSame( [ 'instagram', 'youtube', 'linktree', 'beacons' ], $types );
+    }
+
+    public function test_save_buckets_reference_profiles_between_social_and_link_hubs(): void {
+        $post_id = 4015;
+        $this->seed_post_for_save( $post_id );
+
+        $_POST['tmwseo_vl'] = [
+            0 => [ 'type' => 'beacons',    'url' => 'https://beacons.ai/anisyia', 'activity_level' => 'active' ],
+            1 => [ 'type' => 'tiktok',     'url' => 'https://tiktok.com/@anisyia', 'activity_level' => 'active' ],
+            2 => [ 'type' => 'babepedia',  'url' => 'https://www.babepedia.com/babe/Anisyia', 'activity_level' => 'active' ],
+            3 => [ 'type' => 'livejasmin', 'url' => 'https://www.livejasmin.com/en/chat/anisyia', 'activity_level' => 'active' ],
+        ];
+
+        VerifiedLinks::save_metabox( $post_id, $this->fake_post( $post_id ) );
+
+        $families = array_map(
+            static fn( $r ) => VerifiedLinksFamilies::family_for( $r['type'] ),
+            $this->read_stored( $post_id )
+        );
+        $this->assertSame(
+            [ 'cam_platform', 'social', 'reference_profile', 'link_hub' ],
+            $families
+        );
     }
 
     // ── D. Legacy flat data still resolves correctly ─────────────────
@@ -559,6 +619,21 @@ class VerifiedLinksGroupedBlocksTest extends TestCase {
         $stored = $this->read_stored( $post_id );
         $this->assertSame( '2026-04-24', $stored[0]['activity_checked_at'] ?? '' );
         $this->assertSame( 'https://evidence.example/audit', $stored[0]['activity_evidence_url'] ?? '' );
+    }
+
+    public function test_reference_profile_links_are_never_affiliate_routed(): void {
+        $raw_url = 'https://www.babepedia.com/babe/Anisyia';
+        $this->assertSame(
+            $raw_url,
+            VerifiedLinks::get_routed_url( [
+                'type' => 'babepedia',
+                'url' => $raw_url,
+                'activity_level' => 'active',
+                'is_active' => true,
+                'use_affiliate' => true,
+                'affiliate_network' => 'crakrevenue',
+            ] )
+        );
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

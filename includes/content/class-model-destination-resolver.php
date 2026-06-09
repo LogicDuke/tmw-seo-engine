@@ -41,6 +41,7 @@ class ModelDestinationResolver {
 
         $families = [
             'social_destinations' => [],
+            'reference_profile_destinations' => [],
             'link_hub_destinations' => [],
             'personal_site_destinations' => [],
             'fan_platform_destinations' => [],
@@ -58,7 +59,8 @@ class ModelDestinationResolver {
             }
             $type = sanitize_key((string)($link['type'] ?? 'other'));
             $family = VerifiedLinksFamilies::family_for($type);
-            $label = trim((string)($link['label'] ?? ''));
+            $raw_label = trim((string)($link['label'] ?? ''));
+            $label = $raw_label;
             if ($label === '') {
                 $labels = VerifiedLinksFamilies::type_labels();
                 $label = (string)($labels[$type] ?? ucfirst(str_replace('_', ' ', $type)));
@@ -71,6 +73,7 @@ class ModelDestinationResolver {
                 'type' => $type,
                 'family' => $family,
                 'label' => $label,
+                'has_custom_label' => ($raw_label !== ''),
                 'url' => $url,
                 'routed_url' => class_exists(VerifiedLinks::class) ? (string) VerifiedLinks::get_routed_url($link) : $url,
                 'platform_key' => $type,
@@ -87,6 +90,9 @@ class ModelDestinationResolver {
             ];
             $families['all_verified_destinations'][] = $entry;
 
+            if ($family === VerifiedLinksFamilies::FAMILY_REFERENCE) {
+                $families['reference_profile_destinations'][] = $entry;
+            }
             if ($family === VerifiedLinksFamilies::FAMILY_LINK_HUB) {
                 $families['link_hub_destinations'][] = $entry;
             }
@@ -125,6 +131,7 @@ class ModelDestinationResolver {
             'verified_inactive_or_unknown_count' => $verified_inactive,
             'verified_watch_eligible_count' => count(array_filter($families['all_verified_destinations'], static fn(array $entry): bool => !empty($entry['is_cta_eligible']))),
             'social_count' => count($families['social_destinations']),
+            'reference_profile_count' => count($families['reference_profile_destinations']),
             'link_hub_count' => count($families['link_hub_destinations']),
             'personal_site_count' => count($families['personal_site_destinations']),
             'fan_platform_count' => count($families['fan_platform_destinations']),

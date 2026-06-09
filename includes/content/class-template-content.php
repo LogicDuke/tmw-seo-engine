@@ -801,6 +801,7 @@ class TemplateContent {
             'link_evidence_summary' => $link_evidence_summary,
             'verified_destination_families' => [
                 'social' => (array) ($resolved_destinations['social_destinations'] ?? []),
+                'reference_profiles' => (array) ($resolved_destinations['reference_profile_destinations'] ?? []),
                 'link_hubs' => (array) ($resolved_destinations['link_hub_destinations'] ?? []),
                 'personal' => (array) ($resolved_destinations['personal_site_destinations'] ?? []),
                 'fan_platforms' => (array) ($resolved_destinations['fan_platform_destinations'] ?? []),
@@ -1941,6 +1942,7 @@ class TemplateContent {
             VerifiedLinksFamilies::FAMILY_PERSONAL => 'Official and personal sites',
             VerifiedLinksFamilies::FAMILY_FANSITE => 'Fan pages',
             VerifiedLinksFamilies::FAMILY_SOCIAL => 'Social profiles',
+            VerifiedLinksFamilies::FAMILY_REFERENCE => 'Reference profiles',
             VerifiedLinksFamilies::FAMILY_LINK_HUB => 'More Links',
             VerifiedLinksFamilies::FAMILY_TUBE => 'Video channels',
             VerifiedLinksFamilies::FAMILY_UNMAPPED => 'Elsewhere online',
@@ -1978,6 +1980,7 @@ class TemplateContent {
             $seen[$url_key] = true;
             $type = sanitize_key((string)($entry['type'] ?? 'other'));
             $family = VerifiedLinksFamilies::family_for($type);
+            if (class_exists(ModelBodySafety::class) && !ModelBodySafety::verified_link_is_live_eligible($entry)) { continue; }
             if ($family === VerifiedLinksFamilies::FAMILY_CAM && in_array($type, ['livejasmin', 'jasmin'], true) && isset($excluded_primary_cam_rows['livejasmin'])) {
                 continue;
             }
@@ -1994,9 +1997,16 @@ class TemplateContent {
             if ($frontend_key !== '') { $seen['href:' . $frontend_key] = true; }
             $label = trim((string)($entry['label'] ?? ''));
             if ($label === '') { $label = (string) ($type_labels[$type] ?? ucfirst(str_replace('_', ' ', $type))); }
+            $has_custom_label = !empty($entry['has_custom_label']);
+            if ($family === VerifiedLinksFamilies::FAMILY_REFERENCE && !$has_custom_label) {
+                $safe_name = trim(sanitize_text_field($name));
+                if ($safe_name !== '') {
+                    $label = $safe_name . ' profile on ' . $label;
+                }
+            }
             $activity_note = trim((string)($entry['activity_note'] ?? ''));
             if ($activity_note !== '') {
-                $label .= ' ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ' . $activity_note;
+                $label .= ' - ' . $activity_note;
             }
             $grouped[$family][] = array_merge($entry, [
                 'type' => self::canonical_body_platform_slug($entry),
@@ -2100,6 +2110,10 @@ class TemplateContent {
             return false;
         }
 
+        if (!class_exists(ModelBodySafety::class)) {
+            return false;
+        }
+
         $gate_row = $row;
         $gate_row['type'] = $type;
         return ModelBodySafety::verified_link_is_live_eligible($gate_row);
@@ -2130,6 +2144,9 @@ class TemplateContent {
         }
         if ($family === VerifiedLinksFamilies::FAMILY_SOCIAL) {
             return 'Follow on ' . $label;
+        }
+        if ($family === VerifiedLinksFamilies::FAMILY_REFERENCE) {
+            return $label;
         }
         if ($family === VerifiedLinksFamilies::FAMILY_LINK_HUB) {
             return 'Open Link Hub on ' . $label;
@@ -2272,6 +2289,7 @@ class TemplateContent {
             'personal_site_count' => count((array) ($resolved_destinations['personal_site_destinations'] ?? [])),
             'fan_platform_count' => count((array) ($resolved_destinations['fan_platform_destinations'] ?? [])),
             'social_count' => count((array) ($resolved_destinations['social_destinations'] ?? [])),
+            'reference_profile_count' => count((array) ($resolved_destinations['reference_profile_destinations'] ?? [])),
             'link_hub_count' => count((array) ($resolved_destinations['link_hub_destinations'] ?? [])),
             'tube_count' => count((array) ($resolved_destinations['tube_destinations'] ?? [])),
         ];
@@ -2830,7 +2848,7 @@ class TemplateContent {
                 continue;
             }
             $family = sanitize_key((string) ($entry['family'] ?? ''));
-            if (!in_array($family, [VerifiedLinksFamilies::FAMILY_SOCIAL, VerifiedLinksFamilies::FAMILY_LINK_HUB, VerifiedLinksFamilies::FAMILY_TUBE], true)) {
+            if (!in_array($family, [VerifiedLinksFamilies::FAMILY_SOCIAL, VerifiedLinksFamilies::FAMILY_REFERENCE, VerifiedLinksFamilies::FAMILY_LINK_HUB, VerifiedLinksFamilies::FAMILY_TUBE], true)) {
                 continue;
             }
             $url = self::get_frontend_verified_link_href($entry);
@@ -2909,7 +2927,12 @@ class TemplateContent {
             return '';
         }
 
-        $type = AffiliateLinkBuilder::canonical_platform_slug((string) ($link['type'] ?? $link['platform_key'] ?? ''));
+        $raw_type = sanitize_key((string) ($link['type'] ?? $link['platform_key'] ?? ''));
+        if (VerifiedLinksFamilies::family_for($raw_type) === VerifiedLinksFamilies::FAMILY_REFERENCE) {
+            return $url;
+        }
+
+        $type = AffiliateLinkBuilder::canonical_platform_slug($raw_type);
         if ($type === '') {
             return $url;
         }
