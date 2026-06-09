@@ -615,6 +615,20 @@ class TemplateContent {
                 (int) $post->ID
             );
         }
+
+        // v5.8.32: Extra Keyword Coverage Guard — runs after density reduction so
+        // inserted phrases are never substituted away by the density reducer.
+        // Only fires on manual Generate with at least one Rank Math extra keyword.
+        // Covers all 4 selected extras (Rank Math free supports 1 focus + 4 extras).
+        if (!empty($pack['_manual_generate']) && !empty($rankmath_keywords)) {
+            $content = self::guard_extra_keyword_coverage(
+                $content,
+                $rankmath_keywords,
+                $name,
+                $primary_platform_label,
+                (int) $post->ID
+            );
+        }
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ End v5.8.24 final-render cleanup ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ v5.8.17: TemplatePool primary (manual Generate only) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
@@ -6691,6 +6705,309 @@ class TemplateContent {
         }
 
         return $out;
+    }
+
+
+    /**
+     * Extra Keyword Coverage Guard (v5.8.32).
+     *
+     * Runs as the very last content-shaping step inside build_model(), after
+     * templatepool_final_render_cleanup() (density reducer + FAQ neutralizer).
+     * Guarantees that each Rank Math extra keyword chip appears at least once as
+     * an exact case-insensitive substring in the final generated body.
+     *
+     * When a keyword is missing the guard appends one short, natural sentence to
+     * the end of the best-matching existing <p> block. It never:
+     *   - creates new headings (H1–H4)
+     *   - modifies <a> anchors or affiliate links
+     *   - inserts inside <li> items
+     *   - touches the evidence marker block
+     *   - touches the SEO title or meta description
+     *   - inserts the same keyword more than once
+     *
+     * All decisions are logged under [TMW-KW-COVERAGE] when WP_DEBUG is on.
+     *
+     * @param  string   $html                 Fully assembled model page HTML.
+     * @param  string[] $rankmath_keywords     Up-to-4 Rank Math extra keyword chips.
+     * @param  string   $name                 Model display name.
+     * @param  string   $primary_platform     Primary platform label (e.g. "LiveJasmin").
+     * @param  int      $post_id              Post ID (for log output only).
+     * @return string
+     */
+    private static function guard_extra_keyword_coverage(
+        string $html,
+        array  $rankmath_keywords,
+        string $name,
+        string $primary_platform,
+        int    $post_id
+    ): string {
+
+        $debug = defined('WP_DEBUG') && WP_DEBUG;
+
+        // Normalise and deduplicate the keyword list.
+        $keywords = array_values(array_unique(array_filter(
+            array_map('trim', $rankmath_keywords),
+            'strlen'
+        )));
+
+        if (empty($keywords) || trim($html) === '') {
+            return $html;
+        }
+
+        $focus = trim($name);
+        if ($debug) {
+            error_log(sprintf(
+                '[TMW-KW-COVERAGE] start post_id=%d focus="%s" extras_count=%d',
+                $post_id,
+                $focus,
+                count($keywords)
+            ));
+        }
+
+        // Evidence block boundaries — never insert inside these markers.
+        $ev_start = '<!-- tmwseo-seed-evidence:start -->';
+        $ev_end   = '<!-- tmwseo-seed-evidence:end -->';
+        $ev_start_pos = mb_strpos($html, $ev_start, 0, 'UTF-8');
+        $ev_end_pos   = ($ev_start_pos !== false)
+            ? mb_strpos($html, $ev_end, $ev_start_pos, 'UTF-8')
+            : false;
+
+        $inserted_count = 0;
+        $skipped_count  = 0;
+        $max_insertions = count($keywords); // Rank Math free: 1 focus + up to 4 extras
+
+        foreach ($keywords as $kw) {
+            if ($kw === '') {
+                continue;
+            }
+
+            $kw_lower = mb_strtolower($kw, 'UTF-8');
+
+            // 1. Check if the exact phrase already appears anywhere in the HTML
+            //    (case-insensitive, including headings and paragraphs).
+            $html_lower = mb_strtolower($html, 'UTF-8');
+            if (mb_strpos($html_lower, $kw_lower, 0, 'UTF-8') !== false) {
+                if ($debug) {
+                    error_log(sprintf(
+                        '[TMW-KW-COVERAGE] found post_id=%d keyword="%s"',
+                        $post_id,
+                        $kw
+                    ));
+                }
+                continue;
+            }
+
+            // 2. Hard stop: do not exceed max_insertions.
+            if ($inserted_count >= $max_insertions) {
+                if ($debug) {
+                    error_log(sprintf(
+                        '[TMW-KW-COVERAGE] skipped post_id=%d keyword="%s" reason="density_limit"',
+                        $post_id,
+                        $kw
+                    ));
+                }
+                $skipped_count++;
+                continue;
+            }
+
+            // 3. Classify the keyword type to select the best insertion section.
+            //
+            //    Priority order mirrors the preferred placement mapping in the audit:
+            //      (a) platform  — live profile / access section
+            //      (b) live cam  — where to watch / live room section
+            //      (c) private chat / live chat — live chat section
+            //      (d) model/cam profile — intro / profile section (first body <p>)
+            //      (e) fallback — first suitable body <p> after the first <p>
+            $kw_lower_trim = $kw_lower;
+            $platform_lc   = mb_strtolower(trim($primary_platform), 'UTF-8');
+
+            $is_platform    = (
+                ($platform_lc !== '' && mb_strpos($kw_lower_trim, $platform_lc, 0, 'UTF-8') !== false)
+                || (bool) preg_match('/\b(livejasmin|stripchat|chaturbate|camsoda|bongacams|flirt4free|myfreecams|cam4|streamate)\b/iu', $kw)
+            );
+            $is_live_cam    = (bool) preg_match('/\blive\s+cam\b/iu', $kw);
+            $is_private     = (bool) preg_match('/\bprivate\s+(?:chat|webcam|show|session)\b|\blive\s+chat\b/iu', $kw);
+            $is_profile     = (bool) preg_match('/\b(?:model|cam|webcam)\s+profile\b/iu', $kw);
+
+            // Build the insertion sentence from approved patterns.
+            $sentence = '';
+            $section_hint = 'body';
+
+            if ($is_platform) {
+                $sentence     = 'Visitors searching for ' . esc_html($kw) . ' should start with the verified live-room link before checking any secondary profile.';
+                $section_hint = 'platform';
+            } elseif ($is_live_cam) {
+                $sentence     = 'The verified room link is the safest starting point for ' . esc_html($kw) . ' access and current live status.';
+                $section_hint = 'live_cam';
+            } elseif ($is_private) {
+                $sentence     = 'Before starting ' . esc_html($kw) . ', review the available session options and confirm the room is active.';
+                $section_hint = 'private_chat';
+            } elseif ($is_profile) {
+                $sentence     = 'Use this page as a checked ' . esc_html($kw) . ' reference with profile notes, links, and room-status details.';
+                $section_hint = 'model_profile';
+            } else {
+                // Generic fallback — still uses the keyword naturally.
+                $sentence     = 'Visitors searching for ' . esc_html($kw) . ' should start with the verified live-room link before checking any secondary profile.';
+                $section_hint = 'generic';
+            }
+
+            // 4. Find the best <p> target for appending the sentence.
+            //    Strategy: locate the H2 whose inner text best matches the
+            //    section_hint, then find the first <p> after that H2.
+            //    Fall back to the second <p> in the document (never the first,
+            //    which is the Rank Math first-10% paragraph).
+            $target_h2_patterns = [];
+            switch ($section_hint) {
+                case 'platform':
+                    $target_h2_patterns = [
+                        '/livejasmin|stripchat|chaturbate|camsoda|official.*profile|access.*profile|profile.*access|verified.*profile/iu',
+                        '/where\s+to\s+watch/iu',
+                        '/live\s+cam\s+access/iu',
+                    ];
+                    break;
+                case 'live_cam':
+                    $target_h2_patterns = [
+                        '/where\s+to\s+watch/iu',
+                        '/live\s+cam\s+access/iu',
+                        '/live\s+cam\s+private/iu',
+                    ];
+                    break;
+                case 'private_chat':
+                case 'model_profile':
+                    $target_h2_patterns = [
+                        '/live\s+chat\s+experience/iu',
+                        '/private\s+chat/iu',
+                    ];
+                    break;
+                default:
+                    $target_h2_patterns = [
+                        '/live\s+chat\s+experience/iu',
+                        '/live\s+cam\s+access/iu',
+                    ];
+                    break;
+            }
+
+            // Build H2→content index.
+            preg_match_all('/<h2\b[^>]*>(.*?)<\/h2>/isu', $html, $h2m, PREG_OFFSET_CAPTURE);
+            $h2_positions = [];
+            foreach ($h2m[0] as $i => $m) {
+                $h2_positions[] = [
+                    'offset' => (int) $m[1],
+                    'end'    => (int) $m[1] + mb_strlen($m[0], 'UTF-8'),
+                    'text'   => wp_strip_all_tags((string) $h2m[1][$i][0]),
+                ];
+            }
+
+            // Find the best H2 match for this section hint.
+            $best_h2_end = -1;
+            foreach ($target_h2_patterns as $pat) {
+                foreach ($h2_positions as $h2) {
+                    if (preg_match($pat, $h2['text'])) {
+                        $best_h2_end = $h2['end'];
+                        break 2;
+                    }
+                }
+            }
+
+            // Find a suitable <p>...</p> to append to.
+            // Rules: must be after $best_h2_end (or after first <p> if no H2 matched),
+            //        must not be inside the evidence block, must not contain <a href,
+            //        must not be inside a <li>.
+            $appended    = false;
+            $search_from = ($best_h2_end >= 0) ? $best_h2_end : 0;
+
+            // Collect all <p>...</p> offsets starting from search_from.
+            $p_pattern = '/<p>((?:(?!<\/p>).)+)<\/p>/isu';
+            preg_match_all($p_pattern, $html, $pm, PREG_OFFSET_CAPTURE);
+
+            $p_candidates = [];
+            $skipped_first = ($best_h2_end < 0); // skip first <p> only when no H2 matched
+            foreach ($pm[0] as $i => $m) {
+                $p_offset = (int) $m[1];
+                if ($p_offset < $search_from) {
+                    continue;
+                }
+                if (!$skipped_first) {
+                    // Skip the very first <p> when no H2 guide is available — it is
+                    // the intro paragraph Rank Math uses for the first-10% check.
+                    $skipped_first = true;
+                    continue;
+                }
+                $p_candidates[] = ['offset' => $p_offset, 'match' => $m[0], 'inner' => $pm[1][$i][0]];
+            }
+
+            foreach ($p_candidates as $pc) {
+                $p_offset = $pc['offset'];
+                $p_full   = $pc['match'];
+                $p_inner  = $pc['inner'];
+
+                // Skip if inside evidence block.
+                if (
+                    $ev_start_pos !== false
+                    && $ev_end_pos !== false
+                    && $p_offset > $ev_start_pos
+                    && $p_offset < $ev_end_pos
+                ) {
+                    continue;
+                }
+
+                // Skip if paragraph contains a link (affiliate/CTA protection).
+                if (mb_strpos($p_inner, '<a ', 0, 'UTF-8') !== false
+                    || mb_strpos($p_inner, '<a	', 0, 'UTF-8') !== false) {
+                    continue;
+                }
+
+                // Skip very short paragraphs (bullets, labels) — less than 20 chars.
+                if (mb_strlen(wp_strip_all_tags($p_inner), 'UTF-8') < 20) {
+                    continue;
+                }
+
+                // Skip if the paragraph looks like it is already inside a <li>
+                // (rough heuristic: no <li> tag should start within 5 chars before).
+                $pre = mb_substr($html, max(0, $p_offset - 5), 5, 'UTF-8');
+                if (mb_strpos($pre, '<li', 0, 'UTF-8') !== false) {
+                    continue;
+                }
+
+                // Good candidate — append the sentence inside the closing </p>.
+                $new_p = '<p>' . trim($p_inner) . ' ' . $sentence . '</p>';
+                $html  = substr_replace($html, $new_p, $p_offset, strlen($p_full));
+
+                if ($debug) {
+                    error_log(sprintf(
+                        '[TMW-KW-COVERAGE] inserted post_id=%d keyword="%s" section="%s"',
+                        $post_id,
+                        $kw,
+                        $section_hint
+                    ));
+                }
+                $inserted_count++;
+                $appended = true;
+                break;
+            }
+
+            if (!$appended) {
+                if ($debug) {
+                    error_log(sprintf(
+                        '[TMW-KW-COVERAGE] skipped post_id=%d keyword="%s" reason="no_safe_section"',
+                        $post_id,
+                        $kw
+                    ));
+                }
+                $skipped_count++;
+            }
+        } // end foreach $keywords
+
+        if ($debug) {
+            error_log(sprintf(
+                '[TMW-KW-COVERAGE] done post_id=%d inserted=%d skipped=%d',
+                $post_id,
+                $inserted_count,
+                $skipped_count
+            ));
+        }
+
+        return $html;
     }
 
 
