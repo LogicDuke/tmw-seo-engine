@@ -6747,7 +6747,7 @@ class TemplateContent {
             // Low-value structural mention; model name adds nothing here.
             $a = (string) preg_replace(
                 '/\\bCheck\\s+the\\s+private\\s+chat\\s+options\\s+listed\\s+on\\s+this\\s+page\\s+for\\s+' . $n . '\\s+and\\s+confirm\\b/iu',
-                'Check the private chat options listed on this page for this model and confirm',
+                'Check the private chat options listed on this page for the current profile and confirm',
                 $a
             );
 
