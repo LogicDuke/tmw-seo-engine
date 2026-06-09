@@ -2006,7 +2006,7 @@ class TemplateContent {
             }
             $activity_note = trim((string)($entry['activity_note'] ?? ''));
             if ($activity_note !== '') {
-                $label .= ' ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ' . $activity_note;
+                $label .= ' - ' . $activity_note;
             }
             $grouped[$family][] = array_merge($entry, [
                 'type' => self::canonical_body_platform_slug($entry),

@@ -46,12 +46,28 @@ namespace {
         }
     }
 
+    function pr607_anchor_for_href(string $html, string $href): string {
+        $quoted = preg_quote($href, '/');
+        if (preg_match('/<a\b[^>]*href="' . $quoted . '"[^>]*>/i', $html, $match)) {
+            return $match[0];
+        }
+        return '';
+    }
+
+    function pr607_anchor_rel(string $anchor): string {
+        if (preg_match('/\brel="([^"]*)"/i', $anchor, $match)) {
+            return strtolower($match[1]);
+        }
+        return '';
+    }
+
     if (!function_exists('esc_html')) { function esc_html($text): string { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); } }
     if (!function_exists('esc_attr')) { function esc_attr($text): string { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); } }
     if (!function_exists('esc_url')) { function esc_url($text): string { return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8'); } }
     if (!function_exists('wp_kses_post')) { function wp_kses_post($html): string { return (string) $html; } }
     if (!function_exists('wp_strip_all_tags')) { function wp_strip_all_tags($text): string { return trim(strip_tags((string) $text)); } }
     if (!function_exists('sanitize_key')) { function sanitize_key($key): string { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $key)) ?? ''; } }
+    if (!function_exists('sanitize_text_field')) { function sanitize_text_field($text): string { return trim(strip_tags((string) $text)); } }
     if (!function_exists('wp_parse_url')) { function wp_parse_url(string $url, int $component = -1) { return $component === -1 ? parse_url($url) : parse_url($url, $component); } }
     if (!function_exists('home_url')) { function home_url(string $path = ''): string { return 'https://example.test/' . ltrim($path, '/'); } }
     if (!function_exists('get_bloginfo')) { function get_bloginfo(string $show = ''): string { return 'Smoke Site'; } }
@@ -72,6 +88,8 @@ namespace {
     use TMWSEO\Engine\Content\TemplateContent;
 
     $confirmed_url = 'https://www.livejasmin.com/en/chat/julieta-montesco';
+    $babepedia_url = 'https://www.babepedia.com/babe/Julieta_Montesco';
+    $beacons_url = 'https://beacons.ai/julietamontesco';
     $cta_links = [[
         'platform' => 'livejasmin',
         'label' => 'LiveJasmin',
@@ -97,11 +115,45 @@ namespace {
                 'type' => 'livejasmin',
                 'is_cta_eligible' => true,
                 'url' => $confirmed_url,
+            ], [
+                'family' => 'reference_profile',
+                'type' => 'babepedia',
+                'label' => 'Babepedia',
+                'has_custom_label' => false,
+                'url' => $babepedia_url,
+                'activity_level' => 'active',
+                'is_active' => true,
+                'routed_url' => 'https://example.test/go/should-not-render',
+            ], [
+                'family' => 'link_hub',
+                'type' => 'beacons',
+                'label' => 'Beacons',
+                'has_custom_label' => true,
+                'url' => $beacons_url,
+                'activity_level' => 'active',
+                'is_active' => true,
             ]],
             'personal_site_destinations' => [],
             'fan_platform_destinations' => [],
             'social_destinations' => [],
-            'link_hub_destinations' => [],
+            'reference_profile_destinations' => [[
+                'family' => 'reference_profile',
+                'type' => 'babepedia',
+                'label' => 'Babepedia',
+                'has_custom_label' => false,
+                'url' => $babepedia_url,
+                'activity_level' => 'active',
+                'is_active' => true,
+            ]],
+            'link_hub_destinations' => [[
+                'family' => 'link_hub',
+                'type' => 'beacons',
+                'label' => 'Beacons',
+                'has_custom_label' => true,
+                'url' => $beacons_url,
+                'activity_level' => 'active',
+                'is_active' => true,
+            ]],
             'tube_destinations' => [],
         ],
         'model_data_gate' => ['is_sufficient' => true],
@@ -117,9 +169,23 @@ namespace {
 
     pr607_assert(str_contains($html, '<a '), 'Confirmed-url output should include an anchor.');
     pr607_assert(str_contains($html, 'href="' . $confirmed_url . '"'), 'Confirmed-url output should use the exact verified external URL.');
-    pr607_assert((bool) preg_match('/rel="[^"]*nofollow[^"]*noopener[^"]*"|rel="[^"]*noopener[^"]*nofollow[^"]*"/i', $html), 'Confirmed outbound anchor rel should contain nofollow and noopener.');
-    pr607_assert(str_contains($html, 'sponsored'), 'Confirmed outbound anchor rel should contain sponsored.');
-    pr607_assert(str_contains($html, 'Watch Julieta Montesco on LiveJasmin'), 'Confirmed outbound anchor text should mention the model and platform.');
+    $confirmed_anchor = pr607_anchor_for_href($html, $confirmed_url);
+    $confirmed_rel = pr607_anchor_rel($confirmed_anchor);
+    pr607_assert($confirmed_anchor !== '', 'Confirmed outbound anchor should be inspectable by href.');
+    pr607_assert(str_contains($confirmed_rel, 'sponsored'), 'Confirmed cam outbound anchor rel should contain sponsored.');
+    pr607_assert(str_contains($confirmed_rel, 'noopener'), 'Confirmed cam outbound anchor rel should contain noopener.');
+    pr607_assert(str_contains($html, 'Watch Julieta Montesco on LiveJasmin') || str_contains($html, 'Visit Profile on LiveJasmin'), 'Confirmed outbound anchor text should mention the model and platform.');
+
+    $babepedia_anchor = pr607_anchor_for_href($html, $babepedia_url);
+    $babepedia_rel = pr607_anchor_rel($babepedia_anchor);
+    pr607_assert($babepedia_anchor !== '', 'Reference Profile output should include the raw Babepedia href.');
+    pr607_assert(!str_contains($babepedia_anchor, '/go/'), 'Reference Profile output must not use an affiliate/go URL.');
+    pr607_assert(str_contains($babepedia_rel, 'noopener'), 'Reference Profile rel should contain noopener.');
+    pr607_assert(str_contains($babepedia_rel, 'external'), 'Reference Profile rel should contain external.');
+    pr607_assert(!str_contains($babepedia_rel, 'sponsored'), 'Reference Profile rel should not contain sponsored.');
+    pr607_assert(!str_contains($babepedia_rel, 'nofollow'), 'Reference Profile rel should not contain nofollow.');
+    pr607_assert(str_contains($html, 'Julieta Montesco profile on Babepedia'), 'Empty Reference Profile labels should render as model-specific profile anchors.');
+    pr607_assert(strpos($html, 'Reference profiles') !== false && strpos($html, 'More Links') !== false && strpos($html, 'Reference profiles') < strpos($html, 'More Links'), 'Reference Profiles should render before More Links.');
     foreach (['CamSoda', 'social profiles', 'fan/support pages', 'link hubs', 'video channels', 'personal sites', 'other listed profiles', '0 profile links found, including 1 live profile'] as $needle) {
         pr607_assert(!str_contains($html, $needle), 'One-live/zero-extra output must not mention missing destination evidence: ' . $needle);
     }
@@ -145,10 +211,10 @@ namespace {
     $private_text = ModelResearchEvidence::humanize_private_chat($explicit_raw);
     pr607_assert($private_text !== '', 'Private-chat evidence should render non-empty output when safe filtered evidence exists.');
     pr607_assert(!str_contains($private_text, $explicit_raw), 'Private-chat evidence should not dump the full raw explicit list.');
-    foreach (['Close up', 'Dancing', 'Oil', 'Roleplay', 'Striptease', 'Foot Fetish', 'Snapshot'] as $safe_item) {
+    foreach (['Close up', 'Dancing', 'Oil', 'Roleplay', 'Striptease', 'Foot Fetish'] as $safe_item) {
         pr607_assert(str_contains($private_text, $safe_item), 'Private-chat evidence should preserve safe item: ' . $safe_item);
     }
-    foreach (['butt plugs', 'dildo', 'fingering', 'love beads', 'vibrator', 'JOI', 'POV'] as $explicit) {
+    foreach (['butt plugs', 'dildo', 'fingering', 'love beads', 'vibrator', 'JOI', 'POV', 'snapshot'] as $explicit) {
         pr607_assert(stripos($private_text, $explicit) === false, 'Private-chat evidence should filter unsafe item: ' . $explicit);
     }
     foreach (['The verified notes' . ' point to', 'personable cam ' . 'delivery', 'do you ' . 'accept', 'Use these notes as profile ' . 'context'] as $forbidden) {
