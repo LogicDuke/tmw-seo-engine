@@ -9,6 +9,12 @@
  * Audit fix: previously, tag pages had zero quality control for indexation,
  * and model/video readiness gates were not explicit.
  *
+ * PR #708: IndexReadinessGate now respects explicit Rank Math per-post
+ * robots index setting on published model pages. When Rank Math explicitly
+ * contains 'index' (and not 'noindex'), TMW skips its own noindex injection
+ * regardless of _tmwseo_ready_to_index. All other page types, draft/pending
+ * models, videos, tags, and archives remain fully protected by the gate.
+ *
  * @package TMWSEO\Engine\Content
  * @since   4.4.0
  */
@@ -205,6 +211,10 @@ class IndexReadinessGate {
      *
      * Patch 2: covers both tag archives AND singular model/video posts.
      * This works independently of Rank Math — the engine's own safety net.
+     *
+     * PR #708: For singular published model posts only, if Rank Math has an
+     * explicit per-post 'index' setting (without 'noindex'), TMW skips its
+     * own noindex echo and defers to Rank Math's decision.
      */
     public static function maybe_inject_noindex(): void {
         // Tag archives.
@@ -221,9 +231,31 @@ class IndexReadinessGate {
             $post_id = get_the_ID();
             if ( ! $post_id ) return;
 
+            // [TMW-INDEX-GATE] If Rank Math explicitly approved this published model
+            // for indexing, do not inject TMW's own noindex tag.
+            if ( self::has_explicit_rankmath_index( $post_id ) ) {
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+                    error_log( sprintf(
+                        '[TMW-INDEX-GATE] [TMW-NOINDEX-BLOCKER] Rank Math explicit index preserved post_id=%d slug=%s',
+                        $post_id,
+                        (string) get_post_field( 'post_name', $post_id )
+                    ) );
+                }
+                return;
+            }
+
             $ready = get_post_meta( $post_id, self::META_READY, true );
             // If explicitly evaluated and not ready, inject noindex.
             if ( $ready === '0' ) {
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+                    error_log( sprintf(
+                        '[TMW-NOINDEX-SOURCE] class=IndexReadinessGate function=maybe_inject_noindex post_id=%d slug=%s source=direct_echo',
+                        $post_id,
+                        (string) get_post_field( 'post_name', $post_id )
+                    ) );
+                }
                 echo '<meta name="robots" content="noindex, follow">' . "\n";
             }
         }
@@ -231,6 +263,10 @@ class IndexReadinessGate {
 
     /**
      * Filter Rank Math robots meta for tag archives and weak posts.
+     *
+     * PR #708: For singular published model posts only, if Rank Math has an
+     * explicit per-post 'index' setting (without 'noindex'), TMW returns the
+     * original robots array unchanged and does not force noindex.
      *
      * @param array $robots Rank Math robots array.
      * @return array
@@ -253,9 +289,31 @@ class IndexReadinessGate {
         if ( is_singular() ) {
             $post_id = get_the_ID();
             if ( $post_id ) {
+                // [TMW-INDEX-GATE] If Rank Math explicitly approved this published model
+                // for indexing, do not override the robots array to noindex.
+                if ( self::has_explicit_rankmath_index( $post_id ) ) {
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+                        error_log( sprintf(
+                            '[TMW-INDEX-GATE] [TMW-NOINDEX-BLOCKER] Rank Math explicit index preserved post_id=%d slug=%s',
+                            $post_id,
+                            (string) get_post_field( 'post_name', $post_id )
+                        ) );
+                    }
+                    return $robots;
+                }
+
                 $ready = get_post_meta( $post_id, self::META_READY, true );
                 // If explicitly evaluated and not ready, noindex.
                 if ( $ready === '0' ) {
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+                        error_log( sprintf(
+                            '[TMW-NOINDEX-SOURCE] class=IndexReadinessGate function=filter_rank_math_robots post_id=%d slug=%s source=rank_math_filter',
+                            $post_id,
+                            (string) get_post_field( 'post_name', $post_id )
+                        ) );
+                    }
                     $robots['index'] = 'noindex';
                 }
             }
@@ -309,5 +367,71 @@ class IndexReadinessGate {
         }
 
         return false;
+    }
+
+    /**
+     * Returns true only when Rank Math has an explicit Index (not noindex) set
+     * for this post AND the post is a published model.
+     *
+     * This is the TMW noindex override guard (PR #708). When an operator sets
+     * Rank Math Advanced Robots to Index on a model page, TMW must not
+     * independently force noindex via its readiness gate, regardless of whether
+     * _tmwseo_ready_to_index has been evaluated.
+     *
+     * Safety constraints — ALL must be true to return true:
+     *  - Post must exist.
+     *  - Post type must be 'model'. Videos ('post'), categories, tags, archives
+     *    are never affected.
+     *  - Post status must be 'publish'. Drafts, pending, private models remain
+     *    fully protected by the gate.
+     *  - rank_math_robots must explicitly contain 'index'.
+     *  - rank_math_robots must NOT contain 'noindex'. If both are present,
+     *    the conservative path is taken and the gate remains active.
+     *  - If rank_math_robots is empty or missing (no per-post override set),
+     *    returns false — the gate remains active.
+     *
+     * Does NOT write to any meta. Read-only. No side effects.
+     *
+     * @param int $post_id
+     * @return bool
+     */
+    private static function has_explicit_rankmath_index( int $post_id ): bool {
+        // Must be a published model post.
+        $post = get_post( $post_id );
+        if ( ! $post instanceof \WP_Post ) {
+            return false;
+        }
+        if ( $post->post_type !== 'model' || $post->post_status !== 'publish' ) {
+            return false;
+        }
+
+        // Read Rank Math per-post robots via the canonical TMW reader when available.
+        if ( class_exists( RankMathReader::class ) ) {
+            $rm_robots = RankMathReader::get_robots( $post_id );
+        } else {
+            // Fallback: read raw meta directly. Only accept array values —
+            // do not attempt to parse strings to avoid false positives.
+            $raw = get_post_meta( $post_id, 'rank_math_robots', true );
+            if ( ! is_array( $raw ) ) {
+                return false;
+            }
+            $rm_robots = array_values( array_filter(
+                array_map( 'strtolower', array_map( 'trim', $raw ) ),
+                'strlen'
+            ) );
+        }
+
+        // No per-post robots setting: Rank Math has not explicitly approved.
+        // Gate remains active.
+        if ( empty( $rm_robots ) ) {
+            return false;
+        }
+
+        $has_index   = in_array( 'index',   $rm_robots, true );
+        $has_noindex = in_array( 'noindex', $rm_robots, true );
+
+        // Only bypass the gate when Rank Math explicitly contains 'index'
+        // and does NOT contain 'noindex'. Both present = conservative = gate active.
+        return $has_index && ! $has_noindex;
     }
 }
