@@ -3833,12 +3833,18 @@ class TemplateContent {
             return $title;
         }
 
+        // Replace known mojibake dash variants seen in legacy generated titles.
+        $title = str_replace([
+            'ÃƒÂ¢Ã¢€šÂ¬Ã¢â‚¬Â',
+            'Ã¢â‚¬â€œ',
+            'Ã¢â‚¬â€�',
+        ], ' - ', $title);
+
         // Replace Unicode em dash and en dash (raw UTF-8 byte sequences).
         $title = str_replace(["\xe2\x80\x94", "\xe2\x80\x93"], ' - ', $title);
 
         // Replace any remaining Unicode dash characters via regex (with /u flag).
         $title = (string) preg_replace('/\s*[\x{2013}\x{2014}]+\s*/u', ' - ', $title);
-
         // Collapse multiple spaces that may remain after replacements.
         $title = (string) preg_replace('/\s{2,}/', ' ', $title);
 
