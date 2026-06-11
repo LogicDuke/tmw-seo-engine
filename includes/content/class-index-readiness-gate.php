@@ -26,28 +26,12 @@ class IndexReadinessGate {
     public const META_GATE_LOG  = '_tmwseo_gate_log';
 
     /**
-     * Manual approval meta for the controlled first indexing batch only.
+     * Per-model manual approval meta for bypassing this gate's noindex output.
      *
      * This does not mark a post ready and does not weaken readiness globally.
-     * It only lets the audited first-batch model allowlist suppress this
-     * class's noindex safety net when an operator has explicitly approved it.
+     * Readiness diagnostics remain active through META_READY and META_GATE_LOG.
      */
-    public const META_CONTROLLED_BATCH_INDEX_APPROVED = '_tmwseo_controlled_batch_index_approved';
-
-    /** First manually approved model slugs eligible for the narrow override. */
-    private const CONTROLLED_BATCH_MODEL_SLUGS = [
-        'abby-murray',
-        'aisha-dupont',
-        'alice-schuster',
-        'allysa-quinn',
-        'anisyia',
-        'arianna',
-        'brook-hayes',
-        'hana-ross',
-        'julieta-montesco',
-        'lexy-ness',
-        'mia-collie',
-    ];
+    public const META_MANUAL_INDEX_APPROVED = '_tmwseo_manual_index_approved';
 
     /** Thresholds per page type. */
     private const THRESHOLDS = [
@@ -81,12 +65,13 @@ class IndexReadinessGate {
         // Hook into Rank Math robots filter if available.
         add_filter( 'rank_math/frontend/robots', [ __CLASS__, 'filter_rank_math_robots' ], 20 );
 
-        // Safe operator action: sets only the controlled first-batch override meta.
-        add_action( 'admin_post_tmwseo_apply_controlled_batch_index_override', [ __CLASS__, 'handle_controlled_batch_override_admin_action' ] );
-
-        if ( defined( 'WP_CLI' ) && WP_CLI && class_exists( '\WP_CLI' ) ) {
-            \WP_CLI::add_command( 'tmwseo controlled-batch-index-override', [ __CLASS__, 'wp_cli_apply_controlled_batch_override' ] );
-        }
+        // Admin-only model edit/list controls for reusable manual model approvals.
+        add_action( 'add_meta_boxes_model', [ __CLASS__, 'register_manual_index_metabox' ] );
+        add_action( 'save_post_model', [ __CLASS__, 'save_manual_index_metabox' ], 10, 2 );
+        add_filter( 'manage_model_posts_columns', [ __CLASS__, 'add_manual_index_column' ] );
+        add_action( 'manage_model_posts_custom_column', [ __CLASS__, 'render_manual_index_column' ], 10, 2 );
+        add_action( 'restrict_manage_posts', [ __CLASS__, 'render_manual_index_filter' ], 10, 2 );
+        add_action( 'pre_get_posts', [ __CLASS__, 'filter_models_by_manual_index_approval' ] );
     }
 
     /**
@@ -254,10 +239,10 @@ class IndexReadinessGate {
 
             $ready = get_post_meta( $post_id, self::META_READY, true );
             // If explicitly evaluated and not ready, inject noindex unless this
-            // published model has the controlled first-batch manual override.
+            // published model has explicit manual index approval.
             if ( $ready === '0' ) {
-                if ( self::has_controlled_batch_override( (int) $post_id ) ) {
-                    self::log_controlled_batch_override( (int) $post_id, 'standalone_noindex' );
+                if ( self::has_manual_model_index_approval( (int) $post_id ) ) {
+                    self::log_manual_model_index_approval( (int) $post_id, 'standalone_noindex' );
                     return;
                 }
 
@@ -292,10 +277,10 @@ class IndexReadinessGate {
             if ( $post_id ) {
                 $ready = get_post_meta( $post_id, self::META_READY, true );
                 // If explicitly evaluated and not ready, noindex unless this
-                // published model has the controlled first-batch manual override.
+                // published model has explicit manual index approval.
                 if ( $ready === '0' ) {
-                    if ( self::has_controlled_batch_override( (int) $post_id ) ) {
-                        self::log_controlled_batch_override( (int) $post_id, 'rank_math_robots' );
+                    if ( self::has_manual_model_index_approval( (int) $post_id ) ) {
+                        self::log_manual_model_index_approval( (int) $post_id, 'rank_math_robots' );
                         return $robots;
                     }
 
@@ -337,15 +322,167 @@ class IndexReadinessGate {
     }
 
 
+    /** Register the model edit-screen manual index approval metabox. */
+    public static function register_manual_index_metabox(): void {
+        add_meta_box(
+            'tmwseo_manual_index_approval',
+            esc_html__( 'Manual Index Approved', 'tmwseo' ),
+            [ __CLASS__, 'render_manual_index_metabox' ],
+            'model',
+            'side',
+            'default'
+        );
+    }
+
+    /** Render the admin-only model edit-screen approval control. */
+    public static function render_manual_index_metabox( \WP_Post $post ): void {
+        wp_nonce_field( 'tmwseo_manual_index_approval_' . $post->ID, 'tmwseo_manual_index_approval_nonce' );
+
+        $approved = (string) get_post_meta( $post->ID, self::META_MANUAL_INDEX_APPROVED, true ) === '1';
+
+        echo '<p><label>';
+        echo '<input type="checkbox" name="tmwseo_manual_index_approved" value="1" ' . checked( $approved, true, false ) . '> ';
+        echo esc_html__( 'Manual Index Approved', 'tmwseo' );
+        echo '</label></p>';
+        echo '<p class="description">' . esc_html__( 'Allows this published model to bypass the TMW readiness noindex gate after manual review. This does not affect videos, categories, tags, archives, or other models.', 'tmwseo' ) . '</p>';
+        echo '<p class="description">' . esc_html__( 'Readiness diagnostics remain active; this does not edit the TMW ready-to-index status or gate log.', 'tmwseo' ) . '</p>';
+    }
+
+    /** Save the model edit-screen manual index approval control securely. */
+    public static function save_manual_index_metabox( int $post_id, \WP_Post $post ): void {
+        if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+            return;
+        }
+
+        if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
+            return;
+        }
+
+        if ( $post->post_type !== 'model' ) {
+            return;
+        }
+
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            return;
+        }
+
+        $nonce = isset( $_POST['tmwseo_manual_index_approval_nonce'] )
+            ? (string) wp_unslash( $_POST['tmwseo_manual_index_approval_nonce'] )
+            : '';
+        if ( $nonce === '' || ! wp_verify_nonce( $nonce, 'tmwseo_manual_index_approval_' . $post_id ) ) {
+            return;
+        }
+
+        $approved = isset( $_POST['tmwseo_manual_index_approved'] )
+            && (string) wp_unslash( $_POST['tmwseo_manual_index_approved'] ) === '1';
+
+        if ( $approved ) {
+            update_post_meta( $post_id, self::META_MANUAL_INDEX_APPROVED, '1' );
+            error_log( sprintf(
+                '[TMW-SEO-AUDIT] [TMW-INDEX-GATE] manual model index approval enabled post_id=%d slug=%s',
+                $post_id,
+                $post->post_name
+            ) );
+            return;
+        }
+
+        delete_post_meta( $post_id, self::META_MANUAL_INDEX_APPROVED );
+        error_log( sprintf(
+            '[TMW-SEO-AUDIT] [TMW-INDEX-GATE] manual model index approval disabled post_id=%d slug=%s',
+            $post_id,
+            $post->post_name
+        ) );
+    }
+
+    /** Add the manual index approval column to the Models list table. */
+    public static function add_manual_index_column( array $columns ): array {
+        $columns['tmwseo_manual_index_approved'] = __( 'Manual Index Approved', 'tmwseo' );
+        return $columns;
+    }
+
+    /** Render the manual index approval column value on the Models list table. */
+    public static function render_manual_index_column( string $column, int $post_id ): void {
+        if ( $column !== 'tmwseo_manual_index_approved' ) {
+            return;
+        }
+
+        echo self::has_manual_model_index_approval( $post_id )
+            ? esc_html__( 'Yes', 'tmwseo' )
+            : esc_html__( 'No', 'tmwseo' );
+    }
+
+    /** Render a Models list filter for manual index approval state. */
+    public static function render_manual_index_filter( string $post_type, string $which = 'top' ): void {
+        unset( $which );
+
+        if ( $post_type !== 'model' ) {
+            return;
+        }
+
+        $selected = isset( $_GET['tmwseo_manual_index_approved_filter'] )
+            ? sanitize_key( (string) wp_unslash( $_GET['tmwseo_manual_index_approved_filter'] ) )
+            : '';
+
+        echo '<label class="screen-reader-text" for="tmwseo_manual_index_approved_filter">' . esc_html__( 'Manual Index Approved', 'tmwseo' ) . '</label>';
+        echo '<select name="tmwseo_manual_index_approved_filter" id="tmwseo_manual_index_approved_filter">';
+        echo '<option value="">' . esc_html__( 'Manual Index Approved: All', 'tmwseo' ) . '</option>';
+        echo '<option value="approved" ' . selected( $selected, 'approved', false ) . '>' . esc_html__( 'Approved', 'tmwseo' ) . '</option>';
+        echo '<option value="not_approved" ' . selected( $selected, 'not_approved', false ) . '>' . esc_html__( 'Not approved', 'tmwseo' ) . '</option>';
+        echo '</select>';
+    }
+
+    /** Apply the Models list manual index approval filter. */
+    public static function filter_models_by_manual_index_approval( \WP_Query $query ): void {
+        if ( ! is_admin() || ! $query->is_main_query() ) {
+            return;
+        }
+
+        $post_type = $query->get( 'post_type' );
+        if ( $post_type !== 'model' ) {
+            return;
+        }
+
+        $filter = isset( $_GET['tmwseo_manual_index_approved_filter'] )
+            ? sanitize_key( (string) wp_unslash( $_GET['tmwseo_manual_index_approved_filter'] ) )
+            : '';
+
+        if ( ! in_array( $filter, [ 'approved', 'not_approved' ], true ) ) {
+            return;
+        }
+
+        $meta_query = (array) $query->get( 'meta_query' );
+        if ( $filter === 'approved' ) {
+            $meta_query[] = [
+                'key'   => self::META_MANUAL_INDEX_APPROVED,
+                'value' => '1',
+            ];
+        } else {
+            $meta_query[] = [
+                'relation' => 'OR',
+                [
+                    'key'     => self::META_MANUAL_INDEX_APPROVED,
+                    'compare' => 'NOT EXISTS',
+                ],
+                [
+                    'key'     => self::META_MANUAL_INDEX_APPROVED,
+                    'value'   => '1',
+                    'compare' => '!=',
+                ],
+            ];
+        }
+
+        $query->set( 'meta_query', $meta_query );
+    }
+
     /**
-     * Does this post have the controlled first indexing batch override?
+     * Does this post have reusable manual model index approval?
      *
-     * This override is intentionally narrow and auditable. It is not global
-     * indexing approval: categories, category archives, tags, videos, filters,
-     * unfinished models, and any model outside CONTROLLED_BATCH_MODEL_SLUGS
-     * continue through the normal readiness/noindex gates.
+     * This is intentionally narrow. It can only bypass this gate's noindex output
+     * for published model singulars with explicit `_tmwseo_manual_index_approved`
+     * meta. Videos/posts, categories, category archives, tags, archives,
+     * random/filter URLs, and non-published models are unaffected.
      */
-    public static function has_controlled_batch_override( int $post_id ): bool {
+    public static function has_manual_model_index_approval( int $post_id ): bool {
         $post = get_post( $post_id );
         if ( ! $post instanceof \WP_Post ) {
             return false;
@@ -355,131 +492,18 @@ class IndexReadinessGate {
             return false;
         }
 
-        if ( ! in_array( $post->post_name, self::CONTROLLED_BATCH_MODEL_SLUGS, true ) ) {
-            return false;
-        }
-
-        return (string) get_post_meta( $post_id, self::META_CONTROLLED_BATCH_INDEX_APPROVED, true ) === '1';
+        return (string) get_post_meta( $post_id, self::META_MANUAL_INDEX_APPROVED, true ) === '1';
     }
 
-    /**
-     * Set controlled first-batch override meta on allowlisted published models only.
-     *
-     * This intentionally does not update META_READY or META_GATE_LOG so readiness
-     * diagnostics remain unchanged. It also refuses to set meta for any model not
-     * in CONTROLLED_BATCH_MODEL_SLUGS.
-     *
-     * @return array{updated:int, already_set:int, missing:string[], skipped:array<string,string>}
-     */
-    public static function apply_controlled_batch_override(): array {
-        $result = [
-            'updated'     => 0,
-            'already_set' => 0,
-            'missing'     => [],
-            'skipped'     => [],
-        ];
+    /** Log when manual model index approval suppresses this gate's noindex. */
+    private static function log_manual_model_index_approval( int $post_id, string $source ): void {
+        unset( $source );
 
-        foreach ( self::CONTROLLED_BATCH_MODEL_SLUGS as $slug ) {
-            $posts = get_posts( [
-                'name'           => $slug,
-                'post_type'      => 'model',
-                'post_status'    => 'any',
-                'posts_per_page' => 1,
-                'fields'         => 'ids',
-            ] );
-
-            if ( empty( $posts ) ) {
-                $result['missing'][] = $slug;
-                continue;
-            }
-
-            $post_id = (int) $posts[0];
-            $post    = get_post( $post_id );
-            if ( ! $post instanceof \WP_Post ) {
-                $result['missing'][] = $slug;
-                continue;
-            }
-
-            if ( $post->post_type !== 'model' || $post->post_name !== $slug ) {
-                $result['skipped'][ $slug ] = 'not_allowlisted_model';
-                continue;
-            }
-
-            if ( $post->post_status !== 'publish' ) {
-                $result['skipped'][ $slug ] = 'not_published:' . $post->post_status;
-                continue;
-            }
-
-            if ( (string) get_post_meta( $post_id, self::META_CONTROLLED_BATCH_INDEX_APPROVED, true ) === '1' ) {
-                $result['already_set']++;
-                continue;
-            }
-
-            update_post_meta( $post_id, self::META_CONTROLLED_BATCH_INDEX_APPROVED, '1' );
-            $result['updated']++;
-
-            error_log( sprintf(
-                '[TMW-SEO-AUDIT] [TMW-INDEX-GATE] controlled first-batch index override meta set for model post_id=%d slug=%s',
-                $post_id,
-                $slug
-            ) );
-        }
-
-        return $result;
-    }
-
-    /** Safe admin action for applying the controlled first-batch override meta. */
-    public static function handle_controlled_batch_override_admin_action(): void {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_die( esc_html__( 'You do not have permission to apply controlled index overrides.', 'tmwseo' ), 403 );
-        }
-
-        check_admin_referer( 'tmwseo_apply_controlled_batch_index_override' );
-
-        $result = self::apply_controlled_batch_override();
-        $url    = add_query_arg( [
-            'tmwseo_controlled_batch_override' => 'done',
-            'updated'                          => (int) $result['updated'],
-            'already_set'                      => (int) $result['already_set'],
-            'missing'                          => count( $result['missing'] ),
-            'skipped'                          => count( $result['skipped'] ),
-        ], wp_get_referer() ?: admin_url() );
-
-        wp_safe_redirect( $url );
-        exit;
-    }
-
-    /** WP-CLI command callback for applying the controlled first-batch override meta. */
-    public static function wp_cli_apply_controlled_batch_override( array $args, array $assoc_args ): void {
-        unset( $args, $assoc_args );
-
-        $result = self::apply_controlled_batch_override();
-
-        \WP_CLI::log( sprintf(
-            'Controlled first-batch index override complete: updated=%d already_set=%d missing=%d skipped=%d',
-            (int) $result['updated'],
-            (int) $result['already_set'],
-            count( $result['missing'] ),
-            count( $result['skipped'] )
-        ) );
-
-        if ( ! empty( $result['missing'] ) ) {
-            \WP_CLI::warning( 'Missing allowlisted slugs: ' . implode( ', ', $result['missing'] ) );
-        }
-
-        foreach ( $result['skipped'] as $slug => $reason ) {
-            \WP_CLI::warning( sprintf( 'Skipped %s: %s', $slug, $reason ) );
-        }
-    }
-
-    /** Log when the controlled first-batch override suppresses this gate's noindex. */
-    private static function log_controlled_batch_override( int $post_id, string $source ): void {
         $post = get_post( $post_id );
         $slug = $post instanceof \WP_Post ? $post->post_name : '';
 
         error_log( sprintf(
-            '[TMW-INDEX-GATE] [TMW-NOINDEX-BLOCKER] controlled first-batch model override suppressed noindex source=%s post_id=%d slug=%s',
-            $source,
+            '[TMW-INDEX-GATE] [TMW-NOINDEX-BLOCKER] manual model index approval suppressed noindex post_id=%d slug=%s',
             $post_id,
             $slug
         ) );
