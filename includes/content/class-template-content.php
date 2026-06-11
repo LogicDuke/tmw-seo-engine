@@ -7147,14 +7147,9 @@ class TemplateContent {
         $before_count = (int) preg_match_all( $name_pat, $stripped );
         $word_count   = (int) preg_match_all( '/\S+/u', $stripped );
 
-        // Soft targets by word count.
-        if ( $word_count < 850 ) {
-            $target = 16;
-        } elseif ( $word_count < 1100 ) {
-            $target = 22;
-        } else {
-            $target = 24;
-        }
+        // Keep this pass aligned with the existing <= 2.0% density ceiling.
+        // Preserve the earlier 12-hit floor used by the final render cleanup.
+        $target = max( 12, (int) floor( $word_count * 0.02 ) );
 
         $extras_count = count( array_filter( $rankmath_keywords, 'strlen' ) );
 
