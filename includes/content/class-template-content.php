@@ -3793,10 +3793,10 @@ class TemplateContent {
         $words = self::model_title_allow_words();
         $denied_tokens = self::model_title_deny_tokens();
         $patterns = [
-            '{name} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {power} Live Cam Guide {year}',
-            '{name} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {power} Live Chat Guide {year}',
-            '{name} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {power} Webcam Guide {year}',
-            '{name} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â {power} Live Cam Profile {year}',
+            '{name} - {power} Live Cam Guide {year}',
+            '{name} - {power} Live Chat Guide {year}',
+            '{name} - {power} Webcam Guide {year}',
+            '{name} - {power} Live Cam Profile {year}',
         ];
 
         $seed = strtolower($name) . '|' . $post_id;
@@ -3810,10 +3810,39 @@ class TemplateContent {
         ]);
 
         if (self::contains_denylisted_token($title, $denied_tokens)) {
-            $title = $name . ' ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Safe Live Cam Guide ' . $year;
+            $title = $name . ' - Safe Live Cam Guide ' . $year;
         }
 
+        // v5.8.34: Normalise any Unicode or mojibake separator to plain ASCII ' - '.
+        $title = self::normalize_seo_title_separator($title);
+
         return TitleFixer::shorten($title, 65);
+    }
+
+    /**
+     * Normalise separator characters in a generated SEO title to plain ASCII ' - '.
+     *
+     * Handles em dash (U+2014), en dash (U+2013), and mojibake/double-encoded
+     * variants that arise from encoding issues in stored title templates.
+     *
+     * @param  string $title Raw title string.
+     * @return string        Title with all separators normalised to " - ".
+     */
+    private static function normalize_seo_title_separator(string $title): string {
+        if ($title === '') {
+            return $title;
+        }
+
+        // Replace Unicode em dash and en dash (raw UTF-8 byte sequences).
+        $title = str_replace(["\xe2\x80\x94", "\xe2\x80\x93"], ' - ', $title);
+
+        // Replace any remaining Unicode dash characters via regex (with /u flag).
+        $title = (string) preg_replace('/\s*[\x{2013}\x{2014}]+\s*/u', ' - ', $title);
+
+        // Collapse multiple spaces that may remain after replacements.
+        $title = (string) preg_replace('/\s{2,}/', ' ', $title);
+
+        return trim($title);
     }
 
     /** @return string[] */
@@ -7147,9 +7176,14 @@ class TemplateContent {
         $before_count = (int) preg_match_all( $name_pat, $stripped );
         $word_count   = (int) preg_match_all( '/\S+/u', $stripped );
 
-        // Keep this pass aligned with the existing <= 2.0% density ceiling.
-        // Preserve the earlier 12-hit floor used by the final render cleanup.
-        $target = max( 12, (int) floor( $word_count * 0.02 ) );
+        // Soft targets by word count.
+        if ( $word_count < 850 ) {
+            $target = 16;
+        } elseif ( $word_count < 1100 ) {
+            $target = 22;
+        } else {
+            $target = 24;
+        }
 
         $extras_count = count( array_filter( $rankmath_keywords, 'strlen' ) );
 
