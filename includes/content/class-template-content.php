@@ -629,6 +629,21 @@ class TemplateContent {
                 (int) $post->ID
             );
         }
+
+        // v5.8.33: Final post-coverage density balancer.
+        // Runs AFTER guard_extra_keyword_coverage() so the count includes guard
+        // insertions. Neutralises low-value model-name repetitions in FAQ H3
+        // questions, FAQ answer sentences, and section body copy that the earlier
+        // budget-based reducer could not reach (protected zones). Preserves every
+        // exact selected Rank Math extra keyword phrase and all SEO-critical zones.
+        if (!empty($pack['_manual_generate'])) {
+            $content = self::guard_post_coverage_density_balance(
+                $content,
+                $rankmath_keywords,
+                $name,
+                (int) $post->ID
+            );
+        }
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ End v5.8.24 final-render cleanup ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ v5.8.17: TemplatePool primary (manual Generate only) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
@@ -7081,6 +7096,355 @@ class TemplateContent {
         }
 
         return $html;
+    }
+
+
+    /**
+     * Final post-coverage density balancer (v5.8.33).
+     *
+     * Runs after guard_extra_keyword_coverage() so the visible model-name count
+     * includes all extra-keyword guard insertions. Reduces low-value model-name
+     * repetitions in FAQ H3 questions, FAQ answer body sentences, and section
+     * navigation copy that the earlier budget-based density reducer could not
+     * reach (those zones are protected from substitution).
+     *
+     * Soft targets (not hard limits — function stops if no more safe
+     * replacements remain before reaching the target):
+     *   < 850 words  → 16 model-name/focus combinations
+     *   850–1100 words → 22
+     *   > 1100 words → 24
+     *
+     * Never neutralizes:
+     *   H2 headings · first <p> · <a> anchors · evidence block ·
+     *   any segment containing an exact selected Rank Math extra keyword ·
+     *   SEO title / meta (not in $html)
+     *
+     * Logs [TMW-DENSITY-FINAL] when WP_DEBUG is on.
+     *
+     * @param  string   $html              Fully assembled model page HTML.
+     * @param  string[] $rankmath_keywords Selected Rank Math extra keywords.
+     * @param  string   $name              Model display name.
+     * @param  int      $post_id           Post ID (for logging only).
+     * @return string
+     */
+    private static function guard_post_coverage_density_balance(
+        string $html,
+        array  $rankmath_keywords,
+        string $name,
+        int    $post_id
+    ): string {
+
+        $debug = defined( 'WP_DEBUG' ) && WP_DEBUG;
+
+        if ( trim( $html ) === '' || trim( $name ) === '' ) {
+            return $html;
+        }
+
+        $n_esc    = preg_quote( $name, '/' );
+        $name_pat = '/\b' . $n_esc . '\b/iu';
+        $stripped = wp_strip_all_tags( $html );
+
+        $before_count = (int) preg_match_all( $name_pat, $stripped );
+        $word_count   = (int) preg_match_all( '/\S+/u', $stripped );
+
+        // Keep this pass aligned with the existing <= 2.0% density ceiling.
+        // Preserve the earlier 12-hit floor used by the final render cleanup.
+        $target = max( 12, (int) floor( $word_count * 0.02 ) );
+
+        $extras_count = count( array_filter( $rankmath_keywords, 'strlen' ) );
+
+        if ( $debug ) {
+            error_log( sprintf(
+                '[TMW-DENSITY-FINAL] start post_id=%d words=%d count=%d target=%d extras_count=%d',
+                $post_id, $word_count, $before_count, $target, $extras_count
+            ) );
+        }
+
+        if ( $before_count <= $target ) {
+            if ( $debug ) {
+                error_log( sprintf(
+                    '[TMW-DENSITY-FINAL] done post_id=%d before=%d after=%d target=%d status="ok"',
+                    $post_id, $before_count, $before_count, $target
+                ) );
+            }
+            return $html;
+        }
+
+        // Normalise extra keywords for the extra-keyword protection check.
+        $extras_lc = [];
+        foreach ( $rankmath_keywords as $kw ) {
+            $kw = trim( (string) $kw );
+            if ( $kw !== '' ) {
+                $extras_lc[] = mb_strtolower( $kw, 'UTF-8' );
+            }
+        }
+
+        // Returns true if the given text segment contains any selected extra keyword.
+        // If true, the segment must not be neutralized (preserve PR #702 coverage).
+        $has_extra = static function ( string $segment ) use ( $extras_lc ): bool {
+            $seg = mb_strtolower( $segment, 'UTF-8' );
+            foreach ( $extras_lc as $kw ) {
+                if ( mb_strpos( $seg, $kw, 0, 'UTF-8' ) !== false ) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // Protect evidence block by replacing it with a placeholder while we work.
+        $ev_start_tag = '<!-- tmwseo-seed-evidence:start -->';
+        $ev_end_tag   = '<!-- tmwseo-seed-evidence:end -->';
+        $ev_block     = '';
+        $placeholder  = '';
+        $html_work    = $html;
+
+        $ev_s = strpos( $html, $ev_start_tag );
+        if ( $ev_s !== false ) {
+            $ev_e = strpos( $html, $ev_end_tag, $ev_s );
+            if ( $ev_e !== false ) {
+                $ev_e_end   = $ev_e + strlen( $ev_end_tag );
+                $ev_block   = substr( $html, $ev_s, $ev_e_end - $ev_s );
+                $placeholder = "\x00EVBLOCK{$post_id}\x00";
+                $html_work  = substr( $html, 0, $ev_s )
+                            . $placeholder
+                            . substr( $html, $ev_e_end );
+            }
+        }
+
+        $current = $before_count;
+
+        // Apostrophe: match plain ASCII straight apostrophe or common HTML entity forms
+        // (ModelCopyCleanup decodes &#039; before this function runs, so plain ' is
+        // sufficient in most cases, but we include the entity forms for safety).
+        $apos = "(?:'|&#039;|&#x27;)";
+
+        // ── Ordered substitution patterns ─────────────────────────────────────────
+        // Format: [ regex_pattern, replacement, log_label ]
+        //
+        // Priority 1 — FAQ H3 question text: highest impact, fully protected by the
+        //   existing density reducer ($in_any_h3 flag), so only this pass can reduce them.
+        // Priority 2 — FAQ answer body sentences: also protected ($in_faq_p flag).
+        // Priority 3 — Section/navigation body sentences.
+        //
+        // Rules applied per match inside the callback:
+        //   · Segment contains an exact extra keyword → skip (preserve PR #702).
+        //   · Replacement uses $1, $2 for captured platform/text groups.
+        $patterns = [
+            // ── Pass 1: FAQ H3 questions ──────────────────────────────────────────
+
+            [
+                '/<h3\b[^>]*>\s*Which\s+link\s+should\s+I\s+open\s+first\s+for\s+' . $n_esc . '\s*\?<\/h3>/iu',
+                '<h3>Which link should I open first?</h3>',
+                'faq_h3:which_link',
+            ],
+            [
+                '/<h3\b[^>]*>\s*What\s+should\s+I\s+do\s+if\s+the\s+' . $n_esc . '\s+live\s+room\s+is\s+offline[^<]*<\/h3>/iu',
+                '<h3>What should I do if the live room is offline?</h3>',
+                'faq_h3:room_offline',
+            ],
+            [
+                '/<h3\b[^>]*>\s*What\s+can\s+I\s+request\s+in\s+a\s+private\s+chat\s+with\s+' . $n_esc . '\s*\?<\/h3>/iu',
+                '<h3>What can I request in a private chat?</h3>',
+                'faq_h3:private_chat_request',
+            ],
+            [
+                '/<h3\b[^>]*>\s*Where\s+can\s+I\s+watch\s+' . $n_esc . '\s+live\s+right\s+now\s*\?<\/h3>/iu',
+                '<h3>Where can I watch this performer live right now?</h3>',
+                'faq_h3:watch_live',
+            ],
+            [
+                '/<h3\b[^>]*>\s*What\s+is\s+' . $n_esc . $apos . 's\s+handle\s+on\s+([^<]+?)\s*\?<\/h3>/iu',
+                '<h3>What is the handle on $1?</h3>',
+                'faq_h3:handle',
+            ],
+            [
+                '/<h3\b[^>]*>\s*Why\s+are\s+similar\s+models\s+listed\s+on\s+the\s+' . $n_esc . '\s+profile\s+page[^<]*<\/h3>/iu',
+                '<h3>Why are similar models listed on this profile page?</h3>',
+                'faq_h3:similar_listed',
+            ],
+            [
+                '/<h3\b[^>]*>\s*Why\s+should\s+I\s+recheck\s+room\s+status\s+before\s+joining\s+' . $n_esc . $apos . 's\s+live\s+room[^<]*<\/h3>/iu',
+                '<h3>Why should I recheck room status before joining this live room?</h3>',
+                'faq_h3:recheck_room',
+            ],
+            [
+                '/<h3\b[^>]*>\s*Can\s+I\s+save\s+or\s+record\s+a\s+private\s+chat\s+session\s+with\s+' . $n_esc . '[^<]*<\/h3>/iu',
+                '<h3>Can I save or record a private chat session?</h3>',
+                'faq_h3:save_record',
+            ],
+
+            // ── Pass 2: FAQ answer / body sentences ───────────────────────────────
+
+            [
+                '/That\s+is\s+the\s+verified\s+live\s+destination\s+for\s+' . $n_esc . '\s*\./iu',
+                'That is the verified live destination.',
+                'faq_a:verified_destination',
+            ],
+            [
+                '/Private\s+chat\s+options\s+listed\s+for\s+' . $n_esc . '\s+include\b/iu',
+                'Private chat options listed here include',
+                'faq_a:chat_options',
+            ],
+            [
+                '/check\s+LiveJasmin' . $apos . 's\s+terms\s+and\s+' . $n_esc . $apos . 's\s+room\s+settings/iu',
+                "check LiveJasmin's terms and the room settings",
+                'faq_a:lj_terms',
+            ],
+            [
+                '/The\s+confirmed\s+live\s+destinations\s+for\s+' . $n_esc . '\s+are\s+listed\b/iu',
+                'The confirmed live destinations are listed',
+                'faq_a:confirmed_destinations',
+            ],
+            [
+                '/The\s+confirmed\s+handle\s+for\s+' . $n_esc . '\s+on\s+/iu',
+                'The confirmed handle on ',
+                'faq_a:confirmed_handle',
+            ],
+            [
+                '/\bwhen\s+' . $n_esc . '\s+is\s+offline\b/iu',
+                'when the performer is offline',
+                'faq_a:when_offline',
+            ],
+            [
+                '/\bwhen\s+it\s+is\s+a\s+confirmed\s+active\s+destination\s+for\s+' . $n_esc . '\b/iu',
+                'when it is a confirmed active destination',
+                'faq_a:confirmed_dest_for',
+            ],
+            [
+                '/checked\s+against\s+the\s+platform' . $apos . 's\s+public\s+profile\s+data\s+to\s+confirm\s+' . $n_esc . '\b/iu',
+                "checked against the platform's public profile data to confirm the profile",
+                'faq_a:checked_against',
+            ],
+            [
+                '/' . $n_esc . $apos . 's\s+cam\s+style\s+and\s+session\s+preferences\s+are\s+described\b/iu',
+                "This profile's cam style and session preferences are described",
+                'faq_a:cam_style',
+            ],
+
+            // ── Pass 3: Section / navigation body sentences ───────────────────────
+
+            [
+                '/\b' . $n_esc . '\s+streams\s+live\s+on\s+(\S+)\s+and\s+offers\b/iu',
+                'This performer streams live on $1 and offers',
+                'body:streams_live',
+            ],
+            [
+                '/Private\s+sessions\s+with\s+' . $n_esc . '\s+on\s+(\S+)\s+support\b/iu',
+                'Private sessions on $1 support',
+                'body:private_sessions',
+            ],
+            [
+                '/Confirmed\s+live\s+platforms\s+for\s+' . $n_esc . '\s+are\s+listed\s+below\b/iu',
+                'Confirmed live platforms are listed below',
+                'body:confirmed_platforms',
+            ],
+            [
+                '/Before\s+joining\s+' . $n_esc . $apos . 's\s+room\b/iu',
+                'Before joining this room',
+                'body:before_joining',
+            ],
+            [
+                '/Before\s+clicking\s+into\s+' . $n_esc . $apos . 's\s+live\s+room\b/iu',
+                'Before clicking into the live room',
+                'body:before_clicking',
+            ],
+            [
+                '/Use\s+only\s+the\s+links\s+on\s+this\s+page\s+to\s+reach\s+' . $n_esc . $apos . 's\s+profiles\b/iu',
+                'Use only the links on this page to reach the confirmed profiles',
+                'body:only_links',
+            ],
+            [
+                '/The\s+latest\s+profile\s+check\s+for\s+' . $n_esc . '\s+found\b/iu',
+                'The latest profile check found',
+                'body:latest_check',
+            ],
+            [
+                '/The\s+confirmed\s+link\s+on\s+this\s+page\s+goes\s+directly\s+to\s+' . $n_esc . $apos . 's\s+profile\b/iu',
+                'The confirmed link on this page goes directly to the profile',
+                'body:confirmed_link',
+            ],
+            [
+                '/The\s+confirmed\s+live\s+profiles\s+for\s+' . $n_esc . '\s+are\s+listed\b/iu',
+                'The confirmed live profiles are listed',
+                'body:confirmed_live_profiles',
+            ],
+            [
+                '/Similar\s+model\s+suggestions\s+help\s+you\s+find\s+active\s+performers\s+with\s+comparable\s+styles\s+when\s+' . $n_esc . '\s+is\s+offline\b/iu',
+                'Similar model suggestions help you find active performers with comparable styles when this performer is offline',
+                'body:similar_offline',
+            ],
+        ];
+
+        foreach ( $patterns as [ $pattern, $replacement, $label ] ) {
+            if ( $current <= $target ) {
+                break;
+            }
+
+            $html_work = preg_replace_callback(
+                $pattern,
+                function ( array $m ) use (
+                    $has_extra, $name_pat, $label,
+                    $debug, $post_id, &$current, $replacement
+                ): string {
+                    $matched = $m[0];
+
+                    // Skip any segment that contains an exact extra keyword phrase
+                    // — preserve PR #702 extra keyword coverage.
+                    if ( $has_extra( $matched ) ) {
+                        if ( $debug ) {
+                            error_log( sprintf(
+                                '[TMW-DENSITY-FINAL] skipped post_id=%d pattern="%s" reason="extra_keyword_segment"',
+                                $post_id, $label
+                            ) );
+                        }
+                        return $matched;
+                    }
+
+                    // Count how many model-name mentions this match removes.
+                    $mentions = (int) preg_match_all( $name_pat, wp_strip_all_tags( $matched ) );
+                    if ( $mentions === 0 ) {
+                        return $matched;
+                    }
+
+                    // Substitute captured groups ($1, $2, …) into the replacement.
+                    $rep = $replacement;
+                    foreach ( $m as $i => $v ) {
+                        if ( $i === 0 ) {
+                            continue;
+                        }
+                        $rep = str_replace( '$' . $i, (string) $v, $rep );
+                    }
+
+                    if ( $debug ) {
+                        error_log( sprintf(
+                            '[TMW-DENSITY-FINAL] neutralized post_id=%d pattern="%s" before=%d after=%d',
+                            $post_id, $label, $current, $current - $mentions
+                        ) );
+                    }
+
+                    $current -= $mentions;
+                    return $rep;
+                },
+                $html_work
+            ) ?? $html_work;
+        }
+
+        // Restore evidence block.
+        if ( $ev_block !== '' && $placeholder !== '' ) {
+            $html_work = str_replace( $placeholder, $ev_block, $html_work );
+        }
+
+        $status = ( $current <= $target ) ? 'ok'
+                : ( $current < $before_count  ? 'reduced' : 'limited' );
+
+        if ( $debug ) {
+            error_log( sprintf(
+                '[TMW-DENSITY-FINAL] done post_id=%d before=%d after=%d target=%d status="%s"',
+                $post_id, $before_count, $current, $target, $status
+            ) );
+        }
+
+        return $html_work;
     }
 
 
