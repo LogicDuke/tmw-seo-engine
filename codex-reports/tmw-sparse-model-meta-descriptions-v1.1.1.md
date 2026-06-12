@@ -236,3 +236,90 @@ git commit -m "Revert: replace sparse model meta placeholder descriptions"
 ```
 
 No database schema changes. The repair command writes only to `rank_math_description` post meta — the same field Rank Math manages. Rollback does not restore previously overwritten descriptions; run before deploying if uncertain.
+
+---
+
+## CodeRabbit Review Fixes
+
+Applied after initial PR #710 review. Commit: `fix: address coderabbit sparse meta review comments`
+
+### Fix 1 — `class-cli.php`: Read canonical meta key first
+
+**Issue:** `repair-sparse-model-descriptions` read `_tmwseo_platform_primary` (legacy key written by `PlatformProfiles`). The canonical key written by `ContentEngine` v5.8+ is `_tmwseo_primary_platform`.
+
+**Fix:** Read `_tmwseo_primary_platform` first. If empty, fall back to `_tmwseo_platform_primary`. Platform map and username fallback loop unchanged.
+
+```php
+$primary_slug = sanitize_key( (string) get_post_meta( (int) $post_id, '_tmwseo_primary_platform', true ) );
+if ( $primary_slug === '' ) {
+    $primary_slug = sanitize_key( (string) get_post_meta( (int) $post_id, '_tmwseo_platform_primary', true ) );
+}
+```
+
+---
+
+### Fix 2 — `class-template-content.php`: Add `NEUTRAL_PLATFORM_FALLBACK` to blacklist
+
+**Issue:** `build_sparse_model_meta_description()` did not exclude `self::NEUTRAL_PLATFORM_FALLBACK` (`'official profile links'`) from the platform blacklist. If `ModelDestinationResolver` returned this fallback label, it would appear verbatim in the SERP description.
+
+**Fix:** Added `strtolower( self::NEUTRAL_PLATFORM_FALLBACK )` to `$platform_blacklist_lc`. Comparison is now a single `in_array()` against a pre-lowercased list for correctness.
+
+```php
+$platform_blacklist_lc = [ 'the platform', 'platform', '', 'unknown', 'n/a',
+    strtolower( self::NEUTRAL_PLATFORM_FALLBACK ) ];
+if ( in_array( strtolower( $platform ), $platform_blacklist_lc, true ) ) {
+    $platform = '';
+}
+```
+
+---
+
+### Fix 3 — `class-template-content.php`: MB-safe truncation fallback
+
+**Issue:** The inline truncation fallback (used when `TitleFixer` is unavailable) used byte-based `strlen()`, `substr()`, and `strrpos()`. These silently corrupt multibyte characters in model names containing diacritics or non-ASCII glyphs.
+
+**Fix:** Check for `mb_strlen` / `mb_substr` / `mb_strrpos` availability at runtime. Use the mb_* variants when available; fall back to byte-based functions otherwise. Both paths remain safe.
+
+```php
+$use_mb = function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) && function_exists( 'mb_strrpos' );
+$char_len = $use_mb ? mb_strlen( $desc, 'UTF-8' ) : strlen( $desc );
+if ( $char_len > 160 ) {
+    $desc       = $use_mb ? mb_substr( $desc, 0, 157, 'UTF-8' ) : substr( $desc, 0, 157 );
+    $last_space = $use_mb ? mb_strrpos( $desc, ' ', 0, 'UTF-8' ) : strrpos( $desc, ' ' );
+    if ( $last_space !== false ) {
+        $desc = $use_mb ? mb_substr( $desc, 0, $last_space, 'UTF-8' ) : substr( $desc, 0, $last_space );
+    }
+    $desc = rtrim( $desc, ' .,;:' ) . '…';
+}
+```
+
+---
+
+### Fix 4 — `class-content-engine.php`: Pass display labels, not slugs (already in PR #710)
+
+**Issue:** Both `claude_sparse_fallback` and `openai_sparse_fallback` passed `$keyword_pack['active_platforms'][0]` (a sanitized slug like `livejasmin`) as the platform label argument. `build_sparse_model_meta_description()` would embed the slug verbatim.
+
+**Fix:** Both sparse exit points now call `ModelDestinationResolver::resolve($post_id)['active_platform_labels'][0]` to get a human-readable label (`LiveJasmin`) before calling the helper.
+
+```php
+$sparse_platform_label = '';
+if ( class_exists( ModelDestinationResolver::class ) ) {
+    $sparse_resolved = ModelDestinationResolver::resolve( $post_id );
+    $sparse_labels   = array_values( array_filter( array_map( 'strval',
+        (array)( $sparse_resolved['active_platform_labels'] ?? [] ) ), 'strlen' ) );
+    $sparse_platform_label = $sparse_labels[0] ?? '';
+}
+```
+
+---
+
+### PHP Lint Commands (all 4 changed files)
+
+```bash
+php -l includes/content/class-template-content.php
+php -l includes/content/class-content-engine.php
+php -l includes/content/class-claude-content.php
+php -l includes/cli/class-cli.php
+```
+
+All must output: `No syntax errors detected`

@@ -613,8 +613,12 @@ class TMWSEOCommand extends \WP_CLI_Command {
             // Resolve primary platform from TMW meta.
             $platform_label = '';
             if ( class_exists( \TMWSEO\Engine\Content\TemplateContent::class ) ) {
-                // Try _tmwseo_platform_primary first (slug), then active_platform_labels from ModelDestinationResolver.
-                $primary_slug = sanitize_key( (string) get_post_meta( (int) $post_id, '_tmwseo_platform_primary', true ) );
+                // Canonical key written by ContentEngine (v5.8+).
+                // Fall back to legacy key written by PlatformProfiles if canonical is empty.
+                $primary_slug = sanitize_key( (string) get_post_meta( (int) $post_id, '_tmwseo_primary_platform', true ) );
+                if ( $primary_slug === '' ) {
+                    $primary_slug = sanitize_key( (string) get_post_meta( (int) $post_id, '_tmwseo_platform_primary', true ) );
+                }
                 $platform_map = [
                     'livejasmin'  => 'LiveJasmin',
                     'chaturbate'  => 'Chaturbate',

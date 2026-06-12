@@ -339,13 +339,20 @@ class ContentEngine {
                 if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
                     $html = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $html, (string) $post->post_title );
                 }
+                // [TMW-SEO-GEN] Resolve display label (not slug) for sparse meta description.
+                $sparse_platform_label = '';
+                if ( class_exists( ModelDestinationResolver::class ) ) {
+                    $sparse_resolved = ModelDestinationResolver::resolve( $post_id );
+                    $sparse_labels   = array_values( array_filter( array_map( 'strval', (array)( $sparse_resolved['active_platform_labels'] ?? [] ) ), 'strlen' ) );
+                    $sparse_platform_label = $sparse_labels[0] ?? '';
+                }
                 return [
                     'strategy'             => 'claude_sparse_fallback',
                     'template_type'        => $template_type,
                     'seo_title'            => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
                     'meta_description'     => TemplateContent::build_sparse_model_meta_description(
                         (string)$post->post_title,
-                        (string)(($keyword_pack['active_platforms'] ?? [])[0] ?? '')
+                        $sparse_platform_label
                     ),
                     'focus_keyword'        => (string)$post->post_title,
                     'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
@@ -438,13 +445,20 @@ class ContentEngine {
             if (class_exists( \TMWSEO\Engine\Content\ModelCopyCleanup::class )) {
                 $html = \TMWSEO\Engine\Content\ModelCopyCleanup::cleanup( $html, (string) $post->post_title );
             }
+            // [TMW-SEO-GEN] Resolve display label (not slug) for sparse meta description.
+            $sparse_platform_label = '';
+            if ( class_exists( ModelDestinationResolver::class ) ) {
+                $sparse_resolved = ModelDestinationResolver::resolve( $post_id );
+                $sparse_labels   = array_values( array_filter( array_map( 'strval', (array)( $sparse_resolved['active_platform_labels'] ?? [] ) ), 'strlen' ) );
+                $sparse_platform_label = $sparse_labels[0] ?? '';
+            }
             return [
                 'strategy' => 'openai_sparse_fallback',
                 'template_type' => $template_type,
                 'seo_title' => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
                 'meta_description' => TemplateContent::build_sparse_model_meta_description(
                     (string)$post->post_title,
-                    (string)(($keyword_pack['active_platforms'] ?? [])[0] ?? '')
+                    $sparse_platform_label
                 ),
                 'focus_keyword' => (string)$post->post_title,
                 'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),

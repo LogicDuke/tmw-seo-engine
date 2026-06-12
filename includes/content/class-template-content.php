@@ -3889,9 +3889,12 @@ class TemplateContent {
         }
 
         // Reject generic/placeholder platform labels that add no SEO value.
+        // self::NEUTRAL_PLATFORM_FALLBACK ('official profile links') is explicitly
+        // included so it is never embedded verbatim into a public-facing SERP description.
         $platform = trim( $primary_platform_label );
-        $platform_blacklist = [ 'the platform', 'platform', '', 'unknown', 'n/a' ];
-        if ( in_array( strtolower( $platform ), $platform_blacklist, true ) ) {
+        $platform_blacklist_lc = [ 'the platform', 'platform', '', 'unknown', 'n/a',
+            strtolower( self::NEUTRAL_PLATFORM_FALLBACK ) ];
+        if ( in_array( strtolower( $platform ), $platform_blacklist_lc, true ) ) {
             $platform = '';
         }
 
@@ -3917,11 +3920,15 @@ class TemplateContent {
         }
 
         // Inline safe fallback: truncate at last space before limit.
-        if ( strlen( $desc ) > 160 ) {
-            $desc = substr( $desc, 0, 157 );
-            $last_space = strrpos( $desc, ' ' );
+        // Uses UTF-8-aware mb_* functions when mbstring is available; falls back
+        // to byte-based functions on servers without the extension.
+        $use_mb = function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) && function_exists( 'mb_strrpos' );
+        $char_len = $use_mb ? mb_strlen( $desc, 'UTF-8' ) : strlen( $desc );
+        if ( $char_len > 160 ) {
+            $desc       = $use_mb ? mb_substr( $desc, 0, 157, 'UTF-8' ) : substr( $desc, 0, 157 );
+            $last_space = $use_mb ? mb_strrpos( $desc, ' ', 0, 'UTF-8' ) : strrpos( $desc, ' ' );
             if ( $last_space !== false ) {
-                $desc = substr( $desc, 0, $last_space );
+                $desc = $use_mb ? mb_substr( $desc, 0, $last_space, 'UTF-8' ) : substr( $desc, 0, $last_space );
             }
             $desc = rtrim( $desc, ' .,;:' ) . '…';
         }
