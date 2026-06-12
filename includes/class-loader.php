@@ -215,6 +215,9 @@ class Loader {
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/model/class-model-body-safety.php' );
         tmwseo_safe_require( $p . 'class-model-page-renderer.php' );
         tmwseo_safe_require( $p . 'class-model-destination-resolver.php' );
+        // v5.9.0: CategoryTemplatePool — must load before ContentEngine so the
+        // class_exists() gate inside build_category_page_template_preview() resolves.
+        tmwseo_safe_require( $p . 'class-category-template-pool.php' );
         tmwseo_safe_require( $p . 'class-content-engine.php' );
         tmwseo_safe_require( $p . 'class-assisted-draft-enrichment-service.php' );
         tmwseo_safe_require( $p . 'class-quality-score-engine.php' );

@@ -770,19 +770,82 @@ class ContentEngine {
      * @return array<string,string>
      */
     private static function build_category_page_template_preview(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
+        $post_id       = (int) $post->ID;
         $category_term = trim($focus_kw !== '' ? $focus_kw : (string) $post->post_title);
         if ($category_term === '') {
             $category_term = 'Webcam Models';
         }
 
-        $year = (string) gmdate('Y');
+        $year  = (string) gmdate('Y');
         $brand = trim((string) wp_parse_url((string) home_url('/'), PHP_URL_HOST));
         if ($brand === '') {
             $brand = 'Top-Models.Webcam';
         }
 
-        $seo_title = self::build_category_page_seo_title($category_term, $year);
+        $seo_title        = self::build_category_page_seo_title($category_term, $year);
         $meta_description = self::build_category_page_meta_description($category_term, $brand);
+
+        // ── v5.9.0: Try CategoryTemplatePool before legacy builder ──────────
+        $manual_pool_allowed = ! empty($keyword_pack['_manual_cat_generate']);
+        if ($manual_pool_allowed && class_exists('\\TMWSEO\\Engine\\Content\\CategoryTemplatePool')) {
+            $category_data = self::build_category_template_data($post, $keyword_pack, $focus_kw);
+            $gate          = self::evaluate_category_template_pool_gate($post, $category_data, $keyword_pack);
+
+            error_log(sprintf(
+                '[TMW-CAT-POOL] guard_check post_id=%d manual=%s sufficient=%s reasons=%s',
+                $post_id,
+                ! empty($keyword_pack['_manual_cat_generate']) ? 'true' : 'false',
+                $gate['sufficient'] ? 'true' : 'false',
+                implode('; ', $gate['reasons'])
+            ));
+
+            if ($gate['sufficient']) {
+                $pool     = new \TMWSEO\Engine\Content\CategoryTemplatePool();
+                $sections = $pool->get_all_sections($post_id, $category_data);
+                $faqs     = $pool->get_faqs($post_id, $category_data, 4);
+
+                $content = self::build_category_pool_html($sections, $faqs, $category_data);
+
+                // Safety guard: if pool output is empty or has unresolved placeholders, fall through.
+                if ($content !== '' && ! $pool->has_unresolved_placeholders($content)) {
+                    $word_count = str_word_count(strip_tags($content));
+                    error_log(sprintf(
+                        '[TMW-CAT-POOL] using category TemplatePool post_id=%d sections=%d faq=%d words=%d',
+                        $post_id,
+                        count($sections),
+                        count($faqs),
+                        $word_count
+                    ));
+
+                    $outline = self::extract_outline_from_html($content);
+
+                    return [
+                        'seo_title'        => $seo_title,
+                        'meta_description' => $meta_description,
+                        'content_html'     => $content,
+                        'outline'          => $outline,
+                        '_source'          => 'category_template_pool',
+                    ];
+                }
+
+                error_log(sprintf(
+                    '[TMW-CAT-POOL] fallback legacy post_id=%d reason=pool_html_empty_or_unresolved',
+                    $post_id
+                ));
+            } else {
+                error_log(sprintf(
+                    '[TMW-CAT-POOL] fallback legacy post_id=%d reason=%s',
+                    $post_id,
+                    implode('; ', $gate['reasons'])
+                ));
+            }
+        } elseif (! $manual_pool_allowed) {
+            error_log(sprintf(
+                '[TMW-CAT-POOL] fallback legacy post_id=%d reason=not_manual_category_generate',
+                $post_id
+            ));
+        }
+        // ── END CategoryTemplatePool attempt — legacy builder below ─────────
 
         $related_topics = !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
             ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6)
@@ -823,11 +886,229 @@ class ContentEngine {
             '<h3>Can I browse by model?</h3><p>Yes. Open the Models Directory to view profile pages, then navigate to related clips and connected archives from each model page.</p>';
 
         return [
-            'seo_title' => $seo_title,
+            'seo_title'        => $seo_title,
             'meta_description' => $meta_description,
-            'content_html' => $content,
-            'outline' => "- About {$category_term}\n- Browse {$category_term} Videos and Models\n- How This Category Helps Visitors\n- Related Webcam Categories\n- Frequently Asked Questions",
+            'content_html'     => $content,
+            'outline'          => "- About {$category_term}\n- Browse {$category_term} Videos and Models\n- How This Category Helps Visitors\n- Related Webcam Categories\n- Frequently Asked Questions",
+            '_source'          => 'legacy',
         ];
+    }
+
+    // ── v5.9.0: CategoryTemplatePool helpers ────────────────────────────────
+
+    /**
+     * Build the category_data array used for placeholder resolution.
+     *
+     * Only collects safely available data — never invents facts.
+     * Optional fields fall back to empty string/array.
+     *
+     * @param \WP_Post            $post
+     * @param array<string,mixed> $keyword_pack
+     * @param string              $focus_kw
+     * @return array<string,mixed>
+     */
+    private static function build_category_template_data(\WP_Post $post, array $keyword_pack, string $focus_kw): array {
+        $post_id = (int) $post->ID;
+
+        $category_name = trim($focus_kw !== '' ? $focus_kw : (string) $post->post_title);
+        if ($category_name === '') {
+            $category_name = 'Webcam Models';
+        }
+
+        $category_slug = trim((string) $post->post_name);
+
+        $site_name = trim((string) get_bloginfo('name'));
+        if ($site_name === '') {
+            $site_name = 'Top-Models.Webcam';
+        }
+
+        $models_url = esc_url(home_url('/models/'));
+        $videos_url = esc_url(home_url('/videos/'));
+
+        // Secondary keywords from keyword_pack.
+        $secondary_raw = !empty($keyword_pack['additional']) && is_array($keyword_pack['additional'])
+            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['additional']))), 0, 6)
+            : [];
+        $secondary_keywords = implode(', ', $secondary_raw);
+
+        // Existing Rank Math fields if present (no-op if not set).
+        $rm_focus = trim((string) get_post_meta($post_id, 'rank_math_focus_keyword', true));
+        if ($rm_focus === '') {
+            $rm_focus = $category_name;
+        }
+
+        // Optional contextual fields — empty if not available.
+        $category_context = '';
+        $platform_context = '';
+        $safe_live_context = '';
+        $internal_links   = '';
+        $related_categories = '';
+        $related_models     = '';
+
+        return [
+            'category_name'      => $category_name,
+            'category_slug'      => $category_slug,
+            'focus_keyword'      => $rm_focus,
+            'secondary_keywords' => $secondary_keywords,
+            'site_name'          => $site_name,
+            'models_url'         => $models_url,
+            'videos_url'         => $videos_url,
+            'category_context'   => $category_context,
+            'platform_context'   => $platform_context,
+            'safe_live_context'  => $safe_live_context,
+            'internal_links'     => $internal_links,
+            'related_categories' => $related_categories,
+            'related_models'     => $related_models,
+        ];
+    }
+
+    /**
+     * Evaluate whether the CategoryTemplatePool has sufficient data to produce
+     * usable output for this category page.
+     *
+     * Returns ['sufficient' => bool, 'reasons' => string[]]
+     *
+     * @param \WP_Post            $post
+     * @param array<string,mixed> $category_data
+     * @param array<string,mixed> $keyword_pack
+     * @return array{sufficient:bool,reasons:string[]}
+     */
+    private static function evaluate_category_template_pool_gate(\WP_Post $post, array $category_data, array $keyword_pack): array {
+        $reasons = [];
+
+        if ($post->post_type !== 'tmw_category_page') {
+            $reasons[] = 'post_type_not_tmw_category_page';
+        }
+
+        if (trim((string) ($category_data['category_name'] ?? '')) === '') {
+            $reasons[] = 'category_name_empty';
+        }
+
+        if (trim((string) ($category_data['focus_keyword'] ?? '')) === '') {
+            $reasons[] = 'focus_keyword_empty';
+        }
+
+        if (! class_exists('\\TMWSEO\\Engine\\Content\\CategoryTemplatePool')) {
+            $reasons[] = 'CategoryTemplatePool_class_missing';
+            return ['sufficient' => false, 'reasons' => $reasons];
+        }
+
+        $pool          = new \TMWSEO\Engine\Content\CategoryTemplatePool();
+        $section_count = count($pool->get_section_keys());
+        $faq_count     = count($pool->get_faq_bucket_keys());
+
+        if ($section_count < 3) {
+            $reasons[] = 'pool_sections_insufficient:' . $section_count;
+        }
+
+        if ($faq_count < 2) {
+            $reasons[] = 'pool_faq_buckets_insufficient:' . $faq_count;
+        }
+
+        // Quick resolved sample check — test one section for unresolved placeholders.
+        if (empty($reasons)) {
+            $post_id       = (int) $post->ID;
+            $intro_section = $pool->get_section('intro', $post_id, $category_data);
+            if ($intro_section !== null && $pool->has_unresolved_placeholders((string) ($intro_section['body'] ?? ''))) {
+                $reasons[] = 'intro_section_has_unresolved_placeholders';
+            }
+        }
+
+        return [
+            'sufficient' => empty($reasons),
+            'reasons'    => $reasons,
+        ];
+    }
+
+    /**
+     * Assemble the final category HTML from resolved pool sections and FAQs.
+     *
+     * Section order is fixed to match the accepted output structure:
+     *   intro → what_this_category_covers → who_this_category_is_for →
+     *   how_to_browse → live_cam_and_model_discovery_tips →
+     *   similar_categories → what_to_check_before_opening_profile →
+     *   internal_navigation (nav) → FAQ → closing_context
+     *
+     * Rules enforced:
+     *  - No H1 injected.
+     *  - One FAQ block only.
+     *  - No duplicate H2 headings.
+     *  - No duplicate FAQ questions.
+     *
+     * @param array<string,array> $sections
+     * @param array               $faqs
+     * @param array<string,mixed> $category_data
+     * @return string
+     */
+    private static function build_category_pool_html(array $sections, array $faqs, array $category_data): string {
+        $ordered_keys = [
+            'intro',
+            'what_this_category_covers',
+            'who_this_category_is_for',
+            'how_to_browse',
+            'live_cam_and_model_discovery_tips',
+            'similar_categories',
+            'what_to_check_before_opening_profile',
+            'internal_navigation',
+        ];
+
+        $html       = '';
+        $seen_h2    = [];
+
+        foreach ($ordered_keys as $key) {
+            if (! isset($sections[$key])) {
+                continue;
+            }
+
+            $sec  = $sections[$key];
+            $h2   = trim((string) ($sec['h2']   ?? ''));
+            $body = trim((string) ($sec['body']  ?? $sec['content'] ?? ''));
+
+            if ($body === '') {
+                continue;
+            }
+
+            // Deduplicate H2 headings across sections.
+            if ($h2 !== '') {
+                $h2_key = strtolower($h2);
+                if (isset($seen_h2[$h2_key])) {
+                    continue;
+                }
+                $seen_h2[$h2_key] = true;
+                $html .= '<h2>' . esc_html($h2) . '</h2>';
+            }
+
+            $html .= $body;
+        }
+
+        // FAQ block — one only, no duplicate questions.
+        if (! empty($faqs)) {
+            $html .= '<h2>Frequently Asked Questions</h2>';
+            $seen_q = [];
+            foreach ($faqs as $faq) {
+                $q = trim((string) ($faq['q'] ?? ''));
+                $a = trim((string) ($faq['a'] ?? ''));
+                if ($q === '' || $a === '') {
+                    continue;
+                }
+                $q_key = strtolower($q);
+                if (isset($seen_q[$q_key])) {
+                    continue;
+                }
+                $seen_q[$q_key] = true;
+                $html .= '<h3>' . esc_html($q) . '</h3><p>' . esc_html($a) . '</p>';
+            }
+        }
+
+        // Closing context if present.
+        if (isset($sections['closing_context'])) {
+            $body = trim((string) ($sections['closing_context']['body'] ?? $sections['closing_context']['content'] ?? ''));
+            if ($body !== '') {
+                $html .= $body;
+            }
+        }
+
+        return $html;
     }
 
     private static function build_category_page_seo_title(string $category_term, string $year): string {
@@ -1287,6 +1568,9 @@ class ContentEngine {
             AssistedDraftEnrichmentService::enrich_rank_math_keywords($post, $keyword_pack);
         } elseif ($post->post_type === 'tmw_category_page' && $is_manual_category_request) {
             $keyword_pack = self::bootstrap_manual_category_generate($post, $payload);
+            // v5.9.0: carry the manual-generate intent into the template builder
+            // so the pool guard log can report the real flag rather than a hardcoded value.
+            $keyword_pack['_manual_cat_generate'] = true;
         }
 
         if ($keywords_only) {
@@ -1451,6 +1735,15 @@ class ContentEngine {
                 // year (number) and a power word from model_title_allowlist, satisfying
                 // both Rank Math Title Readability checks.
                 if ($seo_title !== '') update_post_meta($post_id, 'rank_math_title', $seo_title);
+                // v5.9.0: write_target log for category TemplatePool — category path only.
+                if ($post->post_type === 'tmw_category_page') {
+                    error_log(sprintf(
+                        '[TMW-CAT-POOL] write_target post_id=%d insert_block=true target=post_content words=%d source=%s',
+                        $post_id,
+                        str_word_count(strip_tags($generated_content)),
+                        (string) (isset($cat_preview['_source']) ? $cat_preview['_source'] : 'legacy')
+                    ));
+                }
             } else {
                 update_post_meta($post_id, '_tmwseo_ai_preview_content', $generated_content);
                 update_post_meta($post_id, '_tmwseo_ai_preview_generated_at', current_time('mysql'));
@@ -1458,6 +1751,15 @@ class ContentEngine {
                 update_post_meta($post_id, '_tmwseo_preview_generated_at', current_time('mysql'));
                 if ($seo_title !== '') update_post_meta($post_id, '_tmwseo_preview_seo_title', $seo_title);
                 if ($meta_desc !== '') update_post_meta($post_id, '_tmwseo_preview_meta_description', $meta_desc);
+                // v5.9.0: write_target log for category TemplatePool — category path only.
+                if ($post->post_type === 'tmw_category_page') {
+                    error_log(sprintf(
+                        '[TMW-CAT-POOL] write_target post_id=%d insert_block=false target=preview_meta words=%d source=%s',
+                        $post_id,
+                        str_word_count(strip_tags($generated_content)),
+                        (string) (isset($cat_preview['_source']) ? $cat_preview['_source'] : 'legacy')
+                    ));
+                }
             }
 
             // Evidence inclusion diagnostic REMOVED in v5.8.7 — Model Research
