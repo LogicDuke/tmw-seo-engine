@@ -41,6 +41,33 @@ class TemplateContentTitleAnchorTest extends TestCase {
         $this->assertStringContainsString('Webcam Model & Live Cam Profile Guide', $title);
     }
 
+
+    public function test_v112_known_platform_title_is_not_weak(): void {
+        $this->assertFalse(
+            TemplateContent::is_weak_auto_model_title('Anisyia LiveJasmin Webcam Model & Live Cam Guide 2026', 'Anisyia')
+        );
+    }
+
+    public function test_v112_unknown_platform_title_is_not_weak(): void {
+        $this->assertFalse(
+            TemplateContent::is_weak_auto_model_title('Abby Murray Webcam Model & Live Cam Profile Guide 2026', 'Abby Murray')
+        );
+    }
+
+    public function test_obviously_weak_generic_title_remains_weak(): void {
+        $this->assertTrue(
+            TemplateContent::is_weak_auto_model_title('Live Cam Profile', 'Anisyia')
+        );
+
+        $this->assertTrue(
+            TemplateContent::is_weak_auto_model_title('Webcam Model & Live Cam Guide 2026', 'Anisyia')
+        );
+
+        $this->assertTrue(
+            TemplateContent::is_weak_auto_model_title('Live Cam Model Webcam Model & Live Cam Guide 2026')
+        );
+    }
+
     public function test_video_anchor_with_model_name(): void {
         $this->assertSame(
             'Watch a video featuring Anisyia',

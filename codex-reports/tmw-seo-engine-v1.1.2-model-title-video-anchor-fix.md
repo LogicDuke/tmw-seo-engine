@@ -38,13 +38,32 @@ This change applies the narrow v1.1.2 audit recommendations for future/generated
 
 The existing call site still escapes the helper output with `esc_html()`.
 
+
+## Codex review follow-up
+
+Codex review identified that the v1.1.2 formulas no longer include the legacy `model_title_allow_words()` power-word tokens, while `TemplateContent::is_weak_auto_model_title()` still required one of those tokens after confirming a year/number. That meant the repair path could classify the current generated titles as weak.
+
+## Compatibility fix
+
+`TemplateContent::is_weak_auto_model_title()` now recognizes the approved v1.1.2 generated-title structures as strong when the title has all of the following:
+
+- a model identity signal, either the supplied model name or meaningful title text before the intent phrase when no model name is supplied;
+- a year/number;
+- one of the approved v1.1.2 intent phrases:
+  - `Webcam Model & Live Cam Guide`
+  - `Webcam Model & Live Cam Profile Guide`
+
+Legacy generated titles still use the existing power-word allow-list path, and obviously weak/generic titles remain weak, including v1.1.2-shaped titles without the supplied model name or with only generic identity text.
+
 ## Why `- Top Models` was not hardcoded
 
 `- Top Models` was intentionally not hardcoded because the audit noted that live/staging confirmation is needed first to prove Rank Math will not also append the site name. Adding a site-name suffix here without that confirmation could create duplicated suffixes in generated SEO titles.
 
 ## Manual title preservation note
 
-This PR intentionally does not broaden title write conditions, manual Rank Math title overwrite logic, or `is_weak_auto_model_title()` criteria. Existing manual title preservation behavior remains unchanged.
+No indexing controls were changed: robots, noindex, canonical, sitemap, IndexNow, Rank Math global settings, theme files, and frontend layout remain untouched.
+
+This PR intentionally does not broaden title write conditions or manual Rank Math title overwrite logic. The only repair-path compatibility change is the narrow `is_weak_auto_model_title()` recognition for the approved v1.1.2 formulas, and existing manual title preservation behavior remains unchanged.
 
 ## Existing content/backfill note
 
@@ -58,8 +77,10 @@ Existing stored `post_content` and existing stored Rank Math titles will not aut
   - Result: found the updated builder, escaped call site, updated helper strings, and no remaining `Watch a video from this model` string in `includes/content/class-template-content.php`.
 - `php -l tests/TemplateContentTitleAnchorTest.php`
   - Result: `No syntax errors detected in tests/TemplateContentTitleAnchorTest.php`
-- `php -r 'require "tests/bootstrap/wordpress-stubs.php"; require_once TMWSEO_ENGINE_PATH . "includes/services/class-title-fixer.php"; require_once TMWSEO_ENGINE_PATH . "includes/content/class-template-content.php"; /* focused title and anchor assertions */'`
-  - Result: `TemplateContent title and anchor smoke checks passed`
+- `php -r 'require "tests/bootstrap/wordpress-stubs.php"; require_once TMWSEO_ENGINE_PATH . "includes/services/class-title-fixer.php"; require_once TMWSEO_ENGINE_PATH . "includes/content/class-template-content.php"; /* focused title, weak-title, and anchor assertions */'`
+  - Result: `TemplateContent v1.1.2 weak-title compatibility smoke checks passed`
+- `rg -n "is_weak_auto_model_title|model_title_allow_words|build_default_model_seo_title|Webcam Model & Live Cam Guide|Webcam Model & Live Cam Profile Guide" includes/content/class-template-content.php tests`
+  - Result: found the updated builder formulas, the weak-title predicate compatibility logic, legacy allow-list fallback, and focused tests.
 - `phpunit --filter TemplateContentTitleAnchorTest`
   - Result: not run successfully in this container because `phpunit` is not installed (`/bin/bash: line 1: phpunit: command not found`).
 
