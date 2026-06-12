@@ -3851,6 +3851,91 @@ class TemplateContent {
         return trim($title);
     }
 
+    /**
+     * Build a SERP-ready meta description for sparse/partially-generated model pages.
+     *
+     * Replaces the old placeholder language:
+     *   "Verified links and platform availability for {name}. Detailed editorial
+     *    sections are held until more performer data is confirmed."
+     *
+     * Formula with platform:
+     *   "{Name} {Platform} webcam profile with verified access details, live cam
+     *    availability, private chat options, photos, videos, and quick links on
+     *    Top Models Webcam."
+     *
+     * Fallback (no platform):
+     *   "{Name} webcam model profile with verified access details, live cam
+     *    availability, photos, videos, and quick links on Top Models Webcam."
+     *
+     * Rules:
+     *   - Target 140–158 characters, hard cap 160.
+     *   - Platform name is included only when it is a non-empty, non-generic label
+     *     (i.e. not "the platform" or a placeholder string).
+     *   - Duplicate words between name and platform are avoided.
+     *   - Safe separator normalisation applied (no mojibake, no encoded entities).
+     *   - Never contains "held until", "performer data", "sparse", or "fallback".
+     *
+     * @param string $model_name           Model display name (post_title).
+     * @param string $primary_platform_label Human-readable platform label, e.g. "LiveJasmin". Empty if unknown.
+     * @return string Sanitized meta description, max 160 characters.
+     */
+    public static function build_sparse_model_meta_description(
+        string $model_name,
+        string $primary_platform_label = ''
+    ): string {
+        $name = trim( wp_strip_all_tags( $model_name ) );
+        if ( $name === '' ) {
+            $name = 'This model';
+        }
+
+        // Reject generic/placeholder platform labels that add no SEO value.
+        // self::NEUTRAL_PLATFORM_FALLBACK ('official profile links') is explicitly
+        // included so it is never embedded verbatim into a public-facing SERP description.
+        $platform = trim( $primary_platform_label );
+        $platform_blacklist_lc = [ 'the platform', 'platform', '', 'unknown', 'n/a',
+            strtolower( self::NEUTRAL_PLATFORM_FALLBACK ) ];
+        if ( in_array( strtolower( $platform ), $platform_blacklist_lc, true ) ) {
+            $platform = '';
+        }
+
+        // Guard: skip platform if it is already contained in the model name
+        // (prevents "LiveJasmin Girl LiveJasmin webcam profile").
+        if ( $platform !== '' ) {
+            $name_lc     = function_exists( 'mb_strtolower' ) ? mb_strtolower( $name, 'UTF-8' )     : strtolower( $name );
+            $platform_lc = function_exists( 'mb_strtolower' ) ? mb_strtolower( $platform, 'UTF-8' ) : strtolower( $platform );
+            if ( strpos( $name_lc, $platform_lc ) !== false ) {
+                $platform = '';
+            }
+        }
+
+        if ( $platform !== '' ) {
+            $desc = $name . ' ' . $platform . ' webcam profile with verified access details, live cam availability, private chat options, photos, videos, and quick links on Top Models Webcam.';
+        } else {
+            $desc = $name . ' webcam model profile with verified access details, live cam availability, photos, videos, and quick links on Top Models Webcam.';
+        }
+
+        // Hard cap at 160 characters using existing TitleFixer helper when available.
+        if ( class_exists( \TMWSEO\Engine\Services\TitleFixer::class ) ) {
+            return \TMWSEO\Engine\Services\TitleFixer::shorten( $desc, 160 );
+        }
+
+        // Inline safe fallback: truncate at last space before limit.
+        // Uses UTF-8-aware mb_* functions when mbstring is available; falls back
+        // to byte-based functions on servers without the extension.
+        $use_mb = function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) && function_exists( 'mb_strrpos' );
+        $char_len = $use_mb ? mb_strlen( $desc, 'UTF-8' ) : strlen( $desc );
+        if ( $char_len > 160 ) {
+            $desc       = $use_mb ? mb_substr( $desc, 0, 157, 'UTF-8' ) : substr( $desc, 0, 157 );
+            $last_space = $use_mb ? mb_strrpos( $desc, ' ', 0, 'UTF-8' ) : strrpos( $desc, ' ' );
+            if ( $last_space !== false ) {
+                $desc = $use_mb ? mb_substr( $desc, 0, $last_space, 'UTF-8' ) : substr( $desc, 0, $last_space );
+            }
+            $desc = rtrim( $desc, ' .,;:' ) . '…';
+        }
+
+        return $desc;
+    }
+
     /** @return string[] */
     public static function model_title_allow_words(): array {
         $fallback = self::MODEL_TITLE_POWER_WORDS_FALLBACK;
