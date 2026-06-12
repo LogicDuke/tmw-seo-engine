@@ -3537,7 +3537,13 @@ class TemplateContent {
     }
 
     private static function model_video_anchor_text(string $model_title): string {
-        return 'Watch a video from this model';
+        $model_title = trim(wp_strip_all_tags($model_title));
+
+        if ($model_title === '') {
+            return 'Watch a video featuring this model';
+        }
+
+        return 'Watch a video featuring ' . $model_title;
     }
 
     private static function log_suppressed_fake_video_archive_link(int $model_post_id, string $model_title, string $model_slug): void {
@@ -3784,30 +3790,23 @@ class TemplateContent {
     }
 
     public static function build_default_model_seo_title(string $name, string $primary_platform_label = '', int $post_id = 0): string {
-        $name = trim($name);
+        $name = trim(wp_strip_all_tags($name));
         if ($name === '') {
             $name = 'Live Cam Model';
         }
 
         $year = gmdate('Y');
-        $words = self::model_title_allow_words();
         $denied_tokens = self::model_title_deny_tokens();
-        $patterns = [
-            '{name} - {power} Live Cam Guide {year}',
-            '{name} - {power} Live Chat Guide {year}',
-            '{name} - {power} Webcam Guide {year}',
-            '{name} - {power} Live Cam Profile {year}',
-        ];
+        $platform_label = trim(wp_strip_all_tags($primary_platform_label));
+        $platform_label = preg_replace('/\s+/', ' ', $platform_label) ?: '';
+        $neutral_label = strtolower(self::NEUTRAL_PLATFORM_FALLBACK);
+        $has_known_platform = $platform_label !== '' && strtolower($platform_label) !== $neutral_label;
 
-        $seed = strtolower($name) . '|' . $post_id;
-        $word = $words[self::stable_pick_index($seed . '|word', count($words))];
-        $pattern = $patterns[self::stable_pick_index($seed . '|pattern', count($patterns))];
-
-        $title = strtr($pattern, [
-            '{name}' => $name,
-            '{power}' => $word,
-            '{year}' => $year,
-        ]);
+        if ($has_known_platform) {
+            $title = $name . ' ' . $platform_label . ' Webcam Model & Live Cam Guide ' . $year;
+        } else {
+            $title = $name . ' Webcam Model & Live Cam Profile Guide ' . $year;
+        }
 
         if (self::contains_denylisted_token($title, $denied_tokens)) {
             $title = $name . ' - Safe Live Cam Guide ' . $year;
