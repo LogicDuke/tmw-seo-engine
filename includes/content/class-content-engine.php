@@ -343,7 +343,10 @@ class ContentEngine {
                     'strategy'             => 'claude_sparse_fallback',
                     'template_type'        => $template_type,
                     'seo_title'            => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
-                    'meta_description'     => 'Verified links and platform availability for ' . trim((string)$post->post_title) . '. Detailed editorial sections are held until more performer data is confirmed.',
+                    'meta_description'     => TemplateContent::build_sparse_model_meta_description(
+                        (string)$post->post_title,
+                        (string)(($keyword_pack['active_platforms'] ?? [])[0] ?? '')
+                    ),
                     'focus_keyword'        => (string)$post->post_title,
                     'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
                     'content_html'         => wp_kses_post(trim($html)),
@@ -439,7 +442,10 @@ class ContentEngine {
                 'strategy' => 'openai_sparse_fallback',
                 'template_type' => $template_type,
                 'seo_title' => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
-                'meta_description' => 'Verified links and platform availability for ' . trim((string)$post->post_title) . '. Detailed editorial sections are held until more performer data is confirmed.',
+                'meta_description' => TemplateContent::build_sparse_model_meta_description(
+                    (string)$post->post_title,
+                    (string)(($keyword_pack['active_platforms'] ?? [])[0] ?? '')
+                ),
                 'focus_keyword' => (string)$post->post_title,
                 'keyword_pack_summary' => self::build_keyword_pack_summary($keyword_pack),
                 'content_html' => wp_kses_post(trim($html)),

@@ -72,10 +72,15 @@ class ClaudeContent {
 		$longtail   = self::resolve_longtail( $keyword_pack, $name );
 		$model_data_gate = TemplateContent::evaluate_model_data_gate( $post, $keyword_pack );
 		if ( empty( $model_data_gate['is_sufficient'] ) ) {
+			// [TMW-SEO-GEN] Build a real SERP-quality description instead of a placeholder.
+			$sparse_meta_desc = TemplateContent::build_sparse_model_meta_description(
+				$name,
+				( $primary_platform !== 'the platform' ) ? $primary_platform : ''
+			);
 			return [
 				'ok'      => true,
 				'seo_title' => TemplateContent::build_default_model_seo_title( $name, $primary_platform, (int) $post->ID ),
-				'meta_description' => 'Verified links and platform availability for ' . $name . '. Detailed editorial sections are held until more performer data is confirmed.',
+				'meta_description' => $sparse_meta_desc,
 				'focus_keyword' => $name,
 				'payload' => TemplateContent::build_sparse_model_payload(
 					$name,
