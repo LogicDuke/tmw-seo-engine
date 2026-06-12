@@ -35,12 +35,30 @@ class TemplateContentTitleAnchorTest extends TestCase {
     }
 
     public function test_neutral_fallback_label_does_not_appear_in_title(): void {
+        $year = gmdate('Y');
         $title = TemplateContent::build_default_model_seo_title('Abby Murray', ' official profile links ', 789);
 
+        $this->assertSame('Abby Murray Webcam Model & Live Cam Profile Guide ' . $year, $title);
         $this->assertStringNotContainsString('official profile links', strtolower($title));
-        $this->assertStringContainsString('Webcam Model & Live Cam Profile Guide', $title);
     }
 
+    public function test_placeholder_platform_label_is_treated_as_unknown_platform(): void {
+        $year = gmdate('Y');
+
+        $this->assertSame(
+            'Alice Webcam Model & Live Cam Profile Guide ' . $year,
+            TemplateContent::build_default_model_seo_title('Alice', 'the platform', 123)
+        );
+    }
+
+    public function test_real_platform_label_still_uses_platform_aware_formula(): void {
+        $year = gmdate('Y');
+
+        $this->assertSame(
+            'Alice LiveJasmin Webcam Model & Live Cam Guide ' . $year,
+            TemplateContent::build_default_model_seo_title('Alice', 'LiveJasmin', 123)
+        );
+    }
 
     public function test_v112_known_platform_title_is_not_weak(): void {
         $this->assertFalse(

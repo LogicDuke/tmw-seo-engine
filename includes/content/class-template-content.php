@@ -3799,8 +3799,16 @@ class TemplateContent {
         $denied_tokens = self::model_title_deny_tokens();
         $platform_label = trim(wp_strip_all_tags($primary_platform_label));
         $platform_label = preg_replace('/\s+/', ' ', $platform_label) ?: '';
-        $neutral_label = strtolower(self::NEUTRAL_PLATFORM_FALLBACK);
-        $has_known_platform = $platform_label !== '' && strtolower($platform_label) !== $neutral_label;
+        $generic_platform_labels = [
+            self::NEUTRAL_PLATFORM_FALLBACK,
+            'the platform',
+            'platform',
+            'official platform',
+            'profile links',
+            'official profile',
+            'webcam platform',
+        ];
+        $has_known_platform = $platform_label !== '' && !in_array(strtolower($platform_label), $generic_platform_labels, true);
 
         if ($has_known_platform) {
             $title = $name . ' ' . $platform_label . ' Webcam Model & Live Cam Guide ' . $year;

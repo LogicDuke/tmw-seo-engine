@@ -55,6 +55,30 @@ Codex review identified that the v1.1.2 formulas no longer include the legacy `m
 
 Legacy generated titles still use the existing power-word allow-list path, and obviously weak/generic titles remain weak, including v1.1.2-shaped titles without the supplied model name or with only generic identity text.
 
+
+## Second Codex review follow-up — placeholder platform labels
+
+Codex review found that ClaudeContent can use the placeholder label `the platform`. If that value is passed into `TemplateContent::build_default_model_seo_title()`, it must not be treated as a real platform name because it would produce titles like `Alice the platform Webcam Model & Live Cam Guide 2026`.
+
+The title builder now treats the following generic/non-platform labels as unknown platform labels and uses the fallback formula instead:
+
+- empty string
+- `official profile links`
+- `the platform`
+- `platform`
+- `official platform`
+- `profile links`
+- `official profile`
+- `webcam platform`
+
+Confirmed expected behavior:
+
+- `build_default_model_seo_title('Alice', 'the platform', 123)` returns `Alice Webcam Model & Live Cam Profile Guide {year}`.
+- `build_default_model_seo_title('Alice', 'official profile links', 123)` returns `Alice Webcam Model & Live Cam Profile Guide {year}`.
+- `build_default_model_seo_title('Alice', 'LiveJasmin', 123)` returns `Alice LiveJasmin Webcam Model & Live Cam Guide {year}`.
+
+No indexing controls were changed: robots, noindex, canonical, sitemap, IndexNow, Rank Math global settings, theme files, and frontend layout remain untouched.
+
 ## Why `- Top Models` was not hardcoded
 
 `- Top Models` was intentionally not hardcoded because the audit noted that live/staging confirmation is needed first to prove Rank Math will not also append the site name. Adding a site-name suffix here without that confirmation could create duplicated suffixes in generated SEO titles.
@@ -78,9 +102,11 @@ Existing stored `post_content` and existing stored Rank Math titles will not aut
 - `php -l tests/TemplateContentTitleAnchorTest.php`
   - Result: `No syntax errors detected in tests/TemplateContentTitleAnchorTest.php`
 - `php -r 'require "tests/bootstrap/wordpress-stubs.php"; require_once TMWSEO_ENGINE_PATH . "includes/services/class-title-fixer.php"; require_once TMWSEO_ENGINE_PATH . "includes/content/class-template-content.php"; /* focused title, weak-title, and anchor assertions */'`
-  - Result: `TemplateContent v1.1.2 weak-title compatibility smoke checks passed`
+  - Result: `TemplateContent placeholder platform label smoke checks passed`
 - `rg -n "is_weak_auto_model_title|model_title_allow_words|build_default_model_seo_title|Webcam Model & Live Cam Guide|Webcam Model & Live Cam Profile Guide" includes/content/class-template-content.php tests`
   - Result: found the updated builder formulas, the weak-title predicate compatibility logic, legacy allow-list fallback, and focused tests.
+- `rg -n "official profile links|the platform|build_default_model_seo_title|Webcam Model & Live Cam Guide|Webcam Model & Live Cam Profile Guide" includes/content/class-template-content.php tests codex-reports`
+  - Result: found the title-builder placeholder rejection list, related existing placeholder references, focused tests, and report notes.
 - `phpunit --filter TemplateContentTitleAnchorTest`
   - Result: not run successfully in this container because `phpunit` is not installed (`/bin/bash: line 1: phpunit: command not found`).
 
