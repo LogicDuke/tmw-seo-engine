@@ -786,7 +786,8 @@ class ContentEngine {
         $meta_description = self::build_category_page_meta_description($category_term, $brand);
 
         // ── v5.9.0: Try CategoryTemplatePool before legacy builder ──────────
-        if (class_exists('\\TMWSEO\\Engine\\Content\\CategoryTemplatePool')) {
+        $manual_pool_allowed = ! empty($keyword_pack['_manual_cat_generate']);
+        if ($manual_pool_allowed && class_exists('\\TMWSEO\\Engine\\Content\\CategoryTemplatePool')) {
             $category_data = self::build_category_template_data($post, $keyword_pack, $focus_kw);
             $gate          = self::evaluate_category_template_pool_gate($post, $category_data, $keyword_pack);
 
@@ -838,6 +839,11 @@ class ContentEngine {
                     implode('; ', $gate['reasons'])
                 ));
             }
+        } elseif (! $manual_pool_allowed) {
+            error_log(sprintf(
+                '[TMW-CAT-POOL] fallback legacy post_id=%d reason=not_manual_category_generate',
+                $post_id
+            ));
         }
         // ── END CategoryTemplatePool attempt — legacy builder below ─────────
 

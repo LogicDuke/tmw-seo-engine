@@ -11,7 +11,7 @@
 
 The live category Generate path (confirmed from source):
 
-```
+```text
 editor-ai-metabox.js
   → action=tmwseo_generate_now
   → Admin::init()
@@ -87,7 +87,7 @@ Three new private static methods added after the legacy builder:
 
 ### Guard flow in `build_category_page_template_preview()`
 
-```
+```text
 class CategoryTemplatePool exists?
   YES → build_category_template_data()
         evaluate_category_template_pool_gate()
@@ -112,14 +112,14 @@ The `manual` field in `guard_check` reflects the real `_manual_cat_generate` mar
 
 The `write_target` log appears in `run_optimize_job()` after the actual write for `tmw_category_page` only. The `source` field is `category_template_pool` when the pool produced the output and `legacy` when the fallback builder ran.
 
-```
+```text
 [TMW-CAT-POOL] guard_check post_id=123 manual=true sufficient=true reasons=
 [TMW-CAT-POOL] using category TemplatePool post_id=123 sections=9 faq=4 words=820
 [TMW-CAT-POOL] write_target post_id=123 insert_block=true target=post_content words=820 source=category_template_pool
 ```
 
 Or on fallback:
-```
+```text
 [TMW-CAT-POOL] guard_check post_id=123 manual=true sufficient=false reasons=category_name_empty
 [TMW-CAT-POOL] fallback legacy post_id=123 reason=category_name_empty
 [TMW-CAT-POOL] write_target post_id=123 insert_block=true target=post_content words=430 source=legacy
@@ -160,7 +160,7 @@ Run from repo root:
 
 ```bash
 vendor/bin/phpunit tests/CategoryTemplatePoolTest.php --colors
-```
+```text
 
 Expected: **22 tests, 22 assertions passing, 0 failures, 0 errors.**
 
@@ -241,6 +241,6 @@ php -r "json_decode(file_get_contents('data/category-faq-pool.json')); echo json
 php -l includes/content/class-category-template-pool.php
 php -l includes/content/class-content-engine.php
 php -l includes/class-loader.php
-```
+```text
 
 All must pass before merge.
