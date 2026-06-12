@@ -3537,7 +3537,13 @@ class TemplateContent {
     }
 
     private static function model_video_anchor_text(string $model_title): string {
-        return 'Watch a video from this model';
+        $model_title = trim(wp_strip_all_tags($model_title));
+
+        if ($model_title === '') {
+            return 'Watch a video featuring this model';
+        }
+
+        return 'Watch a video featuring ' . $model_title;
     }
 
     private static function log_suppressed_fake_video_archive_link(int $model_post_id, string $model_title, string $model_slug): void {
@@ -3784,30 +3790,31 @@ class TemplateContent {
     }
 
     public static function build_default_model_seo_title(string $name, string $primary_platform_label = '', int $post_id = 0): string {
-        $name = trim($name);
+        $name = trim(wp_strip_all_tags($name));
         if ($name === '') {
             $name = 'Live Cam Model';
         }
 
         $year = gmdate('Y');
-        $words = self::model_title_allow_words();
         $denied_tokens = self::model_title_deny_tokens();
-        $patterns = [
-            '{name} - {power} Live Cam Guide {year}',
-            '{name} - {power} Live Chat Guide {year}',
-            '{name} - {power} Webcam Guide {year}',
-            '{name} - {power} Live Cam Profile {year}',
+        $platform_label = trim(wp_strip_all_tags($primary_platform_label));
+        $platform_label = preg_replace('/\s+/', ' ', $platform_label) ?: '';
+        $generic_platform_labels = [
+            self::NEUTRAL_PLATFORM_FALLBACK,
+            'the platform',
+            'platform',
+            'official platform',
+            'profile links',
+            'official profile',
+            'webcam platform',
         ];
+        $has_known_platform = $platform_label !== '' && !in_array(strtolower($platform_label), $generic_platform_labels, true);
 
-        $seed = strtolower($name) . '|' . $post_id;
-        $word = $words[self::stable_pick_index($seed . '|word', count($words))];
-        $pattern = $patterns[self::stable_pick_index($seed . '|pattern', count($patterns))];
-
-        $title = strtr($pattern, [
-            '{name}' => $name,
-            '{power}' => $word,
-            '{year}' => $year,
-        ]);
+        if ($has_known_platform) {
+            $title = $name . ' ' . $platform_label . ' Webcam Model & Live Cam Guide ' . $year;
+        } else {
+            $title = $name . ' Webcam Model & Live Cam Profile Guide ' . $year;
+        }
 
         if (self::contains_denylisted_token($title, $denied_tokens)) {
             $title = $name . ' - Safe Live Cam Guide ' . $year;
@@ -4030,7 +4037,8 @@ class TemplateContent {
             return true;
         }
 
-        $normalized = strtolower($clean);
+        $normalized_clean = strtolower($clean);
+        $normalized = $normalized_clean;
         if ($name !== '') {
             $normalized = preg_replace('/\b' . preg_quote(strtolower(trim($name)), '/') . '\b/u', '', $normalized) ?: $normalized;
         }
@@ -4056,8 +4064,53 @@ class TemplateContent {
         // Requirement 1: must contain a 4-digit year or a standalone number.
         $has_number = (bool) preg_match('/\b(?:19|20)\d{2}\b|\b\d+\b/', $clean);
 
-        // Requirement 2: must contain at least one power / sentiment word from
-        // the canonical allow-list (same list used by build_default_model_seo_title).
+        // v1.1.2 generated formulas intentionally replaced legacy power words
+        // with explicit model/live-cam intent phrases. Treat those generated
+        // structures as strong when they also include an identity signal and a
+        // year/number, so repair paths do not reject their own current output.
+        $v112_intent_phrases = [
+            'webcam model & live cam guide',
+            'webcam model & live cam profile guide',
+        ];
+        $has_v112_intent_phrase = false;
+        foreach ($v112_intent_phrases as $phrase) {
+            if (str_contains($normalized_clean, $phrase)) {
+                $has_v112_intent_phrase = true;
+                break;
+            }
+        }
+
+        $trimmed_name = trim($name);
+        $has_model_identity = false;
+        if ($trimmed_name !== '') {
+            $has_model_identity = str_contains($normalized_clean, strtolower($trimmed_name));
+        } elseif ($has_v112_intent_phrase) {
+            foreach ($v112_intent_phrases as $phrase) {
+                $phrase_position = strpos($normalized_clean, $phrase);
+                if ($phrase_position === false) {
+                    continue;
+                }
+
+                $title_prefix = trim(substr($clean, 0, $phrase_position));
+                $title_prefix = trim($title_prefix, " \t\n\r\0\x0B-|–—");
+                $generic_prefixes = ['model', 'live cam model', 'webcam model', 'cam model', 'live cam', self::NEUTRAL_PLATFORM_FALLBACK];
+                if (
+                    $title_prefix !== ''
+                    && !in_array(strtolower($title_prefix), $generic_prefixes, true)
+                    && preg_match('/[a-z0-9]{3,}/i', $title_prefix)
+                ) {
+                    $has_model_identity = true;
+                    break;
+                }
+            }
+        }
+
+        if ($has_number && $has_v112_intent_phrase && $has_model_identity) {
+            return false;
+        }
+
+        // Requirement 2: legacy generated titles must contain at least one
+        // power / sentiment word from the canonical allow-list.
         $power_words = self::model_title_allow_words();
         $has_power_word = false;
         foreach ($power_words as $word) {
