@@ -1,12 +1,12 @@
 {
   "_meta": {
-    "version": "1.0.0",
-    "description": "Category landing page section templates for tmw_category_page TemplatePool generation.",
+    "version": "1.1.0",
+    "description": "Category landing page section templates for tmw_category_page TemplatePool generation. v1.1.0 adds keyword-enriched variants (intro_10, covers_09, who_09, tips_09, similar_09, close_09) using {{secondary_keywords}} and {{content_terms}} placeholders. These resolve to empty string when no approved pool keywords exist, preserving v1.0.0 fallback behavior.",
     "placeholders": {
       "{{category_name}}": "Display name of the category (e.g. Blonde Webcam Models)",
       "{{category_slug}}": "URL slug of the category page",
       "{{focus_keyword}}": "Primary focus keyword for Rank Math",
-      "{{secondary_keywords}}": "Comma-separated secondary keywords",
+      "{{secondary_keywords}}": "Comma-separated Rank Math extra keywords from approved pool (top 4)",
       "{{related_categories}}": "Comma-separated related category names",
       "{{related_models}}": "Comma-separated related model page names",
       "{{site_name}}": "Site display name",
@@ -15,7 +15,8 @@
       "{{category_context}}": "Optional one-sentence context for this category type",
       "{{platform_context}}": "Optional platform or network context sentence",
       "{{internal_links}}": "Optional pre-built HTML internal link list",
-      "{{safe_live_context}}": "Optional safe framing sentence about live availability"
+      "{{safe_live_context}}": "Optional safe framing sentence about live availability",
+      "{{content_terms}}": "Comma-separated content keyword terms from approved pool (beyond top 4, up to 16)"
     },
     "selection_rule": "Deterministic: abs(crc32(post_id . category_slug . section_key)) mod variant_count",
     "sections": [
@@ -69,6 +70,10 @@
         {
           "id": "intro_09",
           "body": "<p>This is the {{category_name}} archive on {{site_name}}. It exists to help people find webcam models and video content that share a particular style or theme without requiring them to guess at search terms or browse multiple unrelated pages. Everything linked from here stays within the same topic cluster.</p>"
+        },
+        {
+          "id": "intro_10",
+          "body": "<p>{{category_name}} is a directory archive for a focused webcam browsing theme. This page collects model profiles and video listings that match the same intent, covering searches such as {{secondary_keywords}}. Scan the sections below to find a starting point, then follow the internal directory links to individual profiles or video pages that match what you are looking for.</p>"
         }
       ]
     },
@@ -114,6 +119,11 @@
           "id": "covers_08",
           "h2": "What This Category Covers",
           "body": "<p>The content covered by {{category_name}} includes performer profiles that match this browsing focus and video listings that carry the same topic. Coverage spans beginner-friendly listings through to more detailed profile pages, making the category useful whether you are exploring casually or looking for something specific.</p>"
+        },
+        {
+          "id": "covers_09",
+          "h2": "What This Category Covers",
+          "body": "<p>{{category_name}} as a category covers performer profiles and video listings that share a recognisable browsing theme. Visitors arrive from searches including {{secondary_keywords}}, and this page is designed to orient them with a practical overview before they click through to individual profile or video pages. Coverage is neutral - no platform is promoted over another, and no performer is ranked editorially.</p>"
         }
       ]
     },
@@ -159,6 +169,11 @@
           "id": "who_08",
           "h2": "Who This Category Is For",
           "body": "<p>This page is designed for adults who search specifically for {{category_name}} rather than browsing general webcam listings. It is useful whether you want to check what is currently available, compare a handful of performers, or find a video clip that matches a particular style. The page is browsable without a site account.</p>"
+        },
+        {
+          "id": "who_09",
+          "h2": "Who This Category Is For",
+          "body": "<p>This page is for adults browsing webcam content related to {{category_name}}. It is a practical starting point for visitors coming from topic searches such as {{secondary_keywords}}. Whether you are scanning for a specific style of performer or browsing more casually, the directory structure here narrows the listings to one consistent theme so you can navigate without filtering through unrelated content.</p>"
         }
       ]
     },
@@ -249,6 +264,11 @@
           "id": "tips_08",
           "h2": "Live Cam and Model Discovery Tips",
           "body": "<p>Live availability in {{category_name}} varies by performer and by time of day. Rather than checking a platform directly, use the model profile pages on {{site_name}} as your first stop — they show which platforms each performer uses and may include context about typical availability. That context is more useful than a real-time status check that may have changed by the time you click through.</p>"
+        },
+        {
+          "id": "tips_09",
+          "h2": "Live Cam and Model Discovery Tips",
+          "body": "<p>When exploring {{category_name}} performers, it helps to use the profile pages as a starting filter rather than going directly to a platform. Profile pages include listed platform links, bio context, and related category tags. If you are looking for something more specific within this theme - such as {{content_terms}} - the tag links on individual model pages are the fastest way to move between related styles without returning to this archive each time.</p>"
         }
       ]
     },
@@ -294,6 +314,11 @@
           "id": "similar_08",
           "h2": "Similar Categories to Explore",
           "body": "<p>The {{site_name}} directory contains multiple themed categories that may complement {{category_name}}. Exploring related themes is a useful way to broaden your search when the current category has a limited number of listings or when you want a slightly different angle on the same browsing interest. Category tag links on profile and video pages connect these themes directly.</p>"
+        },
+        {
+          "id": "similar_09",
+          "h2": "Similar Categories to Explore",
+          "body": "<p>{{category_name}} sits alongside several related themes on {{site_name}}. If you arrived looking for something more specific - such as {{content_terms}} - the related category and tag links on individual model and video pages will take you closer to that focus. Each connected category follows the same directory structure, so navigating between related themes does not require returning to the homepage.</p>"
         }
       ]
     },
@@ -421,6 +446,10 @@
         {
           "id": "close_08",
           "body": "<p>The {{category_name}} page is updated as part of the regular {{site_name}} content cycle. This means that new performers who match this theme may be added over time, and existing listings may be updated as platform availability changes. Returning to this page periodically is a simple way to see what is new in the category without browsing the full directory each time.</p>"
+        },
+        {
+          "id": "close_09",
+          "body": "<p>The {{category_name}} archive on {{site_name}} is maintained as a neutral browsing resource. It is designed to serve visitors who arrive with a specific topic in mind - searches like {{secondary_keywords}} often lead to pages like this one. The directory structure is kept practical: sections provide context, and the internal links lead to real profile and video pages within the same site.</p>"
         }
       ]
     }
