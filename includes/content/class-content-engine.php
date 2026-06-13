@@ -1157,7 +1157,8 @@ class ContentEngine {
      */
     private static function normalize_category_content_keyword_set(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
         $post_id = (int) $post->ID;
-        $raw_values = [];
+        $term_context = self::collect_category_rank_math_term_keyword_values($post);
+        $raw_values = $term_context['values'];
 
         foreach ([
             (string) get_post_meta($post_id, 'rank_math_focus_keyword', true),
@@ -1203,8 +1204,8 @@ class ContentEngine {
         $all = array_values(array_merge($primary !== '' ? [$primary] : [], $extras));
 
         Logs::info('content', '[TMW-CAT-SEO-KW] Category keyword set built', [
-            'term_id' => $post_id,
-            'taxonomy' => 'tmw_category_page',
+            'term_id' => (int) ($term_context['term_id'] ?: $post_id),
+            'taxonomy' => (string) ($term_context['taxonomy'] ?: 'tmw_category_page'),
             'primary_keyword' => $primary,
             'extra_keyword_count' => count($extras),
             'total_keywords' => count($all),
@@ -1215,6 +1216,92 @@ class ContentEngine {
             'extra_keywords' => $extras,
             'all_keywords' => $all,
         ];
+    }
+
+    /**
+     * Collect Rank Math keyword values from the real category/tag term connected
+     * to a tmw_category_page draft before falling back to post meta.
+     *
+     * @return array{values:string[],term_id:int,taxonomy:string}
+     */
+    private static function collect_category_rank_math_term_keyword_values(\WP_Post $post): array {
+        $term = self::resolve_category_content_term($post);
+        if (! $term instanceof \WP_Term || ! function_exists('get_term_meta')) {
+            return [
+                'values' => [],
+                'term_id' => 0,
+                'taxonomy' => '',
+            ];
+        }
+
+        $values = [];
+        foreach (['rank_math_focus_keyword', '_rank_math_focus_keyword', 'rank_math_additional_keywords'] as $meta_key) {
+            $raw = get_term_meta((int) $term->term_id, $meta_key, true);
+            if (is_scalar($raw) && trim((string) $raw) !== '') {
+                $values[] = (string) $raw;
+            }
+        }
+
+        return [
+            'values' => $values,
+            'term_id' => (int) $term->term_id,
+            'taxonomy' => (string) $term->taxonomy,
+        ];
+    }
+
+    /**
+     * Resolve the canonical taxonomy term for a tmw_category_page when available.
+     *
+     * The theme bridge usually maps category-page posts to real category archives
+     * by slug/title. Some installs also persist a target term ID in post meta, so
+     * this checks explicit term IDs before slug/title lookups.
+     */
+    private static function resolve_category_content_term(\WP_Post $post): ?\WP_Term {
+        if ($post->post_type !== 'tmw_category_page') {
+            return null;
+        }
+
+        $taxonomies = array_values(array_filter(['category', 'post_tag'], static function (string $taxonomy): bool {
+            return ! function_exists('taxonomy_exists') || taxonomy_exists($taxonomy);
+        }));
+
+        foreach (['_tmwseo_term_id', '_tmwseo_category_term_id', '_tmwseo_target_term_id', 'target_term_id'] as $meta_key) {
+            $term_id = (int) get_post_meta((int) $post->ID, $meta_key, true);
+            if ($term_id <= 0) {
+                continue;
+            }
+            foreach ($taxonomies as $taxonomy) {
+                if (! function_exists('get_term')) {
+                    continue;
+                }
+                $term = get_term($term_id, $taxonomy);
+                if ($term instanceof \WP_Term) {
+                    return $term;
+                }
+            }
+        }
+
+        $slug = trim((string) $post->post_name);
+        if ($slug !== '' && function_exists('get_term_by')) {
+            foreach ($taxonomies as $taxonomy) {
+                $term = get_term_by('slug', $slug, $taxonomy);
+                if ($term instanceof \WP_Term) {
+                    return $term;
+                }
+            }
+        }
+
+        $title = trim((string) $post->post_title);
+        if ($title !== '' && function_exists('get_term_by')) {
+            foreach ($taxonomies as $taxonomy) {
+                $term = get_term_by('name', $title, $taxonomy);
+                if ($term instanceof \WP_Term) {
+                    return $term;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
