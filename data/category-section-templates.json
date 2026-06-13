@@ -268,7 +268,7 @@
         {
           "id": "tips_09",
           "h2": "Live Cam and Model Discovery Tips",
-          "body": "<p>When exploring {{category_name}} performers, it helps to use the profile pages as a starting filter rather than going directly to a platform. Profile pages include listed platform links, bio context, and related category tags. If you are looking for something more specific within this theme - such as {{content_terms}} - the tag links on individual model pages are the fastest way to move between related styles without returning to this archive each time.</p>"
+          "body": "<p>When exploring {{category_name}} performers, it helps to use the profile pages as a starting filter rather than going directly to a platform. Profile pages include listed platform links, bio context, and related category tags. If you are looking for something more specific within this theme - such as {{secondary_keywords}} - the tag links on individual model pages are the fastest way to move between related styles without returning to this archive each time.</p>"
         }
       ]
     },
@@ -318,7 +318,7 @@
         {
           "id": "similar_09",
           "h2": "Similar Categories to Explore",
-          "body": "<p>{{category_name}} sits alongside several related themes on {{site_name}}. If you arrived looking for something more specific - such as {{content_terms}} - the related category and tag links on individual model and video pages will take you closer to that focus. Each connected category follows the same directory structure, so navigating between related themes does not require returning to the homepage.</p>"
+          "body": "<p>{{category_name}} sits alongside several related themes on {{site_name}}. If you arrived looking for something more specific - such as {{secondary_keywords}} - the related category and tag links on individual model and video pages will take you closer to that focus. Each connected category follows the same directory structure, so navigating between related themes does not require returning to the homepage.</p>"
         }
       ]
     },

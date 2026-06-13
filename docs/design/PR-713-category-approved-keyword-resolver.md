@@ -12,7 +12,7 @@ PR #712 established the category TemplatePool manual Generate path. It works tec
 
 This PR adds `CategoryApprovedKeywordResolver` — a focused class that reads `status='approved'` category keyword pool rows from `wp_tmw_keyword_candidates` and wires them into the category keyword pack, giving the TemplatePool access to the researched keyword set.
 
-**This PR does NOT modify any JSON template files.** Template placeholder wiring is deferred to PR #714.
+This PR modifies `data/category-section-templates.json` (six new keyword-enriched variants appended) and `data/category-faq-pool.json` (one new `keyword_intent` bucket appended). All existing PR #712 variants and buckets are preserved. The template changes allow approved pool terms to appear naturally in generated category page text.
 
 ---
 
@@ -41,7 +41,7 @@ The display label `review_required` seen in the Keyword Pools admin UI is a UI-o
 
 ### New file
 
-```
+```text
 includes/keywords/class-category-approved-keyword-resolver.php
 ```
 
@@ -122,13 +122,13 @@ If no approved rows: existing label-derived behavior is preserved unchanged. Gen
 - `content_terms` — comma-separated string of content terms (empty if none)
 - `content_terms_array` — PHP array (empty if none)
 
-These fields are passed into `CategoryTemplatePool::get_all_sections()` and `get_faqs()` via `$category_data`, ready for PR #714 to add JSON placeholder support.
+These fields are passed into `CategoryTemplatePool::get_all_sections()` and `get_faqs()` via `$category_data`. The JSON template files include new variants that use `{{secondary_keywords}}` and `{{content_terms}}` placeholders, allowing approved pool terms to appear in generated category page text.
 
 ---
 
 ## Data Flow
 
-```
+```text
 AJAX: Generate (tmw_category_page)
   ↓
 bootstrap_manual_category_generate()
@@ -161,7 +161,7 @@ category_data = {
     ...
 }
   ↓
-CategoryTemplatePool::get_all_sections($post_id, $category_data)   ← content_terms ready for PR #714
+CategoryTemplatePool::get_all_sections($post_id, $category_data)
 CategoryTemplatePool::get_faqs($post_id, $category_data, 4)
   ↓
 write post_content + rank_math_additional_keywords
@@ -172,19 +172,19 @@ write post_content + rank_math_additional_keywords
 ## Logs Expected
 
 When approved rows exist:
-```
+```text
 [TMW-CAT-KW] resolved post_id=1234 focus=Amateur Cams rankmath_extras=amateur webcam|amateur sex cams|amateur webcam sex|live amateur sex content_terms=amateur cam nude|amateur naked cam|... pool_count=12
 [TMW-CAT-POOL] keyword_context post_id=1234 secondary=amateur webcam, amateur sex cams, amateur webcam sex, live amateur sex content_terms=amateur cam nude, amateur naked cam, ...
 ```
 
 When no approved rows exist (all rows are `queued_for_review`):
-```
+```text
 [TMW-CAT-KW] no_approved_pool_terms post_id=1234 fallback=label_derived
 [TMW-CAT-POOL] keyword_context post_id=1234 secondary=(none) content_terms=(none)
 ```
 
 When a safety double-check fires (should not occur in practice):
-```
+```text
 [TMW-CAT-KW] skipped_unsafe_term post_id=1234 term=some term status=queued_for_review reason=status_not_approved
 ```
 
@@ -206,14 +206,9 @@ Before testing PR #713 output on Amateur Cams, you must manually approve keyword
 
 ---
 
-## Why JSON Templates Are Not Modified Until PR #714
+## JSON Template Changes in This PR
 
-`category-section-templates.json` currently only uses `{{category_name}}`, `{{models_url}}`, `{{videos_url}}`, and `{{site_name}}`. Adding `{{secondary_keywords}}` and `{{content_terms}}` placeholders to the JSON requires careful editing of all section variants to ensure natural keyword placement.
-
-Separating this into PR #714:
-- Isolates DB query risk (this PR) from template formatting risk (next PR)
-- Allows live validation that the resolver returns correct approved terms before template wiring
-- Keeps each PR single-responsibility and independently testable
+This PR appends new variants to `data/category-section-templates.json` and a new bucket to `data/category-faq-pool.json`. New variants use `{{secondary_keywords}}` and `{{content_terms}}` placeholders, which resolve to approved pool terms when present and to empty string when no approved rows exist. All existing PR #712 variants and FAQ buckets are preserved unchanged. The `resolve()` method in `CategoryTemplatePool` handles empty placeholder values gracefully.
 
 ---
 
@@ -239,7 +234,7 @@ After merging PR #713:
 - [ ] Check PHP error log for `[TMW-CAT-POOL] keyword_context ... content_terms=...`
 - [ ] Confirm `_tmwseo_keyword_pack` JSON has `content_terms` key with approved terms
 - [ ] Confirm category generated content is same structure (no regression from resolver wiring)
-- [ ] Note: content will not yet use extra keywords inline — that requires PR #714 template edits
+- [ ] Confirm generated text includes approved extra keywords naturally (via new template variants)
 - [ ] Confirm model pages unchanged (generate a model page and verify behavior identical)
 - [ ] Confirm video pages unchanged
 - [ ] Confirm post status still draft, noindex/canonical unchanged, no cron added

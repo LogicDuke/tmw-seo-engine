@@ -179,13 +179,17 @@ class CategoryApprovedKeywordResolver {
     private function fetch_approved_rows( string $table, int $post_id, bool $has_volume ): array {
         global $wpdb;
 
+        $select = $has_volume
+            ? 'SELECT id, keyword, status, volume FROM '
+            : 'SELECT id, keyword, status, NULL AS volume FROM ';
+
         $order = $has_volume
             ? 'ORDER BY COALESCE(NULLIF(volume, 0), 0) DESC, id ASC'
             : 'ORDER BY id ASC';
 
         // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $sql = $wpdb->prepare(
-            'SELECT id, keyword, status, volume FROM ' . $table
+            $select . $table
             . ' WHERE intent_type = %s AND entity_id = %d AND status = %s'
             . ' ' . $order
             . ' LIMIT %d',
@@ -214,7 +218,7 @@ class CategoryApprovedKeywordResolver {
      *   skipped: array<int, array{term: string, status: string, reason: string}>,
      * }
      */
-    private function process_rows(
+    protected function process_rows(
         array  $rows,
         string $focus_keyword,
         int    $rankmath_limit,
@@ -309,7 +313,7 @@ class CategoryApprovedKeywordResolver {
      * Normalise a keyword string for exact-duplicate detection.
      * Lowercases, trims, collapses internal whitespace.
      */
-    private function normalise( string $keyword ): string {
+    protected function normalise( string $keyword ): string {
         return trim( (string) preg_replace( '/\s+/u', ' ', strtolower( $keyword ) ) );
     }
 
@@ -317,7 +321,7 @@ class CategoryApprovedKeywordResolver {
      * Produce a token-sorted key for reorder-duplicate detection.
      * "amateur webcam" and "webcam amateur" → same key.
      */
-    private function token_key( string $keyword ): string {
+    protected function token_key( string $keyword ): string {
         $tokens = array_filter( preg_split( '/\s+/u', strtolower( trim( $keyword ) ) ) ?: [] );
         if ( empty( $tokens ) ) {
             return '';
