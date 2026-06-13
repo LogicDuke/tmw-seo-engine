@@ -1,16 +1,18 @@
 {
   "_meta": {
-    "version": "1.0.0",
-    "description": "Category-specific FAQ pool for tmw_category_page TemplatePool generation.",
+    "version": "1.1.0",
+    "description": "Category-specific FAQ pool for tmw_category_page TemplatePool generation. v1.1.0 adds keyword_intent bucket using {{secondary_keywords}} and {{content_terms}} placeholders. These resolve to empty string when no approved pool keywords exist. Answers are neutral and factual: no platform claims, no best/verified/official/guaranteed language.",
     "placeholders": {
       "{{category_name}}": "Display name of the category",
       "{{site_name}}": "Site display name",
       "{{models_url}}": "URL of the models directory",
       "{{videos_url}}": "URL of the videos directory",
-      "{{focus_keyword}}": "Primary focus keyword"
+      "{{focus_keyword}}": "Primary focus keyword",
+      "{{secondary_keywords}}": "Comma-separated Rank Math extra keywords from approved pool",
+      "{{content_terms}}": "Comma-separated content keyword terms from approved pool (beyond top 4)"
     },
     "selection_rule": "Pick 1 question per bucket per page. Use abs(crc32(post_id + bucket_position)) mod question_count as index.",
-    "buckets_count": 8,
+    "buckets_count": 9,
     "min_questions_per_bucket": 6
   },
   "buckets": {
@@ -371,6 +373,41 @@
           "id": "ps_08",
           "q": "Can I save {{category_name}} profiles for later?",
           "a": "Bookmarking individual profile pages on {{site_name}} is a practical way to return to a listing. Profile page URLs can change if a post is renamed; check the link is still active on return visits."
+        }
+      ]
+    },
+    "keyword_intent": {
+      "label": "Keyword intent - topic-specific browsing questions",
+      "questions": [
+        {
+          "id": "ki_01",
+          "q": "What types of content are in the {{category_name}} category?",
+          "a": "The category includes webcam model profiles and video listings that share the {{category_name}} theme. Common search topics in this area include {{secondary_keywords}}. Profile pages give the most detailed view of what each performer offers."
+        },
+        {
+          "id": "ki_02",
+          "q": "Is {{category_name}} the same as {{secondary_keywords}}?",
+          "a": "These are related search terms for the same general browsing theme. The {{category_name}} category page covers model profiles and video content that match most of these variations. Individual profile pages provide more detail on each performer style."
+        },
+        {
+          "id": "ki_03",
+          "q": "What is the difference between {{category_name}} and related search terms?",
+          "a": "Search terms like {{secondary_keywords}} often lead to the same category of webcam content. This page collects models and videos that match the broad theme. If you are looking for something more specific, the tag links on profile pages will help you narrow further."
+        },
+        {
+          "id": "ki_04",
+          "q": "Can I find specific styles within {{category_name}}?",
+          "a": "Yes. The category covers a range of performer styles and content types within the {{category_name}} theme. Related searches such as {{content_terms}} may be covered by the same model profiles or by adjacent category pages accessible through the site tag structure."
+        },
+        {
+          "id": "ki_05",
+          "q": "Where do {{category_name}} searches usually lead?",
+          "a": "Searches related to {{category_name}} - including variations like {{secondary_keywords}} - typically lead to directory pages like this one and to individual model or video pages within the same theme. This page is the starting point; individual profiles contain the full listing detail."
+        },
+        {
+          "id": "ki_06",
+          "q": "Are there specific sub-topics within {{category_name}}?",
+          "a": "The {{category_name}} theme includes several related sub-topics and performer styles. Related search areas such as {{content_terms}} may fall under the same category or under closely linked tags. Model profile pages link to relevant tags that help explore those sub-topics directly."
         }
       ]
     }

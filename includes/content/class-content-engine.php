@@ -12,6 +12,7 @@ use TMWSEO\Engine\Model\VerifiedLinksFamilies;
 use TMWSEO\Engine\Content\AssistedDraftEnrichmentService;
 use TMWSEO\Engine\Content\ContentGenerationGate;
 use TMWSEO\Engine\Content\ClaudeContent;
+use TMWSEO\Engine\Keywords\CategoryApprovedKeywordResolver;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -945,20 +946,35 @@ class ContentEngine {
         $related_categories = '';
         $related_models     = '';
 
+        // v5.9.4: content_terms from approved keyword pool.
+        $content_terms_raw = ! empty( $keyword_pack['content_terms'] ) && is_array( $keyword_pack['content_terms'] )
+            ? array_slice( array_values( array_filter( array_map( 'strval', $keyword_pack['content_terms'] ) ) ), 0, 16 )
+            : [];
+        $content_terms_str = implode( ', ', $content_terms_raw );
+
+        Logs::info( 'content', sprintf(
+            '[TMW-CAT-POOL] keyword_context post_id=%d secondary=%s content_terms=%s',
+            $post_id,
+            $secondary_keywords ?: '(none)',
+            $content_terms_str  ?: '(none)'
+        ) );
+
         return [
-            'category_name'      => $category_name,
-            'category_slug'      => $category_slug,
-            'focus_keyword'      => $rm_focus,
-            'secondary_keywords' => $secondary_keywords,
-            'site_name'          => $site_name,
-            'models_url'         => $models_url,
-            'videos_url'         => $videos_url,
-            'category_context'   => $category_context,
-            'platform_context'   => $platform_context,
-            'safe_live_context'  => $safe_live_context,
-            'internal_links'     => $internal_links,
-            'related_categories' => $related_categories,
-            'related_models'     => $related_models,
+            'category_name'       => $category_name,
+            'category_slug'       => $category_slug,
+            'focus_keyword'       => $rm_focus,
+            'secondary_keywords'  => $secondary_keywords,
+            'content_terms'       => $content_terms_str,
+            'content_terms_array' => $content_terms_raw,
+            'site_name'           => $site_name,
+            'models_url'          => $models_url,
+            'videos_url'          => $videos_url,
+            'category_context'    => $category_context,
+            'platform_context'    => $platform_context,
+            'safe_live_context'   => $safe_live_context,
+            'internal_links'      => $internal_links,
+            'related_categories'  => $related_categories,
+            'related_models'      => $related_models,
         ];
     }
 
@@ -2166,11 +2182,46 @@ class ContentEngine {
         $additional = array_values(array_filter($candidates, static fn(string $kw): bool => strcasecmp($kw, $primary) !== 0));
         $longtail = array_slice($additional, 0, 8);
 
+        // v5.9.4: CategoryApprovedKeywordResolver
+        // Reads status=approved rows for this category post from the keyword
+        // pool DB table. Falls back to label-derived pack if none exist.
+        // Never uses queued_for_review or any other non-approved status.
+        $content_terms = [];
+        if ( class_exists( CategoryApprovedKeywordResolver::class ) ) {
+            $resolver        = new CategoryApprovedKeywordResolver();
+            $resolver_result = $resolver->resolve_for_category( $post_id, $primary );
+            $pool_count      = (int) ( $resolver_result['pool_count'] ?? 0 );
+
+            if ( $pool_count > 0 ) {
+                $additional               = $resolver_result['rankmath_extras'];
+                $longtail                 = $additional;
+                $content_terms            = $resolver_result['content_terms'];
+                $sources['category_pool'] = $resolver_result['source'];
+
+                Logs::info( 'content', sprintf(
+                    '[TMW-CAT-KW] resolved post_id=%d focus=%s rankmath_extras=%s content_terms=%s pool_count=%d',
+                    $post_id,
+                    $primary,
+                    implode( '|', $additional ),
+                    implode( '|', $content_terms ),
+                    $pool_count
+                ) );
+            } else {
+                Logs::info( 'content', sprintf(
+                    '[TMW-CAT-KW] no_approved_pool_terms post_id=%d fallback=label_derived',
+                    $post_id
+                ) );
+            }
+        }
+        // END CategoryApprovedKeywordResolver
+
         return [
-            'primary' => $primary,
-            'additional' => array_slice($additional, 0, 8),
-            'longtail' => $longtail,
-            'sources' => $sources,
+            'primary'             => $primary,
+            'additional'          => array_slice( $additional, 0, 8 ),
+            'rankmath_additional' => array_slice( $additional, 0, 4 ),
+            'longtail'            => $longtail,
+            'content_terms'       => $content_terms,
+            'sources'             => $sources,
         ];
     }
 
