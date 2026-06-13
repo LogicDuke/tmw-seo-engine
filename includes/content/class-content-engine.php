@@ -806,6 +806,8 @@ class ContentEngine {
                 $faqs     = $pool->get_faqs($post_id, $category_data, 4);
 
                 $content = self::build_category_pool_html($sections, $faqs, $category_data);
+                $keyword_set = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
+                $content = self::ensure_category_keyword_coverage($content, $keyword_set, $post);
 
                 // Safety guard: if pool output is empty or has unresolved placeholders, fall through.
                 if ($content !== '' && ! $pool->has_unresolved_placeholders($content)) {
@@ -882,9 +884,13 @@ class ContentEngine {
             '<p>Related category or tag archive references can be included when they are already present and contextually relevant. This avoids invented external destinations and keeps visitors inside known site sections that match the same theme.</p>' .
             $related_links_html .
             '<h2>Frequently Asked Questions</h2>' .
-            '<h3>What are ' . esc_html($category_term) . '?</h3><p>They are archive-style category pages that group matching webcam models and videos into one discoverable topic so visitors can browse efficiently.</p>' .
+            '<h3>What are ' . esc_html($category_term) . '?</h3><p>' . esc_html($category_term) . ' pages are archive-style category pages that group matching webcam models and videos into one discoverable topic so visitors can browse efficiently.</p>' .
             '<h3>How do I find related webcam videos?</h3><p>Use the Videos Directory and follow existing internal category or tag links to continue into clips that match this same browsing focus.</p>' .
-            '<h3>Can I browse by model?</h3><p>Yes. Open the Models Directory to view profile pages, then navigate to related clips and connected archives from each model page.</p>';
+            '<h3>Can I browse by model?</h3><p>Yes. Open the Models Directory to view profile pages, then navigate to related clips and connected archives from each model page.</p>' .
+            '<p>The ' . esc_html($category_term) . ' archive remains a neutral starting point for visitors who want to continue through internal model and video listings.</p>';
+
+        $keyword_set = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
+        $content = self::ensure_category_keyword_coverage($content, $keyword_set, $post);
 
         return [
             'seo_title'        => $seo_title,
@@ -951,6 +957,7 @@ class ContentEngine {
             ? array_slice( array_values( array_filter( array_map( 'strval', $keyword_pack['content_terms'] ) ) ), 0, 16 )
             : [];
         $content_terms_str = implode( ', ', $content_terms_raw );
+        $keyword_set       = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
 
         Logs::info( 'content', sprintf(
             '[TMW-CAT-POOL] keyword_context post_id=%d secondary=%s content_terms=%s',
@@ -963,6 +970,11 @@ class ContentEngine {
             'category_name'       => $category_name,
             'category_slug'       => $category_slug,
             'focus_keyword'       => $rm_focus,
+            'primary_keyword'     => $keyword_set['primary_keyword'],
+            'extra_keyword_1'     => (string) ($keyword_set['extra_keywords'][0] ?? ''),
+            'extra_keyword_2'     => (string) ($keyword_set['extra_keywords'][1] ?? ''),
+            'extra_keyword_3'     => (string) ($keyword_set['extra_keywords'][2] ?? ''),
+            'extra_keyword_4'     => (string) ($keyword_set['extra_keywords'][3] ?? ''),
             'secondary_keywords'  => $secondary_keywords,
             'content_terms'       => $content_terms_str,
             'content_terms_array' => $content_terms_raw,
@@ -1101,6 +1113,8 @@ class ContentEngine {
         if (! empty($faqs)) {
             $html .= '<h2>Frequently Asked Questions</h2>';
             $seen_q = [];
+            $faq_index = 0;
+            $primary_keyword = trim((string) ($category_data['primary_keyword'] ?? $category_data['focus_keyword'] ?? $category_data['category_name'] ?? ''));
             foreach ($faqs as $faq) {
                 $q = trim((string) ($faq['q'] ?? ''));
                 $a = trim((string) ($faq['a'] ?? ''));
@@ -1112,7 +1126,11 @@ class ContentEngine {
                     continue;
                 }
                 $seen_q[$q_key] = true;
+                if ($faq_index === 0 && $primary_keyword !== '' && stripos($a, $primary_keyword) === false) {
+                    $a = rtrim($a) . ' This ' . $primary_keyword . ' archive keeps the path focused on directory navigation and linked listings.';
+                }
                 $html .= '<h3>' . esc_html($q) . '</h3><p>' . esc_html($a) . '</p>';
+                $faq_index++;
             }
         }
 
@@ -1120,11 +1138,155 @@ class ContentEngine {
         if (isset($sections['closing_context'])) {
             $body = trim((string) ($sections['closing_context']['body'] ?? $sections['closing_context']['content'] ?? ''));
             if ($body !== '') {
+                $primary_keyword = trim((string) ($category_data['primary_keyword'] ?? $category_data['focus_keyword'] ?? $category_data['category_name'] ?? ''));
+                if ($primary_keyword !== '' && stripos(wp_strip_all_tags($body), $primary_keyword) === false) {
+                    $body .= '<p>The ' . esc_html($primary_keyword) . ' archive remains a neutral starting point for visitors who want to continue through internal model and video listings.</p>';
+                }
                 $html .= $body;
             }
         }
 
         return $html;
+    }
+
+    /**
+     * Normalize the full Rank Math keyword set for category body generation.
+     *
+     * @param array<string,mixed> $keyword_pack
+     * @return array{primary_keyword:string,extra_keywords:string[],all_keywords:string[]}
+     */
+    private static function normalize_category_content_keyword_set(\WP_Post $post, string $focus_kw, array $keyword_pack): array {
+        $post_id = (int) $post->ID;
+        $raw_values = [];
+
+        foreach ([
+            (string) get_post_meta($post_id, 'rank_math_focus_keyword', true),
+            (string) get_post_meta($post_id, 'rank_math_additional_keywords', true),
+            $focus_kw,
+            (string) ($keyword_pack['primary'] ?? ''),
+        ] as $raw) {
+            if (trim($raw) !== '') {
+                $raw_values[] = $raw;
+            }
+        }
+
+        foreach (['rankmath_additional', 'additional', 'secondary'] as $key) {
+            if (!empty($keyword_pack[$key]) && is_array($keyword_pack[$key])) {
+                foreach ($keyword_pack[$key] as $value) {
+                    $raw_values[] = (string) $value;
+                }
+            }
+        }
+
+        $keywords = [];
+        $seen = [];
+        foreach ($raw_values as $raw) {
+            foreach (preg_split('/[,;\n]+/', (string) $raw) ?: [] as $part) {
+                $keyword = trim(wp_strip_all_tags((string) $part));
+                if ($keyword === '') {
+                    continue;
+                }
+                $key = function_exists('mb_strtolower') ? mb_strtolower($keyword, 'UTF-8') : strtolower($keyword);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $keywords[] = $keyword;
+            }
+        }
+
+        $primary = $keywords[0] ?? trim((string) $post->post_title);
+        $extras = array_values(array_filter($keywords, static function (string $keyword) use ($primary): bool {
+            return strcasecmp($keyword, $primary) !== 0;
+        }));
+        $extras = array_slice($extras, 0, 4);
+        $all = array_values(array_merge($primary !== '' ? [$primary] : [], $extras));
+
+        Logs::info('content', '[TMW-CAT-SEO-KW] Category keyword set built', [
+            'term_id' => $post_id,
+            'taxonomy' => 'tmw_category_page',
+            'primary_keyword' => $primary,
+            'extra_keyword_count' => count($extras),
+            'total_keywords' => count($all),
+        ]);
+
+        return [
+            'primary_keyword' => $primary,
+            'extra_keywords' => $extras,
+            'all_keywords' => $all,
+        ];
+    }
+
+    /**
+     * Ensure visible category content includes every Rank Math keyword at least once.
+     *
+     * @param array{primary_keyword:string,extra_keywords:string[],all_keywords:string[]} $keyword_set
+     */
+    private static function ensure_category_keyword_coverage(string $html, array $keyword_set, \WP_Post $post): string {
+        $all_keywords = array_values(array_filter(array_map('strval', $keyword_set['all_keywords'] ?? []), 'strlen'));
+        if ($html === '' || empty($all_keywords)) {
+            return $html;
+        }
+
+        $visible = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES, 'UTF-8');
+        $visible_lc = function_exists('mb_strtolower') ? mb_strtolower($visible, 'UTF-8') : strtolower($visible);
+        $missing = [];
+
+        foreach ($all_keywords as $keyword) {
+            $keyword_lc = function_exists('mb_strtolower') ? mb_strtolower($keyword, 'UTF-8') : strtolower($keyword);
+            if ($keyword_lc !== '' && strpos($visible_lc, $keyword_lc) === false) {
+                $missing[] = $keyword;
+            }
+        }
+
+        $fallback_used = false;
+        if (!empty($missing)) {
+            $fallback_used = true;
+            $html = self::inject_category_keyword_fallback_sentences($html, $missing);
+        }
+
+        // Re-check after injection so logs report final missing count.
+        $visible = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES, 'UTF-8');
+        $visible_lc = function_exists('mb_strtolower') ? mb_strtolower($visible, 'UTF-8') : strtolower($visible);
+        $remaining = 0;
+        foreach ($all_keywords as $keyword) {
+            $keyword_lc = function_exists('mb_strtolower') ? mb_strtolower($keyword, 'UTF-8') : strtolower($keyword);
+            if ($keyword_lc !== '' && strpos($visible_lc, $keyword_lc) === false) {
+                $remaining++;
+            }
+        }
+
+        Logs::info('content', '[TMW-CAT-SEO-KW] Category keyword coverage checked', [
+            'term_id' => (int) $post->ID,
+            'taxonomy' => 'tmw_category_page',
+            'missing_keyword_count' => $remaining,
+            'fallback_injection_used' => $fallback_used,
+        ]);
+
+        return $html;
+    }
+
+    /** @param string[] $missing_keywords */
+    private static function inject_category_keyword_fallback_sentences(string $html, array $missing_keywords): string {
+        $sentences = '';
+        foreach ($missing_keywords as $keyword) {
+            $keyword = trim((string) $keyword);
+            if ($keyword === '') {
+                continue;
+            }
+            $sentences .= '<p>Visitors searching for ' . esc_html($keyword) . ' can use this archive as a neutral directory page and continue through the linked model and video listings.</p>';
+        }
+
+        if ($sentences === '') {
+            return $html;
+        }
+
+        $faq_pos = stripos($html, '<h2>Frequently Asked Questions</h2>');
+        if ($faq_pos !== false) {
+            return substr($html, 0, $faq_pos) . $sentences . substr($html, $faq_pos);
+        }
+
+        return rtrim($html) . $sentences;
     }
 
     private static function build_category_page_seo_title(string $category_term, string $year): string {
@@ -1759,6 +1921,13 @@ class ContentEngine {
                         str_word_count(strip_tags($generated_content)),
                         (string) (isset($cat_preview['_source']) ? $cat_preview['_source'] : 'legacy')
                     ));
+                    $cat_keyword_set = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
+                    Logs::info('content', '[TMW-CAT-SEO-KW] Category content saved with keyword coverage', [
+                        'term_id' => $post_id,
+                        'taxonomy' => 'tmw_category_page',
+                        'content_length' => strlen($final_content),
+                        'keyword_count' => count($cat_keyword_set['all_keywords']),
+                    ]);
                 }
             } else {
                 update_post_meta($post_id, '_tmwseo_ai_preview_content', $generated_content);
@@ -1775,6 +1944,13 @@ class ContentEngine {
                         str_word_count(strip_tags($generated_content)),
                         (string) (isset($cat_preview['_source']) ? $cat_preview['_source'] : 'legacy')
                     ));
+                    $cat_keyword_set = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
+                    Logs::info('content', '[TMW-CAT-SEO-KW] Category content saved with keyword coverage', [
+                        'term_id' => $post_id,
+                        'taxonomy' => 'tmw_category_page',
+                        'content_length' => strlen($generated_content),
+                        'keyword_count' => count($cat_keyword_set['all_keywords']),
+                    ]);
                 }
             }
 
