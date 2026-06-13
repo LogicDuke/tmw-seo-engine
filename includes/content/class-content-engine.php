@@ -1343,9 +1343,10 @@ class ContentEngine {
             }
         }
 
+        $term_context = self::collect_category_rank_math_term_keyword_values($post);
         Logs::info('content', '[TMW-CAT-SEO-KW] Category keyword coverage checked', [
-            'term_id' => (int) $post->ID,
-            'taxonomy' => 'tmw_category_page',
+            'term_id' => (int) ($term_context['term_id'] ?: $post->ID),
+            'taxonomy' => (string) ($term_context['taxonomy'] ?: 'tmw_category_page'),
             'missing_keyword_count' => $remaining,
             'fallback_injection_used' => $fallback_used,
         ]);
