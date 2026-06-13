@@ -1988,13 +1988,26 @@ class ContentEngine {
             }
 
             $final_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $generated_content) : $generated_content;
+            if ($post->post_type === 'tmw_category_page') {
+                // Final guard immediately before the real save/preview write.
+                // This protects the live admin Generate path from any later
+                // transformation that may have removed fallback keyword text.
+                $cat_keyword_set_for_save = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
+                $final_content = self::ensure_category_keyword_coverage($final_content, $cat_keyword_set_for_save, $post);
+                $generated_content = self::ensure_category_keyword_coverage($generated_content, $cat_keyword_set_for_save, $post);
+            }
             AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
 
             if ($insert_block) {
-                wp_update_post([
+                $before_save_content = (string) get_post_field('post_content', $post_id);
+                $update_result = wp_update_post([
                     'ID'           => $post_id,
                     'post_content' => $final_content,
-                ]);
+                ], true);
+                clean_post_cache($post_id);
+                $after_save_content = (string) get_post_field('post_content', $post_id);
+                $content_changed_on_save = trim($after_save_content) !== '' && trim($after_save_content) !== trim($before_save_content);
+                $save_ok = ! is_wp_error($update_result) && (int) $update_result > 0 && trim($after_save_content) === trim($final_content);
                 // v5.8.29 (guarded in PR #700): write rank_math_title only in apply
                 // mode so that preview-only generation never mutates the live Rank Math
                 // title. build_default_model_seo_title() always produces a title with a
@@ -2009,7 +2022,22 @@ class ContentEngine {
                         str_word_count(strip_tags($generated_content)),
                         (string) (isset($cat_preview['_source']) ? $cat_preview['_source'] : 'legacy')
                     ));
-                    $cat_keyword_set = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
+                    $cat_keyword_set = isset($cat_keyword_set_for_save) ? $cat_keyword_set_for_save : self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
+                    $save_payload = [
+                        'post_id' => $post_id,
+                        'target' => 'post_content',
+                        'insert_block' => true,
+                        'generated_content_length' => strlen($generated_content),
+                        'final_content_length' => strlen($final_content),
+                        'wp_update_post_result' => is_wp_error($update_result) ? 0 : (int) $update_result,
+                        'is_wp_error' => is_wp_error($update_result),
+                        'content_changed' => $content_changed_on_save,
+                        'content_written' => $save_ok,
+                        'source' => (string) (isset($cat_preview['_source']) ? $cat_preview['_source'] : 'legacy'),
+                        'word_count' => str_word_count(strip_tags($generated_content)),
+                    ];
+                    Logs::info('content', '[TMW-CAT-SAVE] post_content update attempted', $save_payload);
+                    update_post_meta($post_id, '_tmwseo_category_last_save_result', wp_json_encode($save_payload));
                     Logs::info('content', '[TMW-CAT-SEO-KW] Category content saved with keyword coverage', [
                         'term_id' => $post_id,
                         'taxonomy' => 'tmw_category_page',
