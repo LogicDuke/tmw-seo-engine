@@ -108,6 +108,27 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringContainsString('<h2>About Big Boob Cam</h2>', (string) $payload['content_html']);
         }
 
+
+        public function test_category_keyword_fallback_sentences_preserve_faq_structure(): void {
+            $html = '<p>Amateur Cams directory overview.</p><h2>What This Category Covers</h2><p>Browse listings.</p><h2>Frequently Asked Questions</h2><h3>How do I browse?</h3><p>Use the directory links.</p>';
+
+            $covered = $this->invoke('inject_category_keyword_fallback_sentences', [$html, [
+                'amateur webcam',
+                'amateur tv cams',
+                'live amateur sex cams',
+                'amateur sex chat',
+            ]]);
+
+            $this->assertStringContainsString('Amateur Cams', $covered);
+            $this->assertStringContainsString('amateur webcam', $covered);
+            $this->assertStringContainsString('amateur tv cams', $covered);
+            $this->assertStringContainsString('live amateur sex cams', $covered);
+            $this->assertStringContainsString('amateur sex chat', $covered);
+            $this->assertStringContainsString('<h2>What This Category Covers</h2>', $covered);
+            $this->assertStringContainsString('<h2>Frequently Asked Questions</h2>', $covered);
+            $this->assertLessThan(strpos($covered, '<h2>Frequently Asked Questions</h2>'), strpos($covered, 'amateur sex chat'));
+        }
+
         public function test_category_bootstrap_does_not_set_ready_to_index(): void {
             $post = new \WP_Post(['ID' => 23, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
             $GLOBALS['_tmw_test_post_meta'][23] = [];

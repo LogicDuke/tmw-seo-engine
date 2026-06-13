@@ -314,6 +314,7 @@ class AdminAjaxHandlers {
             update_post_meta( $post_id, '_tmwseo_category_generation_run_id', $run_id );
             update_post_meta( $post_id, '_tmwseo_category_generation_status', 'queued' );
             delete_post_meta( $post_id, '_tmwseo_category_generation_error' );
+            delete_post_meta( $post_id, '_tmwseo_category_last_save_result' );
 
             Logs::info( 'admin', '[TMW-CAT-GEN] queued', [
                 'post_id'              => $post_id,
@@ -399,7 +400,14 @@ class AdminAjaxHandlers {
                 }
             }
 
-            $content_changed = $insert_block && trim( $after_content ) !== '' && trim( $after_content ) !== trim( $before_content );
+            $save_result_raw = (string) get_post_meta( $post_id, '_tmwseo_category_last_save_result', true );
+            $save_result     = $save_result_raw !== '' ? json_decode( $save_result_raw, true ) : [];
+            $save_written    = is_array( $save_result ) && ! empty( $save_result['content_written'] );
+            $save_target     = is_array( $save_result ) ? (string) ( $save_result['target'] ?? '' ) : '';
+            $save_word_count = is_array( $save_result ) ? (int) ( $save_result['word_count'] ?? 0 ) : 0;
+            $save_source     = is_array( $save_result ) ? (string) ( $save_result['source'] ?? '' ) : '';
+
+            $content_changed = $insert_block && trim( $after_content ) !== '' && ( trim( $after_content ) !== trim( $before_content ) || $save_written );
             $preview_changed = ! $insert_block && trim( $after_preview ) !== '' && trim( $after_preview ) !== trim( $before_preview );
 
             if ( $after_done === 'blocked_content_gate' ) {
@@ -455,16 +463,30 @@ class AdminAjaxHandlers {
                 'provider'             => $strategy === 'template' ? 'template' : $strategy,
             ] );
 
+            $autosave_warning = '';
+            if ( $insert_block && function_exists( 'wp_get_post_autosave' ) ) {
+                $autosave = wp_get_post_autosave( $post_id );
+                if ( $autosave instanceof \WP_Post && strtotime( (string) $autosave->post_modified_gmt ) > strtotime( (string) get_post_field( 'post_modified_gmt', $post_id ) ) ) {
+                    $autosave_warning = __( ' Content was saved, but WordPress reports a newer autosave. Reload and review/discard the autosave if the editor still shows old content.', 'tmwseo' );
+                }
+            }
+
             wp_send_json_success( [
-                'success'       => true,
-                'generated_now' => true,
-                'reload'        => true,
-                'run_id'        => $run_id,
-                'job_id'        => $run_id,
-                'status'        => 'complete',
-                'message'       => $insert_block
-                    ? __( 'Category content generated. Reloading editor.', 'tmwseo' )
-                    : __( 'Category content generated into the preview buffer. Reloading editor.', 'tmwseo' ),
+                'success'         => true,
+                'generated_now'   => true,
+                'reload'          => true,
+                'run_id'          => $run_id,
+                'job_id'          => $run_id,
+                'status'          => 'complete',
+                'content_written' => $insert_block ? (bool) $content_changed : false,
+                'target'          => $insert_block ? ( $save_target ?: 'post_content' ) : 'preview_meta',
+                'post_id'         => $post_id,
+                'word_count'      => $save_word_count,
+                'source'          => $save_source,
+                'autosave_warning' => $autosave_warning !== '',
+                'message'         => ( $insert_block
+                    ? __( 'Category content generated and written to post content. Reloading editor.', 'tmwseo' )
+                    : __( 'Category content generated into the preview buffer. Reloading editor.', 'tmwseo' ) ) . $autosave_warning,
             ] );
         }
 
