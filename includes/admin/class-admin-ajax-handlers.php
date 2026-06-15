@@ -407,7 +407,13 @@ class AdminAjaxHandlers {
             $save_word_count = is_array( $save_result ) ? (int) ( $save_result['word_count'] ?? 0 ) : 0;
             $save_source     = is_array( $save_result ) ? (string) ( $save_result['source'] ?? '' ) : '';
 
-            $content_changed = $insert_block && trim( $after_content ) !== '' && ( trim( $after_content ) !== trim( $before_content ) || $save_written );
+            // PR #715: $save_written is true when _tmwseo_category_last_save_result confirms a save
+            // attempt (written by both the template path and, after PR #715, the AI path).
+            // This covers re-generate cases where post_content remains identical after the job —
+            // without $save_written the AJAX handler would falsely report "no content was written".
+            $after_content_non_empty = trim( $after_content ) !== '';
+            $content_differs         = trim( $after_content ) !== trim( $before_content );
+            $content_changed         = $insert_block && $after_content_non_empty && ( $content_differs || $save_written );
             $preview_changed = ! $insert_block && trim( $after_preview ) !== '' && trim( $after_preview ) !== trim( $before_preview );
 
             if ( $after_done === 'blocked_content_gate' ) {
