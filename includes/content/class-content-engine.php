@@ -2337,6 +2337,40 @@ class ContentEngine {
             if ($debug) { error_log('TMW run_optimize_job UPDATE COMPLETE'); }
         }
 
+        // PR #715: write the category save-path audit trail for AI strategies.
+        // The template path already writes _tmwseo_category_last_save_result at the point of
+        // save; the OpenAI/Claude path previously did not, causing the AJAX handler to report
+        // a false "no content was written" error on re-generate. This block mirrors the same
+        // audit payload so both paths produce a consistent audit record.
+        if ( $post->post_type === 'tmw_category_page' && $insert_block ) {
+            clean_post_cache( $post_id );
+            $ai_saved_content = (string) get_post_field( 'post_content', $post_id );
+            // content_written: the saved field is non-empty and matches what we intended to save.
+            // This is also true when $new_content === original post_content and wp_update_post
+            // was skipped — the content was already correct, so the save objective is met.
+            $ai_content_written = trim( $ai_saved_content ) !== ''
+                && trim( $ai_saved_content ) === trim( $new_content );
+            $ai_content_changed = trim( $new_content ) !== trim( (string) $post->post_content );
+            $ai_save_payload = [
+                'post_id'                  => $post_id,
+                'target'                   => 'post_content',
+                'insert_block'             => true,
+                'generated_content_length' => strlen( $html ),
+                'final_content_length'     => strlen( $new_content ),
+                'content_written'          => $ai_content_written,
+                'content_changed'          => $ai_content_changed,
+                'source'                   => 'ai_' . $strategy,
+                'word_count'               => str_word_count( strip_tags( $html ) ),
+            ];
+            Logs::info( 'content', '[TMW-CAT-SAVE] post_content update attempted (AI path)', $ai_save_payload );
+            update_post_meta( $post_id, '_tmwseo_category_last_save_result', wp_json_encode( $ai_save_payload ) );
+            Logs::info( 'content', '[TMW-CAT-SEO-KW] Category content saved via AI strategy', [
+                'post_id'        => $post_id,
+                'strategy'       => $strategy,
+                'content_length' => strlen( $new_content ),
+            ] );
+        }
+
         delete_post_meta($post_id, '_tmwseo_optimize_enqueued');
         update_post_meta($post_id, '_tmwseo_optimize_done', current_time('mysql'));
 
