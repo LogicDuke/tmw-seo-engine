@@ -33,12 +33,17 @@ class TMW_Category_Affiliate_CTA {
         add_action( 'created_category', [ __CLASS__, 'save_term_meta' ] );
         add_action( 'edited_category', [ __CLASS__, 'save_term_meta' ] );
 
-        // Priority 21: the child theme appends the generated CPT content/FAQ
-        // block onto this same filter at priority 19. WordPress sorts filter
-        // callbacks by priority at fire time regardless of registration
-        // order, so this plugin-owned callback reliably runs after that
-        // content is already in $description.
-        add_filter( 'get_the_archive_description', [ __CLASS__, 'append_cta' ], 21 );
+        // NOTE (PR-720): this class intentionally does NOT hook
+        // `get_the_archive_description` to append the CTA. That filter
+        // fires before the theme's Read-more wrapper is built, so the
+        // appended CTA rendered outside/above the expandable generated
+        // text instead of inside it, at the very end. CTA placement is
+        // now the child theme's responsibility: it calls
+        // tmwseo_get_category_affiliate_cta_html() and appends the
+        // returned HTML to the end of its own generated content string,
+        // inside the same wrapper as the FAQ/closing paragraph. This
+        // class only owns the term meta field, URL sanitization, and the
+        // CTA HTML helpers below.
     }
 
     // ── Admin: category edit screen field ───────────────────────────────────
@@ -166,6 +171,27 @@ class TMW_Category_Affiliate_CTA {
 
     // ── Frontend: CTA rendering ──────────────────────────────────────────────
 
+    /**
+     * Public: returns the CSS marker class used on the CTA wrapper, so
+     * callers (e.g. the child theme) can run their own dedupe check
+     * against the actual generated HTML string without hardcoding or
+     * duplicating the class name.
+     */
+    public static function get_cta_marker_class(): string {
+        return self::CTA_MARKER_CLASS;
+    }
+
+    /**
+     * Public: returns the CTA HTML for a category term, or an empty
+     * string when no affiliate URL is set. Intended to be called by the
+     * child theme and appended to the end of its own generated
+     * category-text/FAQ output, inside the same Read-more wrapper —
+     * this class deliberately does not render or place the CTA itself.
+     */
+    public static function get_cta_html( \WP_Term $term ): string {
+        return self::build_cta_html( $term );
+    }
+
     private static function build_cta_html( \WP_Term $term ): string {
         $url = self::get_affiliate_url( $term );
         if ( $url === '' ) {
@@ -185,42 +211,6 @@ class TMW_Category_Affiliate_CTA {
 
         return $html;
     }
-
-    /**
-     * Appends the affiliate CTA at the very end of the live archive
-     * description, after the generated CPT content/FAQ block. Never
-     * inserts inside the generated text and never duplicates: dedupe is
-     * a plain string check for the CTA's own marker class, not a static
-     * flag, so it can't be tripped up by the description filter firing
-     * more than once internally.
-     */
-    public static function append_cta( $description ) {
-        if ( is_admin() || ! is_category() ) {
-            return $description;
-        }
-
-        $description = (string) $description;
-
-        if ( strpos( $description, self::CTA_MARKER_CLASS ) !== false ) {
-            return $description;
-        }
-
-        $term = get_queried_object();
-        if ( ! $term instanceof \WP_Term ) {
-            return $description;
-        }
-
-        $cta_html = self::build_cta_html( $term );
-        if ( $cta_html === '' ) {
-            return $description;
-        }
-
-        if ( trim( $description ) === '' ) {
-            return $cta_html;
-        }
-
-        return $description . "\n" . $cta_html;
-    }
 }
 
 if ( ! function_exists( 'tmwseo_get_category_affiliate_url' ) ) {
@@ -230,5 +220,20 @@ if ( ! function_exists( 'tmwseo_get_category_affiliate_url' ) ) {
      */
     function tmwseo_get_category_affiliate_url( \WP_Term $term ): string {
         return TMW_Category_Affiliate_CTA::get_affiliate_url( $term );
+    }
+}
+
+if ( ! function_exists( 'tmwseo_get_category_affiliate_cta_html' ) ) {
+    /**
+     * Stable public helper: returns the CTA HTML markup for a category
+     * term, or an empty string when no affiliate URL is set for that
+     * term. Callers (e.g. the active child theme's category generated-
+     * content output) are responsible for placement — append the
+     * returned string to the end of the generated text block, inside
+     * the same Read-more wrapper, after the FAQ/closing paragraph. This
+     * plugin does not render or position the CTA itself.
+     */
+    function tmwseo_get_category_affiliate_cta_html( \WP_Term $term ): string {
+        return TMW_Category_Affiliate_CTA::get_cta_html( $term );
     }
 }
