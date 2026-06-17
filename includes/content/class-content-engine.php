@@ -1306,6 +1306,61 @@ class ContentEngine {
     }
 
     /**
+     * Append the term affiliate CTA to generated category-page content.
+     *
+     * This runs on the final generated HTML string immediately before it is
+     * persisted to tmw_category_page post_content, keeping the CTA inside the
+     * generated text and after the FAQ/closing paragraph.
+     */
+    private static function append_category_affiliate_cta_html(string $html, \WP_Post $post): string {
+        if ($post->post_type !== 'tmw_category_page') {
+            return $html;
+        }
+
+        if (strpos($html, 'tmw-category-page-affiliate-cta') !== false) {
+            Logs::info('content', '[TMW-CAT-CTA-GEN] skipped existing CTA marker', [
+                'post_id' => (int) $post->ID,
+            ]);
+            return $html;
+        }
+
+        $term = self::resolve_category_content_term($post);
+        if (! $term instanceof \WP_Term) {
+            Logs::info('content', '[TMW-CAT-CTA-GEN] skipped no valid WP_Term context', [
+                'post_id' => (int) $post->ID,
+            ]);
+            return $html;
+        }
+
+        $cta_html = '';
+        if (function_exists('tmwseo_get_category_affiliate_cta_html')) {
+            $cta_html = (string) tmwseo_get_category_affiliate_cta_html($term);
+        } elseif (function_exists('tmwseo_get_category_affiliate_url')) {
+            $affiliate_url = (string) tmwseo_get_category_affiliate_url($term);
+            if ($affiliate_url !== '') {
+                $cta_html = '<div class="tmw-category-page-affiliate-cta"><a href="' . esc_url($affiliate_url) . '" target="_blank" rel="sponsored nofollow noopener">Visit live category related models</a></div>';
+            }
+        }
+
+        if (trim($cta_html) === '') {
+            Logs::info('content', '[TMW-CAT-CTA-GEN] skipped no affiliate URL', [
+                'post_id'  => (int) $post->ID,
+                'term_id'  => (int) $term->term_id,
+                'taxonomy' => (string) $term->taxonomy,
+            ]);
+            return $html;
+        }
+
+        Logs::info('content', '[TMW-CAT-CTA-GEN] appended CTA', [
+            'post_id'  => (int) $post->ID,
+            'term_id'  => (int) $term->term_id,
+            'taxonomy' => (string) $term->taxonomy,
+        ]);
+
+        return rtrim($html) . "\n\n" . trim($cta_html);
+    }
+
+    /**
      * Ensure visible category content includes every Rank Math keyword at least once.
      *
      * @param array{primary_keyword:string,extra_keywords:string[],all_keywords:string[]} $keyword_set
@@ -2029,6 +2084,10 @@ class ContentEngine {
                 $cat_keyword_set_for_save = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
                 $final_content = self::ensure_category_keyword_coverage($final_content, $cat_keyword_set_for_save, $post);
                 $generated_content = self::ensure_category_keyword_coverage($generated_content, $cat_keyword_set_for_save, $post);
+                if ($insert_block) {
+                    $final_content = self::upsert_ai_block((string)$post->post_content, $generated_content);
+                    $final_content = self::append_category_affiliate_cta_html($final_content, $post);
+                }
             }
             AssistedDraftEnrichmentService::persist_quality_score($post_id, $generated_content, $post, $focus_kw, $keyword_pack);
 
@@ -2360,6 +2419,9 @@ class ContentEngine {
 
         // Update content via a dedicated marker block (optional).
         $new_content = $insert_block ? self::upsert_ai_block((string)$post->post_content, $html) : $html;
+        if ($post->post_type === 'tmw_category_page' && $insert_block) {
+            $new_content = self::append_category_affiliate_cta_html($new_content, $post);
+        }
 
         // Only update post if content actually changed.
         if ($new_content !== (string)$post->post_content) {
