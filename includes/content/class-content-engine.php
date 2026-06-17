@@ -1338,7 +1338,7 @@ class ContentEngine {
         } elseif (function_exists('tmwseo_get_category_affiliate_url')) {
             $affiliate_url = (string) tmwseo_get_category_affiliate_url($term);
             if ($affiliate_url !== '') {
-                $cta_html = '<div class="tmw-category-page-affiliate-cta"><a href="' . esc_url($affiliate_url) . '" target="_blank" rel="sponsored nofollow noopener">Visit live category related models</a></div>';
+                $cta_html = '<div class="tmw-category-page-affiliate-cta"><a href="' . esc_url($affiliate_url) . '" target="_blank" rel="sponsored noopener">Visit live category related models</a></div>';
             }
         }
 

@@ -199,7 +199,7 @@ class TMW_Category_Affiliate_CTA {
         }
 
         $html = sprintf(
-            '<div class="%s"><a href="%s" target="_blank" rel="sponsored nofollow noopener">%s</a></div>',
+            '<div class="%s"><a href="%s" target="_blank" rel="sponsored noopener">%s</a></div>',
             esc_attr( self::CTA_MARKER_CLASS ),
             esc_url( $url ),
             esc_html__( 'Visit live category related models', 'tmwseo' )
