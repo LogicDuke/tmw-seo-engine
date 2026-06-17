@@ -3882,14 +3882,55 @@ class TemplateContent {
             self::log_title_platform_event('skipped because platform unknown', ['post_id' => $post_id]);
         }
 
-        $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year);
+        $title_seed = $name . '|' . (string) $post_id;
+        $descriptor_ladder = self::model_seo_title_descriptor_ladder(
+            $has_known_platform ? $platform_label : '',
+            $title_seed
+        );
+
+        if ($has_known_platform) {
+            self::log_title_variation_event('selected fallback title descriptor', [
+                'post_id' => $post_id,
+                'platform_label' => $platform_label,
+                'descriptor' => $descriptor_ladder[0] ?? '',
+            ]);
+        }
+
+        $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, $descriptor_ladder);
 
         if (self::contains_denylisted_token($title, $denied_tokens)) {
-            $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, ['Safe Live Cam Guide', 'Safe Cam Guide', 'Safe Guide']);
+            $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, ['Safe Live Cam Guide', 'Safe Cam Guide', 'Safe Cam']);
         }
 
         // v5.8.34: Normalise any Unicode or mojibake separator to plain ASCII ' - '.
         return self::normalize_seo_title_separator($title);
+    }
+
+    /**
+     * Build a deterministic descriptor ladder for fallback model SEO titles.
+     *
+     * @return string[] Longest-to-shortest descriptors for the selected pattern.
+     */
+    private static function model_seo_title_descriptor_ladder(string $platform_label, string $seed): array {
+        if (trim($platform_label) === '') {
+            return ['Webcam Model & Live Cam Profile Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'];
+        }
+
+        $pattern_ladders = [
+            ['Webcam Profile & Cam Guide', 'Webcam Profile Guide', 'Webcam Guide', 'Cam Guide', 'Cam'],
+            ['Live Cam Profile Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'],
+            ['Webcam Model Profile', 'Webcam Profile', 'Webcam Guide', 'Cam Guide', 'Cam'],
+            ['Cam Profile & Access Guide', 'Cam Access Guide', 'Cam Guide', 'Cam'],
+            ['Live Webcam Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'],
+        ];
+
+        return $pattern_ladders[self::stable_pick_index($seed . '|model-seo-title-pattern', count($pattern_ladders))];
+    }
+
+    private static function log_title_variation_event(string $message, array $context = []): void {
+        if (defined('WP_DEBUG') && WP_DEBUG && class_exists(Logs::class)) {
+            Logs::info('content', '[TMW-SEO-TITLE-VARIATION] ' . $message, $context);
+        }
     }
 
     /**
@@ -3906,8 +3947,8 @@ class TemplateContent {
 
         if (empty($descriptors)) {
             $descriptors = $platform_label !== ''
-                ? ['Webcam Model & Live Cam Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Guide']
-                : ['Webcam Model & Live Cam Profile Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Guide'];
+                ? ['Webcam Model & Live Cam Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam']
+                : ['Webcam Model & Live Cam Profile Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'];
         }
 
         foreach ($descriptors as $descriptor) {
@@ -3918,12 +3959,12 @@ class TemplateContent {
             }
         }
 
-        $tail_parts = array_values(array_filter([$platform_label, 'Guide', $year], 'strlen'));
+        $tail_parts = array_values(array_filter([$platform_label, 'Cam', $year], 'strlen'));
         $tail = implode(' ', $tail_parts);
         $available_name_length = max(12, 65 - self::model_title_length($tail) - 1);
         $short_name = TitleFixer::shorten($name, $available_name_length);
 
-        return self::assemble_model_seo_title($short_name, $platform_label, 'Guide', $year);
+        return self::assemble_model_seo_title($short_name, $platform_label, 'Cam', $year);
     }
 
     private static function assemble_model_seo_title(string $name, string $platform_label, string $descriptor, string $year): string {
@@ -4197,10 +4238,19 @@ class TemplateContent {
         $v112_intent_phrases = [
             'webcam model & live cam guide',
             'webcam model & live cam profile guide',
+            'webcam profile & cam guide',
+            'live cam profile guide',
+            'webcam model profile',
+            'cam profile & access guide',
+            'live webcam guide',
             'webcam model guide',
+            'webcam profile guide',
+            'webcam profile',
             'webcam guide',
             'live cam guide',
+            'cam access guide',
             'cam guide',
+            ' cam ',
         ];
         $has_v112_intent_phrase = false;
         foreach ($v112_intent_phrases as $phrase) {
@@ -4213,7 +4263,13 @@ class TemplateContent {
         $trimmed_name = trim($name);
         $has_model_identity = false;
         if ($trimmed_name !== '') {
-            $has_model_identity = str_contains($normalized_clean, strtolower($trimmed_name));
+            $normalized_name = strtolower($trimmed_name);
+            $has_model_identity = str_contains($normalized_clean, $normalized_name);
+            if (!$has_model_identity) {
+                $name_prefix = substr((string) preg_replace('/[^a-z0-9]+/', '', $normalized_name), 0, 12);
+                $title_prefix = substr((string) preg_replace('/[^a-z0-9]+/', '', $normalized_clean), 0, 12);
+                $has_model_identity = strlen($name_prefix) >= 3 && $name_prefix === $title_prefix;
+            }
         } elseif ($has_v112_intent_phrase) {
             foreach ($v112_intent_phrases as $phrase) {
                 $phrase_position = strpos($normalized_clean, $phrase);

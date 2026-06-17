@@ -20,9 +20,36 @@ class TemplateContentTitleAnchorTest extends TestCase {
         $year = gmdate('Y');
 
         $this->assertSame(
-            'Anisyia LiveJasmin Webcam Model & Live Cam Guide ' . $year,
+            'Anisyia LiveJasmin Live Webcam Guide ' . $year,
             TemplateContent::build_default_model_seo_title('Anisyia', 'LiveJasmin', 123)
         );
+    }
+
+
+    public function test_known_platform_title_generation_varies_deterministically(): void {
+        $year = gmdate('Y');
+        $cases = [
+            ['Anisyia', 123, 'Anisyia LiveJasmin Live Webcam Guide ' . $year],
+            ['Abby Murray', 456, 'Abby Murray LiveJasmin Webcam Model Profile ' . $year],
+            ['Mia Collie', 789, 'Mia Collie LiveJasmin Live Cam Profile Guide ' . $year],
+            ['Julieta Montesco', 101112, 'Julieta Montesco LiveJasmin Cam Profile & Access Guide ' . $year],
+        ];
+
+        $descriptor_phrases = [];
+        foreach ($cases as [$name, $post_id, $expected]) {
+            $title = TemplateContent::build_default_model_seo_title($name, 'LiveJasmin', $post_id);
+            $this->assertSame($expected, $title);
+            $this->assertStringContainsString($name, $title);
+            $this->assertStringContainsString('LiveJasmin', $title);
+            $this->assertMatchesRegularExpression('/\b(?:cam|webcam|live cam)\b/i', $title);
+            $this->assertStringContainsString($year, $title);
+            $this->assertLessThanOrEqual(65, (function_exists('mb_strlen') ? mb_strlen($title, 'UTF-8') : strlen($title)));
+            $this->assertFalse(TemplateContent::is_weak_auto_model_title($title, $name, 'LiveJasmin', $post_id));
+
+            $descriptor_phrases[] = trim(str_replace([$name, 'LiveJasmin', $year], '', $title));
+        }
+
+        $this->assertGreaterThan(1, count(array_unique($descriptor_phrases)));
     }
 
     public function test_unknown_platform_fallback_title_generation(): void {
@@ -55,7 +82,7 @@ class TemplateContentTitleAnchorTest extends TestCase {
         $year = gmdate('Y');
 
         $this->assertSame(
-            'Alice LiveJasmin Webcam Model & Live Cam Guide ' . $year,
+            'Alice LiveJasmin Webcam Profile & Cam Guide ' . $year,
             TemplateContent::build_default_model_seo_title('Alice', 'LiveJasmin', 123)
         );
     }
