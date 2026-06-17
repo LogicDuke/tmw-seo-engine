@@ -140,5 +140,78 @@ namespace TMWSEO\Engine\Tests {
             $this->assertSame('Big Boob Cam', get_post_meta(23, '_tmwseo_keyword', true));
             $this->assertSame(80, get_post_meta(23, '_tmwseo_keyword_confidence', true));
         }
+
+        // ── PR B (v5.9.x): rotating fallback sentences, no mechanical filler ──────
+
+        public function test_category_keyword_fallback_sentences_use_rotating_templates_not_single_pattern(): void {
+            $html = '<p>Amateur Cams directory overview.</p><h2>What This Category Covers</h2><p>Browse listings.</p><h2>Frequently Asked Questions</h2><h3>How do I browse?</h3><p>Use the directory links.</p>';
+
+            $covered = $this->invoke('inject_category_keyword_fallback_sentences', [$html, [
+                'amateur webcam',
+                'amateur tv cams',
+                'live amateur sex cams',
+                'amateur sex chat',
+            ]]);
+
+            $this->assertStringNotContainsString('Visitors searching for', $covered);
+
+            foreach (['amateur webcam', 'amateur tv cams', 'live amateur sex cams', 'amateur sex chat'] as $keyword) {
+                $this->assertStringContainsString($keyword, $covered);
+            }
+
+            preg_match_all('/<p>(.*?)<\/p>/', $covered, $matches);
+            $injected = array_slice($matches[1], -4);
+            $structures = array_map(static function (string $sentence): string {
+                return preg_replace('/amateur webcam|amateur tv cams|live amateur sex cams|amateur sex chat/', '{KW}', $sentence);
+            }, $injected);
+
+            // Four missing keywords must not collapse into the same sentence shape.
+            $this->assertGreaterThan(1, count(array_unique($structures)));
+        }
+
+        // ── PR B (v5.9.x): deterministic Layer 2 semantic/supporting keywords ─────
+
+        public function test_category_supporting_keyword_fallback_is_deterministic_and_excludes_primary(): void {
+            $first  = $this->invoke('deterministic_category_supporting_keywords', [845, 'Amateur Cams']);
+            $second = $this->invoke('deterministic_category_supporting_keywords', [845, 'Amateur Cams']);
+
+            $this->assertSame($first, $second);
+            $this->assertLessThanOrEqual(6, count($first));
+            $this->assertNotContains('amateur cams', array_map('strtolower', $first));
+        }
+
+        public function test_category_keyword_pack_fills_content_terms_when_no_approved_pool_exists(): void {
+            $post = new \WP_Post(['ID' => 845, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][845] = [
+                'rank_math_focus_keyword'       => 'Amateur Cams',
+                'rank_math_additional_keywords' => 'amateur webcam, amateur tv cams, live amateur sex cams, amateur sex chat',
+            ];
+
+            $pack = $this->invoke('build_category_keyword_pack', [$post, ['strategy' => 'template']]);
+
+            // CategoryApprovedKeywordResolver is not loaded in this isolated test file,
+            // so class_exists() is false and content_terms falls back to the
+            // deterministic Layer 2 pool added in PR B — this asserts that fallback fires.
+            $this->assertNotEmpty($pack['content_terms']);
+            $this->assertLessThanOrEqual(6, count($pack['content_terms']));
+        }
+
+        public function test_category_template_with_content_terms_keeps_word_count_and_keyword_coverage(): void {
+            $post = new \WP_Post(['ID' => 845, 'post_title' => 'Amateur Cams', 'post_type' => 'tmw_category_page']);
+            $keywordPack = [
+                'content_terms' => ['webcam directory', 'model profiles', 'video clips', 'performer listings'],
+            ];
+
+            $payload = $this->invoke('build_category_page_template_preview', [$post, 'Amateur Cams', $keywordPack]);
+            $content = (string) $payload['content_html'];
+            $wordCount = str_word_count(trim(strip_tags($content)));
+
+            $this->assertStringNotContainsString('Visitors searching for', $content);
+            $this->assertStringNotContainsString('This draft keeps language safe', $content);
+            $this->assertStringNotContainsString('for operators', $content);
+            $this->assertStringNotContainsString('In SEO terms', $content);
+            $this->assertGreaterThanOrEqual(500, $wordCount);
+            $this->assertLessThanOrEqual(800, $wordCount);
+        }
     }
 }
