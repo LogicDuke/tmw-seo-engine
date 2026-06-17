@@ -3882,20 +3882,65 @@ class TemplateContent {
             self::log_title_platform_event('skipped because platform unknown', ['post_id' => $post_id]);
         }
 
-        if ($has_known_platform) {
-            $title = $name . ' ' . $platform_label . ' Webcam Model & Live Cam Guide ' . $year;
-        } else {
-            $title = $name . ' Webcam Model & Live Cam Profile Guide ' . $year;
-        }
+        $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year);
 
         if (self::contains_denylisted_token($title, $denied_tokens)) {
-            $title = $name . ' - Safe Live Cam Guide ' . $year;
+            $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, ['Safe Live Cam Guide', 'Safe Cam Guide', 'Safe Guide']);
         }
 
         // v5.8.34: Normalise any Unicode or mojibake separator to plain ASCII ' - '.
-        $title = self::normalize_seo_title_separator($title);
+        return self::normalize_seo_title_separator($title);
+    }
 
-        return TitleFixer::shorten($title, 65);
+    /**
+     * Build a model title by dropping optional descriptors before shortening
+     * required entities. The model identity, known platform label, and year are
+     * kept in every returned fallback title so Rank Math title checks remain valid.
+     *
+     * @param string[] $custom_descriptors Optional descriptor ladder, longest first.
+     */
+    private static function build_model_seo_title_with_required_tail(string $name, string $platform_label, string $year, array $custom_descriptors = []): string {
+        $name = trim($name) !== '' ? trim($name) : 'Live Cam Model';
+        $platform_label = trim($platform_label);
+        $descriptors = $custom_descriptors;
+
+        if (empty($descriptors)) {
+            $descriptors = $platform_label !== ''
+                ? ['Webcam Model & Live Cam Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Guide']
+                : ['Webcam Model & Live Cam Profile Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Guide'];
+        }
+
+        foreach ($descriptors as $descriptor) {
+            $descriptor = trim((string) $descriptor);
+            $candidate = self::assemble_model_seo_title($name, $platform_label, $descriptor, $year);
+            if (self::model_title_length($candidate) <= 65) {
+                return $candidate;
+            }
+        }
+
+        $tail_parts = array_values(array_filter([$platform_label, 'Guide', $year], 'strlen'));
+        $tail = implode(' ', $tail_parts);
+        $available_name_length = max(12, 65 - self::model_title_length($tail) - 1);
+        $short_name = TitleFixer::shorten($name, $available_name_length);
+
+        return self::assemble_model_seo_title($short_name, $platform_label, 'Guide', $year);
+    }
+
+    private static function assemble_model_seo_title(string $name, string $platform_label, string $descriptor, string $year): string {
+        $parts = [$name];
+        if ($platform_label !== '') {
+            $parts[] = $platform_label;
+        }
+        if ($descriptor !== '') {
+            $parts[] = $descriptor;
+        }
+        $parts[] = $year;
+
+        return trim((string) preg_replace('/\s+/', ' ', implode(' ', $parts)));
+    }
+
+    private static function model_title_length(string $title): int {
+        return function_exists('mb_strlen') ? mb_strlen($title, 'UTF-8') : strlen($title);
     }
 
     /**
@@ -4152,6 +4197,10 @@ class TemplateContent {
         $v112_intent_phrases = [
             'webcam model & live cam guide',
             'webcam model & live cam profile guide',
+            'webcam model guide',
+            'webcam guide',
+            'live cam guide',
+            'cam guide',
         ];
         $has_v112_intent_phrase = false;
         foreach ($v112_intent_phrases as $phrase) {

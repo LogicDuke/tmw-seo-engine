@@ -84,6 +84,19 @@ class TemplateContentTitleAnchorTest extends TestCase {
         );
     }
 
+
+    public function test_long_known_platform_title_preserves_platform_and_year(): void {
+        $year = gmdate('Y');
+        $name = 'Alexandria Catherine Montgomery Smith';
+        $title = TemplateContent::build_default_model_seo_title($name, 'LiveJasmin', 321);
+
+        $this->assertStringContainsString($name, $title);
+        $this->assertStringContainsString('LiveJasmin', $title);
+        $this->assertStringContainsString($year, $title);
+        $this->assertLessThanOrEqual(65, (function_exists('mb_strlen') ? mb_strlen($title, 'UTF-8') : strlen($title)));
+        $this->assertFalse(TemplateContent::is_weak_auto_model_title($title, $name, 'LiveJasmin', 321));
+    }
+
     public function test_v112_unknown_platform_title_is_not_weak(): void {
         $this->assertFalse(
             TemplateContent::is_weak_auto_model_title('Abby Murray Webcam Model & Live Cam Profile Guide 2026', 'Abby Murray')
