@@ -62,8 +62,39 @@ class TemplateContentTitleAnchorTest extends TestCase {
 
     public function test_v112_known_platform_title_is_not_weak(): void {
         $this->assertFalse(
-            TemplateContent::is_weak_auto_model_title('Anisyia LiveJasmin Webcam Model & Live Cam Guide 2026', 'Anisyia')
+            TemplateContent::is_weak_auto_model_title('Anisyia LiveJasmin Webcam Model & Live Cam Guide 2026', 'Anisyia', 'LiveJasmin')
         );
+    }
+
+    public function test_known_platform_title_without_platform_is_weak(): void {
+        $this->assertTrue(
+            TemplateContent::is_weak_auto_model_title('Mia Collie Webcam Model & Live Cam Profile Guide 2026', 'Mia Collie', 'LiveJasmin')
+        );
+    }
+
+    public function test_known_platform_title_accepts_normalized_platform_equivalent(): void {
+        $this->assertFalse(
+            TemplateContent::is_weak_auto_model_title('Mia Collie Live Jasmin Webcam Model & Live Cam Guide 2026', 'Mia Collie', 'LiveJasmin')
+        );
+    }
+
+    public function test_unknown_platform_still_preserves_existing_validation(): void {
+        $this->assertFalse(
+            TemplateContent::is_weak_auto_model_title('Mia Collie Webcam Model & Live Cam Profile Guide 2026', 'Mia Collie', 'the platform')
+        );
+    }
+
+
+    public function test_long_known_platform_title_preserves_platform_and_year(): void {
+        $year = gmdate('Y');
+        $name = 'Alexandria Catherine Montgomery Smith';
+        $title = TemplateContent::build_default_model_seo_title($name, 'LiveJasmin', 321);
+
+        $this->assertStringContainsString($name, $title);
+        $this->assertStringContainsString('LiveJasmin', $title);
+        $this->assertStringContainsString($year, $title);
+        $this->assertLessThanOrEqual(65, (function_exists('mb_strlen') ? mb_strlen($title, 'UTF-8') : strlen($title)));
+        $this->assertFalse(TemplateContent::is_weak_auto_model_title($title, $name, 'LiveJasmin', 321));
     }
 
     public function test_v112_unknown_platform_title_is_not_weak(): void {

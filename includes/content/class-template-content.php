@@ -3789,6 +3789,78 @@ class TemplateContent {
         return '<p>For background on live-cam performers, see <a href="https://en.wikipedia.org/wiki/Webcam_model" target="_blank" rel="noopener">this overview</a>.</p>';
     }
 
+    public static function resolve_primary_platform_label_for_title(int $post_id): string {
+        if ($post_id <= 0 || !class_exists(ModelDestinationResolver::class)) {
+            self::log_title_platform_event('skipped because platform unknown', ['post_id' => $post_id]);
+            return '';
+        }
+
+        $resolved = ModelDestinationResolver::resolve($post_id);
+        $cta_links = (array) ($resolved['watch_cta_destinations'] ?? []);
+        foreach ($cta_links as $row) {
+            $label = trim((string) ($row['label'] ?? ''));
+            if (!empty($row['is_primary']) && self::is_known_model_platform_label($label)) {
+                self::log_title_platform_event('platform resolved for title generation', ['post_id' => $post_id, 'platform_label' => $label]);
+                return $label;
+            }
+        }
+
+        $active_platforms = array_values(array_filter(array_map('strval', (array) ($resolved['active_platform_labels'] ?? [])), 'strlen'));
+        foreach ($active_platforms as $label) {
+            $label = trim($label);
+            if (self::is_known_model_platform_label($label)) {
+                self::log_title_platform_event('platform resolved for title generation', ['post_id' => $post_id, 'platform_label' => $label]);
+                return $label;
+            }
+        }
+
+        self::log_title_platform_event('skipped because platform unknown', ['post_id' => $post_id]);
+        return '';
+    }
+
+    private static function is_known_model_platform_label(string $platform_label): bool {
+        $platform_label = trim(wp_strip_all_tags($platform_label));
+        if ($platform_label === '') {
+            return false;
+        }
+
+        $generic_platform_labels = [
+            self::NEUTRAL_PLATFORM_FALLBACK,
+            'the platform',
+            'platform',
+            'official platform',
+            'profile links',
+            'official profile',
+            'webcam platform',
+            'unknown',
+            'n/a',
+        ];
+
+        return !in_array(strtolower($platform_label), $generic_platform_labels, true);
+    }
+
+    private static function log_title_platform_event(string $message, array $context = []): void {
+        if (defined('WP_DEBUG') && WP_DEBUG && class_exists(Logs::class)) {
+            Logs::info('content', '[TMW-SEO-TITLE-PLATFORM] ' . $message, $context);
+        }
+    }
+
+    private static function title_contains_platform_label(string $title, string $platform_label): bool {
+        $title_lower = strtolower($title);
+        $platform_lower = strtolower($platform_label);
+        if (str_contains($title_lower, $platform_lower)) {
+            return true;
+        }
+
+        $normalize = static function(string $value): string {
+            return (string) preg_replace('/[^a-z0-9]+/', '', strtolower($value));
+        };
+
+        $normalized_title = $normalize($title);
+        $normalized_platform = $normalize($platform_label);
+        return $normalized_platform !== '' && str_contains($normalized_title, $normalized_platform);
+    }
+
     public static function build_default_model_seo_title(string $name, string $primary_platform_label = '', int $post_id = 0): string {
         $name = trim(wp_strip_all_tags($name));
         if ($name === '') {
@@ -3799,31 +3871,76 @@ class TemplateContent {
         $denied_tokens = self::model_title_deny_tokens();
         $platform_label = trim(wp_strip_all_tags($primary_platform_label));
         $platform_label = preg_replace('/\s+/', ' ', $platform_label) ?: '';
-        $generic_platform_labels = [
-            self::NEUTRAL_PLATFORM_FALLBACK,
-            'the platform',
-            'platform',
-            'official platform',
-            'profile links',
-            'official profile',
-            'webcam platform',
-        ];
-        $has_known_platform = $platform_label !== '' && !in_array(strtolower($platform_label), $generic_platform_labels, true);
+        $has_known_platform = self::is_known_model_platform_label($platform_label);
 
         if ($has_known_platform) {
-            $title = $name . ' ' . $platform_label . ' Webcam Model & Live Cam Guide ' . $year;
+            self::log_title_platform_event('fallback title generated with platform', [
+                'post_id' => $post_id,
+                'platform_label' => $platform_label,
+            ]);
         } else {
-            $title = $name . ' Webcam Model & Live Cam Profile Guide ' . $year;
+            self::log_title_platform_event('skipped because platform unknown', ['post_id' => $post_id]);
         }
 
+        $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year);
+
         if (self::contains_denylisted_token($title, $denied_tokens)) {
-            $title = $name . ' - Safe Live Cam Guide ' . $year;
+            $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, ['Safe Live Cam Guide', 'Safe Cam Guide', 'Safe Guide']);
         }
 
         // v5.8.34: Normalise any Unicode or mojibake separator to plain ASCII ' - '.
-        $title = self::normalize_seo_title_separator($title);
+        return self::normalize_seo_title_separator($title);
+    }
 
-        return TitleFixer::shorten($title, 65);
+    /**
+     * Build a model title by dropping optional descriptors before shortening
+     * required entities. The model identity, known platform label, and year are
+     * kept in every returned fallback title so Rank Math title checks remain valid.
+     *
+     * @param string[] $custom_descriptors Optional descriptor ladder, longest first.
+     */
+    private static function build_model_seo_title_with_required_tail(string $name, string $platform_label, string $year, array $custom_descriptors = []): string {
+        $name = trim($name) !== '' ? trim($name) : 'Live Cam Model';
+        $platform_label = trim($platform_label);
+        $descriptors = $custom_descriptors;
+
+        if (empty($descriptors)) {
+            $descriptors = $platform_label !== ''
+                ? ['Webcam Model & Live Cam Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Guide']
+                : ['Webcam Model & Live Cam Profile Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Guide'];
+        }
+
+        foreach ($descriptors as $descriptor) {
+            $descriptor = trim((string) $descriptor);
+            $candidate = self::assemble_model_seo_title($name, $platform_label, $descriptor, $year);
+            if (self::model_title_length($candidate) <= 65) {
+                return $candidate;
+            }
+        }
+
+        $tail_parts = array_values(array_filter([$platform_label, 'Guide', $year], 'strlen'));
+        $tail = implode(' ', $tail_parts);
+        $available_name_length = max(12, 65 - self::model_title_length($tail) - 1);
+        $short_name = TitleFixer::shorten($name, $available_name_length);
+
+        return self::assemble_model_seo_title($short_name, $platform_label, 'Guide', $year);
+    }
+
+    private static function assemble_model_seo_title(string $name, string $platform_label, string $descriptor, string $year): string {
+        $parts = [$name];
+        if ($platform_label !== '') {
+            $parts[] = $platform_label;
+        }
+        if ($descriptor !== '') {
+            $parts[] = $descriptor;
+        }
+        $parts[] = $year;
+
+        return trim((string) preg_replace('/\s+/', ' ', implode(' ', $parts)));
+    }
+
+    private static function model_title_length(string $title): int {
+        return function_exists('mb_strlen') ? mb_strlen($title, 'UTF-8') : strlen($title);
     }
 
     /**
@@ -4031,13 +4148,22 @@ class TemplateContent {
         return array_values(array_unique(array_map(static fn(string $item): string => strtolower($item), $tokens)));
     }
 
-    public static function is_weak_auto_model_title(string $title, string $name = ''): bool {
+    public static function is_weak_auto_model_title(string $title, string $name = '', string $primary_platform_label = '', int $post_id = 0): bool {
         $clean = trim(wp_strip_all_tags($title));
         if ($clean === '') {
             return true;
         }
 
         $normalized_clean = strtolower($clean);
+        $platform_label = trim(wp_strip_all_tags($primary_platform_label));
+        if (self::is_known_model_platform_label($platform_label) && !self::title_contains_platform_label($clean, $platform_label)) {
+            self::log_title_platform_event('title rejected as weak because platform missing', [
+                'post_id' => $post_id,
+                'platform_label' => $platform_label,
+                'title' => $clean,
+            ]);
+            return true;
+        }
         $normalized = $normalized_clean;
         if ($name !== '') {
             $normalized = preg_replace('/\b' . preg_quote(strtolower(trim($name)), '/') . '\b/u', '', $normalized) ?: $normalized;
@@ -4071,6 +4197,10 @@ class TemplateContent {
         $v112_intent_phrases = [
             'webcam model & live cam guide',
             'webcam model & live cam profile guide',
+            'webcam model guide',
+            'webcam guide',
+            'live cam guide',
+            'cam guide',
         ];
         $has_v112_intent_phrase = false;
         foreach ($v112_intent_phrases as $phrase) {
