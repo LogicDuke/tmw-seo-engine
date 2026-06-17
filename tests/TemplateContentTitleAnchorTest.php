@@ -62,7 +62,25 @@ class TemplateContentTitleAnchorTest extends TestCase {
 
     public function test_v112_known_platform_title_is_not_weak(): void {
         $this->assertFalse(
-            TemplateContent::is_weak_auto_model_title('Anisyia LiveJasmin Webcam Model & Live Cam Guide 2026', 'Anisyia')
+            TemplateContent::is_weak_auto_model_title('Anisyia LiveJasmin Webcam Model & Live Cam Guide 2026', 'Anisyia', 'LiveJasmin')
+        );
+    }
+
+    public function test_known_platform_title_without_platform_is_weak(): void {
+        $this->assertTrue(
+            TemplateContent::is_weak_auto_model_title('Mia Collie Webcam Model & Live Cam Profile Guide 2026', 'Mia Collie', 'LiveJasmin')
+        );
+    }
+
+    public function test_known_platform_title_accepts_normalized_platform_equivalent(): void {
+        $this->assertFalse(
+            TemplateContent::is_weak_auto_model_title('Mia Collie Live Jasmin Webcam Model & Live Cam Guide 2026', 'Mia Collie', 'LiveJasmin')
+        );
+    }
+
+    public function test_unknown_platform_still_preserves_existing_validation(): void {
+        $this->assertFalse(
+            TemplateContent::is_weak_auto_model_title('Mia Collie Webcam Model & Live Cam Profile Guide 2026', 'Mia Collie', 'the platform')
         );
     }
 

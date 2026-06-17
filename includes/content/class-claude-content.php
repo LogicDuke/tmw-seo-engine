@@ -60,7 +60,10 @@ class ClaudeContent {
 
 		$resolved_destinations = ModelDestinationResolver::resolve( (int) $post->ID );
 		$active_platforms  = array_values( array_filter( array_map( 'strval', (array) ( $resolved_destinations['active_platform_labels'] ?? [] ) ), 'strlen' ) );
-		$primary_platform  = $active_platforms[0] ?? 'the platform';
+		$primary_platform  = TemplateContent::resolve_primary_platform_label_for_title((int) $post->ID);
+		if ( $primary_platform === '' ) {
+			$primary_platform = $active_platforms[0] ?? 'the platform';
+		}
 
 		$tags = self::resolve_tags( $post, $keyword_pack );
 		$tags_text = implode( ', ', array_slice( $tags, 0, 6 ) );
@@ -166,7 +169,7 @@ class ClaudeContent {
 
 		// ── SEO title + meta description ─────────────────────────── //
 		$seo_title = TitleFixer::shorten( trim( (string) ( $j['seo_title'] ?? '' ) ), 65 );
-		if ( $seo_title === '' || TemplateContent::is_weak_auto_model_title( $seo_title, $name ) ) {
+		if ( $seo_title === '' || TemplateContent::is_weak_auto_model_title( $seo_title, $name, $primary_platform, (int) $post->ID ) ) {
 			$seo_title = TemplateContent::build_default_model_seo_title( $name, $primary_platform, (int) $post->ID );
 		}
 
@@ -267,7 +270,7 @@ STRICT OUTPUT RULES
 • faq_items must be a JSON array of objects: [{"q":"…","a":"…"}, …]
 • Do NOT include any HTML tags anywhere in the JSON values.
 • Do NOT include any H1, H2, H3 tags anywhere. Section headings are added by the renderer.
-• seo_title ≤ 65 characters, must contain the model name naturally.
+• seo_title ≤ 65 characters, must contain the model name naturally. If the primary platform is known (not "the platform"), seo_title must also include that exact platform label naturally while preserving the year/number and Rank Math readability requirements.
 • meta_description: 145–160 characters with a clear value proposition.
 
 GENERATION CONTRACT — every response must satisfy all of these:

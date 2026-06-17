@@ -145,12 +145,19 @@ class ContentEngine {
             $post_id = (int) $post_id;
             $name = trim((string) get_the_title($post_id));
             $current_title = trim((string) get_post_meta($post_id, 'rank_math_title', true));
-            $is_weak = TemplateContent::is_weak_auto_model_title($current_title, $name);
+            $platform_label = TemplateContent::resolve_primary_platform_label_for_title($post_id);
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                Logs::info('content', '[TMW-SEO-TITLE-PLATFORM] title repair using platform label', [
+                    'post_id' => $post_id,
+                    'platform_label' => $platform_label,
+                ]);
+            }
+            $is_weak = TemplateContent::is_weak_auto_model_title($current_title, $name, $platform_label, $post_id);
             if (!$is_weak) {
                 continue;
             }
 
-            $new_title = TemplateContent::build_default_model_seo_title($name, '', $post_id);
+            $new_title = TemplateContent::build_default_model_seo_title($name, $platform_label, $post_id);
             if ($new_title === '' || $new_title === $current_title) {
                 continue;
             }
@@ -350,7 +357,7 @@ class ContentEngine {
                 return [
                     'strategy'             => 'claude_sparse_fallback',
                     'template_type'        => $template_type,
-                    'seo_title'            => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
+                    'seo_title'            => TemplateContent::build_default_model_seo_title((string)$post->post_title, TemplateContent::resolve_primary_platform_label_for_title($post_id), $post_id),
                     'meta_description'     => TemplateContent::build_sparse_model_meta_description(
                         (string)$post->post_title,
                         $sparse_platform_label
@@ -381,7 +388,7 @@ class ContentEngine {
                 // Always use canonical builder for model pages — provider titles
                 // may miss a number or sentiment word required by Rank Math.
                 $fallback_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
-                $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
+                $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, TemplateContent::resolve_primary_platform_label_for_title($post_id), $post_id);
                 $meta_desc = (string)($claude_result['meta_description'] ?? '');
                 $generated_focus_kw = AssistedDraftEnrichmentService::normalize_focus_keyword_for_post(
                     $post,
@@ -456,7 +463,7 @@ class ContentEngine {
             return [
                 'strategy' => 'openai_sparse_fallback',
                 'template_type' => $template_type,
-                'seo_title' => TemplateContent::build_default_model_seo_title((string)$post->post_title, '', $post_id),
+                'seo_title' => TemplateContent::build_default_model_seo_title((string)$post->post_title, TemplateContent::resolve_primary_platform_label_for_title($post_id), $post_id),
                 'meta_description' => TemplateContent::build_sparse_model_meta_description(
                     (string)$post->post_title,
                     $sparse_platform_label
@@ -662,7 +669,7 @@ class ContentEngine {
             // sentiment word. The canonical builder is deterministic and guaranteed
             // to satisfy all Rank Math title requirements.
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
-            $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
+            $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, TemplateContent::resolve_primary_platform_label_for_title($post_id), $post_id);
         }
         $meta_desc = trim((string) ($j['meta_description'] ?? ''));
         $generated_focus_kw = trim((string) ($j['focus_keyword'] ?? ''));
@@ -1992,7 +1999,7 @@ class ContentEngine {
                 // Always use canonical builder for model pages — provider titles
                 // may miss a required number or sentiment word for Rank Math.
                 $canon_name = trim((string)($keyword_pack['primary'] ?? $focus_kw ?: $post->post_title));
-                $seo_title = TemplateContent::build_default_model_seo_title($canon_name, '', $post_id);
+                $seo_title = TemplateContent::build_default_model_seo_title($canon_name, TemplateContent::resolve_primary_platform_label_for_title($post_id), $post_id);
                 $meta_desc = TitleFixer::shorten((string)($claude_result['meta_description'] ?? ''), 160);
 
                 $final_content = $insert_block
@@ -2371,7 +2378,7 @@ class ContentEngine {
             // Always replace with the canonical builder for model pages.
             // Provider titles may miss a required number or sentiment word.
             $fallback_name = trim((string)($keyword_pack['primary'] ?? $keyword ?: $post->post_title));
-            $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, '', $post_id);
+            $seo_title = TemplateContent::build_default_model_seo_title($fallback_name, TemplateContent::resolve_primary_platform_label_for_title($post_id), $post_id);
         }
         $meta_desc = trim($meta_desc);
         // For model pages, focus keyword must be the model name.
