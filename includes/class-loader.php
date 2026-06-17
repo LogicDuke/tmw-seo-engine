@@ -267,6 +267,7 @@ class Loader {
         $p = TMWSEO_ENGINE_PATH . 'includes/categories/';
         tmwseo_safe_require( $p . 'class-category-registry.php' );
         tmwseo_safe_require( $p . 'class-category-keyword-classifier.php' );
+        tmwseo_safe_require( $p . 'class-category-affiliate-cta.php' );
     }
 
     // ── Integrations ──────────────────────────────────────────────────────────

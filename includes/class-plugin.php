@@ -288,6 +288,11 @@ class Plugin {
         \TMWSEO\Engine\Platform\PlatformProfiles::init();
         \TMWSEO\Engine\Platform\AffiliateLinkBuilder::init();
 
+        // Category page affiliate URL CTA — PR D. Isolated, category-term-scoped
+        // raw URL + CTA. Intentionally separate from AffiliateLinkBuilder's
+        // platform/username routing above; does not share state with it.
+        \TMW_Category_Affiliate_CTA::init();
+
         // Internal linking on model pages (now also video pages — audit fix 4.4.0).
         \TMW_Internal_Link_Engine::init();
 
