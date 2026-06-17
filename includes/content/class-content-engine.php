@@ -869,17 +869,18 @@ class ContentEngine {
 
         $content =
             '<p>' . esc_html($category_term) . ' is a category page designed for practical discovery across live webcam model profiles and related video archives, giving visitors a neutral way to browse a focused theme without changing any category terms or taxonomy structure.</p>' .
-            '<p>This draft keeps language safe, non-graphic, and editorially reviewable while helping users move between model pages, video pages, and supporting archives from one clear starting point.</p>' .
+            '<p>Browsing stays simple and non-graphic: model pages, video pages, and supporting archives are all reachable from this one starting point, so there is no need to jump between unrelated sections to find what matches this theme.</p>' .
             '<h2>About ' . esc_html($category_term) . '</h2>' .
             '<p>The purpose of this category is to gather relevant model and video listings under a single archive topic so visitors can scan quickly, compare options, and continue browsing using internal site navigation. It works as a directory layer rather than a platform-specific claim, and it does not assume one network or operator unless that relationship is already verified elsewhere in site data.</p>' .
-            '<p>In SEO terms, the page improves topic clarity for search engines while keeping visitors in a predictable path: open the archive, review connected model cards or clips, and move deeper through related internal links. This supports indexing readiness without requiring category creation, renaming, or slug edits in the generation pipeline, and it gives editors a concise place to add verified internal links during manual review.</p>' .
+            '<p>The browsing path stays predictable from here: open the archive, review the connected model cards or clips, and move deeper through the related internal links above. Each step keeps you inside the same directory structure, so there is no need to retrace your path to find a related theme.</p>' .
             '<h2>Browse ' . esc_html($category_term) . ' Videos and Models</h2>' .
             '<p>Visitors can continue with two core navigation hubs that remain stable across the site:</p>' .
             '<ul><li><a href="' . esc_url(home_url('/models/')) . '">Models Directory</a></li><li><a href="' . esc_url(home_url('/videos/')) . '">Videos Directory</a></li></ul>' .
             '<p>From the models directory, users can open profile pages, review linked media, and pivot into adjacent categories through existing taxonomy links. From the videos directory, users can compare clip context and return to category or tag archives that align with the same browsing intent. These paths are internal, consistent, and suitable for manual SEO review workflows.</p>' .
             '<h2>How This Category Helps Visitors</h2>' .
             '<p>This page supports people who want a quick, organized way to explore a specific webcam topic without jumping across unrelated sections. The structure is useful for both new and returning visitors because it provides a shortlist-style archive context, then points them to model and video destinations where they can continue discovery based on preference.</p>' .
-            '<p>For operators, this draft-oriented content block is also practical: metadata and copy can be generated, reviewed, and manually applied to the linked tmw_category_page draft without auto-publish behavior. That keeps quality control in human review while preserving the existing bridge that maps approved content to the real category archive output.</p>' .
+            '<p>If you arrive here from a search and this category only partly matches what you want, the Related Webcam Categories section below points to nearby themes without sending you back to the homepage first.</p>' .
+            (self::build_category_supporting_keyword_sentence($keyword_pack)) .
             '<h2>Related Webcam Categories</h2>' .
             '<p>Related category or tag archive references can be included when they are already present and contextually relevant. This avoids invented external destinations and keeps visitors inside known site sections that match the same theme.</p>' .
             $related_links_html .
@@ -1354,15 +1355,45 @@ class ContentEngine {
         return $html;
     }
 
+    /**
+     * Rotating natural sentence templates used when a Rank Math keyword does not
+     * appear anywhere in the generated category content and must be added as a
+     * standalone sentence. PR B (v5.9.x) replaces the single repeated
+     * "Visitors searching for {keyword}..." structure with five visitor-focused
+     * variants selected deterministically per keyword so four missing keywords
+     * never produce four identical sentence shapes.
+     *
+     * @return string[]
+     */
+    private static function category_keyword_fallback_sentence_templates(): array {
+        return [
+            'This category also helps visitors compare %s pages without leaving the Top Models Webcam directory.',
+            'People looking for %s can start with the profile and video links above, then narrow the browsing path from there.',
+            'For %s, the most useful route is to open a profile first and check the listed platform links before moving off-site.',
+            'The listings above give %s visitors a structured way to move from a broad category page to individual model and clip pages.',
+            'If %s is your main search intent, use this archive as a starting point and continue through the matching profiles and related videos.',
+        ];
+    }
+
     /** @param string[] $missing_keywords */
     private static function inject_category_keyword_fallback_sentences(string $html, array $missing_keywords): string {
+        $templates = self::category_keyword_fallback_sentence_templates();
+        $template_count = count($templates);
         $sentences = '';
+        $index = 0;
+
         foreach ($missing_keywords as $keyword) {
             $keyword = trim((string) $keyword);
             if ($keyword === '') {
                 continue;
             }
-            $sentences .= '<p>Visitors searching for ' . esc_html($keyword) . ' can use this archive as a neutral directory page and continue through the linked model and video listings.</p>';
+
+            // Deterministic rotation: each missing keyword gets a different sentence
+            // shape (mod template count) so repeated generation is stable and four
+            // missing keywords never read as the same sentence four times in a row.
+            $template = $templates[$index % $template_count];
+            $sentences .= '<p>' . sprintf($template, esc_html($keyword)) . '</p>';
+            $index++;
         }
 
         if ($sentences === '') {
@@ -2541,6 +2572,26 @@ class ContentEngine {
         }
         // END CategoryApprovedKeywordResolver
 
+        // PR B (v5.9.x): deterministic Layer 2 semantic/supporting keyword fallback.
+        // content_terms is normally populated above from a real DataForSEO-approved
+        // keyword pool. When no approved pool exists yet for this category (the
+        // common case for newer or unaudited categories), content_terms stays empty
+        // and the keyword-enriched template variants render with a blank
+        // {{content_terms}} placeholder. This fallback fills that gap with a fixed,
+        // safe, non-explicit pool of directory/browsing terms — selected
+        // deterministically per category so output is stable across re-generates —
+        // without ever writing these terms as Rank Math keywords.
+        if ( empty( $content_terms ) ) {
+            $content_terms = self::deterministic_category_supporting_keywords( $post_id, $primary );
+            $sources['supporting_keywords'] = 'deterministic_fallback_pool';
+
+            Logs::info( 'content', sprintf(
+                '[TMW-CAT-KW] supporting_keywords_fallback post_id=%d terms=%s',
+                $post_id,
+                implode( '|', $content_terms )
+            ) );
+        }
+
         return [
             'primary'             => $primary,
             'additional'          => array_slice( $additional, 0, 8 ),
@@ -2549,6 +2600,92 @@ class ContentEngine {
             'content_terms'       => $content_terms,
             'sources'             => $sources,
         ];
+    }
+
+    /**
+     * Deterministic Layer 2 semantic/supporting keyword pool for category pages.
+     *
+     * These terms are NOT Rank Math focus or extra keywords. They are safe,
+     * non-explicit, directory-style terms that help Google understand the page
+     * topic and give the template prose natural variety. Selection is
+     * deterministic per post so re-generating the same category page produces
+     * the same supporting term set, while different categories get a different
+     * rotation of the pool.
+     *
+     * @return string[] Up to 6 supporting terms, never duplicating $primary or
+     *                   any keyword already present in $exclude.
+     */
+    private static function deterministic_category_supporting_keywords( int $post_id, string $primary, array $exclude = [] ): array {
+        $pool = [
+            'webcam directory',
+            'model profiles',
+            'video clips',
+            'performer listings',
+            'live cam category',
+            'browsing guide',
+            'platform links',
+            'related categories',
+            'model discovery',
+            'category archive',
+            'internal search',
+            'profile navigation',
+            'listed platforms',
+            'performer index',
+            'category browsing',
+            'model directory',
+            'video archive',
+        ];
+
+        $exclude_lc = array_map(static function (string $value): string {
+            return function_exists('mb_strtolower') ? mb_strtolower(trim($value), 'UTF-8') : strtolower(trim($value));
+        }, array_merge([$primary], $exclude));
+
+        $available = array_values(array_filter($pool, static function (string $term) use ($exclude_lc): bool {
+            $term_lc = function_exists('mb_strtolower') ? mb_strtolower($term, 'UTF-8') : strtolower($term);
+            return !in_array($term_lc, $exclude_lc, true);
+        }));
+
+        if (empty($available)) {
+            return [];
+        }
+
+        // Deterministic rotation seeded by post_id so the same category always
+        // selects the same 6 terms (stable across re-generates) while different
+        // categories start at a different offset in the pool.
+        $count = count($available);
+        $take = min(6, $count);
+        $offset = $post_id % $count;
+
+        $selected = [];
+        for ($i = 0; $i < $take; $i++) {
+            $selected[] = $available[($offset + $i) % $count];
+        }
+
+        return $selected;
+    }
+
+    /**
+     * Build one natural sentence weaving Layer 2 supporting/semantic keywords
+     * into legacy-path category prose. Used only by the legacy builder fallback
+     * (the primary CategoryTemplatePool path already exposes content_terms to
+     * its own keyword-enriched section variants via {{content_terms}}).
+     *
+     * Returns an empty string when no supporting terms are available so the
+     * legacy content block is unaffected when content_terms is empty.
+     */
+    private static function build_category_supporting_keyword_sentence(array $keyword_pack): string {
+        $terms = !empty($keyword_pack['content_terms']) && is_array($keyword_pack['content_terms'])
+            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['content_terms']))), 0, 4)
+            : [];
+
+        if (empty($terms)) {
+            return '';
+        }
+
+        $term_list = implode(', ', array_map('esc_html', array_slice($terms, 0, -1)))
+            . (count($terms) > 1 ? ' and ' . esc_html($terms[count($terms) - 1]) : esc_html($terms[0]));
+
+        return '<p>This page is also useful for related browsing tasks such as ' . $term_list . ', since the same model and video links above cover those paths as well.</p>';
     }
 
     /**
