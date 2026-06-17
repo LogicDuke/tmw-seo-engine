@@ -105,7 +105,7 @@ class TMW_Category_Affiliate_CTA {
             return;
         }
 
-        $sanitized = esc_url_raw( $raw, [ 'http', 'https' ] );
+        $sanitized = self::sanitize_absolute_affiliate_url( $raw );
 
         if ( $sanitized === '' ) {
             // Invalid/disallowed scheme: never silently overwrite an
@@ -132,8 +132,36 @@ class TMW_Category_Affiliate_CTA {
             return '';
         }
 
+        return self::sanitize_absolute_affiliate_url( $url );
+    }
+
+    /**
+     * Sanitizes an affiliate URL and requires an absolute HTTP(S) URL.
+     *
+     * @param string $url Raw URL value.
+     * @return string Sanitized absolute HTTP(S) URL, or empty string when invalid.
+     */
+    private static function sanitize_absolute_affiliate_url( string $url ): string {
         $sanitized = esc_url_raw( $url, [ 'http', 'https' ] );
-        return is_string( $sanitized ) ? $sanitized : '';
+
+        if ( $sanitized === '' ) {
+            return '';
+        }
+
+        $parts = wp_parse_url( $sanitized );
+
+        if ( ! is_array( $parts ) ) {
+            return '';
+        }
+
+        $scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
+        $host   = isset( $parts['host'] ) ? trim( (string) $parts['host'] ) : '';
+
+        if ( ! in_array( $scheme, [ 'http', 'https' ], true ) || $host === '' ) {
+            return '';
+        }
+
+        return $sanitized;
     }
 
     // ── Frontend: CTA rendering ──────────────────────────────────────────────
