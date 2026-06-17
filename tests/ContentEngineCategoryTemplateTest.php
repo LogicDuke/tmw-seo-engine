@@ -141,9 +141,9 @@ namespace TMWSEO\Engine\Tests {
             $this->assertSame(80, get_post_meta(23, '_tmwseo_keyword_confidence', true));
         }
 
-        // ── PR B (v5.9.x): rotating fallback sentences, no mechanical filler ──────
+        // ── PR B2 (v5.9.x): blended fallback paragraph, no mechanical filler ─────
 
-        public function test_category_keyword_fallback_sentences_use_rotating_templates_not_single_pattern(): void {
+        public function test_category_keyword_fallback_sentences_blend_missing_keywords_into_one_paragraph(): void {
             $html = '<p>Amateur Cams directory overview.</p><h2>What This Category Covers</h2><p>Browse listings.</p><h2>Frequently Asked Questions</h2><h3>How do I browse?</h3><p>Use the directory links.</p>';
 
             $covered = $this->invoke('inject_category_keyword_fallback_sentences', [$html, [
@@ -159,14 +159,24 @@ namespace TMWSEO\Engine\Tests {
                 $this->assertStringContainsString($keyword, $covered);
             }
 
-            preg_match_all('/<p>(.*?)<\/p>/', $covered, $matches);
-            $injected = array_slice($matches[1], -4);
-            $structures = array_map(static function (string $sentence): string {
-                return preg_replace('/amateur webcam|amateur tv cams|live amateur sex cams|amateur sex chat/', '{KW}', $sentence);
-            }, $injected);
+            $this->assertStringContainsString('amateur webcam, amateur tv cams, live amateur sex cams, or amateur sex chat options', $covered);
 
-            // Four missing keywords must not collapse into the same sentence shape.
-            $this->assertGreaterThan(1, count(array_unique($structures)));
+            $beforeFaq = strstr($covered, '<h2>Frequently Asked Questions</h2>', true);
+            $this->assertIsString($beforeFaq);
+            $this->assertSame(3, substr_count($beforeFaq, '<p>'));
+            $this->assertSame(1, substr_count($beforeFaq, 'This category is also useful for visitors comparing'));
+        }
+
+        public function test_category_keyword_fallback_sentence_handles_single_missing_keyword(): void {
+            $html = '<p>Amateur Cams directory overview.</p>';
+
+            $covered = $this->invoke('inject_category_keyword_fallback_sentences', [$html, [
+                'amateur webcam',
+            ]]);
+
+            $this->assertStringContainsString('visitors comparing amateur webcam pages', $covered);
+            $this->assertStringNotContainsString('Visitors searching for', $covered);
+            $this->assertStringNotContainsString('amateur webcam options', $covered);
         }
 
         // ── PR B (v5.9.x): deterministic Layer 2 semantic/supporting keywords ─────

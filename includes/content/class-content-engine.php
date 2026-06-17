@@ -1355,57 +1355,60 @@ class ContentEngine {
         return $html;
     }
 
-    /**
-     * Rotating natural sentence templates used when a Rank Math keyword does not
-     * appear anywhere in the generated category content and must be added as a
-     * standalone sentence. PR B (v5.9.x) replaces the single repeated
-     * "Visitors searching for {keyword}..." structure with five visitor-focused
-     * variants selected deterministically per keyword so four missing keywords
-     * never produce four identical sentence shapes.
-     *
-     * @return string[]
-     */
-    private static function category_keyword_fallback_sentence_templates(): array {
-        return [
-            'This category also helps visitors compare %s pages without leaving the Top Models Webcam directory.',
-            'People looking for %s can start with the profile and video links above, then narrow the browsing path from there.',
-            'For %s, the most useful route is to open a profile first and check the listed platform links before moving off-site.',
-            'The listings above give %s visitors a structured way to move from a broad category page to individual model and clip pages.',
-            'If %s is your main search intent, use this archive as a starting point and continue through the matching profiles and related videos.',
-        ];
+    /** @param string[] $keywords */
+    private static function format_category_keyword_list(array $keywords): string {
+        $formatted = [];
+
+        foreach ($keywords as $keyword) {
+            $keyword = trim((string) $keyword);
+            if ($keyword !== '') {
+                $formatted[] = esc_html($keyword);
+            }
+        }
+
+        $count = count($formatted);
+        if ($count === 0) {
+            return '';
+        }
+
+        if ($count === 1) {
+            return $formatted[0];
+        }
+
+        if ($count === 2) {
+            return $formatted[0] . ' or ' . $formatted[1];
+        }
+
+        $last = array_pop($formatted);
+        return implode(', ', $formatted) . ', or ' . $last;
     }
 
     /** @param string[] $missing_keywords */
     private static function inject_category_keyword_fallback_sentences(string $html, array $missing_keywords): string {
-        $templates = self::category_keyword_fallback_sentence_templates();
-        $template_count = count($templates);
-        $sentences = '';
-        $index = 0;
-
-        foreach ($missing_keywords as $keyword) {
-            $keyword = trim((string) $keyword);
-            if ($keyword === '') {
-                continue;
-            }
-
-            // Deterministic rotation: each missing keyword gets a different sentence
-            // shape (mod template count) so repeated generation is stable and four
-            // missing keywords never read as the same sentence four times in a row.
-            $template = $templates[$index % $template_count];
-            $sentences .= '<p>' . sprintf($template, esc_html($keyword)) . '</p>';
-            $index++;
+        $keyword_list = self::format_category_keyword_list($missing_keywords);
+        if ($keyword_list === '') {
+            return $html;
         }
 
-        if ($sentences === '') {
-            return $html;
+        $keyword_count = 0;
+        foreach ($missing_keywords as $keyword) {
+            if (trim((string) $keyword) !== '') {
+                $keyword_count++;
+            }
+        }
+
+        if ($keyword_count === 1) {
+            $paragraph = '<p>This category is also useful for visitors comparing ' . $keyword_list . ' pages from one structured directory view. Start with the profile and video links above, then use the listed platform links and related categories to narrow the browsing path.</p>';
+        } else {
+            $paragraph = '<p>This category is also useful for visitors comparing ' . $keyword_list . ' options from one structured directory view. Start with the profile and video links above, then use the listed platform links and related categories to narrow the browsing path without leaving the Top Models Webcam structure.</p>';
         }
 
         $faq_pos = stripos($html, '<h2>Frequently Asked Questions</h2>');
         if ($faq_pos !== false) {
-            return substr($html, 0, $faq_pos) . $sentences . substr($html, $faq_pos);
+            return substr($html, 0, $faq_pos) . $paragraph . substr($html, $faq_pos);
         }
 
-        return rtrim($html) . $sentences;
+        return rtrim($html) . $paragraph;
     }
 
     private static function build_category_page_seo_title(string $category_term, string $year): string {
