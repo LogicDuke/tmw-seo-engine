@@ -118,7 +118,7 @@ class TemplateContent {
                 ? $primary_platform_label
                 : 'live cam',
             'extra_focus_1' => $extra[0] ?? 'live show schedule',
-            'extra_focus_2' => $extra[1] ?? 'verified profile links',
+            'extra_focus_2' => $extra[1] ?? 'profile links',
             'extra_focus_3' => $extra[2] ?? 'private live chat',
             'extra_focus_4' => $extra[3] ?? 'HD live stream',
             'extra_keywords' => $extra,
@@ -177,7 +177,7 @@ class TemplateContent {
         if (!$has_extra_link_evidence) {
             $watch_para_pool = [
                 'Open the confirmed live profile below. ' . self::build_confirmed_live_profile_only_sentence($primary_platform_label),
-                'Use the confirmed live-room link below as the primary access point, then confirm the room status after click-through.',
+                'Use the primary room link below, then confirm the room status after click-through.',
             ];
         } else {
             $watch_para_pool = [
@@ -931,7 +931,7 @@ class TemplateContent {
             );
 
         if ($active_platform_count === 1) {
-            $intro_first = $platform_text . ' is the confirmed live-room option from this check. Start there for live access.';
+            $intro_first = $platform_text . ' is the primary room option from this check. Start there for room access.';
             $comparison_lines = [
                 $has_extra_link_evidence
                     ? 'Confirm the handle and check recent room activity before choosing any destination.'
@@ -2494,8 +2494,8 @@ class TemplateContent {
         if ($active_platform_count === 1) {
             $platform_text = self::format_platform_list($active_platforms, 'the active platform');
             $answer_line = $has_extra_link_evidence
-                ? $platform_text . ' is the confirmed live-room option from this check. Start there for live access, then use verified non-live destinations only for follow-up or backup checks.'
-                : $platform_text . ' is the confirmed live-room option from this check. Start there for live access.';
+                ? $platform_text . ' is the confirmed live-room option from this check. Start there for room access, then use the additional platform links only for follow-up or backup.'
+                : $platform_text . ' is the primary room option from this check. Start there for room access.';
         } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
             $answer_line = 'Confirmed live-room options are available on ' . $platform_text . '. Start with one verified room, then compare status after click-through.';
@@ -2687,7 +2687,7 @@ class TemplateContent {
             return '';
         }
 
-        return '<p>Start with the confirmed live-room link first, then use the additional verified profiles below for platform checks, updates, fan pages, and support channels.</p>';
+        return '<p>Start with the primary room link first, then use the additional platform links below for profile checks, updates, fan pages, and support channels.</p>';
     }
 
     /**
@@ -2725,7 +2725,7 @@ class TemplateContent {
         }
 
         $keyword_list = self::format_human_list($phrases);
-        return 'Fans searching for ' . $keyword_list . ' should start with the confirmed live room for ' . $name . '. Start with the confirmed live-room link first, then use the additional verified profiles below for platform checks, updates, fan pages, and support channels.';
+        return 'Fans looking up ' . $keyword_list . ' should start with the primary room link for ' . $name . '. Open the room first, then check the additional platform links for profile updates, fan pages, and support channels.';
     }
 
     /** @param string[] $items */
@@ -4681,7 +4681,7 @@ class TemplateContent {
             $keywords[] = $primary_platform_label . ' profile';
         }
 
-        $keywords[] = 'verified profile links';
+        $keywords[] = 'profile links';
         $keywords[] = 'private live chat';
         $keywords[] = 'HD live stream';
         $keywords[] = 'real-time chat features';
@@ -4873,7 +4873,7 @@ class TemplateContent {
         // Cap each phrase to at most 2 occurrences across the full content.
         $capped_phrases = [
             'official profile links',
-            'verified profile links',
+            'profile links',
             'trusted room links',
             'official room access',
         ];
@@ -4987,7 +4987,7 @@ class TemplateContent {
         $has_extra_links = !empty($link_evidence_summary['has_extra_links']);
         $extra_destination_sentence = $has_extra_links
             ? 'When additional verified destinations are listed, treat them as support routes for profile checks, updates, follow actions, and backup navigation rather than automatic room-entry links.'
-            : 'When no additional verified destinations are listed, avoid random mirrors and return to the confirmed live-room area for status checks.';
+            : 'When no additional platform links are listed, avoid random mirrors and return to the primary room for status checks.';
 
         $blocks = [
             '<h2>Practical Viewing Checklist</h2>'
@@ -5200,7 +5200,7 @@ class TemplateContent {
     private static function stable_fallback_variant(string $seed): string {
         $variants = [
             'official profile links',
-            'verified profile links',
+            'profile links',
             'trusted room links',
             'official room access',
         ];
@@ -5815,22 +5815,20 @@ class TemplateContent {
             // and questions_h2 apply unconditionally when TemplatePool primary ran).
             $tp_payload['_extra_kw_h2_overrides'] = [
                 'live_access_h2'  => ($has_livejasmin_extra || $has_livecam_extra)
-                    ? $name . ' LiveJasmin Profile and Live Cam Access'
+                    ? $name . ' on ' . $platform_label . ': Live Cam Access and Profile'
                     : '',
                 'private_chat_h2' => $has_privatechat_extra
                     ? ($has_private_chat_evidence
-                        ? $name . ' Live Cam Private Chat Options'
-                        : $name . ' Live Cam Profile Checks')
+                        ? $name . ' Chat Options on ' . $platform_label
+                        : $name . ' Profile and Chat Notes')
                     : '',
                 'turn_ons_h2'     => $has_turn_on_evidence
-                    ? ($has_livejasmin_extra
-                        ? 'Turn Ons for ' . $name . ' LiveJasmin'
-                        : ($has_livecam_extra
-                            ? $name . ' Live Cam Turn Ons and Session Notes'
-                            : 'Turn Ons and Session Notes for ' . $name))
+                    ? ($has_livejasmin_extra || $has_livecam_extra
+                        ? $name . ' Session Style on ' . $platform_label
+                        : 'Session Interests and Notes for ' . $name)
                     : '',
-                'before_click_h2' => 'Before You Click the Confirmed Profile',
-                'questions_h2'    => 'Common Profile Questions',
+                'before_click_h2' => 'Before You Start a Session with ' . $name,
+                'questions_h2'    => $name . ' — Common Questions',
             ];
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -6054,37 +6052,52 @@ class TemplateContent {
 
         if ($has_turn_ons && $has_private_chat) {
             $variants = [
-                $name . ' ' . $platform_label . ' Profile, Turn Ons and Private Chat Options',
-                $name . ' Live Cam Access and Private Chat Options on ' . $platform_label,
-                $name . ': ' . $platform_label . ' Turn Ons, Private Chat and Verified Profile',
+                $name . ' on ' . $platform_label . ': Session Style and Chat Setup',
+                $name . ' ' . $platform_label . ' — Session Notes and Private Chat',
+                'Watching ' . $name . ' on ' . $platform_label . ': Room Access and Chat Options',
+                $name . ' Session Guide: ' . $platform_label . ' Access, Interests and Private Chat',
+                $name . ' ' . $platform_label . ' Profile and Session Notes',
+                $name . ' on ' . $platform_label . ': Chat Options and Session Style',
             ];
         } elseif ($has_turn_ons) {
             $variants = [
-                $name . ' ' . $platform_label . ' Turn Ons and Live Cam Session Notes',
-                $name . ' Live Cam Access and Turn Ons on ' . $platform_label,
-                $name . ': ' . $platform_label . ' Profile, Turn Ons and Live Room Access',
+                $name . ' ' . $platform_label . ' — Session Style and Live Cam Notes',
+                $name . ' on ' . $platform_label . ': What to Expect in the Room',
+                'How to Find ' . $name . ' on ' . $platform_label . ' — Session Context',
+                $name . ': ' . $platform_label . ' Room Access and Session Style',
+                $name . ' ' . $platform_label . ' Profile and Session Notes',
+                $name . ' Live on ' . $platform_label . ': Session Style Notes',
             ];
         } elseif ($has_private_chat) {
             $variants = [
-                $name . ' Private Chat Options and Live Room Access on ' . $platform_label,
-                $name . ' ' . $platform_label . ' Profile and Private Chat Options',
-                $name . ': Verified ' . $platform_label . ' Profile and Private Chat Notes',
+                $name . ' Private Chat Options and Room Access on ' . $platform_label,
+                $name . ' on ' . $platform_label . ': Chat Options and Room Notes',
+                $name . ' ' . $platform_label . ' — Private Chat and Live Room Access',
+                'Reaching ' . $name . ' on ' . $platform_label . ' — Chat and Access Notes',
+                $name . ': ' . $platform_label . ' Room Access and Private Chat Setup',
+                $name . ' ' . $platform_label . ' Profile and Chat Setup',
             ];
         } elseif ($has_livecam_in_kw) {
             $variants = [
-                $name . ' ' . $platform_label . ' Live Cam Access and Verified Profile',
-                $name . ' Live Cam Profile on ' . $platform_label . ': Verified Links and Access Notes',
-                'Where to Watch ' . $name . ' Live on ' . $platform_label,
+                $name . ' ' . $platform_label . ' Live Cam — Room Access and Profile Notes',
+                $name . ' Live Room Access on ' . $platform_label,
+                'How to Watch ' . $name . ' Live on ' . $platform_label,
+                $name . ' on ' . $platform_label . ': Live Room and Profile Links',
+                $name . ' ' . $platform_label . ' Cam Profile',
+                'Finding ' . $name . ' Live on ' . $platform_label,
             ];
         } else {
             $variants = [
-                $name . ' Live Cam Access and Verified Profile Details on ' . $platform_label,
-                $name . ' ' . $platform_label . ' Profile: Verified Links and Live Room Access',
-                'Where to Watch ' . $name . ' Live on ' . $platform_label,
+                $name . ' ' . $platform_label . ' — Profile and Room Access',
+                $name . ' Live Cam Profile on ' . $platform_label,
+                'How to Find ' . $name . ' on ' . $platform_label,
+                $name . ' on ' . $platform_label . ': Profile and Access Notes',
+                $name . ' ' . $platform_label . ' Room and Profile Links',
+                'Watching ' . $name . ' Live — ' . $platform_label . ' Profile Notes',
             ];
         }
 
-        $idx = abs($post_id) % count($variants);
+        $idx = self::stable_pick_index($name . '|' . $post_id . '|intro-h2', count($variants));
         return '<h2>' . esc_html($variants[$idx]) . '</h2>';
     }
 
