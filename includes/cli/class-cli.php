@@ -682,6 +682,213 @@ class TMWSEOCommand extends \WP_CLI_Command {
             $skipped
         ) );
     }
+
+    // ── Repair model SEO titles and meta descriptions (v1.0.2) ───────────
+
+    /**
+     * Standardise rank_math_title, rank_math_description, rank_math_facebook_title,
+     * and rank_math_twitter_title for the 11 Phase-1 indexed model pages and the
+     * /models/ archive page.
+     *
+     * Writes:
+     *   rank_math_title          "[Name] LiveJasmin Profile — Live Cam Guide 2026"
+     *   rank_math_description    Unique 120-155 char description per model
+     *   rank_math_facebook_title Same as rank_math_title (eliminates OG divergence)
+     *   rank_math_twitter_title  Same as rank_math_title (eliminates Twitter divergence)
+     *
+     * Uses Rollback::snapshot() before any write so the standard
+     * `wp tmwseo rollback --post_id=<id>` command can undo changes.
+     *
+     * Usage:
+     *   wp tmwseo repair-model-title-meta --dry-run
+     *   wp tmwseo repair-model-title-meta
+     *
+     * ## OPTIONS
+     *
+     * [--dry-run]
+     * : Preview changes without writing to the database.
+     *
+     * ## EXAMPLES
+     *
+     *   wp tmwseo repair-model-title-meta --dry-run
+     *   wp tmwseo repair-model-title-meta
+     *
+     * @subcommand repair-model-title-meta
+     */
+    public function repair_model_title_meta( $args, $assoc ): void {
+        $dry_run = ! empty( $assoc['dry-run'] );
+        $label   = $dry_run ? '[DRY-RUN]' : '[APPLY]';
+
+        // ── Target meta per model slug ────────────────────────────────────
+        // Title format: "[Name] LiveJasmin Profile — Live Cam Guide 2026"
+        // All titles verified <= 65 chars. Descriptions 120-155 chars each.
+        // Em dash stored as UTF-8 literal (U+2014); read from DB as-is by Rank Math.
+        $em   = "\u{2014}"; // em dash — stored verbatim, not stripped at read time
+        $tail = " LiveJasmin Profile {$em} Live Cam Guide 2026";
+
+        $model_meta = [
+            'abby-murray'      => [
+                'title' => "Abby Murray{$tail}",
+                'desc'  => "Discover Abby Murray's LiveJasmin webcam profile. Find her live room link, cam style overview, and key tips before starting your first private chat.",
+            ],
+            'aisha-dupont'     => [
+                'title' => "Aisha Dupont{$tail}",
+                'desc'  => "Check out Aisha Dupont on LiveJasmin. This profile covers her live cam link, show style highlights, and practical notes for new viewers.",
+            ],
+            'alice-schuster'   => [
+                'title' => "Alice Schuster{$tail}",
+                'desc'  => "Alice Schuster's LiveJasmin profile with direct live cam access, an overview of her show format, and quick guidance before you enter her room.",
+            ],
+            'allysa-quinn'     => [
+                'title' => "Allysa Quinn{$tail}",
+                'desc'  => "Browse Allysa Quinn's LiveJasmin live webcam profile. Includes her verified room link, cam personality notes, and tips for first-time visitors.",
+            ],
+            'anisyia'          => [
+                'title' => "Anisyia{$tail}",
+                'desc'  => "Find Anisyia's LiveJasmin live cam profile, verified room link, style overview, and useful notes for checking her latest show status.",
+            ],
+            'arianna'          => [
+                'title' => "Arianna{$tail}",
+                'desc'  => "Arianna's LiveJasmin profile page with live cam room access, a breakdown of her webcam style, and helpful context for anyone visiting for the first time.",
+            ],
+            'brook-hayes'      => [
+                'title' => "Brook Hayes{$tail}",
+                'desc'  => "Explore Brook Hayes on LiveJasmin. Profile includes her live room link, cam show style, and a few useful notes to help you get started.",
+            ],
+            'hana-ross'        => [
+                'title' => "Hana Ross{$tail}",
+                'desc'  => "Hana Ross LiveJasmin profile with her live webcam room link, show style summary, and quick orientation tips before entering her chat room.",
+            ],
+            'julieta-montesco' => [
+                'title' => "Julieta Montesco{$tail}",
+                'desc'  => "Julieta Montesco's LiveJasmin live cam profile. Covers her direct room link, on-cam personality, and what new viewers should know before joining.",
+            ],
+            'lexy-ness'        => [
+                'title' => "Lexy Ness{$tail}",
+                'desc'  => "Lexy Ness on LiveJasmin {$em} profile with verified live cam room link, webcam show style notes, and practical tips for getting the most from her room.",
+            ],
+            'mia-collie'       => [
+                'title' => "Mia Collie{$tail}",
+                'desc'  => "Explore Mia Collie's LiveJasmin webcam profile with live room links, cam style notes, and quick tips before you start chatting.",
+            ],
+        ];
+
+        $models_page_desc = 'Browse all webcam model profiles on Top-Models.Webcam. Find LiveJasmin models by name, compare profiles, and discover live cam options.';
+
+        $updated   = 0;
+        $skipped   = 0;
+        $not_found = 0;
+
+        \WP_CLI::log( '' );
+        \WP_CLI::log( "TMW SEO repair-model-title-meta  {$label}" );
+        \WP_CLI::log( str_repeat( '-', 60 ) );
+
+        // ── Model posts ───────────────────────────────────────────────────
+        foreach ( $model_meta as $slug => $meta ) {
+            $post = get_page_by_path( $slug, OBJECT, 'model' );
+
+            if ( ! $post instanceof \WP_Post ) {
+                \WP_CLI::warning( "[TMW-V102] [NOT FOUND] post_type=model slug={$slug}" );
+                $not_found++;
+                continue;
+            }
+
+            $post_id   = (int) $post->ID;
+            $new_title = (string) $meta['title'];
+            $new_desc  = (string) $meta['desc'];
+
+            $current_title = trim( (string) get_post_meta( $post_id, 'rank_math_title', true ) );
+            $current_desc  = trim( (string) get_post_meta( $post_id, 'rank_math_description', true ) );
+            $title_changed = ( $current_title !== $new_title );
+            $desc_changed  = ( $current_desc  !== $new_desc );
+
+            if ( ! $title_changed && ! $desc_changed ) {
+                \WP_CLI::log( "[TMW-V102] [SKIP] post_id={$post_id} slug={$slug} already matches." );
+                $skipped++;
+                continue;
+            }
+
+            \WP_CLI::log( "[TMW-V102] [UPDATE] post_id={$post_id} slug={$slug}" );
+            if ( $title_changed ) {
+                \WP_CLI::log( "  title:  \"{$current_title}\"" );
+                \WP_CLI::log( "       -> \"{$new_title}\"" );
+            }
+            if ( $desc_changed ) {
+                \WP_CLI::log( "  desc:   \"{$current_desc}\"" );
+                \WP_CLI::log( "       -> \"{$new_desc}\"" );
+            }
+
+            if ( ! $dry_run ) {
+                // Snapshot via existing Rollback class before any write.
+                // Enables `wp tmwseo rollback --post_id=<id>` for undo.
+                if ( class_exists( '\TMWSEO\Engine\Model\Rollback' ) ) {
+                    \TMWSEO\Engine\Model\Rollback::snapshot( $post_id );
+                }
+
+                update_post_meta( $post_id, 'rank_math_title',       $new_title );
+                update_post_meta( $post_id, 'rank_math_description',  $new_desc );
+                // Align OG and Twitter title fields. When rank_math_facebook_title /
+                // rank_math_twitter_title hold stale values from prior generation runs,
+                // Rank Math uses them over rank_math_title — causing the OG divergence
+                // documented in audit v1.0.2. Writing all three to the same value fixes it.
+                update_post_meta( $post_id, 'rank_math_facebook_title', $new_title );
+                update_post_meta( $post_id, 'rank_math_twitter_title',  $new_title );
+                // Repair stamp so future tooling can identify v1.0.2 writes.
+                update_post_meta( $post_id, '_tmwseo_title_meta_repair_v102', '1' );
+            }
+
+            $updated++;
+        }
+
+        // ── /models/ archive page ─────────────────────────────────────────
+        // The archive description is bridged from the 'models' page post via
+        // tmw_models_archive_rankmath_description_bridge() in tmw-seo-model-bridge.php.
+        // Updating rank_math_description on the 'models' page is sufficient.
+        \WP_CLI::log( '' );
+        \WP_CLI::log( '-- /models/ archive page --' );
+
+        $models_page = get_page_by_path( 'models' );
+        if ( ! $models_page instanceof \WP_Post ) {
+            \WP_CLI::warning( '[TMW-V102] [NOT FOUND] page slug=models' );
+        } else {
+            $mpid          = (int) $models_page->ID;
+            $current_mdesc = trim( (string) get_post_meta( $mpid, 'rank_math_description', true ) );
+
+            if ( $current_mdesc === $models_page_desc ) {
+                \WP_CLI::log( "[TMW-V102] [SKIP] models page id={$mpid} description already matches." );
+                $skipped++;
+            } else {
+                \WP_CLI::log( "[TMW-V102] [UPDATE] models page id={$mpid}" );
+                \WP_CLI::log( "  desc:   \"{$current_mdesc}\"" );
+                \WP_CLI::log( "       -> \"{$models_page_desc}\"" );
+
+                if ( ! $dry_run ) {
+                    if ( class_exists( '\TMWSEO\Engine\Model\Rollback' ) ) {
+                        \TMWSEO\Engine\Model\Rollback::snapshot( $mpid );
+                    }
+                    update_post_meta( $mpid, 'rank_math_description', $models_page_desc );
+                    update_post_meta( $mpid, '_tmwseo_title_meta_repair_v102', '1' );
+                }
+                $updated++;
+            }
+        }
+
+        // ── Summary ───────────────────────────────────────────────────────
+        \WP_CLI::log( '' );
+        \WP_CLI::log( str_repeat( '-', 60 ) );
+        $verb = $dry_run ? 'Would update' : 'Updated';
+        \WP_CLI::success( sprintf(
+            '[TMW-V102] %s %d post(s). Skipped=%d NotFound=%d',
+            $verb,
+            $updated,
+            $skipped,
+            $not_found
+        ) );
+        if ( $dry_run ) {
+            \WP_CLI::log( '  -> Re-run without --dry-run to commit.' );
+        }
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );
