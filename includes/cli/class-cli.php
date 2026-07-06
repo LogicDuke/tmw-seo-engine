@@ -729,47 +729,47 @@ class TMWSEOCommand extends \WP_CLI_Command {
         $model_meta = [
             'abby-murray'      => [
                 'title' => "Abby Murray{$tail}",
-                'desc'  => "Discover Abby Murray's LiveJasmin webcam profile. Find her live room link, cam style overview, and key tips before starting your first private chat.",
+                'desc'  => "Abby Murray’s LiveJasmin guide gives viewers a quick webcam profile, room-finding context, and practical notes before starting a chat.",
             ],
             'aisha-dupont'     => [
                 'title' => "Aisha Dupont{$tail}",
-                'desc'  => "Check out Aisha Dupont on LiveJasmin. This profile covers her live cam link, show style highlights, and practical notes for new viewers.",
+                'desc'  => "Aisha Dupont on LiveJasmin is covered with a focused cam profile, room access context, and simple guidance for first-time visitors.",
             ],
             'alice-schuster'   => [
                 'title' => "Alice Schuster{$tail}",
-                'desc'  => "Alice Schuster's LiveJasmin profile with direct live cam access, an overview of her show format, and quick guidance before you enter her room.",
+                'desc'  => "Alice Schuster’s LiveJasmin page helps visitors understand her webcam style, profile details, and how to find her cam room.",
             ],
             'allysa-quinn'     => [
                 'title' => "Allysa Quinn{$tail}",
-                'desc'  => "Browse Allysa Quinn's LiveJasmin live webcam profile. Includes her verified room link, cam personality notes, and tips for first-time visitors.",
+                'desc'  => "Allysa Quinn’s LiveJasmin profile highlights her webcam presence, room access notes, and useful context before joining her chat.",
             ],
             'anisyia'          => [
                 'title' => "Anisyia{$tail}",
-                'desc'  => "Find Anisyia's LiveJasmin live cam profile, verified room link, style overview, and useful notes for checking her latest show status.",
+                'desc'  => "See Anisyia on LiveJasmin with a focused cam profile, show-status guidance, simple visitor notes, and context before entering her room.",
             ],
             'arianna'          => [
                 'title' => "Arianna{$tail}",
-                'desc'  => "Arianna's LiveJasmin profile page with live cam room access, a breakdown of her webcam style, and helpful context for anyone visiting for the first time.",
+                'desc'  => "Arianna’s LiveJasmin guide gives a clear webcam profile, room context, and viewer-friendly notes for checking her latest cam presence.",
             ],
             'brook-hayes'      => [
                 'title' => "Brook Hayes{$tail}",
-                'desc'  => "Explore Brook Hayes on LiveJasmin. Profile includes her live room link, cam show style, and a few useful notes to help you get started.",
+                'desc'  => "Brook Hayes on LiveJasmin is summarized with webcam profile details, cam room context, and practical tips for new viewers.",
             ],
             'hana-ross'        => [
                 'title' => "Hana Ross{$tail}",
-                'desc'  => "Hana Ross LiveJasmin profile with her live webcam room link, show style summary, and quick orientation tips before entering her chat room.",
+                'desc'  => "Hana Ross’s LiveJasmin profile gives visitors a quick look at her webcam style, room context, and what to know before joining.",
             ],
             'julieta-montesco' => [
                 'title' => "Julieta Montesco{$tail}",
-                'desc'  => "Julieta Montesco's LiveJasmin live cam profile. Covers her direct room link, on-cam personality, and what new viewers should know before joining.",
+                'desc'  => "Julieta Montesco’s LiveJasmin guide covers her cam profile, room-finding context, and helpful notes for visitors exploring her page.",
             ],
             'lexy-ness'        => [
                 'title' => "Lexy Ness{$tail}",
-                'desc'  => "Lexy Ness on LiveJasmin {$em} profile with verified live cam room link, webcam show style notes, and practical tips for getting the most from her room.",
+                'desc'  => "Lexy Ness brings a polished LiveJasmin cam presence. This guide helps viewers find her room, understand her style, and start with confidence.",
             ],
             'mia-collie'       => [
                 'title' => "Mia Collie{$tail}",
-                'desc'  => "Explore Mia Collie's LiveJasmin webcam profile with live room links, cam style notes, and quick tips before you start chatting.",
+                'desc'  => "Mia Collie’s LiveJasmin page gives viewers a quick overview of her webcam style, profile details, and the best way to find her live room.",
             ],
         ];
 
