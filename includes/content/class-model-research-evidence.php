@@ -135,13 +135,14 @@ class ModelResearchEvidence {
 		if ( $f['turn_ons'] !== '' ) {
 			$turn_text = self::humanize_turn_ons( $f['turn_ons'] );
 			if ( $turn_text !== '' ) {
-				// Deterministic heading pool — varies per model by name length; no post_id needed here.
+				// Deterministic heading pool — varies per model and post while staying stable.
 				$turn_ons_headings = [
 					$name . ' — Session Style and Interests',
 					'Session Interests: ' . $name,
 					$name . ' Room Style and Viewer Notes',
 				];
-				$turn_ons_h2 = $turn_ons_headings[ strlen( $name ) % count( $turn_ons_headings ) ];
+				$turn_idx = abs( crc32( $name . '|' . $post_id . '|evidence-style-h2' ) ) % count( $turn_ons_headings );
+				$turn_ons_h2 = $turn_ons_headings[ $turn_idx ];
 				$parts[] = '<h2>' . esc_html( $turn_ons_h2 ) . "</h2>\n" . '<p>' . esc_html( $turn_text ) . '</p>';
 			}
 		}
@@ -149,13 +150,14 @@ class ModelResearchEvidence {
 		if ( $f['private_chat'] !== '' ) {
 			$priv_text = self::humanize_private_chat( $f['private_chat'] );
 			if ( $priv_text !== '' ) {
-				// Deterministic heading pool — varies per model by name length; no post_id needed here.
+				// Deterministic heading pool — varies per model and post while staying stable.
 				$chat_headings = [
 					$name . ' — Private Chat Notes',
 					'Private Chat Options: ' . $name,
 					$name . ' Chat Setup',
 				];
-				$chat_h2 = $chat_headings[ strlen( $name ) % count( $chat_headings ) ];
+				$chat_idx = abs( crc32( $name . '|' . $post_id . '|evidence-chat-h2' ) ) % count( $chat_headings );
+				$chat_h2 = $chat_headings[ $chat_idx ];
 				$parts[] = '<h2>' . esc_html( $chat_h2 ) . "</h2>\n" . '<p>' . esc_html( $priv_text ) . '</p>';
 			}
 		}
