@@ -135,14 +135,30 @@ class ModelResearchEvidence {
 		if ( $f['turn_ons'] !== '' ) {
 			$turn_text = self::humanize_turn_ons( $f['turn_ons'] );
 			if ( $turn_text !== '' ) {
-				$parts[] = "<h2>Turn Ons</h2>\n" . '<p>' . esc_html( $turn_text ) . "</p>";
+				// Deterministic heading pool — varies per model and post while staying stable.
+				$turn_ons_headings = [
+					$name . ' — Session Style and Interests',
+					'Session Interests: ' . $name,
+					$name . ' Room Style and Viewer Notes',
+				];
+				$turn_idx = abs( crc32( $name . '|' . $post_id . '|evidence-style-h2' ) ) % count( $turn_ons_headings );
+				$turn_ons_h2 = $turn_ons_headings[ $turn_idx ];
+				$parts[] = '<h2>' . esc_html( $turn_ons_h2 ) . "</h2>\n" . '<p>' . esc_html( $turn_text ) . '</p>';
 			}
 		}
 
 		if ( $f['private_chat'] !== '' ) {
 			$priv_text = self::humanize_private_chat( $f['private_chat'] );
 			if ( $priv_text !== '' ) {
-				$parts[] = "<h2>Private Chat Options</h2>\n" . '<p>' . esc_html( $priv_text ) . "</p>";
+				// Deterministic heading pool — varies per model and post while staying stable.
+				$chat_headings = [
+					$name . ' — Private Chat Notes',
+					'Private Chat Options: ' . $name,
+					$name . ' Chat Setup',
+				];
+				$chat_idx = abs( crc32( $name . '|' . $post_id . '|evidence-chat-h2' ) ) % count( $chat_headings );
+				$chat_h2 = $chat_headings[ $chat_idx ];
+				$parts[] = '<h2>' . esc_html( $chat_h2 ) . "</h2>\n" . '<p>' . esc_html( $priv_text ) . '</p>';
 			}
 		}
 
@@ -189,7 +205,7 @@ class ModelResearchEvidence {
 		// Keep this conservative: only strip paragraph-first blocks when the
 		// opening paragraph clearly looks like evidence wording.
 		$legacy_heading_start = preg_match(
-			'#^\s*<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat)\s*</h2>#i',
+			'#^\s*<h2[^>]*>\s*(?:About\s+[^<]+|Turn\s+Ons|Private\s+Chat\s+Options|In\s+Private\s+Chat|Session\s+Interests[^<]*|[^<]+\s+—\s+(?:Session\s+Style|Private\s+Chat\s+Notes|Session\s+Style\s+and\s+Interests)|[^<]+\s+Room\s+Style\s+and\s+Viewer\s+Notes|Private\s+Chat\s+Options:\s+[^<]+|[^<]+\s+Chat\s+Setup)\s*</h2>#i',
 			$html
 		) === 1;
 		$paragraph_first_evidence = preg_match(
