@@ -4873,7 +4873,6 @@ class TemplateContent {
         // Cap each phrase to at most 2 occurrences across the full content.
         $capped_phrases = [
             'official profile links',
-            'profile links',
             'trusted room links',
             'official room access',
         ];
