@@ -7268,7 +7268,7 @@ class TemplateContent {
 
         $inserted_count = 0;
         $skipped_count  = 0;
-        $max_insertions = count($keywords); // Rank Math free: 1 focus + up to 4 extras
+        $max_insertions = min(2, count($keywords)); // v5.8.38: capped at 2 to control keyword density
 
         foreach ($keywords as $kw) {
             if ($kw === '') {
@@ -7337,7 +7337,7 @@ class TemplateContent {
                 $sentence     = 'Before starting ' . esc_html($kw) . ', review the available session options and confirm the room is active.';
                 $section_hint = 'private_chat';
             } elseif ($is_profile) {
-                $sentence     = 'Use this page as a checked ' . esc_html($kw) . ' reference with profile notes, links, and room-status details.';
+                $sentence     = 'Use this page as a ' . esc_html($kw) . ' reference page with profile notes, links, and room access details.';
                 $section_hint = 'model_profile';
             } else {
                 // Generic fallback — still uses the keyword naturally.
