@@ -6248,7 +6248,7 @@ class TemplateContent {
                 . ' live cam profile. Check the ' . $name . ' live cam room and live webcam status before opening the room.';
         } elseif ($has_livecam_kw) {
             $opening = $name . ' is listed with a ' . $platform_label
-                . ' live cam profile. This page covers ' . $name . ' live cam access and verified profile checks.';
+                . ' live cam profile. This page covers ' . $name . ' live cam access and listed profile checks.';
         } else {
             $opening = $name . ' is listed with a ' . $platform_label . ' live cam profile.';
         }
@@ -6357,12 +6357,10 @@ class TemplateContent {
             'the profile',
             'this live room',
             'the live room',
-            'this live room',
-            'the live room',
             'the performer profile',
         ];
         if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $subs[] = 'the confirmed ' . $platform_label . ' room';
+            $subs[] = 'the listed room on ' . $platform_label;
         }
 
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Build the protected bio fingerprint ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
@@ -6661,12 +6659,10 @@ class TemplateContent {
             'the profile',
             'this live room',
             'the live room',
-            'this live room',
-            'the live room',
             'the performer profile',
         ];
         if ($platform_label !== '' && $platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
-            $subs[] = 'the confirmed ' . $platform_label . ' room';
+            $subs[] = 'the listed room on ' . $platform_label;
         }
 
         // Split evidence block away ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never touch operator-reviewed content.
@@ -7074,11 +7070,16 @@ class TemplateContent {
             'Does She offer'   => 'Does ' . $n . ' offer',
             'Does she offer'   => 'Does ' . $n . ' offer',
             'for Her profile'  => 'for ' . $n . "'s profile",
-            'joining any this profile session'     => 'joining any ' . $n . ' session',
-            'joining any the profile session'      => 'joining any ' . $n . ' session',
+            'joining any this profile session'     => 'joining any live session',
+            'joining any the profile session'      => 'joining any live session',
             'joining any this live room session'   => 'joining any live session',
             'joining any the live room session'    => 'joining any live session',
-            'joining any this profile room'        => 'joining any ' . $n . ' room',
+            'joining any this profile room'        => 'joining any live room',
+            'joining any the profile room'         => 'joining any live room',
+            'joining any This profile session'     => 'joining any live session',
+            'joining any The profile session'      => 'joining any live session',
+            'joining any This profile room'        => 'joining any live room',
+            'joining any The profile room'         => 'joining any live room',
             'for her profile'  => 'for ' . $n . "'s profile",
             'The confirmed profile\'s'   => $n . "'s",
             "The confirmed profile's"    => $n . "'s",

@@ -68,7 +68,7 @@
         {
           "id": "pa_10",
           "q": "How do I know the {{name}} profile links on this page are current?",
-          "a": "Yes. Every profile linked from this page is matched to the platform's public profile data. The handle, profile image, and URL are matched to confirm ownership before the link is published. If anything looks inconsistent after click-through, return here and use the reported link only."
+          "a": "Every profile linked from this page is matched to the platform's public profile data. The handle, profile image, and URL are matched to confirm ownership before the link is published. If anything looks inconsistent after click-through, return here and use the reported link only."
         }
       ]
     },
