@@ -4458,7 +4458,7 @@ class TemplateContent {
 <p>" . esc_html('For quick comparison, ' . $focus_keyword . ' is listed with active profiles so you can choose a platform without guesswork.') . '</p>';
         }
 
-        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $focus_keyword, 'Safety Checklist');
 
         return $content;
     }

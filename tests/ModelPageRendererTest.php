@@ -427,10 +427,10 @@ class ModelPageRendererTest extends TestCase {
             'Anisyia — Common Questions',
         ];
         foreach ($required_patterns as $heading) {
-            $this->assertStringContainsStringIgnoringCase(
-                $heading,
+            $this->assertMatchesRegularExpression(
+                '/<h2[^>]*>\s*' . preg_quote($heading, '/') . '\s*<\/h2>/iu',
                 $html,
-                "T13: Model-aware H2 section '{$heading}' must be present in rendered output."
+                "T13: Model-aware H2 section '{$heading}' must be present as an H2 in rendered output."
             );
         }
     }
