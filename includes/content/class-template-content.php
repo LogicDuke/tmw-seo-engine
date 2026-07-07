@@ -498,7 +498,7 @@ class TemplateContent {
                 $questions_h2 = trim((string) ($h2_overrides['questions_h2'] ?? ''));
                 $questions_h2 = $questions_h2 !== ''
                     ? $questions_h2
-                    : $name . ' — Common Questions';
+                    : 'Common Questions From Viewers';
                 $content = preg_replace(
                     '/<h2>\s*(?:Common Profile Questions|' . preg_quote($name, '/') . '\s+—\s+Common Questions)\s*<\/h2>/iu',
                     '<h2>' . esc_html($questions_h2) . '</h2>',
@@ -1631,9 +1631,11 @@ class TemplateContent {
             '/^Where\s+Are\s+the\s+Official\s+Links\b/iu',
             '/^Official\s+Links\s+and\s+Profiles\b/iu',
             '/^(?:Live\s+Profile\s+Access\s+for|Profile\s+Link\s+Status\s+for|Profile\s+Links\s+for)\b/iu',
-            // v5.8.22: prevent duplicate "Live Chat Experience for X and Y" H3 injection
-            // into the features section which already has a "Live Chat Experience" H2.
-            '/^Live\s+Chat\s+Experience\b/iu',
+            // v5.8.22/v5.8.39: prevent duplicate keyword H3 injection
+            // into the features/live-chat section across all renderer H2 variants.
+            '/^(?:The\s+)?Live\s+Chat\s+Experience\b/iu',
+            '/^Private\s+Session\s+Tips\s+and\s+Chat\s+Notes\b/iu',
+            '/^What\s+to\s+Expect\s+in\s+a\s+Live\s+Session\b/iu',
             '/^Before\s+You\s+Click\b/iu',
             '/^Before\s+You\s+Start\s+a\s+Session\s+with\b/iu',
             '/^More\s+Pages\s+for\b/iu',
@@ -5848,7 +5850,7 @@ class TemplateContent {
                         : 'Session Interests and Notes for ' . $name)
                     : '',
                 'before_click_h2' => 'Before You Start a Session with ' . $name,
-                'questions_h2'    => $name . ' — Common Questions',
+                'questions_h2'    => 'Common Questions From Viewers',
             ];
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -6239,16 +6241,16 @@ class TemplateContent {
         if ($has_livecam_kw && $has_privatechat_kw && $has_webcam_kw) {
             $opening = $name . ' is listed with a ' . $platform_label
                 . ' profile, giving visitors a direct starting point for '
-                . $name . ' live cam access, ' . $private_chat_phrase . ', and current live webcam room-status checks before opening the room.';
+                . 'live cam access, ' . $private_chat_phrase . ', and current live webcam room-status checks before opening the room.';
         } elseif ($has_livecam_kw && $has_privatechat_kw) {
             $opening = $name . ' is listed with a ' . $platform_label
-                . ' profile. This page covers ' . $name . ' live cam access, ' . $private_chat_phrase . ', and practical room-access checks.';
+                . ' profile. This page covers live cam access, ' . $private_chat_phrase . ', and practical room-access checks.';
         } elseif ($has_livecam_kw && $has_webcam_kw) {
             $opening = $name . ' is listed with a ' . $platform_label
-                . ' live cam profile. Check the ' . $name . ' live cam room and live webcam status before opening the room.';
+                . ' live cam profile. Check the live cam room and live webcam status before opening the room.';
         } elseif ($has_livecam_kw) {
             $opening = $name . ' is listed with a ' . $platform_label
-                . ' live cam profile. This page covers ' . $name . ' live cam access and listed profile checks.';
+                . ' live cam profile. This page covers live cam access and listed profile checks.';
         } else {
             $opening = $name . ' is listed with a ' . $platform_label . ' live cam profile.';
         }
@@ -7198,6 +7200,46 @@ class TemplateContent {
             $out[] = [ 'q' => $q, 'a' => $a ];
         }
 
+        // -- v5.8.39: page-level FAQ name budget --------------------------
+        // Keep the model name in at most 2 FAQ questions (long-tail SEO value),
+        // then neutralise remaining question mentions to lower page density.
+        $name_q_budget = 2;
+        $name_q_seen   = 0;
+        foreach ( $out as $idx => $item ) {
+            $q = (string) $item['q'];
+            if ( ! preg_match( '/\b' . $n . '\b/iu', $q ) ) {
+                continue;
+            }
+
+            // Preserve high-intent / clarity questions before applying the
+            // page-level budget. These are intentionally name-bearing FAQ
+            // questions and should not consume the neutralisation budget.
+            if (
+                preg_match( '/\bprivate\s+(?:show|chat)\s+with\s+' . $n . '\b/iu', $q )
+                || preg_match( '/\bcorrect\s+' . $n . '\s+profile\b/iu', $q )
+            ) {
+                continue;
+            }
+
+            $name_q_seen++;
+            if ( $name_q_seen <= $name_q_budget ) {
+                continue;
+            }
+
+            // Handle profile-specific phrases before the catch-all model-name
+            // replacement so article contexts do not become "a this model...".
+            $q = (string) preg_replace( '/\ba\s+' . $n . '\s+profile\s+link\b/iu', 'a profile link', $q );
+            $q = (string) preg_replace( '/\bthe\s+' . $n . '\s+profile\s+link\b/iu', 'the profile link', $q );
+            $q = (string) preg_replace( '/\b' . $n . '\s+profile\s+link\b/iu', 'this profile link', $q );
+            $q = (string) preg_replace( '/\b' . $n . '\s+profile\b/iu', 'this profile', $q );
+            $q = (string) preg_replace( '/\bwith\s+' . $n . '\b/iu', 'with her', $q );
+            $q = (string) preg_replace( '/\bfor\s+' . $n . '\b/iu', 'for her', $q );
+            $q = (string) preg_replace( '/\b' . $n . '\x27s\b/iu', 'her', $q );
+            $q = (string) preg_replace( '/\b' . $n . '\b/iu', 'this model', $q );
+            $q = trim( (string) preg_replace( '/\s{2,}/u', ' ', $q ) );
+            $out[ $idx ]['q'] = $q;
+        }
+
         return $out;
     }
 
@@ -7268,7 +7310,7 @@ class TemplateContent {
 
         $inserted_count = 0;
         $skipped_count  = 0;
-        $max_insertions = min(2, count($keywords)); // v5.8.38: capped at 2 to control keyword density
+        $max_insertions = count($keywords); // v5.8.39: full coverage restored — every extra keyword gets one sentence; density is controlled via body target (5), FAQ name budget (2), and source-level trims instead
 
         foreach ($keywords as $kw) {
             if ($kw === '') {

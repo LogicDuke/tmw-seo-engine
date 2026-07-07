@@ -152,9 +152,9 @@ class ModelResearchEvidence {
 			if ( $priv_text !== '' ) {
 				// Deterministic heading pool — varies per model and post while staying stable.
 				$chat_headings = [
-					$name . ' — Private Chat Notes',
-					'Private Chat Options: ' . $name,
-					$name . ' Chat Setup',
+					'Private Chat Notes and Session Requests',
+					'Private Chat Options and Requests',
+					'Private Session Setup and Requests',
 				];
 				$chat_idx = abs( crc32( $name . '|' . $post_id . '|evidence-chat-h2' ) ) % count( $chat_headings );
 				$chat_h2 = $chat_headings[ $chat_idx ];

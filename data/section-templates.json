@@ -119,7 +119,7 @@
         {
           "id": "pco_2",
           "h2": "{{name}} Live Cam Private Show Options",
-          "body": "When booking a private show with {{name}} on {{platform}}, available request types include {{chat_options}}. Room availability for each option changes by session. Recheck the current room before expecting any specific private chat feature to be active."
+          "body": "When booking a private show with her on {{platform}}, available request types include {{chat_options}}. Room availability for each option changes by session. Recheck the current room before expecting any specific private chat feature to be active."
         },
         {
           "id": "pco_3",
@@ -209,7 +209,7 @@
         {
           "id": "wtw_2",
           "h2": "How to Reach {{name}}'s {{platform}} Room",
-          "body": "The listed live destination for {{name}} on {{platform}} is listed below. This is the fastest route to her active room. Use any additional links on this page for platform comparisons, fan-page access, and handle verification only."
+          "body": "Her {{platform}} room link is listed below. This is the fastest route to her active room. Use any additional links on this page for platform comparisons, fan-page access, and handle verification only."
         },
         {
           "id": "wtw_3",
@@ -288,42 +288,42 @@
       "variants": [
         {
           "id": "lce_0",
-          "h2": "Live Chat Experience with {{name}} on {{platform}}",
+          "h2": "Live Chat Experience on {{platform}}",
           "body": "For the best live chat experience with {{name}}, start in the public room to test playback and connection speed before entering a private session. Review the private chat options listed on this page so your requests are ready. Load credits in advance to avoid session interruptions."
         },
         {
           "id": "lce_1",
-          "h2": "{{name}} Private Live Chat: What to Expect",
+          "h2": "Private Live Chat: What to Expect",
           "body": "{{name}}'s private chat sessions on {{platform}} support {{chat_options_count}} listed request types. Start with the public room to assess connection quality, then move to private when the room is active and your credits are loaded. Confirm specific option availability at the start of your session."
         },
         {
           "id": "lce_2",
-          "h2": "Getting the Most from a {{name}} Live Session",
+          "h2": "Getting the Most from a Live Session",
           "body": "Before starting a private session with {{name}}, check playback stability in her public room, review her listed private chat options, and confirm credit requirements for the session type you want. A clear opening message about your preferred options helps {{name}} prepare for the session."
         },
         {
           "id": "lce_3",
-          "h2": "{{name}} Live Webcam Chat Tips",
+          "h2": "Live Webcam Chat Tips",
           "body": "Test your device and connection in {{name}}'s public room before going private. If cam-to-cam is on your list, check that your camera and microphone are working before the session starts. Keep your request within the {{chat_options_count}} listed options on this page for the smoothest experience."
         },
         {
           "id": "lce_4",
-          "h2": "How to Have a Great Session with {{name}}",
+          "h2": "How to Have a Great Session",
           "body": "{{name}} streams live on {{platform_list}} and offers {{chat_options_count}} private chat options including {{chat_options}}. For the best session: join when the room is active, test playback first, load credits before going private, and keep your requests within her listed options. Clear communication from the start improves every session."
         },
         {
           "id": "lce_5",
-          "h2": "{{name}} and Private Live Chat: Session Guide",
+          "h2": "Private Live Chat: Session Guide",
           "body": "A private session with {{name}} on {{platform}} works best when you arrive prepared. Test the public room first, load credits, confirm which of the {{chat_options_count}} options are active in the current session, and make your request clearly at the start. Recheck room status if the session was interrupted."
         },
         {
           "id": "lce_6",
-          "h2": "Live Chat with {{name}}: Platform Comparison Tips",
+          "h2": "Live Chat: Platform Comparison Tips",
           "body": "When {{name}} is active on more than one platform, compare the rooms before committing. Check chat readability, loading speed, and private show pricing on each active platform. The differences between platforms matter most on mobile — test playback on your device before starting a paid session."
         },
         {
           "id": "lce_7",
-          "h2": "{{name}} Live Session: Practical Viewer Tips",
+          "h2": "Live Session: Practical Viewer Tips",
           "body": "Viewers who get the most from {{name}}'s sessions typically follow the same pattern: public room test first, credits loaded, requests planned from her listed options, and a quick handle check to confirm the correct profile. These steps take under two minutes and prevent the most common session issues."
         }
       ]
@@ -333,42 +333,42 @@
       "variants": [
         {
           "id": "cpq_0",
-          "h2": "{{name}} — Frequently Asked Questions",
+          "h2": "Frequently Asked Questions",
           "body": "The questions below cover handle verification, platform access, private chat, and how to navigate {{name}}'s profile links on {{site_name}}. Each answer is based on the profile data shown on this page."
         },
         {
           "id": "cpq_1",
-          "h2": "Profile Questions: {{name}} on {{platform}}",
+          "h2": "Profile Questions Answered",
           "body": "These questions address the most common navigation, access, and verification topics for {{name}}'s profile. Answers draw from platform data, link status, and the private chat options listed on this page."
         },
         {
           "id": "cpq_2",
-          "h2": "Quick Answers for {{name}} Viewers",
+          "h2": "Quick Answers for Viewers",
           "body": "Use this section to find quick answers about accessing {{name}}'s listed rooms, understanding her private chat options, and navigating between her {{link_count}} profile links across {{platform_list}} and other destinations."
         },
         {
           "id": "cpq_3",
-          "h2": "Questions About {{name}}'s Live Setup",
+          "h2": "Questions About the Live Setup",
           "body": "The questions below focus on practical access, verification, and private chat for {{name}}. All answers are based on the profile data maintained on this {{site_name}} page."
         },
         {
           "id": "cpq_4",
-          "h2": "What Viewers Ask About {{name}}",
+          "h2": "What Viewers Ask Most",
           "body": "This FAQ section answers common questions about {{name}}'s live room access, platform choices, private chat options, and how to avoid stale or copied profiles. Use it alongside the profile links above for the fastest route to her active room."
         },
         {
           "id": "cpq_5",
-          "h2": "{{name}} Access and Session Questions",
+          "h2": "Access and Session Questions",
           "body": "Questions and answers in this section cover three areas: getting live access to {{name}}'s room, understanding private chat options, and verifying the handle matches the one listed here. All answers are grounded in the profile data on this page."
         },
         {
           "id": "cpq_6",
-          "h2": "New to {{name}}? Common Questions Answered",
+          "h2": "New Here? Common Questions Answered",
           "body": "New to {{name}}'s profile on {{site_name}}? This section answers the most common questions about platform access, private chat, handle verification, and how to navigate between her {{link_count}} profile links safely."
         },
         {
           "id": "cpq_7",
-          "h2": "{{name}} Platform FAQ",
+          "h2": "Platform FAQ",
           "body": "Use this section for quick answers about {{name}}'s live room access on {{platform_list}}, her private chat options, and how {{site_name}} verifies and maintains her profile links. Each answer is updated alongside the profile page data."
         }
       ]

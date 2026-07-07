@@ -100,7 +100,10 @@ class ModelPageRenderer {
             $sections[] = $fans_like;
         }
 
-        $features_heading = self::heading_with_focus('Live Chat Experience', $focus_keyword, $name);
+        // v5.8.39: name-free lce heading (density). Focus keyword already covered
+        // by intro/watch/before-session H2s; vary per model via name length.
+        $lce_pool = ['The Live Chat Experience', 'Private Session Tips and Chat Notes', 'What to Expect in a Live Session'];
+        $features_heading = $lce_pool[ strlen($name) % count($lce_pool) ];
         $features = self::render_section(
             $features_heading,
             $payload['features_section_paragraphs'] ?? [],
@@ -128,7 +131,7 @@ class ModelPageRenderer {
         }
 
         $questions = self::render_questions(
-            $name . ' — Common Questions',
+            'Common Questions From Viewers',
             $payload['questions_section_paragraphs'] ?? [],
             $payload['faq_items'] ?? [],
             $name,
@@ -139,7 +142,7 @@ class ModelPageRenderer {
         }
 
         $official_links_base_heading = (!empty($link_evidence) && empty($link_evidence['has_extra_links']))
-            ? (!empty($link_evidence['has_live_profile']) ? 'Live Profile Access for ' . $name : 'Profile Link Status for ' . $name)
+            ? (!empty($link_evidence['has_live_profile']) ? 'Live Profile Access and Room Links' : 'Profile Link Status')
             : 'Profile Links for ' . $name . ': All Listed Destinations';
         $official_links_heading = self::append_secondary_heading_phrase($official_links_base_heading, $secondary_heading_slots['official_links'][0] ?? '');
         $links = self::render_section(
@@ -556,7 +559,7 @@ class ModelPageRenderer {
         $platform = (string)($payload['primary_platform_label'] ?? 'LiveJasmin');
         $variants = [
             'Finding ' . $name . ' Online on ' . $platform,
-            $name . ' on ' . $platform . ': Room Access',
+            $name . ' Live on ' . $platform . ': Access Notes',
             'How to Reach ' . $name . "'s " . $platform . ' Room',
             'Watching ' . $name . ' Live: Platform Notes',
             $name . ' Stream Links and Access Notes',
