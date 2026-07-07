@@ -301,7 +301,7 @@ class ModelResearchEvidence {
 			$parts[] = $name . "'s profile notes describe a polished live-cam presence focused on session pacing and viewer engagement.";
 		}
 
-		$parts[] = 'Profile details and live-room availability can change, so recheck the confirmed room before relying on specific session notes.';
+		$parts[] = 'Profile details and live-room availability can change between sessions, so check the room status directly before relying on specific session notes.';
 
 		return self::final_humanize( implode( ' ', $parts ) );
 	}
