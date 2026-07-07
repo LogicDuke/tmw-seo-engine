@@ -1631,9 +1631,11 @@ class TemplateContent {
             '/^Where\s+Are\s+the\s+Official\s+Links\b/iu',
             '/^Official\s+Links\s+and\s+Profiles\b/iu',
             '/^(?:Live\s+Profile\s+Access\s+for|Profile\s+Link\s+Status\s+for|Profile\s+Links\s+for)\b/iu',
-            // v5.8.22: prevent duplicate "Live Chat Experience for X and Y" H3 injection
-            // into the features section which already has a "Live Chat Experience" H2.
-            '/^Live\s+Chat\s+Experience\b/iu',
+            // v5.8.22/v5.8.39: prevent duplicate keyword H3 injection
+            // into the features/live-chat section across all renderer H2 variants.
+            '/^(?:The\s+)?Live\s+Chat\s+Experience\b/iu',
+            '/^Private\s+Session\s+Tips\s+and\s+Chat\s+Notes\b/iu',
+            '/^What\s+to\s+Expect\s+in\s+a\s+Live\s+Session\b/iu',
             '/^Before\s+You\s+Click\b/iu',
             '/^Before\s+You\s+Start\s+a\s+Session\s+with\b/iu',
             '/^More\s+Pages\s+for\b/iu',
@@ -7208,10 +7210,28 @@ class TemplateContent {
             if ( ! preg_match( '/\b' . $n . '\b/iu', $q ) ) {
                 continue;
             }
+
+            // Preserve high-intent / clarity questions before applying the
+            // page-level budget. These are intentionally name-bearing FAQ
+            // questions and should not consume the neutralisation budget.
+            if (
+                preg_match( '/\bprivate\s+(?:show|chat)\s+with\s+' . $n . '\b/iu', $q )
+                || preg_match( '/\bcorrect\s+' . $n . '\s+profile\b/iu', $q )
+            ) {
+                continue;
+            }
+
             $name_q_seen++;
             if ( $name_q_seen <= $name_q_budget ) {
                 continue;
             }
+
+            // Handle profile-specific phrases before the catch-all model-name
+            // replacement so article contexts do not become "a this model...".
+            $q = (string) preg_replace( '/\ba\s+' . $n . '\s+profile\s+link\b/iu', 'a profile link', $q );
+            $q = (string) preg_replace( '/\bthe\s+' . $n . '\s+profile\s+link\b/iu', 'the profile link', $q );
+            $q = (string) preg_replace( '/\b' . $n . '\s+profile\s+link\b/iu', 'this profile link', $q );
+            $q = (string) preg_replace( '/\b' . $n . '\s+profile\b/iu', 'this profile', $q );
             $q = (string) preg_replace( '/\bwith\s+' . $n . '\b/iu', 'with her', $q );
             $q = (string) preg_replace( '/\bfor\s+' . $n . '\b/iu', 'for her', $q );
             $q = (string) preg_replace( '/\b' . $n . '\x27s\b/iu', 'her', $q );
