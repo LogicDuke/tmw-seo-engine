@@ -23,52 +23,52 @@
         {
           "id": "pa_01",
           "q": "Which link should I open first for {{name}}?",
-          "a": "Start with the confirmed {{platform}} room listed on this page. That is the verified live destination for {{name}}. Use any additional links only for profile checks, updates, or fan-page access after you have confirmed the live room."
+          "a": "Start with the {{platform}} room listed on this page for {{name}}. Use any additional links only for profile checks, updates, or fan-page access after opening the live room."
         },
         {
           "id": "pa_02",
           "q": "Is {{name}} available on multiple platforms?",
-          "a": "This page lists all confirmed platforms for {{name}}. The live-room section shows only active, verified destinations. Additional platforms listed below that section are useful for following or support but may not all be live-room entries."
+          "a": "This page lists all listed platforms for {{name}}. The live-room section shows only active destinations. Additional platforms listed below that section are useful for following or support but may not all be live-room entries."
         },
         {
           "id": "pa_03",
           "q": "How do I find the correct {{name}} profile on {{platform}}?",
-          "a": "Use the verified link on this page. Match the handle shown here against what appears in the platform URL after click-through. If the handle does not match, do not proceed — return to this page and use the confirmed link."
+          "a": "Use the link listed on this page. Match the handle shown here against what appears in the platform URL after click-through. If the handle does not match, do not proceed — return to this page and use the listed link."
         },
         {
           "id": "pa_04",
           "q": "Why does {{name}} appear on more than one cam site?",
-          "a": "Many performers stream across several platforms simultaneously or at different times. This page groups confirmed live-room profiles separately from fan pages and social profiles so you always know which destinations are room-entry points and which are for following or support."
+          "a": "Many performers stream across several platforms simultaneously or at different times. This page groups live-room profiles separately from fan pages and social profiles so you always know which destinations are room-entry points and which are for following or support."
         },
         {
           "id": "pa_05",
           "q": "What is the difference between a live profile and a fan page for {{name}}?",
-          "a": "A live profile is a direct cam-room entry point where {{name}} streams in real time. A fan page — such as OnlyFans, Fansly, or FanCentro — is a subscription or content platform. Both may be official, but only the live profiles on this page are confirmed room-entry destinations."
+          "a": "A live profile is a direct cam-room entry point where {{name}} streams in real time. A fan page — such as OnlyFans, Fansly, or FanCentro — is a subscription or content platform. Both serve different purposes, but only the live profiles on this page are room-entry destinations."
         },
         {
           "id": "pa_06",
           "q": "Can I watch {{name}} for free?",
-          "a": "Most platforms offer a free public room where {{name}} is visible without credits. Private chat, cam-to-cam, and exclusive show options typically require credits or a subscription. Check the platform's current access model after clicking through to the confirmed live room."
+          "a": "Most platforms offer a free public room where {{name}} is visible without credits. Private chat, cam-to-cam, and exclusive show options typically require credits or a subscription. Check the platform's current access model after clicking through to the listed live room."
         },
         {
           "id": "pa_07",
           "q": "How do I know the {{name}} profile link on this page is up to date?",
-          "a": "Profile links on {{site_name}} are checked and updated when room status or platform changes are detected. The latest check date and confirmed link count are shown in the Official Links section. Always confirm the room status after click-through before spending credits."
+          "a": "Profile links on {{site_name}} are checked and updated when room status or platform changes are detected. The latest check date and link count are shown in the profile links section. Always confirm the room status after click-through before spending credits."
         },
         {
           "id": "pa_08",
           "q": "What should I do if the {{name}} live room is offline when I arrive?",
-          "a": "Room availability changes frequently. If the room is offline, check the other confirmed platforms listed on this page, follow {{name}} on her social profiles for schedule updates, or return to this page later and recheck the live-room status before clicking through."
+          "a": "Room availability changes frequently. If the room is offline, check the other platforms listed on this page, follow {{name}} on her social profiles for schedule updates, or return to this page later and recheck the live-room status before clicking through."
         },
         {
           "id": "pa_09",
           "q": "Does {{name}} stream on {{platform}} every day?",
-          "a": "Streaming schedules vary by performer and are not published in advance on most platforms. The best way to catch {{name}} live is to follow her on the social profiles listed on this page or enable notifications on {{platform}} after visiting her confirmed room."
+          "a": "Streaming schedules vary by performer and are not published in advance on most platforms. The best way to catch {{name}} live is to follow her on the profile links listed on this page or enable notifications on {{platform}} after visiting her listed room."
         },
         {
           "id": "pa_10",
-          "q": "Is the {{name}} profile on this page official?",
-          "a": "Yes. Every profile linked from this page has been verified against the platform's public profile data. The handle, profile image, and URL are matched to confirm ownership before the link is published. If anything looks inconsistent after click-through, return here and use the reported link only."
+          "q": "How do I know the {{name}} profile links on this page are current?",
+          "a": "Yes. Every profile linked from this page is matched to the platform's public profile data. The handle, profile image, and URL are matched to confirm ownership before the link is published. If anything looks inconsistent after click-through, return here and use the reported link only."
         }
       ]
     },
@@ -78,7 +78,7 @@
         {
           "id": "pc_01",
           "q": "How do I start a private chat with {{name}}?",
-          "a": "Open the confirmed live-room link for {{name}} on {{platform}}. Once the room loads, look for the private show or private chat button. You will need credits loaded on your account before starting. Confirm the room is active and this performer is online before initiating."
+          "a": "Open the listed live-room link for {{name}} on {{platform}}. Once the room loads, look for the private show or private chat button. You will need credits loaded on your account before starting. Confirm the room is active and this performer is online before initiating."
         },
         {
           "id": "pc_02",
@@ -123,7 +123,7 @@
         {
           "id": "pc_10",
           "q": "Can I save or record a private chat session with {{name}}?",
-          "a": "Recording live sessions without explicit permission from the performer and the platform is prohibited on all major cam platforms and may violate privacy laws. Some platforms offer an official recording purchase option — check {{platform}}'s terms and {{name}}'s room settings for what is officially available."
+          "a": "Recording live sessions without explicit permission from the performer and the platform is prohibited on all major cam platforms and may violate privacy laws. Some platforms offer an platform-provided recording option — check {{platform}}'s terms and {{name}}'s room settings for what is available through the platform."
         }
       ]
     },
@@ -133,37 +133,37 @@
         {
           "id": "ms_01",
           "q": "Where can I watch {{name}} live right now?",
-          "a": "The confirmed live destinations for {{name}} are listed in the Where to Watch Live section on this page. Start with {{platform}} using the verified link above. If that room is offline, check any additional confirmed platforms listed below it."
+          "a": "The listed live destinations for {{name}} are in the room access section on this page. Start with {{platform}} using the link above. If that room is offline, check any additional listed platforms listed below it."
         },
         {
           "id": "ms_02",
           "q": "Is {{name}} currently active on {{platform}}?",
-          "a": "Room activity for {{name}} on {{platform}} is confirmed at the time of the last profile check shown on this page. Activity status can change at any time — open the confirmed live room to see the current online or offline state directly on the platform."
+          "a": "Room activity for {{name}} on {{platform}} is noted at the time of the last profile check shown on this page. Activity status can change at any time — open the listed live room to see the current online or offline state directly on the platform."
         },
         {
           "id": "ms_03",
           "q": "What is {{name}}'s handle on {{platform}}?",
-          "a": "The confirmed handle for {{name}} on {{platform}} is shown in the verified profile link on this page. Match that handle in the URL and on the profile page after click-through to confirm you are on the correct profile."
+          "a": "The listed handle for {{name}} on {{platform}} is shown on this page. Match that handle in the URL and on the profile page after click-through to confirm you are on the correct profile."
         },
         {
           "id": "ms_04",
           "q": "Does {{name}} have a fan page or subscription content?",
-          "a": "Fan and subscription pages for {{name}} are listed in the Official Links and Profiles section of this page when they have been confirmed. These include platforms such as OnlyFans, Fansly, and FanCentro where this performer publishes content separately from live cam sessions."
+          "a": "Fan and subscription pages for {{name}} are listed in the profile links section of this page when available. These include platforms such as OnlyFans, Fansly, and FanCentro where this performer publishes content separately from live cam sessions."
         },
         {
           "id": "ms_05",
-          "q": "How many confirmed profiles does {{name}} have?",
-          "a": "The latest profile check for {{name}} found {{link_count}} confirmed profile links. These are grouped by type — live cam platforms, personal sites, fan pages, social profiles, and link hubs — in the Official Links section at the bottom of this page."
+          "q": "How many listed profiles does {{name}} have?",
+          "a": "The latest profile check for {{name}} found {{link_count}} profile links. These are grouped by type — live cam platforms, personal sites, fan pages, social profiles, and link hubs — in the profile links section at the bottom of this page."
         },
         {
           "id": "ms_06",
           "q": "Does {{name}} have a personal website?",
-          "a": "If {{name}} has a confirmed personal or official site, it is listed in the Official and Personal Sites section on this page. Personal sites are separate from live-room destinations and are useful for bio information, schedule updates, and direct fan contact."
+          "a": "If {{name}} has a personal site, it is listed in the personal sites section on this page. Personal sites are separate from live-room destinations and are useful for bio information, schedule updates, and direct fan contact."
         },
         {
           "id": "ms_07",
           "q": "How do I follow {{name}} on social media?",
-          "a": "Confirmed social profiles for {{name}} are listed in the Social Profiles section on this page. Follow her there for schedule updates, announcements, and off-stream content. Social profiles are separate from live-room links and do not require credits."
+          "a": "Social profiles for {{name}} are listed in the Social Profiles section on this page. Follow her there for schedule updates, announcements, and off-stream content. Social profiles are separate from live-room links and do not require credits."
         },
         {
           "id": "ms_08",
@@ -173,12 +173,12 @@
         {
           "id": "ms_09",
           "q": "Who are similar models to {{name}} on {{site_name}}?",
-          "a": "The Similar Models section on this page lists performers with comparable styles or platforms to {{name}}. Each suggestion links to a full profile page with confirmed live-room access, private chat options, and official links."
+          "a": "The Similar Models section on this page lists performers with comparable styles or platforms to {{name}}. Each suggestion links to a full profile page with room access, private chat options, and profile links."
         },
         {
           "id": "ms_10",
           "q": "What style of cam show does {{name}} perform?",
-          "a": "{{name}}'s cam style and session preferences are described in the profile intro and Turn Ons sections at the top of this page. These notes are based on confirmed profile data and should be treated as session context — specific availability is always confirmed in the live room."
+          "a": "{{name}}'s cam style and session preferences are described in the profile intro and session interest notes at the top of this page. These notes are based on listed profile data and should be treated as session context — specific availability should always be checked in the live room."
         }
       ]
     },
@@ -188,7 +188,7 @@
         {
           "id": "cn_01",
           "q": "How do I compare {{name}} with similar models on {{site_name}}?",
-          "a": "The Similar Models section at the bottom of this page links to profiles with comparable styles or platforms. Each profile follows the same structure — confirmed live rooms, private chat options, and official links — so comparisons are consistent across pages."
+          "a": "The Similar Models section at the bottom of this page links to profiles with comparable styles or platforms. Each profile follows the same structure — listed live rooms, private chat options, and profile links — so comparisons are consistent across pages."
         },
         {
           "id": "cn_02",
@@ -203,12 +203,12 @@
         {
           "id": "cn_04",
           "q": "What is the difference between {{platform}} and other cam platforms?",
-          "a": "Each platform has different credit systems, room formats, private show structures, and community sizes. {{platform}} is the confirmed primary destination for {{name}} based on verified activity. Use the platform comparison resources on {{site_name}} to understand differences before choosing where to spend credits."
+          "a": "Each platform has different credit systems, room formats, private show structures, and community sizes. {{platform}} is the primary listed destination for {{name}} based on noted activity. Use the platform comparison resources on {{site_name}} to understand differences before choosing where to spend credits."
         },
         {
           "id": "cn_05",
           "q": "How is {{site_name}} different from going directly to {{platform}}?",
-          "a": "{{site_name}} is a directory that verifies and organizes performer profiles across multiple platforms in one place. Instead of searching each cam site separately, you get confirmed handles, grouped link types, private chat option previews, and similar model suggestions from a single profile page."
+          "a": "{{site_name}} is a directory that organises performer profiles across multiple platforms in one place. Instead of searching each cam site separately, you get listed handles, grouped link types, private chat option previews, and similar model suggestions from a single profile page."
         },
         {
           "id": "cn_06",
@@ -218,22 +218,22 @@
         {
           "id": "cn_07",
           "q": "How do I navigate back to the full model directory from this page?",
-          "a": "Use the Browse All Models link in the More Pages section on this page. The full directory on {{site_name}} lists all confirmed performer profiles organized by platform, category, and activity status."
+          "a": "Use the Browse All Models link in the More Pages section on this page. The full directory on {{site_name}} lists performer profiles organised by platform, category, and activity status."
         },
         {
           "id": "cn_08",
           "q": "Why does {{name}}'s profile show a LiveJasmin link alongside other platforms?",
-          "a": "LiveJasmin is listed when it is a confirmed active destination for {{name}}. Where multiple platforms are confirmed, each is listed with its activity status so you can choose the platform that best matches your device, connection, and preference."
+          "a": "LiveJasmin is listed when it is an active destination for {{name}}. Where multiple platforms are available, each is listed with its activity status so you can choose the platform that best matches your device, connection, and preference."
         },
         {
           "id": "cn_09",
           "q": "Are the similar model suggestions on this page based on real data?",
-          "a": "Yes. Similar model suggestions on {{site_name}} are based on shared platform presence, content category overlap, and verified activity status — not random or sponsored placement. Each suggested model has a full profile page with the same confirmed link and option structure."
+          "a": "Similar model suggestions on {{site_name}} are based on shared platform presence and content category overlap — not random or sponsored placement. Each suggested model has a full profile page with the same listed link and option structure."
         },
         {
           "id": "cn_10",
           "q": "How often is the {{name}} profile page on {{site_name}} updated?",
-          "a": "Profile pages on {{site_name}} are updated when platform status changes, new profiles are confirmed, or link activity changes. The latest check date and confirmed link count in the Official Links section show when the page data was last verified."
+          "a": "Profile pages on {{site_name}} are updated when platform status changes, new profiles are added, or link activity changes. The latest check date and link count in the profile links section show when the page data was last checked."
         }
       ]
     },
@@ -243,22 +243,22 @@
         {
           "id": "sv_01",
           "q": "How do I avoid fake or copied {{name}} profiles?",
-          "a": "Start only from the confirmed links on this page. Match the handle shown here against the URL and profile display name after click-through. Avoid profiles found through search ads, unverified directories, or shortened links from unknown sources. If the handle or profile image does not match, return to this page."
+          "a": "Start only from the links on this page. Match the handle shown here against the URL and profile display name after click-through. Avoid profiles found through search ads, unknown directories, or shortened links from unknown sources. If the handle or profile image does not match, return to this page."
         },
         {
           "id": "sv_02",
           "q": "What does 'non-active' mean on a {{name}} profile link?",
-          "a": "Non-active means the profile has been confirmed as belonging to {{name}} but is not currently functioning as a live-room entry point. It may be a fan page, an inactive cam account, or a platform where this performer is no longer streaming. Use it for profile checks or following, not for live-room access."
+          "a": "Non-active means the profile belongs to {{name}} but is not currently functioning as a live-room entry point. It may be a fan page, an inactive cam account, or a platform where this performer is no longer streaming. Use it for profile checks or following, not for live-room access."
         },
         {
           "id": "sv_03",
           "q": "Is it safe to enter my payment details on {{platform}}?",
-          "a": "{{platform}} is an established cam platform with standard payment security practices. Always ensure you are on the official platform URL before entering payment details. The confirmed link on this page goes directly to {{name}}'s profile on the official platform — do not use links from unverified third-party sources."
+          "a": "{{platform}} is an established cam platform with standard payment security practices. Always ensure you are on the correct platform URL before entering payment details. The listed link on this page goes directly to {{name}}'s profile on the platform — do not use links from unknown third-party sources."
         },
         {
           "id": "sv_04",
           "q": "How do I verify that a {{name}} profile is not a mirror or copy?",
-          "a": "Check that the handle in the URL matches the one shown on this page. Look for a consistent profile image, bio language, and link patterns. Mirror pages often copy the name and photos but cannot replicate the verified handle or platform-specific profile ID. When in doubt, use only the links provided on this page."
+          "a": "Check that the handle in the URL matches the one shown on this page. Look for a consistent profile image, bio language, and link patterns. Mirror pages often copy the name and photos but cannot replicate the matching handle or platform-specific profile ID. When in doubt, use only the links provided on this page."
         },
         {
           "id": "sv_05",
@@ -273,7 +273,7 @@
         {
           "id": "sv_07",
           "q": "Can I report a fake profile if I find one?",
-          "a": "Yes. Use the report function on the platform where you found the suspected fake profile. You can also help {{site_name}} maintain accuracy by using the contact or feedback option on this page if you notice a confirmed link has changed or a new fake profile has appeared."
+          "a": "Yes. Use the report function on the platform where you found the suspected fake profile. You can also help {{site_name}} maintain accuracy by using the contact or feedback option on this page if you notice a listed link has changed or a new fake profile has appeared."
         },
         {
           "id": "sv_08",
@@ -287,8 +287,8 @@
         },
         {
           "id": "sv_10",
-          "q": "What does 'verified link' mean on a {{name}} profile on {{site_name}}?",
-          "a": "A verified link on {{site_name}} means the URL has been checked against the platform's public profile data to confirm it belongs to {{name}} — the handle matches, the profile is reachable, and it has not been flagged as a mirror or copied page at the time of the last check."
+          "q": "How do I know a {{name}} profile link on {{site_name}} is current?",
+          "a": "A listed link on {{site_name}} means the URL has been checked against the platform's public profile data to confirm it belongs to {{name}} — the handle matches, the profile is reachable, and it has not been flagged as a mirror or copied page at the time of the last check."
         }
       ]
     }
