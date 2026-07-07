@@ -398,7 +398,7 @@ class TemplateContent {
         $content = ModelPageRenderer::render($name, $renderer_payload);
 
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ v5.8.21: Inject keyword-rich H2 for TemplatePool-primary pages ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-        // The renderer always uses "Official Profile Access" as the first H2.
+        // The renderer uses a model/platform-aware room-access heading as the first H2.
         // For manual Generate with TemplatePool, we replace that heading with a
         // model-name + platform + evidence-signal heading that naturally contains
         // the focus keyword and a Rank Math secondary chip.
@@ -423,10 +423,10 @@ class TemplateContent {
                 $rankmath_keywords
             );
             if ($tp_intro_h2 !== '') {
-                // Replace the renderer's first H2 (Official Profile Access) with
-                // the keyword-rich heading. Only replaces the first match.
+                // Replace the renderer's first room-access H2 with the
+                // keyword-rich heading. Only replaces the first match.
                 $content = preg_replace(
-                    '/<h2>\s*Official Profile Access\s*<\/h2>/iu',
+                    '/<h2>\s*(?:Official Profile Access|' . preg_quote($name, '/') . '\s+on\s+[^<:]+:\s+Room Access)\s*<\/h2>/iu',
                     $tp_intro_h2,
                     $content,
                     1
@@ -474,7 +474,7 @@ class TemplateContent {
                 $private_chat_h2 = trim((string) ($h2_overrides['private_chat_h2'] ?? ''));
                 if ($private_chat_h2 !== '' && !$h2_has_private_chat) {
                     $content = preg_replace(
-                        '/<h2>\s*Where to Watch Live\s*<\/h2>/iu',
+                        '/<h2>\s*(?:Where to Watch Live|' . self::watch_heading_pattern($name) . ')\s*<\/h2>/iu',
                         '<h2>' . esc_html($private_chat_h2) . '</h2>',
                         $content,
                         1
@@ -489,7 +489,7 @@ class TemplateContent {
                     ? $before_click_h2
                     : "Before You Start a Session with " . $name;
                 $content = preg_replace(
-                    '/<h2>\s*Before You Click\b[^<]*<\/h2>/iu',
+                    '/<h2>\s*(?:Before You Click\b|Before You Start a Session with\s+' . preg_quote($name, '/') . ')[^<]*<\/h2>/iu',
                     '<h2>' . esc_html($before_click_h2) . '</h2>',
                     $content,
                     1
@@ -498,9 +498,9 @@ class TemplateContent {
                 $questions_h2 = trim((string) ($h2_overrides['questions_h2'] ?? ''));
                 $questions_h2 = $questions_h2 !== ''
                     ? $questions_h2
-                    : 'Common ' . $name . ' Profile Questions';
+                    : $name . ' — Common Questions';
                 $content = preg_replace(
-                    '/<h2>\s*Common Profile Questions\s*<\/h2>/iu',
+                    '/<h2>\s*(?:Common Profile Questions|' . preg_quote($name, '/') . '\s+—\s+Common Questions)\s*<\/h2>/iu',
                     '<h2>' . esc_html($questions_h2) . '</h2>',
                     $content,
                     1
@@ -1622,15 +1622,20 @@ class TemplateContent {
         // Links and Profiles" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â both forms are listed.
         $disallowed_section_patterns = [
             '/^Official\s+Profile\s+Access\b/iu',
+            '/^.+\s+on\s+.+:\s+Room\s+Access\b/iu',
             '/^Where\s+to\s+Watch\s+Live\b/iu',
+            '/^(?:Finding\s+.+\s+Online\s+on\s+.+|How\s+to\s+Reach\s+.+|Watching\s+.+\s+Live:|.+\s+Stream\s+Links\s+and\s+Access\s+Notes|Getting\s+to\s+.+|.+\s+Live\s+Room:|.+\s+on\s+.+:\s+Room\s+and\s+Profile\s+Links)\b/iu',
             '/^Other\s+Official\s+Destinations\b/iu',
+            '/^.+\s+—\s+Additional\s+Platform\s+Links\b/iu',
             '/^Social\s+Profiles\b/iu',
             '/^Where\s+Are\s+the\s+Official\s+Links\b/iu',
             '/^Official\s+Links\s+and\s+Profiles\b/iu',
+            '/^(?:Live\s+Profile\s+Access\s+for|Profile\s+Link\s+Status\s+for|Profile\s+Links\s+for)\b/iu',
             // v5.8.22: prevent duplicate "Live Chat Experience for X and Y" H3 injection
             // into the features section which already has a "Live Chat Experience" H2.
             '/^Live\s+Chat\s+Experience\b/iu',
             '/^Before\s+You\s+Click\b/iu',
+            '/^Before\s+You\s+Start\s+a\s+Session\s+with\b/iu',
             '/^More\s+Pages\s+for\b/iu',
         ];
 
@@ -4453,13 +4458,27 @@ class TemplateContent {
 <p>" . esc_html('For quick comparison, ' . $focus_keyword . ' is listed with active profiles so you can choose a platform without guesswork.') . '</p>';
         }
 
-        $content = self::dedupe_exact_heading_text($content, 'Before You Start a Session', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
 
         return $content;
     }
 
+    private static function watch_heading_pattern(string $name): string {
+        $n = preg_quote($name, '/');
+        return '(?:Finding\s+' . $n . '\s+Online\s+on\s+[^<]+|' . $n . '\s+on\s+[^<:]+:\s+Room(?:\s+Access|\s+and\s+Profile\s+Links)|How\s+to\s+Reach\s+' . $n . "'s\s+[^<]+\s+Room|Watching\s+" . $n . '\s+Live:\s+Platform\s+Notes|' . $n . '\s+Stream\s+Links\s+and\s+Access\s+Notes|Getting\s+to\s+' . $n . "'s\s+Room\s+on\s+[^<]+|" . $n . '\s+Live\s+Room:\s+Best\s+Way\s+In)';
+    }
+
+    private static function dedupe_heading_prefix(string $content, string $heading_prefix, string $replacement): string {
+        $pattern = '/(?:<!--\\s*wp:heading[^>]*-->\\s*)?<h([2-6])([^>]*)>\\s*' . preg_quote($heading_prefix, '/') . '[^<]*<\\/h\\1>(?:\\s*<!--\\s*\\/wp:heading\\s*-->)?/iu';
+        return self::dedupe_heading_matches($content, $pattern, $replacement);
+    }
+
     private static function dedupe_exact_heading_text(string $content, string $heading, string $replacement): string {
         $pattern = '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu';
+        return self::dedupe_heading_matches($content, $pattern, $replacement);
+    }
+
+    private static function dedupe_heading_matches(string $content, string $pattern, string $replacement): string {
         if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
             return $content;
         }
@@ -4480,6 +4499,8 @@ class TemplateContent {
             $out .= substr($content, $pos, $offset - $pos);
             if ($index === $keep_index) {
                 $out .= $text;
+            } else {
+                $out .= '<h' . (string) $matches[1][$index][0] . (string) $matches[2][$index][0] . '>' . esc_html($replacement) . '</h' . (string) $matches[1][$index][0] . '>';
             }
             $pos = $offset + strlen($text);
         }
@@ -4906,7 +4927,7 @@ class TemplateContent {
         $content = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $content) ?: $content;
         $content = ModelBodySafety::clean_body_text($content);
 
-        $content = self::dedupe_exact_heading_text($content, 'Before You Start a Session', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
 
         return $content;
     }
@@ -4966,7 +4987,7 @@ class TemplateContent {
             $content .= "\n\n" . $extra_blocks[$idx];
         }
 
-        $content = self::dedupe_exact_heading_text($content, 'Before You Start a Session', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
 
         return $content;
     }
@@ -5112,7 +5133,7 @@ class TemplateContent {
         $content = preg_replace('/<p>\s*Watch Live on\s+([^<]+)\.<\/p>/iu', '<p>Open the listed live room on $1.</p>', $content) ?: $content;
         $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+' . preg_quote($name, '/') . '\b/iu', $name, $content) ?: $content;
         $content = preg_replace('/(<p>\s*Use this section\b[^<]*<\/p>)(\s*<p>\s*Use this section\b[^<]*<\/p>)+/iu', '$1', $content) ?: $content;
-        $content = self::dedupe_exact_heading_text($content, 'Before You Start a Session', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
 
         return $content;
     }

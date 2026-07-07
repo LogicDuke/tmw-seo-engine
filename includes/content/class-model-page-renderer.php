@@ -49,7 +49,7 @@ class ModelPageRenderer {
             $sections[] = $intro;
         }
 
-        $watch = self::render_section(\TMWSEO\Engine\Content\ModelPageRenderer::watch_heading($name, $payload), $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
+        $watch = self::render_section(self::watch_heading($name, $payload), $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
         if ($watch !== '') {
             $sections[] = $watch;
         }
@@ -539,18 +539,18 @@ class ModelPageRenderer {
         $html = preg_replace('/(<h2>\s*Verified Links\s*<\/h2>.*?)(?:<p>\s*(?:In short|Overall|To wrap up|That said|Finally).*?<\/p>)+$/isu', '$1', $html) ?: $html;
         $html = preg_replace('/<p>\s*For\s+[^<.]+?\s+access,\s*confirm handle consistency and recent room activity before joining\.\s*<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the primary room listed here and use the platform links below for profile checks.', $html) ?: $html;
-        $html = str_replace('Profile Links for ' . $name . ': All Listed Destinations and LiveJasmin profile', 'Official Links and Profiles', $html);
+        $html = preg_replace('/(<h[2-6][^>]*>\s*Profile Links for ' . preg_quote($name, '/') . ': All Listed Destinations)(?:\s+and\s+LiveJasmin profile)(\s*<\/h[2-6]>)/iu', '$1$2', $html) ?: $html;
         $html = str_replace(['use additional the links', 'Use additional the links', 'Use the the links below below', 'use the the links below below'], ['use the additional links', 'Use the additional links', 'Use the links below', 'use the links below'], $html);
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
-        $html = self::remove_duplicate_heading_text($html, 'Before You Start a Session');
+        $html = self::remove_duplicate_heading_prefix($html, 'Before You Start a Session with ' . $name);
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
         return trim($html);
     }
 
     /**
      * Build a model-aware "Where to Watch" section heading.
-     * Rotates through 8 variants using post_id (deterministic per model).
+     * Rotates through 8 variants using model-name length (deterministic per model).
      */
     public static function watch_heading(string $name, array $payload): string {
         $platform = (string)($payload['primary_platform_label'] ?? 'LiveJasmin');
@@ -567,6 +567,38 @@ class ModelPageRenderer {
         // Deterministic per model name length (stable, no post_id needed here).
         $idx = strlen( $name ) % count( $variants );
         return $variants[ $idx ];
+    }
+
+    private static function remove_duplicate_heading_prefix(string $content, string $heading_prefix): string {
+        $pattern = '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading_prefix, '/') . '[^<]*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu';
+        if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
+            return $content;
+        }
+
+        $keep_index = 0;
+        foreach ($matches[1] as $index => $level_match) {
+            if ((string) $level_match[0] === '2') {
+                $keep_index = (int) $index;
+                break;
+            }
+        }
+
+        $out = '';
+        $pos = 0;
+        foreach ($matches[0] as $index => $match) {
+            $text = (string) $match[0];
+            $start = (int) $match[1];
+            $out .= substr($content, $pos, $start - $pos);
+            if ((int) $index === $keep_index) {
+                $out .= $text;
+            } else {
+                $replacement = '<h' . (string) $matches[1][$index][0] . (string) $matches[2][$index][0] . '>Safety Checklist</h' . (string) $matches[1][$index][0] . '>';
+                $out .= $replacement;
+            }
+            $pos = $start + strlen($text);
+        }
+        $out .= substr($content, $pos);
+        return $out;
     }
 
     private static function remove_duplicate_heading_text(string $content, string $heading): string {

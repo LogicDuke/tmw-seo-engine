@@ -217,12 +217,12 @@ ok(
 	'C2: "Live Show Feature Check" heading rewritten'
 );
 ok(
-	strpos( $cleaned, '<h2>Before You Click</h2>' ) !== false,
-	'C3: H2 "Before You Click and LiveJasmin..." rewritten'
+	strpos( $cleaned, '<h2>Before You Start a Session with Anisyia</h2>' ) !== false,
+	'C3: H2 "Before You Click and LiveJasmin..." rewritten to session heading'
 );
 ok(
-	strpos( $cleaned, '<h3>Before You Click</h3>' ) !== false,
-	'C4: H3 "Before you click: HD live stream experience" rewritten'
+	strpos( $cleaned, '<h3>Before You Start a Session with Anisyia</h3>' ) !== false,
+	'C4: H3 "Before you click: HD live stream experience" rewritten to session heading'
 );
 ok(
 	strpos( $cleaned, '<h2>Official Links and Profiles</h2>' ) !== false,
@@ -478,8 +478,8 @@ $h_dup_html =
 	. "<p>Body content under the duplicated heading.</p>";
 $h_dup_cleaned = ModelCopyCleanup::cleanup( $h_dup_html, 'Anisyia' );
 ok(
-	preg_match( '#<h[2-4][^>]*>\\s*Before You Click\\s*</h[2-4]>#i', $h_dup_cleaned ) === 1,
-	'H1: exactly one "Before You Click" heading remains after adjacent-duplicate drop'
+	preg_match( '#<h[2-4][^>]*>\\s*Before You Start a Session with Anisyia\\s*</h[2-4]>#i', $h_dup_cleaned ) === 1,
+	'H1: exactly one session heading remains after adjacent-duplicate drop'
 );
 ok(
 	strpos( $h_dup_cleaned, '<p>Body content under the duplicated heading.</p>' ) !== false,
@@ -501,8 +501,8 @@ $h_dup_separated =
 	"<h2>Before You Click</h2><p>Intervening body.</p><h3>Before You Click</h3><p>Other body.</p>";
 $h_dup_separated_clean = ModelCopyCleanup::cleanup( $h_dup_separated, 'Anisyia' );
 ok(
-	strpos( $h_dup_separated_clean, '<h2>Before You Click</h2>' ) !== false
-		&& strpos( $h_dup_separated_clean, '<h3>Before You Click</h3>' ) !== false,
+	strpos( $h_dup_separated_clean, '<h2>Before You Start a Session with Anisyia</h2>' ) !== false
+		&& strpos( $h_dup_separated_clean, '<h3>Before You Start a Session with Anisyia</h3>' ) !== false,
 	'H4: non-adjacent identical headings (paragraph between) are BOTH preserved'
 );
 
