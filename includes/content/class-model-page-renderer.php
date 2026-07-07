@@ -44,18 +44,18 @@ class ModelPageRenderer {
             array_unshift($intro_paragraphs, $seed_summary);
         }
         $intro_paragraphs = self::with_direct_intro_answer($intro_paragraphs, $name, $payload);
-        $intro = self::render_section('Official Profile Access', $intro_paragraphs, $name);
+        $intro = self::render_section($name . ' on ' . ($payload['primary_platform_label'] ?? 'LiveJasmin') . ': Room Access', $intro_paragraphs, $name);
         if ($intro !== '') {
             $sections[] = $intro;
         }
 
-        $watch = self::render_section('Where to Watch Live', $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
+        $watch = self::render_section(self::watch_heading($name, $payload), $payload['watch_section_paragraphs'] ?? [], $name, $payload['watch_section_html'] ?? '');
         if ($watch !== '') {
             $sections[] = $watch;
         }
 
         $other_official = self::render_section(
-            'Other Official Destinations',
+            $name . ' — Additional Platform Links',
             $payload['official_destinations_section_paragraphs'] ?? [],
             $name,
             $payload['official_destinations_section_html'] ?? ''
@@ -114,7 +114,7 @@ class ModelPageRenderer {
 
         $comparison_paragraphs = is_array($payload['comparison_section_paragraphs'] ?? null) ? $payload['comparison_section_paragraphs'] : [];
         $comparison_paragraphs = self::with_direct_compare_answer($comparison_paragraphs, $payload, $name);
-        $comparison_heading = 'Before You Click';
+        $comparison_heading = 'Before You Start a Session with ' . $name;
         $comparison_heading = self::append_secondary_heading_phrase($comparison_heading, $secondary_heading_slots['comparison'][0] ?? '');
         $compare = self::render_section(
             $comparison_heading,
@@ -128,7 +128,7 @@ class ModelPageRenderer {
         }
 
         $questions = self::render_questions(
-            'Common Profile Questions',
+            $name . ' — Common Questions',
             $payload['questions_section_paragraphs'] ?? [],
             $payload['faq_items'] ?? [],
             $name,
@@ -139,8 +139,8 @@ class ModelPageRenderer {
         }
 
         $official_links_base_heading = (!empty($link_evidence) && empty($link_evidence['has_extra_links']))
-            ? (!empty($link_evidence['has_live_profile']) ? 'Confirmed Live Profile' : 'Confirmed Profile Link Status')
-            : 'Official Links and Profiles';
+            ? (!empty($link_evidence['has_live_profile']) ? 'Live Profile Access for ' . $name : 'Profile Link Status for ' . $name)
+            : 'Profile Links for ' . $name . ': All Listed Destinations';
         $official_links_heading = self::append_secondary_heading_phrase($official_links_base_heading, $secondary_heading_slots['official_links'][0] ?? '');
         $links = self::render_section(
             $official_links_heading,
@@ -150,7 +150,7 @@ class ModelPageRenderer {
                 $payload['external_info_html'] ?? '',
                 $payload['explore_more_html'] ?? '',
             ]),
-            self::build_secondary_subheadings($secondary_heading_slots['official_links'] ?? [], 1, 'Official-link check for')
+            self::build_secondary_subheadings($secondary_heading_slots['official_links'] ?? [], 1, 'Profile link check for')
         );
         if ($links !== '' && !self::looks_like_nav_chrome($links)) {
             $sections[] = $links;
@@ -483,14 +483,14 @@ class ModelPageRenderer {
 
         if (!empty($active)) {
             $evidence = self::normalize_link_evidence_summary($payload['link_evidence_summary'] ?? []);
-            $answer = $active[0] . ' is the confirmed live-room profile in this check. Start there for live access.';
+            $answer = $active[0] . ' is the primary listed room for ' . $name . '. Start there for room access.';
             if (!array_key_exists('link_evidence_summary', $payload) || !empty($evidence['has_extra_links'])) {
-                $answer .= ' Use additional verified destinations only if needed.';
+                $answer .= ' Use additional platform links only if needed.';
             }
         } else {
-            $answer = 'No live-room profile is confirmed active right now.';
+            $answer = 'No live-room is active right now for ' . $name . '.';
             if (!array_key_exists('link_evidence_summary', $payload) || !empty(($payload['link_evidence_summary'] ?? [])['has_extra_links'])) {
-                $answer .= ' Use verified destinations for handle checks and updates.';
+                $answer .= ' Use the platform links for handle checks and updates.';
             }
         }
 
@@ -510,7 +510,7 @@ class ModelPageRenderer {
         } elseif (count($active) === 1) {
             $answer = 'Before joining, confirm the handle and check recent room activity.';
         } else {
-            $answer = 'Compare confirmed platforms by room stability, chat readability, trust signals, and mobile usability before choosing a default room.';
+            $answer = 'Compare platform options by room stability, chat readability, and mobile usability before choosing a default room.';
         }
         return [$answer];
     }
@@ -538,14 +538,67 @@ class ModelPageRenderer {
         $html = preg_replace('/<p>\s*(?:Viewers looking for|A query like|How to join .*? usually|LiveJasmin live show schedule matters).*?<\/p>/iu', '', $html) ?: $html;
         $html = preg_replace('/(<h2>\s*Verified Links\s*<\/h2>.*?)(?:<p>\s*(?:In short|Overall|To wrap up|That said|Finally).*?<\/p>)+$/isu', '$1', $html) ?: $html;
         $html = preg_replace('/<p>\s*For\s+[^<.]+?\s+access,\s*confirm handle consistency and recent room activity before joining\.\s*<\/p>/iu', '', $html) ?: $html;
-        $html = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the confirmed live room and use the verified links below for profile checks.', $html) ?: $html;
-        $html = str_replace('Official Links and Profiles and LiveJasmin profile', 'Official Links and Profiles', $html);
+        $html = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the primary room listed here and use the platform links below for profile checks.', $html) ?: $html;
+        $html = preg_replace('/(<h[2-6][^>]*>\s*Profile Links for ' . preg_quote($name, '/') . ': All Listed Destinations)(?:\s+and\s+LiveJasmin profile)(\s*<\/h[2-6]>)/iu', '$1$2', $html) ?: $html;
         $html = str_replace(['use additional the links', 'Use additional the links', 'Use the the links below below', 'use the the links below below'], ['use the additional links', 'Use the additional links', 'Use the links below', 'use the links below'], $html);
         $html = preg_replace('/\b(official (?:live )?profile links)(\s+official (?:live )?profile links)+\b/iu', '$1', $html) ?: $html;
         $html = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $html) ?: $html;
-        $html = self::remove_duplicate_heading_text($html, 'Before You Click');
+        $html = self::remove_duplicate_heading_prefix($html, 'Before You Start a Session with ' . $name);
         $html = preg_replace('/\n{3,}/', "\n\n", $html) ?: $html;
         return trim($html);
+    }
+
+    /**
+     * Build a model-aware "Where to Watch" section heading.
+     * Rotates through 8 variants using model-name length (deterministic per model).
+     */
+    public static function watch_heading(string $name, array $payload): string {
+        $platform = (string)($payload['primary_platform_label'] ?? 'LiveJasmin');
+        $variants = [
+            'Finding ' . $name . ' Online on ' . $platform,
+            $name . ' on ' . $platform . ': Room Access',
+            'How to Reach ' . $name . "'s " . $platform . ' Room',
+            'Watching ' . $name . ' Live: Platform Notes',
+            $name . ' Stream Links and Access Notes',
+            'Getting to ' . $name . "'s Room on " . $platform,
+            $name . ' Live Room: Best Way In',
+            $name . ' on ' . $platform . ': Room and Profile Links',
+        ];
+        // Deterministic per model name length (stable, no post_id needed here).
+        $idx = strlen( $name ) % count( $variants );
+        return $variants[ $idx ];
+    }
+
+    private static function remove_duplicate_heading_prefix(string $content, string $heading_prefix): string {
+        $pattern = '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading_prefix, '/') . '[^<]*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu';
+        if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
+            return $content;
+        }
+
+        $keep_index = 0;
+        foreach ($matches[1] as $index => $level_match) {
+            if ((string) $level_match[0] === '2') {
+                $keep_index = (int) $index;
+                break;
+            }
+        }
+
+        $out = '';
+        $pos = 0;
+        foreach ($matches[0] as $index => $match) {
+            $text = (string) $match[0];
+            $start = (int) $match[1];
+            $out .= substr($content, $pos, $start - $pos);
+            if ((int) $index === $keep_index) {
+                $out .= $text;
+            } else {
+                $replacement = '<h' . (string) $matches[1][$index][0] . (string) $matches[2][$index][0] . '>Safety Checklist</h' . (string) $matches[1][$index][0] . '>';
+                $out .= $replacement;
+            }
+            $pos = $start + strlen($text);
+        }
+        $out .= substr($content, $pos);
+        return $out;
     }
 
     private static function remove_duplicate_heading_text(string $content, string $heading): string {

@@ -153,7 +153,7 @@ class TemplateContent {
         $active_platform_count = count($active_platforms);
         $second_intro_pool = $active_platform_count === 1
             ? [
-                'Start with the live-room button, then use additional verified destinations for updates or backup access when they are listed.',
+                'Start with the live-room button, then use additional platform links for updates or backup access when they are listed.',
                 'Open the active room first, then use the non-live profiles for status checks and follow-up.',
                 'Use the direct room link first, and keep backup profiles nearby in case room status changes.',
                 'Start with one live-room option, then check other profiles before you commit.',
@@ -176,13 +176,13 @@ class TemplateContent {
 
         if (!$has_extra_link_evidence) {
             $watch_para_pool = [
-                'Open the confirmed live profile below. ' . self::build_confirmed_live_profile_only_sentence($primary_platform_label),
+                'Open the listed live profile below. ' . self::build_confirmed_live_profile_only_sentence($primary_platform_label),
                 'Use the primary room link below, then confirm the room status after click-through.',
             ];
         } else {
             $watch_para_pool = [
-                'Open the confirmed live profile below. Use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.',
-                'Choose a live platform below first. Use any additional verified destinations only for follow-up checks.',
+                'Open the listed live profile below. Use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.',
+                'Choose a live platform below first. Use any additional platform links only for follow-up checks.',
                 'Open a live profile first, then use verified non-live destinations if you need backups or updates.',
             ];
             if ($primary_platform_label !== self::NEUTRAL_PLATFORM_FALLBACK) {
@@ -398,7 +398,7 @@ class TemplateContent {
         $content = ModelPageRenderer::render($name, $renderer_payload);
 
         // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ v5.8.21: Inject keyword-rich H2 for TemplatePool-primary pages ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-        // The renderer always uses "Official Profile Access" as the first H2.
+        // The renderer uses a model/platform-aware room-access heading as the first H2.
         // For manual Generate with TemplatePool, we replace that heading with a
         // model-name + platform + evidence-signal heading that naturally contains
         // the focus keyword and a Rank Math secondary chip.
@@ -423,10 +423,10 @@ class TemplateContent {
                 $rankmath_keywords
             );
             if ($tp_intro_h2 !== '') {
-                // Replace the renderer's first H2 (Official Profile Access) with
-                // the keyword-rich heading. Only replaces the first match.
+                // Replace the renderer's first room-access H2 with the
+                // keyword-rich heading. Only replaces the first match.
                 $content = preg_replace(
-                    '/<h2>\s*Official Profile Access\s*<\/h2>/iu',
+                    '/<h2>\s*(?:Official Profile Access|' . preg_quote($name, '/') . '\s+on\s+[^<:]+:\s+Room Access)\s*<\/h2>/iu',
                     $tp_intro_h2,
                     $content,
                     1
@@ -474,7 +474,7 @@ class TemplateContent {
                 $private_chat_h2 = trim((string) ($h2_overrides['private_chat_h2'] ?? ''));
                 if ($private_chat_h2 !== '' && !$h2_has_private_chat) {
                     $content = preg_replace(
-                        '/<h2>\s*Where to Watch Live\s*<\/h2>/iu',
+                        '/<h2>\s*(?:Where to Watch Live|' . self::watch_heading_pattern($name) . ')\s*<\/h2>/iu',
                         '<h2>' . esc_html($private_chat_h2) . '</h2>',
                         $content,
                         1
@@ -487,9 +487,9 @@ class TemplateContent {
                 $before_click_h2 = trim((string) ($h2_overrides['before_click_h2'] ?? ''));
                 $before_click_h2 = $before_click_h2 !== ''
                     ? $before_click_h2
-                    : "Before You Click " . $name . "'s Confirmed Profile";
+                    : "Before You Start a Session with " . $name;
                 $content = preg_replace(
-                    '/<h2>\s*Before You Click\b[^<]*<\/h2>/iu',
+                    '/<h2>\s*(?:Before You Click\b|Before You Start a Session with\s+' . preg_quote($name, '/') . ')[^<]*<\/h2>/iu',
                     '<h2>' . esc_html($before_click_h2) . '</h2>',
                     $content,
                     1
@@ -498,9 +498,9 @@ class TemplateContent {
                 $questions_h2 = trim((string) ($h2_overrides['questions_h2'] ?? ''));
                 $questions_h2 = $questions_h2 !== ''
                     ? $questions_h2
-                    : 'Common ' . $name . ' Profile Questions';
+                    : $name . ' — Common Questions';
                 $content = preg_replace(
-                    '/<h2>\s*Common Profile Questions\s*<\/h2>/iu',
+                    '/<h2>\s*(?:Common Profile Questions|' . preg_quote($name, '/') . '\s+—\s+Common Questions)\s*<\/h2>/iu',
                     '<h2>' . esc_html($questions_h2) . '</h2>',
                     $content,
                     1
@@ -953,10 +953,10 @@ class TemplateContent {
 
         if ($active_platform_count === 1) {
             $first_link_answer = $has_extra_link_evidence
-                ? 'Open the ' . $platform_text . ' room first; use additional verified destinations only for updates.'
-                : 'Open the ' . $platform_text . ' room first; it is the only confirmed profile link currently listed.';
+                ? 'Open the ' . $platform_text . ' room first; use additional platform links only for updates.'
+                : 'Open the ' . $platform_text . ' room first; it is the only listed profile link.';
         } elseif ($active_platform_count >= 2) {
-            $first_link_answer = 'Open one of the confirmed live rooms first, then compare the others if needed.';
+            $first_link_answer = 'Open one of the listed live rooms first, then compare the others if needed.';
         } else {
             $first_link_answer = $has_extra_link_evidence
                 ? 'No live room is confirmed active right now; use verified destinations for checks and updates.'
@@ -1068,12 +1068,12 @@ class TemplateContent {
         $has_extra_link_evidence = !empty($evidence['has_extra_links']);
         $support_line = $has_extra_link_evidence
             ? 'Confirm the profile handle, recent activity, playback on your device, and payment/privacy controls before choosing where to chat. A quick check also helps you spot stale mirrors or copied profile pages.'
-            : 'Confirm the profile handle, recent activity, playback on your device, and payment/privacy controls before choosing where to chat. Keep the first click focused on the confirmed live profile.';
+            : 'Confirm the profile handle, recent activity, playback on your device, and payment/privacy controls before choosing where to chat. Keep the first click focused on the listed live profile.';
         $faq_items = is_array($payload['faq_items'] ?? null) ? $payload['faq_items'] : [];
         $stale_profile_faq_question = 'How do I avoid stale or copied profile links?';
         $stale_profile_faq_answer = $has_extra_link_evidence
             ? 'Start from the live profile shown on this page, then use the additional links below only for updates and profile checks. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.'
-            : 'Start from the confirmed live profile shown on this page. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.';
+            : 'Start from the listed live profile shown on this page. Match the handle, look for recent activity, and avoid mirror pages that copy names or photos without a clear platform profile.';
         $has_stale_profile_faq = false;
         foreach ($faq_items as $idx => $faq_item) {
             if (!is_array($faq_item)) {
@@ -1622,15 +1622,20 @@ class TemplateContent {
         // Links and Profiles" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â both forms are listed.
         $disallowed_section_patterns = [
             '/^Official\s+Profile\s+Access\b/iu',
+            '/^.+\s+on\s+.+:\s+Room\s+Access\b/iu',
             '/^Where\s+to\s+Watch\s+Live\b/iu',
+            '/^(?:Finding\s+.+\s+Online\s+on\s+.+|How\s+to\s+Reach\s+.+|Watching\s+.+\s+Live:|.+\s+Stream\s+Links\s+and\s+Access\s+Notes|Getting\s+to\s+.+|.+\s+Live\s+Room:|.+\s+on\s+.+:\s+Room\s+and\s+Profile\s+Links)\b/iu',
             '/^Other\s+Official\s+Destinations\b/iu',
+            '/^.+\s+—\s+Additional\s+Platform\s+Links\b/iu',
             '/^Social\s+Profiles\b/iu',
             '/^Where\s+Are\s+the\s+Official\s+Links\b/iu',
             '/^Official\s+Links\s+and\s+Profiles\b/iu',
+            '/^(?:Live\s+Profile\s+Access\s+for|Profile\s+Link\s+Status\s+for|Profile\s+Links\s+for)\b/iu',
             // v5.8.22: prevent duplicate "Live Chat Experience for X and Y" H3 injection
             // into the features section which already has a "Live Chat Experience" H2.
             '/^Live\s+Chat\s+Experience\b/iu',
             '/^Before\s+You\s+Click\b/iu',
+            '/^Before\s+You\s+Start\s+a\s+Session\s+with\b/iu',
             '/^More\s+Pages\s+for\b/iu',
         ];
 
@@ -2213,9 +2218,9 @@ class TemplateContent {
     private static function build_confirmed_live_profile_only_sentence(string $platform_text): string {
         $platform_text = trim((string) preg_replace('/\s+/', ' ', $platform_text));
         if ($platform_text === '' || in_array(strtolower($platform_text), ['available platforms', 'verified live platforms', 'the active platform', self::NEUTRAL_PLATFORM_FALLBACK], true)) {
-            return 'This page currently lists one confirmed live profile only. Use that link as the primary access point and confirm the room status before joining.';
+            return 'This page currently lists one live profile. Use that link as the primary access point and confirm the room status before joining.';
         }
-        return 'This page currently lists the confirmed ' . $platform_text . ' profile only. Use that link as the primary access point and confirm the room status before joining.';
+        return 'This page currently lists the ' . $platform_text . ' profile. Use that link as the primary access point and confirm the room status before joining.';
     }
 
     /**
@@ -2365,7 +2370,7 @@ class TemplateContent {
         if (empty($parts)) {
             return [];
         }
-        return [self::format_platform_list($parts, 'verified destinations') . ' are listed in the Official Links and Profiles section below. They are useful for following or support, but they are not live-room buttons.'];
+        return [self::format_platform_list($parts, 'listed destinations') . ' are listed in the profile links section below. They are useful for following or support, but they are not live-room buttons.'];
     }
 
     /** @param array<string,mixed> $evidence */
@@ -2400,7 +2405,7 @@ class TemplateContent {
         //   the Rank Math secondary keyword chip gets a natural body-text occurrence in the
         //   Official Links section (primary purpose of this helper).
         if (empty($evidence['has_extra_links'])) {
-            return "When checking this profile's cam links, start with the confirmed live profile and avoid assuming extra destinations exist until they are verified.";
+            return "When checking this profile's cam links, start with the listed live profile and avoid assuming extra destinations exist until they are checked.";
         }
         return 'When checking ' . $phrase . ' links, use the additional links below for profile checks, updates, fan pages, and support channels; they are separate from the live-room button.';
     }
@@ -2419,7 +2424,7 @@ class TemplateContent {
             return 'Latest check: no confirmed profile links found.';
         }
         if ($live_count === 1 && $extra_count === 0) {
-            return 'Latest check: 1 confirmed live profile found.';
+            return 'Latest check: 1 live profile found.';
         }
 
         $types = [];
@@ -2494,11 +2499,11 @@ class TemplateContent {
         if ($active_platform_count === 1) {
             $platform_text = self::format_platform_list($active_platforms, 'the active platform');
             $answer_line = $has_extra_link_evidence
-                ? $platform_text . ' is the confirmed live-room option from this check. Start there for room access, then use the additional platform links only for follow-up or backup.'
+                ? $platform_text . ' is the primary listed room. Start there for room access, then use the additional platform links only for follow-up or backup.'
                 : $platform_text . ' is the primary room option from this check. Start there for room access.';
         } elseif ($active_platform_count > 1) {
             $platform_text = self::format_platform_list($active_platforms, 'verified live platforms');
-            $answer_line = 'Confirmed live-room options are available on ' . $platform_text . '. Start with one verified room, then compare status after click-through.';
+            $answer_line = 'Listed room access is available on ' . $platform_text . '. Start with one room, then compare status after click-through.';
         } else {
             $answer_line = 'No live-room profile is confirmed active in this check.';
         }
@@ -2622,12 +2627,12 @@ class TemplateContent {
                 'a' => 'Use the same checklist on each room: uptime signals, mobile playback, chat readability, moderation tone, and login friction. Keep whichever room performs better for your setup.',
             ],
             [
-                'q' => 'Why are some verified links outside the live section?',
+                'q' => 'Why are some links outside the live room section?',
                 'a' => 'Because verification and live availability are different states. A destination can be official and still be better for follow/support access than direct room entry.',
             ],
             [
                 'q' => 'What is the safest way to avoid copied profiles?',
-                'a' => 'Start from verified links on this page, confirm the handle after click-through, and leave immediately when usernames or branding do not match.',
+                'a' => 'Start from the links on this page, confirm the handle after click-through, and leave immediately when usernames or branding do not match.',
             ],
         ];
     }
@@ -2817,7 +2822,7 @@ class TemplateContent {
 
         $guidance = $usable_live_platforms > 1
             ? 'When more than one live platform is available, compare them with the same checklist: room freshness, handle consistency, mobile playback, chat readability, and login friction.'
-            : 'Use the confirmed live-room button first. Additional verified profiles can help with profile checks, updates, fan pages, and support channels, but they should not be treated as separate live-room entries unless the current status confirms it.';
+            : 'Use the primary room link first. Additional platform links can help with profile checks, updates, fan pages, and support channels, but they should not be treated as separate live-room entries unless the current status shows it.';
 
         return $alt_username_note . '<p>' . esc_html($guidance) . '</p>';
     }
@@ -4453,13 +4458,27 @@ class TemplateContent {
 <p>" . esc_html('For quick comparison, ' . $focus_keyword . ' is listed with active profiles so you can choose a platform without guesswork.') . '</p>';
         }
 
-        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $focus_keyword, 'Safety Checklist');
 
         return $content;
     }
 
+    private static function watch_heading_pattern(string $name): string {
+        $n = preg_quote($name, '/');
+        return '(?:Finding\s+' . $n . '\s+Online\s+on\s+[^<]+|' . $n . '\s+on\s+[^<:]+:\s+Room(?:\s+Access|\s+and\s+Profile\s+Links)|How\s+to\s+Reach\s+' . $n . "'s\s+[^<]+\s+Room|Watching\s+" . $n . '\s+Live:\s+Platform\s+Notes|' . $n . '\s+Stream\s+Links\s+and\s+Access\s+Notes|Getting\s+to\s+' . $n . "'s\s+Room\s+on\s+[^<]+|" . $n . '\s+Live\s+Room:\s+Best\s+Way\s+In)';
+    }
+
+    private static function dedupe_heading_prefix(string $content, string $heading_prefix, string $replacement): string {
+        $pattern = '/(?:<!--\\s*wp:heading[^>]*-->\\s*)?<h([2-6])([^>]*)>\\s*' . preg_quote($heading_prefix, '/') . '[^<]*<\\/h\\1>(?:\\s*<!--\\s*\\/wp:heading\\s*-->)?/iu';
+        return self::dedupe_heading_matches($content, $pattern, $replacement);
+    }
+
     private static function dedupe_exact_heading_text(string $content, string $heading, string $replacement): string {
         $pattern = '/(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote($heading, '/') . '\s*<\/h\1>(?:\s*<!--\s*\/wp:heading\s*-->)?/iu';
+        return self::dedupe_heading_matches($content, $pattern, $replacement);
+    }
+
+    private static function dedupe_heading_matches(string $content, string $pattern, string $replacement): string {
         if (!preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE)) {
             return $content;
         }
@@ -4480,6 +4499,8 @@ class TemplateContent {
             $out .= substr($content, $pos, $offset - $pos);
             if ($index === $keep_index) {
                 $out .= $text;
+            } else {
+                $out .= '<h' . (string) $matches[1][$index][0] . (string) $matches[2][$index][0] . '>' . esc_html($replacement) . '</h' . (string) $matches[1][$index][0] . '>';
             }
             $pos = $offset + strlen($text);
         }
@@ -4751,7 +4772,7 @@ class TemplateContent {
         $fallback_lower = strtolower(self::NEUTRAL_PLATFORM_FALLBACK);
 
         if ($platform_lower !== '' && $platform_lower !== $fallback_lower && strpos($phrase_lower, $platform_lower) !== false) {
-            return 'For ' . $phrase . ' searches, start with the confirmed live room, then compare current status and profile details before spending credits.';
+            return 'For ' . $phrase . ' searches, start with the listed live room, then compare current status and profile details before spending credits.';
         }
         if (strpos($phrase_lower, 'webcam chat') !== false) {
             return 'For ' . $phrase . ' searches, check playback quality, mobile usability, and payment/privacy controls before spending credits.';
@@ -4860,7 +4881,7 @@ class TemplateContent {
     private static function cleanup_model_content(string $content, string $name): string {
         $content = str_replace(['this model', 'This model'], [$name, $name], $content);
         $content = preg_replace('/<p>\s*For\s+[^<.]+?\s+access,\s*confirm handle consistency and recent room activity before joining\.\s*<\/p>/iu', '', $content) ?: $content;
-        $content = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the confirmed live room and use the verified links below for profile checks.', $content) ?: $content;
+        $content = preg_replace('/For\s+([^<.]+?)\s+access,\s*confirm handle consistency and recent room activity before joining\./iu', 'For $1 searches, start with the listed live room and use the platform links below for profile checks.', $content) ?: $content;
         $content = str_replace(['Additional the links', 'additional the links', 'use additional the links', 'Use additional the links'], ['The additional links', 'the additional links', 'use the additional links', 'Use the additional links'], $content);
         // Do NOT replace "live webcam" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â it is valid English and the old replacement
         // ("official profile links") created nonsensical phrases in prose.
@@ -4893,7 +4914,7 @@ class TemplateContent {
         }
 
         $content = preg_replace('/\bofficial live profile\b/iu', self::stable_fallback_variant($name . '|ofp'), $content) ?: $content;
-        $content = preg_replace('/\bWatch\s+' . preg_quote($name, '/') . '\b/iu', 'Open the verified live destination', $content) ?: $content;
+        $content = preg_replace('/\bWatch\s+' . preg_quote($name, '/') . '\b/iu', 'Open the listed live room', $content) ?: $content;
         $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+is currently active on\b/iu', 'Current review status shows active access on', $content) ?: $content;
         $content = preg_replace('/\bthe profile\b/iu', 'this profile', $content) ?: $content;
         $content = str_replace('Official Links and Profiles and LiveJasmin profile', 'Official Links and Profiles', $content);
@@ -4906,7 +4927,7 @@ class TemplateContent {
         $content = preg_replace('/\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(\s+\1){1,}\b/u', '$1', $content) ?: $content;
         $content = ModelBodySafety::clean_body_text($content);
 
-        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
 
         return $content;
     }
@@ -4929,7 +4950,7 @@ class TemplateContent {
         $platform_text = self::format_platform_list($active_platforms, $primary_platform_label !== '' ? $primary_platform_label : 'verified platforms');
         $depth_evidence = self::build_link_evidence_summary($resolved_destinations, array_fill(0, $active_platform_count, []));
         if (!empty($depth_evidence['has_extra_links'])) {
-            $neither_room_line = 'If neither room works well, use any additional verified destinations on this page to confirm handles and return later when status changes.';
+            $neither_room_line = 'If neither room works well, use any additional platform links on this page to confirm handles and return later when status changes.';
         } elseif ($active_platform_count > 1) {
             $neither_room_line = 'If neither room works well, recheck the listed live profiles later and confirm handles before returning when status changes.';
         } else {
@@ -4966,7 +4987,7 @@ class TemplateContent {
             $content .= "\n\n" . $extra_blocks[$idx];
         }
 
-        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
 
         return $content;
     }
@@ -4978,14 +4999,14 @@ class TemplateContent {
             return $content;
         }
 
-        $platform_text = self::format_platform_list($active_platforms, 'verified live rooms');
+        $platform_text = self::format_platform_list($active_platforms, 'listed live rooms');
         if ($platform_text === '') {
-            $platform_text = 'verified live rooms';
+            $platform_text = 'listed live rooms';
         }
 
         $has_extra_links = !empty($link_evidence_summary['has_extra_links']);
         $extra_destination_sentence = $has_extra_links
-            ? 'When additional verified destinations are listed, treat them as support routes for profile checks, updates, follow actions, and backup navigation rather than automatic room-entry links.'
+            ? 'When additional platform links are listed, treat them as support routes for profile checks, updates, follow actions, and backup navigation rather than automatic room-entry links.'
             : 'When no additional platform links are listed, avoid random mirrors and return to the primary room for status checks.';
 
         $blocks = [
@@ -5109,10 +5130,10 @@ class TemplateContent {
 
 
     private static function apply_lightweight_content_guardrails(string $content, string $name): string {
-        $content = preg_replace('/<p>\s*Watch Live on\s+([^<]+)\.<\/p>/iu', '<p>Open the verified live room on $1.</p>', $content) ?: $content;
+        $content = preg_replace('/<p>\s*Watch Live on\s+([^<]+)\.<\/p>/iu', '<p>Open the listed live room on $1.</p>', $content) ?: $content;
         $content = preg_replace('/\b' . preg_quote($name, '/') . '\s+' . preg_quote($name, '/') . '\b/iu', $name, $content) ?: $content;
         $content = preg_replace('/(<p>\s*Use this section\b[^<]*<\/p>)(\s*<p>\s*Use this section\b[^<]*<\/p>)+/iu', '$1', $content) ?: $content;
-        $content = self::dedupe_exact_heading_text($content, 'Before You Click', 'Safety Checklist');
+        $content = self::dedupe_heading_prefix($content, 'Before You Start a Session with ' . $name, 'Safety Checklist');
 
         return $content;
     }
@@ -6248,7 +6269,7 @@ class TemplateContent {
         if (!empty($evidence_signals) && !($has_livecam_kw && $has_privatechat_kw)) {
             $signal_str = self::natural_keyword_list($evidence_signals);
             $second = 'This page covers her ' . $signal_str
-                . ', verified live-room access, and profile checks before visitors open the room.';
+                . ', listed room access, and profile checks before visitors open the room.';
             return trim($opening . ' ' . $second);
         }
 
@@ -7035,9 +7056,9 @@ class TemplateContent {
             // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ v5.8.25: Original artifact strings (kept) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
             'Watch a The verified live room Video'           => 'Watch ' . $n . "'s videos",
             'Watch a The verified live room video'           => 'Watch ' . $n . "'s videos",
-            'Find The confirmed ' . $pl . ' room elsewhere'  => 'Find ' . $n . "'s confirmed " . $pl . ' room',
-            'Find The confirmed LiveJasmin room elsewhere'   => 'Find ' . $n . "'s confirmed LiveJasmin room",
-            'Find The confirmed live room elsewhere'         => 'Find ' . $n . "'s confirmed live room",
+            'Find The confirmed ' . $pl . ' room elsewhere'  => 'Find ' . $n . "'s " . $pl . ' room',
+            'Find The confirmed LiveJasmin room elsewhere'   => 'Find ' . $n . "'s LiveJasmin room",
+            'Find The confirmed live room elsewhere'         => 'Find ' . $n . "'s live room",
             'Can I find The confirmed profile\'s video archive'  => 'Can I find ' . $n . "'s video archive",
             "Can I find The confirmed profile's video archive"   => 'Can I find ' . $n . "'s video archive",
             'Can I report a fake The live room profile if I find one?' => 'Can I report a fake ' . $n . ' profile if I find one?',
@@ -7293,7 +7314,7 @@ class TemplateContent {
             $section_hint = 'body';
 
             if ($is_platform) {
-                $sentence     = 'Visitors searching for ' . esc_html($kw) . ' should start with the verified live-room link before checking any secondary profile.';
+                $sentence     = 'Visitors searching for ' . esc_html($kw) . ' should start with the listed room link before checking any secondary profile.';
                 $section_hint = 'platform';
             } elseif ($is_live_cam) {
                 $sentence     = 'The verified room link is the safest starting point for ' . esc_html($kw) . ' access and current live status.';
@@ -7306,7 +7327,7 @@ class TemplateContent {
                 $section_hint = 'model_profile';
             } else {
                 // Generic fallback — still uses the keyword naturally.
-                $sentence     = 'Visitors searching for ' . esc_html($kw) . ' should start with the verified live-room link before checking any secondary profile.';
+                $sentence     = 'Visitors searching for ' . esc_html($kw) . ' should start with the listed room link before checking any secondary profile.';
                 $section_hint = 'generic';
             }
 
@@ -7653,7 +7674,7 @@ class TemplateContent {
 
             [
                 '/That\s+is\s+the\s+verified\s+live\s+destination\s+for\s+' . $n_esc . '\s*\./iu',
-                'That is the verified live destination.',
+                'That is the listed live destination.',
                 'faq_a:verified_destination',
             ],
             [
@@ -7673,7 +7694,7 @@ class TemplateContent {
             ],
             [
                 '/The\s+confirmed\s+handle\s+for\s+' . $n_esc . '\s+on\s+/iu',
-                'The confirmed handle on ',
+                'The handle shown on ',
                 'faq_a:confirmed_handle',
             ],
             [
@@ -7711,7 +7732,7 @@ class TemplateContent {
             ],
             [
                 '/Confirmed\s+live\s+platforms\s+for\s+' . $n_esc . '\s+are\s+listed\s+below\b/iu',
-                'Confirmed live platforms are listed below',
+                'Live platforms are listed below',
                 'body:confirmed_platforms',
             ],
             [
@@ -7741,7 +7762,7 @@ class TemplateContent {
             ],
             [
                 '/The\s+confirmed\s+live\s+profiles\s+for\s+' . $n_esc . '\s+are\s+listed\b/iu',
-                'The confirmed live profiles are listed',
+                'The live profiles are listed',
                 'body:confirmed_live_profiles',
             ],
             [

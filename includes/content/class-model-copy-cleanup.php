@@ -82,7 +82,7 @@ class ModelCopyCleanup {
 		],
 		[
 			'pattern' => '#^Before\s+You\s+Click\b.*$#iu',
-			'replace' => 'Before You Click',
+			'replace' => 'Before You Start a Session',
 		],
 		[
 			'pattern' => '#^Where\s+Are\s+the\s+Official\s+Links\s+and\s+Other\s+Profiles\??\s*$#iu',
@@ -281,10 +281,10 @@ class ModelCopyCleanup {
 		$body = self::rewrite_headings( $body, $model_name );
 
 		// v5.8.10 — drop the second of two adjacent identical headings AFTER
-		// rewrites so e.g. <h2>Before You Click</h2><h3>Before You Click</h3>
+		// rewrites so e.g. <h2>Before You Start a Session with {Name}</h2><h3>Before You Start a Session with {Name}</h3>
 		// (produced by the rewrite pass) collapses into one heading.
 		$body = self::remove_duplicate_adjacent_headings( $body );
-		$body = self::remove_duplicate_heading_text( $body, 'Before You Click' );
+		$body = self::remove_duplicate_adjacent_heading_prefix( $body, 'Before You Start a Session' );
 
 		// Part E + Part F + Part B2/B4: paragraph dedup across the body.
 		$body = self::remove_duplicate_paragraphs( $body );
@@ -388,6 +388,10 @@ class ModelCopyCleanup {
 					break;
 				}
 			}
+		}
+
+		if ( preg_match( '#^Before\s+You\s+Start\s+a\s+Session\s*$#iu', $text ) && trim( $model_name ) !== '' ) {
+			$text = 'Before You Start a Session with ' . trim( $model_name );
 		}
 
 		// Tidy stray punctuation/whitespace artefacts.
@@ -1027,9 +1031,9 @@ class ModelCopyCleanup {
 	 * preserved verbatim — only the heading TAG is removed.
 	 *
 	 * Example:
-	 *   <h2>Before You Click</h2><h3>Before You Click</h3><p>...</p>
+	 *   <h2>Before You Start a Session with {Name}</h2><h3>Before You Start a Session with {Name}</h3><p>...</p>
 	 * becomes:
-	 *   <h2>Before You Click</h2><p>...</p>
+	 *   <h2>Before You Start a Session with {Name}</h2><p>...</p>
 	 *
 	 * Iterative: re-runs until no more pairs collapse, so a chain of three
 	 * identical adjacent headings collapses to one.
@@ -1074,36 +1078,31 @@ class ModelCopyCleanup {
 	/**
 	 * Normalise a heading's inner text for adjacent-duplicate comparison.
 	 * Lowercases, decodes entities, strips tags, collapses whitespace, and
-	 * strips trailing punctuation so "Before You Click" and "Before you click:"
+	 * strips trailing punctuation so "Before You Start a Session" and "Before you start a session:"
 	 * compare equal.
 	 */
-	private static function remove_duplicate_heading_text( string $html, string $heading ): string {
-		$pattern = '#(?:<!--\s*wp:heading[^>]*-->\s*)?<h([2-6])([^>]*)>\s*' . preg_quote( $heading, '#' ) . '\s*</h\1>(?:\s*<!--\s*/wp:heading\s*-->)?#iu';
-		if ( ! preg_match_all( $pattern, $html, $matches, PREG_OFFSET_CAPTURE ) ) {
-			return $html;
-		}
+	private static function remove_duplicate_adjacent_heading_prefix( string $html, string $heading_prefix ): string {
+		$prefix_pattern = preg_quote( $heading_prefix, '#' );
+		$pattern = '#(<(h[2-4])([^>]*)>\s*(' . $prefix_pattern . '[^<]*)</\2>)(\s*)<(h[2-4])([^>]*)>\s*(' . $prefix_pattern . '[^<]*)</\6>#iu';
 
-		$keep_index = 0;
-		foreach ( $matches[1] as $index => $level_match ) {
-			if ( (string) $level_match[0] === '2' ) {
-				$keep_index = (int) $index;
+		$guard = 0;
+		while ( $guard++ < 50 ) {
+			$changed = false;
+			$html = (string) preg_replace_callback(
+				$pattern,
+				static function ( array $m ) use ( &$changed ): string {
+					$changed = true;
+					return $m[1] . $m[5];
+				},
+				$html
+			);
+
+			if ( ! $changed ) {
 				break;
 			}
 		}
 
-		$out = '';
-		$pos = 0;
-		foreach ( $matches[0] as $index => $match ) {
-			$text = (string) $match[0];
-			$offset = (int) $match[1];
-			$out .= substr( $html, $pos, $offset - $pos );
-			if ( $index === $keep_index ) {
-				$out .= $text;
-			}
-			$pos = $offset + strlen( $text );
-		}
-
-		return $out . substr( $html, $pos );
+		return $html;
 	}
 
 	private static function normalise_heading_text_for_compare( string $inner ): string {

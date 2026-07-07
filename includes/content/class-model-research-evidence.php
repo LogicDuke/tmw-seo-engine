@@ -374,7 +374,7 @@ class ModelResearchEvidence {
 		$openers = [
 			'Her listed interests emphasize ',
 			'The profile describes an interest in ',
-			'Her turn-on notes highlight ',
+			'Her profile notes mention ',
 		];
 		$opener = $openers[ ( strlen( $themes[0] ) ) % count( $openers ) ];
 

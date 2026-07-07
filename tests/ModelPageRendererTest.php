@@ -418,27 +418,21 @@ class ModelPageRendererTest extends TestCase {
     public function test_T13_canonical_h2_sections_present(): void {
         $html = self::render(self::base_payload());
         $required_patterns = [
-            'Official Profile Access',
-            'Where to Watch Live',
-            'Other Official Destinations',
+            'Anisyia on LiveJasmin: Room Access',
+            'Anisyia on LiveJasmin: Room and Profile Links',
+            'Anisyia — Additional Platform Links',
             'Social Profiles',
             'Features and Platform Experience',
+            'Before You Start a Session with Anisyia',
+            'Anisyia — Common Questions',
         ];
         foreach ($required_patterns as $heading) {
-            $this->assertStringContainsStringIgnoringCase(
-                $heading,
+            $this->assertMatchesRegularExpression(
+                '/<h2[^>]*>\s*' . preg_quote($heading, '/') . '\s*<\/h2>/iu',
                 $html,
-                "T13: Canonical H2 section '{$heading}' must be present in rendered output."
+                "T13: Model-aware H2 section '{$heading}' must be present as an H2 in rendered output."
             );
         }
-        // At least one of the comparison headings.
-        $comparison_present = stripos($html, 'Before You Click') !== false
-            || stripos($html, 'Live Platform Comparison') !== false
-            || stripos($html, 'Platform Access Notes') !== false;
-        $this->assertTrue(
-            $comparison_present,
-            'T13: A comparison section heading (Before You Click / Live Platform Comparison / Platform Access Notes) must be present.'
-        );
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -627,17 +621,17 @@ class ModelPageRendererTest extends TestCase {
 
     public function test_cleanup_removes_duplicate_headings_and_bad_artifacts(): void {
         $payload = self::base_payload();
-        $payload['watch_section_html'] = '<h3>Before You Click</h3><p><a href="/go/livejasmin/anisyia" rel="sponsored noopener">Watch Live on LiveJasmin</a></p>';
+        $payload['watch_section_html'] = '<h3>Before You Start a Session with Anisyia</h3><p><a href="/go/livejasmin/anisyia" rel="sponsored noopener">Watch Live on LiveJasmin</a></p>';
         $payload['comparison_section_paragraphs'] = ['Before joining, compare current room status.'];
-        $payload['comparison_section_html'] = '<h2>Before You Click</h2><p>Use additional the links below only for follow-up checks.</p>';
+        $payload['comparison_section_html'] = '<h2>Before You Start a Session with Anisyia</h2><p>Use additional the links below only for follow-up checks.</p>';
         $payload['official_links_section_paragraphs'] = ['Official links are listed below.'];
         $payload['external_info_html'] = '<h3>Official Links and Profiles and LiveJasmin profile</h3><p>For anisyia livejasmin access, confirm handle consistency and recent room activity before joining.</p>';
 
         $html = self::render($payload);
 
-        $this->assertSame(1, preg_match_all('/Before You Click/i', $html));
-        $this->assertSame(1, preg_match_all('/<h2[^>]*>\s*Before You Click\s*<\/h2>/i', $html));
-        $this->assertSame(0, preg_match_all('/<h3[^>]*>\s*Before You Click\s*<\/h3>/i', $html));
+        $this->assertSame(1, preg_match_all('/Before You Start a Session with Anisyia/i', $html));
+        $this->assertSame(1, preg_match_all('/<h2[^>]*>\s*Before You Start a Session with Anisyia\s*<\/h2>/i', $html));
+        $this->assertSame(0, preg_match_all('/<h3[^>]*>\s*Before You Start a Session with Anisyia\s*<\/h3>/i', $html));
         $this->assertStringNotContainsString('Safety Checklist', $html);
         $this->assertStringNotContainsString('use additional the links', $html);
         $this->assertStringNotContainsString('Official Links and Profiles and LiveJasmin profile', $html);
