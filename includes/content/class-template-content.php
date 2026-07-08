@@ -1631,11 +1631,9 @@ class TemplateContent {
             '/^Where\s+Are\s+the\s+Official\s+Links\b/iu',
             '/^Official\s+Links\s+and\s+Profiles\b/iu',
             '/^(?:Live\s+Profile\s+Access\s+for|Profile\s+Link\s+Status\s+for|Profile\s+Links\s+for)\b/iu',
-            // v5.8.22/v5.8.39: prevent duplicate keyword H3 injection
-            // into the features/live-chat section across all renderer H2 variants.
-            '/^(?:The\s+)?Live\s+Chat\s+Experience\b/iu',
-            '/^Private\s+Session\s+Tips\s+and\s+Chat\s+Notes\b/iu',
-            '/^What\s+to\s+Expect\s+in\s+a\s+Live\s+Session\b/iu',
+            // v5.8.22: prevent duplicate "Live Chat Experience for X and Y" H3 injection
+            // into the features section which already has a "Live Chat Experience" H2.
+            '/^Live\s+Chat\s+Experience\b/iu',
             '/^Before\s+You\s+Click\b/iu',
             '/^Before\s+You\s+Start\s+a\s+Session\s+with\b/iu',
             '/^More\s+Pages\s+for\b/iu',
@@ -3906,7 +3904,7 @@ class TemplateContent {
         $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, $descriptor_ladder);
 
         if (self::contains_denylisted_token($title, $denied_tokens)) {
-            $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, ['Safe Live Cam Guide', 'Safe Cam Guide', 'Safe Cam']);
+            $title = self::build_model_seo_title_with_required_tail($name, $has_known_platform ? $platform_label : '', $year, ['Best Safe Live Cam Guide', 'Best Live Cam Guide', 'Best Cam Guide', 'Best Cams']);
         }
 
         // v5.8.34: Normalise any Unicode or mojibake separator to plain ASCII ' - '.
@@ -3919,19 +3917,29 @@ class TemplateContent {
      * @return string[] Longest-to-shortest descriptors for the selected pattern.
      */
     private static function model_seo_title_descriptor_ladder(string $platform_label, string $seed): array {
+        // v5.8.40: every ladder rung carries a Rank Math power/sentiment word
+        // (Best, Hot, Ultimate, Exclusive, Top, Amazing, Stunning, Must-See,
+        // Complete, Real) so shortened fallbacks keep the power word too.
         if (trim($platform_label) === '') {
-            return ['Webcam Model & Live Cam Profile Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'];
+            return ['Best Webcam Model & Live Cam Guide', 'Best Webcam Model Guide', 'Best Live Cam Guide', 'Best Cam Guide', 'Best Cams'];
         }
 
         $pattern_ladders = [
-            ['Webcam Profile & Cam Guide', 'Webcam Profile Guide', 'Webcam Guide', 'Cam Guide', 'Cam'],
-            ['Live Cam Profile Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'],
-            ['Webcam Model Profile', 'Webcam Profile', 'Webcam Guide', 'Cam Guide', 'Cam'],
-            ['Cam Profile & Access Guide', 'Cam Access Guide', 'Cam Guide', 'Cam'],
-            ['Live Webcam Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'],
+            ['Best Live Cam Shows & Profile Guide', 'Best Live Cam Shows', 'Best Cam Shows', 'Best Cams'],
+            ['Hot Live Webcam Shows & Private Chat', 'Hot Live Webcam Shows', 'Hot Cam Shows', 'Hot Cams'],
+            ['Ultimate Live Cam Profile Guide', 'Ultimate Cam Guide', 'Best Cam Guide', 'Top Cams'],
+            ['Exclusive Private Chat & Cam Guide', 'Exclusive Cam Guide', 'Exclusive Cams', 'Top Cams'],
+            ['Top Live Cam Model Profile', 'Top Cam Model Profile', 'Top Cam Profile', 'Top Cams'],
+            ['Amazing Live Shows & Cam Profile', 'Amazing Live Shows', 'Amazing Cams', 'Best Cams'],
+            ['Stunning Live Cam Sessions Guide', 'Stunning Cam Sessions', 'Stunning Cams', 'Top Cams'],
+            ['Must-See Live Cams & Private Chat', 'Must-See Live Cams', 'Must-See Cams', 'Best Cams'],
+            ['Best Private Chat & Live Cam Access', 'Best Private Chat & Cams', 'Best Live Cams', 'Best Cams'],
+            ['Hot Private Shows & Cam Profile', 'Hot Private Shows', 'Hot Live Cams', 'Hot Cams'],
+            ['Complete Live Cam Guide & Hot Shows', 'Complete Live Cam Guide', 'Complete Cam Guide', 'Best Cams'],
+            ['Real Live Cam Shows & Profile Guide', 'Real Live Cam Shows', 'Real Live Cams', 'Best Cams'],
         ];
 
-        return $pattern_ladders[self::stable_pick_index($seed . '|model-seo-title-pattern', count($pattern_ladders))];
+        return $pattern_ladders[self::stable_pick_index($seed . '|model-seo-title-pattern-v2', count($pattern_ladders))];
     }
 
     private static function log_title_variation_event(string $message, array $context = []): void {
@@ -3954,8 +3962,8 @@ class TemplateContent {
 
         if (empty($descriptors)) {
             $descriptors = $platform_label !== ''
-                ? ['Webcam Model & Live Cam Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam']
-                : ['Webcam Model & Live Cam Profile Guide', 'Webcam Model Guide', 'Webcam Guide', 'Live Cam Guide', 'Cam Guide', 'Cam'];
+                ? ['Best Webcam Model & Live Cam Guide', 'Best Webcam Model Guide', 'Best Live Cam Guide', 'Best Cam Guide', 'Best Cams']
+                : ['Best Webcam Model & Live Cam Profile Guide', 'Best Webcam Model Guide', 'Best Live Cam Guide', 'Best Cam Guide', 'Best Cams'];
         }
 
         foreach ($descriptors as $descriptor) {
@@ -3966,12 +3974,12 @@ class TemplateContent {
             }
         }
 
-        $tail_parts = array_values(array_filter([$platform_label, 'Cam', $year], 'strlen'));
+        $tail_parts = array_values(array_filter([$platform_label, 'Best Cam', $year], 'strlen'));
         $tail = implode(' ', $tail_parts);
         $available_name_length = max(12, 65 - self::model_title_length($tail) - 1);
         $short_name = TitleFixer::shorten($name, $available_name_length);
 
-        return self::assemble_model_seo_title($short_name, $platform_label, 'Cam', $year);
+        return self::assemble_model_seo_title($short_name, $platform_label, 'Best Cam', $year);
     }
 
     private static function assemble_model_seo_title(string $name, string $platform_label, string $descriptor, string $year): string {
@@ -7210,28 +7218,10 @@ class TemplateContent {
             if ( ! preg_match( '/\b' . $n . '\b/iu', $q ) ) {
                 continue;
             }
-
-            // Preserve high-intent / clarity questions before applying the
-            // page-level budget. These are intentionally name-bearing FAQ
-            // questions and should not consume the neutralisation budget.
-            if (
-                preg_match( '/\bprivate\s+(?:show|chat)\s+with\s+' . $n . '\b/iu', $q )
-                || preg_match( '/\bcorrect\s+' . $n . '\s+profile\b/iu', $q )
-            ) {
-                continue;
-            }
-
             $name_q_seen++;
             if ( $name_q_seen <= $name_q_budget ) {
                 continue;
             }
-
-            // Handle profile-specific phrases before the catch-all model-name
-            // replacement so article contexts do not become "a this model...".
-            $q = (string) preg_replace( '/\ba\s+' . $n . '\s+profile\s+link\b/iu', 'a profile link', $q );
-            $q = (string) preg_replace( '/\bthe\s+' . $n . '\s+profile\s+link\b/iu', 'the profile link', $q );
-            $q = (string) preg_replace( '/\b' . $n . '\s+profile\s+link\b/iu', 'this profile link', $q );
-            $q = (string) preg_replace( '/\b' . $n . '\s+profile\b/iu', 'this profile', $q );
             $q = (string) preg_replace( '/\bwith\s+' . $n . '\b/iu', 'with her', $q );
             $q = (string) preg_replace( '/\bfor\s+' . $n . '\b/iu', 'for her', $q );
             $q = (string) preg_replace( '/\b' . $n . '\x27s\b/iu', 'her', $q );
