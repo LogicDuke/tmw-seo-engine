@@ -3917,29 +3917,31 @@ class TemplateContent {
      * @return string[] Longest-to-shortest descriptors for the selected pattern.
      */
     private static function model_seo_title_descriptor_ladder(string $platform_label, string $seed): array {
-        // v5.8.40: every ladder rung carries a Rank Math power/sentiment word
-        // (Best, Hot, Ultimate, Exclusive, Top, Amazing, Stunning, Must-See,
-        // Complete, Real) so shortened fallbacks keep the power word too.
+        // v5.8.41: every ladder rung carries a word from data/snippet-power-words.php
+        // model_title_allowlist — the Rank Math sidebar-VALIDATED set counting as BOTH
+        // positive sentiment + power word: Best, Amazing, Proven, Safe, Secure,
+        // Powerful, Trustworthy, Exclusive, Popular, Remarkable. No other words are
+        // used, so every generated title passes both Rank Math title checks.
         if (trim($platform_label) === '') {
             return ['Best Webcam Model & Live Cam Guide', 'Best Webcam Model Guide', 'Best Live Cam Guide', 'Best Cam Guide', 'Best Cams'];
         }
 
         $pattern_ladders = [
             ['Best Live Cam Shows & Profile Guide', 'Best Live Cam Shows', 'Best Cam Shows', 'Best Cams'],
-            ['Hot Live Webcam Shows & Private Chat', 'Hot Live Webcam Shows', 'Hot Cam Shows', 'Hot Cams'],
-            ['Ultimate Live Cam Profile Guide', 'Ultimate Cam Guide', 'Best Cam Guide', 'Top Cams'],
-            ['Exclusive Private Chat & Cam Guide', 'Exclusive Cam Guide', 'Exclusive Cams', 'Top Cams'],
-            ['Top Live Cam Model Profile', 'Top Cam Model Profile', 'Top Cam Profile', 'Top Cams'],
-            ['Amazing Live Shows & Cam Profile', 'Amazing Live Shows', 'Amazing Cams', 'Best Cams'],
-            ['Stunning Live Cam Sessions Guide', 'Stunning Cam Sessions', 'Stunning Cams', 'Top Cams'],
-            ['Must-See Live Cams & Private Chat', 'Must-See Live Cams', 'Must-See Cams', 'Best Cams'],
+            ['Amazing Live Shows & Cam Profile', 'Amazing Live Cam Shows', 'Amazing Cams', 'Best Cams'],
+            ['Exclusive Private Chat & Cam Guide', 'Exclusive Cam Guide', 'Exclusive Cams', 'Best Cams'],
+            ['Popular Live Cam Model Profile', 'Popular Cam Profile', 'Popular Cams', 'Best Cams'],
+            ['Remarkable Live Cam Sessions Guide', 'Remarkable Cam Sessions', 'Remarkable Cams', 'Best Cams'],
+            ['Powerful Live Shows & Cam Profile', 'Powerful Live Cam Shows', 'Powerful Cams', 'Best Cams'],
+            ['Proven Live Cam Profile Guide', 'Proven Cam Guide', 'Proven Cams', 'Best Cams'],
+            ['Secure Private Chat & Cam Guide', 'Secure Cam Guide', 'Secure Cams', 'Best Cams'],
+            ['Safe Private Chat & Live Cam Guide', 'Safe Live Cam Guide', 'Safe Cam Guide', 'Best Cams'],
+            ['Trustworthy Live Cam Profile Guide', 'Trustworthy Cam Guide', 'Best Cam Guide', 'Best Cams'],
             ['Best Private Chat & Live Cam Access', 'Best Private Chat & Cams', 'Best Live Cams', 'Best Cams'],
-            ['Hot Private Shows & Cam Profile', 'Hot Private Shows', 'Hot Live Cams', 'Hot Cams'],
-            ['Complete Live Cam Guide & Hot Shows', 'Complete Live Cam Guide', 'Complete Cam Guide', 'Best Cams'],
-            ['Real Live Cam Shows & Profile Guide', 'Real Live Cam Shows', 'Real Live Cams', 'Best Cams'],
+            ['Amazing Private Shows & Cam Profile', 'Amazing Private Shows', 'Amazing Cams', 'Best Cams'],
         ];
 
-        return $pattern_ladders[self::stable_pick_index($seed . '|model-seo-title-pattern-v2', count($pattern_ladders))];
+        return $pattern_ladders[self::stable_pick_index($seed . '|model-seo-title-pattern-v3', count($pattern_ladders))];
     }
 
     private static function log_title_variation_event(string $message, array $context = []): void {
@@ -4138,11 +4140,10 @@ class TemplateContent {
             $clean[] = ucfirst(strtolower($token));
         }
 
-        // Keep generated model title descriptor rungs aligned with the weak-title
-        // gate even when the shared data file has not yet been updated. These
-        // terms are intentionally title-only and avoid trust-risk words such as
-        // Official or Verified.
-        $clean = array_merge($clean, ['Hot', 'Ultimate', 'Top', 'Stunning', 'Must-See', 'Complete', 'Real']);
+        // v5.8.41: gate uses ONLY the validated allowlist from the data file.
+        // Unverified words (Hot, Ultimate, Top, Stunning, Must-See, Complete, Real)
+        // were removed — Rank Math live testing showed they do not register as
+        // sentiment+power words, causing title readability errors.
         $clean = array_values(array_unique($clean));
         if (empty($clean)) {
             return $fallback;
