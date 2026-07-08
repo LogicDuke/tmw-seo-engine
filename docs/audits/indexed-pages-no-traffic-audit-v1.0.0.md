@@ -301,7 +301,7 @@ Fewer dedicated fan sites than Anisyia. LiveJasmin.com ranks 1. TMW's updated Le
 |---|-------|----------|------|-------|
 | 1 | Diagnose and fix `<title>` tag not reflecting v1.0.2 repair — check Rank Math title pattern variable | CRITICAL | Config/Code | Global — one Rank Math setting change |
 | 2 | Purge all 11 model page caches (AWEmpire + Cloudflare) | CRITICAL | Deployment | Per-page |
-| 3 | Filter sidebar Latest Videos and Random Videos to show only model-specific videos on single model pages | CRITICAL | Code (theme single-model.php) | Model pages only |
+| 3 | Suppress global video widgets on model pages and inject the model-specific replacement block inside the real sidebar via `dynamic_sidebar_before` | CRITICAL | Code (child-theme helper `retrotube-child-v3/inc/frontend/tmw-video-widget-links-fix.php`) | Model pages only |
 | 4 | Apply v1.0.1 template fix to 8 old-template model pages | HIGH | Deployment | 8 pages |
 | 5 | Run `wp tmwseo repair-model-title-meta` for all 11 slugs and purge cache | HIGH | WP-CLI | 11 pages |
 | 6 | Increase unique content per model page from ~20% to ≥40% | HIGH | Content | Per model |
@@ -317,7 +317,7 @@ Fewer dedicated fan sites than Anisyia. LiveJasmin.com ranks 1. TMW's updated Le
 
 1. Do NOT index more model pages until the 11 existing pages are stable.
 2. Do NOT remove the Similar Models inline links — correctly positioned, low contamination risk.
-3. Do NOT disable sidebar widgets globally — only filter on single model template.
+3. Do NOT disable sidebar widgets globally — suppress global video widgets only on `is_singular('model')` in the child-theme helper.
 4. Do NOT submit a disavow file — no backlinks at all yet.
 5. Do NOT add more videos to model pages until video titles are model-specific.
 
@@ -360,9 +360,9 @@ Priority: Critical.
 
 **Fix #3 — Sidebar video contamination**
 Problem: Latest Videos and Random Videos sidebar widgets show other model names on every page.
-Fix: In single-model.php, replace global video sidebar widgets with a model-specific query. Query videos by the current model's taxonomy term. If no videos match, show a "Browse all videos" link only.
-Type: Code (child theme template).
-Scope: Single model page template only — no impact on homepage or archive pages.
+Fix: Fix sidebar video widgets in the child-theme helper file `retrotube-child-v3/inc/frontend/tmw-video-widget-links-fix.php`, not `single-model.php`. Suppress the global video widgets on `is_singular('model')`, then inject the model-specific replacement block inside the real sidebar via `dynamic_sidebar_before`. Query videos by the current model's taxonomy term. If no videos match, show a "Browse all videos" link only.
+Type: Code (child-theme helper).
+Scope: Single model pages only — no impact on homepage or archive pages. `single-model.php` must not be modified.
 Priority: Critical.
 
 ### 15.2 High Priority Improvements
@@ -477,7 +477,7 @@ Decision metrics before scaling to new pages:
 - Purge cache for all 11 model pages
 - Apply v1.0.1 to 8 old-template pages
 - Run `wp tmwseo repair-model-title-meta` for all 11 slugs, purge again
-- Fix sidebar video widgets on single-model.php template
+- Fix sidebar video widgets in the child-theme helper file `retrotube-child-v3/inc/frontend/tmw-video-widget-links-fix.php`, not `single-model.php`.
 
 Expected impact: Contamination reduced to low. Titles and meta descriptions correct. All 11 pages on same baseline.
 Risk: Low.

@@ -111,12 +111,10 @@ if ( function_exists( 'w3tc_pgcache_flush_post' ) ) {
     \WP_CLI::log( '[TMW-PURGE] w3tc_pgcache_flush_post: called for all model posts' );
 }
 
-if ( function_exists( 'lscache_purge_post' ) ) {
-    foreach ( $tmw_purge_ids as $pid ) {
-        do_action( 'litespeed_purge_post', $pid );
-    }
-    \WP_CLI::log( '[TMW-PURGE] litespeed_purge_post: called for all model posts' );
+foreach ( $tmw_purge_ids as $pid ) {
+    do_action( 'litespeed_purge_post', $pid );
 }
+\WP_CLI::log( '[TMW-PURGE] litespeed_purge_post: fired for all model posts' );
 
 // ── Cloudflare cache purge ─────────────────────────────────────────────────
 

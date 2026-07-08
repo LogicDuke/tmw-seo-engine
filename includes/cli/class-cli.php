@@ -991,6 +991,11 @@ class TMWSEOCommand extends \WP_CLI_Command {
                         $body = json_decode( wp_remote_retrieve_body( $resp ), true );
                         $ok   = ! empty( $body['success'] );
                         \WP_CLI::log( '[TMW-PURGE] Cloudflare: ' . ( $ok ? 'SUCCESS' : 'FAILED' ) . ' (' . count( $chunk ) . ' URLs)' );
+                        if ( ! $ok && ! empty( $body['errors'] ) ) {
+                            foreach ( (array) $body['errors'] as $err ) {
+                                \WP_CLI::warning( '  CF error: ' . wp_json_encode( $err ) );
+                            }
+                        }
                     }
                 }
             }
