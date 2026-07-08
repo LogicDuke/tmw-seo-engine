@@ -26,7 +26,7 @@ class TemplateContent {
     private const NEUTRAL_PLATFORM_FALLBACK = 'official profile links';
     // Rank Math validated (manual live sidebar testing): confirmed as BOTH
     // positive/sentiment + power words for model title auto-generation.
-    private const MODEL_TITLE_POWER_WORDS_FALLBACK = ['Best', 'Amazing', 'Proven', 'Safe', 'Secure', 'Powerful', 'Trustworthy', 'Exclusive', 'Popular', 'Remarkable'];
+    private const MODEL_TITLE_POWER_WORDS_FALLBACK = ['Best', 'Amazing', 'Proven', 'Safe', 'Secure', 'Powerful', 'Trustworthy', 'Exclusive', 'Popular', 'Remarkable', 'Hot', 'Ultimate', 'Top', 'Stunning', 'Must-See', 'Complete', 'Real'];
     // Reserve list (power-only in manual Rank Math testing). Keep for manual use only.
     private const MODEL_TITLE_RESERVE_POWER_ONLY_FALLBACK = ['Secret', 'Expert', 'Official', 'Latest', 'New'];
     private const MODEL_TITLE_DENYLIST_FALLBACK = ['Bloody', 'Corpse', 'Murder', 'Bomb', 'Nazi', 'Jail', 'Toxic', 'Doom', 'Deadly', 'Hoax', 'Scam', 'Trap', 'Victim', 'Brutal'];
@@ -4138,6 +4138,11 @@ class TemplateContent {
             $clean[] = ucfirst(strtolower($token));
         }
 
+        // Keep generated model title descriptor rungs aligned with the weak-title
+        // gate even when the shared data file has not yet been updated. These
+        // terms are intentionally title-only and avoid trust-risk words such as
+        // Official or Verified.
+        $clean = array_merge($clean, ['Hot', 'Ultimate', 'Top', 'Stunning', 'Must-See', 'Complete', 'Real']);
         $clean = array_values(array_unique($clean));
         if (empty($clean)) {
             return $fallback;
