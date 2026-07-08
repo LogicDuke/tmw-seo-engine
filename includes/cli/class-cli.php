@@ -889,6 +889,134 @@ class TMWSEOCommand extends \WP_CLI_Command {
         }
     }
 
+
+    // ── Purge model page caches after metadata repair ─────────────────────
+
+    /**
+     * Purge WordPress object cache and Cloudflare cache for all 11 model pages
+     * and the /models/ archive after running repair-model-title-meta.
+     *
+     * Usage:
+     *   wp tmwseo purge-model-cache
+     *   wp tmwseo purge-model-cache --cloudflare
+     *
+     * ## OPTIONS
+     *
+     * [--cloudflare]
+     * : Also purge Cloudflare cache. Requires TMW_CF_ZONE_ID and TMW_CF_API_TOKEN
+     *   defined in wp-config.php.
+     *
+     * ## EXAMPLES
+     *
+     *   wp tmwseo purge-model-cache
+     *   wp tmwseo purge-model-cache --cloudflare
+     *
+     * @subcommand purge-model-cache
+     */
+    public function purge_model_cache( $args, $assoc ): void {
+        $do_cf = ! empty( $assoc['cloudflare'] );
+
+        $model_slugs = [
+            'abby-murray', 'aisha-dupont', 'alice-schuster', 'allysa-quinn',
+            'anisyia', 'arianna', 'brook-hayes', 'hana-ross',
+            'julieta-montesco', 'lexy-ness', 'mia-collie',
+        ];
+
+        $purge_ids  = [];
+        $purge_urls = [];
+        $not_found  = 0;
+
+        \WP_CLI::log( '' );
+        \WP_CLI::log( 'TMW purge-model-cache' );
+        \WP_CLI::log( str_repeat( '-', 60 ) );
+
+        foreach ( $model_slugs as $slug ) {
+            $post = get_page_by_path( $slug, OBJECT, 'model' );
+            if ( ! $post instanceof \WP_Post ) {
+                \WP_CLI::warning( "[TMW-PURGE] NOT FOUND: slug={$slug}" );
+                $not_found++;
+                continue;
+            }
+            $purge_ids[]  = (int) $post->ID;
+            $purge_urls[] = (string) get_permalink( $post->ID );
+        }
+
+        $models_page = get_page_by_path( 'models' );
+        if ( $models_page instanceof \WP_Post ) {
+            $purge_ids[]  = (int) $models_page->ID;
+            $purge_urls[] = (string) get_permalink( $models_page->ID );
+        }
+
+        // WordPress object cache
+        foreach ( $purge_ids as $pid ) {
+            clean_post_cache( $pid );
+            wp_cache_delete( $pid, 'posts' );
+            wp_cache_delete( $pid, 'post_meta' );
+            \WP_CLI::log( "[TMW-PURGE] clean_post_cache post_id={$pid}" );
+        }
+
+        // Plugin-specific page cache hooks
+        foreach ( $purge_ids as $pid ) {
+            if ( function_exists( 'wp_cache_post_change' ) )   { wp_cache_post_change( $pid ); }
+            if ( function_exists( 'rocket_clean_post' ) )      { rocket_clean_post( $pid ); }
+            if ( function_exists( 'w3tc_pgcache_flush_post' ) ){ w3tc_pgcache_flush_post( $pid ); }
+            do_action( 'litespeed_purge_post', $pid );
+        }
+
+        // Cloudflare
+        if ( $do_cf ) {
+            $cf_zone  = defined( 'TMW_CF_ZONE_ID' )   ? TMW_CF_ZONE_ID   : '';
+            $cf_token = defined( 'TMW_CF_API_TOKEN' )  ? TMW_CF_API_TOKEN  : '';
+
+            if ( $cf_zone === '' || $cf_token === '' ) {
+                \WP_CLI::warning( '[TMW-PURGE] TMW_CF_ZONE_ID or TMW_CF_API_TOKEN not defined in wp-config.php.' );
+            } else {
+                foreach ( array_chunk( $purge_urls, 30 ) as $chunk ) {
+                    $resp = wp_remote_post(
+                        "https://api.cloudflare.com/client/v4/zones/{$cf_zone}/purge_cache",
+                        [
+                            'method'  => 'POST',
+                            'headers' => [
+                                'Authorization' => "Bearer {$cf_token}",
+                                'Content-Type'  => 'application/json',
+                            ],
+                            'body'    => wp_json_encode( [ 'files' => $chunk ] ),
+                            'timeout' => 15,
+                        ]
+                    );
+
+                    if ( is_wp_error( $resp ) ) {
+                        \WP_CLI::warning( '[TMW-PURGE] Cloudflare error: ' . $resp->get_error_message() );
+                    } else {
+                        $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+                        $ok   = ! empty( $body['success'] );
+                        \WP_CLI::log( '[TMW-PURGE] Cloudflare: ' . ( $ok ? 'SUCCESS' : 'FAILED' ) . ' (' . count( $chunk ) . ' URLs)' );
+                        if ( ! $ok && ! empty( $body['errors'] ) ) {
+                            foreach ( (array) $body['errors'] as $err ) {
+                                \WP_CLI::warning( '  CF error: ' . wp_json_encode( $err ) );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Curl verification output
+        \WP_CLI::log( '' );
+        \WP_CLI::log( '-- Verify live title/meta with curl --' );
+        foreach ( $purge_urls as $url ) {
+            \WP_CLI::log( "curl -s -L '" . rtrim( $url, '/' ) . "/' | grep -E '<title>|<meta name=\"description\"'" );
+        }
+
+        \WP_CLI::log( '' );
+        \WP_CLI::success( sprintf(
+            '[TMW-PURGE] Done. Purged=%d NotFound=%d CF=%s',
+            count( $purge_ids ),
+            $not_found,
+            $do_cf ? 'yes' : 'skipped'
+        ) );
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );
