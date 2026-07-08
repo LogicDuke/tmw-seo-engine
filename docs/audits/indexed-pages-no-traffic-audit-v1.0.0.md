@@ -10,7 +10,7 @@
 > (`docs/audits/model-seo-stabilization-fix-v1.0.1.md`). That PR supersedes the sidebar
 > placement discussion here: global video widgets are suppressed on single model pages
 > via the widget class, and a model-specific replacement block is injected inside the
-> sidebar via `dynamic_sidebar_before`. `single-model.php` is not modified.
+> sidebar via `dynamic_sidebar_before`. `single-model.php` must not be modified and is not the implementation target.
 
 ---
 
@@ -360,7 +360,7 @@ Priority: Critical.
 
 **Fix #3 — Sidebar video contamination**
 Problem: Latest Videos and Random Videos sidebar widgets show other model names on every page.
-Fix: Fix sidebar video widgets in the child-theme helper file `retrotube-child-v3/inc/frontend/tmw-video-widget-links-fix.php`, not `single-model.php`. Suppress the global video widgets on `is_singular('model')`, then inject the model-specific replacement block inside the real sidebar via `dynamic_sidebar_before`. Query videos by the current model's taxonomy term. If no videos match, show a "Browse all videos" link only.
+Fix: Fix sidebar video widgets in the child-theme helper file `retrotube-child-v3/inc/frontend/tmw-video-widget-links-fix.php`; `single-model.php` must not be modified. Suppress the global video widgets on `is_singular('model')`, then inject the model-specific replacement block inside the real sidebar via `dynamic_sidebar_before`. Query videos by the current model's taxonomy term. If no videos match, show a "Browse all videos" link only.
 Type: Code (child-theme helper).
 Scope: Single model pages only — no impact on homepage or archive pages. `single-model.php` must not be modified.
 Priority: Critical.
@@ -477,7 +477,7 @@ Decision metrics before scaling to new pages:
 - Purge cache for all 11 model pages
 - Apply v1.0.1 to 8 old-template pages
 - Run `wp tmwseo repair-model-title-meta` for all 11 slugs, purge again
-- Fix sidebar video widgets in the child-theme helper file `retrotube-child-v3/inc/frontend/tmw-video-widget-links-fix.php`, not `single-model.php`.
+- Fix sidebar video widgets in the child-theme helper file `retrotube-child-v3/inc/frontend/tmw-video-widget-links-fix.php`; `single-model.php` must not be modified.
 
 Expected impact: Contamination reduced to low. Titles and meta descriptions correct. All 11 pages on same baseline.
 Risk: Low.
