@@ -527,26 +527,38 @@ class AffiliateLinkBuilder {
      * @param string $username
      * @param array<string,mixed> $settings
      */
+    public static function build_livejasmin_affiliate_url_from_model_name(string $model_name): string {
+        $clean_name = self::sanitize_username(preg_replace('/\s+/u', '', $model_name) ?? $model_name);
+        if ($clean_name === '') {
+            return '';
+        }
+
+        return self::build_livejasmin_affiliate_url($clean_name, self::LIVEJASMIN_SEO_DEFAULTS);
+    }
+
     private static function build_livejasmin_affiliate_url(string $username, array $settings): string {
         $clean_username = self::sanitize_username($username);
         if ($clean_username === '') {
             return '';
         }
 
-        $params = [
-            'performerName' => $clean_username,
-            'siteId' => (string) ($settings['siteid'] ?? 'jasmin'),
-            'categoryName' => (string) ($settings['categoryname'] ?? 'girl'),
-            'pageName' => (string) ($settings['pagename'] ?? 'freechat'),
-            'prm[psid]' => (string) ($settings['psid'] ?? ''),
-            'prm[pstool]' => (string) ($settings['pstool'] ?? ''),
-            'prm[psprogram]' => (string) ($settings['psprogram'] ?? ''),
-            'prm[campaign_id]' => (string) ($settings['campaign_id'] ?? ''),
-            'subAffId' => (string) ($settings['subaffid'] ?? ''),
+        $parts = [
+            'performerName=' . rawurlencode($clean_username),
+            'siteId=' . rawurlencode((string) ($settings['siteid'] ?? 'jasmin')),
+            'categoryName=' . rawurlencode((string) ($settings['categoryname'] ?? 'girl')),
+            'pageName=' . rawurlencode((string) ($settings['pagename'] ?? 'freechat')),
+            'prm%5Bpsid%5D=' . rawurlencode((string) ($settings['psid'] ?? '')),
+            'prm%5Bpstool%5D=' . rawurlencode((string) ($settings['pstool'] ?? '')),
+            'prm%5Bpsprogram%5D=' . rawurlencode((string) ($settings['psprogram'] ?? '')),
+            trim((string) ($settings['campaign_id'] ?? '')) === ''
+                ? 'prm%5Bcampaign_id%5D'
+                : 'prm%5Bcampaign_id%5D=' . rawurlencode((string) $settings['campaign_id']),
+            trim((string) ($settings['subaffid'] ?? '')) === ''
+                ? 'subAffId'
+                : 'subAffId=' . rawurlencode((string) $settings['subaffid']),
         ];
 
-        $url = add_query_arg($params, self::LIVEJASMIN_AFFILIATE_BASE);
-        $url = esc_url_raw($url);
+        $url = esc_url_raw(self::LIVEJASMIN_AFFILIATE_BASE . '?' . implode('&', $parts));
         return wp_http_validate_url($url) ? $url : '';
     }
 

@@ -20,6 +20,19 @@ defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FIL
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');
 
 require_once TMWSEO_ENGINE_PATH . 'includes/class-plugin.php';
+
+if (!function_exists('tmw_get_livejasmin_affiliate_url')) {
+    /**
+     * Build the canonical LiveJasmin SEO affiliate URL for a model page.
+     *
+     * Spaces are removed from the model name before it is used as the
+     * performerName so page CTAs produce AWEmpire's approved ctwmsg.com URL.
+     */
+    function tmw_get_livejasmin_affiliate_url(string $model_name): string {
+        return \TMWSEO\Engine\Platform\AffiliateLinkBuilder::build_livejasmin_affiliate_url_from_model_name($model_name);
+    }
+}
+
 require_once TMWSEO_ENGINE_PATH . 'includes/model/class-template-pool.php';
 
 if (!function_exists('tmwseo_engine_run_migrations')) {

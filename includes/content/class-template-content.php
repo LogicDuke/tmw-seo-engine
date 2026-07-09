@@ -3123,7 +3123,15 @@ class TemplateContent {
      *
      * @param array<string,mixed> $link
      */
-    private static function generated_watch_href(array $link): string {
+    private static function generated_watch_href(array $link, string $name = ''): string {
+        $platform = AffiliateLinkBuilder::canonical_platform_slug((string) ($link['platform'] ?? ''));
+        if ($platform === 'livejasmin' && $name !== '') {
+            $affiliate_url = \tmw_get_livejasmin_affiliate_url($name);
+            if ($affiliate_url !== '') {
+                return $affiliate_url;
+            }
+        }
+
         foreach (['seo_affiliate_url', 'confirmed_affiliate_url', 'verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
             $url = trim((string) ($link[$key] ?? ''));
             if (self::is_confirmed_external_http_url($url)) {
@@ -3145,7 +3153,7 @@ class TemplateContent {
                 continue;
             }
 
-            $go_url = self::generated_watch_href($link);
+            $go_url = self::generated_watch_href($link, $name);
             if ($go_url === '') {
                 continue;
             }
@@ -3172,7 +3180,7 @@ class TemplateContent {
         if (count($links) < 2) return '';
         $lis = '';
         foreach ($links as $l) {
-            $url = self::generated_watch_href($l);
+            $url = self::generated_watch_href($l, $name);
             $label = (string)($l['label'] ?? '');
             if ($url === '' || $label === '') continue;
 
@@ -3589,7 +3597,7 @@ class TemplateContent {
                 continue;
             }
 
-            $url = self::generated_watch_href($link);
+            $url = self::generated_watch_href($link, $name);
             $platform = (string)($link['label'] ?? '');
             if ($url === '' || $platform === '') {
                 continue;
