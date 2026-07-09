@@ -163,6 +163,14 @@ class ContentEngine {
             }
 
             update_post_meta($post_id, 'rank_math_title', $new_title);
+            update_post_meta($post_id, 'rank_math_facebook_title', $new_title);
+            update_post_meta($post_id, 'rank_math_twitter_title', $new_title);
+            update_post_meta($post_id, '_tmwseo_title_policy_v103', '1');
+            Logs::info('content', '[TMW-SEO-TITLE-POLICY] repaired weak model SEO title', [
+                'post_id' => $post_id,
+                'platform_label' => $platform_label,
+                'title' => $new_title,
+            ]);
             $updated++;
         }
 

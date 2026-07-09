@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: TMW SEO Engine
- * Description: Intelligence Core v5.8.28-model-keyword-db-selector - Adds DB/tag/platform-based model Rank Math extra keyword selection. No generated text, H2, category, video, affiliate, indexing, or publishing behavior is changed.
- * Version: 5.8.28-model-keyword-db-selector
+ * Description: Intelligence Core v5.8.29-unified-model-title-policy-v1.0.3 - Unifies model SEO title generation, optimizer suggestions, and repair paths under one canonical Rank Math policy.
+ * Version: 5.8.29-unified-model-title-policy-v1.0.3
  * Author: The Milisofia Ltd
  * Text Domain: tmwseo
  */
@@ -14,7 +14,7 @@ if (defined('TMWSEO_ENGINE_BOOTSTRAPPED')) {
 }
 
 define('TMWSEO_ENGINE_BOOTSTRAPPED', true);
-defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.28-model-keyword-db-selector');
+defined('TMWSEO_ENGINE_VERSION') || define('TMWSEO_ENGINE_VERSION', '5.8.29-unified-model-title-policy-v1.0.3');
 defined('TMWSEO_ENGINE_PATH') || define('TMWSEO_ENGINE_PATH', plugin_dir_path(__FILE__));
 defined('TMWSEO_ENGINE_URL') || define('TMWSEO_ENGINE_URL', plugin_dir_url(__FILE__));
 defined('TMWSEO_ENGINE_DATA_DIR') || define('TMWSEO_ENGINE_DATA_DIR', TMWSEO_ENGINE_PATH . 'data');

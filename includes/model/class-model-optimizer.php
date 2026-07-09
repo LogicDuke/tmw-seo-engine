@@ -4,6 +4,7 @@ namespace TMWSEO\Engine\Model;
 use TMWSEO\Engine\Services\Settings;
 use TMWSEO\Engine\Services\OpenAI;
 use TMWSEO\Engine\Platform\PlatformProfiles;
+use TMWSEO\Engine\Content\TemplateContent;
 
 if (!defined('ABSPATH')) { exit; }
 
@@ -556,7 +557,7 @@ class ModelOptimizer {
             $res = self::generate_with_openai((int) $post->ID, $name, $top_tags, $platforms);
             if (($res['ok'] ?? false) && isset($res['suggestions']) && is_array($res['suggestions'])) {
                 $s = $res['suggestions'];
-                $s['seo_title'] = self::build_model_seo_title($name);
+                $s['seo_title'] = self::build_model_seo_title($name, (int) $post->ID);
                 $s['meta_title'] = self::trim_len($s['seo_title'], 60);
                 $s['generated_at'] = current_time('mysql');
                 $s['tags_used'] = $top_tags;
@@ -566,7 +567,7 @@ class ModelOptimizer {
         }
 
         // Fallback deterministic.
-        $s = self::generate_with_templates($name, $top_tags, $platforms);
+        $s = self::generate_with_templates($name, $top_tags, $platforms, (int) $post->ID);
         $s['generated_at'] = current_time('mysql');
         $s['tags_used'] = $top_tags;
         $s['tags_blocked'] = $blocked;
@@ -579,16 +580,18 @@ class ModelOptimizer {
         return trim(mb_substr($s, 0, $max - 1)) . '…';
     }
 
-    private static function build_model_seo_title(string $name): string {
+    private static function build_model_seo_title(string $name, int $post_id = 0): string {
         $name = trim($name);
         if ($name === '') {
-            return 'Live Chat – Watch Webcam Now';
+            $name = 'Live Cam Model';
         }
 
-        return $name . ' Live Chat – Watch ' . $name . ' Webcam Now';
+        $platform_label = $post_id > 0 ? TemplateContent::resolve_primary_platform_label_for_title($post_id) : '';
+
+        return TemplateContent::build_default_model_seo_title($name, $platform_label, $post_id);
     }
 
-    private static function generate_with_templates(string $name, array $tags, array $platforms): array {
+    private static function generate_with_templates(string $name, array $tags, array $platforms, int $post_id = 0): array {
         $t1 = $tags[0] ?? '';
         $t2 = $tags[1] ?? '';
         $t3 = $tags[2] ?? '';
@@ -599,7 +602,7 @@ class ModelOptimizer {
             $tag_phrase = implode(', ', $tag_bits);
         }
 
-        $seo_title = self::build_model_seo_title($name);
+        $seo_title = self::build_model_seo_title($name, $post_id);
 
         // Meta title should be ~60 chars.
         $meta_title = self::trim_len($seo_title, 60);
