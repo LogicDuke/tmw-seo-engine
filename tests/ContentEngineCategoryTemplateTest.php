@@ -26,17 +26,20 @@ namespace TMWSEO\Engine\Tests {
             return $ref->invokeArgs(null, $args);
         }
 
-        public function test_category_seo_title_builder_starts_with_focus_keyword_and_contains_best_and_year(): void {
+        public function test_category_seo_title_builder_starts_with_focus_keyword_has_year_and_no_best_claim(): void {
             $title = $this->invoke('build_category_page_seo_title', ['Amateur Webcam Models', '2026']);
             $this->assertStringStartsWith('Amateur Webcam Models:', $title);
-            $this->assertStringContainsString('Best', $title);
+            $this->assertStringContainsString('Webcam Category Guide', $title);
+            $this->assertStringNotContainsString('Best', $title);
             $this->assertStringContainsString('2026', $title);
         }
 
-        public function test_category_meta_description_builder_starts_with_focus_keyword(): void {
+        public function test_category_meta_description_builder_starts_with_focus_keyword_and_has_no_internal_wording(): void {
             $meta = $this->invoke('build_category_page_meta_description', ['Amateur Webcam Models', 'Top-Models.Webcam']);
             $this->assertStringStartsWith('Amateur Webcam Models', $meta);
-            $this->assertStringContainsString('neutral browsing context', $meta);
+            $this->assertStringContainsString('browse webcam model profiles', $meta);
+            $this->assertStringNotContainsString('manual review', strtolower($meta));
+            $this->assertStringNotContainsString('neutral browsing context', $meta);
         }
 
         public function test_category_body_starts_with_focus_keyword_and_contains_required_headings(): void {
@@ -48,7 +51,8 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringContainsString('<h2>About Amateur Webcam Models</h2>', $content);
             $this->assertStringContainsString('<h2>Browse Amateur Webcam Models Videos and Models</h2>', $content);
             $this->assertStringContainsString('<h2>Frequently Asked Questions</h2>', $content);
-            $this->assertStringContainsString('<h3>What are Amateur Webcam Models?</h3>', $content);
+            $this->assertStringContainsString('<h3>What is the Amateur Webcam Models category?</h3>', $content);
+            $this->assertStringNotContainsString('<h3>What are ', $content);
         }
 
         public function test_category_template_targets_non_thin_content_length(): void {
@@ -65,7 +69,11 @@ namespace TMWSEO\Engine\Tests {
             $content = (string) $payload['content_html'];
             $this->assertStringContainsString('href="https://top-models.webcam/models/"', $content);
             $this->assertStringContainsString('href="https://top-models.webcam/videos/"', $content);
-            $this->assertSame(2, preg_match_all('/href="https?:\/\/[^\"]+"/', $content, $matches));
+            $this->assertStringContainsString('href="https://top-models.webcam/categories/"', $content);
+            $this->assertSame(3, preg_match_all('/href="https?:\/\/[^\"]+"/', $content, $matches));
+            foreach ($matches[0] as $href) {
+                $this->assertStringContainsString('top-models.webcam', $href);
+            }
             $this->assertStringNotContainsString('ctwmsg.com', $content);
             $this->assertStringNotContainsString('livejasmin.com', $content);
             $this->assertStringNotContainsString('/go/livejasmin/', $content);
@@ -223,5 +231,52 @@ namespace TMWSEO\Engine\Tests {
             $this->assertGreaterThanOrEqual(500, $wordCount);
             $this->assertLessThanOrEqual(800, $wordCount);
         }
+
+        // ── PR: category content cleanup — public internal-wording guard ────────
+
+        public function test_category_legacy_builder_output_contains_no_internal_wording(): void {
+            $post = new \WP_Post(['ID' => 31, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $payload = $this->invoke('build_category_page_template_preview', [$post, 'Big Boob Cam', []]);
+
+            $haystack = strtolower(
+                (string) $payload['seo_title'] . ' '
+                . (string) $payload['meta_description'] . ' '
+                . strip_tags((string) $payload['content_html'])
+            );
+
+            foreach (['draft', 'pipeline', 'bridge', 'manual review', 'generator', 'taxonomy structure', 'tmw_category_page'] as $forbidden) {
+                $this->assertStringNotContainsString($forbidden, $haystack, "Forbidden internal term leaked: {$forbidden}");
+            }
+        }
+
+        public function test_category_faq_heading_is_grammatical_for_singular_category_names(): void {
+            $post = new \WP_Post(['ID' => 32, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $payload = $this->invoke('build_category_page_template_preview', [$post, 'Big Boob Cam', []]);
+            $content = (string) $payload['content_html'];
+
+            $this->assertStringContainsString('<h3>What is the Big Boob Cam category?</h3>', $content);
+            $this->assertStringNotContainsString('What are Big Boob Cam?', $content);
+        }
+
+        public function test_category_seo_title_has_no_best_claim(): void {
+            $title = $this->invoke('build_category_page_seo_title', ['Big Boob Cam', '2026']);
+            $this->assertStringNotContainsString('Best', $title);
+            $this->assertStringNotContainsString('best', $title);
+        }
+
+        public function test_category_meta_description_has_no_manual_review_wording(): void {
+            $meta = strtolower((string) $this->invoke('build_category_page_meta_description', ['Big Boob Cam', 'top-models.webcam']));
+            $this->assertStringNotContainsString('manual review', $meta);
+            $this->assertStringNotContainsString('manual seo review', $meta);
+        }
+
+        public function test_category_related_links_helper_falls_back_to_real_categories_hub_link(): void {
+            $html = (string) $this->invoke('build_category_related_links_html', [845]);
+
+            $this->assertStringContainsString('href="https://top-models.webcam/categories/"', $html);
+            $this->assertStringNotContainsString('<ul>', $html);
+            $this->assertStringNotContainsString('/category/', $html);
+        }
+
     }
 }

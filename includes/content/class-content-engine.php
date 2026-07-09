@@ -865,25 +865,10 @@ class ContentEngine {
         }
         // ── END CategoryTemplatePool attempt — legacy builder below ─────────
 
-        $related_topics = !empty($keyword_pack['longtail']) && is_array($keyword_pack['longtail'])
-            ? array_slice(array_values(array_filter(array_map('strval', $keyword_pack['longtail']))), 0, 6)
-            : [];
-
-        $related_links_html = '';
-        if (!empty($related_topics)) {
-            $related_links_html .= '<ul>';
-            foreach ($related_topics as $topic) {
-                $topic_safe = trim((string) $topic);
-                if ($topic_safe === '') {
-                    continue;
-                }
-                $related_links_html .= '<li>' . esc_html($topic_safe) . '</li>';
-            }
-            $related_links_html .= '</ul>';
-        }
+        $related_links_html = self::build_category_related_links_html($post_id);
 
         $content =
-            '<p>' . esc_html($category_term) . ' is a category page designed for practical discovery across live webcam model profiles and related video archives, giving visitors a neutral way to browse a focused theme without changing any category terms or taxonomy structure.</p>' .
+            '<p>' . esc_html($category_term) . ' is a category page designed for practical discovery across live webcam model profiles and related video archives, giving visitors a neutral way to browse a focused theme from one clear starting point.</p>' .
             '<p>Browsing stays simple and non-graphic: model pages, video pages, and supporting archives are all reachable from this one starting point, so there is no need to jump between unrelated sections to find what matches this theme.</p>' .
             '<h2>About ' . esc_html($category_term) . '</h2>' .
             '<p>The purpose of this category is to gather relevant model and video listings under a single archive topic so visitors can scan quickly, compare options, and continue browsing using internal site navigation. It works as a directory layer rather than a platform-specific claim, and it does not assume one network or operator unless that relationship is already verified elsewhere in site data.</p>' .
@@ -891,16 +876,16 @@ class ContentEngine {
             '<h2>Browse ' . esc_html($category_term) . ' Videos and Models</h2>' .
             '<p>Visitors can continue with two core navigation hubs that remain stable across the site:</p>' .
             '<ul><li><a href="' . esc_url(home_url('/models/')) . '">Models Directory</a></li><li><a href="' . esc_url(home_url('/videos/')) . '">Videos Directory</a></li></ul>' .
-            '<p>From the models directory, users can open profile pages, review linked media, and pivot into adjacent categories through existing taxonomy links. From the videos directory, users can compare clip context and return to category or tag archives that align with the same browsing intent. These paths are internal, consistent, and suitable for manual SEO review workflows.</p>' .
+            '<p>From the models directory, users can open profile pages, review linked media, and pivot into adjacent categories. From the videos directory, users can compare clip context and return to category or tag archives that align with the same browsing intent. These paths are internal and consistent, so visitors can keep exploring related models and videos without leaving the site.</p>' .
             '<h2>How This Category Helps Visitors</h2>' .
             '<p>This page supports people who want a quick, organized way to explore a specific webcam topic without jumping across unrelated sections. The structure is useful for both new and returning visitors because it provides a shortlist-style archive context, then points them to model and video destinations where they can continue discovery based on preference.</p>' .
             '<p>If you arrive here from a search and this category only partly matches what you want, the Related Webcam Categories section below points to nearby themes without sending you back to the homepage first.</p>' .
             (self::build_category_supporting_keyword_sentence($keyword_pack)) .
             '<h2>Related Webcam Categories</h2>' .
-            '<p>Related category or tag archive references can be included when they are already present and contextually relevant. This avoids invented external destinations and keeps visitors inside known site sections that match the same theme.</p>' .
+            '<p>Nearby themes often overlap in style and browsing intent, so checking a related archive is usually the fastest way to widen a search without starting over from the homepage.</p>' .
             $related_links_html .
             '<h2>Frequently Asked Questions</h2>' .
-            '<h3>What are ' . esc_html($category_term) . '?</h3><p>' . esc_html($category_term) . ' pages are archive-style category pages that group matching webcam models and videos into one discoverable topic so visitors can browse efficiently.</p>' .
+            '<h3>What is the ' . esc_html($category_term) . ' category?</h3><p>The ' . esc_html($category_term) . ' category is an archive-style page that groups matching webcam models and videos into one discoverable topic so visitors can browse efficiently.</p>' .
             '<h3>How do I find related webcam videos?</h3><p>Use the Videos Directory and follow existing internal category or tag links to continue into clips that match this same browsing focus.</p>' .
             '<h3>Can I browse by model?</h3><p>Yes. Open the Models Directory to view profile pages, then navigate to related clips and connected archives from each model page.</p>' .
             '<p>The ' . esc_html($category_term) . ' archive remains a neutral starting point for visitors who want to continue through internal model and video listings.</p>';
@@ -1481,18 +1466,88 @@ class ContentEngine {
         return rtrim($html) . $paragraph;
     }
 
+
+    /**
+     * Build the "Related Webcam Categories" links block from REAL sibling
+     * category terms only (resolved via the CPT's `_tmw_linked_term_id`).
+     * Never invents slugs. Falls back to the real /categories/ hub link
+     * when no linked term or no non-empty siblings exist (also the path
+     * taken in isolated unit tests, where term functions are stubbed/absent).
+     *
+     * Read-only: performs no writes. Debug tag: [TMW-CAT-RELATED].
+     */
+    private static function build_category_related_links_html(int $post_id): string {
+        $items_html = '';
+        $emitted    = 0;
+
+        if (
+            $post_id > 0
+            && function_exists('get_post_meta')
+            && function_exists('get_term')
+            && function_exists('get_terms')
+            && function_exists('get_term_link')
+        ) {
+            $term_id = (int) get_post_meta($post_id, '_tmw_linked_term_id', true);
+
+            if ($term_id > 0) {
+                $term = get_term($term_id, 'category');
+
+                if ($term instanceof \WP_Term && $term->taxonomy === 'category') {
+                    $siblings = get_terms([
+                        'taxonomy'   => 'category',
+                        'exclude'    => [$term_id],
+                        'hide_empty' => true,
+                        'number'     => 4,
+                        'orderby'    => 'count',
+                        'order'      => 'DESC',
+                    ]);
+
+                    if (is_array($siblings)) {
+                        foreach ($siblings as $sibling) {
+                            if (!($sibling instanceof \WP_Term)) {
+                                continue;
+                            }
+
+                            $link = get_term_link($sibling);
+                            if (!is_string($link) || $link === '') {
+                                continue;
+                            }
+
+                            $items_html .= '<li><a href="' . esc_url($link) . '">' . esc_html($sibling->name) . '</a></li>';
+                            $emitted++;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ($items_html !== '') {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[TMW-CAT-RELATED] emitted=' . $emitted . ' post_id=' . $post_id);
+            }
+
+            return '<p>These related categories cover nearby themes on this site:</p><ul>' . $items_html . '</ul>';
+        }
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[TMW-CAT-RELATED] none post_id=' . $post_id);
+        }
+
+        return '<p>Browse the full <a href="' . esc_url(home_url('/categories/')) . '">categories overview</a> to find nearby themes that match the same browsing intent.</p>';
+    }
+
     private static function build_category_page_seo_title(string $category_term, string $year): string {
         $category_term = trim($category_term) !== '' ? trim($category_term) : 'Webcam Models';
         $year = trim($year) !== '' ? trim($year) : (string) gmdate('Y');
 
-        return TitleFixer::shorten($category_term . ': Best Webcam Category Guide ' . $year, 70);
+        return TitleFixer::shorten($category_term . ': Webcam Category Guide ' . $year, 70);
     }
 
     private static function build_category_page_meta_description(string $category_term, string $brand): string {
         $category_term = trim($category_term) !== '' ? trim($category_term) : 'Webcam Models';
         $brand = trim($brand) !== '' ? trim($brand) : 'Top-Models.Webcam';
 
-        return TitleFixer::shorten($category_term . ' category guide with neutral browsing context, model and video navigation, and internal links for manual review on ' . $brand . '.', 160);
+        return TitleFixer::shorten($category_term . ' category on ' . $brand . ': browse webcam model profiles, related videos, and internal links across the full directory.', 160);
     }
 
     /** @return array<string,string> */
