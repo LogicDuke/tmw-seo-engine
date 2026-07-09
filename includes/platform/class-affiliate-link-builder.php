@@ -463,6 +463,10 @@ class AffiliateLinkBuilder {
      * @return array<string,mixed>
      */
     private static function with_livejasmin_seo_defaults(array $settings): array {
+        if (trim((string) ($settings['subaffid'] ?? '')) === '' && trim((string) ($settings['subAffId'] ?? '')) !== '') {
+            $settings['subaffid'] = $settings['subAffId'];
+        }
+
         foreach (self::LIVEJASMIN_SEO_DEFAULTS as $key => $default) {
             if (!array_key_exists($key, $settings) || trim((string) $settings[$key]) === '') {
                 $settings[$key] = $default;
@@ -533,7 +537,9 @@ class AffiliateLinkBuilder {
             return '';
         }
 
-        return self::build_livejasmin_affiliate_url($clean_name, self::LIVEJASMIN_SEO_DEFAULTS);
+        $settings = self::with_livejasmin_seo_defaults(self::get_platform_affiliate_settings('livejasmin'));
+
+        return self::build_livejasmin_affiliate_url($clean_name, $settings);
     }
 
     private static function build_livejasmin_affiliate_url(string $username, array $settings): string {

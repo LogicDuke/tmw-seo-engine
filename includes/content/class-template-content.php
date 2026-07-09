@@ -3034,7 +3034,7 @@ class TemplateContent {
      * @param array<int,array<string,mixed>> $links
      */
     private static function render_confirmed_outbound_watch_cta(array $links, string $name): string {
-        $target = self::pick_confirmed_outbound_watch_target($links);
+        $target = self::pick_confirmed_outbound_watch_target($links, $name);
         if (empty($target)) {
             return '';
         }
@@ -3053,7 +3053,7 @@ class TemplateContent {
      * @param array<int,array<string,mixed>> $links
      * @return array{url:string,label:string}|array{}
      */
-    private static function pick_confirmed_outbound_watch_target(array $links): array {
+    private static function pick_confirmed_outbound_watch_target(array $links, string $name = ''): array {
         $candidates = [];
         foreach ($links as $link) {
             if (!is_array($link) || !self::verified_body_live_link_is_renderable($link)) {
@@ -3065,19 +3065,20 @@ class TemplateContent {
                 $label = 'live cam';
             }
 
-            foreach (['seo_affiliate_url', 'confirmed_affiliate_url', 'verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
-                $url = trim((string) ($link[$key] ?? ''));
-                if (!self::is_confirmed_external_http_url($url)) {
-                    continue;
-                }
-                $candidates[] = [
-                    'url' => $url,
-                    'label' => $label,
-                    'is_primary' => !empty($link['is_primary']),
-                    'source' => (string) ($link['source'] ?? ''),
-                ];
-                break;
+            $platform = AffiliateLinkBuilder::canonical_platform_slug((string) ($link['platform'] ?? ''));
+            $url = $platform === 'livejasmin'
+                ? self::livejasmin_watch_href($link, $name, false)
+                : self::generated_watch_href($link, $name);
+            if (!self::is_confirmed_external_http_url($url)) {
+                continue;
             }
+
+            $candidates[] = [
+                'url' => $url,
+                'label' => $label,
+                'is_primary' => !empty($link['is_primary']),
+                'source' => (string) ($link['source'] ?? ''),
+            ];
         }
 
         if (empty($candidates)) {
@@ -3123,10 +3124,46 @@ class TemplateContent {
      *
      * @param array<string,mixed> $link
      */
+    private static function livejasmin_watch_href(array $link, string $name = '', bool $allow_name_fallback = true): string {
+        $seo_affiliate_url = trim((string) ($link['seo_affiliate_url'] ?? ''));
+        $seo_host = strtolower((string) wp_parse_url($seo_affiliate_url, PHP_URL_HOST));
+        if ($seo_host === 'ctwmsg.com' && self::is_confirmed_external_http_url($seo_affiliate_url)) {
+            return $seo_affiliate_url;
+        }
+
+        $username = trim((string) ($link['username'] ?? $link['performerName'] ?? $link['performer_name'] ?? ''));
+        if ($username === '') {
+            foreach (['confirmed_affiliate_url', 'verified_url', 'confirmed_url', 'profile_url', 'url'] as $key) {
+                $candidate_url = trim((string) ($link[$key] ?? ''));
+                if ($candidate_url === '') {
+                    continue;
+                }
+
+                $username = PlatformProfiles::extract_username_from_profile_url('livejasmin', $candidate_url);
+                if ($username !== '') {
+                    break;
+                }
+            }
+        }
+
+        if ($username !== '') {
+            $affiliate_url = AffiliateLinkBuilder::build_seo_content_affiliate_url('livejasmin', $username);
+            if ($affiliate_url !== '') {
+                return $affiliate_url;
+            }
+        }
+
+        if ($allow_name_fallback && $name !== '') {
+            return \tmw_get_livejasmin_affiliate_url($name);
+        }
+
+        return '';
+    }
+
     private static function generated_watch_href(array $link, string $name = ''): string {
         $platform = AffiliateLinkBuilder::canonical_platform_slug((string) ($link['platform'] ?? ''));
-        if ($platform === 'livejasmin' && $name !== '') {
-            $affiliate_url = \tmw_get_livejasmin_affiliate_url($name);
+        if ($platform === 'livejasmin') {
+            $affiliate_url = self::livejasmin_watch_href($link, $name, true);
             if ($affiliate_url !== '') {
                 return $affiliate_url;
             }
@@ -3143,7 +3180,7 @@ class TemplateContent {
     }
 
     private static function render_primary_watch_cta(array $links, string $name): string {
-        $confirmed = self::pick_confirmed_outbound_watch_target($links);
+        $confirmed = self::pick_confirmed_outbound_watch_target($links, $name);
         $confirmed_url = strtolower(rtrim((string) ($confirmed['url'] ?? ''), '/'));
         foreach ($links as $link) {
             if (!is_array($link) || !self::verified_body_live_link_is_renderable($link)) {
