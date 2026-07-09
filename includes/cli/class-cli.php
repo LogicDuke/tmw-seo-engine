@@ -1093,16 +1093,7 @@ class TMWSEOCommand extends \WP_CLI_Command {
                 continue;
             }
 
-            $posts = get_posts( [
-                'post_type'      => $cpt,
-                'posts_per_page' => 1,
-                'post_status'    => [ 'publish', 'draft', 'pending', 'private' ],
-                'meta_query'     => [
-                    [ 'key' => '_tmw_linked_term_id', 'value' => $term->term_id ],
-                    [ 'key' => '_tmw_linked_taxonomy', 'value' => 'category' ],
-                ],
-            ] );
-            $post = ! empty( $posts ) ? $posts[0] : null;
+            $post = $this->find_category_page_for_term( $term, $cpt );
 
             $post_exists = $post instanceof \WP_Post && $post->post_status === 'publish';
             $title = $post ? trim( (string) get_post_meta( $post->ID, 'rank_math_title', true ) ) : '';
@@ -1115,6 +1106,7 @@ class TMWSEOCommand extends \WP_CLI_Command {
             if ( $robots === '' ) {
                 $robots = 'noindex,follow (fallback)';
             }
+            $robots_ready = stripos( $robots, 'noindex' ) === false;
 
             $rendered = '';
             if ( $post instanceof \WP_Post && trim( (string) $post->post_content ) !== '' ) {
@@ -1129,7 +1121,7 @@ class TMWSEOCommand extends \WP_CLI_Command {
             }
 
             $single_block = $rendered !== '' && substr_count( $rendered, 'tmw-category-page-content' ) <= 1;
-            $has_internal_link = (bool) preg_match( '~href="[^"]*(/models/|/videos/|/category/)~i', $rendered );
+            $has_internal_link = (bool) preg_match( '~href="[^"]*(/models/|/videos/|/category/|/categories/)~i', $rendered );
             $title_unique = $title !== '' && ( $title_counts[ strtolower( $title ) ] ?? 0 ) <= 1;
             $desc_unique  = $desc !== ''  && ( $desc_counts[ strtolower( $desc ) ] ?? 0 ) <= 1;
 
@@ -1142,6 +1134,7 @@ class TMWSEOCommand extends \WP_CLI_Command {
                 'internal_link' => $has_internal_link,
                 'title_unique'  => $title_unique,
                 'desc_unique'   => $desc_unique,
+                'robots'        => $robots_ready,
             ];
             $is_ready = ! in_array( false, $checks, true );
             if ( $is_ready ) { $ready++; }
@@ -1157,14 +1150,77 @@ class TMWSEOCommand extends \WP_CLI_Command {
                 'internal_link' => $checks['internal_link'] ? 'PASS' : 'FAIL',
                 'title_unique'  => $checks['title_unique'] ? 'PASS' : 'FAIL',
                 'desc_unique'   => $checks['desc_unique'] ? 'PASS' : 'FAIL',
-                'robots'        => $robots,
+                'robots'        => $checks['robots'] ? 'PASS:' . $robots : 'FAIL:' . $robots,
                 'ready'         => $is_ready ? 'YES' : 'no',
             ];
         }
 
         $fields = [ 'term', 'post_id', 'post', 'title', 'meta_desc', 'no_internal', 'single_block', 'internal_link', 'title_unique', 'desc_unique', 'robots', 'ready' ];
         \WP_CLI\Utils\format_items( $format, $rows, $fields );
-        \WP_CLI::log( sprintf( '[TMW-CAT-READY] checked=%d ready=%d (read-only, no data mutated)', count( $rows ), $ready ) );
+        if ( $format === 'table' ) {
+            \WP_CLI::log( sprintf( '[TMW-CAT-READY] checked=%d ready=%d (read-only, no data mutated)', count( $rows ), $ready ) );
+        }
+    }
+
+    /**
+     * Resolve the category-page post for a term using current and legacy mappings.
+     *
+     * Mirrors the mapping paths used by category content generation: the new
+     * linked-term metadata, legacy term-id metadata, slug matching, and title
+     * matching. This keeps the audit read-only while supporting existing pages.
+     */
+    private function find_category_page_for_term( \WP_Term $term, string $cpt ): ?\WP_Post {
+        $statuses = [ 'publish', 'draft', 'pending', 'private' ];
+
+        $linked_posts = get_posts( [
+            'post_type'      => $cpt,
+            'posts_per_page' => 1,
+            'post_status'    => $statuses,
+            'meta_query'     => [
+                [ 'key' => '_tmw_linked_term_id', 'value' => $term->term_id ],
+                [ 'key' => '_tmw_linked_taxonomy', 'value' => 'category' ],
+            ],
+        ] );
+        if ( ! empty( $linked_posts ) && $linked_posts[0] instanceof \WP_Post ) {
+            return $linked_posts[0];
+        }
+
+        foreach ( [ '_tmwseo_term_id', '_tmwseo_category_term_id', '_tmwseo_target_term_id', 'target_term_id' ] as $meta_key ) {
+            $legacy_posts = get_posts( [
+                'post_type'      => $cpt,
+                'posts_per_page' => 1,
+                'post_status'    => $statuses,
+                'meta_key'       => $meta_key,
+                'meta_value'     => (string) $term->term_id,
+            ] );
+            if ( ! empty( $legacy_posts ) && $legacy_posts[0] instanceof \WP_Post ) {
+                return $legacy_posts[0];
+            }
+        }
+
+        $slug_posts = get_posts( [
+            'post_type'      => $cpt,
+            'posts_per_page' => 1,
+            'post_status'    => $statuses,
+            'name'           => $term->slug,
+        ] );
+        if ( ! empty( $slug_posts ) && $slug_posts[0] instanceof \WP_Post ) {
+            return $slug_posts[0];
+        }
+
+        $title_posts = get_posts( [
+            'post_type'              => $cpt,
+            'posts_per_page'         => 1,
+            'post_status'            => $statuses,
+            'title'                  => $term->name,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ] );
+        if ( ! empty( $title_posts ) && $title_posts[0] instanceof \WP_Post ) {
+            return $title_posts[0];
+        }
+
+        return null;
     }
 
 }

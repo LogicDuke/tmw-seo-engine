@@ -871,12 +871,12 @@ class ContentEngine {
             '<p>' . esc_html($category_term) . ' is a category page designed for practical discovery across live webcam model profiles and related video archives, giving visitors a neutral way to browse a focused theme from one clear starting point.</p>' .
             '<p>Browsing stays simple and non-graphic: model pages, video pages, and supporting archives are all reachable from this one starting point, so there is no need to jump between unrelated sections to find what matches this theme.</p>' .
             '<h2>About ' . esc_html($category_term) . '</h2>' .
-            '<p>The purpose of this category is to gather relevant model and video listings under a single archive topic so visitors can scan quickly, compare options, and continue browsing using internal site navigation. It works as a directory layer rather than a platform-specific claim, and it does not assume one network or operator unless that relationship is already verified elsewhere in site data.</p>' .
-            '<p>The browsing path stays predictable from here: open the archive, review the connected model cards or clips, and move deeper through the related internal links above. Each step keeps you inside the same directory structure, so there is no need to retrace your path to find a related theme.</p>' .
+            '<p>The purpose of this category is to gather relevant model and video listings under a single archive topic so visitors can scan quickly, compare options, and continue browsing through the model, video, and category pages that fit the same theme. It works as a focused browsing guide rather than a platform-specific claim, and it does not assume one network or operator unless that relationship is already clear from the page context.</p>' .
+            '<p>The browsing path stays predictable from here: open the archive, review the connected model cards or clips, and move deeper through the related category paths above. Each step keeps nearby themes easy to reach, so there is no need to retrace your path to find a related theme.</p>' .
             '<h2>Browse ' . esc_html($category_term) . ' Videos and Models</h2>' .
             '<p>Visitors can continue with two core navigation hubs that remain stable across the site:</p>' .
             '<ul><li><a href="' . esc_url(home_url('/models/')) . '">Models Directory</a></li><li><a href="' . esc_url(home_url('/videos/')) . '">Videos Directory</a></li></ul>' .
-            '<p>From the models directory, users can open profile pages, review linked media, and pivot into adjacent categories. From the videos directory, users can compare clip context and return to category or tag archives that align with the same browsing intent. These paths are internal and consistent, so visitors can keep exploring related models and videos without leaving the site.</p>' .
+            '<p>From the models directory, users can open profile pages, review linked media, and pivot into adjacent categories. From the videos directory, users can compare clip context and return to category or tag archives that align with the same browsing intent. These paths are consistent, so visitors can keep exploring related models and videos from a familiar set of pages.</p>' .
             '<h2>How This Category Helps Visitors</h2>' .
             '<p>This page supports people who want a quick, organized way to explore a specific webcam topic without jumping across unrelated sections. The structure is useful for both new and returning visitors because it provides a shortlist-style archive context, then points them to model and video destinations where they can continue discovery based on preference.</p>' .
             '<p>If you arrive here from a search and this category only partly matches what you want, the Related Webcam Categories section below points to nearby themes without sending you back to the homepage first.</p>' .
@@ -886,9 +886,9 @@ class ContentEngine {
             $related_links_html .
             '<h2>Frequently Asked Questions</h2>' .
             '<h3>What is the ' . esc_html($category_term) . ' category?</h3><p>The ' . esc_html($category_term) . ' category is an archive-style page that groups matching webcam models and videos into one discoverable topic so visitors can browse efficiently.</p>' .
-            '<h3>How do I find related webcam videos?</h3><p>Use the Videos Directory and follow existing internal category or tag links to continue into clips that match this same browsing focus.</p>' .
+            '<h3>How do I find related webcam videos?</h3><p>Use the Videos Directory and follow related category or tag paths to continue into clips that match this same browsing focus.</p>' .
             '<h3>Can I browse by model?</h3><p>Yes. Open the Models Directory to view profile pages, then navigate to related clips and connected archives from each model page.</p>' .
-            '<p>The ' . esc_html($category_term) . ' archive remains a neutral starting point for visitors who want to continue through internal model and video listings.</p>';
+            '<p>The ' . esc_html($category_term) . ' archive remains a neutral starting point for visitors who want to continue through related model and video listings.</p>';
 
         $keyword_set = self::normalize_category_content_keyword_set($post, $focus_kw, $keyword_pack);
         $content = self::ensure_category_keyword_coverage($content, $keyword_set, $post);
@@ -1547,7 +1547,7 @@ class ContentEngine {
         $category_term = trim($category_term) !== '' ? trim($category_term) : 'Webcam Models';
         $brand = trim($brand) !== '' ? trim($brand) : 'Top-Models.Webcam';
 
-        return TitleFixer::shorten($category_term . ' category on ' . $brand . ': browse webcam model profiles, related videos, and internal links across the full directory.', 160);
+        return TitleFixer::shorten($category_term . ' category on ' . $brand . ': browse webcam model profiles, related videos, and nearby categories across the full directory.', 160);
     }
 
     /** @return array<string,string> */
