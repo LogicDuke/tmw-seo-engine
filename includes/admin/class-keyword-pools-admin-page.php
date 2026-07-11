@@ -213,13 +213,10 @@ class KeywordPoolsAdminPage {
             wp_die(esc_html(__('Import batch was not found.', 'tmwseo')));
         }
 
-        $total = $repository->count_rows($batch_id);
-        $rows = $total > 0 ? $repository->query_rows($batch_id, '', $total, 0, '', 'asc') : [];
-
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . self::batch_export_filename($batch) . '"');
         header('X-Content-Type-Options: nosniff');
-        echo self::build_batch_export_csv($batch, $rows);
+        self::stream_batch_export_csv($repository, $batch_id, $batch);
         exit;
     }
 
@@ -1440,6 +1437,15 @@ class KeywordPoolsAdminPage {
             'Difficulty',
             'CPC',
             'Competition',
+            'SEO Score',
+            'Opportunity Score',
+            'Traffic Value',
+            'Trend',
+            'Trend Direction',
+            'Ad Difficulty',
+            'Golden Keyword',
+            'KWE Opportunity Candidate',
+            'Difficulty Proxy',
             'Intent',
             'Source',
             'Import Batch ID',
@@ -1461,6 +1467,33 @@ class KeywordPoolsAdminPage {
         ];
     }
 
+    /** @param array<string,mixed> $batch */
+    private static function stream_batch_export_csv(KeywordPoolImportBatchRepository $repository, int $batch_id, array $batch): void {
+        $handle = fopen('php://output', 'w');
+        if (false === $handle) {
+            return;
+        }
+
+        fputcsv($handle, self::sanitize_csv_row(self::batch_export_headers()));
+        $chunk_size = 500;
+        $offset = 0;
+        do {
+            $rows = $repository->query_rows($batch_id, '', $chunk_size, $offset, '', 'asc');
+            foreach ($rows as $row) {
+                if (is_array($row)) {
+                    fputcsv($handle, self::sanitize_csv_row(self::stored_row_to_batch_export_values($batch, $row)));
+                }
+            }
+            $row_count = count($rows);
+            $offset += $chunk_size;
+            if (function_exists('flush')) {
+                flush();
+            }
+        } while ($row_count === $chunk_size);
+
+        fclose($handle);
+    }
+
     /** @param array<string,mixed> $batch @param array<int,array<string,mixed>> $rows */
     public static function build_batch_export_csv(array $batch, array $rows): string {
         $handle = fopen('php://temp', 'r+');
@@ -1468,10 +1501,10 @@ class KeywordPoolsAdminPage {
             return '';
         }
 
-        fputcsv($handle, self::batch_export_headers());
+        fputcsv($handle, self::sanitize_csv_row(self::batch_export_headers()));
         foreach ($rows as $row) {
             if (is_array($row)) {
-                fputcsv($handle, self::stored_row_to_batch_export_values($batch, $row));
+                fputcsv($handle, self::sanitize_csv_row(self::stored_row_to_batch_export_values($batch, $row)));
             }
         }
 
@@ -1562,6 +1595,15 @@ class KeywordPoolsAdminPage {
             self::metric_to_string($payload['difficulty'] ?? null),
             self::metric_to_string($row['cpc'] ?? $payload['cpc'] ?? null),
             self::metric_to_string($row['competition'] ?? $payload['competition'] ?? null),
+            self::metric_to_string($payload['seo_score'] ?? null),
+            self::metric_to_string($payload['opportunity_score'] ?? null),
+            self::metric_to_string($payload['traffic_value'] ?? null),
+            (string) ($payload['trend'] ?? ''),
+            (string) ($payload['trend_direction'] ?? ''),
+            self::metric_to_string($payload['ad_difficulty'] ?? null),
+            !empty($payload['is_golden_keyword']) ? 'yes' : 'no',
+            !empty($payload['kwe_opportunity_candidate']) ? 'yes' : 'no',
+            self::metric_to_string($payload['difficulty_proxy'] ?? null),
             (string) ($payload['intent'] ?? ''),
             (string) ($payload['source'] ?? $batch['source_batch'] ?? ''),
             (string) ($row['import_batch_id'] ?? $batch['import_batch_id'] ?? ''),
@@ -1581,6 +1623,18 @@ class KeywordPoolsAdminPage {
             (string) ($row['updated_at'] ?? ''),
             (string) ($row['reviewed_at'] ?? ''),
         ];
+    }
+
+    /** @param array<int,string> $row @return array<int,string> */
+    private static function sanitize_csv_row(array $row): array {
+        return array_map([ self::class, 'sanitize_csv_cell' ], $row);
+    }
+
+    private static function sanitize_csv_cell(string $value): string {
+        if ('' === $value) {
+            return '';
+        }
+        return in_array($value[0], [ '=', '+', '-', '@' ], true) ? "'" . $value : $value;
     }
 
     /** @param array<string,mixed> $batch */

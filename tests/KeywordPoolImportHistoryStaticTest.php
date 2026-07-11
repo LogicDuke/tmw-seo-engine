@@ -242,7 +242,15 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('BATCH_EXPORT_ACTION', $this->admin);
         $this->assertStringContainsString('handle_batch_export', $this->admin);
         $this->assertStringContainsString('build_batch_export_csv', $this->admin);
+        $this->assertStringContainsString('stream_batch_export_csv', $this->admin);
+        $this->assertStringContainsString('$chunk_size = 500', $this->admin);
+        $this->assertStringContainsString('php://output', $this->admin);
         $this->assertStringContainsString('batch_export_headers', $this->admin);
+        foreach ([ 'SEO Score', 'Opportunity Score', 'Traffic Value', 'Trend', 'Trend Direction', 'Ad Difficulty', 'Golden Keyword', 'KWE Opportunity Candidate', 'Difficulty Proxy' ] as $metricHeader) {
+            $this->assertStringContainsString($metricHeader, $this->admin);
+        }
+        $this->assertStringContainsString('sanitize_csv_cell', $this->admin);
+        $this->assertStringContainsString("[ '=', '+', '-', '@' ]", $this->admin);
         $this->assertStringContainsString('stored_row_to_batch_export_values', $this->admin);
         $this->assertStringContainsString('wp_nonce_url', $this->admin);
         $this->assertStringContainsString('check_admin_referer', $this->admin);
