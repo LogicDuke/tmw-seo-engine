@@ -1457,6 +1457,19 @@ class ContentEngine {
      *
      * @param array{primary_keyword:string,extra_keywords:string[],all_keywords:string[]} $keyword_set
      */
+    private static function prepare_category_ai_html_for_save(string $html, string $focus_kw, array $keyword_pack, \WP_Post $post): string {
+        if ($post->post_type !== 'tmw_category_page') {
+            return $html;
+        }
+
+        $category_focus_kw = trim($focus_kw !== '' ? $focus_kw : (string) ($keyword_pack['primary'] ?? ''));
+        if ($category_focus_kw === '') {
+            $category_focus_kw = trim((string) $post->post_title);
+        }
+
+        return self::reduce_category_focus_keyword_density($html, $category_focus_kw, $post);
+    }
+
     private static function ensure_category_keyword_coverage(string $html, array $keyword_set, \WP_Post $post): string {
         $all_keywords = array_values(array_filter(array_map('strval', $keyword_set['all_keywords'] ?? []), 'strlen'));
         if ($html === '' || empty($all_keywords)) {
@@ -1487,6 +1500,14 @@ class ContentEngine {
             $html = self::weave_category_supporting_keywords($html, $supporting, $post);
         }
 
+        // v5.8.32: cap exact focus-keyword repetition so Rank Math density
+        // stays safe and the page reads naturally. Runs before the final
+        // re-check so the missing-count log reflects the shipped content.
+        $primary = trim((string) ($keyword_set['primary_keyword'] ?? ''));
+        if ($primary !== '') {
+            $html = self::reduce_category_focus_keyword_density($html, $primary, $post);
+        }
+
         // Re-check after injection so logs report final missing count.
         $visible = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES, 'UTF-8');
         $visible_lc = function_exists('mb_strtolower') ? mb_strtolower($visible, 'UTF-8') : strtolower($visible);
@@ -1507,6 +1528,144 @@ class ContentEngine {
         ]);
 
         return $html;
+    }
+
+    /**
+     * v5.8.32: reduce exact focus-keyword repetition in category body text.
+     *
+     * Pool templates and the FAQ pool each carry the {{category_name}}
+     * placeholder, so an assembled page can repeat the exact focus keyword
+     * 15–20+ times (Rank Math flagged 21 occurrences / 2.54% density for
+     * Big Boob Cam). This pass keeps the keyword where it matters — first
+     * occurrence (intro), first occurrence inside the FAQ block, and the
+     * final occurrence (closing) — and rewrites the other exact occurrences
+     * with rotating neutral phrases ("this category", "this archive", ...).
+     *
+     * Grammar safety: a match is only replaced when the word that follows it
+     * is punctuation, a tag boundary, or a common verb/connector — so
+     * attributive uses like "Big Boob Cam performers" are left untouched
+     * rather than mangled. Only text nodes are rewritten; tags, attributes,
+     * URLs, and block comments are never modified, so links and the CTA
+     * block survive unchanged. If the page already uses the keyword 5 times
+     * or fewer, nothing is changed (which also makes the pass idempotent).
+     */
+    private static function reduce_category_focus_keyword_density(string $html, string $focus, \WP_Post $post): string {
+        $focus = trim($focus);
+        if ($html === '' || $focus === '') {
+            return $html;
+        }
+
+        $max_kept_before_reduction = 5;
+        $pattern = '/(?<![\p{L}\p{N}])' . preg_quote($focus, '/') . '(?![\p{L}\p{N}])/iu';
+
+        $parts = preg_split('/(<[^>]+>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if (!is_array($parts)) {
+            return $html;
+        }
+
+        // First pass: locate every exact occurrence in text nodes only.
+        // Text inside <h2> section headings is exempt from replacement —
+        // structural headings like "About {keyword}" keep the keyword (the
+        // "one heading where natural" slot); FAQ <h3> questions stay reducible.
+        $occurrences = []; // each: [part_index, offset, length, in_h2]
+        $faq_seen = false;
+        $faq_first_occurrence = -1;
+        $in_h2 = false;
+        foreach ($parts as $i => $part) {
+            if ($part === '' || ($part[0] ?? '') === '<') {
+                if (preg_match('/^<h2\b/i', $part)) {
+                    $in_h2 = true;
+                } elseif (preg_match('/^<\/h2/i', $part)) {
+                    $in_h2 = false;
+                }
+                continue;
+            }
+            if (!$faq_seen && stripos($part, 'Frequently Asked Questions') !== false) {
+                $faq_seen = true;
+                $faq_first_occurrence = count($occurrences); // next match index is FAQ's first
+            }
+            if (preg_match_all($pattern, $part, $m, PREG_OFFSET_CAPTURE)) {
+                foreach ($m[0] as $hit) {
+                    $occurrences[] = [$i, (int) $hit[1], strlen($hit[0]), $in_h2];
+                }
+            }
+        }
+
+        $total = count($occurrences);
+        if ($total <= $max_kept_before_reduction) {
+            return $html;
+        }
+
+        $keep = [0, $total - 1];
+        if ($faq_first_occurrence >= 0 && $faq_first_occurrence < $total) {
+            $keep[] = $faq_first_occurrence;
+        }
+        $keep = array_flip($keep);
+
+        $alternatives = ['this category', 'this archive', 'this webcam theme', 'this browsing theme', 'this page'];
+        $safe_follow = [
+            'is', 'are', 'was', 'were', 'as', 'and', 'or', 'also', 'remains', 'works',
+            'covers', 'offers', 'keeps', 'gives', 'collects', 'provides', 'includes',
+            'sits', 'stays', 'helps', 'serves', 'features', 'matches', 'leads',
+            'connects', 'lets', 'allows', 'can', 'will', 'does', 'has', 'have',
+            'may', 'should', 'would', 'content', 'in', 'on', 'for', 'with', 'from', 'to', 'at',
+        ];
+
+        $replaced = 0;
+        $rotation = 0;
+        // Replace from the end so recorded offsets stay valid.
+        for ($idx = $total - 1; $idx >= 0; $idx--) {
+            if (isset($keep[$idx])) {
+                continue;
+            }
+            [$part_index, $offset, $length, $occ_in_h2] = $occurrences[$idx];
+            if ($occ_in_h2) {
+                continue; // structural <h2> headings keep the keyword
+            }
+            $text = $parts[$part_index];
+            $after = ltrim(substr($text, $offset + $length));
+
+            $follow_ok = false;
+            if ($after === '') {
+                $follow_ok = true; // tag boundary follows (end of text node)
+            } elseif (preg_match('/^[.,;:!?)\'"\x{2019}\x{201D}]/u', $after)) {
+                $follow_ok = true;
+            } elseif (preg_match('/^([a-z]+)/i', $after, $fm) && in_array(strtolower($fm[1]), $safe_follow, true)) {
+                $follow_ok = true;
+            }
+            if (!$follow_ok) {
+                continue; // attributive use ("... performers") — leave intact
+            }
+
+            $replacement = $alternatives[$rotation % count($alternatives)];
+            $rotation++;
+
+            // Capitalize at sentence/segment start.
+            $before = substr($text, 0, $offset);
+            $before_trim = rtrim($before);
+            if ($before_trim === '' || preg_match('/[.!?]$/', $before_trim)) {
+                $replacement = ucfirst($replacement);
+            }
+
+            $parts[$part_index] = substr($text, 0, $offset) . $replacement . substr($text, $offset + $length);
+            $replaced++;
+        }
+
+        if ($replaced === 0) {
+            return $html;
+        }
+
+        $result = implode('', $parts);
+
+        Logs::info('content', '[TMW-CAT-SEO-KW] focus keyword density reduced', [
+            'post_id' => (int) $post->ID,
+            'focus' => $focus,
+            'occurrences_before' => $total,
+            'replaced' => $replaced,
+            'occurrences_after' => $total - $replaced,
+        ]);
+
+        return $result;
     }
 
     /** @param string[] $keywords */
@@ -2682,6 +2841,7 @@ class ContentEngine {
         }
 
         $html      = wp_kses_post(trim($html));
+        $html      = self::prepare_category_ai_html_for_save($html, $focus_kw, $keyword_pack, $post);
         $generated_content = $html;
         if ($debug) { error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content)); }
 
