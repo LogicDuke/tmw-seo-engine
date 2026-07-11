@@ -33,6 +33,12 @@ class TMW_Category_Affiliate_CTA {
         add_action( 'created_category', [ __CLASS__, 'save_term_meta' ] );
         add_action( 'edited_category', [ __CLASS__, 'save_term_meta' ] );
 
+        // v5.8.31: read-only backend visibility metabox on the category page
+        // editor, so the operator can confirm the active affiliate URL and
+        // CTA/slot state without inspecting the frontend. No save handler —
+        // the URL is still edited only on the category term field.
+        add_action( 'add_meta_boxes', [ __CLASS__, 'register_admin_metabox' ] );
+
         // NOTE (PR-720): this class intentionally does NOT hook
         // `get_the_archive_description` to append the CTA. That filter
         // fires before the theme's Read-more wrapper is built, so the
@@ -126,6 +132,92 @@ class TMW_Category_Affiliate_CTA {
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
             error_log( '[TMW-CAT-AFF] saved affiliate URL term_id=' . $term_id );
         }
+    }
+
+    // ── Backend visibility metabox (v5.8.31) ─────────────────────────────────
+
+    public static function register_admin_metabox(): void {
+        if ( ! function_exists( 'add_meta_box' ) ) {
+            return;
+        }
+        add_meta_box(
+            'tmw_category_affiliate_cta',
+            __( 'Category Affiliate CTA', 'tmwseo' ),
+            [ __CLASS__, 'render_admin_metabox' ],
+            'tmw_category_page',
+            'side',
+            'default'
+        );
+    }
+
+    /**
+     * Read-only metabox: shows the resolved category term, the active
+     * affiliate URL from the term's Affiliate URL field, and the CTA/slot
+     * state inside the post content. No inputs, no save handler — editing
+     * stays on the category term screen (single source of truth).
+     */
+    public static function render_admin_metabox( \WP_Post $post ): void {
+        $term = null;
+        if ( class_exists( '\\TMWSEO\\Engine\\Content\\ContentEngine' )
+            && method_exists( '\\TMWSEO\\Engine\\Content\\ContentEngine', 'resolve_category_term_for_admin' ) ) {
+            $term = \TMWSEO\Engine\Content\ContentEngine::resolve_category_term_for_admin( $post );
+        }
+
+        $url   = $term instanceof \WP_Term ? self::get_affiliate_url( $term ) : '';
+        $state = self::summarize_content_cta_state( (string) $post->post_content );
+
+        $state_labels = [
+            'cta'         => __( 'Live CTA block is in the page content.', 'tmwseo' ),
+            'slot_empty'  => __( 'Empty CTA slot in content — it upgrades to the live CTA on the next Generate once a URL is set.', 'tmwseo' ),
+            'slot_custom' => __( 'Slot contains operator-edited content — the generator never overwrites it.', 'tmwseo' ),
+            'none'        => __( 'No CTA or slot in content yet — run Generate to add one.', 'tmwseo' ),
+        ];
+
+        echo '<div class="tmw-cat-cta-metabox">';
+
+        if ( $term instanceof \WP_Term ) {
+            $edit_link = function_exists( 'get_edit_term_link' )
+                ? (string) get_edit_term_link( $term->term_id, $term->taxonomy )
+                : admin_url( 'term.php?taxonomy=' . rawurlencode( (string) $term->taxonomy ) . '&tag_ID=' . (int) $term->term_id );
+
+            echo '<p><strong>' . esc_html__( 'Linked term:', 'tmwseo' ) . '</strong> ' . esc_html( (string) $term->name );
+            if ( $edit_link !== '' ) {
+                echo ' — <a href="' . esc_url( $edit_link ) . '">' . esc_html__( 'edit term', 'tmwseo' ) . '</a>';
+            }
+            echo '</p>';
+
+            if ( $url !== '' ) {
+                echo '<p><strong>' . esc_html__( 'Active affiliate URL:', 'tmwseo' ) . '</strong><br />';
+                echo '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( $url ) . '</a></p>';
+            } else {
+                echo '<p><strong>' . esc_html__( 'Active affiliate URL:', 'tmwseo' ) . '</strong> ' . esc_html__( 'not set', 'tmwseo' ) . '</p>';
+            }
+        } else {
+            echo '<p>' . esc_html__( 'No linked category term resolved for this page yet.', 'tmwseo' ) . '</p>';
+        }
+
+        echo '<p>' . esc_html( $state_labels[ $state ] ?? $state_labels['none'] ) . '</p>';
+        echo '<p class="description">' . esc_html__( 'The URL is edited on the category term (Affiliate URL field). This panel is read-only.', 'tmwseo' ) . '</p>';
+        echo '</div>';
+    }
+
+    /**
+     * Classify the CTA/slot state of a content string. Public and pure so it
+     * is unit-testable and reusable.
+     *
+     * @return string One of: cta | slot_empty | slot_custom | none
+     */
+    public static function summarize_content_cta_state( string $content ): string {
+        if ( strpos( $content, self::CTA_MARKER_CLASS ) !== false ) {
+            return 'cta';
+        }
+        if ( strpos( $content, 'tmw-category-affiliate-slot' ) === false ) {
+            return 'none';
+        }
+        if ( preg_match( '/<div class="tmw-category-affiliate-slot">\s*<\/div>/', $content ) ) {
+            return 'slot_empty';
+        }
+        return 'slot_custom';
     }
 
     // ── Public data helper ───────────────────────────────────────────────────
