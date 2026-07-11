@@ -622,5 +622,119 @@ namespace TMWSEO\Engine\Tests {
             $this->assertStringContainsString('model profiles', $covered);
         }
 
+        // ── v5.8.31: Rank Math extras write path + CTA backend state ─────────
+
+        public function test_pool_backed_pack_writes_exactly_four_rankmath_extras_even_when_meta_not_empty(): void {
+            $post_id = 930;
+            // Stale pre-pool value: only 2 extras (the Big Boob Cam symptom).
+            $GLOBALS['_tmw_test_post_meta'][$post_id] = [
+                'rank_math_additional_keywords' => 'old keyword one, old keyword two',
+            ];
+
+            $pack = [
+                'primary' => 'Big Boob Cam',
+                'additional' => ['a1','a2','a3','a4','a5','a6'],
+                'rankmath_additional' => ['big boobs webcam', 'huge tits cam', 'busty cam girls', 'big tit live chat'],
+                'sources' => ['category_pool' => 'category_db_approved'],
+            ];
+
+            $this->invoke('apply_category_rankmath_extras', [$post_id, $pack]);
+
+            $written = (string) get_post_meta($post_id, 'rank_math_additional_keywords', true);
+            $this->assertSame('big boobs webcam, huge tits cam, busty cam girls, big tit live chat', $written);
+            $this->assertCount(4, array_map('trim', explode(',', $written)));
+        }
+
+        public function test_pool_backed_pack_with_more_than_four_extras_is_capped_at_four(): void {
+            $post_id = 931;
+            $GLOBALS['_tmw_test_post_meta'][$post_id] = [];
+
+            $pack = [
+                'primary' => 'Big Boob Cam',
+                'rankmath_additional' => ['k1','k2','k3','k4','k5','k6'],
+                'sources' => ['category_pool' => 'category_db_approved'],
+            ];
+
+            $this->invoke('apply_category_rankmath_extras', [$post_id, $pack]);
+
+            $written = (string) get_post_meta($post_id, 'rank_math_additional_keywords', true);
+            $this->assertSame('k1, k2, k3, k4', $written);
+        }
+
+        public function test_non_pool_pack_never_overwrites_existing_rankmath_extras(): void {
+            $post_id = 932;
+            $GLOBALS['_tmw_test_post_meta'][$post_id] = [
+                'rank_math_additional_keywords' => 'operator kw one, operator kw two',
+            ];
+
+            $pack = [
+                'primary' => 'Big Boob Cam',
+                'additional' => ['label derived one', 'label derived two'],
+                'rankmath_additional' => ['label derived one', 'label derived two'],
+                'sources' => [],
+            ];
+
+            $this->invoke('apply_category_rankmath_extras', [$post_id, $pack]);
+
+            $this->assertSame(
+                'operator kw one, operator kw two',
+                (string) get_post_meta($post_id, 'rank_math_additional_keywords', true)
+            );
+        }
+
+        public function test_non_pool_pack_fills_empty_meta_with_legacy_behavior(): void {
+            $post_id = 933;
+            $GLOBALS['_tmw_test_post_meta'][$post_id] = [];
+
+            $pack = [
+                'primary' => 'Big Boob Cam',
+                'additional' => ['label one', 'label two'],
+                'sources' => [],
+            ];
+
+            $this->invoke('apply_category_rankmath_extras', [$post_id, $pack]);
+
+            $this->assertSame(
+                'label one, label two',
+                (string) get_post_meta($post_id, 'rank_math_additional_keywords', true)
+            );
+        }
+
+        public function test_pool_refresh_is_idempotent_for_identical_extras(): void {
+            $post_id = 934;
+            $GLOBALS['_tmw_test_post_meta'][$post_id] = [
+                'rank_math_additional_keywords' => 'k1, k2, k3, k4',
+            ];
+
+            $pack = [
+                'primary' => 'Big Boob Cam',
+                'rankmath_additional' => ['k1', 'k2', 'k3', 'k4'],
+                'sources' => ['category_pool' => 'category_db_approved'],
+            ];
+
+            $this->invoke('apply_category_rankmath_extras', [$post_id, $pack]);
+
+            $this->assertSame(
+                'k1, k2, k3, k4',
+                (string) get_post_meta($post_id, 'rank_math_additional_keywords', true)
+            );
+        }
+
+        public function test_cta_state_summarizer_classifies_all_states(): void {
+            if (!class_exists('TMW_Category_Affiliate_CTA')) {
+                require_once dirname(__DIR__) . '/includes/categories/class-category-affiliate-cta.php';
+            }
+
+            $this->assertSame('cta', \TMW_Category_Affiliate_CTA::summarize_content_cta_state(
+                '<p>x</p><!-- wp:html --><div class="tmw-category-page-affiliate-cta"><a href="https://x.test/o">Visit</a></div><!-- /wp:html -->'
+            ));
+            $this->assertSame('slot_empty', \TMW_Category_Affiliate_CTA::summarize_content_cta_state(
+                "<p>x</p>\n<!-- wp:html -->\n<div class=\"tmw-category-affiliate-slot\"></div>\n<!-- /wp:html -->"
+            ));
+            $this->assertSame('slot_custom', \TMW_Category_Affiliate_CTA::summarize_content_cta_state(
+                '<div class="tmw-category-affiliate-slot"><a href="https://manual.test/x">Manual</a></div>'
+            ));
+            $this->assertSame('none', \TMW_Category_Affiliate_CTA::summarize_content_cta_state('<p>plain content</p>'));
+        }
     }
 }

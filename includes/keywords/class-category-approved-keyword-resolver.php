@@ -320,12 +320,23 @@ class CategoryApprovedKeywordResolver {
     /**
      * Produce a token-sorted key for reorder-duplicate detection.
      * "amateur webcam" and "webcam amateur" → same key.
+     *
+     * v5.8.31: tokens are also plural-folded (trailing "s" stripped from
+     * tokens longer than 3 chars, except "ss" endings), so near-duplicates
+     * like "big boob cam" vs "big boob cams" collapse to one slot instead
+     * of occupying two of the four Rank Math extra keyword slots.
      */
     protected function token_key( string $keyword ): string {
         $tokens = array_filter( preg_split( '/\s+/u', strtolower( trim( $keyword ) ) ) ?: [] );
         if ( empty( $tokens ) ) {
             return '';
         }
+        $tokens = array_map( static function ( string $token ): string {
+            if ( strlen( $token ) > 3 && substr( $token, -1 ) === 's' && substr( $token, -2 ) !== 'ss' ) {
+                return substr( $token, 0, -1 );
+            }
+            return $token;
+        }, $tokens );
         sort( $tokens );
         return implode( ' ', $tokens );
     }

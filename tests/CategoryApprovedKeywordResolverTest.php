@@ -279,4 +279,55 @@ class CategoryApprovedKeywordResolverTest extends TestCase {
         $result = $this->resolver->test_process_rows( $rows, 'focus', 4, 5 );
         $this->assertCount( 5, $result['content_terms'] );
     }
+
+    // ── v5.8.31: 4 Rank Math extras from a large approved pool ────────────────
+
+    public function test_large_approved_pool_yields_exactly_four_rankmath_extras(): void {
+        // 31 approved keywords, volume-sorted candidates first.
+        $rows = [
+            $this->approved_row( 'big boobs webcam', 900 ),
+            $this->approved_row( 'huge tits cam', 800 ),
+            $this->approved_row( 'busty cam girls', 700 ),
+            $this->approved_row( 'big tit live chat', 600 ),
+            $this->approved_row( 'big natural boobs cam', 500 ),
+        ];
+        for ( $i = 1; $i <= 26; $i++ ) {
+            $rows[] = $this->approved_row( "filler keyword {$i}", 26 - $i );
+        }
+        $this->assertCount( 31, $rows );
+
+        $result = $this->resolver->test_process_rows( $rows, 'Big Boob Cam' );
+
+        $this->assertCount( 4, $result['rankmath_extras'] );
+        $this->assertSame(
+            [ 'big boobs webcam', 'huge tits cam', 'busty cam girls', 'big tit live chat' ],
+            $result['rankmath_extras']
+        );
+        $this->assertSame( 31, $result['pool_count'] );
+        // Everything past the 4 extras remains available for content use.
+        $this->assertContains( 'big natural boobs cam', $result['content_terms'] );
+    }
+
+    public function test_plural_near_duplicates_do_not_consume_extra_slots(): void {
+        $rows = [
+            $this->approved_row( 'big boob webcam', 900 ),
+            $this->approved_row( 'big boob webcams', 850 ), // plural near-dupe
+            $this->approved_row( 'cams big boob', 800 ),    // reorder+plural near-dupe of focus-adjacent term
+            $this->approved_row( 'huge tits cam', 700 ),
+            $this->approved_row( 'busty live chat', 600 ),
+            $this->approved_row( 'big tit cam show', 500 ),
+        ];
+
+        $result = $this->resolver->test_process_rows( $rows, 'Big Boob Cam' );
+
+        // 'big boob webcams' folds onto 'big boob webcam'; 'cams big boob'
+        // folds onto the focus keyword — neither occupies an extras slot.
+        $this->assertCount( 4, $result['rankmath_extras'] );
+        $this->assertSame(
+            [ 'big boob webcam', 'huge tits cam', 'busty live chat', 'big tit cam show' ],
+            $result['rankmath_extras']
+        );
+        $this->assertNotContains( 'big boob webcams', $result['rankmath_extras'] );
+        $this->assertNotContains( 'big boob webcams', $result['content_terms'] );
+    }
 }

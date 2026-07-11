@@ -1292,6 +1292,14 @@ class ContentEngine {
      * by slug/title. Some installs also persist a target term ID in post meta, so
      * this checks explicit term IDs before slug/title lookups.
      */
+    /**
+     * v5.8.31: public wrapper so admin UI (affiliate CTA metabox) can reuse
+     * the exact same category term resolution the generator uses. Read-only.
+     */
+    public static function resolve_category_term_for_admin(\WP_Post $post): ?\WP_Term {
+        return self::resolve_category_content_term($post);
+    }
+
     private static function resolve_category_content_term(\WP_Post $post): ?\WP_Term {
         if ($post->post_type !== 'tmw_category_page') {
             return null;
@@ -2799,13 +2807,54 @@ class ContentEngine {
             update_post_meta($post_id, 'rank_math_focus_keyword', $pack['primary']);
         }
 
-        if (!empty($pack['additional']) && trim((string) get_post_meta($post_id, 'rank_math_additional_keywords', true)) === '') {
-            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', array_slice($pack['additional'], 0, 8)));
-        }
+        self::apply_category_rankmath_extras($post_id, $pack);
 
         update_post_meta($post_id, '_tmwseo_keyword_pack', wp_json_encode($pack));
 
         return $pack;
+    }
+
+    /**
+     * v5.8.31: write Rank Math additional keywords for a category page.
+     *
+     * Rank Math supports 4 extra keywords next to the focus keyword. When the
+     * approved category keyword pool resolved (sources.category_pool set), the
+     * top pool candidates — volume-sorted and de-duplicated by the resolver —
+     * are written as exactly up to 4 extras, refreshing stale values from
+     * before the pool existed. The focus keyword is never touched here.
+     *
+     * Without an approved pool, the legacy behavior is preserved exactly:
+     * label-derived additionals are written only when the meta is still empty.
+     */
+    private static function apply_category_rankmath_extras(int $post_id, array $pack): void {
+        $existing = trim((string) get_post_meta($post_id, 'rank_math_additional_keywords', true));
+        $has_pool = isset($pack['sources']['category_pool']);
+
+        if ($has_pool && !empty($pack['rankmath_additional']) && is_array($pack['rankmath_additional'])) {
+            $extras = array_slice(array_values(array_filter(array_map('strval', $pack['rankmath_additional']), 'strlen')), 0, 4);
+            if (empty($extras)) {
+                return;
+            }
+            $rm_value = implode(', ', $extras);
+
+            if ($existing !== '' && strcasecmp($existing, $rm_value) === 0) {
+                return;
+            }
+
+            update_post_meta($post_id, 'rank_math_additional_keywords', $rm_value);
+            Logs::info('content', '[TMW-CAT-KW] rank math extras written from approved pool', [
+                'post_id'  => $post_id,
+                'extras'   => $rm_value,
+                'previous' => $existing,
+                'count'    => count($extras),
+            ]);
+            return;
+        }
+
+        // Legacy fallback path (no approved pool): fill only when empty.
+        if (!empty($pack['additional']) && $existing === '') {
+            update_post_meta($post_id, 'rank_math_additional_keywords', implode(', ', array_slice($pack['additional'], 0, 8)));
+        }
     }
 
     /**
