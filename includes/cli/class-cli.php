@@ -1014,6 +1014,215 @@ class TMWSEOCommand extends \WP_CLI_Command {
         ) );
     }
 
+
+    // ── Category index readiness (read-only) ────────────────────────────────
+
+    /**
+     * Read-only index-readiness report for category archive pages.
+     *
+     * Checks each category term's linked tmw_category_page CPT post against
+     * the pre-index checklist. Never mutates data. Debug tag: [TMW-CAT-READY].
+     *
+     * ## OPTIONS
+     *
+     * [--term=<slug>]
+     * : Only check the category with this slug.
+     *
+     * [--format=<format>]
+     * : Output format: table or json. Default: table.
+     *
+     * ## EXAMPLES
+     *
+     *     wp tmwseo category-readiness
+     *     wp tmwseo category-readiness --term=big-boob-cam
+     *     wp tmwseo category-readiness --format=json
+     *
+     * @subcommand category-readiness
+     */
+    public function category_readiness( $args, $assoc ) {
+        $format = isset( $assoc['format'] ) && in_array( $assoc['format'], [ 'table', 'json' ], true )
+            ? $assoc['format']
+            : 'table';
+        $only_slug = isset( $assoc['term'] ) ? sanitize_title( (string) $assoc['term'] ) : '';
+
+        $cpt = defined( 'TMW_CATEGORY_PAGE_CPT' ) ? TMW_CATEGORY_PAGE_CPT : 'tmw_category_page';
+
+        $forbidden_terms = [
+            'draft',
+            'pipeline',
+            'bridge',
+            'manual review',
+            'generator',
+            'taxonomy structure',
+            'tmw_category_page',
+        ];
+
+        $term_query = [
+            'taxonomy'   => 'category',
+            'hide_empty' => false,
+        ];
+        if ( $only_slug !== '' ) {
+            $term_query['slug'] = $only_slug;
+        }
+
+        $terms = get_terms( $term_query );
+        if ( is_wp_error( $terms ) || empty( $terms ) ) {
+            \WP_CLI::error( '[TMW-CAT-READY] No category terms found' . ( $only_slug !== '' ? " for slug '{$only_slug}'." : '.' ) );
+        }
+
+        $all_pages = get_posts( [
+            'post_type'      => $cpt,
+            'posts_per_page' => -1,
+            'post_status'    => [ 'publish', 'draft', 'pending', 'private' ],
+            'fields'         => 'ids',
+        ] );
+        $title_counts = [];
+        $desc_counts  = [];
+        foreach ( $all_pages as $pid ) {
+            $t = strtolower( trim( (string) get_post_meta( (int) $pid, 'rank_math_title', true ) ) );
+            $d = strtolower( trim( (string) get_post_meta( (int) $pid, 'rank_math_description', true ) ) );
+            if ( $t !== '' ) { $title_counts[ $t ] = ( $title_counts[ $t ] ?? 0 ) + 1; }
+            if ( $d !== '' ) { $desc_counts[ $d ]  = ( $desc_counts[ $d ] ?? 0 ) + 1; }
+        }
+
+        $rows  = [];
+        $ready = 0;
+
+        foreach ( $terms as $term ) {
+            if ( ! $term instanceof \WP_Term ) {
+                continue;
+            }
+
+            $post = $this->find_category_page_for_term( $term, $cpt );
+
+            $post_exists = $post instanceof \WP_Post && $post->post_status === 'publish';
+            $title = $post ? trim( (string) get_post_meta( $post->ID, 'rank_math_title', true ) ) : '';
+            $desc  = $post ? trim( (string) get_post_meta( $post->ID, 'rank_math_description', true ) ) : '';
+            $robots = $post ? get_post_meta( $post->ID, 'rank_math_robots', true ) : '';
+            if ( is_array( $robots ) ) {
+                $robots = implode( ',', array_map( 'strval', $robots ) );
+            }
+            $robots = (string) $robots;
+            if ( $robots === '' ) {
+                $robots = 'noindex,follow (fallback)';
+            }
+            $robots_ready = stripos( $robots, 'noindex' ) === false;
+
+            $rendered = '';
+            if ( $post instanceof \WP_Post && trim( (string) $post->post_content ) !== '' ) {
+                $rendered = (string) apply_filters( 'the_content', $post->post_content );
+            }
+            $scan_haystack = strtolower( $rendered . ' ' . $title . ' ' . $desc );
+            $found_forbidden = [];
+            foreach ( $forbidden_terms as $needle ) {
+                if ( strpos( $scan_haystack, $needle ) !== false ) {
+                    $found_forbidden[] = $needle;
+                }
+            }
+
+            $single_block = $rendered !== '' && substr_count( $rendered, 'tmw-category-page-content' ) <= 1;
+            $has_internal_link = (bool) preg_match( '~href="[^"]*(/models/|/videos/|/category/|/categories/)~i', $rendered );
+            $title_unique = $title !== '' && ( $title_counts[ strtolower( $title ) ] ?? 0 ) <= 1;
+            $desc_unique  = $desc !== ''  && ( $desc_counts[ strtolower( $desc ) ] ?? 0 ) <= 1;
+
+            $checks = [
+                'post'          => $post_exists,
+                'title'         => $title !== '',
+                'meta_desc'     => $desc !== '',
+                'no_internal'   => empty( $found_forbidden ),
+                'single_block'  => $single_block,
+                'internal_link' => $has_internal_link,
+                'title_unique'  => $title_unique,
+                'desc_unique'   => $desc_unique,
+                'robots'        => $robots_ready,
+            ];
+            $is_ready = ! in_array( false, $checks, true );
+            if ( $is_ready ) { $ready++; }
+
+            $rows[] = [
+                'term'          => $term->slug,
+                'post_id'       => $post instanceof \WP_Post ? $post->ID : 0,
+                'post'          => $checks['post'] ? 'PASS' : 'FAIL',
+                'title'         => $checks['title'] ? 'PASS' : 'FAIL',
+                'meta_desc'     => $checks['meta_desc'] ? 'PASS' : 'FAIL',
+                'no_internal'   => $checks['no_internal'] ? 'PASS' : 'FAIL:' . implode( '|', $found_forbidden ),
+                'single_block'  => $checks['single_block'] ? 'PASS' : 'FAIL',
+                'internal_link' => $checks['internal_link'] ? 'PASS' : 'FAIL',
+                'title_unique'  => $checks['title_unique'] ? 'PASS' : 'FAIL',
+                'desc_unique'   => $checks['desc_unique'] ? 'PASS' : 'FAIL',
+                'robots'        => $checks['robots'] ? 'PASS:' . $robots : 'FAIL:' . $robots,
+                'ready'         => $is_ready ? 'YES' : 'no',
+            ];
+        }
+
+        $fields = [ 'term', 'post_id', 'post', 'title', 'meta_desc', 'no_internal', 'single_block', 'internal_link', 'title_unique', 'desc_unique', 'robots', 'ready' ];
+        \WP_CLI\Utils\format_items( $format, $rows, $fields );
+        if ( $format === 'table' ) {
+            \WP_CLI::log( sprintf( '[TMW-CAT-READY] checked=%d ready=%d (read-only, no data mutated)', count( $rows ), $ready ) );
+        }
+    }
+
+    /**
+     * Resolve the category-page post for a term using current and legacy mappings.
+     *
+     * Mirrors the mapping paths used by category content generation: the new
+     * linked-term metadata, legacy term-id metadata, slug matching, and title
+     * matching. This keeps the audit read-only while supporting existing pages.
+     */
+    private function find_category_page_for_term( \WP_Term $term, string $cpt ): ?\WP_Post {
+        $statuses = [ 'publish', 'draft', 'pending', 'private' ];
+
+        $linked_posts = get_posts( [
+            'post_type'      => $cpt,
+            'posts_per_page' => 1,
+            'post_status'    => $statuses,
+            'meta_query'     => [
+                [ 'key' => '_tmw_linked_term_id', 'value' => $term->term_id ],
+                [ 'key' => '_tmw_linked_taxonomy', 'value' => 'category' ],
+            ],
+        ] );
+        if ( ! empty( $linked_posts ) && $linked_posts[0] instanceof \WP_Post ) {
+            return $linked_posts[0];
+        }
+
+        foreach ( [ '_tmwseo_term_id', '_tmwseo_category_term_id', '_tmwseo_target_term_id', 'target_term_id' ] as $meta_key ) {
+            $legacy_posts = get_posts( [
+                'post_type'      => $cpt,
+                'posts_per_page' => 1,
+                'post_status'    => $statuses,
+                'meta_key'       => $meta_key,
+                'meta_value'     => (string) $term->term_id,
+            ] );
+            if ( ! empty( $legacy_posts ) && $legacy_posts[0] instanceof \WP_Post ) {
+                return $legacy_posts[0];
+            }
+        }
+
+        $slug_posts = get_posts( [
+            'post_type'      => $cpt,
+            'posts_per_page' => 1,
+            'post_status'    => $statuses,
+            'name'           => $term->slug,
+        ] );
+        if ( ! empty( $slug_posts ) && $slug_posts[0] instanceof \WP_Post ) {
+            return $slug_posts[0];
+        }
+
+        $title_posts = get_posts( [
+            'post_type'              => $cpt,
+            'posts_per_page'         => 1,
+            'post_status'            => $statuses,
+            'title'                  => $term->name,
+            'update_post_meta_cache' => false,
+            'update_post_term_cache' => false,
+        ] );
+        if ( ! empty( $title_posts ) && $title_posts[0] instanceof \WP_Post ) {
+            return $title_posts[0];
+        }
+
+        return null;
+    }
+
 }
 
 \WP_CLI::add_command( 'tmwseo', 'TMWSEO\Engine\CLI\TMWSEOCommand' );
