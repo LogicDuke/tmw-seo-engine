@@ -3280,6 +3280,14 @@ class ContentEngine {
         if (strpos($content, $marker) !== false) {
             $parts = explode($marker, $content, 2);
             $before = rtrim($parts[0]);
+            $preserved_slot = self::extract_category_affiliate_slot_block((string) ($parts[1] ?? ''));
+            if ($preserved_slot !== ''
+                && strpos($html, 'tmw-category-affiliate-slot') === false
+                && strpos($html, 'tmw-category-page-affiliate-cta') === false
+            ) {
+                $html = rtrim($html) . "\n\n" . $preserved_slot;
+                Logs::info('content', '[TMW-CAT-CTA-GEN] preserved affiliate slot across AI block upsert');
+            }
             return $before . "\n" . $marker . "\n" . $html . "\n";
         }
 
@@ -3287,6 +3295,30 @@ class ContentEngine {
         $content = rtrim($content);
         if ($content !== '') $content .= "\n\n";
         return $content . $marker . "\n" . $html . "\n";
+    }
+
+    /**
+     * Preserve the editable category affiliate slot when regenerating AI content.
+     *
+     * upsert_ai_block() intentionally replaces everything after the AI marker.
+     * Category affiliate slots also live after that marker, so an operator-edited
+     * slot must be carried forward before append_category_affiliate_cta_html()
+     * decides whether to retain, upgrade, or dedupe it.
+     */
+    private static function extract_category_affiliate_slot_block(string $content): string {
+        if (strpos($content, 'tmw-category-affiliate-slot') === false) {
+            return '';
+        }
+
+        if (preg_match('/<!--\s*wp:html\s*-->.*?tmw-category-affiliate-slot.*?<!--\s*\/wp:html\s*-->/s', $content, $m)) {
+            return trim((string) $m[0]);
+        }
+
+        if (preg_match('/<div\s+class="tmw-category-affiliate-slot"[^>]*>.*?<\/div>/s', $content, $m)) {
+            return self::wrap_category_cta_block(trim((string) $m[0]));
+        }
+
+        return '';
     }
 
     public static function get_publish_autopilot_hook_status(): array {

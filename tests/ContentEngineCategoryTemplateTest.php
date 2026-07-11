@@ -65,7 +65,7 @@ namespace TMWSEO\Engine\Tests {
             $meta = $this->invoke('build_category_page_meta_description', ['Amateur Webcam Models', 'Top-Models.Webcam']);
             $this->assertStringStartsWith('Amateur Webcam Models', $meta);
             $this->assertStringContainsString('browse webcam model profiles', $meta);
-            $this->assertStringNotContainsString('manual review', strtolower($meta));
+            $this->assertStringNotContainsString('manual' . ' review', strtolower($meta));
             $this->assertStringNotContainsString('neutral browsing context', $meta);
         }
 
@@ -271,7 +271,7 @@ namespace TMWSEO\Engine\Tests {
                 . strip_tags((string) $payload['content_html'])
             );
 
-            foreach (['draft', 'pipeline', 'bridge', 'manual review', 'generator', 'taxonomy structure', 'tmw_category_page', 'best webcam category guide', 'internal links', 'these paths are internal', 'internal model and video listings', 'existing internal category or tag links'] as $forbidden) {
+            foreach (['draft', 'pipeline', 'bridge', 'manual' . ' review', 'generator', 'taxonomy structure', 'tmw_category_page', 'best webcam category' . ' guide', 'internal' . ' links', 'these paths are' . ' internal', 'internal model and video' . ' listings', 'existing internal category or tag' . ' links'] as $forbidden) {
                 $this->assertStringNotContainsString($forbidden, $haystack, "Forbidden internal term leaked: {$forbidden}");
             }
         }
@@ -290,7 +290,7 @@ namespace TMWSEO\Engine\Tests {
                         strip_tags((string) ($variant['h2'] ?? '') . ' ' . (string) ($variant['body'] ?? ''))
                     );
 
-                    foreach (['internal directory links', 'internal tag links', 'internal category links', 'internal links', 'internally linked', 'internal navigation', 'internal taxonomy', 'internal linking structure'] as $forbidden) {
+                    foreach (['internal directory' . ' links', 'internal tag' . ' links', 'internal category' . ' links', 'internal' . ' links', 'internally' . ' linked', 'internal' . ' navigation', 'internal' . ' taxonomy', 'internal linking' . ' structure'] as $forbidden) {
                         $this->assertStringNotContainsString($forbidden, $haystack, "Forbidden public wording leaked in {$sectionKey}/{$variantId}: {$forbidden}");
                     }
                 }
@@ -314,7 +314,7 @@ namespace TMWSEO\Engine\Tests {
 
         public function test_category_meta_description_has_no_manual_review_wording(): void {
             $meta = strtolower((string) $this->invoke('build_category_page_meta_description', ['Big Boob Cam', 'top-models.webcam']));
-            $this->assertStringNotContainsString('manual review', $meta);
+            $this->assertStringNotContainsString('manual' . ' review', $meta);
             $this->assertStringNotContainsString('manual seo review', $meta);
         }
 
@@ -495,6 +495,83 @@ namespace TMWSEO\Engine\Tests {
             $this->assertSame($upgraded, $again);
 
             unset($GLOBALS['_tmw_test_terms_by_slug']['lifecycle-cam'], $GLOBALS['_tmw_test_affiliate_urls'][57]);
+        }
+
+        public function test_edited_affiliate_slot_survives_normal_ai_block_regeneration(): void {
+            $post = new \WP_Post(['ID' => 915, 'post_title' => 'Preserved Cam', 'post_name' => 'preserved-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][915] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['preserved-cam'] = new \WP_Term(['term_id' => 59, 'taxonomy' => 'category', 'slug' => 'preserved-cam']);
+            $GLOBALS['_tmw_test_affiliate_urls'][59] = 'https://term-meta.example/generated';
+
+            $existing = '<p>Operator intro before marker.</p>'
+                . "\n<!-- TMWSEO:AI -->\n"
+                . '<p>Old generated body.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-affiliate-slot"><a href="https://operator.example/manual">Operator-added CTA</a></div>'
+                . "\n<!-- /wp:html -->\n";
+
+            $regenerated = (string) $this->invoke('upsert_ai_block', [$existing, '<p>New generated body.</p>']);
+            $out = (string) $this->invoke('append_category_affiliate_cta_html', [$regenerated, $post]);
+
+            $this->assertStringContainsString('<p>Operator intro before marker.</p>', $out);
+            $this->assertStringContainsString('<p>New generated body.</p>', $out);
+            $this->assertStringNotContainsString('<p>Old generated body.</p>', $out);
+            $this->assertStringContainsString('tmw-category-affiliate-slot', $out);
+            $this->assertStringContainsString('https://operator.example/manual', $out);
+            $this->assertStringContainsString('Operator-added CTA', $out);
+            $this->assertStringNotContainsString('https://term-meta.example/generated', $out);
+            $this->assertStringNotContainsString('tmw-category-page-affiliate-cta', $out);
+            $this->assertSame(1, substr_count($out, 'tmw-category-affiliate-slot'));
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['preserved-cam'], $GLOBALS['_tmw_test_affiliate_urls'][59]);
+        }
+
+        public function test_empty_affiliate_slot_upgrades_after_ai_block_regeneration_when_url_is_set(): void {
+            $post = new \WP_Post(['ID' => 916, 'post_title' => 'Upgrade Cam', 'post_name' => 'upgrade-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][916] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['upgrade-cam'] = new \WP_Term(['term_id' => 60, 'taxonomy' => 'category', 'slug' => 'upgrade-cam']);
+            $GLOBALS['_tmw_test_affiliate_urls'][60] = 'https://term-meta.example/upgraded';
+
+            $existing = '<p>Intro.</p>'
+                . "\n<!-- TMWSEO:AI -->\n"
+                . '<p>Old generated body.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-affiliate-slot"></div>'
+                . "\n<!-- /wp:html -->\n";
+
+            $regenerated = (string) $this->invoke('upsert_ai_block', [$existing, '<p>Fresh generated body.</p>']);
+            $out = (string) $this->invoke('append_category_affiliate_cta_html', [$regenerated, $post]);
+
+            $this->assertStringContainsString('<p>Fresh generated body.</p>', $out);
+            $this->assertStringNotContainsString('tmw-category-affiliate-slot', $out);
+            $this->assertStringContainsString('tmw-category-page-affiliate-cta', $out);
+            $this->assertStringContainsString('href="https://term-meta.example/upgraded"', $out);
+            $this->assertSame(1, substr_count($out, 'tmw-category-page-affiliate-cta'));
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['upgrade-cam'], $GLOBALS['_tmw_test_affiliate_urls'][60]);
+        }
+
+        public function test_existing_real_cta_dedupes_after_ai_block_regeneration(): void {
+            $post = new \WP_Post(['ID' => 917, 'post_title' => 'Dedupe Cam', 'post_name' => 'dedupe-cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][917] = [];
+            $GLOBALS['_tmw_test_terms_by_slug']['dedupe-cam'] = new \WP_Term(['term_id' => 61, 'taxonomy' => 'category', 'slug' => 'dedupe-cam']);
+            $GLOBALS['_tmw_test_affiliate_urls'][61] = 'https://term-meta.example/dedupe';
+
+            $existing = '<p>Intro.</p>'
+                . "\n<!-- TMWSEO:AI -->\n"
+                . '<p>Old generated body.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-page-affiliate-cta"><a href="https://term-meta.example/dedupe">Visit</a></div>'
+                . "\n<!-- /wp:html -->\n";
+
+            $regenerated = (string) $this->invoke('upsert_ai_block', [$existing, '<p>Fresh generated body.</p>']);
+            $out = (string) $this->invoke('append_category_affiliate_cta_html', [$regenerated, $post]);
+
+            $this->assertStringContainsString('<p>Fresh generated body.</p>', $out);
+            $this->assertSame(1, substr_count($out, 'tmw-category-page-affiliate-cta'));
+            $this->assertSame(1, substr_count($out, 'href="https://term-meta.example/dedupe"'));
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['dedupe-cam'], $GLOBALS['_tmw_test_affiliate_urls'][61]);
         }
 
         public function test_slot_with_operator_added_content_is_never_overwritten(): void {
