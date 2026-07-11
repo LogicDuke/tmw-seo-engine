@@ -40,11 +40,8 @@ final class CategoryFeaturedImageMetaHelperTest extends TestCase {
         CategoryFeaturedImageMetaHelper::maybe_fill_featured_image_meta( $post, 55 );
 
         $this->assertSame( 'Big Boob Cam webcam category preview image', $GLOBALS['_tmw_test_post_meta'][55]['_wp_attachment_image_alt'] );
-        $this->assertSame( [
-            'ID'           => 55,
-            'post_excerpt' => 'Big Boob Cam category preview on Top Models Webcam.',
-            'post_content' => 'Featured image for the Big Boob Cam category page on Top Models Webcam, used to represent the category in search, social previews, and archive browsing.',
-        ], $GLOBALS['_tmw_wp_update_post_calls'][0] );
+        $this->assertSame( 'Big Boob Cam category preview on Top Models Webcam.', $GLOBALS['_tmw_test_posts'][55]->post_excerpt );
+        $this->assertSame( 'Featured image for the Big Boob Cam category page on Top Models Webcam, used to represent the category in search, social previews, and archive browsing.', $GLOBALS['_tmw_test_posts'][55]->post_content );
     }
 
     public function test_does_not_overwrite_existing_operator_image_meta(): void {
