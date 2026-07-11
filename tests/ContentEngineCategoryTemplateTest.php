@@ -276,6 +276,27 @@ namespace TMWSEO\Engine\Tests {
             }
         }
 
+        public function test_category_section_template_pool_contains_no_public_internal_wording(): void {
+            $path = dirname(__DIR__) . '/data/category-section-templates.json';
+            $pool = json_decode((string) file_get_contents($path), true);
+
+            $this->assertIsArray($pool);
+            $this->assertIsArray($pool['sections'] ?? null);
+
+            foreach ($pool['sections'] as $sectionKey => $section) {
+                foreach (($section['variants'] ?? []) as $variant) {
+                    $variantId = (string) ($variant['id'] ?? $sectionKey);
+                    $haystack = strtolower(
+                        strip_tags((string) ($variant['h2'] ?? '') . ' ' . (string) ($variant['body'] ?? ''))
+                    );
+
+                    foreach (['internal directory links', 'internal tag links', 'internal category links', 'internal links', 'internally linked', 'internal navigation', 'internal taxonomy', 'internal linking structure'] as $forbidden) {
+                        $this->assertStringNotContainsString($forbidden, $haystack, "Forbidden public wording leaked in {$sectionKey}/{$variantId}: {$forbidden}");
+                    }
+                }
+            }
+        }
+
         public function test_category_faq_heading_is_grammatical_for_singular_category_names(): void {
             $post = new \WP_Post(['ID' => 32, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
             $payload = $this->invoke('build_category_page_template_preview', [$post, 'Big Boob Cam', []]);
