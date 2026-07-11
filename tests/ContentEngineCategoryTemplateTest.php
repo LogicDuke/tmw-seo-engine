@@ -31,6 +31,15 @@ namespace {
         }
     }
     if (!function_exists('get_term')) { function get_term($term_id, $taxonomy = ''){ return false; } }
+    if (!function_exists('esc_html__')) { function esc_html__($s, $d = null){ return htmlspecialchars((string) $s, ENT_QUOTES); } }
+    if (!function_exists('get_term_meta')) {
+        function get_term_meta($term_id, $key = '', $single = false) {
+            if ($key === 'tmw_category_affiliate_url') {
+                return (string) ($GLOBALS['_tmw_test_affiliate_urls'][$term_id] ?? '');
+            }
+            return '';
+        }
+    }
     if (!function_exists('tmwseo_get_category_affiliate_url')) {
         function tmwseo_get_category_affiliate_url(\WP_Term $term): string {
             return (string) ($GLOBALS['_tmw_test_affiliate_urls'][$term->term_id] ?? '');
@@ -735,6 +744,111 @@ namespace TMWSEO\Engine\Tests {
                 '<div class="tmw-category-affiliate-slot"><a href="https://manual.test/x">Manual</a></div>'
             ));
             $this->assertSame('none', \TMW_Category_Affiliate_CTA::summarize_content_cta_state('<p>plain content</p>'));
+        }
+
+        // ── v5.8.32: focus keyword density reduction + backend notice ────────
+
+        private function density_fixture(): string {
+            return '<p>Big Boob Cam is a directory archive for a focused webcam browsing theme.</p>'
+                . '<h2>What This Category Covers</h2>'
+                . '<p>Big Boob Cam as a category covers performer profiles and video listings.</p>'
+                . '<h2>Who This Category Is For</h2>'
+                . '<p>Adult visitors looking for Big Boob Cam content are the primary audience. '
+                . 'Big Boob Cam is designed to be equally useful for new and regular visitors.</p>'
+                . '<h2>How are Big Boob Cam performers selected?</h2>'
+                . '<p>Performers in Big Boob Cam are listed because their profiles match the theme.</p>'
+                . '<h2>Frequently Asked Questions</h2>'
+                . '<h3>What is the difference between Big Boob Cam and related search terms?</h3>'
+                . '<p>Big Boob Cam is a category archive, while search terms vary. '
+                . 'Returning to Big Boob Cam is a simple way to see what is new.</p>'
+                . '<h3>How do I browse?</h3><p>Use the directory links in Big Boob Cam and follow the tags.</p>'
+                . '<p>The Big Boob Cam archive remains a neutral starting point.</p>'
+                . "\n\n<!-- wp:html -->\n"
+                . '<div class="tmw-category-page-affiliate-cta"><a href="https://op.example/track?c=bbc" target="_blank" rel="sponsored noopener">Visit live category related models</a></div>'
+                . "\n<!-- /wp:html -->";
+        }
+
+        public function test_focus_keyword_density_is_reduced_with_natural_replacements(): void {
+            $post = new \WP_Post(['ID' => 940, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $html = $this->density_fixture();
+
+            $before = preg_match_all('/(?<![\p{L}\p{N}])Big Boob Cam(?![\p{L}\p{N}])/iu', strip_tags($html));
+            $this->assertGreaterThanOrEqual(10, $before);
+
+            $reduced = (string) $this->invoke('reduce_category_focus_keyword_density', [$html, 'Big Boob Cam', $post]);
+            $after = preg_match_all('/(?<![\p{L}\p{N}])Big Boob Cam(?![\p{L}\p{N}])/iu', strip_tags($reduced));
+
+            // Well under the RankMath-flagged repetition; keyword still present.
+            $this->assertLessThanOrEqual(6, $after);
+            $this->assertGreaterThanOrEqual(3, $after);
+
+            // First (intro) and last (closing) occurrences are preserved.
+            $this->assertStringContainsString('Big Boob Cam is a directory archive', $reduced);
+            $this->assertStringContainsString('The Big Boob Cam archive remains a neutral starting point.', $reduced);
+
+            // Attributive use is never mangled.
+            $this->assertStringContainsString('Big Boob Cam performers', $reduced);
+
+            // Natural replacements appear.
+            $this->assertMatchesRegularExpression('/this (category|archive|webcam theme|browsing theme|page)/i', $reduced);
+
+            // Links and the CTA block are untouched.
+            $this->assertStringContainsString('href="https://op.example/track?c=bbc"', $reduced);
+            $this->assertStringContainsString('<!-- wp:html -->', $reduced);
+            $this->assertStringContainsString('Visit live category related models', $reduced);
+        }
+
+        public function test_focus_keyword_density_reduction_is_idempotent_and_skips_low_density_pages(): void {
+            $post = new \WP_Post(['ID' => 941, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+
+            $reduced = (string) $this->invoke('reduce_category_focus_keyword_density', [$this->density_fixture(), 'Big Boob Cam', $post]);
+            $twice   = (string) $this->invoke('reduce_category_focus_keyword_density', [$reduced, 'Big Boob Cam', $post]);
+            $this->assertSame($reduced, $twice);
+
+            // A page already at safe density is left byte-identical.
+            $low = '<p>Big Boob Cam is a category page.</p><p>Browse the listings.</p>';
+            $this->assertSame($low, (string) $this->invoke('reduce_category_focus_keyword_density', [$low, 'Big Boob Cam', $post]));
+        }
+
+        public function test_generated_category_preview_stays_below_density_ceiling(): void {
+            $post = new \WP_Post(['ID' => 942, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $GLOBALS['_tmw_test_post_meta'][942] = [];
+
+            $payload = $this->invoke('build_category_page_template_preview', [$post, 'Big Boob Cam', []]);
+            $content = strip_tags((string) $payload['content_html']);
+
+            $count = preg_match_all('/(?<![\p{L}\p{N}])Big Boob Cam(?![\p{L}\p{N}])/iu', $content);
+            $this->assertLessThanOrEqual(8, $count);
+            $this->assertGreaterThanOrEqual(1, $count);
+        }
+
+        public function test_admin_notice_html_shows_term_url_and_state(): void {
+            if (!class_exists('TMW_Category_Affiliate_CTA')) {
+                require_once dirname(__DIR__) . '/includes/categories/class-category-affiliate-cta.php';
+            }
+
+            $GLOBALS['_tmw_test_terms_by_slug']['big-boob-cam'] = new \WP_Term(['term_id' => 77, 'taxonomy' => 'category', 'slug' => 'big-boob-cam', 'name' => 'Big Boob Cam']);
+            $GLOBALS['_tmw_test_affiliate_urls'][77] = 'https://op.example/track?c=bbc';
+
+            $post = new \WP_Post([
+                'ID' => 943,
+                'post_title' => 'Big Boob Cam',
+                'post_name' => 'big-boob-cam',
+                'post_type' => 'tmw_category_page',
+                'post_content' => '<p>x</p><!-- wp:html --><div class="tmw-category-page-affiliate-cta"><a href="https://op.example/track?c=bbc">Visit</a></div><!-- /wp:html -->',
+            ]);
+            $GLOBALS['_tmw_test_post_meta'][943] = [];
+
+            $notice = (string) \TMW_Category_Affiliate_CTA::build_admin_notice_html($post);
+
+            $this->assertStringContainsString('notice-info', $notice);
+            $this->assertStringContainsString('Big Boob Cam', $notice);
+            $this->assertStringContainsString('https://op.example/track?c=bbc', $notice);
+            $this->assertStringContainsString('tag_ID=77', $notice);
+            $this->assertStringContainsString('Live CTA block', $notice);
+            $this->assertStringNotContainsString('<input', $notice);
+
+            unset($GLOBALS['_tmw_test_terms_by_slug']['big-boob-cam'], $GLOBALS['_tmw_test_affiliate_urls'][77]);
         }
     }
 }

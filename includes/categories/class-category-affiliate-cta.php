@@ -39,6 +39,12 @@ class TMW_Category_Affiliate_CTA {
         // the URL is still edited only on the category term field.
         add_action( 'add_meta_boxes', [ __CLASS__, 'register_admin_metabox' ] );
 
+        // v5.8.32: reliable second surface — an admin notice on the category
+        // page edit screen. The block editor relocates standard notices above
+        // the editor canvas, so this is visible even when classic metaboxes
+        // are collapsed, hidden via screen options, or missed below the fold.
+        add_action( 'admin_notices', [ __CLASS__, 'render_admin_notice' ] );
+
         // NOTE (PR-720): this class intentionally does NOT hook
         // `get_the_archive_description` to append the CTA. That filter
         // fires before the theme's Read-more wrapper is built, so the
@@ -134,19 +140,23 @@ class TMW_Category_Affiliate_CTA {
         }
     }
 
-    // ── Backend visibility metabox (v5.8.31) ─────────────────────────────────
+    // ── Backend visibility metabox (v5.8.31, hardened v5.8.32) ───────────────
 
     public static function register_admin_metabox(): void {
         if ( ! function_exists( 'add_meta_box' ) ) {
             return;
         }
+        // v5.8.32: context 'normal' + priority 'high' so the box sits directly
+        // under the editor canvas instead of buried in the bottom side column,
+        // and the explicit compat flag tells the block editor to render it.
         add_meta_box(
             'tmw_category_affiliate_cta',
             __( 'Category Affiliate CTA', 'tmwseo' ),
             [ __CLASS__, 'render_admin_metabox' ],
             'tmw_category_page',
-            'side',
-            'default'
+            'normal',
+            'high',
+            [ '__block_editor_compatible_meta_box' => true ]
         );
     }
 
@@ -157,6 +167,52 @@ class TMW_Category_Affiliate_CTA {
      * stays on the category term screen (single source of truth).
      */
     public static function render_admin_metabox( \WP_Post $post ): void {
+        $summary = self::get_admin_summary( $post );
+        echo '<div class="tmw-cat-cta-metabox">' . $summary['html'] . '</div>';
+    }
+
+    /**
+     * v5.8.32: admin notice on the tmw_category_page edit screen. The block
+     * editor moves standard admin notices above the editor canvas, giving the
+     * operator an unmissable, read-only view of the affiliate CTA state.
+     */
+    public static function render_admin_notice(): void {
+        if ( ! function_exists( 'get_current_screen' ) ) {
+            return;
+        }
+        $screen = get_current_screen();
+        if ( ! $screen || $screen->base !== 'post' || $screen->post_type !== 'tmw_category_page' ) {
+            return;
+        }
+
+        $post_id = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        $post    = $post_id > 0 && function_exists( 'get_post' ) ? get_post( $post_id ) : null;
+        if ( ! $post instanceof \WP_Post ) {
+            return;
+        }
+
+        echo self::build_admin_notice_html( $post );
+    }
+
+    /**
+     * Build the notice markup. Public and side-effect-free so it is
+     * unit-testable without a screen context.
+     */
+    public static function build_admin_notice_html( \WP_Post $post ): string {
+        $summary = self::get_admin_summary( $post );
+
+        return '<div class="notice notice-info tmw-cat-cta-notice"><p><strong>'
+            . esc_html__( 'Category Affiliate CTA', 'tmwseo' ) . '</strong></p>'
+            . $summary['html']
+            . '</div>';
+    }
+
+    /**
+     * Shared read-only summary used by both the metabox and the admin notice.
+     *
+     * @return array{term: ?\WP_Term, url: string, state: string, html: string}
+     */
+    private static function get_admin_summary( \WP_Post $post ): array {
         $term = null;
         if ( class_exists( '\\TMWSEO\\Engine\\Content\\ContentEngine' )
             && method_exists( '\\TMWSEO\\Engine\\Content\\ContentEngine', 'resolve_category_term_for_admin' ) ) {
@@ -173,32 +229,38 @@ class TMW_Category_Affiliate_CTA {
             'none'        => __( 'No CTA or slot in content yet — run Generate to add one.', 'tmwseo' ),
         ];
 
-        echo '<div class="tmw-cat-cta-metabox">';
+        $html = '';
 
         if ( $term instanceof \WP_Term ) {
             $edit_link = function_exists( 'get_edit_term_link' )
                 ? (string) get_edit_term_link( $term->term_id, $term->taxonomy )
                 : admin_url( 'term.php?taxonomy=' . rawurlencode( (string) $term->taxonomy ) . '&tag_ID=' . (int) $term->term_id );
 
-            echo '<p><strong>' . esc_html__( 'Linked term:', 'tmwseo' ) . '</strong> ' . esc_html( (string) $term->name );
+            $html .= '<p><strong>' . esc_html__( 'Linked term:', 'tmwseo' ) . '</strong> ' . esc_html( (string) $term->name );
             if ( $edit_link !== '' ) {
-                echo ' — <a href="' . esc_url( $edit_link ) . '">' . esc_html__( 'edit term', 'tmwseo' ) . '</a>';
+                $html .= ' — <a href="' . esc_url( $edit_link ) . '">' . esc_html__( 'edit term', 'tmwseo' ) . '</a>';
             }
-            echo '</p>';
+            $html .= '</p>';
 
             if ( $url !== '' ) {
-                echo '<p><strong>' . esc_html__( 'Active affiliate URL:', 'tmwseo' ) . '</strong><br />';
-                echo '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( $url ) . '</a></p>';
+                $html .= '<p><strong>' . esc_html__( 'Active affiliate URL:', 'tmwseo' ) . '</strong> ';
+                $html .= '<a href="' . esc_url( $url ) . '" target="_blank" rel="noopener">' . esc_html( $url ) . '</a></p>';
             } else {
-                echo '<p><strong>' . esc_html__( 'Active affiliate URL:', 'tmwseo' ) . '</strong> ' . esc_html__( 'not set', 'tmwseo' ) . '</p>';
+                $html .= '<p><strong>' . esc_html__( 'Active affiliate URL:', 'tmwseo' ) . '</strong> ' . esc_html__( 'not set', 'tmwseo' ) . '</p>';
             }
         } else {
-            echo '<p>' . esc_html__( 'No linked category term resolved for this page yet.', 'tmwseo' ) . '</p>';
+            $html .= '<p>' . esc_html__( 'No linked category term resolved for this page yet.', 'tmwseo' ) . '</p>';
         }
 
-        echo '<p>' . esc_html( $state_labels[ $state ] ?? $state_labels['none'] ) . '</p>';
-        echo '<p class="description">' . esc_html__( 'The URL is edited on the category term (Affiliate URL field). This panel is read-only.', 'tmwseo' ) . '</p>';
-        echo '</div>';
+        $html .= '<p>' . esc_html( $state_labels[ $state ] ?? $state_labels['none'] ) . '</p>';
+        $html .= '<p class="description">' . esc_html__( 'The URL is edited on the category term (Affiliate URL field). This panel is read-only.', 'tmwseo' ) . '</p>';
+
+        return [
+            'term'  => $term instanceof \WP_Term ? $term : null,
+            'url'   => $url,
+            'state' => $state,
+            'html'  => $html,
+        ];
     }
 
     /**
