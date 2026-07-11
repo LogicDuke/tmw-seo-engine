@@ -190,6 +190,7 @@ class Plugin {
         }
         // Automated image ALT/title/caption on featured image assignment
         \TMWSEO\Engine\Media\ImageMetaHooks::init();
+        \TMWSEO\Engine\Media\CategoryFeaturedImageMetaHelper::init();
         // Cron custom schedules for keyword scheduler
         add_filter('cron_schedules', function($schedules) {
             if (!isset($schedules['tmwseo_monthly'])) {
