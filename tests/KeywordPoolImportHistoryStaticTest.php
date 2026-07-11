@@ -238,7 +238,15 @@ class KeywordPoolImportHistoryStaticTest extends TestCase {
         $this->assertStringContainsString('Import History', $this->admin);
         $this->assertStringContainsString('View Batch', $this->admin);
         $this->assertStringContainsString('Continue Review', $this->admin);
-        $this->assertStringContainsString('Export coming soon', $this->admin);
+        $this->assertStringContainsString('Export CSV', $this->admin);
+        $this->assertStringContainsString('BATCH_EXPORT_ACTION', $this->admin);
+        $this->assertStringContainsString('handle_batch_export', $this->admin);
+        $this->assertStringContainsString('build_batch_export_csv', $this->admin);
+        $this->assertStringContainsString('batch_export_headers', $this->admin);
+        $this->assertStringContainsString('stored_row_to_batch_export_values', $this->admin);
+        $this->assertStringContainsString('wp_nonce_url', $this->admin);
+        $this->assertStringContainsString('check_admin_referer', $this->admin);
+        $this->assertStringNotContainsString('Export coming soon', $this->admin);
         foreach ([ 'Approve', 'Reject', 'Inspect', 'Copy' ] as $label) {
             $this->assertStringContainsString($label, $this->admin);
         }

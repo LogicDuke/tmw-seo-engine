@@ -26,6 +26,7 @@ class KeywordPoolsAdminPage {
     public const NONCE_ACTION = 'tmwseo_keyword_pools_dry_run';
     public const NONCE_FIELD = 'tmwseo_keyword_pools_nonce';
     public const EXPORT_ACTION = 'tmwseo_keyword_pools_export_preview';
+    public const BATCH_EXPORT_ACTION = 'tmwseo_keyword_pools_export_batch';
     public const SAVE_ACTION = 'tmwseo_keyword_pools_save_selected';
     private const GLOBAL_MODEL_POOL_SENTINEL = '__global_model_pool__';
     private const GLOBAL_MODEL_POOL_LABEL = 'Global Model Pool / All Models';
@@ -54,6 +55,7 @@ class KeywordPoolsAdminPage {
      */
     public static function init(): void {
         add_action('admin_post_' . self::EXPORT_ACTION, [__CLASS__, 'handle_export']);
+        add_action('admin_post_' . self::BATCH_EXPORT_ACTION, [__CLASS__, 'handle_batch_export']);
         add_action('admin_post_tmwseo_keyword_import_row_action', [__CLASS__, 'handle_import_row_action']);
     }
 
@@ -188,6 +190,36 @@ class KeywordPoolsAdminPage {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="tmwseo-keyword-pools-dry-run-preview.csv"');
         echo self::build_export_csv($rows);
+        exit;
+    }
+
+    /**
+     * Export every stored row for a durable import batch.
+     */
+    public static function handle_batch_export(): void {
+        if (!current_user_can(self::CAPABILITY)) {
+            wp_die(esc_html(__('Unauthorized', 'tmwseo')));
+        }
+
+        $batch_id = isset($_GET['tmwseo_keyword_batch_id']) ? absint($_GET['tmwseo_keyword_batch_id']) : 0;
+        if ($batch_id <= 0) {
+            wp_die(esc_html(__('Import batch was not found.', 'tmwseo')));
+        }
+        check_admin_referer('tmwseo_keyword_pools_export_batch_' . $batch_id, self::NONCE_FIELD);
+
+        $repository = new KeywordPoolImportBatchRepository();
+        $batch = $repository->get_batch($batch_id);
+        if (!is_array($batch)) {
+            wp_die(esc_html(__('Import batch was not found.', 'tmwseo')));
+        }
+
+        $total = $repository->count_rows($batch_id);
+        $rows = $total > 0 ? $repository->query_rows($batch_id, '', $total, 0, '', 'asc') : [];
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . self::batch_export_filename($batch) . '"');
+        header('X-Content-Type-Options: nosniff');
+        echo self::build_batch_export_csv($batch, $rows);
         exit;
     }
 
@@ -842,6 +874,14 @@ class KeywordPoolsAdminPage {
             $target_id = (int) ($batch['target_id'] ?? 0);
             $source = (string) ($batch['source_file'] ?? '') !== '' ? (string) $batch['source_file'] : (string) ($batch['source_batch'] ?? '');
             $view_url = add_query_arg(self::batch_view_query_args($batch, $batch_id, 1), admin_url('admin.php'));
+            $export_url = wp_nonce_url(
+                add_query_arg([
+                    'action' => self::BATCH_EXPORT_ACTION,
+                    'tmwseo_keyword_batch_id' => $batch_id,
+                ], admin_url('admin-post.php')),
+                'tmwseo_keyword_pools_export_batch_' . $batch_id,
+                self::NONCE_FIELD
+            );
             echo '<tr>';
             echo '<td>' . esc_html($source) . '</td>';
             echo '<td>' . esc_html((string) ($batch['target_name'] ?? '')) . '</td>';
@@ -855,7 +895,7 @@ class KeywordPoolsAdminPage {
             echo '<td>' . esc_html((string) ($batch['status'] ?? 'open')) . '</td>';
             echo '<td><a class="button button-small" href="' . esc_url($view_url) . '">' . esc_html__('View Batch', 'tmwseo') . '</a> ';
             echo '<a class="button button-small" href="' . esc_url($view_url) . '">' . esc_html__('Continue Review', 'tmwseo') . '</a> ';
-            echo '<span class="button button-small disabled" aria-disabled="true">' . esc_html__('Export coming soon', 'tmwseo') . '</span></td>';
+            echo '<a class="button button-small" href="' . esc_url($export_url) . '">' . esc_html__('Export CSV', 'tmwseo') . '</a></td>';
             echo '</tr>';
         }
         echo '</tbody></table>';
@@ -1389,6 +1429,58 @@ class KeywordPoolsAdminPage {
         return '<span style="' . esc_attr($style) . '">' . esc_html($status) . '</span>';
     }
 
+
+    /** @return array<int, string> */
+    public static function batch_export_headers(): array {
+        return [
+            'Row',
+            'Keyword',
+            'Normalized Keyword',
+            'Volume',
+            'Difficulty',
+            'CPC',
+            'Competition',
+            'Intent',
+            'Source',
+            'Import Batch ID',
+            'Source File',
+            'Imported At',
+            'Target Type',
+            'Target ID',
+            'Target Name',
+            'Target Slug',
+            'Status',
+            'Validation State',
+            'Decision',
+            'Result Action',
+            'Result Reason',
+            'Candidate ID',
+            'Created At',
+            'Updated At',
+            'Reviewed At',
+        ];
+    }
+
+    /** @param array<string,mixed> $batch @param array<int,array<string,mixed>> $rows */
+    public static function build_batch_export_csv(array $batch, array $rows): string {
+        $handle = fopen('php://temp', 'r+');
+        if (false === $handle) {
+            return '';
+        }
+
+        fputcsv($handle, self::batch_export_headers());
+        foreach ($rows as $row) {
+            if (is_array($row)) {
+                fputcsv($handle, self::stored_row_to_batch_export_values($batch, $row));
+            }
+        }
+
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+        return is_string($csv) ? $csv : '';
+    }
+
     /**
      * @param array<string, mixed> $row Preview row.
      * @return array<int, string>
@@ -1452,6 +1544,53 @@ class KeywordPoolsAdminPage {
     private static function row_to_export_values(array $row): array {
         $reason_codes = is_array($row['reason_codes'] ?? null) ? implode('|', self::exportable_reason_codes($row)) : '';
         return array_merge(self::row_to_preview_values($row), [ $reason_codes ]);
+    }
+
+
+    /** @param array<string,mixed> $batch @param array<string,mixed> $row @return array<int,string> */
+    private static function stored_row_to_batch_export_values(array $batch, array $row): array {
+        $payload = json_decode((string) ($row['row_payload'] ?? ''), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        return [
+            (string) ($row['row_index'] ?? $payload['row_number'] ?? ''),
+            (string) ($row['keyword'] ?? $payload['keyword'] ?? ''),
+            (string) ($row['normalized_keyword'] ?? $payload['normalized_keyword'] ?? ''),
+            self::metric_to_string($row['volume'] ?? $payload['volume'] ?? null),
+            self::metric_to_string($payload['difficulty'] ?? null),
+            self::metric_to_string($row['cpc'] ?? $payload['cpc'] ?? null),
+            self::metric_to_string($row['competition'] ?? $payload['competition'] ?? null),
+            (string) ($payload['intent'] ?? ''),
+            (string) ($payload['source'] ?? $batch['source_batch'] ?? ''),
+            (string) ($row['import_batch_id'] ?? $batch['import_batch_id'] ?? ''),
+            (string) ($batch['source_file'] ?? ''),
+            (string) ($batch['imported_at'] ?? ''),
+            (string) ($row['target_type'] ?? $batch['target_type'] ?? ''),
+            (string) ($row['target_id'] ?? $batch['target_id'] ?? ''),
+            (string) ($row['target_name'] ?? $batch['target_name'] ?? ''),
+            (string) ($batch['target_slug'] ?? ''),
+            (string) ($row['status'] ?? ''),
+            (string) ($row['validation_state'] ?? $payload['validation_state'] ?? ''),
+            (string) ($row['decision'] ?? $payload['decision'] ?? ''),
+            (string) ($row['result_action'] ?? ''),
+            (string) ($row['result_reason'] ?? ''),
+            (string) ($row['candidate_id'] ?? ''),
+            (string) ($row['created_at'] ?? ''),
+            (string) ($row['updated_at'] ?? ''),
+            (string) ($row['reviewed_at'] ?? ''),
+        ];
+    }
+
+    /** @param array<string,mixed> $batch */
+    private static function batch_export_filename(array $batch): string {
+        $name = (string) ($batch['target_name'] ?? $batch['source_file'] ?? 'keyword-batch');
+        $date = substr((string) ($batch['imported_at'] ?? ''), 0, 10);
+        $base = trim($name . '-keyword-batch' . ('' !== $date ? '-' . $date : ''));
+        $base = function_exists('sanitize_file_name') ? sanitize_file_name($base) : preg_replace('/[^A-Za-z0-9_.-]+/', '-', $base);
+        $base = trim((string) $base, '.-_');
+        return ('' !== $base ? $base : 'keyword-batch') . '.csv';
     }
 
     /**
