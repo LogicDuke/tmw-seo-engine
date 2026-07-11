@@ -227,6 +227,7 @@ class Loader {
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/templates/class-template-engine.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-generator.php' );
         tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-image-meta-hooks.php' );
+        tmwseo_safe_require( TMWSEO_ENGINE_PATH . 'includes/media/class-category-featured-image-meta-helper.php' );
     }
 
     // ── Models ────────────────────────────────────────────────────────────────
