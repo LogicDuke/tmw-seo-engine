@@ -810,6 +810,27 @@ namespace TMWSEO\Engine\Tests {
             $this->assertSame($low, (string) $this->invoke('reduce_category_focus_keyword_density', [$low, 'Big Boob Cam', $post]));
         }
 
+        public function test_category_ai_save_path_reduces_focus_keyword_density(): void {
+            $post = new \WP_Post(['ID' => 944, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
+            $html = $this->density_fixture();
+
+            $prepared = (string) $this->invoke('prepare_category_ai_html_for_save', [$html, 'Big Boob Cam', ['primary' => 'Big Boob Cam'], $post]);
+            $count = preg_match_all('/(?<![\p{L}\p{N}])Big Boob Cam(?![\p{L}\p{N}])/iu', strip_tags($prepared));
+
+            $this->assertLessThanOrEqual(6, $count);
+            $this->assertStringContainsString('Big Boob Cam is a directory archive', $prepared);
+            $this->assertStringContainsString('The Big Boob Cam archive remains a neutral starting point.', $prepared);
+            $this->assertStringContainsString('href="https://op.example/track?c=bbc"', $prepared);
+            $this->assertStringContainsString('Visit live category related models', $prepared);
+        }
+
+        public function test_category_ai_save_path_skips_non_category_content(): void {
+            $post = new \WP_Post(['ID' => 945, 'post_title' => 'Big Boob Cam', 'post_type' => 'model']);
+            $html = $this->density_fixture();
+
+            $this->assertSame($html, (string) $this->invoke('prepare_category_ai_html_for_save', [$html, 'Big Boob Cam', ['primary' => 'Big Boob Cam'], $post]));
+        }
+
         public function test_generated_category_preview_stays_below_density_ceiling(): void {
             $post = new \WP_Post(['ID' => 942, 'post_title' => 'Big Boob Cam', 'post_type' => 'tmw_category_page']);
             $GLOBALS['_tmw_test_post_meta'][942] = [];

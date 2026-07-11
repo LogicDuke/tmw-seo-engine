@@ -1457,6 +1457,19 @@ class ContentEngine {
      *
      * @param array{primary_keyword:string,extra_keywords:string[],all_keywords:string[]} $keyword_set
      */
+    private static function prepare_category_ai_html_for_save(string $html, string $focus_kw, array $keyword_pack, \WP_Post $post): string {
+        if ($post->post_type !== 'tmw_category_page') {
+            return $html;
+        }
+
+        $category_focus_kw = trim($focus_kw !== '' ? $focus_kw : (string) ($keyword_pack['primary'] ?? ''));
+        if ($category_focus_kw === '') {
+            $category_focus_kw = trim((string) $post->post_title);
+        }
+
+        return self::reduce_category_focus_keyword_density($html, $category_focus_kw, $post);
+    }
+
     private static function ensure_category_keyword_coverage(string $html, array $keyword_set, \WP_Post $post): string {
         $all_keywords = array_values(array_filter(array_map('strval', $keyword_set['all_keywords'] ?? []), 'strlen'));
         if ($html === '' || empty($all_keywords)) {
@@ -2828,6 +2841,7 @@ class ContentEngine {
         }
 
         $html      = wp_kses_post(trim($html));
+        $html      = self::prepare_category_ai_html_for_save($html, $focus_kw, $keyword_pack, $post);
         $generated_content = $html;
         if ($debug) { error_log('TMW run_optimize_job CONTENT_LENGTH=' . strlen($generated_content)); }
 
